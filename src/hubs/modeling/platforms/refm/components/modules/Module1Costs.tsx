@@ -561,48 +561,41 @@ function CostRow({
         opacity: effDisabled ? 0.45 : 1,
       }}
     >
-      <td style={{ padding: '4px', minWidth: 180 }}>
+      <td style={{ padding: '4px', overflow: 'hidden' }}>
         <input
           type="text"
           value={line.name}
           onChange={(e) => writeName(e.target.value)}
           disabled={isLocked}
-          style={inputStyle}
+          style={{ ...inputStyle, width: '100%' }}
           data-testid={`cost-${asset.id}-${line.id}-name`}
+          title={line.name}
         />
-        {/* M2.0j Fix 13 (2026-05-07): Stage label dropped from cost
-            line UI. Stage info still drives summary tables internally
-            (auto-derived via deriveCostStage); just not displayed in
-            Inputs anymore. The 'custom' marker stays so the user can
-            tell at a glance which lines are theirs vs. seed lines. */}
         {isCustom && (
           <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>custom</div>
         )}
       </td>
-      <td style={{ padding: '4px', minWidth: 160 }}>
+      <td style={{ padding: '4px', overflow: 'hidden' }}>
         <select
           value={effMethod}
           onChange={(e) => writeMethod(e.target.value as CostMethod)}
           disabled={isLocked}
-          style={{ ...inputStyle, fontSize: 11 }}
+          style={{ ...inputStyle, fontSize: 11, width: '100%' }}
           data-testid={`cost-${asset.id}-${line.id}-method`}
+          title={COST_METHOD_LABELS[effMethod]}
         >
-          {/* M2.0i Fix 5 (2026-05-07): rate_per_parking_bay filtered
-              from the user-selectable list. Existing snapshots that
-              still carry the value continue to compute, but new lines
-              cannot pick it. Use rate_x_parking_area instead. */}
           {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay').map((m) => (
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
-        {/* M2.0L Pass 5 (2026-05-11): Category dropdown (Direct / Allocated)
-            stacked under the Method cell. When Allocated, the Driver
-            dropdown surfaces beneath. */}
+      </td>
+      {/* P7-Fix 4 (2026-05-12): Category column split out of Method cell. */}
+      <td style={{ padding: '4px', overflow: 'hidden' }}>
         <select
           value={effCategory}
           onChange={(e) => writeCategory(e.target.value as CostCategory)}
           disabled={isLocked}
-          style={{ ...inputStyle, fontSize: 10, marginTop: 4, padding: '2px 4px' }}
+          style={{ ...inputStyle, fontSize: 11, width: '100%' }}
           data-testid={`cost-${asset.id}-${line.id}-category`}
           title="Direct = asset-specific; Allocated = project pool, split by driver"
         >
@@ -610,22 +603,27 @@ function CostRow({
             <option key={c} value={c}>{COST_CATEGORY_LABELS[c]}</option>
           ))}
         </select>
-        {effCategory === 'allocated' && (
+      </td>
+      {/* P7-Fix 4: Driver column. Greyed out / disabled when category is Direct. */}
+      <td style={{ padding: '4px', overflow: 'hidden' }}>
+        {effCategory === 'allocated' ? (
           <select
             value={effDriver}
             onChange={(e) => writeDriver(e.target.value as CostDriver)}
             disabled={isLocked}
-            style={{ ...inputStyle, fontSize: 10, marginTop: 2, padding: '2px 4px' }}
+            style={{ ...inputStyle, fontSize: 11, width: '100%' }}
             data-testid={`cost-${asset.id}-${line.id}-driver`}
-            title="Driver = how the project-wide pool is split across assets"
+            title={COST_DRIVER_LABELS[effDriver]}
           >
             {COST_DRIVERS.map((d) => (
               <option key={d} value={d}>{COST_DRIVER_LABELS[d]}</option>
             ))}
           </select>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid={`cost-${asset.id}-${line.id}-driver-na`}>-</span>
         )}
       </td>
-      <td style={{ padding: '4px', width: 96 }}>
+      <td style={{ padding: '4px', overflow: 'hidden' }}>
         {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
             scale regardless of project.displayScale. The Display Scale
             setting applies only to computed/result cells (Total column,
@@ -749,7 +747,8 @@ function CostRow({
           {formatScaled(total, scale, decimals)}
         </div>
       </td>
-      <td style={{ padding: '4px', width: 90, textAlign: 'right' }}>
+      {/* P7-Fix 4: Toggle column = On/Off checkbox + (optional) reset. */}
+      <td style={{ padding: '4px', textAlign: 'center', overflow: 'hidden' }}>
         <label style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: isLocked ? 'not-allowed' : 'pointer' }}>
           <input
             type="checkbox"
@@ -774,11 +773,10 @@ function CostRow({
             reset
           </button>
         )}
-        {/* M2.0L Pass2 Fix 8 (2026-05-11): delete button on EVERY non-
-            locked cost line (not just custom). Locked seed lines (Land
-            Cash / Land In-Kind / auto-IDC) keep the button hidden so
-            the user can't break auto-generated rows. Confirm dialog
-            before remove. */}
+      </td>
+      {/* P7-Fix 4: Delete column = ✕ button only. Hidden for locked rows
+          (Land Cash / Land In-Kind / auto-IDC). */}
+      <td style={{ padding: '4px', textAlign: 'center', overflow: 'hidden' }}>
         {!isLocked && (
           <button
             type="button"
@@ -789,14 +787,14 @@ function CostRow({
               if (ok) onRemoveLine();
             }}
             style={{
-              ...inputStyle, background: 'transparent', cursor: 'pointer',
-              fontSize: 10, marginTop: 2, color: 'var(--color-negative)',
-              padding: '2px 4px',
+              background: 'transparent', border: '1px solid var(--color-border)', cursor: 'pointer',
+              fontSize: 12, color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)',
+              padding: '2px 6px', lineHeight: 1,
             }}
             title={isCustom ? 'Delete custom cost line' : 'Delete cost line'}
             data-testid={`cost-${asset.id}-${line.id}-remove`}
           >
-            ✕ delete
+            ✕
           </button>
         )}
       </td>
@@ -816,7 +814,7 @@ function CostRow({
       const sumDenom = distSum > 0 ? distSum : 1;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-manual-row`} style={{ background: 'var(--color-grey-pale)' }}>
-          <td colSpan={8} style={{ padding: '8px 12px' }}>
+          <td colSpan={11} style={{ padding: '8px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
                 Manual %
@@ -932,7 +930,7 @@ function CostRow({
       if (chips.length === 0) return null;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-chip-strip`} style={{ background: 'transparent' }}>
-          <td colSpan={8} style={{ padding: '2px 12px 6px' }}>
+          <td colSpan={11} style={{ padding: '2px 12px 6px' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {chips.map(({ idx, amount }) => {
                 const positive = amount > 0;
@@ -991,7 +989,7 @@ function CostRow({
       );
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-per-subunit-row`} style={{ background: 'var(--color-grey-pale)' }}>
-          <td colSpan={8} style={{ padding: '8px 12px' }}>
+          <td colSpan={11} style={{ padding: '8px 12px' }}>
             <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
               <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Per Sub-unit Custom Rates</strong>
               <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>(default rate {effValue} from Value column when row blank)</span>
@@ -1093,7 +1091,7 @@ function PercentOfSelectedPicker({
 
   return (
     <tr data-testid={`cost-row-${asset.id}-${line.id}-pct-picker`} style={{ background: 'var(--color-grey-pale)' }}>
-      <td colSpan={8} style={{ padding: '8px 12px' }}>
+      <td colSpan={11} style={{ padding: '8px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', paddingTop: 6 }}>
             Apply to:
@@ -1297,17 +1295,39 @@ function AssetCostSection({
       </div>
       {!collapsed && (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          {/* P7-Fix 4 (2026-05-12): table-layout: fixed + explicit colgroup
+              with widths per brief (Cost Line 220, Method 200, Category 100,
+              Driver 100, Value 120, Start 60, End 60, Phasing 100, Total 140,
+              Toggle 60, Delete 40). Category + Driver split out of the Method
+              cell into their own columns. Toggle (On/Off) and Delete (✕)
+              split into two cells so the last column hugs the right edge. */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 220 }} />
+              <col style={{ width: 200 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 40 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Method</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Category</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Driver</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Value</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Phasing</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Total</th>
-                <th style={{ padding: '6px', textAlign: 'right' }}>Toggle</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Toggle</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -1339,13 +1359,13 @@ function AssetCostSection({
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)' }}>
-                <td colSpan={6} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
+                <td colSpan={8} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
                   {formatScaled(subtotal, scale, decimals)}
                 </td>
-                <td></td>
+                <td colSpan={2}></td>
               </tr>
             </tfoot>
           </table>
