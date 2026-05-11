@@ -187,11 +187,13 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20MFinancing(
-    migrateM20Pass5Categories(
-      migrateM20Pass4Inheritance(
-        migrateM20lDedupeCostLineIds(
-          migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20mPass6DisplayDefaults(
+    migrateM20MFinancing(
+      migrateM20Pass5Categories(
+        migrateM20Pass4Inheritance(
+          migrateM20lDedupeCostLineIds(
+            migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+          ),
         ),
       ),
     ),
@@ -206,17 +208,37 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // stamp outputGranularity), then the M2.0g Parking-subunit fold,
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
-  // category defaulting, then the M2.0M financing wrapper.
-  return migrateM20MFinancing(
-    migrateM20Pass5Categories(
-      migrateM20Pass4Inheritance(
-        migrateM20lDedupeCostLineIds(
-          migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  // category defaulting, then the M2.0M financing wrapper, then the
+  // M2.0M Pass 6 display defaults flip.
+  return migrateM20mPass6DisplayDefaults(
+    migrateM20MFinancing(
+      migrateM20Pass5Categories(
+        migrateM20Pass4Inheritance(
+          migrateM20lDedupeCostLineIds(
+            migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+          ),
         ),
       ),
     ),
   );
 };
+
+// M2.0M Pass 6 Fix 2 (2026-05-11): smart migration of display defaults.
+// The pre-Pass-6 defaults were displayScale='full' + displayDecimals=2.
+// Pass 6 changes the new-project defaults to 'thousands' + 0. To avoid
+// blowing away explicit user customisation, this migration only flips
+// snapshots that carry the EXACT prior default combo (full + 2). Any
+// other pairing is preserved verbatim. Idempotent.
+function migrateM20mPass6DisplayDefaults(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  if (project.displayScale === 'full' && project.displayDecimals === 2) {
+    return {
+      ...snap,
+      project: { ...project, displayScale: 'thousands', displayDecimals: 0 },
+    };
+  }
+  return snap;
+}
 
 // M2.0M (2026-05-11): project-level financing wrapper migration.
 // Stamps a default ProjectFinancingConfig (Method 1, 70/30, no parcel
@@ -677,12 +699,15 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Run the full migration chain so the loose result is identical to
   // a v7 -> v8 hydration: aggregate monthly to annual, fold legacy
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
-  // apply Pass 4 / Pass 5 / M2.0M wrapper migrations.
-  snap = migrateM20MFinancing(
-    migrateM20Pass5Categories(
-      migrateM20Pass4Inheritance(
-        migrateM20lDedupeCostLineIds(
-          migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
+  // display defaults.
+  snap = migrateM20mPass6DisplayDefaults(
+    migrateM20MFinancing(
+      migrateM20Pass5Categories(
+        migrateM20Pass4Inheritance(
+          migrateM20lDedupeCostLineIds(
+            migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+          ),
         ),
       ),
     ),

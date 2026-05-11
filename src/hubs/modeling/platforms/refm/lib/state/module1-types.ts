@@ -1573,8 +1573,14 @@ export function makeDefaultProject(
     country: '',
     projectRoadsPct: 0,
     projectType: 'Mixed-Use',
-    displayScale: 'full',
-    displayDecimals: 2,
+    // M2.0M Pass 6 Fix 2 (2026-05-11): default reporting view switches
+    // to thousands + 0 decimals. The header line carries the scale
+    // indicator ("All figures in SAR '000") so cells render as integer
+    // thousands. Legacy default combo (full + 2) is migrated only when
+    // BOTH match the prior defaults; explicit user customisation is
+    // preserved by migrateM20mPass6DisplayDefaults.
+    displayScale: 'thousands',
+    displayDecimals: 0,
     outputGranularity: 'annual',
     // M2.0M (2026-05-11): start every new project on Method 1 (70/30)
     // with no per-parcel land funding configs and Combined view.
