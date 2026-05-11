@@ -334,7 +334,8 @@ function TrancheCard({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>LTV %</label>
+          {/* P2-Fix 2 (2026-05-11): label is "Debt %"; schema field stays ltvPct. */}
+          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Debt %</label>
           <input
             type="number" min={0} max={100}
             value={tranche.ltvPct}
@@ -347,7 +348,7 @@ function TrancheCard({
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Principal (abs.)</label>
           <input
             type="number" min={0}
-            placeholder="0 = use LTV"
+            placeholder="0 = use Debt %"
             value={tranche.principal ?? 0}
             onChange={(e) => {
               const v = parseFloat(e.target.value) || 0;
