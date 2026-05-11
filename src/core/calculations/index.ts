@@ -997,10 +997,45 @@ export function computeAssetCost(
   // back-compat + the `fixed` distribution path; for asset-specific
   // methods we ignore it (allocFactor = 1).
   const FIXED_METHODS_NEEDING_ALLOC = new Set<CostMethod>(['fixed']);
+  // M2.0L Pass 5 (2026-05-11): aggregated metrics for the phase. Used
+  // as the calculateItemTotal context for Allocated lines so the pool
+  // value reflects project-wide totals (e.g. rate_per_bua x sum(bua)
+  // across phaseAssets), then driver-share splits per asset.
+  const phaseMetricsByAsset = new Map<string, AssetAreaMetrics>();
+  for (const a of phaseAssets) {
+    phaseMetricsByAsset.set(a.id, resolveAssetAreaMetrics(a, project, parcels, phaseAssets, subUnits, landAllocationMode));
+  }
+  const aggregatedMetrics = aggregatePhaseMetrics(phaseAssets, phaseMetricsByAsset);
+  // Single asset to use as the "stub" carrier for aggregated calc (the
+  // calculateItemTotal switch needs an Asset object even though it
+  // mostly reads metrics; pick the first phase asset for shape).
+  const aggregateAsset: Asset = phaseAssets[0] ?? asset;
+
   const directTotals: Record<string, number> = {};
   for (const r of resolved) {
     const isPct = r.method === 'percent_of_selected' || r.method === 'percent_of_construction';
     if (isPct) continue;
+    const category = resolveCostCategory(r.line);
+    if (category === 'allocated') {
+      // Pool = compute against aggregated phase metrics, then driver-
+      // share to this asset.
+      const aggCtx: AssetCostContext = {
+        asset: aggregateAsset,
+        metrics: aggregatedMetrics,
+        subUnits,
+        resolvedDirectLineTotals: {},
+      };
+      const pool = calculateItemTotal(
+        { ...r.line, method: r.method, value: r.value },
+        aggCtx,
+        true,
+      );
+      const driver = resolveCostDriver(r.line);
+      const driverShare = resolveDriverFactor(driver, asset, phaseAssets, parcels, subUnits, landAllocationMode);
+      directTotals[r.line.id] = pool * driverShare;
+      continue;
+    }
+    // Direct category (default + Pass 3 semantics preserved):
     const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {} };
     const lineTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
@@ -1731,6 +1766,40 @@ export function resolveCostCategory(line: CostLine): CostCategory {
 
 export function resolveCostDriver(line: CostLine): CostDriver {
   return line.costDriver ?? 'bua_share';
+}
+
+// M2.0L Pass 5: given an allocated line + its driver, compute the
+// asset's share of the project-wide pool. Direct lines never call this
+// (they ignore driver). value_share currently falls back to bua_share
+// until M2.1 Revenue ships a per-asset projected value; documented as
+// a known limitation.
+export function resolveDriverFactor(
+  driver: CostDriver,
+  asset: Asset,
+  phaseAssets: Asset[],
+  parcels: Parcel[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): number {
+  if (driver === 'bua_share') {
+    const myBua = computeAssetBua(asset, subUnits);
+    const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+    return totalBua > 0 ? myBua / totalBua : 0;
+  }
+  if (driver === 'land_share') {
+    const myLand = computeAssetLandSqm(asset, parcels, phaseAssets, subUnits, mode);
+    const totalLand = phaseAssets.reduce(
+      (s, a) => s + computeAssetLandSqm(a, parcels, phaseAssets, subUnits, mode),
+      0,
+    );
+    return totalLand > 0 ? myLand / totalLand : 0;
+  }
+  // value_share: deferred to bua_share until M2.1 Revenue lands so the
+  // asset's projected value is computable without a circular dependency
+  // on costs.
+  const myBua = computeAssetBua(asset, subUnits);
+  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+  return totalBua > 0 ? myBua / totalBua : 0;
 }
 
 // ── M2.0d: Useful life resolution ─────────────────────────────────────────
