@@ -1598,11 +1598,16 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   const unitArea = Math.max(0, subUnit.unitArea ?? 0);
   const storedIsUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
   const totalArea = storedIsUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
-  const count = storedIsUnits
+  // P9-Fix 1 (2026-05-12): derived Count rounds to whole number for
+  // display. Apartments / keys / beds / bays / tenants are integer
+  // concepts; decimal counts are nonsensical. Total Revenue also
+  // computes off the rounded count so the displayed math holds.
+  const rawCount = storedIsUnits
     ? subUnit.metricValue
     : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
-  const totalRevenueNoIdx = storedIsUnits
-    ? subUnit.metricValue * subUnit.unitPrice
+  const count = isUnits ? Math.round(rawCount) : rawCount;
+  const totalRevenueNoIdx = isUnits
+    ? count * subUnit.unitPrice
     : subUnit.metricValue * subUnit.unitPrice;
   const rateUnit = rateUnitLabel(subUnit.category, assetMetric);
   const countUnit = countUnitLabel(subUnit.category, assetStrategy, assetType);
@@ -1684,7 +1689,7 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
           <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-count`}>
-            {unitArea > 0 ? Number(count.toFixed(2)).toLocaleString('en-US') : '-'}
+            {unitArea > 0 ? count.toLocaleString('en-US') : '-'}
             <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
               {countUnit}
             </div>
