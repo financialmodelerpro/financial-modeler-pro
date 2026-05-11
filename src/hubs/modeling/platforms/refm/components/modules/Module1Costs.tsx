@@ -2273,7 +2273,12 @@ export default function Module1Costs(): React.JSX.Element {
   const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
   // P7-Fix 5b (2026-05-11): phase filter for the asset pill bar. '__all__'
   // shows every visible asset; a phase id narrows to that phase's assets.
-  const [inputsPhaseFilter, setInputsPhaseFilter] = useState<string>('__all__');
+  // P8-Fix 7 (2026-05-12): phase filter drops the "All Phases" sentinel.
+  // Default is the first phase with at least one visible asset, falling
+  // back to the first phase when no phase has assets. Empty-phase state
+  // surfaces a helpful message + keeps the filter interactive so the
+  // user can switch to a populated phase.
+  const [inputsPhaseFilter, setInputsPhaseFilter] = useState<string>('');
   // M2.0L (2026-05-11): Results sub-tab filter pill bar. null = Combined
   // (all assets in the Capex by Period table). Specific asset id filters
   // the table rows to that asset only.
@@ -2490,19 +2495,17 @@ export default function Module1Costs(): React.JSX.Element {
         // is gone. Each asset owns its own cost lines; user picks an asset
         // via the pill bar, sees ONLY that asset's editable table.
         //
-        // inputsPhaseFilter: '__all__' or specific phaseId. Narrows the
-        // asset pill bar. Default '__all__'.
-        const pf = inputsPhaseFilter;
-        const visiblePillAssets = allVisibleAssets.filter((a) => pf === '__all__' ? true : a.phaseId === pf);
+        // P8-Fix 7 (2026-05-12): inputsPhaseFilter holds a specific
+        // phaseId. Default = first phase with visible assets, else
+        // first phase. P8-Fix 3 (empty-phase state): when the selected
+        // phase has no assets, render a helpful message and keep the
+        // phase filter dropdown interactive so the user can switch to
+        // a populated phase.
+        const firstPhaseWithAssets = phases.find((p) => allVisibleAssets.some((a) => a.phaseId === p.id))?.id;
+        const effectivePhaseId = inputsPhaseFilter || firstPhaseWithAssets || phases[0]?.id || '';
+        const visiblePillAssets = allVisibleAssets.filter((a) => a.phaseId === effectivePhaseId);
         const activeAsset = visiblePillAssets.find((a) => a.id === selectedCostAssetId)
           ?? visiblePillAssets[0];
-        if (!activeAsset) {
-          return (
-            <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-inputs-empty">
-              No visible assets in the selected phase. Add an asset in Tab 2.
-            </div>
-          );
-        }
         const assetPhase = phases.find((p) => p.id === activeAsset.phaseId);
         const phaseStart = assetPhase?.startDate && assetPhase.startDate.length === 10
           ? assetPhase.startDate
@@ -2529,27 +2532,30 @@ export default function Module1Costs(): React.JSX.Element {
           cursor: 'pointer',
         });
 
+        const phaseHasAssets = visiblePillAssets.length > 0;
         return (
           <>
-            {/* P7-Fix 5b: phase filter + asset pill bar */}
+            {/* P8-Fix 7 (2026-05-12): Phase filter shows individual phases
+                only; no "All Phases" option. P8-Fix 3: empty-phase state
+                renders a helpful message but keeps the filter active so
+                the user can navigate to a populated phase. */}
             <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }} data-testid="costs-inputs-asset-nav">
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
                 <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase Filter:</strong>
                 <select
-                  value={inputsPhaseFilter}
+                  value={effectivePhaseId}
                   onChange={(e) => setInputsPhaseFilter(e.target.value)}
                   style={{ ...inputStyle, width: 'auto', minWidth: 160 }}
                   data-testid="costs-inputs-phase-filter"
                 >
-                  <option value="__all__">All Phases</option>
                   {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-asset-pills">
                 <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Asset:</strong>
-                {visiblePillAssets.map((a) => {
+                {phaseHasAssets ? visiblePillAssets.map((a) => {
                   const ph = phases.find((p) => p.id === a.phaseId);
-                  const isActive = a.id === activeAsset.id;
+                  const isActive = a.id === activeAsset?.id;
                   return (
                     <button
                       key={a.id}
@@ -2562,12 +2568,29 @@ export default function Module1Costs(): React.JSX.Element {
                       <span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ph?.name ?? ''}</span>
                     </button>
                   );
-                })}
+                }) : (
+                  <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>(none)</span>
+                )}
               </div>
             </div>
 
+            {/* P8-Fix 3 (2026-05-12): empty-phase helpful message. When
+                the selected phase has no visible assets, surface a
+                message + back-navigation hint instead of a blank page.
+                Phase filter dropdown above stays interactive. */}
+            {!phaseHasAssets && (
+              <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-inputs-empty-phase">
+                <strong style={{ fontSize: 14, display: 'block', marginBottom: 6, color: 'var(--color-body)' }}>
+                  No assets in {phases.find((p) => p.id === effectivePhaseId)?.name ?? 'this phase'} yet.
+                </strong>
+                <div style={{ fontSize: 12 }}>
+                  Add assets in Tab 2 Assets & Sub-units, or switch to a different phase using the filter above.
+                </div>
+              </div>
+            )}
+
             {/* P7-Fix 5b: stats summary line for the selected asset */}
-            {assetMetrics && (
+            {phaseHasAssets && activeAsset && assetMetrics && (
               <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', fontSize: 11, color: 'var(--color-meta)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }} data-testid={`costs-inputs-asset-stats-${activeAsset.id}`}>
                 <span><strong>{activeAsset.name}</strong> · {assetPhase?.name ?? ''} · {activeAsset.strategy}</span>
                 <span>BUA: <strong>{Math.round(assetMetrics.bua).toLocaleString()}</strong> sqm</span>
@@ -2578,7 +2601,7 @@ export default function Module1Costs(): React.JSX.Element {
             )}
 
             {/* Single editable table for the selected asset */}
-            {assetBreakdown && assetMetrics && (
+            {phaseHasAssets && activeAsset && assetBreakdown && assetMetrics && (
               <AssetCostSection
                 key={activeAsset.id}
                 asset={activeAsset}
