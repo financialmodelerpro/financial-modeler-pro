@@ -2271,8 +2271,22 @@ export default function Module1Costs(): React.JSX.Element {
     return map;
   }, [allVisibleAssets, project, parcels, subUnits, landAllocationMode]);
 
-  // Total construction periods across all phases (for summary tables column count)
-  const totalConstructionPeriods = phases.reduce((s, p) => Math.max(s, p.constructionStart - 1 + p.constructionPeriods), 0);
+  // M2.0M Pass 6 Fix 8 (2026-05-11): proper project-period reducer.
+  // Each phase contributes (phaseStartYear - projectStartYear) + cp,
+  // so multi-phase projects render columns out to the latest phase's
+  // construction end + 1 year buffer (capped at 24). Previously the
+  // reducer only considered constructionStart + cp and the offset was
+  // applied at render time, producing column ranges that either fell
+  // short or spilled past the actual construction tail.
+  const projectStartYear = new Date(project.startDate).getUTCFullYear();
+  const totalConstructionPeriods = phases.reduce((max, p) => {
+    const phaseStartIso = p.startDate && p.startDate.length === 10 ? p.startDate : project.startDate;
+    const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+    const offset = Number.isFinite(phaseStartYear - projectStartYear)
+      ? Math.max(0, phaseStartYear - projectStartYear)
+      : 0;
+    return Math.max(max, offset + p.constructionPeriods);
+  }, 0);
 
   const handleAddCustom = (assetId: string): void => {
     setPopupAssetId(assetId);
