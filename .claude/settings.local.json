@@ -170,7 +170,8 @@
       "Bash(mv CLAUDE.md.new CLAUDE.md)",
       "Bash(wait)",
       "Bash(mkdir -p \"app/api/platforms/[platformSlug]/modules/[moduleSlug]\")",
-      "Bash(mkdir -p \"app/api/admin/platform-module-pages/[id]\")"
+      "Bash(mkdir -p \"app/api/admin/platform-module-pages/[id]\")",
+      "PowerShell(Get-Content *)"
     ]
   }
 }

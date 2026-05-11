@@ -1322,3 +1322,408 @@ landParcels, projectFAR, costs, financing, those belong to dedicated tabs).
 - `module1-snapshot-diff.ts`, legacy single-phase, **17.5 KB**
 - `module1-multiphase-diff.ts`, multi-phase v4, **23.0 KB**
 - `module1-areaprogram-diff.ts`, M1.7 Area Program, **2.8 KB**
+
+---
+
+# Module 1 (REFM) M2.0 Phase History (M2.0 → M2.0i, archived 2026-05-11)
+
+> Detailed closure blocks for the v5 → v6 → v7 → v8 schema rebuild and the M2.0b → M2.0i polish series. M2.0j is the current live state and remains documented inline in CLAUDE.md. The per-phase "pattern decisions" sections have been consolidated into "Module 1 Conventions" in CLAUDE.md, see there first; the entries below are the original commit-by-commit narrative kept for cold-session reference.
+
+### Module 1 status (2026-05-07, M2.0i Module 1 final polish, foundation for M2.0j)
+
+**M2.0i:** Final Module 1 polish closing the 10 issues
+Ahmad raised after M2.0h. Module 1 reads cleanly to a first-time
+financial modeler: all inputs annual, all outputs flexible-granularity
+with proper distribution, all formatting correct, operational phases
+handled properly. Schema stays at v8 (additive Project.displayDecimals,
+Phase.status / historicalBaseline, Asset.historicalBaseline; rename
+SubUnitMetric 'count' -> 'units' is type-only, runtime accepts both).
+8 commits:
+
+- **/1 (Fix 1, drop Model Granularity input)**: Tab 1 Project Identity
+  card removes the Model Granularity dropdown. Tab 3 + Tab 4 captions
+  drop the "Granularity: monthly/annual" subline (replaced with
+  "inputs entered annually"). Wizard already shipped Reporting
+  Granularity (output) in M2.0g; no input-side change needed there.
+  modelType stays on schema for legacy compat but is no longer
+  user-facing.
+- **/2 (Fix 3, Display Settings panel)**: New `DisplayDecimals` enum
+  (0/1/2/3) on Project. Tab 1 grows a Display Settings card above
+  Project Identity with Scale (Full/Thousands/Millions) + Decimals
+  radios. `formatScaled(num, scale, decimals)` already accepted
+  `decimals`; M2.0i threads it through every render path. New
+  helper `makeProjectFormatter(prefs)` returns a one-arg formatter
+  pulling both. Threaded through CostRow, AssetCostSection,
+  SummaryTables, TrancheCard, Module1Assets fmtCurrency, Dashboard
+  fmtMoney, OverviewScreen fmtMoney. Header line at top of every
+  tab + dashboard + overview reflects the chosen scale/decimals
+  immediately.
+- **/3 (Fix 5, drop Parking Bays)**: Asset card areas row collapses
+  from 4 to 3 columns (Support / Parking / GFA Override).
+  `Asset.parkingBaysRequired` stays on schema for legacy compat.
+  CostMethod dropdown filters out `'rate_per_parking_bay'` so new
+  lines cannot select it; existing snapshots still compute. Per
+  the spec: parking-bay-driven revenue (e.g. fee per bay/year)
+  models as a Leasable sub-unit going forward.
+- **/4 (Fix 7 + Fix 8)**:
+    - Fix 7 (strategy short labels): `STRATEGY_LABELS` shrinks
+      from full sentences to single-word labels ('Sell' / 'Operate'
+      / 'Lease' / 'Sell + Manage'). New `STRATEGY_TOOLTIPS` map
+      provides the longform explanation as a hover title attribute
+      on each `<option>` and on the `<select>` itself.
+    - Fix 8 (sticky sidebar): RealEstatePlatform outer wrapper
+      switches from `minHeight: 100vh` to `height: 100vh; overflow:
+      hidden`. Combined with the existing `.app-shell { overflow:
+      hidden }` and `<main overflow: auto>`, only the workspace
+      content scrolls; sidebar stays visible during long Tab 3
+      summary tables.
+- **/5 (Fix 6, sub-unit metric area/units)**: Type rename
+  `SubUnitMetric` from `'count' | 'area'` to `'units' | 'area'`.
+  Calc engine (`computeSubUnitArea`, `computeAssetUnitCount`)
+  treats legacy `'count'` as `'units'` on read so v8 snapshots
+  written before M2.0i continue to compute. Module1Assets
+  `SubUnitRow` rewrites: dropdown labels are now "Units" and
+  "Area"; new `switchMetric` helper preserves the underlying
+  area sqm when toggling (478 units × 100 sqm/unit = 47,800 sqm
+  switches to area=47,800 sqm; switching back gives count=478).
+  When metric=Area, count derives = area / unitSize and renders
+  read-only (with '-' fallback when unitSize is 0). Unit Size
+  input is always editable (so derivation works in both modes).
+  Wizard / Tab 2 default sub-unit creation switches from
+  `metric: 'count'` to `metric: 'units'`.
+- **/6 (Fix 9, compact reconciliation)**: New `LandReconciliation-
+  Block` and `AssetAreaReconciliationBlock` components in
+  Module1Assets. Collapsed default state: single summary line
+  with status icon (✓/✗/⚠) + headline. Click to expand reveals
+  the full itemized grid (M2.0h shape, unchanged content). Auto-
+  expands on mismatch. localStorage persistence: keys
+  'm20i-land-recon-collapsed' and 'm20i-asset-recon-collapsed'
+  carry the user's preference across sessions.
+- **/7 (Fix 10, operational phase historical baseline)**: New
+  `PhaseStatus` type (`planning / construction / operational`)
+  and `PhaseHistoricalBaseline` interface (sunk capex, equity,
+  debt drawn, current outstanding, cumulative depreciation, NBV
+  fixed assets, last-12-months revenue + opex, optional
+  occupancy / ADR / rent rate). Both `Phase` and `Asset` gain
+  optional `historicalBaseline` field. Tab 1 phases table grows
+  a Status column; selecting Operational reveals a 9-column
+  Historical Baseline form spanning the row. Calc engine adds
+  `computePhaseHistorical(phase)` returning opening balances and
+  `computeOperationalRunRate(baseline, period, revGrowth%,
+  opexGrowth%)` rolling forward the trailing-12-month revenue +
+  opex with compound growth (defaults 3% / 2%). M5 Statements
+  will consume both.
+- **/8 (verifier + Playwright)**: `scripts/verify-m20i.ts`
+  (59 pass / 0 fail / 2 skip without authenticated dev server).
+  `tests/e2e/m20i-final-polish.spec.ts` (7 specs + dark-mode).
+
+### Module 1 status (2026-05-07, M2.0h area hierarchy + cost granularity + display cleanup + migration banner, foundation for M2.0i)
+
+**M2.0h:** Closes the 6 structural / display issues
+Ahmad raised after eyeballing M2.0g: existing v7 projects need a
+migration trigger + banner; currency suffix on every cell is noisy;
+area model needs proper NSA / BUA / GFA hierarchy; NDA optional toggle
+at parcel level for jurisdictions reserving roads / parks; construction
+cost rate needs flexibility to per-sub-unit; runtime view granularity
+toggle on Tab 3 Results was deferred from M2.0g and ships now. Schema
+stays at v8 (additive Parcel.hasNdaDeduction / roadsPct / parksPct,
+CostMethod.per_sub_unit_custom_rates, CostLine.perSubUnitRates fields
+do not bump the version). 8 commits:
+
+- **/1 (schema + calc engine)**: Parcel gains `hasNdaDeduction?:
+  boolean`, `roadsPct?: number`, `parksPct?: number` (all optional,
+  default OFF). CostMethod adds `'per_sub_unit_custom_rates'` (17
+  methods total). CostLine + CostOverride gain `perSubUnitRates?:
+  Record<string, number>` keyed on sub-unit id with reserved keys
+  `'__support__'` / `'__parking__'`. Five new pure helpers in
+  @core/calculations: `computeAssetAreaHierarchy(asset, subUnits)`
+  returns { nsa, bua, gfa, breakdown } where NSA = sum of revenue
+  sub-units, BUA = NSA + Support, GFA = BUA + Parking;
+  `computeParcelNda(parcel)` returns { area, roadsArea, parksArea,
+  nda, totalCost, effectiveNdaRate }; `computeCostLinePerSubUnit`;
+  `distributeAnnualToPeriods(annual[], granularity, phasing)`;
+  `formatPeriodLabel(iso, granularity)` returns 'Dec 25' / 'Q1 25'
+  / 'Mar 25'. `resolveAssetAreaMetrics` rewires `bua` / `gfa` /
+  `nsa` outputs to consume the new hierarchy.
+- **/2 (Tab 2 area hierarchy UI)**: Module1Assets asset card areas
+  row drops the M2.0g "Asset BUA Total" hand-typed input (BUA
+  derives now). New shape: 4 inputs (Support / Parking / Parking
+  Bays / GFA override) followed by 3 chips (NSA / BUA / GFA).
+  Asset card Reconciliation block rewritten to itemize sub-units
+  leading into NSA, then sub-unit Support + asset Support into BUA,
+  then asset Parking into GFA. Project-wide Globals card grows 5
+  -> 3+5 columns.
+- **/3 (Tab 2 parcel NDA)**: Land Parcels block expands from 6 to
+  11 columns adding NDA? toggle + Roads% + Parks% + NDA +
+  Effective NDA Rate. Land Reconciliation conditionally adds a
+  "Total NDA" line.
+- **/4 (Tab 3 per-sub-unit + granularity)**: Module1Costs cost
+  row method dropdown gains "Per sub-unit custom rates". Tab 3
+  Results sub-tab grows runtime granularity toggle (Annual /
+  Quarterly / Monthly).
+- **/5 (currency display cleanup)**: New `currencyHeaderLine`
+  helper. In-cell currency suffixes removed across Module1Assets /
+  Module1Costs / Module1Financing.
+- **/6 (v7 -> v8 migration banner)**: module1-migrate.ts gains
+  `M20H_MIGRATION_NOTICE`. RealEstatePlatform shows a dismissable
+  success banner once per project open. attachToProject kicks an
+  immediate save when migration ran (so banner won't reappear).
+- **/7 (verifier)**: scripts/verify-m20h.ts (62 pass / 0 fail / 2
+  skip).
+- **/8 (Playwright)**: tests/e2e/m20h-area-hierarchy-cost-
+  granularity.spec.ts (6 specs).
+
+### Module 1 status (2026-05-06, M2.0g display + reconciliation + Costs restructure, foundation for M2.0h)
+
+**M2.0g:** Closes the 7 display + reconciliation +
+Cost-tab issues Ahmad eyeballed in M2.0f, plus 3 addendum items
+(Manual % phasing UI restoration, period labels, structural shift
+to annual-only inputs + multi-granularity outputs). Schema bumps
+to v8 (modelType becomes outputGranularity; v7 monthly snapshots
+migrate by aggregating periods 12 -> 1). 11 commits:
+
+- **/1 (Fix 3, Display Scale)**: Project gains optional
+  `displayScale: 'full' | 'thousands' | 'millions'`. New
+  `formatScaled` / `formatScaledCurrency` helpers in
+  `core/formatters` use accounting format throughout. Wizard Step
+  1 grows a Display Scale radio.
+- **/2 (Fix 6, drop Direct/Indirect labels)**: per-asset cost
+  segregation makes every cost direct by definition. CostRow
+  drops the deriveCostScope import + scope display.
+- **/3 (Fix 1, period end-of-period dates)**: New `periodEndDate`
+  helper returns the LAST DAY of a period span. computePhase-
+  Timeline uses periodEndDate for constructionEnd / operationsEnd.
+- **/4 (Fix 4 + 5, asset Support/Parking + BUA reconciliation)**:
+  Asset gains 3 optional fields: `buaTotal`, `supportArea`,
+  `parkingArea`. Tab 2 asset card areas row replaces M2.0f
+  5-column derived display with 6-column input row. BUA
+  Reconciliation block shows itemized breakdown. SubUnitCategory
+  drops 'Parking' (M2.0f-only); migrateM20gParkingSubUnits folds
+  legacy Parking sub-unit areas into asset.parkingArea.
+  CostMethod gains 3 new options: rate_x_support_area,
+  rate_x_parking_area, rate_x_specific_subunit.
+- **/5 (Fix 2, land allocation parcel default + reconciliation)**:
+  Asset card Parcel dropdown defaults to FIRST phase parcel. Two
+  sentinels: '(Weighted Average across parcels)' and '(Custom
+  Rate)'. PARCEL_WEIGHTED_AVG and PARCEL_CUSTOM_RATE sentinels.
+  computeLandReconciliation returns parcelsTotalSqm /
+  parcelsTotalValue vs assetsAllocatedSqm / assetsAllocatedValue.
+- **/6 (Addendum 3, v8 schema bump)**: Schema bumps to v8.
+  Project gains `outputGranularity: 'annual' | 'quarterly' |
+  'monthly'`. Inputs always entered ANNUALLY; output granularity
+  drives reporting. Migration v7 -> v8 aggregates monthly to
+  annual. SCHEMA_VERSION = 8.
+- **/7 (Addendum 2, period labels Y0/Dec 25)**: getPeriodLabel
+  rewrites: idx=0 -> 'Y0', annual -> 'Dec YY', monthly -> 'Mar
+  25'.
+- **/8 (Addendum 1, Manual % phasing restore)**: CostRow renders
+  expanded sub-row when effective phasing === 'manual'. Auto-
+  normalize button scales values to sum 100.
+- **/9 (Fix 7, Costs sub-tabs + 4 summary tables)**: Module1Costs
+  grows internal sub-tab toggle: Inputs / Results. 4 summary
+  tables: Capex by Period, Capex by Stage (transposed), Capex
+  Summary by Treatment, Capex by Cost Type per Asset. Header
+  pattern: every summary table uses [Description] [Total]
+  [Period/Stage/Type cols...].
+- **/10 (verifier + Playwright)**: scripts/verify-m20g.ts (68
+  pass / 0 fail / 2 skip) + tests/e2e/m20g-display-recon-
+  costs.spec.ts (5 specs). Snapshot baseline 47.8 KB sha
+  22923b5275a7 (v8).
+- **/11 (docs sweep)**.
+
+### Module 1 status (M2.0f, 2026-05-06, foundation for M2.0g)
+
+**M2.0f:** Closes the 6 structural issues Ahmad
+flagged after eyeballing M2.0d + M2.0e together (header clipping,
+multi-parcel rates, project-type catalog, phase startDate
+persistence, project end off-by-one, sub-unit BUA double-entry).
+Additive schema (no SCHEMA_VERSION bump, v7 stays). 5 commits +
+docs sweep:
+
+- **/1 (Fix 1, layout)**: globals.css `.pm-toolbar` switches from
+  `position: fixed` to `position: sticky; top: 0`. Drops
+  `.module-view`'s redundant `padding: 0 sp-3 sp-3`.
+- **/2 (Fix 3, project type catalog)**: `PROJECT_TYPES` expanded
+  from 6 to 14 entries (Industrial, Data Center, Education,
+  Healthcare, Marina, Hospitality + Branded Residences, Senior
+  Living, Self-Storage added).
+- **/3 (Fix 4 + 5, Phase Start Date + endYear)**: Tab 1 grows
+  Phase Start Date column + three read-only computed columns
+  (Construction End / Operations Start / Operations End) via
+  `computePhaseTimeline`. `ProjectTimeline.endYear` (no +1 offset)
+  + `totalPeriods`.
+- **/4 (Fix 2 + 6, multi-parcel + sub-unit BUA)**: Asset gains
+  `landAllocation: { parcelId?, sqm?, pct?, multiParcelSplits? }`
+  and SubUnitCategory `'Parking'`. computeAssetLandBreakdown +
+  validateLandAllocation. computeAssetBua / computeAssetSellable-
+  Bua treat sub-units as source of truth.
+- **/5 (verifier + Playwright)**: scripts/verify-m20f.ts (62 pass
+  / 0 fail / 2 skip) + tests/e2e/m20f-structural-fixes.spec.ts
+  (4 specs).
+- **/6 (docs sweep)**.
+
+### Module 1 status (M2.0e, 2026-05-06, foundation for M2.0f)
+
+**M2.0e:** Wizard simplification + Tab 2 becomes the
+canonical asset entry surface. Closes the 6 testing-feedback items
+Ahmad raised after M2.0d (wizard column units, Phase Start Date,
+Step 3 too detailed, Tab 2 needs phase grouping + sub-unit table +
+project-type-aware Type catalog). Additive schema (no SCHEMA_VERSION
+bump, v7 stays); 8 commits:
+
+- **/1 (schema additions)**: Three optional fields on the v7
+  schema: Phase.startDate?: string (ISO), Asset.status?: 'planned'
+  | 'construction' | 'operational', Project.projectType?:
+  'Residential' | 'Hospitality' | 'Retail' | 'Office' |
+  'Mixed-Use' | 'Custom'. Catalogs: ASSET_TYPES_BY_PROJECT_TYPE +
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE. Two new pure calc helpers:
+  computePhaseTimeline + computeProjectTimeline.
+- **/2 (Wizard Step 2)**: WizardDraftPhase.startDate required.
+  Step 2 column headers gain unit suffix tracking modelType.
+  addPhase auto-defaults next phase startDate.
+- **/3 (Wizard Step 3 simplified)**: WizardDraft.assets[] removed.
+  WizardDraft.projectType added (single pick). Step 3 collapses
+  to 6-radio project-type pick + "Tab 2 will suggest" preview.
+- **/4 (Tab 2 rewrite)**: Module1Assets full rewrite. Per-phase
+  asset sections replace flat "Assets" list. AssetCard rebuilt
+  with header row + ManagementAgreementForm (Sell + Manage) /
+  UsefulLifeForm (Operate / Lease) conditional sub-forms. Status
+  badge color: planned = grey, construction = warm amber,
+  operational = green-success.
+- **/5 (snapshot baseline regen)**: 47.8 KB sha 824ef8e1706d.
+- **/6 (verifier)**: scripts/verify-m20e.ts (58 pass / 0 fail /
+  2 skip).
+- **/7 (Playwright)**: tests/e2e/m20e-wizard-tab2.spec.ts (6
+  specs).
+- **/8 (docs sweep)**.
+
+### Module 1 status (M2.0d, 2026-05-06, foundation for M2.0e)
+
+**M2.0d:** Closes the 8 testing-feedback items
+Ahmad raised on M2.0c. Schema bumps to v7 (pre-v7 hard-cut
+continues the precedent v5 -> v6 set). 9 commits:
+
+- **/1 (layout)**: globals.css `.main-content` drops `margin-
+  left:240px` + `transition` + `height: calc(100vh - 40px)`.
+- **/2 (schema v7)**: AssetStrategy 'Hybrid' renamed 'Sell +
+  Manage' (MAAD Tower 01 pattern). Asset gains optional
+  managementAgreement + usefulLifeYears. CostMethod gains
+  'rate_per_parking_bay'. CostLine gains optional targetAssetId
+  + disabled. CostOverride gains disabled. makeDefaultCostLines
+  replaces v6 12-line catalog with M2.0d 9-line standard.
+  STANDARD_COST_LINE_IDS exported. SCHEMA_VERSION = 7.
+- **/3 (calc engine)**: Five new pure helpers: deriveCostStage,
+  deriveCostScope, resolveUsefulLifeYears, classifyAssetCapex
+  (returns { COGS, FixedAssets, Depreciation } per strategy),
+  computeCashFlowImpact (excludes equity-in-kind portion).
+- **/4 (Tab 2 Sell+Manage UI)**: STRATEGY_LABELS long-form
+  labels. Conditional ManagementAgreementForm / UsefulLifeForm
+  sub-forms.
+- **/5 (Costs tab rewrite)**: Module1Costs end-to-end rewrite.
+  Per-phase header -> per-asset collapsible AssetCostSection ->
+  9-row cost table per asset -> "+ Add Custom Cost" button ->
+  3 capex summary tables. Stage / Scope dropdowns REMOVED from
+  row UI. Custom Cost Popup. Override write rules: editing in
+  asset section creates costOverride keyed by (assetId, lineId).
+- **/6 (Tab 4 equity in-kind)**: Module1Financing tile bar
+  grew 4 -> 5 tiles: Phase CapEx, Total Debt, Cash Equity,
+  In-Kind Equity, Total Interest.
+- **/7 (snapshot baseline regen)**: 47.6 KB sha 7418013202fc.
+- **/8 (verifier)**: scripts/verify-m20d.ts (71 pass / 0 fail
+  / 2 skip).
+- **/9 (Playwright)**: tests/e2e/m20d-costs-polish.spec.ts (7
+  specs). M2.0c spec .skip()'d (frozen artifact).
+
+### Module 1 status (M2.0c, 2026-05-06, restores Dev Costs + Financing on v6)
+
+**M2.0c (foundation for M2.0d):** Dev Costs + Financing functionality
+fully restored to pre-M2.0 capability with all data binding adapted
+to v5/v6 schema. Schema bumps from v5 to v6 to absorb the open-ended
+cost-line catalog and 5×5 financing matrix. 4 commits:
+
+- **/1 (sidebar layout)**: globals.css `.sidebar` drops
+  `position: fixed; top: 40px; left: 0`. New rules: `.app-shell
+  { display: flex; flex: 1; min-height: 0; overflow: hidden; }`,
+  `.sidebar { position: relative; height: 100%; flex-shrink: 0;
+  }`.
+- **/2 (v6 schema + calc + UI)**: CostMethod expands from 6 closed
+  enums to 13 open methods. CostLine becomes open-ended (id
+  string, stage, scope, allocationBasis, startPeriod, endPeriod,
+  phasing, distribution, selectedLineIds, isLocked,
+  requiresCountry). DrawdownMethod expands to 5; RepaymentMethod
+  expands to 5; FinancingTranche grows optional assetId. Project
+  grows country + projectRoadsPct. 12-default cost catalog seeds.
+  Calc engine rewrite: resolveAssetAreaMetrics, calculateItem-
+  Total dispatching across 13 methods, distribute returning 6
+  phasing curves, resolveAllocationFactor, computeAssetCost (3
+  passes), computePhaseCost, computeFinancing handling 5 drawdown
+  × 5 repayment with IDC capitalization. Module1Costs +
+  Module1Financing UI rewrites.
+- **/3 (snapshot baseline regen)**: 30.8 KB -> 49.6 KB sha
+  15ed6f865342.
+- **/4 (verifier + Playwright + docs)**: scripts/verify-m20c.ts
+  (54 pass / 0 fail / 2 skip). tests/e2e/m20c-costs-
+  financing.spec.ts (5 specs).
+
+**Pre-v6 snapshots:** isPreV6Snapshot detects v5 by costLine.key
+field and flags with hard-cut "Schema migrated to v6. Please
+recreate this project." Backward-compat aliases isV5Snapshot /
+isPreV5Snapshot resolve to v6 implementations.
+
+### Module 1 status (M2.0b, 2026-05-06, brand-styled shell on v5)
+
+**M2.0b (foundation for M2.0c):** the v5 hard-cut M2.0 rebuild
+stripped the FMP brand identity (navy gradient topbar, gold logo,
+FAST sidebar, KPI dashboard, branded modals, dark-mode toggle) and
+replaced it with slim placeholder components. M2.0b restores all
+of that against the v5 schema across 5 commits:
+
+- **/1 (Topbar + Sidebar)**: Topbar (~360 lines) brings back
+  pm-toolbar layout. Sidebar (~210 lines) brings back sb-pv-
+  panel + module list + PlanBadge + Module 1 sub-tab list.
+- **/2 (Dashboard + ProjectsScreen + OverviewScreen)**: Dashboard
+  (~340 lines) with kpi-card grid. ProjectsScreen (~280 lines)
+  with pm-project-card grid. OverviewScreen (~310 lines) with
+  4-tab quick-link cards + Phase Summary + Version History.
+- **/3 (modals)**: ProjectModal / VersionModal / RbacModal /
+  ExportModal brand-chromed.
+- **/4 (RealEstatePlatform shell rewire)**: shell wires every new
+  prop signature. darkMode toggles body[data-refm-theme="dark"].
+- **/5 (verifier + Playwright + config)**: scripts/verify-m20b.ts
+  (51 pass / 0 fail / 2 skip). tests/e2e/m20b-shell.spec.ts (4
+  specs). New playwright.config.ts with baseURL=http://
+  localhost:3000.
+
+### Module 1 status (M2.0, 2026-05-06, v5 hard-cut foundation)
+
+**M2.0:** Module 1 is rebuilt end-to-end against MAAD Residential
+Cashflow v1.13. The v3/v4 hierarchy (Master Holding / Sub-Project /
+Plot / Zone / FAR / Cascade / Parking Allocator / Build Program
+tab / Land tab / Hierarchy tab) is gone. The new flat schema is:
+
+```
+{ version: 5, project, phases[], parcels[], landAllocationMode,
+  assets[], subUnits[], costLines[], costOverrides[],
+  financingTranches[], equityContributions[] }
+```
+
+**4 tabs:**
+- 1. Project & Phases: project meta + Phase[] timing
+- 2. Assets & Sub-units: Land Parcels block + landAllocationMode +
+  Asset cards with strategy (Sell/Operate/Lease/Hybrid) + GFA/BUA/
+  sellable BUA/parking + nested Sub-unit editor
+- 3. Costs: 9 fixed cost lines per phase with method + value +
+  phasing + per-asset overrides
+- 4. Financing: per-phase tranches (5 drawdown × 3 repayment + IDC
+  capitalization + cash sweep) + Equity contributions
+
+**Hard-cut policy:** v3/v4 snapshots return error "Schema migrated
+to v5. Please recreate this project." (module1-migrate.ts
+isPreV5Snapshot detects + flags). Supabase migration
+`m2_0_module1_rebuild.sql` bumps schema_version DEFAULT 4 -> 5 and
+auto-archives pre-v5 projects.
+
+**M2.0 deliverables:** v5 types/store/migrate, slim 869-line calc
+engine, 4 new tab components, 3-step ProjectWizard rewrite, slim
+shell components, single 30.8 KB v5 snapshot baseline, verify-
+m20.ts (42 pass / 0 fail / 1 skip), m20-full-flow.spec.ts.
