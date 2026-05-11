@@ -38,7 +38,7 @@ const ENV_VARS: EnvSpec[] = [
   { key: 'NEXT_PUBLIC_APP_URL',           label: 'Public App URL',             required: false },
   { key: 'NEXT_PUBLIC_LEARN_URL',         label: 'Public Learn URL',           required: false },
   { key: 'NEXT_PUBLIC_MAIN_URL',          label: 'Public Main URL',            required: false },
-  { key: 'RESEND_API_KEY',                label: 'Resend API Key',             required: false },
+  { key: 'BREVO_API_KEY',                 label: 'Brevo API Key',              required: false },
   { key: 'CRON_SECRET',                   label: 'Cron Secret',                required: false },
 ];
 

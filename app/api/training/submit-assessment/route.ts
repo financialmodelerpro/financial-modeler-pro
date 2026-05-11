@@ -21,7 +21,9 @@ export const maxDuration = 60;
  * Scoring is done entirely client-side - this endpoint does NOT re-fetch
  * questions or re-score.
  *
- * Also sends quiz result email (and locked-out email if max attempts reached),
+ * Sends a quiz result email ONLY for the final exam (per-session passes and
+ * fails are now visible on the dashboard - no per-session email noise),
+ * a locked-out email when max attempts are exhausted regardless of session,
  * and triggers inline certificate issuance on a passing final exam.
  */
 export async function POST(req: NextRequest) {
@@ -179,23 +181,34 @@ export async function POST(req: NextRequest) {
     const passMark = passingScore ?? 70;
     const maxAtt = maxAttempts ?? (isFinal ? 1 : 3);
 
+    // Final-exam gate uses the same defense-in-depth pattern as the model
+    // gate above (client `isFinal` flag AND server-side resolveIsFinal),
+    // so a misreported isFinal on a per-session quiz cannot trigger the
+    // final-exam result email.
+    const sendFinalEmail = (isFinal ?? false) && tabKeyIsFinal;
+
     after(async () => {
-      try {
-        const { subject, html, text } = await quizResultTemplate({
-          name: studentName,
-          sessionName: label,
-          score: numScore,
-          passMark,
-          passed: didPass,
-          attemptsUsed: attempt,
-          maxAttempts: maxAtt,
-        });
-        await sendEmail({ to: email, subject, html, text, from: FROM.training });
-      } catch (emailErr) {
-        console.error('[submit-assessment] Quiz result email failed:', emailErr);
+      if (sendFinalEmail) {
+        try {
+          const { subject, html, text } = await quizResultTemplate({
+            name: studentName,
+            sessionName: label,
+            score: numScore,
+            passMark,
+            passed: didPass,
+            attemptsUsed: attempt,
+            maxAttempts: maxAtt,
+          });
+          await sendEmail({ to: email, subject, html, text, from: FROM.training });
+        } catch (emailErr) {
+          console.error('[submit-assessment] Final-exam result email failed:', emailErr);
+        }
       }
 
-      // Send locked-out email if max attempts exhausted and not passed
+      // Send locked-out email if max attempts exhausted and not passed.
+      // Applies to per-session quizzes too: students who exhaust attempts
+      // need the support contact instructions, even though the regular
+      // pass/fail result no longer emails.
       if (!didPass && attempt >= maxAtt) {
         try {
           const { subject, html, text } = await lockedOutTemplate({

@@ -1,7 +1,7 @@
 /**
  * scripts/testEmails.ts
  * Sends one test email for each template/sender combination to verify
- * Resend delivery and domain verification.
+ * Brevo delivery and sender-domain verification.
  *
  * Usage:
  *   npx ts-node --project tsconfig.json -e "require('./scripts/testEmails.ts')"
@@ -10,7 +10,7 @@
  *     -H "Content-Type: application/json" \
  *     -d '{"template":"otpVerification","to":"your@email.com","data":{"code":"123456"}}'
  *
- * Requires .env.local with RESEND_API_KEY set.
+ * Requires .env.local with BREVO_API_KEY set.
  */
 
 // Load env vars (run from project root)
