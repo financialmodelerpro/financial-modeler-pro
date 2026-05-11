@@ -69,6 +69,8 @@ import type {
   DrawdownMethod,
   RepaymentMethod,
   OutputGranularity,
+  FundingMethodId,
+  ProjectFinancingConfig,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   DEFAULT_USEFUL_LIFE_YEARS,
@@ -1546,6 +1548,154 @@ export interface IdcSummary {
   }>;
   totalCapitalized: number;
   totalExpensed: number;
+}
+
+// ── P2-Fix 1 (2026-05-11): uniform funding pipeline ──────────────────────
+// All 4 funding methods produce the same output shape:
+//   totalNeed         total cash funding need (currency)
+//   periodArray       per-project-period allocation (matches capex schedule)
+//   debtEquitySplit   { debt[], equity[] } per period
+//
+// Step 1 (method-specific) computes totalNeed and the period array.
+// Steps 2-3 (uniform) apply the project ratio (or per-method ratio).
+//
+// When upstream engines ship (Revenue/OpEx/CF), Method 3 and Method 4
+// pick up real pre-sales / OCF / closing cash via the hooks layer; the
+// pipeline shape never changes for downstream consumers.
+export interface FundingResult {
+  method: FundingMethodId;
+  totalNeed: number;
+  periodArray: number[];
+  debtEquitySplit: { debt: number[]; equity: number[] };
+}
+
+export interface ComputeFundingContext {
+  method: FundingMethodId;
+  financing: ProjectFinancingConfig;
+  /** Pre-aggregated capex per project period (typically Excl. Land In-Kind). */
+  capexPerPeriod: number[];
+  /** Optional hooks for Method 3 / Method 4 (zero-stubs by default). */
+  preSalesPerPeriod?: number[];
+  operatingCFPerPeriod?: number[];
+  closingCashBefore?: (prevPeriod: number) => number;
+}
+
+function pickRatio(method: FundingMethodId, f: ProjectFinancingConfig): { debt: number; equity: number } {
+  if (method === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+  if (method === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
+  if (method === 4) return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
+  // Method 2 falls back to project-wide ratio (line-item override hooks in next sub-pass).
+  return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+}
+
+function splitByRatio(periodArray: number[], debtPct: number, equityPct: number): { debt: number[]; equity: number[] } {
+  const sum = debtPct + equityPct;
+  const d = sum > 0 ? debtPct / sum : 0.7;
+  const e = sum > 0 ? equityPct / sum : 0.3;
+  return {
+    debt: periodArray.map((v) => v * d),
+    equity: periodArray.map((v) => v * e),
+  };
+}
+
+export function computeFunding(ctx: ComputeFundingContext): FundingResult {
+  const { method, financing, capexPerPeriod } = ctx;
+  const preSales = ctx.preSalesPerPeriod ?? capexPerPeriod.map(() => 0);
+  const ocf = ctx.operatingCFPerPeriod ?? capexPerPeriod.map(() => 0);
+  const minCash = Math.max(0, financing.minimumCashReserve ?? 0);
+  let totalNeed = 0;
+  let periodArray: number[] = [];
+
+  if (method === 1 || method === 2) {
+    // Methods 1 + 2: total need = sum of capex; per-period = capex schedule.
+    periodArray = [...capexPerPeriod];
+    totalNeed = periodArray.reduce((s, v) => s + v, 0);
+  } else if (method === 3) {
+    // Method 3: net of pre-sales + OCF - existing cash + min reserve top-up.
+    const existing = financing.netFundingConfig?.existingCash ?? 0;
+    periodArray = capexPerPeriod.map((c, i) => Math.max(0, c - (preSales[i] ?? 0) - (ocf[i] ?? 0)));
+    totalNeed = periodArray.reduce((s, v) => s + v, 0) - existing + minCash;
+    totalNeed = Math.max(0, totalNeed);
+  } else {
+    // Method 4: walk period-by-period; draw to maintain minCash floor.
+    const initial = financing.cashDeficitConfig?.initialCash ?? 0;
+    periodArray = new Array(capexPerPeriod.length).fill(0);
+    let cash = initial;
+    for (let t = 0; t < capexPerPeriod.length; t++) {
+      const inflow = (preSales[t] ?? 0) + (ocf[t] ?? 0);
+      const outflow = capexPerPeriod[t] ?? 0;
+      const projected = cash + inflow - outflow;
+      const required = projected < minCash ? (minCash - projected) : 0;
+      periodArray[t] = required;
+      cash = projected + required;
+    }
+    totalNeed = periodArray.reduce((s, v) => s + v, 0);
+  }
+
+  const ratio = pickRatio(method, financing);
+  const debtEquitySplit = splitByRatio(periodArray, ratio.debt, ratio.equity);
+  return { method, totalNeed, periodArray, debtEquitySplit };
+}
+
+// ── P2-Fix 11 (2026-05-11): equity computation ───────────────────────────
+// Total equity need = funding totalNeed * equity ratio.
+// In-kind contribution = land-in-kind value (separate from cash equity).
+// Cash equity = max(0, totalEquityNeed - inKindContribution).
+// Cash distribution mirrors the debt drawdown timing (same period array,
+// rescaled to cash equity total).
+export interface EquityResult {
+  totalEquityNeed: number;
+  inKindContribution: number;
+  cashContribution: number;
+  cashPerPeriod: number[];
+  inKindPerPeriod: number[];
+  openingPerPeriod: number[];
+  closingPerPeriod: number[];
+}
+
+export function computeEquity(
+  financing: ProjectFinancingConfig,
+  funding: FundingResult,
+  landInKindValue: number,
+): EquityResult {
+  const ratio = pickRatio(funding.method, financing);
+  const sum = ratio.debt + ratio.equity;
+  const equityPct = sum > 0 ? ratio.equity / sum : 0.3;
+  const totalEquityNeed = funding.totalNeed * equityPct;
+  const inKindContribution = Math.max(0, landInKindValue);
+  const cashContribution = Math.max(0, totalEquityNeed - inKindContribution);
+  const n = funding.periodArray.length;
+  const periodWeights = funding.debtEquitySplit.equity;
+  const weightSum = periodWeights.reduce((s, v) => s + v, 0);
+  const cashPerPeriod: number[] = new Array(n).fill(0);
+  if (weightSum > 0) {
+    for (let i = 0; i < n; i++) {
+      cashPerPeriod[i] = cashContribution * (periodWeights[i] / weightSum);
+    }
+  } else if (n > 0) {
+    cashPerPeriod[0] = cashContribution;
+  }
+  // In-kind lump lands at period 0 by default (matches Land In-Kind cost line timing).
+  const inKindPerPeriod: number[] = new Array(n).fill(0);
+  if (n > 0) inKindPerPeriod[0] = inKindContribution;
+
+  const openingPerPeriod: number[] = new Array(n).fill(0);
+  const closingPerPeriod: number[] = new Array(n).fill(0);
+  let running = 0;
+  for (let i = 0; i < n; i++) {
+    openingPerPeriod[i] = running;
+    running += (cashPerPeriod[i] ?? 0) + (inKindPerPeriod[i] ?? 0);
+    closingPerPeriod[i] = running;
+  }
+  return {
+    totalEquityNeed,
+    inKindContribution,
+    cashContribution,
+    cashPerPeriod,
+    inKindPerPeriod,
+    openingPerPeriod,
+    closingPerPeriod,
+  };
 }
 
 export function computeIdcSummary(
