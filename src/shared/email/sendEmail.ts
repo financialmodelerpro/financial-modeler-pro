@@ -1,18 +1,26 @@
-// TEMPORARY: Reverted to Resend on 2026-05-11 pending Brevo account
-// activation. Re-apply commit 166a8ec once Brevo confirms activation.
+import { BrevoClient } from '@getbrevo/brevo';
 
-import { Resend } from 'resend';
-
-let _resend: Resend | null = null;
-function getResend(): Resend {
-  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
-  return _resend;
+let _brevo: BrevoClient | null = null;
+function getBrevo(): BrevoClient {
+  if (!_brevo) _brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY ?? '' });
+  return _brevo;
 }
 
 export const FROM = {
   training: `Financial Modeler Pro Training <${process.env.EMAIL_FROM_TRAINING ?? 'training@financialmodelerpro.com'}>`,
   noreply:  `Financial Modeler Pro <${process.env.EMAIL_FROM_NOREPLY ?? 'no-reply@financialmodelerpro.com'}>`,
 };
+
+interface Sender { name: string; email: string }
+
+// Brevo's `sender` is structured ({ name, email }); existing callers pass a
+// single "Name <email>" string via the FROM constants. Parse to the
+// structured shape so callers don't have to change.
+function parseSender(s: string): Sender {
+  const m = s.match(/^\s*(.+?)\s*<\s*(.+?)\s*>\s*$/);
+  if (m) return { name: m[1].trim(), email: m[2].trim() };
+  return { name: 'Financial Modeler Pro', email: s.trim() };
+}
 
 interface SendEmailOptions {
   to: string | string[];
@@ -27,15 +35,16 @@ interface SendEmailResult {
 }
 
 export async function sendEmail({ to, subject, html, text, from }: SendEmailOptions): Promise<SendEmailResult> {
-  const { data, error } = await getResend().emails.send({
-    from:    from ?? FROM.training,
-    to:      Array.isArray(to) ? to : [to],
+  const sender = parseSender(from ?? FROM.training);
+  const recipients = (Array.isArray(to) ? to : [to]).map(email => ({ email }));
+  const result = await getBrevo().transactionalEmails.sendTransacEmail({
+    sender,
+    to:          recipients,
     subject,
-    html,
-    text:    text ?? stripHtml(html),
+    htmlContent: html,
+    textContent: text ?? stripHtml(html),
   });
-  if (error) throw new Error(error.message);
-  return { id: data?.id ?? '' };
+  return { id: result.messageId ?? '' };
 }
 
 function stripHtml(html: string): string {
@@ -43,18 +52,31 @@ function stripHtml(html: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Batch send (Resend /emails/batch)
+// Batch send
 //
-// Up to 100 emails per HTTP request, one rate-limit slot per request. This
-// is what the live-session announcement flow uses now: previously we fired
-// 10 parallel `emails.send` calls per "batch", which burst past Resend's
-// per-second limit and produced the partial-success symptom (5 of 9
-// delivered, 4 failed with 429). One batch.send([...]) avoids that.
+// Resend's previous batch endpoint accepted up to 100 per-recipient
+// personalized emails in one HTTP request and was all-or-nothing. Brevo
+// has no equivalent: `sendTransacEmail` either targets one personalized
+// message OR broadcasts the same message to many `to[]` entries. Since
+// every BatchEmailItem here carries its own subject + html (e.g. the
+// admin communications + live-session notify flows render per-recipient
+// templates with name token substitution), we iterate per item via
+// Promise.allSettled.
 //
-// Resend's batch response is all-or-nothing per request: if the SDK
-// rejects, no items in the batch were enqueued. The synchronous response
-// confirms acceptance for delivery, not actual delivery; bounces and
-// complaints arrive later via webhooks.
+// We preserve the "binary" result semantics of the old wrapper: if every
+// item succeeds we return ok=true with the messageIds in input order; if
+// any item fails we return ok=false with empty ids + an error string.
+// This matches how the existing callers branch on `result.ok` (notify +
+// communications + newsletter all treat the whole slice as failed when
+// the batch returns ok=false). A partial-success degraded view would
+// require widening BatchEmailResult, which the task brief asked to keep
+// unchanged for backwards compatibility.
+//
+// The per-recipient column is still named `resend_message_id` in the
+// announcement_recipient_log table. The rename to a vendor-neutral name
+// was skipped intentionally to avoid a migration touching the notify
+// route, the admin UI, and the audit-log readers; we now store Brevo
+// message ids in that column instead.
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface BatchEmailItem {
@@ -66,37 +88,55 @@ export interface BatchEmailItem {
 }
 
 export interface BatchEmailResult {
-  /** True when the SDK accepted the entire batch. */
+  /** True when every item in the batch was accepted by Brevo. */
   ok: boolean;
   /**
-   * Per-item Resend message ids in the same order as the input. Only
+   * Per-item Brevo message ids in the same order as the input. Only
    * populated when ok=true. Empty when ok=false.
    */
   ids: string[];
-  /** Top-level error from Resend (rate limit, validation, auth). */
+  /** Aggregate error description when ok=false. */
   error?: string;
 }
 
 export async function sendEmailBatch(items: BatchEmailItem[]): Promise<BatchEmailResult> {
   if (items.length === 0) return { ok: true, ids: [] };
   if (items.length > 100) {
-    return { ok: false, ids: [], error: 'Batch exceeds Resend limit of 100 emails per request' };
+    return { ok: false, ids: [], error: 'Batch exceeds limit of 100 emails per request' };
   }
 
-  const payload = items.map(it => ({
-    from:    it.from ?? FROM.training,
-    to:      [it.to],
-    subject: it.subject,
-    html:    it.html,
-    text:    it.text ?? stripHtml(it.html),
+  const brevo = getBrevo();
+  // Per-item Promise.allSettled so a single rate-limit hit or validation
+  // failure doesn't poison the whole batch's await; we collect statuses
+  // and reduce to the binary ok/ids/error shape below.
+  const settled = await Promise.allSettled(items.map(it => {
+    const sender = parseSender(it.from ?? FROM.training);
+    return brevo.transactionalEmails.sendTransacEmail({
+      sender,
+      to:          [{ email: it.to }],
+      subject:     it.subject,
+      htmlContent: it.html,
+      textContent: it.text ?? stripHtml(it.html),
+    });
   }));
 
-  try {
-    const { data, error } = await getResend().batch.send(payload);
-    if (error) return { ok: false, ids: [], error: error.message };
-    const ids = (data?.data ?? []).map((d: { id?: string }) => d.id ?? '');
-    return { ok: true, ids };
-  } catch (e) {
-    return { ok: false, ids: [], error: e instanceof Error ? e.message : String(e) };
+  const ids: string[] = [];
+  const errors: string[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    if (r.status === 'fulfilled') {
+      ids.push(r.value.messageId ?? '');
+    } else {
+      ids.push('');
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      errors.push(`item ${i}: ${msg}`);
+    }
   }
+
+  if (errors.length === 0) return { ok: true, ids };
+  return {
+    ok: false,
+    ids: [],
+    error: `${errors.length} of ${items.length} failed (first: ${errors[0]})`,
+  };
 }

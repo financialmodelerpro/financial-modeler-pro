@@ -38,19 +38,45 @@ Closes the cost-line duplication bug Ahmad eyeballed after M2.0j, plus expands T
 
 ---
 
-## ACTIVE FOLLOW-UP, Re-apply Brevo migration once account activates (2026-05-11)
+## ACTIVE FOLLOW-UP, Rename RESEND_WEBHOOK_SECRET to EMAIL_BRIDGE_BEARER_SECRET (2026-05-11)
 
-Brevo account is pending activation (up to 1 business day). Email vendor was **temporarily reverted to Resend** on 2026-05-11 to keep transactional email running. `sendEmail.ts` carries a `// TEMPORARY: Reverted to Resend...` comment at the top as a load-bearing marker.
+After the Brevo re-migration, the env var name `RESEND_WEBHOOK_SECRET` is misleading: it doubles as the bearer token for `POST /api/email/send` (used by the Google Apps Script bridge) and has nothing to do with Resend anymore. Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. Steps:
 
-**When Brevo activates, the re-migration is essentially cherry-picking commit `166a8ec` on top of current main, minus the docs changes that already landed in the follow-up docs commit.**
+1. Add `EMAIL_BRIDGE_BEARER_SECRET` to Vercel env vars with the same value as `RESEND_WEBHOOK_SECRET`.
+2. Update `app/api/email/send/route.ts` to read `EMAIL_BRIDGE_BEARER_SECRET` (fallback to legacy `RESEND_WEBHOOK_SECRET` for one deploy cycle).
+3. Update Apps Script to send the new header name.
+4. Remove the legacy `RESEND_WEBHOOK_SECRET` env var + the legacy fallback after one deploy cycle.
+5. Update `.env.example` + `app/api/admin/env-check/route.ts` to reflect the new name.
 
-Re-apply steps:
-1. `git cherry-pick 166a8ec` (will conflict on `src/shared/email/sendEmail.ts`; resolve by taking the Brevo version and removing the TEMPORARY comment).
-2. Manually re-apply: `package.json` (drop `resend`, add `@getbrevo/brevo`), `.env.example` (Resend section → Brevo section), `app/api/admin/env-check/route.ts` (`RESEND_API_KEY` → `BREVO_API_KEY`), `scripts/testEmails.ts` (comment).
-3. KEEP the per-session quiz email removal (already in main from 166a8ec / submit-assessment, not affected by this revert).
-4. KEEP the af1900b error-surfacing fix on `send-verification/route.ts` (vendor-agnostic, untouched by the revert).
-5. `npm install` + `npx tsc --noEmit` + `npm run build`.
-6. Vercel env: add `BREVO_API_KEY`, optionally leave `RESEND_API_KEY` in place for a few days as a safety net before removing.
+Out of scope for the email vendor migration; bookmark it here so it doesn't get forgotten.
+
+---
+
+## Recently Completed, Email Migration Brevo Re-apply (2026-05-11)
+
+Brevo account is now activated. Re-applied the Resend → Brevo migration after the temporary revert. `sendEmail.ts` is back on `@getbrevo/brevo ^5.0.4` (matches the original commit `166a8ec` content verbatim, minus the TEMPORARY comment). Two improvements that landed during the revert window stay in place (vendor-agnostic): the `send-verification` catch fix (af1900b) and the per-session quiz email removal (part of 166a8ec submit-assessment changes, never touched by the revert).
+
+**Full timeline:**
+1. **Initial migration** (2026-05-11, commit `166a8ec`): Resend → Brevo SDK swap + per-session quiz email removal. Templates untouched (sender-agnostic).
+2. **Blocked by Brevo IP allowlist** (disabled the production sender IP automatically pending verification). First indication of activation requirements.
+3. **Blocked by Brevo account pending phone verification**. SMS verification path failed for the Pakistan number; resolved via Brevo support email after the SMS retries hit the dead-letter.
+4. **Temporary revert to Resend** (2026-05-11, commit `f902e97`): rolled `sendEmail.ts` back to the Resend SDK, package.json swap, env-check + scripts + `.env.example` reverted. Kept the af1900b catch fix and submit-assessment per-session removal (both vendor-agnostic). `sendEmail.ts` carried a `// TEMPORARY: Reverted to Resend...` marker at the top.
+5. **Brevo activated** (2026-05-11): support confirmed account, IP allowlist cleared.
+6. **Re-applied migration** (2026-05-11, this commit): restored Brevo SDK + dropped TEMPORARY comment + re-swapped package.json + env files + `.env.example`. `npx tsc --noEmit` clean, `npm run build` passed.
+
+**Files touched in this re-apply** (matches commit `166a8ec` body):
+- `src/shared/email/sendEmail.ts`: Brevo SDK + `parseSender("Name <email>")` → `{ name, email }` + `sendEmailBatch` Promise.allSettled loop. TEMPORARY comment removed.
+- `package.json`: `+@getbrevo/brevo ^5.0.4`, `-resend ^6.10.0`.
+- `.env.example`: Resend section → Brevo section. `RESEND_WEBHOOK_SECRET` name kept (rename tracked above as separate follow-up).
+- `app/api/admin/env-check/route.ts`: `RESEND_API_KEY` → `BREVO_API_KEY`.
+- `scripts/testEmails.ts`: header comment Resend → Brevo.
+
+**NOT touched:**
+- `app/api/training/send-verification/route.ts`: af1900b catch fix stays.
+- `app/api/training/submit-assessment/route.ts`: per-session quiz email removal stays.
+- Doc files (CLAUDE.md, PROJECT_HANDOFF.md, PLATFORM_INVENTORY.md, CLAUDE-FEATURES.md, CLAUDE-ROUTES.md): already carry Brevo references from earlier docs commit `3b3f154`.
+
+**Vercel env**: `BREVO_API_KEY` populated; `RESEND_API_KEY` left in place for a few days as a safety net before removing. `RESEND_WEBHOOK_SECRET` stays until the rename follow-up.
 
 ---
 
