@@ -1740,54 +1740,43 @@ export default function Module1Financing(): React.JSX.Element {
             </table>
           </div>
 
-          {/* Schedule 2: Drawdown per facility (filtered) */}
-          {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
-            const r = resultsMap.get(t.id);
-            if (!r) return null;
-            const drawAnnual = r.drawSchedule.slice(0, periodCount);
-            const cumAnnual = drawAnnual.reduce<number[]>((acc, v) => {
-              acc.push((acc[acc.length - 1] ?? 0) + v);
-              return acc;
-            }, []);
-            return (
-              <ScheduleTable
-                key={`draw-${t.id}`}
-                title={`2. Drawdown Schedule, ${t.name}`}
-                dataTestid={`draw-${t.id}`}
-                columns={periodLabels.slice(0, expandedPeriodCount)}
-                rows={[
-                  { label: 'Drawdown', values: transform(drawAnnual).map(fmt) as unknown as number[], total: fmt(drawAnnual.reduce((s, v) => s + v, 0)) },
-                  { label: 'Cumulative Drawn', values: transform(cumAnnual).map(fmt) as unknown as number[], total: '-' },
-                ]}
-              />
-            );
-          })}
+          {/* P4-Fix 7 (2026-05-12): Schedules restructure.
+              Old standalone Drawdown schedule dropped (rolled into Debt
+              Movement). Old Repayment schedule replaced with Debt Movement
+              per facility: Opening Balance + Drawdown + Interest Capitalized
+              + Principal Repaid + Closing Balance, a single ledger-style
+              walk per facility. */}
 
-          {/* Schedule 3: Repayment per facility (filtered) */}
+          {/* Schedule 2: Debt Movement per facility (filtered) */}
           {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
             const r = resultsMap.get(t.id);
             if (!r) return null;
             const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
+            // Opening balance = previous period's outstanding balance
+            // (period 0 opening = 0). Closing balance = outstandingBalance.
+            const opening: number[] = new Array(periodCount).fill(0);
+            const closing = r.outstandingBalance.slice(0, periodCount);
+            for (let i = 1; i < periodCount; i++) opening[i] = closing[i - 1] ?? 0;
             return (
               <ScheduleTable
-                key={`repay-${t.id}`}
-                title={`3. Repayment Schedule, ${t.name}`}
-                dataTestid={`repay-${t.id}`}
+                key={`debt-movement-${t.id}`}
+                title={`2. Debt Movement, ${t.name}`}
+                dataTestid={`debt-movement-${t.id}`}
                 columns={periodLabels.slice(0, expandedPeriodCount)}
                 rows={[
-                  { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
-                  { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
-                  { label: 'IDC Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
+                  { label: 'Opening Balance', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
+                  { label: 'Drawdown', values: transform(r.drawSchedule.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.drawSchedule) },
+                  { label: 'Interest Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
                   { label: 'Principal Repaid', values: transform(r.principalRepaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.principalRepaid) },
-                  { label: 'Outstanding Balance', values: transform(r.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
+                  { label: 'Closing Balance', values: transform(closing).map(fmt) as unknown as number[], bold: true, total: '-' },
                 ]}
               />
             );
           })}
 
-          {/* Schedule 4: Combined Debt Service */}
+          {/* Schedule 3: Combined Debt Service */}
           <ScheduleTable
-            title="4. Combined Debt Service"
+            title="3. Combined Debt Service"
             dataTestid="combined-debt-service"
             columns={periodLabels.slice(0, expandedPeriodCount)}
             rows={[
@@ -1796,6 +1785,32 @@ export default function Module1Financing(): React.JSX.Element {
               { label: 'Total Debt Service', values: transform(combined.totalDebtService.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: fmt(combined.totalDebtService.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
             ]}
           />
+
+          {/* P4-Fix 7 (2026-05-12): Finance Cost per facility (filtered).
+              Dual tracking: Interest Accrued + Interest Paid + IDC
+              Capitalized + Expensed Interest. Separates the P&L finance
+              cost (accrued + expensed) from the cash service line
+              (paid + capitalized) - matches how M5 will consume these. */}
+          {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
+            const r = resultsMap.get(t.id);
+            if (!r) return null;
+            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
+            const expensed = r.interestAccrued.slice(0, periodCount).map((acc, i) => Math.max(0, acc - (r.interestCapitalized[i] ?? 0)));
+            return (
+              <ScheduleTable
+                key={`finance-cost-${t.id}`}
+                title={`4. Finance Cost, ${t.name}`}
+                dataTestid={`finance-cost-${t.id}`}
+                columns={periodLabels.slice(0, expandedPeriodCount)}
+                rows={[
+                  { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
+                  { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
+                  { label: 'IDC Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
+                  { label: 'Expensed Interest', values: transform(expensed).map(fmt) as unknown as number[], bold: true, total: fmt(expensed.reduce((s, v) => s + v, 0)) },
+                ]}
+              />
+            );
+          })}
 
           {/* Schedule 5: IDC Summary */}
           <div style={sectionCardStyle} data-testid="idc-summary">
@@ -1831,20 +1846,29 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </div>
 
-          {/* P2-Fix 11 (2026-05-11): Schedule 6 - Equity Schedule.
-              Cash + In-Kind contributions per period + closing equity.
-              Cash equity timing mirrors the debt drawdown shape; in-kind
-              lump lands at period 0 (matches Land In-Kind cost line). */}
-          <ScheduleTable
-            title="6. Equity Schedule"
-            dataTestid="equity-schedule"
-            columns={periodLabels.slice(0, expandedPeriodCount)}
-            rows={[
-              { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(equity.cashContribution) },
-              { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(equity.inKindContribution) },
-              { label: 'Closing Equity', values: transform(equity.closingPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
-            ]}
-          />
+          {/* P4-Fix 7 + Fix 8 (2026-05-12): Equity Movement (replaces
+              Equity Schedule). Ledger-style walk: Opening Equity +
+              Cash Contributions + In-Kind Contributions + Closing
+              Equity, matching the Debt Movement shape. */}
+          {(() => {
+            const closing = equity.closingPerPeriod.slice(0, periodCount);
+            const opening: number[] = new Array(periodCount).fill(0);
+            for (let i = 1; i < periodCount; i++) opening[i] = closing[i - 1] ?? 0;
+            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
+            return (
+              <ScheduleTable
+                title="6. Equity Movement"
+                dataTestid="equity-movement"
+                columns={periodLabels.slice(0, expandedPeriodCount)}
+                rows={[
+                  { label: 'Opening Equity', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
+                  { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.cashPerPeriod) },
+                  { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.inKindPerPeriod) },
+                  { label: 'Closing Equity', values: transform(closing).map(fmt) as unknown as number[], bold: true, total: '-' },
+                ]}
+              />
+            );
+          })()}
 
           {/* Schedule 7: Capital Stack Movement */}
           <ScheduleTable
