@@ -269,12 +269,11 @@ interface TrancheCardProps {
   decimals: DisplayDecimalsT;
   onUpdate: (patch: Partial<FinancingTranche>) => void;
   onRemove: () => void;
-  assets: Array<{ id: string; name: string }>;
 }
 
 function TrancheCard({
   tranche, phase, capexPerPeriod, presalesPerPeriod, project, scale, decimals,
-  onUpdate, onRemove, assets,
+  onUpdate, onRemove,
 }: TrancheCardProps): React.JSX.Element {
   // P2-Fix 9 (2026-05-11): per-tranche schedule cells use the export
   // formatter (no K/M suffix). Scale indicator stays in the page header.
@@ -523,18 +522,12 @@ function TrancheCard({
             <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
           </select>
         </div>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Per-Asset Scope</label>
-          <select
-            value={tranche.assetId ?? ''}
-            onChange={(e) => onUpdate({ assetId: e.target.value || undefined })}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-asset`}
-          >
-            <option value="">Phase-wide</option>
-            {assets.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
-          </select>
-        </div>
+        {/* P2-Fix 8 (2026-05-11): per-asset scope dropdown removed.
+            Each facility is phase-scoped (driven by activePhaseId in
+            the page header). The brief's "project-wide" view surfaces
+            via Tab 4's Phase Filter (All Phases) in the Schedules
+            sub-tab. tranche.assetId stays on the schema for legacy
+            snapshots; migration converts any scope='asset' to phase. */}
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
             <input
@@ -1186,7 +1179,6 @@ export default function Module1Financing(): React.JSX.Element {
                 decimals={decimals}
                 onUpdate={(patch) => updateFinancingTranche(t.id, patch)}
                 onRemove={() => removeFinancingTranche(t.id)}
-                assets={phaseAssets.map((a) => ({ id: a.id, name: a.name }))}
               />
             ))}
           </div>
