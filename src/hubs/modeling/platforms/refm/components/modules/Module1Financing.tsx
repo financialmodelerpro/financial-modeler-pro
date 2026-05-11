@@ -442,41 +442,17 @@ function TrancheCard({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Drawdown Method</label>
-          <select
-            value={tranche.drawdownMethod}
-            onChange={(e) => onUpdate({ drawdownMethod: e.target.value as DrawdownMethod })}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-drawdown`}
-          >
-            {DRAWDOWN_METHODS.map((m) => (
-              <option key={m} value={m}>{DRAWDOWN_METHOD_LABELS[m]}</option>
-            ))}
-          </select>
-          {tranche.drawdownMethod === 'capex_minus_presales' && (
-            <label style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-              <input
-                type="checkbox"
-                checked={tranche.drawdownIncludeLand !== false}
-                onChange={(e) => onUpdate({ drawdownIncludeLand: e.target.checked })}
-                data-testid={`tranche-${tranche.id}-include-land`}
-              />
-              Include land in capex base
-            </label>
-          )}
-          {tranche.drawdownMethod === 'min_cash_floor' && (
-            <input
-              type="number" min={0}
-              placeholder="Cash floor"
-              value={tranche.drawdownMinCashFloor ?? 0}
-              onChange={(e) => onUpdate({ drawdownMinCashFloor: parseFloat(e.target.value) || 0 })}
-              style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-cash-floor-drawdown`}
-            />
-          )}
-        </div>
+      {/* P3-Fix 5 (2026-05-12): per-facility Drawdown Method dropdown
+          dropped. Drawdown timing auto-derives from the chosen funding
+          method (Method 1: matches capex weighted by debt%; Method 2:
+          matches cost-line phasing x debt%; Method 3: matches net
+          funding requirement schedule; Method 4: drawdown when cash
+          deficit appears). Schema fields drawdownMethod /
+          drawdownDistribution / drawdownIncludeLand /
+          drawdownMinCashFloor / drawdownCustomSchedule stay for
+          back-compat; calc engine ignores them when
+          ProjectFinancingConfig is set. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(1, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           {/* P2-Fix 5 (2026-05-11): dropdown shows 3 user-facing methods.
               Legacy values (cashsweep_*, straight_line, bullet, balloon,
