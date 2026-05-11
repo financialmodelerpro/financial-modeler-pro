@@ -284,12 +284,17 @@ interface TrancheCardProps {
   project: Parameters<typeof computeFinancing>[4];
   scale: DisplayScale;
   decimals: DisplayDecimalsT;
+  // P3-Fix 3 (2026-05-12): number of facilities in this phase. When > 1
+  // the Facility Share % input surfaces so the user can split total
+  // debt across facilities (e.g., Senior 70%, Mezz 30%).
+  facilityCount: number;
   onUpdate: (patch: Partial<FinancingTranche>) => void;
   onRemove: () => void;
 }
 
 function TrancheCard({
   tranche, phase, capexPerPeriod, presalesPerPeriod, project, scale, decimals,
+  facilityCount,
   onUpdate, onRemove,
 }: TrancheCardProps): React.JSX.Element {
   // P2-Fix 9 (2026-05-11): per-tranche schedule cells use the export
@@ -341,32 +346,14 @@ function TrancheCard({
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
-        <div>
-          {/* P2-Fix 2 (2026-05-11): label is "Debt %"; schema field stays ltvPct. */}
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Debt %</label>
-          <input
-            type="number" min={0} max={100}
-            value={tranche.ltvPct}
-            onChange={(e) => onUpdate({ ltvPct: parseFloat(e.target.value) || 0 })}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-ltv`}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Principal (abs.)</label>
-          <input
-            type="number" min={0}
-            placeholder="0 = use Debt %"
-            value={tranche.principal ?? 0}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value) || 0;
-              onUpdate({ principal: v > 0 ? v : undefined });
-            }}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-principal`}
-          />
-        </div>
+      {/* P3-Fix 3 (2026-05-12): per-facility Debt % + Principal inputs
+          dropped. Facility principal auto-derives from chosen funding
+          method (Method 1: total capex x debt%; Method 2: cost-line
+          ratios; Method 3: net funding x debt%; Method 4: cash deficit
+          x debt%). Multi-facility split uses the new Facility Share %
+          field below. ltvPct + principal stay on schema for back-compat;
+          calc engine ignores them when ProjectFinancingConfig is set. */}
+      <div style={{ display: 'grid', gridTemplateColumns: facilityCount > 1 ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Interest %</label>
           <input
@@ -389,6 +376,19 @@ function TrancheCard({
             <option value="floating">Floating</option>
           </select>
         </div>
+        {facilityCount > 1 && (
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Facility Share %</label>
+            <input
+              type="number" min={0} max={100}
+              value={tranche.facilitySharePct ?? Math.round(100 / facilityCount)}
+              onChange={(e) => onUpdate({ facilitySharePct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-facility-share`}
+              title="Share of total project debt this facility funds (sums to 100% across facilities)."
+            />
+          </div>
+        )}
       </div>
 
       {interestRateType === 'floating' && (
@@ -1291,6 +1291,7 @@ export default function Module1Financing(): React.JSX.Element {
                 project={project}
                 scale={scale}
                 decimals={decimals}
+                facilityCount={phaseTranches.length}
                 onUpdate={(patch) => updateFinancingTranche(t.id, patch)}
                 onRemove={() => removeFinancingTranche(t.id)}
               />

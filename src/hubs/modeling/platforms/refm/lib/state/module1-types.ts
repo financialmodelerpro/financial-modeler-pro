@@ -1167,6 +1167,17 @@ export interface FinancingTranche {
    *  a read-only cost line in Tab 3 for the capitalized IDC. */
   autoGenerateIdcCostLine?: boolean;
 
+  // ── M2.0M Pass 3 (2026-05-12) ────────────────────────────────────
+  // P3-Fix 3: % of total debt this facility funds. Multi-facility split
+  // (sums to 100% across facilities in the same scope). Single facility
+  // defaults to 100. Migration adds even-split defaults when missing.
+  facilitySharePct?: number;
+  // P3-Fix 4: facility scope explicit on schema. UI surfaces 3 options
+  // (project / phase / asset); Pass 2 hid the asset option, Pass 3
+  // restores it.
+  scope?: 'project' | 'phase' | 'asset';
+  scopeId?: string;
+
   // ── M2.0M Pass 2 (2026-05-11) ────────────────────────────────────
   // P2-Fix 5: sub-mode for the new equal_repayment method.
   equalRepaymentSubMethod?: EqualRepaymentSubMethod;
