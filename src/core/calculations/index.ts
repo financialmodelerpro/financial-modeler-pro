@@ -133,10 +133,20 @@ export function computeSubUnitArea(u: SubUnit): number {
 // Behaviour: prefer the sub-unit sum unconditionally. Fall back to
 // asset.buaSqm only when the asset has no sub-units yet (so empty-
 // asset placeholders show the user-entered hint, not 0).
+// M2.0M Pass 9 Fix 8 (2026-05-12): fallback widens. When sub-units
+// exist but every row has metricValue=0 (stub rows from "Add sub-unit"
+// before the user fills in area), fall back to asset.buaSqm rather
+// than returning 0. resolveAssetAreaMetrics already does this widening
+// at src/core/calculations/index.ts:649-652; computeAssetBua was the
+// missing link that caused autoByBua land allocation (via
+// computeAssetLandSqm) to compute landSqm=0 even when asset.buaSqm
+// carries the real entered area. See docs/m20costs-pass9-land-zero-
+// diagnostic.md for the full trace.
 export function computeAssetBua(asset: Asset, subUnits: SubUnit[]): number {
   const phaseSubUnits = subUnits.filter((u) => u.assetId === asset.id);
   if (phaseSubUnits.length === 0) return Math.max(0, asset.buaSqm ?? 0);
-  return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  return sum > 0 ? sum : Math.max(0, asset.buaSqm ?? 0);
 }
 
 export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): number {
@@ -144,7 +154,8 @@ export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): numb
     (u) => u.assetId === asset.id && u.category !== 'Support',
   );
   if (phaseSubUnits.length === 0) return Math.max(0, asset.sellableBuaSqm ?? 0);
-  return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  return sum > 0 ? sum : Math.max(0, asset.sellableBuaSqm ?? 0);
 }
 
 // Sum of Sellable / Operable / Leasable units where metric === 'units'.
