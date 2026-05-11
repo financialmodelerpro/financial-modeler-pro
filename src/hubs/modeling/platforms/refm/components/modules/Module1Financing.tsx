@@ -78,6 +78,8 @@ import {
   computeCombinedDebtService,
   applyIdcToCapex,
   distributeAnnualToPeriods,
+  computeFunding,
+  computeEquity,
   type FinancingResult,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
@@ -825,6 +827,27 @@ export default function Module1Financing(): React.JSX.Element {
     () => computeCapitalStack(phaseTranches, phaseEquity, phaseCost.total),
     [phaseTranches, phaseEquity, phaseCost.total],
   );
+  // P2-Fix 11 (2026-05-11): uniform funding + equity computation drives
+  // the Capital Stack Summary equity rows and the new Equity Schedule.
+  const funding = useMemo(
+    () => computeFunding({
+      method: financingConfig.fundingMethod,
+      financing: financingConfig,
+      capexPerPeriod,
+    }),
+    [financingConfig, capexPerPeriod],
+  );
+  const phaseInKindLandValue = useMemo(() => {
+    const phaseAssetsLocal = assets.filter((a) => a.phaseId === phase.id && a.visible);
+    return phaseAssetsLocal.reduce((s, a) => {
+      const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssetsLocal, subUnits, landAllocationMode);
+      return s + Math.max(0, m.inKindLandValue);
+    }, 0);
+  }, [assets, phase.id, project, parcels, subUnits, landAllocationMode]);
+  const equity = useMemo(
+    () => computeEquity(financingConfig, funding, phaseInKindLandValue),
+    [financingConfig, funding, phaseInKindLandValue],
+  );
   const idcSummary = useMemo(
     () => computeIdcSummary(phaseTranches, resultsMap),
     [phaseTranches, resultsMap],
@@ -1203,6 +1226,67 @@ export default function Module1Financing(): React.JSX.Element {
                 </div>
               </div>
             </div>
+            {/* P2-Fix 11 (2026-05-11): Capital Stack Sources table.
+                Equity Cash + Equity In-Kind from computeEquity, then
+                per-facility debt rows. Adds % of Total + auto match row. */}
+            <div style={{ marginTop: 'var(--sp-2)', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} data-testid="cap-stack-sources-table">
+                <thead>
+                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                    <th style={{ padding: '6px', textAlign: 'left' }}>Source</th>
+                    <th style={{ padding: '6px', textAlign: 'right' }}>Amount</th>
+                    <th style={{ padding: '6px', textAlign: 'right' }}>% of Total</th>
+                    <th style={{ padding: '6px', textAlign: 'left' }}>Category</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const totalAll = equity.cashContribution + equity.inKindContribution + phaseTranches.reduce((s, t) => s + (t.principal ?? (funding.totalNeed * (financingConfig.fixedRatio?.debtPct ?? 70) / 100 / Math.max(1, phaseTranches.length))), 0);
+                    const pct = (v: number): string => totalAll > 0 ? ((v / totalAll) * 100).toFixed(1) + '%' : '0.0%';
+                    return (
+                      <>
+                        <tr data-testid="cap-stack-source-equity-cash">
+                          <td style={{ padding: '4px 6px' }}>Equity (Cash)</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(equity.cashContribution)}</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(equity.cashContribution)}</td>
+                          <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>equity:cash</td>
+                        </tr>
+                        <tr data-testid="cap-stack-source-equity-inkind">
+                          <td style={{ padding: '4px 6px' }}>Equity (In-Kind)</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(equity.inKindContribution)}</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(equity.inKindContribution)}</td>
+                          <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>equity:in_kind</td>
+                        </tr>
+                        {phaseTranches.map((t) => {
+                          const principal = t.principal ?? (funding.totalNeed * (financingConfig.fixedRatio?.debtPct ?? 70) / 100 / Math.max(1, phaseTranches.length));
+                          return (
+                            <tr key={t.id} data-testid={`cap-stack-source-debt-${t.id}`}>
+                              <td style={{ padding: '4px 6px' }}>{t.name}</td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(principal)}</td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(principal)}</td>
+                              <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>debt</td>
+                            </tr>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                    <td style={{ padding: '4px 6px' }}>Total Sources</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-sources-total">{fmt(stack.totalSources)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>100.0%</td>
+                    <td></td>
+                  </tr>
+                  <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                    <td style={{ padding: '4px 6px' }}>Total Uses (Capex)</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-uses-total">{fmt(stack.totalUses)}</td>
+                    <td colSpan={2} style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }}>{Math.abs(stack.gap) < 1 ? 'Sources match Uses' : `Gap ${fmt(stack.gap)}`}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
 
           {/* Debt Tranches */}
@@ -1460,9 +1544,24 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </div>
 
-          {/* Schedule 6: Capital Stack Movement */}
+          {/* P2-Fix 11 (2026-05-11): Schedule 6 - Equity Schedule.
+              Cash + In-Kind contributions per period + closing equity.
+              Cash equity timing mirrors the debt drawdown shape; in-kind
+              lump lands at period 0 (matches Land In-Kind cost line). */}
           <ScheduleTable
-            title="6. Capital Stack Movement (Outstanding Balance, Combined)"
+            title="6. Equity Schedule"
+            dataTestid="equity-schedule"
+            columns={periodLabels.slice(0, expandedPeriodCount)}
+            rows={[
+              { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[] },
+              { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[] },
+              { label: 'Closing Equity', values: transform(equity.closingPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true },
+            ]}
+          />
+
+          {/* Schedule 7: Capital Stack Movement */}
+          <ScheduleTable
+            title="7. Capital Stack Movement (Outstanding Balance, Combined)"
             dataTestid="stack-movement"
             columns={periodLabels.slice(0, expandedPeriodCount)}
             rows={[
