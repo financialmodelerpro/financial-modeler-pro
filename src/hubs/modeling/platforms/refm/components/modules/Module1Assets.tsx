@@ -258,6 +258,7 @@ function resolveTypeCatalog(asset: Asset, project: Project): readonly string[] {
 export default function Module1Assets(): React.JSX.Element {
   const {
     project,
+    setProject,
     phases,
     parcels,
     addParcel,
@@ -273,6 +274,7 @@ export default function Module1Assets(): React.JSX.Element {
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
+      setProject: s.setProject,
       phases: s.phases,
       parcels: s.parcels,
       addParcel: s.addParcel,
@@ -423,23 +425,13 @@ export default function Module1Assets(): React.JSX.Element {
             + Add Parcel
           </button>
         </div>
-        {/* M2.0M Pass 6 Fix 3 (2026-05-11): when project-level NDA is
-            enabled in Tab 1, the per-parcel NDA columns below are
-            ignored by the calc engine. We surface a small notice so
-            the user knows where the active value lives. */}
-        {project.projectNdaEnabled === true && (
-          <div
-            style={{
-              marginBottom: 'var(--sp-2)', padding: 'var(--sp-1) var(--sp-2)',
-              background: 'color-mix(in srgb, var(--color-meta) 8%, transparent)',
-              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-small)', color: 'var(--color-meta)',
-            }}
-            data-testid="parcels-project-nda-notice"
-          >
-            Project-level NDA deduction is enabled in Tab 1 (roads {project.projectRoadsPct ?? 0}% + parks {project.projectParksPct ?? 0}%). Per-parcel NDA toggles below are kept for reference but do not affect calculations while the project setting is on.
-          </div>
-        )}
+        {/* P7-Fix 1 (2026-05-11): per-parcel NDA columns dropped. The
+            project-level NDA summary block below the totals row owns
+            this surface now (single Apply NDA + Roads% + Parks% inputs
+            with explicit Gross / Net derivation). Schema fields
+            (parcel.hasNdaDeduction / parcel.roadsPct / parcel.parksPct)
+            retained for back-compat with legacy snapshots but no
+            longer surfaced in the inputs UI. */}
         <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="parcels-table">
           <thead>
             <tr>
@@ -449,12 +441,7 @@ export default function Module1Assets(): React.JSX.Element {
               <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total parcel cost = Area x Rate. Asset land cost = asset's allocated sqm x parcel's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from landowner)." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="NDA?" help="Net Developable Area deduction. Toggle ON to subtract Roads % + Parks % from the parcel's developable area." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Roads %" help="Share of parcel area reserved for roads (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Parks %" help="Share of parcel area reserved for parks (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="NDA (sqm)" help="Net developable area = parcel area × (1 - roads% - parks%). When toggle off, equals parcel area." textStyle={tableHeaderLabelStyle} /></th>
-              {/* M2.0j Fix 3: Effective NDA rate uses currency unit too. */}
-              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/NDA sqm`} help="Total parcel cost / NDA. Inflated when roads + parks reserve some of the parcel; equal to parcel rate when NDA toggle off." textStyle={tableHeaderLabelStyle} /></th>
+              {/* P7-Fix 1: per-parcel NDA / Roads % / Parks % / NDA (sqm) / {currency}/NDA sqm columns removed; project-level NDA card below owns this. */}
               <th style={tableHeaderStyle}><InputLabel label="Total Value" help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}></th>
             </tr>
@@ -482,14 +469,91 @@ export default function Module1Assets(): React.JSX.Element {
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatScaled(aggregate.weightedRate, project.displayScale ?? 'full', project.displayDecimals ?? 2)} /sqm</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatScaled(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatScaled(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td colSpan={3}></td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-nda">{formatArea(parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0), project.displayDecimals ?? 2)} sqm</td>
-              <td></td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatScaled(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
+
+        {/* P7-Fix 1 (2026-05-11): project-level NDA summary block. Replaces
+            the legacy per-parcel Roads %/Parks % inputs (still on schema for
+            back-compat) with a single project-wide toggle + roads% + parks%
+            inputs and a clear Gross / Net NDA derivation below the Total
+            Land row. The Tab 1 NDA card (Pass 6 Fix 3) is the same field
+            set; both surfaces write to project.projectNdaEnabled +
+            projectRoadsPct + projectParksPct. */}
+        {(() => {
+          const ndaEnabled = project.projectNdaEnabled === true;
+          const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
+          const parksPct = Math.max(0, Math.min(100, project.projectParksPct ?? 0));
+          const totalDeductPct = Math.min(100, roadsPct + parksPct);
+          const totalLand = aggregate.totalAreaSqm;
+          const grossNda = totalLand * (1 - totalDeductPct / 100);
+          const netNda = grossNda; // No additional deductions today.
+          return (
+            <div
+              style={{
+                marginTop: 'var(--sp-2)',
+                padding: 'var(--sp-2)',
+                background: 'var(--color-grey-pale)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+              }}
+              data-testid="parcels-nda-summary"
+            >
+              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                NDA Calculation (project-level)
+              </strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 6 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }} data-testid="parcels-nda-toggle-label">
+                  <input
+                    type="checkbox"
+                    data-testid="parcels-nda-enabled"
+                    checked={ndaEnabled}
+                    onChange={(e) => setProject({ projectNdaEnabled: e.target.checked })}
+                  />
+                  Apply NDA Deduction
+                </label>
+                <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  Roads %:
+                  <input
+                    type="number" min={0} max={100} step={0.5}
+                    data-testid="parcels-nda-roads-pct"
+                    value={roadsPct}
+                    onChange={(e) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                    disabled={!ndaEnabled}
+                    style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
+                  />
+                </label>
+                <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  Parks %:
+                  <input
+                    type="number" min={0} max={100} step={0.5}
+                    data-testid="parcels-nda-parks-pct"
+                    value={parksPct}
+                    onChange={(e) => setProject({ projectParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                    disabled={!ndaEnabled}
+                    style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
+                  />
+                </label>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-meta)', display: 'grid', gap: 4 }} data-testid="parcels-nda-derivation">
+                <div>
+                  Gross NDA = Total Land x (100% - Roads% - Parks%)
+                </div>
+                <div>
+                  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= {formatArea(totalLand, project.displayDecimals ?? 2)} x {(100 - totalDeductPct).toFixed(1)}%
+                </div>
+                <div data-testid="parcels-nda-gross">
+                  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <strong style={{ color: 'var(--color-body)' }}>{formatArea(grossNda, project.displayDecimals ?? 2)} sqm</strong>
+                </div>
+                <div data-testid="parcels-nda-net" style={{ marginTop: 4 }}>
+                  Net NDA &nbsp;&nbsp;= Gross NDA - (any other deductions if applicable) = <strong style={{ color: 'var(--color-body)' }}>{formatArea(netNda, project.displayDecimals ?? 2)} sqm</strong>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* M2.0g Fix 2 + M2.0h Fix 4 + M2.0i Fix 9: Land Reconciliation
@@ -621,8 +685,7 @@ interface ParcelRowProps {
 
 function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: ParcelRowProps): React.JSX.Element {
   const total = parcel.area * parcel.rate;
-  const nda = computeParcelNda(parcel);
-  const ndaOn = parcel.hasNdaDeduction === true;
+  // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
@@ -673,40 +736,9 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
           style={inputStyle}
         />
       </td>
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'center' }}>
-        <input
-          type="checkbox"
-          checked={ndaOn}
-          data-testid={`parcel-${parcel.id}-hasNdaDeduction`}
-          onChange={(e) => onUpdate({ hasNdaDeduction: e.target.checked })}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number" min={0} max={100} value={parcel.roadsPct ?? 0}
-          data-testid={`parcel-${parcel.id}-roadsPct`}
-          onChange={(e) => onUpdate({ roadsPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-          style={{ ...inputStyle, opacity: ndaOn ? 1 : 0.4 }}
-          disabled={!ndaOn}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number" min={0} max={100} value={parcel.parksPct ?? 0}
-          data-testid={`parcel-${parcel.id}-parksPct`}
-          onChange={(e) => onUpdate({ parksPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-          style={{ ...inputStyle, opacity: ndaOn ? 1 : 0.4 }}
-          disabled={!ndaOn}
-        />
-      </td>
-      {/* M2.0j Fix 5: NDA sqm uses formatArea (no scale conversion);
-          rate + total follow project displayScale + displayDecimals. */}
-      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-nda`}>
-        {formatArea(nda.nda, decimals)}
-      </td>
-      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-effectiveNdaRate`}>
-        {formatScaled(nda.effectiveNdaRate, scale, decimals)}
-      </td>
+      {/* P7-Fix 1: NDA checkbox + Roads % + Parks % + NDA (sqm) +
+          effective NDA rate cells dropped. The project-level NDA card
+          below the parcels totals row owns these inputs now. */}
       <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{formatScaled(total, scale, decimals)}</td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
