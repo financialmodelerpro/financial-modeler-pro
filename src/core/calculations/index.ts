@@ -1042,6 +1042,21 @@ export function computeFinancing(
   const drawSchedule = new Array<number>(periods).fill(0);
   const drawWindow = Math.min(constructionPeriods, periods);
 
+  // M2.0L (2026-05-11): resolved facility size (absolute principal
+  // takes precedence over ltv-based when set).
+  const resolvedPrincipal =
+    typeof tranche.principal === 'number' && tranche.principal > 0
+      ? tranche.principal
+      : totalCapex * ltv;
+  // M2.0L: availability window narrows when the user sets it
+  // explicitly; defaults to the construction window for back-compat.
+  const availWindow = Math.min(
+    drawWindow,
+    typeof tranche.availabilityPeriods === 'number' && tranche.availabilityPeriods > 0
+      ? tranche.availabilityPeriods
+      : drawWindow,
+  );
+
   switch (tranche.drawdownMethod) {
     case 'capex_basis': {
       // Tracks capex × ltv per period.
@@ -1057,9 +1072,11 @@ export function computeFinancing(
       }
       break;
     }
-    case 'capex_minus_presales': {
+    case 'capex_minus_presales':
+    case 'cash_available': {
       // Net capex = capex - presales. If drawdownIncludeLand is false,
       // exclude the period-0 land lump from the capex base.
+      // M2.0L: cash_available is the MAAD pattern alias.
       const includeLand = tranche.drawdownIncludeLand !== false;
       for (let i = 0; i < drawWindow; i++) {
         const cx = capexPerPeriod[i] ?? 0;
@@ -1072,11 +1089,10 @@ export function computeFinancing(
     }
     case 'manual': {
       const dist = tranche.drawdownDistribution ?? [];
-      const totalDebt = totalCapex * ltv;
       const sum = dist.reduce((s, v) => s + (v ?? 0), 0);
       for (let i = 0; i < drawWindow; i++) {
         const w = sum > 0 ? (dist[i] ?? 0) / sum : 1 / drawWindow;
-        drawSchedule[i] = totalDebt * w;
+        drawSchedule[i] = resolvedPrincipal * w;
       }
       break;
     }
@@ -1096,6 +1112,30 @@ export function computeFinancing(
       }
       break;
     }
+    case 'front_loaded': {
+      // M2.0L: 100% drawn in the first availability period.
+      if (availWindow > 0) drawSchedule[0] = resolvedPrincipal;
+      break;
+    }
+    case 'equal_periodic': {
+      // M2.0L: equal slice across the availability window.
+      const slice = availWindow > 0 ? resolvedPrincipal / availWindow : 0;
+      for (let i = 0; i < availWindow; i++) drawSchedule[i] = slice;
+      break;
+    }
+    case 'custom_schedule': {
+      // M2.0L: per-period absolute amounts. Clipped to facility size.
+      const sched = tranche.drawdownCustomSchedule ?? [];
+      let drawn = 0;
+      for (let i = 0; i < drawWindow; i++) {
+        const want = Math.max(0, sched[i] ?? 0);
+        const room = Math.max(0, resolvedPrincipal - drawn);
+        const taken = Math.min(want, room);
+        drawSchedule[i] = taken;
+        drawn += taken;
+      }
+      break;
+    }
   }
 
   const totalDebtFromDraws = drawSchedule.reduce((s, v) => s + v, 0);
@@ -1110,48 +1150,100 @@ export function computeFinancing(
   // Pre-compute repayment baseline (where applicable). Index into the
   // total period array, not the construction window.
   const opsStartIdx = constructionPeriods - overlap;
+  // M2.0L: grace period defers principal repayment within the
+  // operations window. Falls back to no grace (=opsStartIdx) when
+  // not set.
+  const graceEndIdx = opsStartIdx + Math.max(0, tranche.gracePeriods ?? 0);
   const repBudget = new Array<number>(periods).fill(0);
   if (tranche.repaymentMethod === 'manual') {
     const dist = tranche.repaymentManualDistribution ?? [];
-    for (let i = 0; i < periods; i++) repBudget[i] = Math.max(0, dist[i] ?? 0);
+    const sum = dist.reduce((s, v) => s + (Math.max(0, v ?? 0)), 0);
+    for (let i = 0; i < periods; i++) {
+      const w = sum > 0 ? Math.max(0, dist[i] ?? 0) / sum : 0;
+      repBudget[i] = totalDebtFromDraws * w;
+    }
   } else if (tranche.repaymentMethod === 'straight_line' && tranche.repaymentPeriods > 0) {
     const principalPerPeriod = totalDebtFromDraws / tranche.repaymentPeriods;
-    for (let i = 0; i < tranche.repaymentPeriods && (opsStartIdx + i) < periods; i++) {
-      repBudget[opsStartIdx + i] = principalPerPeriod;
+    for (let i = 0; i < tranche.repaymentPeriods && (graceEndIdx + i) < periods; i++) {
+      repBudget[graceEndIdx + i] = principalPerPeriod;
     }
+  } else if (tranche.repaymentMethod === 'equal_periodic_amortization' && tranche.repaymentPeriods > 0) {
+    // Annuity: PMT = P × [r(1+r)^n] / [(1+r)^n - 1].
+    const pmt = computeEqualPeriodicPayment(totalDebtFromDraws, periodicRate, tranche.repaymentPeriods);
+    // Each repayment is the principal portion of PMT (PMT - interest on
+    // running balance). We pre-fill repBudget with PMT here and let the
+    // interest loop below subtract interest to derive principal share.
+    for (let i = 0; i < tranche.repaymentPeriods && (graceEndIdx + i) < periods; i++) {
+      repBudget[graceEndIdx + i] = pmt;
+    }
+  } else if (tranche.repaymentMethod === 'bullet') {
+    // Bullet: principal due at last period of facility (or maturity).
+    const maturity = Math.min(periods - 1, graceEndIdx + Math.max(0, tranche.repaymentPeriods) - 1);
+    if (maturity >= 0) repBudget[maturity] = totalDebtFromDraws;
+  } else if (tranche.repaymentMethod === 'balloon' && tranche.repaymentPeriods > 0) {
+    // Balloon: small equal periodic + large balloon at maturity.
+    const balloonShare = clamp(tranche.balloonPct ?? 30, 0, 100) / 100;
+    const balloonAmt = totalDebtFromDraws * balloonShare;
+    const periodicAmt = (totalDebtFromDraws - balloonAmt) / Math.max(1, tranche.repaymentPeriods - 1);
+    for (let i = 0; i < tranche.repaymentPeriods - 1 && (graceEndIdx + i) < periods; i++) {
+      repBudget[graceEndIdx + i] = periodicAmt;
+    }
+    const maturity = Math.min(periods - 1, graceEndIdx + tranche.repaymentPeriods - 1);
+    if (maturity >= 0) repBudget[maturity] = balloonAmt;
+  } else if (tranche.repaymentMethod === 'custom_schedule') {
+    const sched = tranche.repaymentCustomSchedule ?? [];
+    for (let i = 0; i < periods; i++) repBudget[i] = Math.max(0, sched[i] ?? 0);
   }
+
+  // M2.0L: resolve IDC treatment. New idcTreatment wins when set;
+  // legacy idcCapitalize boolean is the fallback.
+  const idcTreatment: 'capitalize' | 'expense' | 'mixed' =
+    tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense');
+  const idcSplitPeriod = tranche.idcMixedSplitPeriod ?? constructionPeriods;
+  const sweepRatio = clamp(tranche.sweepRatio ?? 75, 0, 100) / 100;
 
   let balance = 0;
   for (let i = 0; i < periods; i++) {
     balance += drawSchedule[i] ?? 0;
     const interest = balance * periodicRate;
     interestAccrued[i] = interest;
-    if (tranche.idcCapitalize && i < constructionPeriods) {
+    // M2.0L: 3-way IDC treatment. capitalize during construction (and
+    // through idcSplitPeriod for mixed); expense otherwise.
+    const inConstruction = i < constructionPeriods;
+    let capitalize = false;
+    if (idcTreatment === 'capitalize' && inConstruction) capitalize = true;
+    else if (idcTreatment === 'mixed' && i <= idcSplitPeriod) capitalize = true;
+    if (capitalize) {
       interestCapitalized[i] = interest;
       balance += interest;
     } else {
       interestPaid[i] = interest;
     }
     let repay = repBudget[i] ?? 0;
-    // Cash sweep variants: simple approximation here, real cash sweep
-    // needs Module 3 cashflow surplus per period.
-    if (tranche.repaymentMethod === 'cashsweep_continuous' && i >= opsStartIdx) {
+    // Annuity: subtract interest from PMT to get principal portion.
+    if (tranche.repaymentMethod === 'equal_periodic_amortization' && i >= graceEndIdx && repay > 0) {
+      repay = Math.max(0, repay - interest);
+    }
+    // Cash sweep variants: sweepRatio × straight-line over remaining periods
+    // until Module 5 supplies the real cashflow surplus.
+    if (tranche.repaymentMethod === 'cashsweep_continuous' && i >= graceEndIdx) {
       const remaining = Math.max(1, periods - i);
-      repay = balance / remaining;
+      repay = (balance / remaining) * sweepRatio;
     }
     if (tranche.repaymentMethod === 'cashsweep_from_period') {
-      const start = Math.max(opsStartIdx, tranche.sweepStartPeriod ?? opsStartIdx);
+      const start = Math.max(graceEndIdx, tranche.sweepStartPeriod ?? graceEndIdx);
       if (i >= start) {
         const remaining = Math.max(1, periods - i);
-        repay = balance / remaining;
+        repay = (balance / remaining) * sweepRatio;
       }
     }
-    if (tranche.repaymentMethod === 'cashsweep_min_cash' && i >= opsStartIdx) {
-      // Cash above floor goes to principal. Approximate by sweeping
-      // straight-line over remaining periods (Module 3 will refine).
+    if (tranche.repaymentMethod === 'cashsweep_min_cash' && i >= graceEndIdx) {
       const remaining = Math.max(1, periods - i);
-      repay = balance / remaining;
+      repay = (balance / remaining) * sweepRatio;
     }
+    // M2.0L: apply discrete prepayments before clamping.
+    const prepay = (tranche.prepayments ?? []).filter((p) => p.period === i).reduce((s, p) => s + Math.max(0, p.amount), 0);
+    repay += prepay;
     repay = Math.min(repay, balance);
     balance -= repay;
     principalRepaid[i] = repay;
@@ -1173,6 +1265,264 @@ export function computeFinancing(
     totalDebt: totalDebtFromDraws,
     totalInterest,
     totalRepayment,
+  };
+}
+
+// ── M2.0L: Annuity payment ────────────────────────────────────────────────
+// PMT = P × [r(1+r)^n] / [(1+r)^n - 1]. Returns 0-rate edge case (P/n)
+// when periodicRate ~= 0.
+export function computeEqualPeriodicPayment(principal: number, periodicRate: number, periods: number): number {
+  if (periods <= 0) return 0;
+  if (principal <= 0) return 0;
+  if (periodicRate < 1e-9) return principal / periods;
+  const factor = Math.pow(1 + periodicRate, periods);
+  return (principal * periodicRate * factor) / (factor - 1);
+}
+
+// ── M2.0L: Capital stack summary ──────────────────────────────────────────
+// Aggregates equity tranches + debt facilities + capex base into the
+// sources / uses snapshot rendered at the top of Tab 4. LTV is computed
+// against (cash land + in-kind land + total non-land capex) as the
+// denominator.
+export interface CapitalStackEntry {
+  id: string;
+  name: string;
+  amount: number;
+  pct: number;
+  /** 'equity:cash' | 'equity:in_kind' | 'equity:jv' | 'debt:senior' | 'debt:mezz' | 'debt:bridge' | 'debt:bullet' | 'debt:other' */
+  category: string;
+}
+
+export interface CapitalStackSummary {
+  totalEquity: number;
+  totalDebt: number;
+  totalSources: number;
+  totalUses: number;
+  gap: number;
+  ltvSenior: number;
+  ltvTotal: number;
+  equityBreakdown: CapitalStackEntry[];
+  debtBreakdown: CapitalStackEntry[];
+}
+
+export function computeCapitalStack(
+  tranches: FinancingTranche[],
+  equityContribs: EquityContribution[],
+  projectCapexTotal: number,
+): CapitalStackSummary {
+  const equityBreakdown: CapitalStackEntry[] = [];
+  let totalEquity = 0;
+  for (const e of equityContribs) {
+    const amount = Math.max(0, e.amount);
+    totalEquity += amount;
+    const type = e.type ?? 'cash';
+    equityBreakdown.push({
+      id: e.id,
+      name: e.name,
+      amount,
+      pct: 0,
+      category: `equity:${type}`,
+    });
+  }
+  const debtBreakdown: CapitalStackEntry[] = [];
+  let totalDebt = 0;
+  let seniorDebt = 0;
+  for (const t of tranches) {
+    const ltv = clamp(t.ltvPct, 0, 100) / 100;
+    const fromPrincipal = typeof t.principal === 'number' && t.principal > 0 ? t.principal : 0;
+    const amount = fromPrincipal > 0 ? fromPrincipal : projectCapexTotal * ltv;
+    totalDebt += amount;
+    const facilityType = t.facilityType ?? 'senior_construction';
+    if (facilityType === 'senior_construction' || facilityType === 'senior_term') {
+      seniorDebt += amount;
+    }
+    debtBreakdown.push({
+      id: t.id,
+      name: t.name,
+      amount,
+      pct: 0,
+      category: `debt:${facilityType}`,
+    });
+  }
+  const totalSources = totalEquity + totalDebt;
+  const totalUses = Math.max(0, projectCapexTotal);
+  const gap = totalSources - totalUses;
+  // Re-compute pct now we know totalSources.
+  const denom = totalSources > 0 ? totalSources : 1;
+  for (const e of equityBreakdown) e.pct = (e.amount / denom) * 100;
+  for (const d of debtBreakdown) d.pct = (d.amount / denom) * 100;
+  return {
+    totalEquity,
+    totalDebt,
+    totalSources,
+    totalUses,
+    gap,
+    ltvSenior: totalUses > 0 ? (seniorDebt / totalUses) * 100 : 0,
+    ltvTotal:  totalUses > 0 ? (totalDebt / totalUses) * 100 : 0,
+    equityBreakdown,
+    debtBreakdown,
+  };
+}
+
+// ── M2.0L: IDC summary across facilities ──────────────────────────────────
+// Aggregates the capitalised + expensed interest per facility and per
+// period. The capitalised slice flows back to Tab 3 Costs as a read-only
+// "Auto: IDC from <facility>" line per asset via applyIdcToCapex.
+export interface IdcSummary {
+  byFacility: Array<{
+    id: string;
+    name: string;
+    capitalized: number;
+    expensed: number;
+    capitalizedPerPeriod: number[];
+    expensedPerPeriod: number[];
+  }>;
+  totalCapitalized: number;
+  totalExpensed: number;
+}
+
+export function computeIdcSummary(
+  tranches: FinancingTranche[],
+  results: Map<string, FinancingResult>,
+): IdcSummary {
+  const byFacility: IdcSummary['byFacility'] = [];
+  let totalCapitalized = 0;
+  let totalExpensed = 0;
+  for (const t of tranches) {
+    const r = results.get(t.id);
+    if (!r) continue;
+    const capitalized = r.interestCapitalized.reduce((s, v) => s + v, 0);
+    const expensed = r.interestPaid.reduce((s, v) => s + v, 0);
+    totalCapitalized += capitalized;
+    totalExpensed += expensed;
+    byFacility.push({
+      id: t.id,
+      name: t.name,
+      capitalized,
+      expensed,
+      capitalizedPerPeriod: [...r.interestCapitalized],
+      expensedPerPeriod: [...r.interestPaid],
+    });
+  }
+  return { byFacility, totalCapitalized, totalExpensed };
+}
+
+// ── M2.0L: IDC capitalized -> Tab 3 auto cost lines ───────────────────────
+// For each facility with idcTreatment='capitalize' (or 'mixed' partial),
+// generate a read-only cost line per asset in the phase the facility
+// finances. Calc engine consumes these so Tab 3 Costs surface a
+// rate-free auto-row showing the capitalized IDC.
+//
+// The cost line:
+//   id:           `auto-idc__${facilityId}__${assetId}`
+//   phaseId:      facility.phaseId
+//   name:         `Auto: IDC from ${facility.name}`
+//   method:       'fixed'
+//   value:        per-asset share of capitalized IDC for that facility
+//   stage:        'soft'    (cost of money)
+//   scope:        'indirect'
+//   allocationBasis: 'per_asset'
+//   startPeriod, endPeriod: facility availability window
+//   phasing:      'even'
+//   isLocked:     true
+//   targetAssetId: assetId
+//
+// Per-asset share: when facility.assetId is set, 100% to that asset;
+// otherwise pro-rata by asset's BUA share within the phase.
+export interface AutoIdcCostLineSeed {
+  facilityId: string;
+  facilityName: string;
+  phaseId: string;
+  perAsset: Array<{ assetId: string; amount: number; startPeriod: number; endPeriod: number }>;
+}
+
+export function applyIdcToCapex(
+  tranches: FinancingTranche[],
+  results: Map<string, FinancingResult>,
+  assets: Asset[],
+  subUnits: SubUnit[],
+  phases: Phase[],
+): AutoIdcCostLineSeed[] {
+  const seeds: AutoIdcCostLineSeed[] = [];
+  for (const t of tranches) {
+    const treatment = t.idcTreatment ?? (t.idcCapitalize ? 'capitalize' : 'expense');
+    if (treatment === 'expense') continue;
+    if (t.autoGenerateIdcCostLine === false) continue;
+    const r = results.get(t.id);
+    if (!r) continue;
+    const capitalizedTotal = r.interestCapitalized.reduce((s, v) => s + v, 0);
+    if (capitalizedTotal <= 0) continue;
+    const phase = phases.find((p) => p.id === t.phaseId);
+    if (!phase) continue;
+    const phaseAssets = assets.filter((a) => a.phaseId === t.phaseId && a.visible);
+    if (phaseAssets.length === 0) continue;
+    const perAsset: AutoIdcCostLineSeed['perAsset'] = [];
+    if (t.assetId) {
+      perAsset.push({
+        assetId: t.assetId,
+        amount: capitalizedTotal,
+        startPeriod: 1,
+        endPeriod: phase.constructionPeriods,
+      });
+    } else {
+      // Pro-rata by BUA share. Falls back to even split when total BUA = 0.
+      const buas = phaseAssets.map((a) => ({ a, bua: computeAssetBua(a, subUnits) }));
+      const totalBua = buas.reduce((s, x) => s + x.bua, 0);
+      for (const { a, bua } of buas) {
+        const share = totalBua > 0 ? bua / totalBua : 1 / phaseAssets.length;
+        perAsset.push({
+          assetId: a.id,
+          amount: capitalizedTotal * share,
+          startPeriod: 1,
+          endPeriod: phase.constructionPeriods,
+        });
+      }
+    }
+    seeds.push({
+      facilityId: t.id,
+      facilityName: t.name,
+      phaseId: t.phaseId,
+      perAsset,
+    });
+  }
+  return seeds;
+}
+
+// ── M2.0L: Combined debt service across facilities ────────────────────────
+export interface CombinedDebtService {
+  periods: number;
+  totalInterest: number[];
+  totalPrincipal: number[];
+  totalDebtService: number[];
+  totalDrawdown: number[];
+  outstandingBalance: number[];
+}
+
+export function computeCombinedDebtService(results: Map<string, FinancingResult>): CombinedDebtService {
+  let maxPeriods = 0;
+  for (const r of results.values()) {
+    if (r.periods > maxPeriods) maxPeriods = r.periods;
+  }
+  const totalInterest = new Array<number>(maxPeriods).fill(0);
+  const totalPrincipal = new Array<number>(maxPeriods).fill(0);
+  const totalDrawdown = new Array<number>(maxPeriods).fill(0);
+  const outstandingBalance = new Array<number>(maxPeriods).fill(0);
+  for (const r of results.values()) {
+    for (let i = 0; i < r.periods; i++) {
+      totalInterest[i] += (r.interestPaid[i] ?? 0) + (r.interestCapitalized[i] ?? 0);
+      totalPrincipal[i] += (r.principalRepaid[i] ?? 0);
+      totalDrawdown[i] += (r.drawSchedule[i] ?? 0);
+      outstandingBalance[i] += (r.outstandingBalance[i] ?? 0);
+    }
+  }
+  const totalDebtService = totalInterest.map((v, i) => v + (totalPrincipal[i] ?? 0));
+  return {
+    periods: maxPeriods,
+    totalInterest,
+    totalPrincipal,
+    totalDebtService,
+    totalDrawdown,
+    outstandingBalance,
   };
 }
 
