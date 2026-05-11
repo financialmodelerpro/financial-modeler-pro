@@ -32,8 +32,22 @@
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
 import { computeSubUnitArea } from '@/src/core/calculations';
-import type { SubUnit, Asset, Project, Phase, CostLine, CostOverride } from './module1-types';
-import { STANDARD_COST_LINE_IDS, composeLineId, deriveLineBaseId } from './module1-types';
+import type {
+  SubUnit, Asset, Project, Phase, Parcel,
+  CostLine, CostOverride, FinancingTranche, EquityContribution,
+  LandAllocationMode,
+} from './module1-types';
+import {
+  STANDARD_COST_LINE_IDS,
+  composeLineId,
+  deriveLineBaseId,
+  makeDefaultProject,
+  makeDefaultPhase,
+  makeDefaultParcel,
+  makeDefaultCostLines,
+  makeDefaultFinancingTranche,
+  DEFAULT_PHASE_ID,
+} from './module1-types';
 
 export const SCHEMA_VERSION = 8;
 
@@ -358,6 +372,209 @@ export interface CheckedHydration {
 export const M20H_MIGRATION_NOTICE =
   "Project upgraded from monthly inputs to annual inputs (M2.0g architecture). Display Scale defaulted to Full Numbers; set in Tab 1 Project Identity if you want thousands or millions view.";
 
+// M2.0L Fix 1 (2026-05-11): generic banner shown when a legacy snapshot
+// was migrated through the loose-shape recovery path. Surfaced once so
+// the user verifies their inputs after the schema update.
+export const LEGACY_MIGRATION_NOTICE =
+  "Project updated to latest schema, please verify your inputs.";
+
+// M2.0L Fix 1 (2026-05-11): loose shape detector. Anything with a
+// `project` object that can plausibly map to v8. Catches legacy
+// snapshots that fall outside the strict v7 fingerprint (e.g. saves
+// from earlier code paths that omitted landAllocationMode, costLines,
+// or financingTranches arrays).
+function isLooseSnapshot(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as Record<string, unknown>;
+  // Any of: project object, phases array, assets array, or costLines.
+  if (typeof o.project === 'object' && o.project !== null) return true;
+  if (Array.isArray(o.phases) && o.phases.length > 0) return true;
+  if (Array.isArray(o.assets) && o.assets.length > 0) return true;
+  if (Array.isArray(o.costLines) && o.costLines.length > 0) return true;
+  return false;
+}
+
+// M2.0L Fix 1 (2026-05-11): permissive legacy migration. Accepts any
+// shape and backfills every missing optional field with safe defaults
+// so existing projects never error out post-deployment. Pipes through
+// the full migration chain (v7 -> v8, parking fold, phasing normalize,
+// id dedupe) so the result is bit-identical to a freshly saved v8
+// snapshot for fields the user did populate.
+function migrateLegacyToV8(input: unknown): HydrateSnapshot {
+  const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+
+  // Project: spread defaults under the legacy values so any field the
+  // user did set survives, and any missing optional field gets a
+  // sensible default.
+  const legacyProject = (typeof o.project === 'object' && o.project !== null
+    ? o.project
+    : {}) as Partial<Project>;
+  const project: Project = {
+    ...makeDefaultProject(),
+    ...legacyProject,
+    // Force a couple of v8 invariants while preserving the user's
+    // selection where it makes sense.
+    currency: legacyProject.currency ?? 'SAR',
+    modelType: legacyProject.modelType === 'monthly' ? 'monthly' : 'annual',
+  } as Project;
+
+  // Phases: must have at least one. Backfill timing fields per phase.
+  const rawPhases = Array.isArray(o.phases) ? (o.phases as Partial<Phase>[]) : [];
+  const phases: Phase[] = (rawPhases.length > 0 ? rawPhases : [makeDefaultPhase()]).map((p, idx) => ({
+    id: p.id ?? (idx === 0 ? DEFAULT_PHASE_ID : `phase_${idx + 1}`),
+    name: p.name ?? `Phase ${idx + 1}`,
+    constructionStart: typeof p.constructionStart === 'number' ? p.constructionStart : 1,
+    constructionPeriods: typeof p.constructionPeriods === 'number' ? p.constructionPeriods : 24,
+    operationsPeriods: typeof p.operationsPeriods === 'number' ? p.operationsPeriods : 60,
+    overlapPeriods: typeof p.overlapPeriods === 'number' ? p.overlapPeriods : 0,
+    startDate: p.startDate,
+    status: p.status,
+    historicalBaseline: p.historicalBaseline,
+  }));
+
+  const firstPhaseId = phases[0].id;
+
+  // Land allocation. Default 'autoByBua' is the safest fallback because
+  // it derives from BUA share without needing explicit sqm/pct inputs.
+  const landAllocationMode: LandAllocationMode =
+    o.landAllocationMode === 'sqm' || o.landAllocationMode === 'percent' || o.landAllocationMode === 'autoByBua'
+      ? o.landAllocationMode
+      : 'autoByBua';
+
+  // Parcels: at least one, so the Land tab has something to render.
+  const rawParcels = Array.isArray(o.parcels) ? (o.parcels as Partial<Parcel>[]) : [];
+  const parcels: Parcel[] = rawParcels.length > 0
+    ? rawParcels.map((p, idx) => ({
+        id: p.id ?? (idx === 0 ? 'parcel_1' : `parcel_${idx + 1}`),
+        phaseId: p.phaseId ?? firstPhaseId,
+        name: p.name ?? `Land ${idx + 1}`,
+        area: typeof p.area === 'number' ? p.area : 0,
+        rate: typeof p.rate === 'number' ? p.rate : 0,
+        cashPct: typeof p.cashPct === 'number' ? p.cashPct : 100,
+        inKindPct: typeof p.inKindPct === 'number' ? p.inKindPct : 0,
+        hasNdaDeduction: p.hasNdaDeduction,
+        roadsPct: p.roadsPct,
+        parksPct: p.parksPct,
+      }))
+    : [makeDefaultParcel(undefined, firstPhaseId)];
+
+  // Assets: rename legacy 'Hybrid' strategy to 'Sell + Manage'.
+  const rawAssets = Array.isArray(o.assets) ? (o.assets as Partial<Asset>[]) : [];
+  const assets: Asset[] = rawAssets.map((a) => ({
+    id: a.id ?? `asset_${Math.random().toString(36).slice(2, 8)}`,
+    phaseId: a.phaseId ?? firstPhaseId,
+    name: a.name ?? 'Asset',
+    type: a.type ?? '',
+    strategy: (a.strategy as string) === 'Hybrid' ? 'Sell + Manage' : (a.strategy ?? 'Sell'),
+    visible: a.visible !== false,
+    landAreaSqm: a.landAreaSqm,
+    landAreaPct: a.landAreaPct,
+    landAllocation: a.landAllocation,
+    gfaSqm: typeof a.gfaSqm === 'number' ? a.gfaSqm : 0,
+    buaSqm: typeof a.buaSqm === 'number' ? a.buaSqm : 0,
+    sellableBuaSqm: typeof a.sellableBuaSqm === 'number' ? a.sellableBuaSqm : 0,
+    buaTotal: a.buaTotal,
+    supportArea: a.supportArea,
+    parkingArea: a.parkingArea,
+    parkingBaysRequired: typeof a.parkingBaysRequired === 'number' ? a.parkingBaysRequired : 0,
+    managementAgreement: a.managementAgreement,
+    usefulLifeYears: a.usefulLifeYears,
+    status: a.status,
+    historicalBaseline: a.historicalBaseline,
+  })) as Asset[];
+
+  const subUnits: SubUnit[] = Array.isArray(o.subUnits) ? (o.subUnits as SubUnit[]) : [];
+
+  // Cost lines: rename legacy v6 ids to closest v7 standard so the
+  // calc engine's stage/scope derivation still works. Anything else
+  // passes through unchanged.
+  const V6_TO_V7_LINE_ID: Record<string, string> = {
+    'site-prep':          'infrastructure',
+    'structural':         'construction-bua',
+    'mep':                'construction-bua',
+    'finishing':          'construction-bua',
+    'professional-fees':  'professional-fee',
+    'project-management': 'professional-fee',
+    'legal':              'professional-fee',
+    'ffe':                'pre-operating',
+    'marketing':          'commission',
+  };
+  const rawCostLines = Array.isArray(o.costLines) ? (o.costLines as Partial<CostLine>[]) : [];
+  let costLines: CostLine[] = rawCostLines.map((c) => {
+    const baseId = deriveLineBaseId(c.id ?? '');
+    const renamed = V6_TO_V7_LINE_ID[baseId] ?? baseId;
+    return {
+      id: c.id ? (V6_TO_V7_LINE_ID[baseId] ? renamed : c.id) : `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      phaseId: c.phaseId ?? firstPhaseId,
+      name: c.name ?? 'Cost Line',
+      method: c.method ?? 'fixed',
+      value: typeof c.value === 'number' ? c.value : 0,
+      stage: c.stage ?? 'hard',
+      scope: c.scope ?? 'direct',
+      allocationBasis: c.allocationBasis ?? 'per_asset',
+      startPeriod: typeof c.startPeriod === 'number' ? c.startPeriod : 0,
+      endPeriod: typeof c.endPeriod === 'number' ? c.endPeriod : 1,
+      phasing: c.phasing ?? 'even',
+      distribution: c.distribution,
+      selectedLineIds: c.selectedLineIds,
+      isLocked: c.isLocked,
+      requiresCountry: c.requiresCountry,
+      disabled: c.disabled,
+      targetAssetId: c.targetAssetId,
+      subUnitId: c.subUnitId,
+      perSubUnitRates: c.perSubUnitRates,
+    };
+  });
+  // If after all that the project still has zero cost lines, seed the
+  // M2.0d standard catalog for the first phase so the user sees something.
+  if (costLines.length === 0) {
+    costLines = makeDefaultCostLines(firstPhaseId, phases[0].constructionPeriods);
+  }
+
+  const costOverrides: CostOverride[] = Array.isArray(o.costOverrides) ? (o.costOverrides as CostOverride[]) : [];
+
+  const rawTranches = Array.isArray(o.financingTranches) ? (o.financingTranches as Partial<FinancingTranche>[]) : [];
+  const financingTranches: FinancingTranche[] = rawTranches.length > 0
+    ? rawTranches.map((t, idx) => ({
+        id: t.id ?? `tranche_${idx + 1}`,
+        phaseId: t.phaseId ?? firstPhaseId,
+        name: t.name ?? 'Senior debt',
+        ltvPct: typeof t.ltvPct === 'number' ? t.ltvPct : 60,
+        interestRatePct: typeof t.interestRatePct === 'number' ? t.interestRatePct : 7.5,
+        drawdownMethod: t.drawdownMethod ?? 'capex_basis',
+        repaymentMethod: t.repaymentMethod ?? 'straight_line',
+        repaymentPeriods: typeof t.repaymentPeriods === 'number' ? t.repaymentPeriods : 60,
+        idcCapitalize: t.idcCapitalize !== false,
+        ...t,
+      } as FinancingTranche))
+    : [makeDefaultFinancingTranche('tranche_1', firstPhaseId)];
+
+  const equityContributions: EquityContribution[] = Array.isArray(o.equityContributions)
+    ? (o.equityContributions as EquityContribution[])
+    : [];
+
+  let snap: HydrateSnapshot = {
+    project,
+    phases,
+    parcels,
+    landAllocationMode,
+    assets,
+    subUnits,
+    costLines,
+    costOverrides,
+    financingTranches,
+    equityContributions,
+  };
+
+  // Run the full migration chain so the loose result is identical to
+  // a v7 -> v8 hydration: aggregate monthly to annual, fold legacy
+  // Parking sub-units, normalise phasing, dedupe phase-scoped ids.
+  snap = migrateM20lDedupeCostLineIds(
+    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  );
+  return snap;
+}
+
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
   if (isV8Snapshot(snapshot)) {
     return { snapshot: stripV8Wrapper(snapshot), recognized: true };
@@ -366,20 +583,27 @@ export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydra
     const notice = snapshotNeedsV8Migration(snapshot) ? M20H_MIGRATION_NOTICE : undefined;
     return { snapshot: stripWrapper(snapshot), recognized: true, migrationNotice: notice };
   }
-  if (isPreV7Snapshot(snapshot)) {
+  // M2.0L Fix 1 (2026-05-11): pre-v7 and unrecognized shapes flow
+  // through migrateLegacyToV8 instead of failing with a "recreate
+  // this project" error. The loose path backfills every missing
+  // optional field with safe defaults and pipes through the full
+  // migration chain so the user keeps their data.
+  if (isPreV7Snapshot(snapshot) || isLooseSnapshot(snapshot)) {
     return {
-      snapshot: { ...DEFAULT_MODULE1_STATE },
-      recognized: false,
-      error: 'Project schema older than v8. Please contact support to migrate manually.',
+      snapshot: migrateLegacyToV8(snapshot),
+      recognized: true,
+      migrationNotice: LEGACY_MIGRATION_NOTICE,
     };
   }
+  // Last-resort: nothing usable. Fall back to defaults but still
+  // surface the banner so the user knows something happened.
   if (typeof console !== 'undefined') {
-    console.warn('[REFM] Unrecognized snapshot shape; falling back to defaults.');
+    console.warn('[REFM] Empty / unparseable snapshot; falling back to defaults.');
   }
   return {
     snapshot: { ...DEFAULT_MODULE1_STATE },
-    recognized: false,
-    error: 'Unrecognized project shape. Please recreate this project.',
+    recognized: true,
+    migrationNotice: LEGACY_MIGRATION_NOTICE,
   };
 }
 
