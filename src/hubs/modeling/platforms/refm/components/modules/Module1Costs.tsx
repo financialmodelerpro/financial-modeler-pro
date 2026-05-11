@@ -531,9 +531,10 @@ function CostRow({
     writePerSubUnitRates({ ...effPerSubUnitRates, [key]: Math.max(0, rate) });
   };
 
-  // Stage tooltip text (M2.0g Fix 6: scope label removed)
-  const stageTooltip = `Stage: ${COST_STAGE_LABELS[stage]} (auto-derived).`;
-
+  // M2.0L Pass3 Fix 13 (2026-05-11): per-row Stage tooltip dropped.
+  // Stage classification still drives the row background color (via
+  // STAGE_BG[stage]) but no hover hint, no per-row caption. Strategy
+  // / accounting destination lives at the asset section header tooltip.
   return (
     <>
     <tr
@@ -542,7 +543,6 @@ function CostRow({
         background: STAGE_BG[stage],
         opacity: effDisabled ? 0.45 : 1,
       }}
-      title={stageTooltip}
     >
       <td style={{ padding: '4px', minWidth: 180 }}>
         <input
@@ -1143,14 +1143,21 @@ function AssetCostSection({
         onClick={() => setCollapsed(!collapsed)}
         title={dest}
       >
+        {/* M2.0L Pass3 Fix 13 (2026-05-11): the verbose destination
+            sentence ("Capitalises to this asset, expensed as COGS when
+            units sell...") that used to render inline next to the
+            strategy badge has been folded into the section's hover
+            title attribute. Header stays compact (asset name + strategy
+            badge only); the accounting treatment is one hover away.
+            Cost line rows below carry no strategy/destination text. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>{asset.name}</span>
           <span style={strategyBadgeStyle(asset.strategy)} data-testid={`asset-section-${asset.id}-strategy`}>
             {asset.strategy}
           </span>
           <span
-            style={{ fontSize: 10, color: 'var(--color-meta)', maxWidth: 480 }}
             data-testid={`asset-section-${asset.id}-destination`}
+            style={{ display: 'none' }}
           >
             {dest}
           </span>
