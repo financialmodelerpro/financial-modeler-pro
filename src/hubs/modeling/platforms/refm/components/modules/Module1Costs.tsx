@@ -589,40 +589,10 @@ function CostRow({
           ))}
         </select>
       </td>
-      {/* P7-Fix 4 (2026-05-12): Category column split out of Method cell. */}
-      <td style={{ padding: '4px', overflow: 'hidden' }}>
-        <select
-          value={effCategory}
-          onChange={(e) => writeCategory(e.target.value as CostCategory)}
-          disabled={isLocked}
-          style={{ ...inputStyle, fontSize: 11, width: '100%' }}
-          data-testid={`cost-${asset.id}-${line.id}-category`}
-          title="Direct = asset-specific; Allocated = project pool, split by driver"
-        >
-          {COST_CATEGORIES.map((c) => (
-            <option key={c} value={c}>{COST_CATEGORY_LABELS[c]}</option>
-          ))}
-        </select>
-      </td>
-      {/* P7-Fix 4: Driver column. Greyed out / disabled when category is Direct. */}
-      <td style={{ padding: '4px', overflow: 'hidden' }}>
-        {effCategory === 'allocated' ? (
-          <select
-            value={effDriver}
-            onChange={(e) => writeDriver(e.target.value as CostDriver)}
-            disabled={isLocked}
-            style={{ ...inputStyle, fontSize: 11, width: '100%' }}
-            data-testid={`cost-${asset.id}-${line.id}-driver`}
-            title={COST_DRIVER_LABELS[effDriver]}
-          >
-            {COST_DRIVERS.map((d) => (
-              <option key={d} value={d}>{COST_DRIVER_LABELS[d]}</option>
-            ))}
-          </select>
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid={`cost-${asset.id}-${line.id}-driver-na`}>-</span>
-        )}
-      </td>
+      {/* P8-Fix 4 (2026-05-12): Category + Driver cells dropped from
+          the row. costCategory + costDriver stay on schema for
+          back-compat (calc engine treats every line as Direct in the
+          Pass 7 per-asset surface). */}
       <td style={{ padding: '4px', overflow: 'hidden' }}>
         {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
             scale regardless of project.displayScale. The Display Scale
@@ -814,7 +784,7 @@ function CostRow({
       const sumDenom = distSum > 0 ? distSum : 1;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-manual-row`} style={{ background: 'var(--color-grey-pale)' }}>
-          <td colSpan={11} style={{ padding: '8px 12px' }}>
+          <td colSpan={9} style={{ padding: '8px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
                 Manual %
@@ -930,7 +900,7 @@ function CostRow({
       if (chips.length === 0) return null;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-chip-strip`} style={{ background: 'transparent' }}>
-          <td colSpan={11} style={{ padding: '2px 12px 6px' }}>
+          <td colSpan={9} style={{ padding: '2px 12px 6px' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {chips.map(({ idx, amount }) => {
                 const positive = amount > 0;
@@ -989,7 +959,7 @@ function CostRow({
       );
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-per-subunit-row`} style={{ background: 'var(--color-grey-pale)' }}>
-          <td colSpan={11} style={{ padding: '8px 12px' }}>
+          <td colSpan={9} style={{ padding: '8px 12px' }}>
             <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
               <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Per Sub-unit Custom Rates</strong>
               <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>(default rate {effValue} from Value column when row blank)</span>
@@ -1295,23 +1265,23 @@ function AssetCostSection({
       </div>
       {!collapsed && (
         <>
-          {/* P7-Fix 4 (2026-05-12): table-layout: fixed + explicit colgroup
-              with widths per brief (Cost Line 220, Method 200, Category 100,
-              Driver 100, Value 120, Start 60, End 60, Phasing 100, Total 140,
-              Toggle 60, Delete 40). Category + Driver split out of the Method
-              cell into their own columns. Toggle (On/Off) and Delete (✕)
-              split into two cells so the last column hugs the right edge. */}
+          {/* P8-Fix 4 (2026-05-12): cost table reduced from 11 cols to 9.
+              Category + Driver columns dropped (Pass 5 Direct/Allocated
+              + per-driver split surface caused confusion; every cost line
+              now treated as Direct since Pass 7 architecture is per-asset).
+              costCategory + costDriver stay on schema for back-compat;
+              calc engine treats every line as Direct. Columns:
+              Cost Line 240, Method 220, Value 140, Start 60, End 60,
+              Phasing 110, Total 160, Toggle 60, Delete 40. */}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <colgroup>
+              <col style={{ width: 240 }} />
               <col style={{ width: 220 }} />
-              <col style={{ width: 200 }} />
-              <col style={{ width: 100 }} />
-              <col style={{ width: 100 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 60 }} />
-              <col style={{ width: 60 }} />
-              <col style={{ width: 100 }} />
               <col style={{ width: 140 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 160 }} />
               <col style={{ width: 60 }} />
               <col style={{ width: 40 }} />
             </colgroup>
@@ -1319,8 +1289,6 @@ function AssetCostSection({
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Method</th>
-                <th style={{ padding: '6px', textAlign: 'left' }}>Category</th>
-                <th style={{ padding: '6px', textAlign: 'left' }}>Driver</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Value</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
@@ -1359,7 +1327,7 @@ function AssetCostSection({
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)' }}>
-                <td colSpan={8} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
+                <td colSpan={6} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
