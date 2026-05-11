@@ -2109,10 +2109,13 @@ export default function Module1Costs(): React.JSX.Element {
             {phases.length} phase{phases.length > 1 ? 's' : ''} · {allVisibleAssets.length} active asset{allVisibleAssets.length === 1 ? '' : 's'} · inputs entered annually
           </div>
           {/* M2.0h Fix 2 (2026-05-07): single currency / scale header
-              line per tab. Cells stay free of currency suffix. */}
+              line per tab. Cells stay free of currency suffix.
+              M2.0L Pass3 Fix 12: data-currency attribute makes the
+              project.currency propagation testable end to end. */}
           <div
             style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 4 }}
             data-testid="currency-header-line"
+            data-currency={project.currency}
           >
             {currencyHeaderLine(project.currency, scale)}
           </div>
