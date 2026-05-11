@@ -1369,77 +1369,133 @@ function AssetCard({
           />
           {/* Sub-unit table */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
-              <strong style={{ fontSize: 'var(--font-small)' }}>Sub-units</strong>
-              <button
-                type="button"
-                onClick={handleAddSubUnit}
-                data-testid={`asset-${asset.id}-add-subunit`}
-                style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
-              >
-                + Sub-unit
-              </button>
-            </div>
-            {assetSubUnits.length === 0 ? (
-              <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
-                No sub-units yet. Add at least one so revenue (Module 2) can attach.
-              </div>
-            ) : (
-              /* P7-Fix 3 (2026-05-12): table-layout: fixed + explicit
-                 colgroup. ALL columns (Type, Category, Metric, Area,
-                 Unit Size, Count, Rate, Total Revenue, X) render in
-                 every mode so the table doesn't reflow when a row
-                 toggles between Area / Units. Area cell is editable
-                 in Area mode and a read-only derived caption in Units
-                 mode. Unit Size + Count cells are muted dashes when
-                 a row uses Area metric. New Total Revenue (No
-                 Indexation) column = Area x Rate (Area mode) or
-                 Count x Rate (Units mode); read-only. */
-                <table
-                  style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}
-                  data-testid={`asset-${asset.id}-subunit-table`}
-                >
-                  <colgroup>
-                    <col style={{ width: '14%' }} />
-                    <col style={{ width: '11%' }} />
-                    <col style={{ width: '9%' }} />
-                    <col style={{ width: '12%' }} />
-                    <col style={{ width: '10%' }} />
-                    <col style={{ width: '9%' }} />
-                    <col style={{ width: '13%' }} />
-                    <col style={{ width: '17%' }} />
-                    <col style={{ width: '5%' }} />
-                  </colgroup>
-                  <thead>
-                    <tr style={{ background: 'var(--color-grey-pale)' }}>
-                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Metric</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate ({project.currency})</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-total-revenue-header`}>Total Revenue (No Indexation)</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assetSubUnits.map((u) => (
-                      <SubUnitRow
-                        key={u.id}
-                        subUnit={u}
-                        currency={project.currency}
-                        onUpdate={(patch) => updateSubUnit(u.id, patch)}
-                        onRemove={() => removeSubUnit(u.id)}
-                        decimals={project.displayDecimals ?? 2}
-                        scale={project.displayScale ?? 'full'}
-                        assetStrategy={asset.strategy}
-                        assetType={asset.type}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              )}
+            {(() => {
+              // P8-Fix 2c (2026-05-12): metric uniform per asset. Read
+              // asset.subUnitMetric (Pass 8 schema field), fall back to
+              // the first sub-unit's metric, then 'area'. Switching the
+              // asset metric converts every sub-unit (preserve area).
+              const firstSubMetric = assetSubUnits[0]?.metric === 'units'
+                || (assetSubUnits[0]?.metric as unknown as string) === 'count'
+                ? 'units' : 'area';
+              const assetMetric: SubUnitMetric = asset.subUnitMetric ?? firstSubMetric;
+              // P8-Fix 2b: dominant Count-label by first revenue sub-unit.
+              const revenueSub = assetSubUnits.find((u) => u.category !== 'Support') ?? assetSubUnits[0];
+              const dynamicCountHeader = revenueSub
+                ? countUnitLabel(revenueSub.category, asset.strategy, asset.type)
+                : 'Units';
+              const switchAssetMetric = (next: SubUnitMetric): void => {
+                if (next === assetMetric) return;
+                for (const u of assetSubUnits) {
+                  const check = canSwitchMetric(u, next);
+                  if (!check.ok) {
+                    if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+                      window.alert(`Sub-unit "${u.name || 'unnamed'}": ${check.reason}`);
+                    }
+                    return;
+                  }
+                }
+                onUpdate({ subUnitMetric: next });
+                for (const u of assetSubUnits) {
+                  const patch = switchMetric(u, next);
+                  updateSubUnit(u.id, patch);
+                }
+              };
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)', flexWrap: 'wrap', gap: 8 }}>
+                    <strong style={{ fontSize: 'var(--font-small)' }}>Sub-units</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Metric:</span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name={`subunit-metric-${asset.id}`}
+                          value="area"
+                          data-testid={`asset-${asset.id}-subunit-metric-area`}
+                          checked={assetMetric === 'area'}
+                          onChange={() => switchAssetMetric('area')}
+                        />
+                        Area
+                      </label>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name={`subunit-metric-${asset.id}`}
+                          value="units"
+                          data-testid={`asset-${asset.id}-subunit-metric-units`}
+                          checked={assetMetric === 'units'}
+                          onChange={() => switchAssetMetric('units')}
+                        />
+                        Units
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddSubUnit}
+                        data-testid={`asset-${asset.id}-add-subunit`}
+                        style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)', marginLeft: 8 }}
+                      >
+                        + Sub-unit
+                      </button>
+                    </div>
+                  </div>
+                  {assetSubUnits.length === 0 ? (
+                    <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
+                      No sub-units yet. Add at least one so revenue (Module 2) can attach.
+                    </div>
+                  ) : (
+                    /* P8-Fix 2 (2026-05-12): Metric column dropped from
+                       per-row (asset-level toggle above). Area is always
+                       editable. In Units mode, Unit Size editable + Count
+                       derived (Area / Unit Size); in Area mode, Unit Size
+                       + Count render muted dashes. Count header uses
+                       dynamic label (Units / Keys / Beds / Bays / Tenants). */
+                    <table
+                      style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}
+                      data-testid={`asset-${asset.id}-subunit-table`}
+                    >
+                      <colgroup>
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '13%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '19%' }} />
+                        <col style={{ width: '5%' }} />
+                      </colgroup>
+                      <thead>
+                        <tr style={{ background: 'var(--color-grey-pale)' }}>
+                          <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-count-header`}>{dynamicCountHeader}</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate ({project.currency})</th>
+                          <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-total-revenue-header`}>Total Revenue (No Indexation)</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {assetSubUnits.map((u) => (
+                          <SubUnitRow
+                            key={u.id}
+                            subUnit={u}
+                            assetMetric={assetMetric}
+                            currency={project.currency}
+                            onUpdate={(patch) => updateSubUnit(u.id, patch)}
+                            onRemove={() => removeSubUnit(u.id)}
+                            decimals={project.displayDecimals ?? 2}
+                            scale={project.displayScale ?? 'full'}
+                            assetStrategy={asset.strategy}
+                            assetType={asset.type}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy. */}
@@ -1531,30 +1587,57 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
-  // P7-Fix 3 (2026-05-12): all columns always render. Area cell is
-  // editable in Area mode; in Units mode it becomes a read-only
-  // derived caption (count x unitArea = total). Unit Size + Count
-  // cells are editable inputs in Units mode and muted dashes in
-  // Area mode. Total Revenue (No Indexation) = (Area mode: area x
-  // rate) or (Units mode: count x rate). Read-only.
-  const isUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
+function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
+  // P8-Fix 2 (2026-05-12): metric is per-asset (no per-row dropdown).
+  // Storage stays the same: subUnit.metricValue carries total area when
+  // metric='area' and count when metric='units'. In Units mode the user
+  // edits Area (we back-calc count = area / unitArea) + Unit Size, and
+  // Count is the read-only derived value. Count header label is dynamic
+  // (Units / Keys / Beds / Bays / Tenants) via countUnitLabel.
+  const isUnits = assetMetric === 'units';
   const unitArea = Math.max(0, subUnit.unitArea ?? 0);
-  const totalArea = isUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
-  const count = isUnits
+  const storedIsUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
+  const totalArea = storedIsUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
+  const count = storedIsUnits
     ? subUnit.metricValue
     : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
-  const totalRevenueNoIdx = isUnits
+  const totalRevenueNoIdx = storedIsUnits
     ? subUnit.metricValue * subUnit.unitPrice
     : subUnit.metricValue * subUnit.unitPrice;
-  const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
+  const rateUnit = rateUnitLabel(subUnit.category, assetMetric);
   const countUnit = countUnitLabel(subUnit.category, assetStrategy, assetType);
-  const unitsButNoSize = isUnits && unitArea === 0 && subUnit.metricValue > 0;
-  const onEditCount = (next: number): void => {
-    onUpdate({ metricValue: Math.max(0, next) });
+  const unitsButNoSize = isUnits && unitArea === 0 && totalArea > 0;
+  // P8-Fix 2a: in Units mode, the user edits AREA (sqm). We back-calc
+  // count = area / unitArea and store that as metricValue when stored
+  // shape is 'units'. When stored shape lags (legacy 'area' subunit
+  // inside a Units-mode asset), we flip the row to 'units' shape on
+  // first edit so back-calc holds.
+  const onEditAreaUnits = (nextArea: number): void => {
+    const a = Math.max(0, nextArea);
+    if (unitArea <= 0) {
+      // No unit size yet, store area in metricValue temporarily but flag
+      // for derivation once Unit Size is provided.
+      onUpdate({ metric: 'units', metricValue: 0, unitArea: 0 });
+      return;
+    }
+    onUpdate({ metric: 'units', metricValue: a / unitArea });
+  };
+  const onEditUnitSize = (nextUnitArea: number): void => {
+    const ua = Math.max(0, nextUnitArea);
+    // Preserve currently displayed Area: when stored is 'units',
+    // newCount = area / new ua = (oldCount * oldUnitArea) / ua.
+    if (storedIsUnits && ua > 0 && unitArea > 0) {
+      const area = subUnit.metricValue * unitArea;
+      onUpdate({ unitArea: ua, metricValue: area / ua, metric: 'units' });
+    } else if (!storedIsUnits && ua > 0) {
+      // Stored is 'area'; convert to 'units' with derived count.
+      onUpdate({ unitArea: ua, metricValue: subUnit.metricValue / ua, metric: 'units' });
+    } else {
+      onUpdate({ unitArea: ua, metric: 'units' });
+    }
   };
   const onEditAreaWhenArea = (next: number): void => {
-    onUpdate({ metricValue: Math.max(0, next) });
+    onUpdate({ metric: 'area', metricValue: Math.max(0, next) });
   };
   return (
     <tr data-testid={`subunit-row-${subUnit.id}`}>
@@ -1566,46 +1649,29 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, scale, as
           {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
         </select>
       </td>
-      <td style={{ padding: '4px 6px' }}>
-        <select
-          value={isUnits ? 'units' : 'area'}
-          data-testid={`subunit-${subUnit.id}-metric`}
-          onChange={(e) => {
-            const next = e.target.value as SubUnitMetric;
-            const check = canSwitchMetric(subUnit, next);
-            if (!check.ok) {
-              if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-                window.alert(check.reason);
-              }
-              return;
-            }
-            onUpdate(switchMetric(subUnit, next));
-          }}
-          style={{ ...inputStyle, fontSize: 11 }}
-          title={isUnits ? '' : (unitArea === 0 && subUnit.metricValue > 0 ? 'Set Unit Size before switching to Units' : '')}
-        >
-          <option value="units">Units</option>
-          <option value="area">Area</option>
-        </select>
-      </td>
+      {/* Area: always editable. In Units mode, user-entered Area drives
+          the derived Count via Unit Size. */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {isUnits ? (
-          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-area-derived`}>
-            {formatArea(totalArea, decimals)}
-            <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 2 }} data-testid={`subunit-${subUnit.id}-area-readout`}>
-              {unitArea > 0
-                ? `${Number(count.toFixed(2)).toLocaleString('en-US')} x ${Number(unitArea.toFixed(2)).toLocaleString('en-US')}`
-                : 'set Unit Size'}
-            </div>
-          </div>
-        ) : (
-          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
-        )}
+        <input
+          type="number" min={0}
+          value={Number(totalArea.toFixed(2))}
+          data-testid={`subunit-${subUnit.id}-area-input`}
+          onChange={(e) => isUnits ? onEditAreaUnits(Number(e.target.value) || 0) : onEditAreaWhenArea(Number(e.target.value) || 0)}
+          style={{ ...inputStyle, fontSize: 11 }}
+        />
       </td>
+      {/* Unit Size: editable in Units mode, muted dash in Area mode. */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
           <>
-            <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
+            <input
+              type="number" min={0}
+              value={Number((subUnit.unitArea ?? 0).toFixed(2))}
+              data-testid={`subunit-${subUnit.id}-unitArea`}
+              onChange={(e) => onEditUnitSize(Number(e.target.value) || 0)}
+              style={{ ...inputStyle, fontSize: 11 }}
+              aria-invalid={unitsButNoSize}
+            />
             {unitsButNoSize && (
               <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
             )}
@@ -1614,14 +1680,15 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, scale, as
           <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
         )}
       </td>
+      {/* Count: derived (read-only) in Units mode; muted dash in Area mode. */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
-          <>
-            <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
+          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-count`}>
+            {unitArea > 0 ? Number(count.toFixed(2)).toLocaleString('en-US') : '-'}
             <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
               {countUnit}
             </div>
-          </>
+          </div>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
         )}
