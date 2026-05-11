@@ -200,6 +200,32 @@ function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string
   return '';
 }
 
+// M2.0M Pass 6 Fix 1 (2026-05-11): per-row count-unit label rendered
+// as a caption beneath the Count cell. Category + asset strategy +
+// (optional) asset type drive the label so a hospitality Operable
+// row reads "keys", a healthcare Operable row reads "beds", parking
+// reads "bays", etc. Falls back to "units" for anything unmapped.
+function countUnitLabel(
+  category: SubUnitCategory,
+  strategy: AssetStrategy,
+  assetType?: string,
+): string {
+  if (category === 'Support') return 'items';
+  if (category === 'Sellable') return 'units';
+  if (category === 'Operable') {
+    const t = (assetType ?? '').toLowerCase();
+    if (t.includes('hospital') || t.includes('clinic') || t.includes('care') || t.includes('medical')) {
+      return 'beds';
+    }
+    if (strategy === 'Operate' || strategy === 'Sell + Manage') {
+      return 'keys';
+    }
+    return 'units';
+  }
+  if (category === 'Leasable') return 'tenants';
+  return 'units';
+}
+
 // Type catalog for the asset Type dropdown. Project.projectType wins
 // when set; otherwise falls back to strategy-keyed catalog.
 //
@@ -1274,6 +1300,8 @@ function AssetCard({
                         onRemove={() => removeSubUnit(u.id)}
                         decimals={project.displayDecimals ?? 2}
                         showUnitColumns={showUnitColumns}
+                        assetStrategy={asset.strategy}
+                        assetType={asset.type}
                       />
                     ))}
                   </tbody>
@@ -1371,7 +1399,7 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitColumns }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; showUnitColumns: boolean }): React.JSX.Element {
+function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitColumns, assetStrategy, assetType }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; showUnitColumns: boolean; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
   // M2.0j Fix 6 (2026-05-07): full bidirectional sync between count
   // and area when metric === 'units'. Schema stays the same:
   // metricValue is the canonical count (when metric=units) OR total
@@ -1395,6 +1423,9 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
     ? subUnit.metricValue
     : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
   const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
+  // M2.0M Pass 6 Fix 1: per-row count unit label (Units / Keys / Beds /
+  // Bays / Tenants / Items) rendered as a caption beneath the Count cell.
+  const countUnit = countUnitLabel(subUnit.category, assetStrategy, assetType);
   // M2.0j Fix 6: validation - metric=units requires unitArea > 0.
   const unitsButNoSize = isUnits && unitArea === 0 && subUnit.metricValue > 0;
   // Edit handlers
@@ -1483,7 +1514,12 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
       {showUnitColumns && (
         <td style={{ padding: '4px 6px', textAlign: 'right' }}>
           {isUnits ? (
-            <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
+            <>
+              <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
+              <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
+                {countUnit}
+              </div>
+            </>
           ) : (
             <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
           )}
