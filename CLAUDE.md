@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12 (M2.0 Costs Cleanup Pass 8 ships: 8 targeted fixes. NDA card moves from Tab 1 to Tab 2 (below Land Parcels totals row) with new Project/Per-Asset scope toggle; per-asset Roads%/Parks%/NDA toggle appears on each asset card when scope=asset. Sub-units: per-asset Metric toggle replaces per-row dropdown; Units mode = Area + Unit Size as INPUTS with Count derived; dynamic Count header (Units / Keys / Beds / Bays / Tenants) via countUnitLabel. Tab 3 top-right phase dropdown removed (Phase Filter above asset pills is sole navigation); empty-phase shows helpful message + keeps filter interactive. Cost line table 11 cols -> 9 (Category + Driver columns dropped, costCategory + costDriver deprecated). New cost lines default startPeriod=0, endPeriod=maxCp+1; migration clamps legacy lines whose endPeriod exceeds maxCp+1. PercentOfSelectedPicker colSpan synced to 9 (stale at 11 caused intermittent hidden render). Phase filter drops "All Phases" sentinel; default = first phase with assets. Results sub-tab gains explicit Combined/Single Asset radio toggle + asset picker dropdown; state persists via Project.resultsViewMode + resultsSelectedAssetId. migrateM20costsPass8 idempotent (NDA scope default, asset.subUnitMetric backfill from first sub-unit, endPeriod clamp, resultsViewMode default). M20_PASS8_NOTICE banner. Verifier verify-m20costsCleanup-pass8.ts 41/0/0. Schema stays v8 additive.)**
+**Last updated: 2026-05-12 (M2.0M Pass 4 Financing Cleanup ships: 10 fixes after the Pass 3 diagnostic revealed UI was rendering zero despite unit-tested hooks. Mandatory diagnostic in docs/m20M-pass4-diagnostic.md identified root cause (UI never called createFinancingHooks; computeCapitalStack read deprecated tranche.ltvPct + principal that Pass 3 hid from UI; Pass 3 migration cleared equityContributions[] but stack still walked them). Fixes: (10) force fix zero-rendering, route computeFunding through inputsSummary.totals (project-wide capex aggregate, all phases); bypass computeCapitalStack entirely, derive stack from funding + equity. (9) assetFilter replaces phaseFilter on Tab 4: __combined__ sentinel default; asset dropdown filters Inputs Summary + Schedules. (6) formatAccounting universal helper: zero -> "-", negative -> (n), null/undef -> "", positive -> "1,234,567"; applied across Module1Financing + Module1Costs. (1) Method 2 line-item editable table: dedupe composed line ids via deriveLineBaseId; per-row Debt% input + Equity% auto-derived; replaces "next sub-pass" placeholder. (2) Funding Basis block above facilities: 4 read-only fields (Method, Drawdown Basis, Total Capex, Total Funding Need). (3) Capital Structure Overview restructured: Total Funding lead card + Sources (Total Debt + Equity Cash + Equity In-Kind) + Uses (Total Capex + LTV + match chip). (4) TrancheCard compact 2-per-row grids replacing 4-per-row (Tenor/Availability/Grace/Repayment + output cards). (5) Drawdown periods only: drop period columns where total = 0; bottom row label simplified from "TOTAL Total Funding Required" to just "Total". (7) Schedules restructure: drop standalone Drawdown; replace Repayment with Debt Movement (Opening + Drawdown + Interest Cap + Principal Repaid + Closing); add Finance Cost per facility (Interest Accrued + Paid + IDC Cap + Expensed); renumber 1-7. (8) Equity Schedule -> Equity Movement (Opening + Cash + In-Kind + Closing, mirrors Debt Movement). migrateM20mPass4Financing idempotent (stamps assetFilter='__combined__' on legacy snapshots). M20M_PASS4_NOTICE banner takes priority in resolveBanner cascade. Verifier verify-m20M-pass4.ts 61/0/0 across 12 sections. Schema stays v8 additive.)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -370,9 +370,122 @@ Commits (10): `ae02b6f` (design note) - `31a3712` (Fix 1) -
 `8bc9c02` (Fix 8) - closure (migration + verifier + CLAUDE.md).
 Type-check clean on every commit.
 
+### Module 1 status (2026-05-12, **M2.0M Pass 4 Tab 4 Financing cleanup**)
+
+**M2.0M Pass 4 (current, ships):** 10 fixes + mandatory diagnostic
+after Pass 3 verification revealed Tab 4 was rendering zero despite
+unit-tested hooks. Schema stays v8 additive (`assetFilter` added to
+`ProjectFinancingConfig`).
+
+- **Mandatory diagnostic** at `docs/m20M-pass4-diagnostic.md` (commit
+  first). Root cause: UI never called `createFinancingHooks` (hook
+  contract was documented but unconsumed); `computeCapitalStack`
+  read deprecated `tranche.ltvPct` + `tranche.principal` that Pass 3
+  hid from UI; Pass 3 migration cleared `equityContributions[]` but
+  stack still walked them. Three intertwined bugs combined to render
+  zero across all schedules.
+
+- **Fix 10 (force fix zero-rendering)**: route `computeFunding`
+  through `inputsSummary.totals` (project-wide capex aggregate
+  across ALL phases). Bypass `computeCapitalStack` entirely; derive
+  stack directly from `funding + equity`. `phaseTranches` debt
+  breakdown uses `tranche.facilitySharePct`. MAAD-shape fixture
+  (1 phase, 1 asset, BUA 130874, rate 4500) now renders 588.9M
+  in Capital Structure Overview Total Funding card.
+
+- **Fix 9 (assetFilter replaces phaseFilter)**: new
+  `Project.financing.assetFilter?: string` (sentinel
+  `__combined__` = all assets). Top-of-Tab-4 dropdown rebuilt as
+  Asset Filter (`data-testid="financing-asset-filter"`); options =
+  Combined + per-asset (visible only). `phaseFilter` retained on
+  schema for back-compat (no longer rendered).
+
+- **Fix 6 (universal accounting format)**: new `formatAccounting`
+  helper in `src/core/formatters/index.ts`. Contract: zero -> `"-"`
+  (en-dash), negative -> `(1,234)` (parentheses), null / undefined ->
+  `""` (blank), positive -> `1,234,567` (scaled, no K/M suffix). Page
+  header line keeps the scale indicator. Applied across
+  Module1Financing (3 sites) + Module1Costs Results.
+
+- **Fix 1 (Method 2 line-item table)**: `renderMethodInputs(id=2)`
+  replaces the "next sub-pass" placeholder with a real editable
+  table. Rows = unique cost-line `baseId`s (composed
+  `${baseId}__${phaseId}__${assetId}` deduped via `deriveLineBaseId`).
+  Each row: Cost Line label + Debt % editable input + Equity %
+  auto-derived (100 - debtPct). Writes to
+  `financingConfig.lineItemRatios.master[]` keyed by baseId.
+
+- **Fix 2 (Funding Basis block)**: new card
+  `data-testid="financing-funding-basis"` between Funding Method
+  radio and Land Funding section. 4 read-only fields: Method
+  (active method label), Drawdown Basis (per-method source math
+  description), Total Capex (excl Land In-Kind), Total Funding Need.
+
+- **Fix 3 (Capital Structure Overview content)**: leads with Total
+  Funding as headline KPI; splits Sources (Total Debt + Equity Cash
+  + Equity In-Kind sub-cards) and Uses (Total Capex + LTV +
+  Sources-vs-Uses chip) into clearly labelled blocks. New
+  data-testids: `cap-stack-total-funding`, `cap-stack-equity-cash`,
+  `cap-stack-equity-inkind`; dropped: `cap-stack-equity`,
+  `cap-stack-sources` (redundant with Total Funding).
+
+- **Fix 4 (compact field layout)**: TrancheCard inputs and outputs
+  reflow from 4-per-row to 2-per-row grids. Tenor / Availability
+  pair, Grace / Repayment pair; output cards (Total Debt Drawn /
+  Total Interest / Total Repayment / Periodic Rate) reflow 4x1 to
+  2x2. Other rows already at 3-per-row max.
+
+- **Fix 5 (drawdown periods only + Total row label)**: Inputs
+  Summary Tables drop period columns where the funding total = 0
+  (operations periods stay hidden). Active period set derived once
+  from `totalsRow` and shared across all 3 sub-tables. Bottom row
+  label changed from `"TOTAL Total Funding Required"` (read as
+  duplicated TOTAL Total) to just `"Total"`. Total row styling
+  kept: grey-pale fill + bold weight.
+
+- **Fix 7 (Schedules restructure)**: drop standalone Drawdown
+  schedule; replace Repayment with Debt Movement per facility
+  (Opening Balance + Drawdown + Interest Capitalized + Principal
+  Repaid + Closing Balance, ledger-style); add Finance Cost per
+  facility (Interest Accrued + Interest Paid + IDC Capitalized +
+  Expensed Interest = dual P&L vs cash tracking M5 will consume).
+  Renumber: 1 Capital Stack Summary, 2 Debt Movement, 3 Combined
+  Debt Service, 4 Finance Cost, 5 IDC Summary, 6 Equity Movement,
+  7 Capital Stack Movement.
+
+- **Fix 8 (Equity Movement)**: replace Equity Schedule with Equity
+  Movement (Opening Equity + Cash Contributions + In-Kind
+  Contributions + Closing Equity). Mirrors Debt Movement shape for
+  visual symmetry.
+
+- **Migration**: `migrateM20mPass4Financing` (idempotent) stamps
+  `assetFilter = '__combined__'` on any snapshot whose
+  `project.financing.assetFilter` is undefined. Banner
+  `M20M_PASS4_NOTICE` takes priority in `resolveBanner` cascade
+  ahead of Pass 3 / earlier banners. Wired into all 3 hydrate
+  chains (stripV8Wrapper / stripWrapper / migrateLegacyToV8).
+
+- **Verifier**: `scripts/verify-m20M-pass4.ts` 61 pass / 0 fail / 0
+  skip across 12 sections (diagnostic file presence + Fix 10 MAAD
+  fixture aggregation + Fix 9 schema/migration/UI + Fix 6
+  formatAccounting contract & adoption + Fix 1 Method 2 table
+  source markers + Fix 2 Funding Basis test-ids + Fix 3 Cap Stack
+  cards + Fix 4 compact grids + Fix 5 activePeriods filter + Fix 7+8
+  Debt Movement / Finance Cost / Equity Movement / Opening+Closing
+  rows + em-dash sweep + banner cascade order).
+
+Commits (10): `d370b64` (mandatory diagnostic) - `b297594` (Fix 10
+force fix zero-rendering) - `1404bc1` (Fix 9 asset filter) -
+`34326fa` (Fix 6 accounting format) - `465f041` (Fix 1 Method 2 table) -
+`23bdba4` (Fix 2 Funding Basis block) - `9c36ec7` (Fix 3 Cap Stack
+content) - `2b912f7` (Fix 4 compact fields) - `8f96e25` (Fix 5
+drawdown periods + total row) - `35a6c92` (Fix 7+8 Schedules
+restructure) - closure (verifier + CLAUDE.md). Type-check clean on
+every commit.
+
 ### Module 1 status (2026-05-12, **M2.0M Pass 3 Tab 4 Financing cleanup**)
 
-**M2.0M Pass 3 (current, ships):** 10 targeted Tab 4 fixes
+**M2.0M Pass 3 (ships, superseded by Pass 4):** 10 targeted Tab 4 fixes
 simplifying the financing surface. Schema stays v8 additive
 (`facilitySharePct` + `scope` re-exposed on `FinancingTranche`; all
 deprecations keep their fields for back-compat).
