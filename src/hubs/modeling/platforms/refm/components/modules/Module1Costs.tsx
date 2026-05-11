@@ -2593,25 +2593,38 @@ export default function Module1Costs(): React.JSX.Element {
         // phase has no assets, render a helpful message and keep the
         // phase filter dropdown interactive so the user can switch to
         // a populated phase.
+        // P9-Fix 7 (2026-05-12): when inputsPhaseFilter holds a phase id
+        // that has no visible assets (e.g. user clicks Phase 3 before
+        // adding any assets there), we want the filter to RESPECT the
+        // user's selection (so the dropdown shows Phase 3 + the empty
+        // state renders for Phase 3, not silently jump to Phase 2). The
+        // previous fallback `inputsPhaseFilter || firstPhaseWithAssets`
+        // worked because empty-phase id is still truthy; activeAsset
+        // could then be undefined, and downstream `activeAsset.phaseId`
+        // crashed. Below: guard every downstream dereference.
         const firstPhaseWithAssets = phases.find((p) => allVisibleAssets.some((a) => a.phaseId === p.id))?.id;
         const effectivePhaseId = inputsPhaseFilter || firstPhaseWithAssets || phases[0]?.id || '';
         const visiblePillAssets = allVisibleAssets.filter((a) => a.phaseId === effectivePhaseId);
         const activeAsset = visiblePillAssets.find((a) => a.id === selectedCostAssetId)
           ?? visiblePillAssets[0];
-        const assetPhase = phases.find((p) => p.id === activeAsset.phaseId);
+        const assetPhase = activeAsset ? phases.find((p) => p.id === activeAsset.phaseId) : undefined;
         const phaseStart = assetPhase?.startDate && assetPhase.startDate.length === 10
           ? assetPhase.startDate
           : project.startDate;
         const phaseScopedPeriodLabel = (idx: number): string =>
           getPeriodLabel(idx, phaseStart, project.modelType);
-        const assetLines = costLines
-          .filter((c) => c.targetAssetId === activeAsset.id)
-          .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-          .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
-        const assetBreakdown = perPhaseBreakdowns
-          .find((pb) => pb.phaseId === activeAsset.phaseId)
-          ?.assetTotals[activeAsset.id];
-        const assetMetrics = metricsByAsset.get(activeAsset.id);
+        const assetLines = activeAsset
+          ? costLines
+              .filter((c) => c.targetAssetId === activeAsset.id)
+              .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
+              .filter((c) => !c.requiresCountry || c.requiresCountry === project.country)
+          : [];
+        const assetBreakdown = activeAsset
+          ? perPhaseBreakdowns
+              .find((pb) => pb.phaseId === activeAsset.phaseId)
+              ?.assetTotals[activeAsset.id]
+          : undefined;
+        const assetMetrics = activeAsset ? metricsByAsset.get(activeAsset.id) : undefined;
 
         const pillStyle = (active: boolean): React.CSSProperties => ({
           fontSize: 11,
