@@ -51,7 +51,7 @@ import {
   // P2-Fix 3: FACILITY_TYPES + FACILITY_TYPE_LABELS imports dropped.
   BASE_RATES,
   BASE_RATE_LABELS,
-  IDC_TREATMENTS,
+  // P2-Fix 7: IDC_TREATMENTS dropped (only Capitalize/Expense rendered).
   IDC_TREATMENT_LABELS,
   FEE_TREATMENTS,
   FEE_TREATMENT_LABELS,
@@ -508,25 +508,20 @@ function TrancheCard({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
+          {/* P2-Fix 7 (2026-05-11): dropdown shows Capitalize / Expense
+              only. Mixed retained on schema for back-compat; migration
+              folded existing Mixed -> Capitalize. idcMixedSplitPeriod
+              input removed from UI (schema field stays). */}
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>IDC Treatment</label>
           <select
-            value={idcTreatment}
+            value={idcTreatment === 'mixed' ? 'capitalize' : idcTreatment}
             onChange={(e) => onUpdate({ idcTreatment: e.target.value as IDCTreatment, idcCapitalize: e.target.value === 'capitalize' })}
             style={inputStyle}
             data-testid={`tranche-${tranche.id}-idc-treatment`}
           >
-            {IDC_TREATMENTS.map((t) => (<option key={t} value={t}>{IDC_TREATMENT_LABELS[t]}</option>))}
+            <option value="capitalize">{IDC_TREATMENT_LABELS.capitalize}</option>
+            <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
           </select>
-          {idcTreatment === 'mixed' && (
-            <input
-              type="number" min={0}
-              placeholder="Split period (last cap period)"
-              value={tranche.idcMixedSplitPeriod ?? phase.constructionPeriods}
-              onChange={(e) => onUpdate({ idcMixedSplitPeriod: parseInt(e.target.value) || 0 })}
-              style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-idc-mixed-split`}
-            />
-          )}
         </div>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Per-Asset Scope</label>
@@ -552,7 +547,7 @@ function TrancheCard({
             Auto cost line in Tab 3
           </label>
           <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-            Generates read-only IDC capex line per asset (capitalize/mixed only).
+            Generates read-only IDC capex line per asset (Capitalize only).
           </div>
         </div>
       </div>
