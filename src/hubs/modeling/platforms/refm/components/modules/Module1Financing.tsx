@@ -73,7 +73,9 @@ import {
   computePhaseCost,
   computeFinancing,
   resolveAssetAreaMetrics,
-  computeCapitalStack,
+  // P4-Fix 10 (2026-05-12): computeCapitalStack import dropped. Capital
+  // Structure Overview now derives directly from funding + equity to
+  // avoid the deprecated tranche.ltvPct + tranche.principal code path.
   computeIdcSummary,
   computeCombinedDebtService,
   applyIdcToCapex,
@@ -843,6 +845,12 @@ export default function Module1Financing(): React.JSX.Element {
   const phaseCost = computePhaseCost(
     phase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode,
   );
+  // P4-Fix 10 (2026-05-12): legacy single-phase capexPerPeriod kept for
+  // back-compat with the per-tranche schedule rendering inside TrancheCard
+  // (which still consumes a per-phase array for its computeFinancing
+  // call). Project-wide capex (across all phases) flows through
+  // inputsSummary.totals below; that's what feeds funding / equity /
+  // Capital Structure Overview now.
   const capexPerPeriod = phaseCost.perPeriod;
   const presalesPerPeriod = new Array<number>(phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods).fill(0);
 
@@ -876,31 +884,14 @@ export default function Module1Financing(): React.JSX.Element {
     return map;
   }, [phaseTranches, phase, phases, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode]);
 
-  const stack = useMemo(
-    () => computeCapitalStack(phaseTranches, phaseEquity, phaseCost.total),
-    [phaseTranches, phaseEquity, phaseCost.total],
-  );
-  // P2-Fix 11 (2026-05-11): uniform funding + equity computation drives
-  // the Capital Stack Summary equity rows and the new Equity Schedule.
-  const funding = useMemo(
-    () => computeFunding({
-      method: financingConfig.fundingMethod,
-      financing: financingConfig,
-      capexPerPeriod,
-    }),
-    [financingConfig, capexPerPeriod],
-  );
-  const phaseInKindLandValue = useMemo(() => {
-    const phaseAssetsLocal = assets.filter((a) => a.phaseId === phase.id && a.visible);
-    return phaseAssetsLocal.reduce((s, a) => {
-      const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssetsLocal, subUnits, landAllocationMode);
-      return s + Math.max(0, m.inKindLandValue);
-    }, 0);
-  }, [assets, phase.id, project, parcels, subUnits, landAllocationMode]);
-  const equity = useMemo(
-    () => computeEquity(financingConfig, funding, phaseInKindLandValue),
-    [financingConfig, funding, phaseInKindLandValue],
-  );
+  // P4-Fix 10 (2026-05-12): funding + equity routed off PROJECT-WIDE
+  // capex (inputsSummary.totals) instead of the single-phase
+  // capexPerPeriod. Pre-Pass-4 this only summed the active phase, so
+  // multi-phase projects + the Capital Structure Overview rendered
+  // zero when activePhaseId pointed at a phase with no cost lines.
+  // Now: funding sees the union of all phase capex excluding Land
+  // In-Kind, so totals match the Inputs Summary Tables Total Funding
+  // row exactly.
   const idcSummary = useMemo(
     () => computeIdcSummary(phaseTranches, resultsMap),
     [phaseTranches, resultsMap],
@@ -964,6 +955,54 @@ export default function Module1Financing(): React.JSX.Element {
     }
     return total;
   }, [phases, assets, project, parcels, subUnits, landAllocationMode]);
+
+  // P4-Fix 10 (2026-05-12): funding routed off project-wide capex
+  // (inputsSummary.totals) so Capital Structure Overview + schedules
+  // see all phases' capex. Was single-phase pre-Pass-4 which rendered
+  // zero whenever activePhaseId did not match the phase carrying the
+  // cost lines.
+  const funding = useMemo(
+    () => computeFunding({
+      method: financingConfig.fundingMethod,
+      financing: financingConfig,
+      capexPerPeriod: inputsSummary.totals,
+    }),
+    [financingConfig, inputsSummary.totals],
+  );
+  const equity = useMemo(
+    () => computeEquity(financingConfig, funding, projectInKindLandValue),
+    [financingConfig, funding, projectInKindLandValue],
+  );
+  // P4-Fix 3 / Fix 10: Capital Structure Overview totals are derived
+  // directly from funding + equity now (NOT computeCapitalStack which
+  // reads deprecated tranche.ltvPct + tranche.principal fields that
+  // Pass 3 hid from the UI). totalDebt = funding.totalNeed - totalEquity.
+  const stack = useMemo(() => {
+    const totalEquity = equity.cashContribution + equity.inKindContribution;
+    const totalDebt = Math.max(0, funding.totalNeed - totalEquity);
+    const totalSources = totalEquity + totalDebt;
+    const totalUses = funding.totalNeed;
+    const gap = totalSources - totalUses;
+    const equityBreakdown = [
+      { id: 'equity-cash', name: 'Equity (Cash)', amount: equity.cashContribution, pct: totalSources > 0 ? (equity.cashContribution / totalSources) * 100 : 0, category: 'equity:cash' },
+      { id: 'equity-inkind', name: 'Equity (In-Kind)', amount: equity.inKindContribution, pct: totalSources > 0 ? (equity.inKindContribution / totalSources) * 100 : 0, category: 'equity:in_kind' },
+    ].filter((e) => e.amount > 0);
+    const debtBreakdown = phaseTranches.map((t) => {
+      const sharePct = t.facilitySharePct ?? (phaseTranches.length > 0 ? 100 / phaseTranches.length : 100);
+      const amount = totalDebt * (sharePct / 100);
+      return {
+        id: t.id,
+        name: t.name,
+        amount,
+        pct: totalSources > 0 ? (amount / totalSources) * 100 : 0,
+        category: `debt:${t.facilityType ?? 'senior_construction'}`,
+      };
+    });
+    const seniorDebt = debtBreakdown.reduce((s, d) => d.category.includes('senior') ? s + d.amount : s, 0);
+    const ltvSenior = totalUses > 0 ? (seniorDebt / totalUses) * 100 : 0;
+    const ltvTotal = totalUses > 0 ? (totalDebt / totalUses) * 100 : 0;
+    return { totalEquity, totalDebt, totalSources, totalUses, gap, ltvSenior, ltvTotal, equityBreakdown, debtBreakdown };
+  }, [funding, equity, phaseTranches]);
 
   // M2.0L: cross-tab IDC -> Tab 3 Costs auto-line sync. For every
   // facility with idcTreatment != 'expense' AND autoGenerateIdcCostLine
