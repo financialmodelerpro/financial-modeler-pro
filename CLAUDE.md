@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0L + 4-fix follow-up ships: (1) graceful legacy-snapshot migration with permissive loose-shape detector + LEGACY_MIGRATION_NOTICE banner, (2) Cost Input Mode chooser modal + Same/Individual toggle with override-clear confirm, (3) sub-unit metric UX cleanup (Area mode hides Unit Size+Count; Units mode hides Area input, shows derived caption), (4) cost multiplier asset-area fallback + "no <X> defined yet" caption warning. Schema v8 stays additive: Project.costInputMode optional. M2.0j 16-fix detail archived to CLAUDE-FEATURES.md)**
+**Last updated: 2026-05-11 (M2.0L Pass 4 ships: parent/child inheritance cost engine. Project.costInputMode deprecated + stripped on hydrate; the Same vs Individual mode toggle is gone. Tab 3 now renders one editable master cost line table per phase + per-asset resolved replicas below, each row carrying a Source pill ("Inherited"/"Override") + an Override toggle button. CostOverride gains optional overridden boolean + startPeriod/endPeriod fields. Calc resolver: override.overridden=false reverts to master; override.overridden=true (legacy undefined treated as true) uses override fields with per-field master fallback. PASS4_MIGRATION_NOTICE banner fires once when costInputMode or unflagged overrides are detected. Results tables relabeled: Table 1 Construction Cost Schedule (per cost line, per asset), Table 2 Total Capex Including Land Value, Table 3 Capex Excluding Land In-Kind (cash-impact schedule that drives Financing debt sizing + equity funding), Table 4 Capex Excluding Total Land. Verifier 30/30. Schema stays v8 additive. M2.0j detail in CLAUDE-FEATURES.md)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,7 +225,8 @@ npm run verify       # type-check + lint + build
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Canonical green for current state: verify-m20L.ts
+# Canonical green for current state: verify-m20L-pass4.ts (latest Costs surface)
+npx tsx scripts/verify-m20L-pass4.ts            # parent/child inheritance cost engine (30 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L.ts                  # M2.0L cost duplication fix + Financing build (74 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20j.ts                  # M2.0j Module 1 audit + display, 16 fixes (60 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync (70 pass / 0 fail / 3 skip)
@@ -499,10 +500,13 @@ in CLAUDE-FEATURES.md "Module 1 (REFM) M2.0 Phase History".
 - **Reconciliation is compact-by-default.** Collapsed summary line with status icon (✓/✗/⚠) + expand affordance + auto-expand on mismatch + localStorage persistence. Pattern applies to land reconciliation, asset area reconciliation, and future revenue/debt/capex reconciliations.
 
 **Cost engine**
+- **Parent/child inheritance is the canonical Costs UX (M2.0L Pass 4).** One editable master cost line table per phase (`CostLine[]` with `targetAssetId === undefined`) + per-asset resolved replicas below. Each replica row carries a Source pill (Inherited/Override) + an Override toggle button. Click Override → `CostOverride` entry seeded with master values + `overridden=true`. Click ✓ Revert → drop the override entry (asset reverts to master). Master edits propagate synchronously to every non-overridden replica via Zustand subscriptions.
+- **CostOverride resolution:** `override.overridden === false` reverts to master entirely. `override.overridden !== false` (true OR legacy undefined treated as true) uses override fields with master fallback per field — i.e. each `method` / `value` / `phasing` / `distribution` / `perSubUnitRates` / `startPeriod` / `endPeriod` on the override replaces the master if set; undefined fields inherit. Same rule for the migration banner: legacy CostOverride entries stamp `overridden=true` on hydrate via `migrateM20Pass4Inheritance`.
+- **`Project.costInputMode` is deprecated.** Stripped on hydrate. The Same vs Individual mode UX is gone; the inheritance surface always renders both views.
+- **Capex Excl Land In-Kind is the cash-impact schedule** that feeds the Financing module's drawdown curve for debt sizing + equity funding requirement. Results Table 3 in Tab 3. Land In-Kind is non-cash equity (Tab 4 In-Kind Equity tile, never on Cash Flow Statement); Total Capex Incl Land Value (Results Table 2) is the basis for Fixed Assets / Inventory book value in M5.
 - **Capex capitalisation rule.** Every cost line capitalises into asset basis. `classifyAssetCapex(asset, capexBasis, landTotal)` routes to `{ COGS, FixedAssets, Depreciation }` per strategy. Land never depreciates.
-- **Land in-kind treatment.** `computeCashFlowImpact(capexBasis, landInKindPortion)` returns `{ cashOutflow, equityInKind }`. M3 Cashflow consumes directly. In-kind portion lands in Tab 4 In-Kind Equity tile + Capex Summary "Cash Flow Impact" column.
+- **Land in-kind treatment.** `computeCashFlowImpact(capexBasis, landInKindPortion)` returns `{ cashOutflow, equityInKind }`. M3 Cashflow consumes directly.
 - **`CostLine` is open-ended `id: string`.** Custom + seed lines coexist; `isLocked` protects seed rows. `STANDARD_COST_LINE_IDS` exports the 9-line standard catalog. `deriveCostStage(line)` returns stage by stable id; custom lines fall back to `line.stage`.
-- **Per-asset cost segregation is canonical Costs UX.** Per-phase header → per-asset collapsible section → per-line override. Module 2 Revenue adopts the same shape.
 - **Per-sub-unit custom rates** is the pattern for granular cost differentiation. `CostMethod = 'per_sub_unit_custom_rates'` + `CostLine.perSubUnitRates` keyed on sub-unit id with reserved keys `'__support__'` / `'__parking__'`. M2.1 can mirror with `RevenueLine.perSubUnitRates`.
 - **Cost line caption pattern.** Inline caption under value cell showing `rate × metric = total`. M2.1 follows with `revenueLineCaption`.
 

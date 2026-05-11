@@ -4,6 +4,53 @@
 
 ---
 
+## Recently Completed, M2.0L Pass 4 - Parent/Child Inheritance Cost Engine (2026-05-11, 6 commits)
+
+Architectural rewrite. The "Same vs Individual" cost input mode toggle is
+replaced by a single inheritance surface. Schema stays v8 additive.
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `55f04d5` | Design note `docs/m20L-pass4-inheritance.md`. Pre-implementation write-up of the inheritance architecture, resolver semantics, migration plan, UI rewrite, and Results-table relabel. |
+| 2 | `4e5e3de` | Schema: `CostOverride.overridden?: boolean` (legacy stamped true on hydrate via `migrateM20Pass4Inheritance`); `CostOverride.startPeriod?` + `endPeriod?` for per-asset timing override. `Project.costInputMode` deprecated + stripped on hydrate. Resolver in `computeAssetCost` reads override fields with per-field master fallback when `overridden !== false`. `PASS4_MIGRATION_NOTICE` constant exported + emitted via `snapshotNeedsPass4Migration` detector. |
+| 3 | `37d9184` | UI rewrite. Removed `cost-input-mode-toggle` button + `CostInputModeModal` render. Deleted 181 lines of dead Individual-mode branch. Tab 3 Inputs sub-tab now always renders one editable master table per phase + per-asset resolved replicas below, each row carrying Source pill (Inherited/Override) + Override toggle button. `SameModeCostTable` gains `onUpdateOverride` + `onRemoveOverride` props threaded from the parent component. |
+| 4 | `7149f9d` | Results section relabeled per the brief's accounting framing: Table 1 "Construction Cost Schedule by Period (per cost line, per asset)", Table 2 "Total Capex Including Land Value", Table 3 "Capex Excluding Land In-Kind (cash-impact schedule)" - the one Financing module's drawdown curve consumes, Table 4 "Capex Excluding Total Land". |
+| 5 | (this commit) | Verifier `scripts/verify-m20L-pass4.ts` (30 pass / 0 fail / 0 skip) covering schema, migration, calc resolver, source markers. CLAUDE.md + CLAUDE-TODO.md updates. |
+
+**Deferred from Pass 4 (acceptable):**
+- Playwright e2e spec for inheritance flow (verifier covers calc; UI spec to follow).
+- Snapshot baseline refresh (`scripts/baselines/module1-v5.json`) - inheritance defaults haven't changed the persisted shape; legacy + new snapshots produce the same calc output via the resolver.
+- "Advanced" disclosure row for per-asset Start/End timing override on each replica row. The override SHAPE supports `startPeriod` + `endPeriod`; UI for editing them per-asset is hidden by default.
+
+**Pattern decisions captured:**
+- **Inheritance over mode toggles.** When two surfaces present the same underlying data, render both views unconditionally instead of forcing the user to pick a mode. Source pill + override toggle make the data flow explicit.
+- **Field-level inheritance with master fallback** (`override.X ?? master.X` when `overridden !== false`) is the canonical override pattern. Lets partial overrides coexist with master values.
+- **Migration always emits a banner** when it touches data, even on same-version snapshots. `snapshotNeedsPass4Migration(raw)` detects both triggers (`costInputMode` present OR any `overridden` field undefined) and surfaces `PASS4_MIGRATION_NOTICE` once.
+
+---
+
+## Recently Completed, M2.0L Pass 3 - Inheritance prep + cleanups (2026-05-11, 6 commits)
+
+`e68f7e0` diagnostic + `e1cbb57` widen area fallback + `5b0ebd2`
+auto-clamp period to construction window + `da58b9f` merge Rate + Rate
+Unit columns in sub-unit table + `82a026d` currency propagation audit
++ `20f4796` drop strategy taglines per cost line. Pass 3 was a stepping
+stone toward the Pass 4 inheritance rewrite.
+
+---
+
+## Recently Completed, M2.0L Pass 2 - 10 fixes (2026-05-11, 5 commits)
+
+`b03fa02` sub-unit column hide + fixed widths + `5c50ae3` cost engine
+wiring (phase-scoped metrics + skip alloc factor on asset-specific
+methods) + `267478a` unit hint / full-scale inputs / End-period max /
+delete button + `9871fbe` Same-mode aggregation + master + replicas
+(framing for Pass 4 inheritance) + `0dc7897` 3 additional CAPEX
+summary tables. Pass 2 framed the inheritance design that Pass 4 then
+formalised.
+
+---
+
 ## Recently Completed, M2.0L 4-fix follow-up (2026-05-11, 4 commits)
 
 Four targeted fixes layered onto M2.0L. Schema stays v8 additive
