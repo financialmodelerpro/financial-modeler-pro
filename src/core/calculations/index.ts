@@ -366,6 +366,41 @@ export function validateLandAllocation(
 // ── Asset area metrics ─────────────────────────────────────────────────────
 // Resolves the area / value bases that the calc methods need for a single
 // asset. Replaces the pre-M2.0 AreaMetrics interface.
+// M2.0L Pass2 Fix 4 (2026-05-11): aggregate per-asset metrics across
+// a phase. Used by Same-mode rendering to show the master cost table
+// caption with summed multipliers (e.g. "x 280,000 sqm BUA aggregated"
+// instead of one asset's slice).
+export function aggregatePhaseMetrics(
+  phaseAssets: Asset[],
+  metricsByAsset: Map<string, AssetAreaMetrics>,
+): AssetAreaMetrics {
+  const agg: AssetAreaMetrics = {
+    landSqm: 0, ndaSqm: 0, roadsSqm: 0,
+    gfa: 0, bua: 0, nsa: 0,
+    unitCount: 0, parkingBays: 0,
+    supportArea: 0, parkingArea: 0,
+    landValue: 0, cashLandValue: 0, inKindLandValue: 0,
+  };
+  for (const a of phaseAssets) {
+    const m = metricsByAsset.get(a.id);
+    if (!m) continue;
+    agg.landSqm += m.landSqm;
+    agg.ndaSqm += m.ndaSqm;
+    agg.roadsSqm += m.roadsSqm;
+    agg.gfa += m.gfa;
+    agg.bua += m.bua;
+    agg.nsa += m.nsa;
+    agg.unitCount += m.unitCount;
+    agg.parkingBays += m.parkingBays;
+    agg.supportArea += m.supportArea;
+    agg.parkingArea += m.parkingArea;
+    agg.landValue += m.landValue;
+    agg.cashLandValue += m.cashLandValue;
+    agg.inKindLandValue += m.inKindLandValue;
+  }
+  return agg;
+}
+
 export interface AssetAreaMetrics {
   landSqm: number;
   ndaSqm: number;              // M2.0h Fix 4: parcel-level NDA aware
@@ -2140,11 +2175,13 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'rate_per_parking_bay':
       return parkingBays > 0 ? `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays ${eq}` : noArea('Parking bays');
     case 'rate_x_support_area': {
-      const sa = Math.max(0, asset.supportArea ?? 0);
+      // M2.0L Pass2 Fix 4 (2026-05-11): prefer metrics.supportArea so
+      // aggregated (Same-mode) renderings work. Falls back to asset.
+      const sa = Math.max(0, metrics.supportArea > 0 ? metrics.supportArea : (asset.supportArea ?? 0));
       return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support ${eq}` : noArea('Support area');
     }
     case 'rate_x_parking_area': {
-      const pa = Math.max(0, asset.parkingArea ?? 0);
+      const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : (asset.parkingArea ?? 0));
       return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking ${eq}` : noArea('Parking area');
     }
     case 'rate_x_specific_subunit':

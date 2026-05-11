@@ -61,6 +61,7 @@ import {
   computeAssetCost,
   computeCostLinePerSubUnit,
   resolveAssetAreaMetrics,
+  aggregatePhaseMetrics,
   classifyAssetCapex,
   computeCashFlowImpact,
   resolveUsefulLifeYears,
@@ -1601,7 +1602,12 @@ function SameModeCostTable({
   lines, costOverrides, breakdowns, currency, scale, decimals, periodLabel,
   subUnits, metricsByAsset, onUpdateLine, onRemoveLine, onAddCustom,
 }: SameModeCostTableProps): React.JSX.Element {
-  // Aggregated phase total per line: sum across visible assets.
+  // M2.0L Pass2 Fix 4 + Fix 10 (2026-05-11): Same mode renders ONE
+  // editable master cost table (top) + per-asset read-only replicas
+  // (below). Master caption uses AGGREGATED metrics (sum across phase
+  // assets) so user sees "x 280,000 sqm BUA aggregated" instead of
+  // one asset's slice. Each replica shows the same lines with that
+  // asset's own metrics + per-asset subtotal.
   const totalByLineId = (lineId: string): number => {
     let s = 0;
     for (const a of phaseAssets) {
@@ -1611,12 +1617,27 @@ function SameModeCostTable({
     }
     return s;
   };
-  // Use the first visible asset as the renderer (CostRow needs an asset
-  // for caption context). The caption value shows that asset's share;
-  // the Total cell aggregates across all assets in the phase.
-  const refAsset = phaseAssets[0];
-  const refMetrics = refAsset ? metricsByAsset.get(refAsset.id) : undefined;
   const phaseSubtotal = lines.reduce((s, l) => s + totalByLineId(l.id), 0);
+
+  // Build a synthetic master "asset" carrying aggregated supportArea /
+  // parkingArea so costLineCaption renders the summed footprint. We
+  // borrow phaseAssets[0]'s identity fields (phaseId, strategy, etc.)
+  // but only the area-related fields are read by the caption.
+  const aggregatedMetrics = aggregatePhaseMetrics(phaseAssets, metricsByAsset);
+  const refAsset = phaseAssets[0];
+  const masterSyntheticAsset: Asset | undefined = refAsset
+    ? {
+        ...refAsset,
+        name: 'All Assets (aggregated)',
+        buaSqm: aggregatedMetrics.bua,
+        sellableBuaSqm: aggregatedMetrics.nsa,
+        gfaSqm: aggregatedMetrics.gfa,
+        supportArea: aggregatedMetrics.supportArea,
+        parkingArea: aggregatedMetrics.parkingArea,
+        parkingBaysRequired: aggregatedMetrics.parkingBays,
+      }
+    : undefined;
+
   return (
     <div style={assetSectionStyle} data-testid={`costs-same-phase-${phaseId}`}>
       <div
@@ -1630,7 +1651,7 @@ function SameModeCostTable({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>{phaseName}</span>
           <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-            Single cost table - applies to {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'} uniformly
+            Master cost table - aggregates over {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1640,9 +1661,9 @@ function SameModeCostTable({
           </strong>
         </div>
       </div>
-      {refAsset && refMetrics ? (
+      {masterSyntheticAsset && refAsset ? (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }} data-testid={`costs-same-phase-${phaseId}-master-table`}>
             <thead>
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
@@ -1651,7 +1672,7 @@ function SameModeCostTable({
                 <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Phasing</th>
-                <th style={{ padding: '6px', textAlign: 'right' }}>Total</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Total (all assets)</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Toggle</th>
               </tr>
             </thead>
@@ -1661,7 +1682,7 @@ function SameModeCostTable({
                 return (
                   <CostRow
                     key={line.id}
-                    asset={refAsset}
+                    asset={masterSyntheticAsset}
                     line={line}
                     override={undefined}
                     total={total}
@@ -1672,7 +1693,7 @@ function SameModeCostTable({
                     periodLabel={periodLabel}
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
-                    metrics={refMetrics}
+                    metrics={aggregatedMetrics}
                     editsGoToLine
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={() => { /* same mode: no overrides */ }}
@@ -1709,6 +1730,71 @@ function SameModeCostTable({
             >
               + Add Custom Cost
             </button>
+          </div>
+
+          {/* M2.0L Pass2 Fix 10: per-asset read-only replicas */}
+          <div style={{ marginTop: 'var(--sp-3)' }} data-testid={`costs-same-phase-${phaseId}-replicas`}>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 var(--sp-1) 0' }}>
+              Per-asset breakdown (read-only)
+            </h4>
+            {phaseAssets.map((a) => {
+              const m = metricsByAsset.get(a.id);
+              const bd = breakdowns[a.id];
+              if (!m || !bd) return null;
+              const assetSubtotal = lines.reduce((s, l) => s + (bd.byLineId[l.id] ?? 0), 0);
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--sp-1)',
+                    marginBottom: 'var(--sp-1)',
+                    background: 'var(--color-grey-pale)',
+                  }}
+                  data-testid={`costs-same-replica-${a.id}`}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <strong style={{ fontSize: 12 }}>{a.name}</strong>
+                    <span style={{ fontSize: 12, fontWeight: 700 }} data-testid={`costs-same-replica-${a.id}-subtotal`}>
+                      {formatScaled(assetSubtotal, scale, decimals)}
+                    </span>
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--color-surface)' }}>
+                        <th style={{ padding: '4px', textAlign: 'left' }}>Cost Line</th>
+                        <th style={{ padding: '4px', textAlign: 'left' }}>Method</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Value</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Multiplier (this asset)</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Total (this asset)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((line) => {
+                        const lineTotal = bd.byLineId[line.id] ?? 0;
+                        const cap = costLineCaption({
+                          line,
+                          asset: a,
+                          metrics: m,
+                          parkingBays: a.parkingBaysRequired ?? 0,
+                          resolvedTotal: lineTotal,
+                        });
+                        return (
+                          <tr key={line.id} data-testid={`costs-same-replica-${a.id}-row-${line.id}`}>
+                            <td style={{ padding: '4px', textAlign: 'left' }}>{line.name}</td>
+                            <td style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10 }}>{COST_METHOD_LABELS[line.method]}</td>
+                            <td style={{ padding: '4px', textAlign: 'right' }}>{line.value}</td>
+                            <td style={{ padding: '4px', textAlign: 'right', fontSize: 10, color: 'var(--color-meta)' }} title={cap}>{cap}</td>
+                            <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>{formatScaled(lineTotal, scale, decimals)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
           </div>
         </>
       ) : (
