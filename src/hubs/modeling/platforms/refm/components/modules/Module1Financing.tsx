@@ -509,7 +509,9 @@ function TrancheCard({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
+      {/* P4-Fix 4 (2026-05-12): compact field layout - 2 rows of 2 fields
+          instead of 1 row of 4, easier to scan on narrower screens. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Tenor (periods)</label>
           <input type="number" min={0} value={tranche.tenorPeriods ?? 0} onChange={(e) => onUpdate({ tenorPeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
@@ -518,6 +520,8 @@ function TrancheCard({
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Availability</label>
           <input type="number" min={0} value={tranche.availabilityPeriods ?? 0} onChange={(e) => onUpdate({ availabilityPeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
         </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
           <input type="number" min={0} value={tranche.gracePeriods ?? 0} onChange={(e) => onUpdate({ gracePeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
@@ -745,7 +749,8 @@ function TrancheCard({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
+      {/* P4-Fix 4 (2026-05-12): compact output cards - 2x2 instead of 1x4. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div style={calcOutputStyle}>
           <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Debt Drawn</div>
           <div style={{ fontSize: 14, fontWeight: 700 }} data-testid={`tranche-${tranche.id}-total-debt`}>
