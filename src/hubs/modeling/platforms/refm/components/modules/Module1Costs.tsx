@@ -653,48 +653,42 @@ function CostRow({
         </div>
       </td>
       <td style={{ padding: '4px', width: 70 }}>
-        {/* M2.0L Pass3 Fix 7 (2026-05-11): max bound = phase
-            constructionPeriods + hard auto-clamp on edit so users
-            can't push End past the construction window. HTML's max
-            attribute is advisory only; the onChange handler now
-            actively clamps. A "Clamp" button appears when an
-            existing line carries a value that exceeds the current
-            phase cp (e.g. legacy snapshot with cp=24 reduced to
-            cp=4). One click resets endPeriod to constructionPeriods. */}
+        {/* P9-Fix 3 (2026-05-12): max cap dropped. User can enter ANY
+            end period value. Informational warning chips surface when
+            End extends into operations or past project timeline; the
+            only blocking error is End < Start. HTML5 max attribute +
+            JS clamp removed. */}
         <input
           type="number"
           min={0}
-          max={constructionPeriods}
           value={line.endPeriod}
           onChange={(e) => {
             const next = parseInt(e.target.value) || 0;
-            const clamped = Math.min(Math.max(0, next), constructionPeriods);
-            writeEndPeriod(clamped);
+            writeEndPeriod(Math.max(0, next));
           }}
           disabled={isLocked}
-          style={inputStyle}
+          style={{
+            ...inputStyle,
+            ...(line.endPeriod < line.startPeriod ? { borderColor: 'var(--color-negative)' } : {}),
+          }}
           data-testid={`cost-${asset.id}-${line.id}-end`}
-          aria-invalid={line.endPeriod > constructionPeriods}
-          title={line.endPeriod > constructionPeriods ? `End exceeds construction window (${constructionPeriods}). Click Clamp to reset.` : `Max = ${constructionPeriods}`}
+          aria-invalid={line.endPeriod < line.startPeriod}
+          title={line.endPeriod < line.startPeriod ? 'End must be on or after Start.' : ''}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
-        {line.endPeriod > constructionPeriods && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, marginTop: 2 }}>
-            <div style={{ fontSize: 9, color: 'var(--color-warning)' }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
-              exceeds cp ({constructionPeriods})
-            </div>
-            {!isLocked && (
-              <button
-                type="button"
-                onClick={() => writeEndPeriod(constructionPeriods)}
-                style={{ fontSize: 9, padding: '1px 6px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                data-testid={`cost-${asset.id}-${line.id}-end-clamp`}
-              >
-                Clamp
-              </button>
-            )}
+        {/* P9-Fix 3 (2026-05-12): informational warning chips, no
+            blocking clamp. End > maxCp+1 -> operations. End < Start ->
+            blocking error chip. */}
+        {line.endPeriod < line.startPeriod && (
+          <div style={{ fontSize: 9, color: 'var(--color-negative)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-error`}>
+            End must be on or after Start
+          </div>
+        )}
+        {line.endPeriod >= line.startPeriod && line.endPeriod > constructionPeriods && (
+          <div style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
+            extends into operations period
           </div>
         )}
       </td>
