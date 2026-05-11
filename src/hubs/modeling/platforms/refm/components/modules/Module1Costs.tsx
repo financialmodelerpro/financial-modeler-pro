@@ -1406,7 +1406,7 @@ function SummaryTables({
           rows so the user can audit each line's per-period spend. Total
           column is in the 2nd position. */}
       <div style={sectionCardStyle} data-testid="capex-by-period">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>1. Capex by Period (per cost line)</strong>
+        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -1620,11 +1620,22 @@ function SummaryTables({
           );
         };
 
+        // M2.0L Pass 4 (2026-05-11): Results table order + naming
+        // matches the brief's accounting framing.
+        //   Table 1 = "Construction Cost Schedule by Period" (per cost
+        //             line, per asset; rendered above this block).
+        //   Table 2 = Total Capex Including Land Value (basis for
+        //             Fixed Assets / Inventory book value).
+        //   Table 3 = Capex Excluding Land In-Kind (cash impact; the
+        //             schedule that the Financing module's drawdown
+        //             curve consumes for debt sizing + equity funding).
+        //   Table 4 = Capex Excluding Total Land (pure development
+        //             cost / cost-per-sqm benchmarking).
         return (
           <>
-            {renderSummary('CAPEX Summary - Excluding All Land', 'exclAll', 'excl-all-land')}
-            {renderSummary('CAPEX Summary - Excluding Land In-Kind', 'exclInKind', 'excl-land-inkind')}
-            {renderSummary('CAPEX Summary - Including All Land Incl. In-Kind', 'inclAll', 'incl-all-land')}
+            {renderSummary('Table 2 - Total Capex Including Land Value', 'inclAll', 'total-capex-incl-land')}
+            {renderSummary('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', 'exclInKind', 'capex-excl-land-inkind')}
+            {renderSummary('Table 4 - Capex Excluding Total Land (pure development cost)', 'exclAll', 'capex-excl-total-land')}
           </>
         );
       })()}
