@@ -31,7 +31,7 @@ Every hook either returns a `PeriodArray` (alias for `number[]`, indexed by proj
 
 **Future source:** Same engine. Stable.
 
-**Default if missing:** Throw. This hook MUST be available — it is the only one with no zero-stub fallback. Financing without capex is meaningless.
+**Default if missing:** Throw. This hook MUST be available; it is the only one with no zero-stub fallback. Financing without capex is meaningless.
 
 ---
 
@@ -128,7 +128,7 @@ initialCash
 
 **Default:** Local simulation as described.
 
-**Why this matters for Method 4:** today the simulation ignores revenue / opex / tax flows, so the deficit calc is "what cash will I have AFTER paying capex + interest from a starting kitty?" — useful for a construction-only project but understates available cash for an operating asset. The M3 swap makes it correct.
+**Why this matters for Method 4:** today the simulation ignores revenue / opex / tax flows, so the deficit calc is "what cash will I have AFTER paying capex + interest from a starting kitty?" Useful for a construction-only project but understates available cash for an operating asset. The M3 swap makes it correct.
 
 ---
 
@@ -178,10 +178,10 @@ initialCash
 
 The following hooks will be added when their consumer code arrives. They appear here so the names are reserved and engine authors know which slot to fill.
 
-- `getTaxableIncome() : PeriodArray` — Tax engine. Needed for after-tax DSCR.
-- `getDistributableCash() : PeriodArray` — Cash flow waterfall engine (M4 equity returns). Drives cash sweep AFTER mandatory debt service.
-- `getEquityIRR() : number` — Equity waterfall engine (M4). Drives preferred-return + IRR-hurdle calculations on equity tranches.
-- `getReserveAccountBalance(reserveType, prevPeriod) : number` — Reserve account engine. Tracks DSRA, capex reserve, replacement reserve.
+- `getTaxableIncome() : PeriodArray`, Tax engine. Needed for after-tax DSCR.
+- `getDistributableCash() : PeriodArray`, Cash flow waterfall engine (M4 equity returns). Drives cash sweep AFTER mandatory debt service.
+- `getEquityIRR() : number`, Equity waterfall engine (M4). Drives preferred-return + IRR-hurdle calculations on equity tranches.
+- `getReserveAccountBalance(reserveType, prevPeriod) : number`, Reserve account engine. Tracks DSRA, capex reserve, replacement reserve.
 
 ---
 

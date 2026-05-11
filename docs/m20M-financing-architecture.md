@@ -1,7 +1,7 @@
 # M2.0M Financing, Definitive Architecture
 
 **Date:** 2026-05-11
-**Scope:** Tab 4 Financing becomes the "funding layer" — depends on upstream data via parameter-named hooks. Architecture future-links to Revenue / OpEx / Cash Flow engines that will ship later.
+**Scope:** Tab 4 Financing becomes the "funding layer," it depends on upstream data via parameter-named hooks. Architecture future-links to Revenue / OpEx / Cash Flow engines that will ship later.
 
 ---
 
@@ -60,7 +60,7 @@ Top of Tab 4: `View: [Combined Project] [Single Asset ▼]`. When Single Asset s
 1. **Capital Stack Summary** (Sources / Uses / LTV / match chip).
 2. **Combined Debt Schedule** (per period: opening, drawdowns, IDC capitalized, repayment, closing). Per-facility breakdown expandable.
 3. **Equity Schedule** (per period: opening, cash contributions, in-kind contributions, land equity, closing).
-4. **Finance Cost Schedule** (per period: opening debt, interest charge, IDC capitalized, IDC expensed, cash paid, closing). **Dual tracking** of accounting capitalization vs cash paid — required for IFRS 23 + future P&L hook.
+4. **Finance Cost Schedule** (per period: opening debt, interest charge, IDC capitalized, IDC expensed, cash paid, closing). **Dual tracking** of accounting capitalization vs cash paid, required for IFRS 23 + future P&L hook.
 5. **Drawdown Schedule per facility** (per facility: drawdown, cumulative, undrawn, commitment fee).
 6. **Funding by Period Summary** (per period: Capex, Pre-Sales[hook], Operating CF[hook], Net Funding Required, Debt Drawdown, Equity Drawdown).
 
@@ -227,7 +227,7 @@ FUNDING SUMMARIES (3 cards): Asset / Total / By Period
 - **Methods 2-4 full calc-engine wiring.** Inputs persist + the funding-method radio drives downstream Schedules' "Net Funding Required" row. Method 2 line-item application, Method 3 net-of-revenue, Method 4 period-by-period deficit math land in the next sub-pass when Revenue/OpEx/CF engines ship. Hooks return zeros, so Method 3 today = Method 1 (full capex split) and Method 4 today = static capex profile.
 - **Real `getClosingCashBalance` from CF engine.** Today: simulated locally.
 - **Cash sweep based on REAL closing cash** (depends on above).
-- **Playwright spec** — verifier + dev-server smoke covers schema; Playwright deferred.
+- **Playwright spec**, verifier + dev-server smoke covers schema; Playwright deferred.
 - **DSCR / LTV covenant breach alerts** (M5 dependency).
 
 These are documented in `CLAUDE-TODO.md` as M2.0M sub-pass work.

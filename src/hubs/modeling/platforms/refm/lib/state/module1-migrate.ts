@@ -35,7 +35,7 @@ import { computeSubUnitArea } from '@/src/core/calculations';
 import type {
   SubUnit, Asset, Project, Phase, Parcel,
   CostLine, CostOverride, FinancingTranche, EquityContribution,
-  LandAllocationMode,
+  LandAllocationMode, ProjectFinancingConfig,
 } from './module1-types';
 import {
   STANDARD_COST_LINE_IDS,
@@ -47,6 +47,7 @@ import {
   makeDefaultCostLines,
   makeDefaultFinancingTranche,
   DEFAULT_PHASE_ID,
+  DEFAULT_PROJECT_FINANCING_CONFIG,
 } from './module1-types';
 
 export const SCHEMA_VERSION = 8;
@@ -186,10 +187,12 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20Pass5Categories(
-    migrateM20Pass4Inheritance(
-      migrateM20lDedupeCostLineIds(
-        migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20MFinancing(
+    migrateM20Pass5Categories(
+      migrateM20Pass4Inheritance(
+        migrateM20lDedupeCostLineIds(
+          migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+        ),
       ),
     ),
   );
@@ -203,15 +206,41 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // stamp outputGranularity), then the M2.0g Parking-subunit fold,
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
-  // category defaulting.
-  return migrateM20Pass5Categories(
-    migrateM20Pass4Inheritance(
-      migrateM20lDedupeCostLineIds(
-        migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  // category defaulting, then the M2.0M financing wrapper.
+  return migrateM20MFinancing(
+    migrateM20Pass5Categories(
+      migrateM20Pass4Inheritance(
+        migrateM20lDedupeCostLineIds(
+          migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+        ),
       ),
     ),
   );
 };
+
+// M2.0M (2026-05-11): project-level financing wrapper migration.
+// Stamps a default ProjectFinancingConfig (Method 1, 70/30, no parcel
+// configs, viewMode='combined') onto Project.financing when missing.
+// Pre-existing FinancingTranche[] + EquityContribution[] are preserved
+// AS-IS; this migration only adds the wrapper that selects HOW the
+// funding gap is computed before tranches absorb it. Idempotent.
+function migrateM20MFinancing(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  if (project.financing !== undefined) return snap;
+  // Deep-clone the default so the migrated config is not shared by
+  // reference across multiple projects that all hit this branch.
+  const cloned: ProjectFinancingConfig = {
+    ...DEFAULT_PROJECT_FINANCING_CONFIG,
+    fixedRatio: DEFAULT_PROJECT_FINANCING_CONFIG.fixedRatio
+      ? { ...DEFAULT_PROJECT_FINANCING_CONFIG.fixedRatio }
+      : undefined,
+    parcelFunding: [],
+  };
+  return {
+    ...snap,
+    project: { ...project, financing: cloned },
+  };
+}
 
 // M2.0L Pass 5 (2026-05-11): default every master CostLine to
 // costCategory='direct' when unset, preserving the Pass-3+ asset-
@@ -450,6 +479,13 @@ export const PASS4_MIGRATION_NOTICE =
 export const PASS5_MIGRATION_NOTICE =
   "Cost lines now carry Category + Driver. Existing lines default to Direct; review Tab 3 to mark project-wide pools as Allocated.";
 
+// M2.0M (2026-05-11): banner shown when Project.financing wrapper was
+// stamped onto a legacy snapshot. The user lands on Method 1 (70/30
+// debt/equity) by default; the brief prompts them to revisit Tab 4 to
+// confirm method choice + per-parcel land funding.
+export const M20M_FINANCING_NOTICE =
+  "Financing module upgraded. Configure your funding method and capital stack in Tab 4.";
+
 // M2.0L Fix 1 (2026-05-11): loose shape detector. Anything with a
 // `project` object that can plausibly map to v8. Catches legacy
 // snapshots that fall outside the strict v7 fingerprint (e.g. saves
@@ -640,9 +676,16 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
 
   // Run the full migration chain so the loose result is identical to
   // a v7 -> v8 hydration: aggregate monthly to annual, fold legacy
-  // Parking sub-units, normalise phasing, dedupe phase-scoped ids.
-  snap = migrateM20lDedupeCostLineIds(
-    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
+  // apply Pass 4 / Pass 5 / M2.0M wrapper migrations.
+  snap = migrateM20MFinancing(
+    migrateM20Pass5Categories(
+      migrateM20Pass4Inheritance(
+        migrateM20lDedupeCostLineIds(
+          migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+        ),
+      ),
+    ),
   );
   return snap;
 }
@@ -678,10 +721,22 @@ function snapshotNeedsPass5Migration(s: unknown): boolean {
   return false;
 }
 
-// Pick the most-recent banner that applies. Pass 5 is the newest; if it
-// fires we surface that; else Pass 4; else the loose / M2.0h v7 -> v8
-// banner upstream.
+// M2.0M (2026-05-11): true if the snapshot's project lacks a
+// `financing` wrapper. Surfaced as the M20M banner so the user knows
+// the new funding-method selector + per-parcel funding config is now
+// available.
+function snapshotNeedsM20MMigration(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as { project?: { financing?: unknown } };
+  if (!o.project || typeof o.project !== 'object') return false;
+  return o.project.financing === undefined;
+}
+
+// Pick the most-recent banner that applies. M20M is the newest; if it
+// fires we surface that; else Pass 5; else Pass 4; else the loose /
+// M2.0h v7 -> v8 banner upstream.
 function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsM20MMigration(s)) return M20M_FINANCING_NOTICE;
   if (snapshotNeedsPass5Migration(s)) return PASS5_MIGRATION_NOTICE;
   if (snapshotNeedsPass4Migration(s)) return PASS4_MIGRATION_NOTICE;
   return undefined;

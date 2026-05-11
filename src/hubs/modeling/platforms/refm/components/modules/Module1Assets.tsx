@@ -1461,7 +1461,7 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
             Units mode: cell empty (caption in sibling row carries the
             derived area). */}
         {isUnits ? (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-area-cell-empty`}>—</span>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-area-cell-empty`}>-</span>
         ) : (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}

@@ -301,6 +301,10 @@ export interface Project {
   // back-compat on legacy snapshots; the UI no longer reads it and
   // migrateM20Pass4Inheritance strips it on hydrate.
   costInputMode?: CostInputMode;
+  // M2.0M (2026-05-11): project-level financing config. Optional so
+  // legacy v8 snapshots stay valid; migrateM20MFinancing stamps a
+  // default-on-Method-1 wrapper when missing.
+  financing?: ProjectFinancingConfig;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -827,6 +831,13 @@ export interface CostOverride {
   // this asset's contribution + per-period distribution.
   startPeriod?: number;
   endPeriod?: number;
+  // M2.0M (2026-05-11): per-asset debt/equity ratio override for Funding
+  // Method 2 (Line-Item Based Financing). When either is set AND
+  // overridden !== false, the financing engine substitutes these for
+  // the master line ratio when allocating this asset's slice of the
+  // cost line to debt vs equity. Unaffected for Methods 1/3/4.
+  debtPctOverride?: number;
+  equityPctOverride?: number;
 }
 
 // ── Financing tranche ──────────────────────────────────────────────────────
@@ -1161,6 +1172,149 @@ export interface EquityContribution {
   assetId?: string;
 }
 
+// ── M2.0M: Project-level financing config (4 funding methods) ─────────────
+// User picks ONE funding method per project. Each method has its own
+// config slot. Legacy FinancingTranche[] (debt facilities) + Equity-
+// Contribution[] (equity tranches) remain the source of truth for the
+// capital stack; ProjectFinancingConfig sits on TOP and tells the
+// engine HOW to derive the funding gap before tranches absorb it.
+//
+// Hook discipline: the funding-gap math reads everything through
+// `FinancingDataHooks` (capex / pre-sales / OCF / closing cash). When
+// upstream engines aren't ready yet, hooks return zeros, so the four
+// methods behave as documented in docs/m20M-financing-architecture.md.
+export type FundingMethodId = 1 | 2 | 3 | 4;
+
+export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3, 4] as const;
+
+export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
+  1: 'Fixed Debt-to-Equity Ratio',
+  2: 'Line-Item Based Financing',
+  3: 'Net Funding Requirement',
+  4: 'Cash Deficit Funding',
+};
+
+export const FUNDING_METHOD_DESCRIPTIONS: Record<FundingMethodId, string> = {
+  1: 'Single global debt% / equity% applied to total capex (excl. land in-kind).',
+  2: 'Each cost line carries its own debt% / equity%, with per-asset override.',
+  3: 'Net funding = capex minus pre-sales minus operating CF minus existing cash, then split by ratio.',
+  4: 'Period-by-period: draw debt+equity only when closing cash would fall below minimum reserve.',
+};
+
+export interface FundingMethod1Config {
+  debtPct: number;     // 0..100
+  equityPct: number;   // 0..100
+}
+
+// Method 2 master template: one ratio entry per cost line id.
+// Per-asset override lives on the existing CostOverride via
+// debtPctOverride + equityPctOverride (no separate map needed).
+export interface FundingMethod2LineRatio {
+  lineId: string;
+  debtPct: number;
+  equityPct: number;
+}
+
+export interface FundingMethod2Config {
+  master: FundingMethod2LineRatio[];
+}
+
+export interface FundingMethod3Config {
+  existingCash: number;
+  debtPct: number;
+  equityPct: number;
+}
+
+export interface FundingMethod4Config {
+  initialCash: number;
+  /** Scalar OR PeriodArray (period-indexed minimum cash threshold). */
+  minimumCashReserve: number | number[];
+  debtPct: number;
+  equityPct: number;
+}
+
+// Per-parcel land funding (separate from the 4 project-wide methods).
+//   100pct_equity     -> default; landowner-equivalent cash equity
+//   100pct_debt       -> rare; standalone land loan
+//   custom_split      -> user-defined debtPct + equityPct
+//   in_kind           -> landowner contributes the parcel as equity;
+//                        auto-detected from a Tab 3 'land-inkind' line
+//   deferred_payment  -> paid in installments during construction
+export type ParcelFundingType =
+  | '100pct_equity'
+  | '100pct_debt'
+  | 'custom_split'
+  | 'in_kind'
+  | 'deferred_payment';
+
+export const PARCEL_FUNDING_TYPES: readonly ParcelFundingType[] = [
+  '100pct_equity',
+  '100pct_debt',
+  'custom_split',
+  'in_kind',
+  'deferred_payment',
+] as const;
+
+export const PARCEL_FUNDING_TYPE_LABELS: Record<ParcelFundingType, string> = {
+  '100pct_equity':    '100% Equity',
+  '100pct_debt':      '100% Debt',
+  'custom_split':     'Custom Split',
+  'in_kind':          'In-Kind (Landowner)',
+  'deferred_payment': 'Deferred Payment',
+};
+
+export interface ParcelFundingConfig {
+  parcelId: string;
+  fundingType: ParcelFundingType;
+  /** custom_split only. 0..100. */
+  customDebtPct?: number;
+  /** custom_split only. 0..100. */
+  customEquityPct?: number;
+  /** deferred_payment only. */
+  deferredSchedule?: {
+    type: 'even' | 'manual_pct';
+    startPeriod: number;
+    endPeriod: number;
+    /** Required when type='manual_pct'. Sums to 100. */
+    distribution?: number[];
+  };
+  /** Optional link from a debt-funded land slice to a specific facility. */
+  facilityId?: string;
+}
+
+export type FundingViewMode = 'combined' | 'single_asset';
+
+export const FUNDING_VIEW_MODES: readonly FundingViewMode[] = ['combined', 'single_asset'] as const;
+
+export interface ProjectFinancingConfig {
+  fundingMethod: FundingMethodId;
+  fixedRatio?: FundingMethod1Config;
+  lineItemRatios?: FundingMethod2Config;
+  netFundingConfig?: FundingMethod3Config;
+  cashDeficitConfig?: FundingMethod4Config;
+  parcelFunding: ParcelFundingConfig[];
+  viewMode: FundingViewMode;
+  /** Required when viewMode='single_asset'. */
+  selectedAssetId?: string;
+}
+
+export const DEFAULT_FUNDING_METHOD_1_CONFIG: FundingMethod1Config = { debtPct: 70, equityPct: 30 };
+export const DEFAULT_FUNDING_METHOD_2_CONFIG: FundingMethod2Config = { master: [] };
+export const DEFAULT_FUNDING_METHOD_3_CONFIG: FundingMethod3Config = { existingCash: 0, debtPct: 70, equityPct: 30 };
+export const DEFAULT_FUNDING_METHOD_4_CONFIG: FundingMethod4Config = {
+  initialCash: 0,
+  minimumCashReserve: 0,
+  debtPct: 70,
+  equityPct: 30,
+};
+
+export const DEFAULT_PROJECT_FINANCING_CONFIG: ProjectFinancingConfig = {
+  fundingMethod: 1,
+  fixedRatio: { ...DEFAULT_FUNDING_METHOD_1_CONFIG },
+  parcelFunding: [],
+  viewMode: 'combined',
+};
+
 // ── M2.0e: Asset type bank by project type ────────────────────────────────
 // Tab 2's asset Type dropdown filters by Project.projectType, falling
 // back to ASSET_TYPES_BY_STRATEGY for legacy / Custom projects. Mixed-Use
@@ -1422,6 +1576,14 @@ export function makeDefaultProject(
     displayScale: 'full',
     displayDecimals: 2,
     outputGranularity: 'annual',
+    // M2.0M (2026-05-11): start every new project on Method 1 (70/30)
+    // with no per-parcel land funding configs and Combined view.
+    financing: {
+      fundingMethod: 1,
+      fixedRatio: { ...DEFAULT_FUNDING_METHOD_1_CONFIG },
+      parcelFunding: [],
+      viewMode: 'combined',
+    },
   };
 }
 
