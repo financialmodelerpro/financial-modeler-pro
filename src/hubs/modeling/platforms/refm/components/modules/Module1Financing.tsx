@@ -36,6 +36,10 @@ import {
   type IDCTreatment,
   type FeeTreatment,
   type OutputGranularity,
+  type FundingMethodId,
+  type ParcelFundingType,
+  type ParcelFundingConfig,
+  type ProjectFinancingConfig,
   DRAWDOWN_METHODS,
   DRAWDOWN_METHOD_LABELS,
   REPAYMENT_METHODS,
@@ -53,6 +57,12 @@ import {
   FEE_TREATMENT_LABELS,
   OUTPUT_GRANULARITIES,
   OUTPUT_GRANULARITY_LABELS,
+  FUNDING_METHOD_IDS,
+  FUNDING_METHOD_LABELS,
+  FUNDING_METHOD_DESCRIPTIONS,
+  PARCEL_FUNDING_TYPES,
+  PARCEL_FUNDING_TYPE_LABELS,
+  DEFAULT_PROJECT_FINANCING_CONFIG,
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
 import {
@@ -99,6 +109,147 @@ const sectionCardStyle: React.CSSProperties = {
   padding: 'var(--sp-2)',
   marginBottom: 'var(--sp-2)',
 };
+
+// M2.0M: pill toggle styling shared by view-mode + (future) filter toggles.
+const pillStyle = (active: boolean): React.CSSProperties => ({
+  fontSize: 11,
+  fontWeight: 700,
+  padding: '4px 10px',
+  borderRadius: 999,
+  border: active ? 'none' : '1px solid var(--color-border)',
+  background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+  color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+  cursor: 'pointer',
+});
+
+// M2.0M: per-method input panel. Renders the conditional inputs for the
+// currently-selected funding method directly below its radio entry.
+function renderMethodInputs(
+  id: FundingMethodId,
+  cfg: ProjectFinancingConfig,
+  patch: (next: Partial<ProjectFinancingConfig>) => void,
+): React.JSX.Element {
+  const numStyle: React.CSSProperties = { ...inputStyle, width: 90 };
+  if (id === 1) {
+    const m = cfg.fixedRatio ?? { debtPct: 70, equityPct: 30 };
+    return (
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-1-inputs">
+        <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+          Debt %:
+          <input
+            type="number" min={0} max={100}
+            data-testid="m1-debt-pct"
+            value={m.debtPct}
+            onChange={(e) => patch({ fixedRatio: { debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            style={numStyle}
+          />
+        </label>
+        <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+          Equity %:
+          <input
+            type="number" min={0} max={100}
+            data-testid="m1-equity-pct"
+            value={m.equityPct}
+            onChange={(e) => patch({ fixedRatio: { equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            style={numStyle}
+          />
+        </label>
+      </div>
+    );
+  }
+  if (id === 2) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }} data-testid="funding-method-2-inputs">
+        Per-line debt% / equity% configured under each cost row in Tab 3 (next sub-pass).
+        Per-asset override via the existing inheritance toggle.
+      </div>
+    );
+  }
+  if (id === 3) {
+    const m = cfg.netFundingConfig ?? { existingCash: 0, debtPct: 70, equityPct: 30 };
+    return (
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-3-inputs">
+        <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+          Existing Cash:
+          <input
+            type="number" min={0}
+            data-testid="m3-existing-cash"
+            value={m.existingCash}
+            onChange={(e) => patch({ netFundingConfig: { ...m, existingCash: parseFloat(e.target.value) || 0 } })}
+            style={{ ...numStyle, width: 120 }}
+          />
+        </label>
+        <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+          Debt %:
+          <input
+            type="number" min={0} max={100}
+            data-testid="m3-debt-pct"
+            value={m.debtPct}
+            onChange={(e) => patch({ netFundingConfig: { ...m, debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            style={numStyle}
+          />
+        </label>
+        <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+          Equity %:
+          <input
+            type="number" min={0} max={100}
+            data-testid="m3-equity-pct"
+            value={m.equityPct}
+            onChange={(e) => patch({ netFundingConfig: { ...m, equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            style={numStyle}
+          />
+        </label>
+      </div>
+    );
+  }
+  // id === 4
+  const m = cfg.cashDeficitConfig ?? { initialCash: 0, minimumCashReserve: 0, debtPct: 70, equityPct: 30 };
+  const minReserveScalar = typeof m.minimumCashReserve === 'number' ? m.minimumCashReserve : 0;
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-4-inputs">
+      <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+        Initial Cash:
+        <input
+          type="number" min={0}
+          data-testid="m4-initial-cash"
+          value={m.initialCash}
+          onChange={(e) => patch({ cashDeficitConfig: { ...m, initialCash: parseFloat(e.target.value) || 0 } })}
+          style={{ ...numStyle, width: 120 }}
+        />
+      </label>
+      <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+        Min Cash Reserve:
+        <input
+          type="number" min={0}
+          data-testid="m4-min-reserve"
+          value={minReserveScalar}
+          onChange={(e) => patch({ cashDeficitConfig: { ...m, minimumCashReserve: parseFloat(e.target.value) || 0 } })}
+          style={{ ...numStyle, width: 120 }}
+        />
+      </label>
+      <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+        Debt %:
+        <input
+          type="number" min={0} max={100}
+          data-testid="m4-debt-pct"
+          value={m.debtPct}
+          onChange={(e) => patch({ cashDeficitConfig: { ...m, debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+          style={numStyle}
+        />
+      </label>
+      <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+        Equity %:
+        <input
+          type="number" min={0} max={100}
+          data-testid="m4-equity-pct"
+          value={m.equityPct}
+          onChange={(e) => patch({ cashDeficitConfig: { ...m, equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+          style={numStyle}
+        />
+      </label>
+    </div>
+  );
+}
 
 function getPeriodLabel(idx: number, projectStart: string, modelType: 'monthly' | 'annual'): string {
   if (idx === 0) return 'Y0';
@@ -576,6 +727,22 @@ export default function Module1Financing(): React.JSX.Element {
     [assets, phase?.id],
   );
 
+  // M2.0M: project-level financing config. Always defined post-migration
+  // (migrateM20MFinancing stamps the wrapper); fall back to default for
+  // the rare in-memory edge case where a freshly-imported snapshot was
+  // not yet round-tripped through hydration.
+  const financingConfig: ProjectFinancingConfig = project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
+  const setFinancingConfig = (patch: Partial<ProjectFinancingConfig>): void => {
+    setProject({ financing: { ...financingConfig, ...patch } });
+  };
+  const upsertParcelFunding = (parcelId: string, patch: Partial<ParcelFundingConfig>): void => {
+    const existing = financingConfig.parcelFunding.find((p) => p.parcelId === parcelId);
+    const next: ParcelFundingConfig[] = existing
+      ? financingConfig.parcelFunding.map((p) => p.parcelId === parcelId ? { ...p, ...patch } : p)
+      : [...financingConfig.parcelFunding, { parcelId, fundingType: '100pct_equity', ...patch }];
+    setFinancingConfig({ parcelFunding: next });
+  };
+
   // M2.0L: cross-tab integration, Land In-Kind auto-detection.
   // For every Land (In-Kind) cost line in this phase, ensure there's
   // a matching equity contribution (autoDetectedFromCostLine=true,
@@ -791,6 +958,152 @@ export default function Module1Financing(): React.JSX.Element {
       {/* ── Inputs sub-tab ──────────────────────────────────────────── */}
       {subTab === 'inputs' && (
         <>
+          {/* M2.0M: Asset-level view toggle (Combined / Single Asset) */}
+          <div style={sectionCardStyle} data-testid="financing-view-mode">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 12, color: 'var(--color-meta)', textTransform: 'uppercase' }}>View:</strong>
+              <button
+                type="button"
+                data-testid="financing-view-combined"
+                onClick={() => setFinancingConfig({ viewMode: 'combined', selectedAssetId: undefined })}
+                style={pillStyle(financingConfig.viewMode === 'combined')}
+              >
+                Combined Project
+              </button>
+              <button
+                type="button"
+                data-testid="financing-view-single"
+                onClick={() => {
+                  const first = phaseAssets[0]?.id;
+                  setFinancingConfig({ viewMode: 'single_asset', selectedAssetId: first });
+                }}
+                style={pillStyle(financingConfig.viewMode === 'single_asset')}
+                disabled={phaseAssets.length === 0}
+              >
+                Single Asset
+              </button>
+              {financingConfig.viewMode === 'single_asset' && (
+                <select
+                  data-testid="financing-view-asset-select"
+                  value={financingConfig.selectedAssetId ?? ''}
+                  onChange={(e) => setFinancingConfig({ selectedAssetId: e.target.value })}
+                  style={{ ...inputStyle, width: 'auto', minWidth: 200 }}
+                >
+                  {phaseAssets.length === 0 && <option value="">No assets</option>}
+                  {phaseAssets.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* M2.0M: Funding Method radio */}
+          <div style={sectionCardStyle} data-testid="financing-funding-method">
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Funding Method</strong>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {FUNDING_METHOD_IDS.map((id) => {
+                const isActive = financingConfig.fundingMethod === id;
+                return (
+                  <label
+                    key={id}
+                    data-testid={`funding-method-${id}`}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 8, padding: 8,
+                      border: `1px solid ${isActive ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      background: isActive ? 'var(--color-navy-pale)' : 'var(--color-surface)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="funding-method"
+                      value={id}
+                      checked={isActive}
+                      onChange={() => setFinancingConfig({ fundingMethod: id })}
+                      data-testid={`funding-method-${id}-radio`}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 12 }}>
+                        Method {id}: {FUNDING_METHOD_LABELS[id]}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
+                        {FUNDING_METHOD_DESCRIPTIONS[id]}
+                      </div>
+                      {isActive && renderMethodInputs(id, financingConfig, setFinancingConfig)}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* M2.0M: Land Funding (per parcel) */}
+          <div style={sectionCardStyle} data-testid="financing-land-funding">
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Land Funding (per parcel)</strong>
+            {parcels.filter((p) => p.phaseId === phase.id).length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>No parcels in this phase. Configure in Tab 1.</div>
+            )}
+            {parcels.filter((p) => p.phaseId === phase.id).map((parcel) => {
+              const cfg = financingConfig.parcelFunding.find((pf) => pf.parcelId === parcel.id);
+              const fundingType: ParcelFundingType = cfg?.fundingType ?? '100pct_equity';
+              return (
+                <div key={parcel.id} data-testid={`land-funding-${parcel.id}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-1)', marginBottom: 8, padding: 8, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: 12 }}>{parcel.name}</strong>
+                    <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>{parcel.area.toLocaleString()} sqm</span>
+                  </div>
+                  <select
+                    data-testid={`land-funding-${parcel.id}-type`}
+                    value={fundingType}
+                    onChange={(e) => upsertParcelFunding(parcel.id, { fundingType: e.target.value as ParcelFundingType })}
+                    style={inputStyle}
+                  >
+                    {PARCEL_FUNDING_TYPES.map((t) => (
+                      <option key={t} value={t}>{PARCEL_FUNDING_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                  {fundingType === 'custom_split' && (
+                    <>
+                      <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Debt %:
+                        <input
+                          type="number" min={0} max={100}
+                          data-testid={`land-funding-${parcel.id}-debt-pct`}
+                          value={cfg?.customDebtPct ?? 0}
+                          onChange={(e) => upsertParcelFunding(parcel.id, { customDebtPct: parseFloat(e.target.value) || 0 })}
+                          style={{ ...inputStyle, width: 80 }}
+                        />
+                      </label>
+                      <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Equity %:
+                        <input
+                          type="number" min={0} max={100}
+                          data-testid={`land-funding-${parcel.id}-equity-pct`}
+                          value={cfg?.customEquityPct ?? 0}
+                          onChange={(e) => upsertParcelFunding(parcel.id, { customEquityPct: parseFloat(e.target.value) || 0 })}
+                          style={{ ...inputStyle, width: 80 }}
+                        />
+                      </label>
+                    </>
+                  )}
+                  {fundingType === 'deferred_payment' && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--color-meta)' }}>
+                      Deferred schedule configured via {parcel.area > 0 ? 'periods 1..constructionEnd' : 'Tab 1 parcel setup'}; full editor in next sub-pass.
+                    </div>
+                  )}
+                  {fundingType === 'in_kind' && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--color-meta)' }}>
+                      Auto-detected from Tab 3 Land (In-Kind) cost line. Contributes as equity (no cash draw).
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
           {/* Capital Structure Overview */}
           <div style={sectionCardStyle} data-testid="financing-capital-stack">
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Capital Structure Overview</strong>

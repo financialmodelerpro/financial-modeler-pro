@@ -73,7 +73,7 @@ const skip = (name: string, msg: string): void => {
 };
 
 // ── Section 1: Schema + type surface ──────────────────────────────────────
-console.log('\n[1/6] Schema + type surface');
+console.log('\n[1/7] Schema + type surface');
 {
   if (FUNDING_METHOD_IDS.length === 4 && FUNDING_METHOD_IDS.every((id, i) => id === (i + 1) as FundingMethodId)) {
     pass('FUNDING_METHOD_IDS = [1,2,3,4]');
@@ -184,7 +184,7 @@ console.log('\n[1/6] Schema + type surface');
 }
 
 // ── Section 2: Migration ──────────────────────────────────────────────────
-console.log('\n[2/6] Migration: migrateM20MFinancing wrapper + banner');
+console.log('\n[2/7] Migration: migrateM20MFinancing wrapper + banner');
 {
   // Test 2a: a v8 snapshot WITHOUT project.financing gets the wrapper
   // stamped + M20M banner surfaced.
@@ -269,7 +269,7 @@ console.log('\n[2/6] Migration: migrateM20MFinancing wrapper + banner');
 }
 
 // ── Section 3: makeDefaultProject ─────────────────────────────────────────
-console.log('\n[3/6] makeDefaultProject seeds financing wrapper');
+console.log('\n[3/7] makeDefaultProject seeds financing wrapper');
 {
   const fresh = makeDefaultProject();
   if (fresh.financing !== undefined) {
@@ -284,7 +284,7 @@ console.log('\n[3/6] makeDefaultProject seeds financing wrapper');
 }
 
 // ── Section 4: Design notes + source markers on disk ──────────────────────
-console.log('\n[4/6] Design notes + hook contract on disk');
+console.log('\n[4/7] Design notes + hook contract on disk');
 {
   const archDoc = resolve(REPO_ROOT, 'docs/m20M-financing-architecture.md');
   if (existsSync(archDoc)) {
@@ -322,7 +322,7 @@ console.log('\n[4/6] Design notes + hook contract on disk');
 }
 
 // ── Section 4b: Hook layer ───────────────────────────────────────────────
-console.log('\n[5/6] Hook layer: createFinancingHooks contract');
+console.log('\n[5/7] Hook layer: createFinancingHooks contract');
 {
   const hooksPath = resolve(REPO_ROOT, 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts');
   if (!existsSync(hooksPath)) {
@@ -483,14 +483,52 @@ console.log('\n[5/6] Hook layer: createFinancingHooks contract');
   }
 }
 
-// ── Section 6: Em-dash sweep on new files ─────────────────────────────────
-console.log('\n[6/6] Em-dash sweep');
+// ── Section 6: UI source markers in Module1Financing.tsx ─────────────────
+console.log('\n[6/7] UI source markers in Module1Financing.tsx');
+{
+  const uiPath = resolve(REPO_ROOT, 'src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx');
+  if (!existsSync(uiPath)) {
+    fail('Module1Financing.tsx presence', 'file missing');
+  } else {
+    const src = readFileSync(uiPath, 'utf8');
+    const checks: Array<[string, string]> = [
+      ['view-mode toggle section', 'data-testid="financing-view-mode"'],
+      ['Combined button', 'data-testid="financing-view-combined"'],
+      ['Single Asset button', 'data-testid="financing-view-single"'],
+      ['Asset select dropdown', 'data-testid="financing-view-asset-select"'],
+      ['Funding Method section', 'data-testid="financing-funding-method"'],
+      ['Method radio entries templated', 'data-testid={`funding-method-${id}`}'],
+      ['Method radio inputs templated', 'data-testid={`funding-method-${id}-radio`}'],
+      ['Method 1 inputs panel', 'data-testid="funding-method-1-inputs"'],
+      ['Method 2 inputs panel', 'data-testid="funding-method-2-inputs"'],
+      ['Method 3 inputs panel', 'data-testid="funding-method-3-inputs"'],
+      ['Method 4 inputs panel', 'data-testid="funding-method-4-inputs"'],
+      ['Method 1 debt input', 'data-testid="m1-debt-pct"'],
+      ['Method 3 existing-cash input', 'data-testid="m3-existing-cash"'],
+      ['Method 4 min-reserve input', 'data-testid="m4-min-reserve"'],
+      ['Land Funding section', 'data-testid="financing-land-funding"'],
+      ['ParcelFundingConfig imported', 'type ParcelFundingConfig'],
+      ['ProjectFinancingConfig imported', 'type ProjectFinancingConfig'],
+      ['setFinancingConfig helper defined', 'setFinancingConfig'],
+      ['upsertParcelFunding helper defined', 'upsertParcelFunding'],
+      ['renderMethodInputs defined', 'renderMethodInputs'],
+    ];
+    for (const [label, needle] of checks) {
+      if (src.includes(needle)) pass(`UI marker: ${label}`);
+      else fail(`UI marker: ${label}`, `missing needle "${needle}"`);
+    }
+  }
+}
+
+// ── Section 7: Em-dash sweep on new files ─────────────────────────────────
+console.log('\n[7/7] Em-dash sweep');
 {
   const newFiles = [
     'docs/m20M-financing-architecture.md',
     'docs/financing-hooks.md',
     'scripts/verify-m20M.ts',
     'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts',
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx',
   ];
   let cleanCount = 0;
   for (const f of newFiles) {

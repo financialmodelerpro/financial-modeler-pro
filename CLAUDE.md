@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0L Pass 5 ships: CostCategory (Direct/Allocated) + CostDriver (BUA share / Land share / Value share) + auto-derived CostType (hard/soft/land_cash/land_in_kind/operating, internal only). Master CostRow gains Category + Driver dropdowns stacked under Method cell. Per-asset replicas show "Allocated · {driver}" badge. Calc engine: Allocated lines compute pool against aggregatePhaseMetrics then split per asset via resolveDriverFactor; Direct lines preserve Pass 3+ semantics (rate × asset.metric, allocFactor=1 except for method='fixed'). Sub-unit Units-mode derived area moves from cell to caption row below ("Derived area: 120 units × 95 sqm = 11,400 sqm"). migrateM20Pass5Categories defaults legacy lines to costCategory='direct'; PASS5_MIGRATION_NOTICE banner. Pass 4 inheritance preserved unchanged. Verifier 31/31. Schema stays v8 additive)**
+**Last updated: 2026-05-11 (M2.0M Financing definitive rewrite ships: parameter-named hook architecture (`FinancingDataHooks` reads `getCapexExclLandInKind` / `getCapexInclLandInKind` / `getCapexExclTotalLand` / `getLandInKindValue` from current Costs engine + zero-stubs for `getPreSalesCollections` / `getOperatingCashFlow` / `getDepreciationSchedule` / `getRevenueSchedule` / `getOperatingExpenses` + local-sim `getClosingCashBalance`). `Project.financing: ProjectFinancingConfig` adds funding method radio (4 options: Fixed Ratio / Line-Item / Net Funding / Cash Deficit) + per-parcel `ParcelFundingConfig` (5 types: 100% equity / 100% debt / custom split / in-kind / deferred payment) + asset-level view toggle (combined vs single asset). `CostOverride` gains `debtPctOverride` + `equityPctOverride` for Method 2 per-asset ratios. `migrateM20MFinancing` stamps default Method-1 / 70-30 / combined-view wrapper on legacy snapshots; M20M_FINANCING_NOTICE banner. Tab 4 Inputs sub-tab adds 3 new cards above Capital Structure: View toggle, Funding Method radio (with per-method input panel), Land Funding (per parcel). Verifier 67/67, Schema stays v8 additive)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,7 +225,8 @@ npm run verify       # type-check + lint + build
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Canonical green for current state: verify-m20L-pass5.ts (latest Costs surface)
+# Canonical green for current state: verify-m20M.ts (latest Financing surface)
+npx tsx scripts/verify-m20M.ts                  # M2.0M Financing (schema + migration + hook layer + UI markers, 67 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L-pass5.ts            # Category + Driver + auto-derived CostType (31 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L-pass4.ts            # parent/child inheritance cost engine (30 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L.ts                  # M2.0L cost duplication fix + Financing build (74 pass / 0 fail / 2 skip without dev server)
@@ -271,6 +272,106 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-11, **M2.0M Financing definitive rewrite**)
+
+**M2.0M (current, ships):** Tab 4 Financing becomes the "funding
+layer." Routes upstream data through parameter-named hooks instead
+of hard-wiring against module names, so when Revenue / OpEx / Cash
+Flow engines ship later, hook implementations flip from zero-stubs
+to real values and consumer code does NOT change. Schema stays v8
+additive.
+
+- **Hook layer** at `src/hubs/modeling/platforms/refm/lib/financing-hooks.ts`
+  exposes `FinancingDataHooks`: `getCapexExclLandInKind` /
+  `getCapexInclLandInKind` / `getCapexExclTotalLand` /
+  `getLandInKindValue` aggregate `AssetCostBreakdown` via
+  `costLineProjectPeriodIndex` (memoised); `getPreSalesCollections` /
+  `getOperatingCashFlow` / `getDepreciationSchedule` /
+  `getRevenueSchedule` / `getOperatingExpenses` return zero-stubs
+  until upstream engines land; `getClosingCashBalance(prevPeriod)`
+  walks a local cash simulation (initial cash + cumulative debt
+  drawdown at ratio - cumulative capex - interest paid) that the M3
+  Cash Flow engine replaces in-place when it ships.
+  `createNoopHooks(totalPeriods)` helper for component tests.
+  Hook names are STABLE; future engines populate them, never rename
+  them. Full contract in `docs/financing-hooks.md`.
+
+- **Schema additions** (all optional, v8 additive):
+  `Project.financing?: ProjectFinancingConfig` carries
+  `fundingMethod: 1|2|3|4`, per-method config (`fixedRatio` /
+  `lineItemRatios` / `netFundingConfig` / `cashDeficitConfig`),
+  `parcelFunding: ParcelFundingConfig[]`, `viewMode:
+  'combined'|'single_asset'`, optional `selectedAssetId`. New enums:
+  `FundingMethodId`, `ParcelFundingType` (5 values: `100pct_equity` /
+  `100pct_debt` / `custom_split` / `in_kind` / `deferred_payment`),
+  `FundingViewMode`. Per-method config interfaces +
+  `DEFAULT_PROJECT_FINANCING_CONFIG` exported as the migration default
+  (Method 1, 70/30, combined view, no parcel configs).
+  `CostOverride` gains `debtPctOverride` + `equityPctOverride` for
+  Method 2 per-asset ratio overrides via the Pass 4 inheritance
+  pattern (no separate map).
+
+- **Funding methods**:
+  - **Method 1, Fixed Ratio**: single global `debtPct/equityPct`
+    applied to `getCapexExclLandInKind()`. Drawdown follows capex
+    schedule × debt%.
+  - **Method 2, Line-Item Based**: each cost line carries its own
+    debt% / equity% in a master template; per-asset override via
+    Pass 4 inheritance (new `CostOverride.debtPctOverride` +
+    `equityPctOverride` fields, no separate map). Calc-engine wiring
+    iterates in next sub-pass; inputs persist today.
+  - **Method 3, Net Funding Requirement**: `capex - pre-sales -
+    operating CF - existing cash`, then split by ratio. Pre-sales +
+    OCF hooks return zero today so behaves like Method 1 until
+    Revenue + CF engines ship.
+  - **Method 4, Cash Deficit Funding**: period-by-period. When
+    `getClosingCashBalance(t-1) < minimumCashReserve` (scalar or
+    PeriodArray), draw debt + equity per ratio to fill the gap.
+    Today's closing-cash uses the local sim; swaps to M3 output
+    when CF ships.
+
+- **Land special treatment** (per parcel, separate from the 4
+  methods): default `100pct_equity`. `100pct_debt` rare; landowner
+  in-kind auto-detected from Tab 3 `land-inkind` cost line; deferred
+  payment carries its own start/end + phasing. Optional
+  `facilityId` links debt-funded land to a specific facility.
+
+- **Migration**: `migrateM20MFinancing` (idempotent) stamps a
+  Method-1 / 70-30 / combined-view wrapper on any snapshot whose
+  `project.financing` is undefined. Banner `M20M_FINANCING_NOTICE`:
+  *"Financing module upgraded. Configure your funding method and
+  capital stack in Tab 4."* Wired into `resolveBanner` ahead of
+  Pass 5 / Pass 4 / M20H banners. `makeDefaultProject` seeds the
+  wrapper on fresh projects. Runs in `stripV8Wrapper`,
+  `stripWrapper`, and `migrateLegacyToV8` chains.
+
+- **UI** at top of Tab 4 Inputs sub-tab adds 3 cards above Capital
+  Structure: (1) View toggle `[Combined Project] [Single Asset ▼]`
+  with asset dropdown when Single; (2) Funding Method radio with
+  4 options + per-method input panel (`renderMethodInputs`); (3)
+  Land Funding per parcel with type dropdown + conditional inputs
+  per type (custom_split shows debt/equity inputs, in_kind shows
+  auto-detect note, deferred shows scheduler note). Helpers
+  `setFinancingConfig(patch)` + `upsertParcelFunding(parcelId,
+  patch)` on the component layer.
+
+- **Deferred per brief** (acceptable):
+  - Methods 2-4 full calc-engine wiring (inputs persist today;
+    Method 2 line-item application, Method 3 net-of-revenue, Method
+    4 period-by-period deficit math arrive when upstream engines
+    ship via the hook contract).
+  - Real `getClosingCashBalance` from M3 Cash Flow engine.
+  - Cash sweep based on real OCF.
+  - Playwright spec (verifier + dev-server smoke covers schema +
+    hooks + UI source markers; full Playwright deferred).
+  - DSCR / LTV covenant breach alerts (M5 dependency).
+
+- **Verifier**: `scripts/verify-m20M.ts` 67 pass / 0 fail / 0 skip
+  across 7 sections (schema + migration + `makeDefaultProject` seed
+  + design notes on disk + hook contract execution with capex sum
+  + memoisation + period alignment + UI source markers + em-dash
+  sweep across 5 new files).
 
 ### Module 1 status (2026-05-11, **M2.0L + 4-fix follow-up**)
 
