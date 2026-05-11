@@ -31,6 +31,8 @@ import {
   type ProjectFinancingConfig,
   type FundingViewMode,
   type CostOverride,
+  type CostLine,
+  type Asset,
   type Project,
   FUNDING_METHOD_IDS,
   FUNDING_METHOD_LABELS,
@@ -45,6 +47,7 @@ import {
   DEFAULT_PROJECT_FINANCING_CONFIG,
   makeDefaultProject,
   makeDefaultPhase,
+  makeDefaultParcel,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   hydrationFromAnySnapshotChecked,
@@ -70,7 +73,7 @@ const skip = (name: string, msg: string): void => {
 };
 
 // ── Section 1: Schema + type surface ──────────────────────────────────────
-console.log('\n[1/5] Schema + type surface');
+console.log('\n[1/6] Schema + type surface');
 {
   if (FUNDING_METHOD_IDS.length === 4 && FUNDING_METHOD_IDS.every((id, i) => id === (i + 1) as FundingMethodId)) {
     pass('FUNDING_METHOD_IDS = [1,2,3,4]');
@@ -181,7 +184,7 @@ console.log('\n[1/5] Schema + type surface');
 }
 
 // ── Section 2: Migration ──────────────────────────────────────────────────
-console.log('\n[2/5] Migration: migrateM20MFinancing wrapper + banner');
+console.log('\n[2/6] Migration: migrateM20MFinancing wrapper + banner');
 {
   // Test 2a: a v8 snapshot WITHOUT project.financing gets the wrapper
   // stamped + M20M banner surfaced.
@@ -266,7 +269,7 @@ console.log('\n[2/5] Migration: migrateM20MFinancing wrapper + banner');
 }
 
 // ── Section 3: makeDefaultProject ─────────────────────────────────────────
-console.log('\n[3/5] makeDefaultProject seeds financing wrapper');
+console.log('\n[3/6] makeDefaultProject seeds financing wrapper');
 {
   const fresh = makeDefaultProject();
   if (fresh.financing !== undefined) {
@@ -281,7 +284,7 @@ console.log('\n[3/5] makeDefaultProject seeds financing wrapper');
 }
 
 // ── Section 4: Design notes + source markers on disk ──────────────────────
-console.log('\n[4/5] Design notes + hook contract on disk');
+console.log('\n[4/6] Design notes + hook contract on disk');
 {
   const archDoc = resolve(REPO_ROOT, 'docs/m20M-financing-architecture.md');
   if (existsSync(archDoc)) {
@@ -318,13 +321,176 @@ console.log('\n[4/5] Design notes + hook contract on disk');
   }
 }
 
-// ── Section 5: Em-dash sweep on new files ─────────────────────────────────
-console.log('\n[5/5] Em-dash sweep');
+// ── Section 4b: Hook layer ───────────────────────────────────────────────
+console.log('\n[5/6] Hook layer: createFinancingHooks contract');
+{
+  const hooksPath = resolve(REPO_ROOT, 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts');
+  if (!existsSync(hooksPath)) {
+    fail('hook layer presence', 'financing-hooks.ts missing');
+  } else {
+    pass('financing-hooks.ts exists on disk');
+  }
+
+  // Dynamic import so verifier still runs section 1-4 even if hook
+  // wiring fails at compile time.
+  let mod: typeof import('../src/hubs/modeling/platforms/refm/lib/financing-hooks') | null = null;
+  try {
+    mod = require('../src/hubs/modeling/platforms/refm/lib/financing-hooks');
+  } catch (e) {
+    fail('hook layer import', `require failed: ${(e as Error).message}`);
+  }
+
+  if (mod) {
+    if (typeof mod.createFinancingHooks === 'function') pass('createFinancingHooks exported as function');
+    else fail('createFinancingHooks export', 'not a function');
+    if (typeof mod.createNoopHooks === 'function') pass('createNoopHooks exported as function');
+    else fail('createNoopHooks export', 'not a function');
+
+    // Build a minimal source. Single phase, single asset, single
+    // cost line. Total periods = 5 (4 construction + ramp). The
+    // hook should return 5+1 = 6 length arrays.
+    const project = makeDefaultProject();
+    project.startDate = '2026-01-01';
+    const phase = makeDefaultPhase();
+    phase.startDate = '2026-01-01';
+    phase.constructionPeriods = 4;
+    phase.operationsPeriods = 1;
+    phase.overlapPeriods = 0;
+    const parcel = makeDefaultParcel(undefined, phase.id);
+    const asset = {
+      id: 'asset_1', phaseId: phase.id, name: 'Tower A', type: 'High-end Apartments',
+      strategy: 'Sell' as const, visible: true,
+      gfaSqm: 12000, buaSqm: 10000, sellableBuaSqm: 8000, parkingBaysRequired: 100,
+    };
+    const costLine = {
+      id: 'construction-bua__phase_1',
+      phaseId: phase.id,
+      name: 'Construction (BUA)',
+      method: 'rate_per_bua' as const,
+      value: 1500,
+      stage: 'hard' as const,
+      scope: 'direct' as const,
+      allocationBasis: 'per_asset' as const,
+      startPeriod: 0,
+      endPeriod: 3,
+      phasing: 'even' as const,
+      costCategory: 'direct' as const,
+    };
+    const source = {
+      project,
+      phases: [phase],
+      parcels: [parcel],
+      landAllocationMode: 'autoByBua' as const,
+      assets: [asset as Asset],
+      subUnits: [],
+      costLines: [costLine] as CostLine[],
+      costOverrides: [],
+      financingTranches: [],
+      equityContributions: [],
+    };
+
+    try {
+      const hooks = mod.createFinancingHooks(source);
+      const capexExclInKind = hooks.getCapexExclLandInKind();
+      const capexIncl = hooks.getCapexInclLandInKind();
+      const capexExclTotalLand = hooks.getCapexExclTotalLand();
+      const landInKind = hooks.getLandInKindValue();
+      const preSales = hooks.getPreSalesCollections();
+      const ocf = hooks.getOperatingCashFlow();
+      const cashAt2 = hooks.getClosingCashBalance(2);
+      const depn = hooks.getDepreciationSchedule();
+      const rev = hooks.getRevenueSchedule();
+      const opex = hooks.getOperatingExpenses();
+
+      if (Array.isArray(capexExclInKind) && capexExclInKind.length > 0) pass(`getCapexExclLandInKind returns PeriodArray len=${capexExclInKind.length}`);
+      else fail('getCapexExclLandInKind', 'returned non-array or empty');
+
+      // Expected: 1500 SAR/sqm x 10000 sqm = 15,000,000 SAR total cost,
+      // distributed evenly across 4 construction periods = 3,750,000/yr.
+      const sumExclInKind = capexExclInKind.reduce((a, b) => a + b, 0);
+      if (Math.abs(sumExclInKind - 15_000_000) < 1_000) {
+        pass(`getCapexExclLandInKind sums to expected 15M (got ${sumExclInKind.toLocaleString()})`);
+      } else {
+        fail('getCapexExclLandInKind total', `expected ~15M, got ${sumExclInKind}`);
+      }
+
+      const sumIncl = capexIncl.reduce((a, b) => a + b, 0);
+      // With Parcel having no in-kind portion configured in the cost
+      // lines, Incl should match Excl on this fixture (the parcel is
+      // not auto-converted to a cost line). Allow equality or larger.
+      if (sumIncl >= sumExclInKind) {
+        pass(`getCapexInclLandInKind sum (${sumIncl.toLocaleString()}) >= Excl-In-Kind sum`);
+      } else {
+        fail('getCapexInclLandInKind sum', `${sumIncl} < ${sumExclInKind}`);
+      }
+
+      // Stubs return zero arrays.
+      if (preSales.every((v) => v === 0)) pass('getPreSalesCollections is zero-stub');
+      else fail('getPreSalesCollections', 'expected zeros');
+      if (ocf.every((v) => v === 0)) pass('getOperatingCashFlow is zero-stub');
+      else fail('getOperatingCashFlow', 'expected zeros');
+      if (depn.every((v) => v === 0)) pass('getDepreciationSchedule is zero-stub');
+      else fail('getDepreciationSchedule', 'expected zeros');
+      if (rev.every((v) => v === 0)) pass('getRevenueSchedule is zero-stub');
+      else fail('getRevenueSchedule', 'expected zeros');
+      if (opex.every((v) => v === 0)) pass('getOperatingExpenses is zero-stub');
+      else fail('getOperatingExpenses', 'expected zeros');
+
+      // Closing cash sim: initialCash=0, ratio=0.7, capex=15M.
+      // At t=2 (after periods 0..2), cumulative capex = 3*3.75M = 11.25M.
+      // Equity contributed = 0.3 * 11.25M = 3.375M.
+      // Debt drawn = 0.7 * 11.25M = 7.875M.
+      // Net cash flow (excl. interest) = -11.25M + 3.375M + 7.875M = 0.
+      // Plus tiny interest deduction. Should be slightly negative.
+      if (cashAt2 <= 0 && cashAt2 > -2_000_000) {
+        pass(`getClosingCashBalance(2) within expected tiny-deficit window (got ${cashAt2.toFixed(0)})`);
+      } else {
+        fail('getClosingCashBalance(2)', `unexpected value ${cashAt2.toFixed(0)}`);
+      }
+
+      // Land in-kind value: zero on this fixture (no in-kind cost lines).
+      if (landInKind === 0) pass('getLandInKindValue=0 on no-in-kind fixture');
+      else fail('getLandInKindValue', `expected 0, got ${landInKind}`);
+
+      // Memoisation: re-invocation returns the same array reference.
+      const second = hooks.getCapexExclLandInKind();
+      if (second === capexExclInKind) pass('hook results are memoised (same reference on 2nd call)');
+      else fail('memoisation', 'expected same array reference on 2nd call');
+
+      // Period alignment: capex outflows live in periods 0..3 (zero in 4 and 5).
+      if (capexExclInKind[0] > 0 && capexExclInKind[3] > 0 && (capexExclInKind[4] ?? 0) === 0) {
+        pass('Capex period alignment: occupies periods 0..3, zero in 4+');
+      } else {
+        fail('capex period alignment', `got [${capexExclInKind.map((n) => n.toFixed(0)).join(', ')}]`);
+      }
+
+      // Land sanity: with no land cost lines on the fixture,
+      // capexExclTotalLand should equal capexExclLandInKind.
+      const exclTotalSum = capexExclTotalLand.reduce((a, b) => a + b, 0);
+      if (Math.abs(exclTotalSum - sumExclInKind) < 1) {
+        pass('getCapexExclTotalLand matches Excl-In-Kind on no-land fixture');
+      } else {
+        fail('getCapexExclTotalLand', `expected ${sumExclInKind}, got ${exclTotalSum}`);
+      }
+    } catch (e) {
+      fail('hook execution', `threw: ${(e as Error).message}`);
+    }
+
+    // createNoopHooks contract.
+    const noop = mod.createNoopHooks(10);
+    if (noop.getCapexExclLandInKind().every((v) => v === 0)) pass('createNoopHooks zeros');
+    else fail('createNoopHooks zeros', 'non-zero entry');
+  }
+}
+
+// ── Section 6: Em-dash sweep on new files ─────────────────────────────────
+console.log('\n[6/6] Em-dash sweep');
 {
   const newFiles = [
     'docs/m20M-financing-architecture.md',
     'docs/financing-hooks.md',
     'scripts/verify-m20M.ts',
+    'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts',
   ];
   let cleanCount = 0;
   for (const f of newFiles) {
