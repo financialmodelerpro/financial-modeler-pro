@@ -80,6 +80,10 @@ import {
   distributeAnnualToPeriods,
   computeFunding,
   computeEquity,
+  computeAssetCost,
+  computeProjectTimeline,
+  costLineProjectPeriodIndex,
+  generatePeriodLabels,
   type FinancingResult,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
@@ -888,6 +892,61 @@ export default function Module1Financing(): React.JSX.Element {
     [resultsMap],
   );
 
+  // P3-Fix 8 (2026-05-12): per-asset capex project-wide for the Inputs
+  // Summary Tables. Excludes Land In-Kind (non-cash equity) so the
+  // funding need matches what the Financing engine actually has to size.
+  // Aggregates across ALL phases (Tab 4 Inputs is now Combined-only).
+  const inputsSummary = useMemo(() => {
+    const timeline = computeProjectTimeline(project, phases);
+    const totalPeriods = Math.max(0, timeline.totalPeriods);
+    const labels = generatePeriodLabels(project.startDate, totalPeriods, 'annual');
+    const perAsset = new Map<string, { id: string; name: string; perPeriod: number[]; total: number }>();
+    const totals = new Array<number>(totalPeriods).fill(0);
+    for (const ph of phases) {
+      const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
+      for (const a of phaseAssetsLocal) {
+        const breakdown = computeAssetCost(a, project, ph, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode);
+        const series = new Array<number>(totalPeriods).fill(0);
+        const inclSeries = breakdown.perPeriod;
+        const inKindSeries = breakdown.perPeriodLandInKind;
+        for (let localPeriod = 0; localPeriod < inclSeries.length; localPeriod++) {
+          const pp = costLineProjectPeriodIndex(project, ph, localPeriod);
+          if (pp < 0 || pp >= totalPeriods) continue;
+          const cash = Math.max(0, (inclSeries[localPeriod] ?? 0) - (inKindSeries[localPeriod] ?? 0));
+          series[pp] += cash;
+          totals[pp] += cash;
+        }
+        const existing = perAsset.get(a.id);
+        const merged = existing ? existing.perPeriod.map((v, i) => v + (series[i] ?? 0)) : series;
+        const total = merged.reduce((s, v) => s + v, 0);
+        perAsset.set(a.id, { id: a.id, name: a.name, perPeriod: merged, total });
+      }
+    }
+    const ratio = (() => {
+      const f = financingConfig;
+      if (f.fundingMethod === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+      if (f.fundingMethod === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
+      if (f.fundingMethod === 4) return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
+      return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+    })();
+    const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
+    const equityPct = ratio.equity / (ratio.debt + ratio.equity || 1);
+    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods };
+  }, [project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode, financingConfig]);
+  // Land In-Kind value project-wide (sum across all phases) drives the
+  // Equity Total breakdown into Cash + In-Kind sub-rows.
+  const projectInKindLandValue = useMemo(() => {
+    let total = 0;
+    for (const ph of phases) {
+      const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
+      for (const a of phaseAssetsLocal) {
+        const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssetsLocal, subUnits, landAllocationMode);
+        total += Math.max(0, m.inKindLandValue);
+      }
+    }
+    return total;
+  }, [phases, assets, project, parcels, subUnits, landAllocationMode]);
+
   // M2.0L: cross-tab IDC -> Tab 3 Costs auto-line sync. For every
   // facility with idcTreatment != 'expense' AND autoGenerateIdcCostLine
   // !== false, ensure a read-only cost line exists per asset for the
@@ -1320,16 +1379,94 @@ export default function Module1Financing(): React.JSX.Element {
           </div>
 
           {/* P3-Fix 7 (2026-05-12): Equity Tranches section dropped.
-              Equity auto-computes from chosen funding method:
-              Total Equity Need = Total Funding x equity%, then Cash
-              Equity = Total Equity - Land In-Kind value (Land In-Kind
-              auto-detects from the Tab 3 Land In-Kind cost line per
-              asset). The Equity Schedule sub-tab renders the cash +
-              in-kind contributions over time. Multi-investor splits
-              (sponsor / JV partner / etc.) are a future feature. The
-              equityContributions[] array stays on schema for
-              back-compat; migration clears its data so the UI never
-              surfaces stale rows. */}
+              Equity auto-computes from chosen funding method. See
+              Equity Schedule in Schedules sub-tab for cash + in-kind
+              over time. */}
+
+          {/* P3-Fix 8 (2026-05-12): 3 Inputs Summary Tables. Rows are
+              project-wide assets (combined view); columns are project
+              periods with Total in 2nd position. Funding = capex (excl
+              Land In-Kind). Debt = Funding x debt%. Equity = Funding x
+              equity%, with Cash + In-Kind sub-rows in the Total row. */}
+          <div style={sectionCardStyle} data-testid="inputs-summary-tables">
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Inputs Summary (Auto-computed)</strong>
+            {(() => {
+              const totalsRow = inputsSummary.totals;
+              const debtRow = totalsRow.map((v) => v * inputsSummary.debtPct);
+              const equityRow = totalsRow.map((v) => v * inputsSummary.equityPct);
+              const fmtCell = (v: number): string => formatScaledForExport(v, scale, decimals);
+              const renderTable = (
+                id: 'funding' | 'debt' | 'equity',
+                title: string,
+                multiplier: number,
+                rowsTotal: number[],
+              ): React.JSX.Element => (
+                <div style={{ marginBottom: 'var(--sp-2)' }} data-testid={`inputs-summary-${id}`}>
+                  <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>{title}</strong>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'auto' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                        <th style={{ padding: '4px 6px', textAlign: 'left' }}>Description</th>
+                        <th style={{ padding: '4px 6px', textAlign: 'right' }}>Total</th>
+                        {inputsSummary.labels.map((lbl, i) => (
+                          <th key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{lbl}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inputsSummary.perAsset.map((a) => {
+                        const total = a.total * multiplier;
+                        if (total <= 0.5) return null;
+                        return (
+                          <tr key={a.id} data-testid={`inputs-summary-${id}-row-${a.id}`}>
+                            <td style={{ padding: '4px 6px' }}>{a.name}</td>
+                            <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(total)}</td>
+                            {a.perPeriod.map((v, i) => (
+                              <td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(v * multiplier)}</td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }} data-testid={`inputs-summary-${id}-totals`}>
+                        <td style={{ padding: '4px 6px' }}>TOTAL {title.toUpperCase()}</td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(rowsTotal.reduce((s, v) => s + v, 0))}</td>
+                        {rowsTotal.map((v, i) => (
+                          <td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(v)}</td>
+                        ))}
+                      </tr>
+                      {id === 'equity' && (
+                        <>
+                          <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-cash">
+                            <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>Cash Equity</td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(Math.max(0, rowsTotal.reduce((s, v) => s + v, 0) - projectInKindLandValue))}</td>
+                            {rowsTotal.map((v, i) => {
+                              const inKindShare = i === 0 ? projectInKindLandValue : 0;
+                              const cash = Math.max(0, v - inKindShare);
+                              return <td key={i} style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(cash)}</td>;
+                            })}
+                          </tr>
+                          <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-inkind">
+                            <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>In-Kind Equity</td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(projectInKindLandValue)}</td>
+                            {rowsTotal.map((_, i) => (
+                              <td key={i} style={{ padding: '2px 6px', textAlign: 'right' }}>{i === 0 ? fmtCell(projectInKindLandValue) : fmtCell(0)}</td>
+                            ))}
+                          </tr>
+                        </>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+              return (
+                <>
+                  {renderTable('funding', 'Total Funding Required', 1, totalsRow)}
+                  {renderTable('debt', 'Total Debt Required', inputsSummary.debtPct, debtRow)}
+                  {renderTable('equity', 'Total Equity Required', inputsSummary.equityPct, equityRow)}
+                </>
+              );
+            })()}
+          </div>
         </>
       )}
 
