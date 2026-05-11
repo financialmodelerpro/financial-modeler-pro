@@ -409,7 +409,7 @@ export default function Module1Assets(): React.JSX.Element {
         narrower type in Step 3 of Create Project to narrow the catalog.
       </div>
 
-      {/* Land Parcels block (unchanged) */}
+      {/* Land Parcels block */}
       <div style={sectionCardStyle} data-testid="parcels-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: 'var(--font-h3)', margin: 0 }}>Land Parcels</h3>
@@ -423,6 +423,23 @@ export default function Module1Assets(): React.JSX.Element {
             + Add Parcel
           </button>
         </div>
+        {/* M2.0M Pass 6 Fix 3 (2026-05-11): when project-level NDA is
+            enabled in Tab 1, the per-parcel NDA columns below are
+            ignored by the calc engine. We surface a small notice so
+            the user knows where the active value lives. */}
+        {project.projectNdaEnabled === true && (
+          <div
+            style={{
+              marginBottom: 'var(--sp-2)', padding: 'var(--sp-1) var(--sp-2)',
+              background: 'color-mix(in srgb, var(--color-meta) 8%, transparent)',
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--font-small)', color: 'var(--color-meta)',
+            }}
+            data-testid="parcels-project-nda-notice"
+          >
+            Project-level NDA deduction is enabled in Tab 1 (roads {project.projectRoadsPct ?? 0}% + parks {project.projectParksPct ?? 0}%). Per-parcel NDA toggles below are kept for reference but do not affect calculations while the project setting is on.
+          </div>
+        )}
         <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="parcels-table">
           <thead>
             <tr>

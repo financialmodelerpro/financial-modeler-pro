@@ -187,12 +187,14 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20mPass6DisplayDefaults(
-    migrateM20MFinancing(
-      migrateM20Pass5Categories(
-        migrateM20Pass4Inheritance(
-          migrateM20lDedupeCostLineIds(
-            migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20mPass6NdaToProject(
+    migrateM20mPass6DisplayDefaults(
+      migrateM20MFinancing(
+        migrateM20Pass5Categories(
+          migrateM20Pass4Inheritance(
+            migrateM20lDedupeCostLineIds(
+              migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+            ),
           ),
         ),
       ),
@@ -210,18 +212,63 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip.
-  return migrateM20mPass6DisplayDefaults(
-    migrateM20MFinancing(
-      migrateM20Pass5Categories(
-        migrateM20Pass4Inheritance(
-          migrateM20lDedupeCostLineIds(
-            migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  return migrateM20mPass6NdaToProject(
+    migrateM20mPass6DisplayDefaults(
+      migrateM20MFinancing(
+        migrateM20Pass5Categories(
+          migrateM20Pass4Inheritance(
+            migrateM20lDedupeCostLineIds(
+              migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+            ),
           ),
         ),
       ),
     ),
   );
 };
+
+// M2.0M Pass 6 Fix 3 (2026-05-11): roll up legacy per-parcel NDA
+// toggles into the new project-level fields (projectNdaEnabled +
+// projectRoadsPct + projectParksPct). When at least one parcel has
+// hasNdaDeduction=true, compute the area-weighted average roads%
+// and parks% across NDA-enabled parcels and stamp them on the
+// project; flip projectNdaEnabled=true. Per-parcel fields are kept
+// for back-compat but stop influencing the calc engine once the
+// project flag is on. Idempotent: if projectNdaEnabled is already
+// defined, the migration is a no-op.
+function migrateM20mPass6NdaToProject(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  if (project.projectNdaEnabled !== undefined) return snap;
+  const parcels = snap.parcels as Parcel[];
+  const ndaParcels = parcels.filter((p) => p.hasNdaDeduction === true);
+  if (ndaParcels.length === 0) {
+    return {
+      ...snap,
+      project: { ...project, projectNdaEnabled: false },
+    };
+  }
+  let weightedRoads = 0;
+  let weightedParks = 0;
+  let totalArea = 0;
+  for (const p of ndaParcels) {
+    const a = Math.max(0, p.area);
+    if (a <= 0) continue;
+    totalArea += a;
+    weightedRoads += a * Math.max(0, Math.min(100, p.roadsPct ?? 0));
+    weightedParks += a * Math.max(0, Math.min(100, p.parksPct ?? 0));
+  }
+  const roadsPct = totalArea > 0 ? weightedRoads / totalArea : (project.projectRoadsPct ?? 0);
+  const parksPct = totalArea > 0 ? weightedParks / totalArea : (project.projectParksPct ?? 0);
+  return {
+    ...snap,
+    project: {
+      ...project,
+      projectNdaEnabled: true,
+      projectRoadsPct: Math.round(roadsPct * 100) / 100,
+      projectParksPct: Math.round(parksPct * 100) / 100,
+    },
+  };
+}
 
 // M2.0M Pass 6 Fix 2 (2026-05-11): smart migration of display defaults.
 // The pre-Pass-6 defaults were displayScale='full' + displayDecimals=2.
@@ -701,12 +748,14 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20mPass6DisplayDefaults(
-    migrateM20MFinancing(
-      migrateM20Pass5Categories(
-        migrateM20Pass4Inheritance(
-          migrateM20lDedupeCostLineIds(
-            migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  snap = migrateM20mPass6NdaToProject(
+    migrateM20mPass6DisplayDefaults(
+      migrateM20MFinancing(
+        migrateM20Pass5Categories(
+          migrateM20Pass4Inheritance(
+            migrateM20lDedupeCostLineIds(
+              migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+            ),
           ),
         ),
       ),

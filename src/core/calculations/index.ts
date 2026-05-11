@@ -584,8 +584,18 @@ export function resolveAssetAreaMetrics(
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
   let assetNda = landSqm;
   let assetRoads = 0;
+  // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA wins when
+  // projectNdaEnabled is true. Apply (projectRoadsPct + projectParksPct)
+  // uniformly to landSqm. Per-parcel toggles are ignored in this mode.
+  const projectNda = project.projectNdaEnabled === true;
   const anyParcelHasNda = phaseParcels.some((p) => p.hasNdaDeduction === true);
-  if (anyParcelHasNda && breakdown.splits.length > 0) {
+  if (projectNda) {
+    const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
+    const parksPct = Math.max(0, Math.min(100, project.projectParksPct ?? 0));
+    const totalDeductPct = Math.min(100, roadsPct + parksPct);
+    assetNda = landSqm * (1 - totalDeductPct / 100);
+    assetRoads = landSqm - assetNda;
+  } else if (anyParcelHasNda && breakdown.splits.length > 0) {
     // Multi-parcel splits: derive NDA per slice using each parcel's own
     // toggle. Asset's NDA = sum(slice.sqm × parcel.ndaFactor).
     assetNda = 0;

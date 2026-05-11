@@ -275,7 +275,15 @@ export interface Project {
   // and the rate_per_nda / rate_per_roads cost methods. Both default
   // to undefined / 0 so existing v5 snapshots keep working.
   country?: string;          // free-text country, used by requiresCountry filter
-  projectRoadsPct?: number;  // 0..100, fraction of land used for roads
+  projectRoadsPct?: number;  // 0..100, fraction of TOTAL land used for roads
+  // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA deduction. When
+  // projectNdaEnabled is true, calc engine applies (projectRoadsPct +
+  // projectParksPct) to the TOTAL phase land (sum across parcels) to
+  // derive NDA. Per-parcel hasNdaDeduction is kept for back-compat but
+  // ignored when projectNdaEnabled is set. Migration weighted-averages
+  // legacy per-parcel toggles into these fields.
+  projectParksPct?: number;  // 0..100, fraction of TOTAL land used for parks
+  projectNdaEnabled?: boolean;
   // M2.0e: project type drives Tab 2's asset-type catalog filter and
   // the empty-state asset suggestions per phase. Captured in Wizard
   // Step 3.
