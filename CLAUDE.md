@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0M Pass 2 Tab 4 Financing cleanup ships: 13 targeted fixes. Uniform funding pipeline `computeFunding(method) -> { totalNeed, periodArray, debtEquitySplit }` for all 4 methods + `computeEquity` returning equity cash + in-kind + per-period arrays. "LTV %" input renamed to "Debt %"; facility type dropdown hidden; MAAD label dropped; repayment methods reduced from 9 to 3 user-facing (Equal Repayment + sub-mode, Year-on-Year %, Cash Sweep) with full legacy migration; `Project.financing.minimumCashReserve` + `phaseFilter` lift to top level; IDC dropdown reduced to Capitalize / Expense (Mixed migrates to Capitalize); facility scope dropdown hidden (asset->phase migration); Financing schedule cells use `formatScaledForExport` (no K/M per cell); Phase Filter "All Phases" default; Capital Stack Summary surfaces Equity (Cash) + Equity (In-Kind) source rows; new Equity Schedule table (6); all schedules render Total column 2nd position (flow rows sum, balance rows show dash); auto IDC line generation preserved. Verifier verify-m20M-pass2.ts 50/50. Schema stays v8 additive)**
+**Last updated: 2026-05-12 (M2.0M Pass 7 Costs Architecture Simplification + 6 polish fixes ships: drops the Pass 4 master + replica inheritance surface entirely from Tab 3 Inputs. Per-asset only: phase filter dropdown + asset pill bar + single editable cost-line table for the selected asset; each cost line stored with required targetAssetId; composed id pattern `${baseId}__${phaseId}__${assetId}`. CostOverride[] deprecated (schema retained for back-compat, migration drops the data, UI no longer reads/writes). migrateM20costsPass7PerAsset flattens legacy master + overrides into per-asset replicas (folds matching override values onto each replica, drops orphan lines, drops master lines in phases with zero visible assets, rewrites selectedLineIds). M20COSTS_PASS7_NOTICE banner. Tab 2 Parcels table: per-parcel Roads%/Parks%/NDA columns removed; project-level NDA card with Apply NDA + Roads% + Parks% + Gross/Net derivation now lives below the Total Land row. Sub-unit verification collapses to single inline line `Verification: BUA X | NSA X | Eff X% | Land X | Land Cost X` (expand/collapse + localStorage dropped). Sub-units table: table-layout: fixed, all columns always render, Area visible in both modes (editable in Area mode, derived caption in Units mode), new Total Revenue (No Indexation) column. Costs Input table: 11 columns with explicit colgroup widths (Cost Line 220, Method 200, Category 100, Driver 100, Value 120, Start 60, End 60, Phasing 100, Total 140, Toggle 60, Delete 40); Category + Driver split into own columns (muted dash when Direct); Toggle/Delete split into separate cells. Verifier verify-m20costsCleanup-pass7.ts 52/0/2. Schema stays v8 additive.)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -274,6 +274,102 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-12, **M2.0M Pass 7 Costs Architecture Simplification + 6 polish fixes**)
+
+**M2.0M Pass 7 (current, ships):** Drops the Pass 4 master + replica
+inheritance surface entirely. Tab 3 Inputs is now per-asset only:
+phase filter + asset pill bar + single editable table for the
+selected asset. CostOverride[] deprecated (schema retained for legacy
+snapshot compat; migration flattens the data, UI no longer reads or
+writes). Schema stays v8 additive.
+
+- **Fix 5 (architecture rewrite)**: every `CostLine` carries required
+  `targetAssetId`; composed id pattern `${baseId}__${phaseId}__${assetId}`
+  for global uniqueness. `migrateM20costsPass7PerAsset` walks legacy
+  snapshots, replicates each master line per visible phase asset
+  (folds matching CostOverride values onto each replica per the
+  same field-by-field resolution as Pass 4), drops orphan per-asset
+  lines whose `targetAssetId` no longer exists, drops master lines
+  in phases with zero visible assets, rewrites `selectedLineIds`
+  cross-references to point at same-asset replicas, clears
+  `costOverrides[]`. Idempotent on every hydrate
+  (`stripV8Wrapper` / `stripWrapper` / `migrateLegacyToV8`).
+  `M20COSTS_PASS7_NOTICE` banner surfaces once per migrated snapshot.
+
+- **Fix 5b/6 (Inputs UI)**: phase filter dropdown
+  (`costs-inputs-phase-filter`) + asset pill bar
+  (`costs-inputs-asset-pills`) + per-asset stats summary
+  (`costs-inputs-asset-stats-{id}`) + single `AssetCostSection` for
+  the active asset. Add Custom Cost button emits a line with
+  `id: custom-${Date.now()}__${phaseId}__${assetId}`,
+  `targetAssetId` set, `costCategory: 'direct'`. Override callbacks
+  pass-through as no-ops (override surface removed).
+
+- **Fix 1 (Tab 2 NDA)**: per-parcel `NDA?` + `Roads %` + `Parks %` +
+  `NDA (sqm)` + `{currency}/NDA sqm` columns removed from the parcels
+  table. New project-level NDA summary card lives below the Total
+  Land row: Apply NDA Deduction toggle + Roads % + Parks % inputs +
+  explicit derivation (`Gross NDA = Total Land x (100% - Roads% - Parks%) = X x Y% = Z sqm` + `Net NDA = Gross NDA - (other) = Z sqm`).
+  Reads/writes the existing `project.projectNdaEnabled` /
+  `projectRoadsPct` / `projectParksPct` fields wired in Pass 6.
+
+- **Fix 2 (sub-unit verification)**: `AssetAreaReconciliationBlock`
+  rewritten to a single inline line: `Verification: BUA X | NSA X | Eff X% | Land X | Land Cost X`. expand/collapse + localStorage state
+  (`m20i-asset-recon-collapsed`) dropped. Mismatch state (sub-units
+  exist with Support/Parking but NSA = 0) surfaces ⚠ + caveat
+  suffix.
+
+- **Fix 3 (sub-units table)**: explicit colgroup (Type 14%,
+  Category 11%, Metric 9%, Area 12%, Unit Size 10%, Count 9%,
+  Rate 13%, Total Revenue 17%, X 5%) with `table-layout: fixed`.
+  All columns always render. Area cell: Area mode keeps the editable
+  input; Units mode renders a read-only derived caption
+  (`count x unitArea = total area` + italic readout). Unit Size +
+  Count cells render muted dashes in Area mode and editable inputs
+  in Units mode. New Total Revenue (No Indexation) column =
+  `metricValue x unitPrice` (Area: area x rate; Units: count x rate);
+  read-only via `formatScaled`.
+
+- **Fix 4 (Costs Input table)**: `table-layout: fixed` + explicit
+  colgroup per brief: Cost Line 220 · Method 200 · Category 100 ·
+  Driver 100 · Value 120 · Start 60 · End 60 · Phasing 100 · Total
+  140 · Toggle 60 · Delete 40. Category + Driver dropdowns split
+  from the Method cell into their own columns; Driver cell renders
+  a muted dash when `costCategory='direct'`. Toggle column = On/Off
+  checkbox + optional reset; Delete column = ✕ button with confirm
+  dialog (hidden on locked seed lines: Land Cash / Land In-Kind /
+  auto-IDC). `title` tooltip + `overflow: hidden` on every editable
+  cell so overflow labels stay legible. CostRow sub-rows (Manual %
+  editor / per-row money chip strip / per-sub-unit custom rates /
+  PercentOfSelectedPicker) span `colSpan={11}`. AssetCostSection
+  tfoot Asset Subtotal label spans cols 1-8, subtotal value in col
+  9 (Total).
+
+- **Fix 7 (Results)**: no changes per brief.
+
+- **Verifier**: `scripts/verify-m20costsCleanup-pass7.ts` (52 pass /
+  0 fail / 2 skip without dev server) covers migration semantics
+  (replica counts + override fold + orphan drop + empty-phase drop
+  + banner), per-asset Inputs source markers, Tab 2 NDA project-level
+  card markers + per-parcel column removal, single-line sub-unit
+  verification markers, sub-units table colgroup + Total Revenue
+  column, Costs Input 11-column table + colgroup widths +
+  Category/Driver split + colSpan={11} sub-rows, em-dash sweep on
+  touched files, design note presence. Playwright spec deferred
+  (verifier + manual smoke cover the surface).
+
+- **Deferred per brief**: dedicated Project Common Costs section
+  above asset pills (allocated lines still attach to the first
+  visible asset; promotion deferred pending user feedback). Results
+  sub-tab tweaks (Pass 7 leaves Results untouched per brief).
+
+Commits (6): `b93ffbd` (design note) · `64583b3` (P7-Fix 5a schema +
+migration) · `384b9e4` (P7-Fix 5b/6 per-asset Inputs UI) · `00e7a72`
+(P7-Fix 1 NDA card) · `80b8f1b` (P7-Fix 2 sub-unit verification) ·
+`528703f` (P7-Fix 3 sub-units table + Total Revenue) · `16eb88b`
+(P7-Fix 4 cost table widths balanced). Type-check clean on every
+commit.
 
 ### Module 1 status (2026-05-11, **M2.0M Pass 2 Tab 4 Financing cleanup**)
 

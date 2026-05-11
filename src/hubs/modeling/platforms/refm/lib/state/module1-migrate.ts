@@ -251,10 +251,13 @@ function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
   const assets = (snap.assets as Asset[]) ?? [];
 
   // Detect work: any master line (targetAssetId undefined) OR any
-  // override entry. If neither, snapshot is already Pass 7-shaped.
+  // override entry OR any orphan per-asset line (targetAssetId points
+  // to a missing asset). If none of these, snapshot is already Pass 7-shaped.
   const hasMaster = lines.some((c) => !c.targetAssetId);
   const hasOverrides = overrides.length > 0;
-  if (!hasMaster && !hasOverrides) return snap;
+  const assetIdSet = new Set(assets.map((a) => a.id));
+  const hasOrphan = lines.some((c) => c.targetAssetId && !assetIdSet.has(c.targetAssetId));
+  if (!hasMaster && !hasOverrides && !hasOrphan) return snap;
 
   // Build asset-by-phase index for replication.
   const assetsByPhase = new Map<string, Asset[]>();
