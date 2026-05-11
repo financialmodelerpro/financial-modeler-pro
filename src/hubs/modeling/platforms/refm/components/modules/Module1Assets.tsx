@@ -1218,35 +1218,60 @@ function AssetCard({
               <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
                 No sub-units yet. Add at least one so revenue (Module 2) can attach.
               </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead>
-                  <tr style={{ background: 'var(--color-grey-pale)' }}>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Metric</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Rate Unit</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assetSubUnits.map((u) => (
-                    <SubUnitRow
-                      key={u.id}
-                      subUnit={u}
-                      currency={project.currency}
-                      onUpdate={(patch) => updateSubUnit(u.id, patch)}
-                      onRemove={() => removeSubUnit(u.id)}
-                      decimals={project.displayDecimals ?? 2}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            )}
+            ) : (() => {
+              // M2.0L Pass2 Fix 1 + Fix 2 (2026-05-11): show Unit Size + Count
+              // columns ONLY when at least one sub-unit uses Units metric.
+              // Column widths are fixed via table-layout: fixed so switching
+              // metrics doesn't reflow the table.
+              const showUnitColumns = assetSubUnits.some((u) =>
+                u.metric === 'units' || (u.metric as unknown as string) === 'count',
+              );
+              return (
+                <table
+                  style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}
+                  data-testid={`asset-${asset.id}-subunit-table`}
+                  data-has-units={showUnitColumns}
+                >
+                  <colgroup>
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '13%' }} />
+                    {showUnitColumns && <col style={{ width: '11%' }} />}
+                    {showUnitColumns && <col style={{ width: '10%' }} />}
+                    <col style={{ width: showUnitColumns ? '13%' : '21%' }} />
+                    <col style={{ width: showUnitColumns ? '14%' : '23%' }} />
+                    <col style={{ width: '6%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr style={{ background: 'var(--color-grey-pale)' }}>
+                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Metric</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
+                      {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>}
+                      {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>}
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Rate Unit</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assetSubUnits.map((u) => (
+                      <SubUnitRow
+                        key={u.id}
+                        subUnit={u}
+                        currency={project.currency}
+                        onUpdate={(patch) => updateSubUnit(u.id, patch)}
+                        onRemove={() => removeSubUnit(u.id)}
+                        decimals={project.displayDecimals ?? 2}
+                        showUnitColumns={showUnitColumns}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
 
           {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy. */}
@@ -1338,7 +1363,7 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals }): React.JSX.Element {
+function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitColumns }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; showUnitColumns: boolean }): React.JSX.Element {
   // M2.0j Fix 6 (2026-05-07): full bidirectional sync between count
   // and area when metric === 'units'. Schema stays the same:
   // metricValue is the canonical count (when metric=units) OR total
@@ -1432,25 +1457,29 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnit
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}
       </td>
-      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {isUnits ? (
-          <>
-            <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
-            {unitsButNoSize && (
-              <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
-            )}
-          </>
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
-        )}
-      </td>
-      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {isUnits ? (
-          <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
-        )}
-      </td>
+      {showUnitColumns && (
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          {isUnits ? (
+            <>
+              <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
+              {unitsButNoSize && (
+                <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+              )}
+            </>
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
+          )}
+        </td>
+      )}
+      {showUnitColumns && (
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          {isUnits ? (
+            <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
+          )}
+        </td>
+      )}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {/* M2.0j Fix 7: accounting format on blur for the rate / price input. */}
         <AccountingNumberInput
