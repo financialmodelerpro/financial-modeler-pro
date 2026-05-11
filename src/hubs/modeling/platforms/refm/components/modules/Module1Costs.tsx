@@ -621,37 +621,62 @@ function CostRow({
           min={0}
           max={constructionPeriods}
           value={line.startPeriod}
-          onChange={(e) => writeStartPeriod(parseInt(e.target.value) || 0)}
+          onChange={(e) => {
+            const next = parseInt(e.target.value) || 0;
+            writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
+          }}
           disabled={isLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-start`}
+          title={`Max = ${constructionPeriods}`}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
           {periodStartLabel}
         </div>
       </td>
       <td style={{ padding: '4px', width: 70 }}>
-        {/* M2.0L Pass2 Fix 7 (2026-05-11): max bound = phase
-            constructionPeriods. Inline warning shown when End exceeds
-            construction window (cost extends into operations). */}
+        {/* M2.0L Pass3 Fix 7 (2026-05-11): max bound = phase
+            constructionPeriods + hard auto-clamp on edit so users
+            can't push End past the construction window. HTML's max
+            attribute is advisory only; the onChange handler now
+            actively clamps. A "Clamp" button appears when an
+            existing line carries a value that exceeds the current
+            phase cp (e.g. legacy snapshot with cp=24 reduced to
+            cp=4). One click resets endPeriod to constructionPeriods. */}
         <input
           type="number"
           min={0}
           max={constructionPeriods}
           value={line.endPeriod}
-          onChange={(e) => writeEndPeriod(parseInt(e.target.value) || 0)}
+          onChange={(e) => {
+            const next = parseInt(e.target.value) || 0;
+            const clamped = Math.min(Math.max(0, next), constructionPeriods);
+            writeEndPeriod(clamped);
+          }}
           disabled={isLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-end`}
           aria-invalid={line.endPeriod > constructionPeriods}
-          title={line.endPeriod > constructionPeriods ? `End extends into operations (construction window = ${constructionPeriods})` : undefined}
+          title={line.endPeriod > constructionPeriods ? `End exceeds construction window (${constructionPeriods}). Click Clamp to reset.` : `Max = ${constructionPeriods}`}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
         {line.endPeriod > constructionPeriods && (
-          <div style={{ fontSize: 9, color: 'var(--color-warning)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
-            into operations
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, marginTop: 2 }}>
+            <div style={{ fontSize: 9, color: 'var(--color-warning)' }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
+              exceeds cp ({constructionPeriods})
+            </div>
+            {!isLocked && (
+              <button
+                type="button"
+                onClick={() => writeEndPeriod(constructionPeriods)}
+                style={{ fontSize: 9, padding: '1px 6px', background: 'var(--color-warning-bg)', color: 'var(--color-warning)', border: '1px solid var(--color-warning)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                data-testid={`cost-${asset.id}-${line.id}-end-clamp`}
+              >
+                Clamp
+              </button>
+            )}
           </div>
         )}
       </td>
