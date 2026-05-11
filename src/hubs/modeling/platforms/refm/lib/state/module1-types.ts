@@ -924,7 +924,7 @@ export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
   front_loaded:         'Front-loaded (Bullet draw, Y1)',
   equal_periodic:       'Equal Periodic over Availability',
   custom_schedule:      'Custom per-period amounts',
-  cash_available:       'Cash-Available Basis (MAAD)',
+  cash_available:       'Cash-Available Basis',
 };
 
 // Repayment matrix:
