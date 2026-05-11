@@ -552,6 +552,41 @@ function CostRow({
     writePerSubUnitRates({ ...effPerSubUnitRates, [key]: Math.max(0, rate) });
   };
 
+  // P9-Fix 6 (2026-05-12): per-row collapse state. Collapsed shows
+  // only Name + Method (read-only summary) + Total + Toggle + Delete;
+  // expanded shows the full input surface (Value / Start / End /
+  // Phasing). State persists per session via localStorage keyed by
+  // line id. The asset-section's "Expand all / Collapse all" button
+  // updates a parent-scoped key prefix that this hook reads on mount.
+  const collapseKey = `m20-cost-row-collapsed-${line.id}`;
+  const readCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(collapseKey);
+      return stored === null ? true : stored === 'true';
+    } catch { return true; }
+  };
+  const [collapsed, setCollapsed] = React.useState<boolean>(readCollapsed);
+  // Listen for bulk Expand all / Collapse all events from the asset
+  // section header. The bulk button rewrites localStorage for every
+  // row id then dispatches m20-cost-row-collapse-bulk; we re-read on
+  // event.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (): void => { setCollapsed(readCollapsed()); };
+    window.addEventListener('m20-cost-row-collapse-bulk', handler);
+    return () => window.removeEventListener('m20-cost-row-collapse-bulk', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.id]);
+  const toggleCollapsed = (): void => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try { window.localStorage.setItem(collapseKey, next ? 'true' : 'false'); } catch { /* noop */ }
+      }
+      return next;
+    });
+  };
   // M2.0L Pass3 Fix 13 (2026-05-11): per-row Stage tooltip dropped.
   // Stage classification still drives the row background color (via
   // STAGE_BG[stage]) but no hover hint, no per-row caption. Strategy
@@ -566,15 +601,31 @@ function CostRow({
       }}
     >
       <td style={{ padding: '4px', overflow: 'hidden' }}>
-        <input
-          type="text"
-          value={line.name}
-          onChange={(e) => writeName(e.target.value)}
-          disabled={isLocked}
-          style={{ ...inputStyle, width: '100%' }}
-          data-testid={`cost-${asset.id}-${line.id}-name`}
-          title={line.name}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            data-testid={`cost-${asset.id}-${line.id}-collapse`}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand row' : 'Collapse row'}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              padding: '0 2px', fontSize: 12, color: 'var(--color-meta)',
+              flexShrink: 0,
+            }}
+          >
+            {collapsed ? '▶' : '▼'}
+          </button>
+          <input
+            type="text"
+            value={line.name}
+            onChange={(e) => writeName(e.target.value)}
+            disabled={isLocked}
+            style={{ ...inputStyle, width: '100%' }}
+            data-testid={`cost-${asset.id}-${line.id}-name`}
+            title={line.name}
+          />
+        </div>
         {isCustom && (
           <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>custom</div>
         )}
@@ -598,59 +649,63 @@ function CostRow({
           back-compat (calc engine treats every line as Direct in the
           Pass 7 per-asset surface). */}
       <td style={{ padding: '4px', overflow: 'hidden' }}>
-        {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
-            scale regardless of project.displayScale. The Display Scale
-            setting applies only to computed/result cells (Total column,
-            summary cards, summary tables). User types a rate as
-            4,500 / 4,500.00, never as "4.50 K". */}
-        <AccountingNumberInput
-          value={effValue}
-          onChange={writeValue}
-          scale="full"
-          decimals={decimals}
-          disabled={isLocked}
-          style={inputStyle}
-          data-testid={`cost-${asset.id}-${line.id}-value`}
-        />
-        {/* M2.0L Pass2 Fix 5 (2026-05-11): unit hint reactive to method. */}
-        <div
-          style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
-          data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
-        >
-          {valueUnitHint(effMethod, currency)}
-        </div>
-        {/* M2.0j Fix 8 (2026-05-07): inline formula caption showing the
-            multiplier value AND the result. Helps the user verify math
-            at a glance without leaving Tab 3. Hidden when value is 0
-            and result is 0 (no useful info). */}
-        {(effValue !== 0 || total !== 0) && (
-          <div
-            style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-            data-testid={`cost-${asset.id}-${line.id}-caption`}
-            title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-          >
-            {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-          </div>
+        {collapsed ? (
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-value-collapsed`}>-</div>
+        ) : (
+          <>
+            {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
+                scale regardless of project.displayScale. */}
+            <AccountingNumberInput
+              value={effValue}
+              onChange={writeValue}
+              scale="full"
+              decimals={decimals}
+              disabled={isLocked}
+              style={inputStyle}
+              data-testid={`cost-${asset.id}-${line.id}-value`}
+            />
+            <div
+              style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+              data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+            >
+              {valueUnitHint(effMethod, currency)}
+            </div>
+            {(effValue !== 0 || total !== 0) && (
+              <div
+                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                data-testid={`cost-${asset.id}-${line.id}-caption`}
+                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+              >
+                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+              </div>
+            )}
+          </>
         )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
-        <input
-          type="number"
-          min={0}
-          max={constructionPeriods}
-          value={line.startPeriod}
-          onChange={(e) => {
-            const next = parseInt(e.target.value) || 0;
-            writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
-          }}
-          disabled={isLocked}
-          style={inputStyle}
-          data-testid={`cost-${asset.id}-${line.id}-start`}
-          title={`Max = ${constructionPeriods}`}
-        />
-        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
-          {periodStartLabel}
-        </div>
+        {collapsed ? (
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'center' }}>-</div>
+        ) : (
+          <>
+            <input
+              type="number"
+              min={0}
+              max={constructionPeriods}
+              value={line.startPeriod}
+              onChange={(e) => {
+                const next = parseInt(e.target.value) || 0;
+                writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
+              }}
+              disabled={isLocked}
+              style={inputStyle}
+              data-testid={`cost-${asset.id}-${line.id}-start`}
+              title={`Max = ${constructionPeriods}`}
+            />
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
+              {periodStartLabel}
+            </div>
+          </>
+        )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
         {/* P9-Fix 3 (2026-05-12): max cap dropped. User can enter ANY
@@ -658,6 +713,10 @@ function CostRow({
             End extends into operations or past project timeline; the
             only blocking error is End < Start. HTML5 max attribute +
             JS clamp removed. */}
+        {collapsed ? (
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'center' }}>-</div>
+        ) : (
+        <>
         <input
           type="number"
           min={0}
@@ -691,8 +750,13 @@ function CostRow({
             extends into operations period
           </div>
         )}
+        </>
+        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
+        {collapsed ? (
+          <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>-</div>
+        ) : (
         <select
           value={effPhasing}
           onChange={(e) => writePhasing(e.target.value as CostPhasing)}
@@ -709,6 +773,7 @@ function CostRow({
             <option key={p} value={p}>{PHASING_LABELS[p]}</option>
           ))}
         </select>
+        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
@@ -1267,6 +1332,46 @@ function AssetCostSection({
       </div>
       {!collapsed && (
         <>
+          {/* P9-Fix 6 (2026-05-12): Expand all / Collapse all toggles
+              for cost line rows. Per-row state still persists via
+              localStorage (per line id); these buttons broadcast a
+              single value across every visible row by rewriting the
+              backing keys, then trigger a window reload-free refresh
+              via storage event (handled by listener in row mount). */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
+            <button
+              type="button"
+              data-testid={`asset-section-${asset.id}-expand-all`}
+              onClick={() => {
+                if (typeof window === 'undefined') return;
+                try {
+                  for (const l of lines) {
+                    window.localStorage.setItem(`m20-cost-row-collapsed-${l.id}`, 'false');
+                  }
+                  window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
+                } catch { /* noop */ }
+              }}
+              style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              data-testid={`asset-section-${asset.id}-collapse-all`}
+              onClick={() => {
+                if (typeof window === 'undefined') return;
+                try {
+                  for (const l of lines) {
+                    window.localStorage.setItem(`m20-cost-row-collapsed-${l.id}`, 'true');
+                  }
+                  window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
+                } catch { /* noop */ }
+              }}
+              style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+            >
+              Collapse all
+            </button>
+          </div>
           {/* P8-Fix 4 (2026-05-12): cost table reduced from 11 cols to 9.
               Category + Driver columns dropped (Pass 5 Direct/Allocated
               + per-driver split surface caused confusion; every cost line
