@@ -505,7 +505,9 @@ console.log('\n[6/7] UI source markers in Module1Financing.tsx');
       ['Method 4 inputs panel', 'data-testid="funding-method-4-inputs"'],
       ['Method 1 debt input', 'data-testid="m1-debt-pct"'],
       ['Method 3 existing-cash input', 'data-testid="m3-existing-cash"'],
-      ['Method 4 min-reserve input', 'data-testid="m4-min-reserve"'],
+      // P2-Fix 6 (2026-05-11): m4-min-reserve retired in favour of the
+      // project-level minimumCashReserve input. New marker is the global one.
+      ['Project-level Minimum Cash Reserve input', 'data-testid="financing-min-cash-reserve"'],
       ['Land Funding section', 'data-testid="financing-land-funding"'],
       ['ParcelFundingConfig imported', 'type ParcelFundingConfig'],
       ['ProjectFinancingConfig imported', 'type ProjectFinancingConfig'],

@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0M Pass 6 Costs cleanup ships: 9 targeted fixes. (1) Sub-unit table renders per-row count-unit caption beneath Count cell adapting to category + asset strategy + asset type (units / keys / beds / bays / tenants / items). (2) Default `displayScale='thousands'` + `displayDecimals=0` on new projects with smart migration preserving explicit user customisation. (3) Roads/Parks NDA moves to project level via new `Project.projectNdaEnabled` + `projectParksPct` schema fields; calc engine reads project-level first; per-parcel toggles kept for back-compat; migration weighted-averages legacy. (4) Master + replica Method columns constrained to 200px via colgroup + ellipsis. (5) Land cost captions show derivation chain "{landSqm} sqm x {effRate}/sqm (cash) = {total}" with pointed warnings on zero-land / zero-rate / zero-cashPct paths. (6) `PercentOfSelectedPicker` rebuilt as dropdown button + chip strip + popover with backdrop click-outside. (7) Override toggle hidden on locked Land / Auto-IDC lines, replaced with "Locked" chip + tooltip pointing to source tab. (8) Period column reducer reads phaseStartYear offsets so multi-phase projects render columns through the last phase end (no spill, no truncation). (9) Results cells use `formatScaledForExport` so K/M suffix appears only in the header line, not per cell. Verifier verify-m20costsCleanup.ts 36/36. Schema stays v8 additive)**
+**Last updated: 2026-05-11 (M2.0M Pass 2 Tab 4 Financing cleanup ships: 13 targeted fixes. Uniform funding pipeline `computeFunding(method) -> { totalNeed, periodArray, debtEquitySplit }` for all 4 methods + `computeEquity` returning equity cash + in-kind + per-period arrays. "LTV %" input renamed to "Debt %"; facility type dropdown hidden; MAAD label dropped; repayment methods reduced from 9 to 3 user-facing (Equal Repayment + sub-mode, Year-on-Year %, Cash Sweep) with full legacy migration; `Project.financing.minimumCashReserve` + `phaseFilter` lift to top level; IDC dropdown reduced to Capitalize / Expense (Mixed migrates to Capitalize); facility scope dropdown hidden (asset->phase migration); Financing schedule cells use `formatScaledForExport` (no K/M per cell); Phase Filter "All Phases" default; Capital Stack Summary surfaces Equity (Cash) + Equity (In-Kind) source rows; new Equity Schedule table (6); all schedules render Total column 2nd position (flow rows sum, balance rows show dash); auto IDC line generation preserved. Verifier verify-m20M-pass2.ts 50/50. Schema stays v8 additive)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,7 +225,8 @@ npm run verify       # type-check + lint + build
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Canonical green for current state: verify-m20costsCleanup.ts (latest Costs surface)
+# Canonical green for current state: verify-m20M-pass2.ts (latest Financing surface)
+npx tsx scripts/verify-m20M-pass2.ts            # M2.0M Pass 2 Tab 4 Financing cleanup (13 fixes: uniform funding, 3-method repayment, project-level minCash, phase filter, equity surfaced, Total col, 50 pass / 0 fail)
 npx tsx scripts/verify-m20costsCleanup.ts       # M2.0M Pass 6 Costs cleanup (9 fixes: count caption, defaults, NDA, method col, land captions, dropdown, locked override, period reducer, plain cells, 36 pass / 0 fail)
 npx tsx scripts/verify-m20M.ts                  # M2.0M Financing (schema + migration + hook layer + UI markers, 67 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L-pass5.ts            # Category + Driver + auto-derived CostType (31 pass / 0 fail / 0 skip)
@@ -273,6 +274,114 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-11, **M2.0M Pass 2 Tab 4 Financing cleanup**)
+
+**M2.0M Pass 2 (current, ships):** 13 Tab 4 cleanup fixes simplifying
+the financing surface. Schema stays v8 additive (`minimumCashReserve`
++ `phaseFilter` lift to project.financing top level; new repayment
+sub-mode + cash-sweep config on FinancingTranche).
+
+- **Fix 1, uniform funding pipeline.** New `computeFunding(method, ctx)`
+  returns `{ totalNeed, periodArray, debtEquitySplit }` for every
+  method. Step 1 (totalNeed + periodArray) is method-specific:
+  Methods 1+2 = sum/distribute capex; Method 3 = net of pre-sales +
+  OCF + existingCash + minCash; Method 4 = period-by-period walk
+  filling to minCash floor. Steps 2-3 (ratio split, debt+equity per
+  period) are uniform.
+
+- **Fix 2, LTV -> Debt %.** TrancheCard input label + placeholder
+  switched to "Debt %". Schema field stays `tranche.ltvPct`. LTV
+  Covenant input + Capital Stack output ratio (real banker terms)
+  preserved.
+
+- **Fix 3, facility type dropdown hidden.** UI removes the
+  `senior_construction / mezzanine / bridge / ...` dropdown. Schema
+  field retained; new facilities default `senior_construction`.
+
+- **Fix 4, MAAD refs dropped.** Drawdown label
+  `'Cash-Available Basis (MAAD)' -> 'Cash-Available Basis'`. The only
+  user-facing MAAD string in the codebase.
+
+- **Fix 5, repayment methods reduced to 3.** New `RepaymentMethod`
+  user-facing values: `equal_repayment` (sub-mode: `equal_total`
+  annuity or `equal_principal` declining), `year_on_year_pct` (per-
+  period %), `cash_sweep` (`cashSweepConfig: { startingYear,
+  sweepRatio }`). UI iterates `REPAYMENT_METHODS_USER` (3 values).
+  Legacy 9-value type kept on schema; `migrateM20mPass2Financing`
+  maps legacy values:
+  - `straight_line -> equal_repayment + equal_principal`
+  - `equal_periodic_amortization -> equal_repayment + equal_total`
+  - `cashsweep_* -> cash_sweep` (config built from
+    `sweepStartPeriod / sweepRatio`)
+  - `bullet -> equal_repayment` (tenor=1) `+ equal_total`
+  - `balloon -> year_on_year_pct`
+  - `manual -> year_on_year_pct` (carries
+    `repaymentManualDistribution`)
+  - `custom_schedule -> year_on_year_pct`
+
+- **Fix 6, minimumCashReserve at project level.**
+  `Project.financing.minimumCashReserve` is now the canonical cash
+  floor across all 4 methods and the cash-sweep repayment. Top of
+  Tab 4 Inputs renders the input + caption. Method 4's redundant
+  per-method input retired. Migration lifts legacy
+  `cashDeficitConfig.minimumCashReserve` to the top-level field when
+  absent.
+
+- **Fix 7, IDC treatment 2 options.** Dropdown reduced to Capitalize /
+  Expense. Mixed retained on schema for back-compat;
+  migration folds `idcTreatment='mixed' -> 'capitalize'`.
+  `idcMixedSplitPeriod` input removed from UI.
+
+- **Fix 8, asset scope dropdown removed.** Per-facility per-asset
+  narrowing dropdown gone; facility scopes by phase via active phase
+  filter. Migration converts any `scope='asset'` to
+  `scope='phase'` using the parent phase of `scopeId`/`assetId`.
+
+- **Fix 9, Financing cells use `formatScaledForExport`.** Both the
+  TrancheCard schedule cells and the root component's schedule cells
+  drop the K/M suffix per cell; scale indicator stays on the page
+  header line.
+
+- **Fix 10, Phase Filter "All Phases".** New
+  `project.financing.phaseFilter` (sentinel `'__all__'` default).
+  Top-of-Tab-4 dropdown shows "All Phases" + one option per phase.
+  Selecting a specific phase also sets `activePhaseId` so the Inputs
+  editor renders that phase's facilities + parcels + equity.
+  Schedules aggregate across phases when filter is `'__all__'`
+  (further consumed by the Capital Stack sources table + facility
+  schedules already iterating `phaseTranches` via the resultsMap).
+
+- **Fix 11, equity surfaced.** New
+  `computeEquity(financing, fundingResult, landInKindValue)`
+  returns `{ totalEquityNeed, inKindContribution, cashContribution,
+  cashPerPeriod, inKindPerPeriod, openingPerPeriod, closingPerPeriod }`.
+  Cash equity timing mirrors debt drawdown timing; in-kind lumps at
+  period 0. Capital Stack Summary gains a Sources table with Equity
+  (Cash) + Equity (In-Kind) rows + per-facility debt rows + totals
+  row + Total Uses + match/gap chip. Schedules sub-tab gains "6.
+  Equity Schedule" with Cash Contributions + In-Kind Contributions
+  + Closing Equity rows. Capital Stack Movement renumbered to 7.
+
+- **Fix 12, Total column 2nd position.** `ScheduleTable` accepts
+  `total?: number | string` per row. Header now has a Total <th> in
+  2nd position; flow rows pass `total: <sum-fmt-string>`; balance
+  rows (Cumulative Drawn, Outstanding Balance, Closing Equity) pass
+  `total: '-'`. Wired across Drawdown / Repayment / Combined Debt
+  Service / Equity Schedule / Capital Stack Movement.
+
+- **Fix 13, auto IDC cost line preserved.** `applyIdcToCapex` at
+  `src/core/calculations/index.ts:1764-1767` skips on
+  `treatment === 'expense'` only; Capitalize + legacy Mixed both
+  emit. Pass 2 migration folds Mixed -> Capitalize. No code change.
+
+- **Verifier**: `scripts/verify-m20M-pass2.ts` 50 pass / 0 fail.
+  Asserts schema additions, migration mapping (8 scenarios across
+  Fix 5/6/7/8/10 + idempotency), uniform funding shape across all 4
+  methods (with totalNeed math checks for Methods 1/3/4), equity
+  computation (total/cash/in-kind/period-array sums), UI source
+  markers (12 needles across the 8 UI-touching fixes), auto IDC
+  line preservation, and em-dash sweep across the 2 new files.
 
 ### Module 1 status (2026-05-11, **M2.0M Pass 6 Costs cleanup**)
 

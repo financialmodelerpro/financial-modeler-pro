@@ -125,7 +125,8 @@ else fail('catalog size', `${STANDARD_COST_LINE_IDS.length}`);
 if (DRAWDOWN_METHODS.length === 9) pass('M2.0L: 9 drawdown methods (5 legacy + 4 new + cash_available alias)');
 else fail('drawdown count', `${DRAWDOWN_METHODS.length}`);
 
-if (REPAYMENT_METHODS.length === 9) pass('M2.0L: 9 repayment methods (5 legacy + 4 new)');
+// P2-Fix 5 (2026-05-11): widened to 12 (3 new Pass 2 + 9 legacy retained on type).
+if (REPAYMENT_METHODS.length === 12) pass('M2.0L+P2: 12 repayment methods (3 P2 + 9 legacy retained)');
 else fail('repayment count', `${REPAYMENT_METHODS.length}`);
 
 if (IDC_TREATMENTS.length === 3 && IDC_TREATMENTS.includes('capitalize') && IDC_TREATMENTS.includes('expense') && IDC_TREATMENTS.includes('mixed')) {
