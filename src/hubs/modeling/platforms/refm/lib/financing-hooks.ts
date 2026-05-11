@@ -44,8 +44,17 @@ export interface FinancingDataHooks {
   getCapexInclLandInKind(): PeriodArray;
   /** Capex outflow per project period, EXCLUDING all land (cash + in-kind). */
   getCapexExclTotalLand(): PeriodArray;
+  /**
+   * Capex outflow per project period for a specific asset (or aggregate
+   * across all assets when assetId is omitted). Post Pass 7, asset-owned
+   * cost lines are filtered via computeAssetCost; non-asset-tagged lines
+   * (legacy) fall through to all assets. P3-Fix 2 (2026-05-12).
+   */
+  getCapexSchedule(assetId?: string): PeriodArray;
   /** Total imputed value of land contributed in-kind across the project. */
   getLandInKindValue(): number;
+  /** Total cash land cost across all parcels. P3-Fix 2 (2026-05-12). */
+  getLandCashValue(): number;
   /** Pre-sale cash collections per project period. */
   getPreSalesCollections(): PeriodArray;
   /** Net operating cash flow per project period. */
@@ -194,6 +203,41 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
     return memoLandInKindValue;
   };
 
+  // P3-Fix 2 (2026-05-12): per-asset capex schedule. Walks one specific
+  // asset and aggregates its breakdown.perPeriod across the project
+  // timeline. When assetId is omitted, returns getCapexInclLandInKind
+  // (project-wide).
+  const getCapexSchedule = (assetId?: string): PeriodArray => {
+    if (!assetId) return getCapexInclLandInKind();
+    const out = zeros(totalPeriods + 1);
+    const asset = src.assets.find((a) => a.id === assetId && a.visible);
+    if (!asset) return out;
+    const phase = src.phases.find((p) => p.id === asset.phaseId);
+    if (!phase) return out;
+    const breakdown = computeAssetCost(
+      asset, src.project, phase, src.parcels, src.assets, src.subUnits,
+      src.costLines, src.costOverrides, src.landAllocationMode,
+    );
+    for (let localPeriod = 0; localPeriod < breakdown.perPeriod.length; localPeriod++) {
+      const pp = costLineProjectPeriodIndex(src.project, phase, localPeriod);
+      if (pp < 0 || pp >= out.length) continue;
+      out[pp] += breakdown.perPeriod[localPeriod] ?? 0;
+    }
+    return out;
+  };
+
+  // P3-Fix 2 (2026-05-12): land cash value = parcels' total cash share.
+  // Simple sum across parcels (project-wide), uses parcel.area x parcel.rate
+  // x cashPct / 100.
+  const getLandCashValue = (): number => {
+    let total = 0;
+    for (const p of src.parcels) {
+      const cashPct = Math.max(0, Math.min(100, p.cashPct ?? 100));
+      total += Math.max(0, p.area) * Math.max(0, p.rate) * (cashPct / 100);
+    }
+    return total;
+  };
+
   const getPreSalesCollections = (): PeriodArray => zeros(totalPeriods + 1);
   const getOperatingCashFlow = (): PeriodArray => zeros(totalPeriods + 1);
   const getDepreciationSchedule = (): PeriodArray => zeros(totalPeriods + 1);
@@ -209,7 +253,9 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
     getCapexExclLandInKind,
     getCapexInclLandInKind,
     getCapexExclTotalLand,
+    getCapexSchedule,
     getLandInKindValue,
+    getLandCashValue,
     getPreSalesCollections,
     getOperatingCashFlow,
     getClosingCashBalance,
@@ -227,7 +273,9 @@ export function createNoopHooks(totalPeriods: number): FinancingDataHooks {
     getCapexExclLandInKind: () => zeros(totalPeriods + 1),
     getCapexInclLandInKind: () => zeros(totalPeriods + 1),
     getCapexExclTotalLand: () => zeros(totalPeriods + 1),
+    getCapexSchedule: () => zeros(totalPeriods + 1),
     getLandInKindValue: () => 0,
+    getLandCashValue: () => 0,
     getPreSalesCollections: () => zeros(totalPeriods + 1),
     getOperatingCashFlow: () => zeros(totalPeriods + 1),
     getClosingCashBalance: () => 0,

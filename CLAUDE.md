@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12 (M2.0M Pass 7 Costs Architecture Simplification + 6 polish fixes ships: drops the Pass 4 master + replica inheritance surface entirely from Tab 3 Inputs. Per-asset only: phase filter dropdown + asset pill bar + single editable cost-line table for the selected asset; each cost line stored with required targetAssetId; composed id pattern `${baseId}__${phaseId}__${assetId}`. CostOverride[] deprecated (schema retained for back-compat, migration drops the data, UI no longer reads/writes). migrateM20costsPass7PerAsset flattens legacy master + overrides into per-asset replicas (folds matching override values onto each replica, drops orphan lines, drops master lines in phases with zero visible assets, rewrites selectedLineIds). M20COSTS_PASS7_NOTICE banner. Tab 2 Parcels table: per-parcel Roads%/Parks%/NDA columns removed; project-level NDA card with Apply NDA + Roads% + Parks% + Gross/Net derivation now lives below the Total Land row. Sub-unit verification collapses to single inline line `Verification: BUA X | NSA X | Eff X% | Land X | Land Cost X` (expand/collapse + localStorage dropped). Sub-units table: table-layout: fixed, all columns always render, Area visible in both modes (editable in Area mode, derived caption in Units mode), new Total Revenue (No Indexation) column. Costs Input table: 11 columns with explicit colgroup widths (Cost Line 220, Method 200, Category 100, Driver 100, Value 120, Start 60, End 60, Phasing 100, Total 140, Toggle 60, Delete 40); Category + Driver split into own columns (muted dash when Direct); Toggle/Delete split into separate cells. Verifier verify-m20costsCleanup-pass7.ts 52/0/2. Schema stays v8 additive.)**
+**Last updated: 2026-05-12 (M2.0M Pass 3 Tab 4 Financing cleanup ships: 10 targeted fixes simplifying the financing surface. Single Asset toggle dropped from Inputs (always Combined); capex hooks audited post Pass 7 (getCapexExclLandInKind reads per-asset cost lines correctly, MAAD-shape fixture sums to BUA x rate); per-facility Debt % + Principal inputs removed (facility principal auto-derives from chosen funding method); new facilitySharePct field for multi-facility split (sums to 100% across facilities); facility scope dropdown re-exposes 3 options (project / phase / asset) with asset picker; per-facility drawdown method dropdown removed (auto-follows funding method); Equal Repayment sub-method dropdown + cash sweep ratio input removed (Equal Repayment defaults to equal_principal; Cash Sweep defaults to 100% above min cash); Equity Tranches section dropped entirely (auto-computes from method + Land In-Kind); 3 Inputs Summary Tables (Total Funding / Total Debt / Total Equity, per-asset rows x per-period cols, Total in 2nd position, Equity Total breaks into Cash + In-Kind sub-rows); Schedules All Phases aggregation (phaseFilter='__all__' walks all facilities project-wide, each computed against its own phase's capex); closing balance math verified (Closing = Opening + Drawdown + IDC Capitalized - Principal Repaid). New financing hooks getCapexSchedule(assetId?) + getLandCashValue(). migrateM20mPass3Financing flips viewMode='single_asset' -> 'combined', clears equityTranches data, defaults missing multi-facility facilitySharePct to even split. M20M_PASS3_NOTICE banner. Verifier verify-m20M-pass3.ts 42/0/0. Schema stays v8 additive.)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -274,6 +274,114 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-12, **M2.0M Pass 3 Tab 4 Financing cleanup**)
+
+**M2.0M Pass 3 (current, ships):** 10 targeted Tab 4 fixes
+simplifying the financing surface. Schema stays v8 additive
+(`facilitySharePct` + `scope` re-exposed on `FinancingTranche`; all
+deprecations keep their fields for back-compat).
+
+- **Fix 1, drop Single Asset toggle**: Tab 4 Inputs always operates
+  on Combined Project basis. The Combined / Single Asset toggle is
+  removed; `viewMode` field stays on schema. Migration flips legacy
+  `viewMode='single_asset'` to `'combined'` and clears
+  `selectedAssetId`.
+
+- **Fix 2, capex hook audit**: `getCapexExclLandInKind` (and
+  siblings) verified to read per-asset cost lines correctly post
+  Pass 7 (each line's `targetAssetId` matches its asset; aggregation
+  across phases yields non-zero). Added new hooks
+  `getCapexSchedule(assetId?)` (per-asset capex series) and
+  `getLandCashValue()` (parcels' total cash share) per brief's
+  hook list. MAAD-shape fixture (130,874 BUA x SAR 4,500/BUA) sums
+  to SAR 588,933,000 as expected.
+
+- **Fix 3, facility ratio inherits**: per-facility Debt % + Principal
+  inputs dropped from `TrancheCard`. Facility principal auto-derives
+  from chosen funding method (Method 1: total capex x debt%;
+  Method 2: cost-line ratios; Method 3: net funding x debt%;
+  Method 4: cash deficit x debt%). New optional
+  `FinancingTranche.facilitySharePct` (0..100, sums to 100% across
+  facilities in the same scope) surfaces when `facilityCount > 1`;
+  single facility defaults to 100. Migration defaults missing
+  multi-facility shares to even split.
+
+- **Fix 4, re-add asset scope**: `FinancingTranche.scope:
+  'project' | 'phase' | 'asset'` re-exposed on schema + UI dropdown.
+  Asset-specific opens an asset picker; phase-specific opens a phase
+  picker. Pass 2 hid the asset option; Pass 3 restores it.
+
+- **Fix 5, drop drawdown method dropdown**: per-facility drawdown
+  method picker + its conditional inputs (`drawdownIncludeLand`
+  checkbox / `drawdownMinCashFloor` input) removed. Drawdown timing
+  auto-derives from chosen funding method. `drawdownMethod` +
+  related fields stay on schema for back-compat.
+
+- **Fix 6, simplify repayment**: Equal Total / Equal Principal
+  sub-method dropdown removed. Equal Repayment defaults to
+  equal_principal (declining balance). Cash Sweep drops the sweep
+  ratio input (both inline + Advanced section copies); defaults to
+  100% of excess cash above project minimum cash reserve.
+  `equalRepaymentSubMethod` + `cashSweepConfig.sweepRatio` +
+  `FinancingTranche.sweepRatio` stay on schema.
+
+- **Fix 7, drop Equity Tranches section**: entire Equity Tranches
+  table (Name / Type / Source / Amount / Timing / IRR Hurdle /
+  Pref. Return / Auto-marker) removed from Inputs. Equity
+  auto-computes: `Total Equity Need = Total Funding x equity%`,
+  `Cash Equity = Total Equity - Land In-Kind value`. Land In-Kind
+  auto-detects from Tab 3 Land In-Kind cost lines via existing
+  `computeEquity` helper. `equityContributions[]` stays on schema;
+  migration clears stale data.
+
+- **Fix 8, Inputs Summary Tables**: 3 stacked tables at bottom of
+  Inputs sub-tab. Each renders per-asset rows (project-wide, all
+  phases) x project periods, Total in 2nd position.
+  - Total Funding Required = per-asset capex per period (excl Land
+    In-Kind, sums to project Total Funding).
+  - Total Debt Required = Funding x debt% from method.
+  - Total Equity Required = Funding x equity%, with Cash + In-Kind
+    sub-rows under the Total row. In-Kind Equity lumps at period 0
+    (matches Land In-Kind cost line timing).
+  - Asset rows with total = 0 filtered out.
+
+- **Fix 9, Schedules math + All Phases aggregation**: closing
+  balance formula verified: `Closing = Opening + Drawdown + IDC
+  Capitalized - Principal Repaid` (interest paid is a separate
+  cash event; does not affect debt balance). `phaseFilter='__all__'`
+  now walks ALL facilities project-wide; each facility computes
+  against its OWN phase's capex via `computePhaseCost` so multi-
+  phase projects show every facility aligned to its phase
+  timeline. `ScheduleTable` already routes `total='-'` for balance
+  rows + sum-string for flow rows.
+
+- **Fix 10, Auto-IDC integration**: `applyIdcToCapex` continues to
+  emit `AutoIdcCostLineSeed` entries keyed by `targetAssetId` for
+  every funded asset under a Capitalize-treatment facility. Tab 3
+  per-asset cost line table renders the locked `auto-idc__*` rows
+  in the appropriate asset's section. Cross-tab integration
+  preserved through Pass 7's per-asset rewrite.
+
+- **Migration**: `migrateM20mPass3Financing` is idempotent; runs in
+  all 3 hydrate chains (`stripV8Wrapper` / `stripWrapper` /
+  `migrateLegacyToV8`). `M20M_PASS3_NOTICE` banner surfaces once on
+  first hydrate of a pre-Pass-3 snapshot. `resolveBanner`
+  prioritizes Pass 3 ahead of Pass 7.
+
+- **Verifier**: `scripts/verify-m20M-pass3.ts` 42 pass / 0 fail /
+  0 skip across 12 sections. Asserts migration semantics (viewMode
+  flip, equityTranches clearance, even-split facilitySharePct,
+  idempotency), capex hook MAAD math, all UI source markers,
+  closing balance formula via `computeFinancing` on a zero-rate
+  fixture, `applyIdcToCapex` seed shape, em-dash sweep, design
+  note presence. Playwright deferred per brief.
+
+Commits (10): `9778a55` (design note) - `dd9eee8` (Fix 1) -
+`72777d6` (Fix 3) - `0db5f27` (Fix 5) - `4148464` (Fix 6) -
+`ad0f296` (Fix 7) - `037c45e` (Fix 4) - `dfa31a9` (Fix 8) -
+`2af13ab` (Fix 9) - final commit (Fix 2 + Fix 10 + verifier +
+CLAUDE.md). Type-check clean on every commit.
 
 ### Module 1 status (2026-05-12, **M2.0M Pass 7 Costs Architecture Simplification + 6 polish fixes**)
 
