@@ -670,12 +670,17 @@ function TrancheCard({
 }
 
 // ── Schedules sub-tab table helper ────────────────────────────────────────
+// P2-Fix 12 (2026-05-11): ScheduleTable renders a Total column in 2nd
+// position after Description. Flow rows pass `total: <number>` and the
+// row sums (or pre-computed total) renders in the slot. Balance rows
+// (running balances / outstanding balances) pass `total: '-'` so the
+// slot shows a dash instead of a misleading sum-of-balances.
 function ScheduleTable({
   title, columns, rows, dataTestid,
 }: {
   title: string;
   columns: string[];
-  rows: Array<{ label: string; values: number[]; bold?: boolean }>;
+  rows: Array<{ label: string; values: number[] | string[]; bold?: boolean; total?: number | string }>;
   dataTestid: string;
 }): React.JSX.Element {
   return (
@@ -686,6 +691,7 @@ function ScheduleTable({
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={{ padding: '4px 6px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</th>
               {columns.map((c, i) => (<th key={i} style={{ padding: '4px 6px', textAlign: 'right', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c}</th>))}
             </tr>
           </thead>
@@ -693,6 +699,12 @@ function ScheduleTable({
             {rows.map((r, ri) => (
               <tr key={ri} style={{ fontWeight: r.bold ? 700 : 400, background: r.bold ? 'var(--color-grey-pale)' : 'transparent' }}>
                 <td style={{ padding: '4px 6px' }}>{r.label}</td>
+                <td
+                  style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: r.total === '-' ? 'var(--color-meta)' : undefined }}
+                  data-testid={`${dataTestid}-row-${ri}-total`}
+                >
+                  {r.total ?? '-'}
+                </td>
                 {r.values.map((v, vi) => (<td key={vi} style={{ padding: '4px 6px', textAlign: 'right' }}>{v}</td>))}
               </tr>
             ))}
@@ -1470,8 +1482,8 @@ export default function Module1Financing(): React.JSX.Element {
                 dataTestid={`draw-${t.id}`}
                 columns={periodLabels.slice(0, expandedPeriodCount)}
                 rows={[
-                  { label: 'Drawdown', values: transform(drawAnnual).map(fmt) as unknown as number[] },
-                  { label: 'Cumulative Drawn', values: transform(cumAnnual).map(fmt) as unknown as number[] },
+                  { label: 'Drawdown', values: transform(drawAnnual).map(fmt) as unknown as number[], total: fmt(drawAnnual.reduce((s, v) => s + v, 0)) },
+                  { label: 'Cumulative Drawn', values: transform(cumAnnual).map(fmt) as unknown as number[], total: '-' },
                 ]}
               />
             );
@@ -1481,6 +1493,7 @@ export default function Module1Financing(): React.JSX.Element {
           {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
             const r = resultsMap.get(t.id);
             if (!r) return null;
+            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
             return (
               <ScheduleTable
                 key={`repay-${t.id}`}
@@ -1488,11 +1501,11 @@ export default function Module1Financing(): React.JSX.Element {
                 dataTestid={`repay-${t.id}`}
                 columns={periodLabels.slice(0, expandedPeriodCount)}
                 rows={[
-                  { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[] },
-                  { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[] },
-                  { label: 'IDC Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[] },
-                  { label: 'Principal Repaid', values: transform(r.principalRepaid.slice(0, periodCount)).map(fmt) as unknown as number[] },
-                  { label: 'Outstanding Balance', values: transform(r.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true },
+                  { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
+                  { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
+                  { label: 'IDC Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
+                  { label: 'Principal Repaid', values: transform(r.principalRepaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.principalRepaid) },
+                  { label: 'Outstanding Balance', values: transform(r.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
                 ]}
               />
             );
@@ -1504,9 +1517,9 @@ export default function Module1Financing(): React.JSX.Element {
             dataTestid="combined-debt-service"
             columns={periodLabels.slice(0, expandedPeriodCount)}
             rows={[
-              { label: 'Total Interest', values: transform(combined.totalInterest.slice(0, periodCount)).map(fmt) as unknown as number[] },
-              { label: 'Total Principal', values: transform(combined.totalPrincipal.slice(0, periodCount)).map(fmt) as unknown as number[] },
-              { label: 'Total Debt Service', values: transform(combined.totalDebtService.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true },
+              { label: 'Total Interest', values: transform(combined.totalInterest.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalInterest.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
+              { label: 'Total Principal', values: transform(combined.totalPrincipal.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalPrincipal.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
+              { label: 'Total Debt Service', values: transform(combined.totalDebtService.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: fmt(combined.totalDebtService.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
             ]}
           />
 
@@ -1553,9 +1566,9 @@ export default function Module1Financing(): React.JSX.Element {
             dataTestid="equity-schedule"
             columns={periodLabels.slice(0, expandedPeriodCount)}
             rows={[
-              { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[] },
-              { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[] },
-              { label: 'Closing Equity', values: transform(equity.closingPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true },
+              { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(equity.cashContribution) },
+              { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(equity.inKindContribution) },
+              { label: 'Closing Equity', values: transform(equity.closingPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
             ]}
           />
 
@@ -1565,8 +1578,8 @@ export default function Module1Financing(): React.JSX.Element {
             dataTestid="stack-movement"
             columns={periodLabels.slice(0, expandedPeriodCount)}
             rows={[
-              { label: 'Drawdown', values: transform(combined.totalDrawdown.slice(0, periodCount)).map(fmt) as unknown as number[] },
-              { label: 'Outstanding Balance', values: transform(combined.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true },
+              { label: 'Drawdown', values: transform(combined.totalDrawdown.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalDrawdown.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
+              { label: 'Outstanding Balance', values: transform(combined.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
             ]}
           />
         </>
