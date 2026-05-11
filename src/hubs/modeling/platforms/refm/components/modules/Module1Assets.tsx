@@ -1304,6 +1304,26 @@ interface SubUnitRowProps {
 // metric='area'  -> metricValue is total sqm; count derives = area / unitArea.
 // On switch we re-normalize metricValue so the displayed area stays the
 // same (no accidental multiplication when toggling).
+//
+// M2.0L (2026-05-11): when switching from 'area' to 'units' with
+// unitArea=0 we previously zeroed out metricValue (because count =
+// area / 0 is undefined). That destroyed the area sqm on round-trip.
+// canSwitchMetric guards the dropdown: if the switch would lose
+// non-zero area data, refuse and surface an inline warning so the
+// user sets Unit Size first.
+export function canSwitchMetric(subUnit: SubUnit, next: SubUnitMetric): { ok: true } | { ok: false; reason: string } {
+  if (next === 'area') return { ok: true };
+  const unitArea = Math.max(0, subUnit.unitArea ?? 0);
+  if (unitArea === 0) {
+    const isUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
+    const currentArea = isUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
+    if (currentArea > 0) {
+      return { ok: false, reason: 'Set Unit Size before switching to Units (current area would be lost)' };
+    }
+  }
+  return { ok: true };
+}
+
 function switchMetric(
   subUnit: SubUnit,
   next: SubUnitMetric,
@@ -1372,8 +1392,22 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnit
         <select
           value={isUnits ? 'units' : 'area'}
           data-testid={`subunit-${subUnit.id}-metric`}
-          onChange={(e) => onUpdate(switchMetric(subUnit, e.target.value as SubUnitMetric))}
+          onChange={(e) => {
+            const next = e.target.value as SubUnitMetric;
+            const check = canSwitchMetric(subUnit, next);
+            if (!check.ok) {
+              // M2.0L: refuse the switch when it would zero out area
+              // (unitArea=0, metric=area, area>0). User must set Unit
+              // Size first. The dropdown stays on the current value.
+              if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+                window.alert(check.reason);
+              }
+              return;
+            }
+            onUpdate(switchMetric(subUnit, next));
+          }}
           style={{ ...inputStyle, fontSize: 11 }}
+          title={isUnits ? '' : (unitArea === 0 && subUnit.metricValue > 0 ? 'Set Unit Size before switching to Units' : '')}
         >
           <option value="units">Units</option>
           <option value="area">Area</option>
