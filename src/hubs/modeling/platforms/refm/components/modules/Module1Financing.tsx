@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Module1Financing.tsx (v8 schema, M2.0L rebuild — 2026-05-11)
+ * Module1Financing.tsx (v8 schema, M2.0L rebuild, 2026-05-11)
  *
  * Two sub-tabs: Inputs + Schedules.
  *
@@ -576,7 +576,7 @@ export default function Module1Financing(): React.JSX.Element {
     [assets, phase?.id],
   );
 
-  // M2.0L: cross-tab integration — Land In-Kind auto-detection.
+  // M2.0L: cross-tab integration, Land In-Kind auto-detection.
   // For every Land (In-Kind) cost line in this phase, ensure there's
   // a matching equity contribution (autoDetectedFromCostLine=true,
   // sourceCostLineId=line.id). Idempotent; removed when the cost line
@@ -1013,7 +1013,7 @@ export default function Module1Financing(): React.JSX.Element {
             return (
               <ScheduleTable
                 key={`draw-${t.id}`}
-                title={`2. Drawdown Schedule — ${t.name}`}
+                title={`2. Drawdown Schedule, ${t.name}`}
                 dataTestid={`draw-${t.id}`}
                 columns={periodLabels.slice(0, expandedPeriodCount)}
                 rows={[
@@ -1031,7 +1031,7 @@ export default function Module1Financing(): React.JSX.Element {
             return (
               <ScheduleTable
                 key={`repay-${t.id}`}
-                title={`3. Repayment Schedule — ${t.name}`}
+                title={`3. Repayment Schedule, ${t.name}`}
                 dataTestid={`repay-${t.id}`}
                 columns={periodLabels.slice(0, expandedPeriodCount)}
                 rows={[

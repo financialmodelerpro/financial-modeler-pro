@@ -767,7 +767,7 @@ function CostRow({
     {!effDisabled && total > 0 && line.endPeriod > 0 && (() => {
       // Distribute the resolved total across [startPeriod, endPeriod]
       // using the same phasing the calc engine will use. Skip the
-      // upfront slot (index 0) — these rows live in the construction
+      // upfront slot (index 0); these rows live in the construction
       // window.
       const cp = constructionPeriods;
       const perPeriod = distributeItemCost(

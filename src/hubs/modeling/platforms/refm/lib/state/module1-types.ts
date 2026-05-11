@@ -996,7 +996,7 @@ export interface FinancingTranche {
   // expense).
   idcCapitalize: boolean;
 
-  // ── M2.0L (2026-05-11) extensions — all optional, additive ────────
+  // ── M2.0L (2026-05-11) extensions, all optional, additive ──────────
   facilityType?: FacilityType;
   lender?: string;
   /** Absolute principal. When set, overrides ltvPct calculation. */
@@ -1062,7 +1062,7 @@ export interface EquityContribution {
   timing: EquityTiming;
   distribution?: number[];    // manual only; length = constructionPeriods
 
-  // ── M2.0L (2026-05-11) extensions — all optional, additive ────────
+  // ── M2.0L (2026-05-11) extensions, all optional, additive ──────────
   /** Cash / In-Kind / JV. Drives capital stack categorisation. */
   type?: EquityTrancheType;
   /** Free-text source: 'Sponsor', 'Landowner', 'LP Fund X', etc. */
