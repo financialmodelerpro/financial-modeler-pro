@@ -1233,17 +1233,24 @@ function AssetCard({
                   data-has-units={showUnitColumns}
                 >
                   <colgroup>
-                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '11%' }} />
                     <col style={{ width: '10%' }} />
-                    <col style={{ width: '9%' }} />
-                    <col style={{ width: '13%' }} />
-                    {showUnitColumns && <col style={{ width: '11%' }} />}
+                    <col style={{ width: '14%' }} />
+                    {showUnitColumns && <col style={{ width: '12%' }} />}
                     {showUnitColumns && <col style={{ width: '10%' }} />}
-                    <col style={{ width: showUnitColumns ? '13%' : '21%' }} />
-                    <col style={{ width: showUnitColumns ? '14%' : '23%' }} />
+                    <col style={{ width: showUnitColumns ? '22%' : '44%' }} />
                     <col style={{ width: '6%' }} />
                   </colgroup>
                   <thead>
+                    {/* M2.0L Pass3 Fix 11 (2026-05-11): Rate + Rate Unit
+                        columns merged. Header is dynamic per table state:
+                        when ALL rows are Area metric -> "Rate ({cur}/sqm)";
+                        when ANY row is Units metric -> "Rate (per-row unit)".
+                        Each row caption underneath rate input shows that
+                        row's specific unit (per unit / per room-night /
+                        per sqm/year etc) so the merged column is still
+                        unambiguous when category mixes. */}
                     <tr style={{ background: 'var(--color-grey-pale)' }}>
                       <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
                       <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
@@ -1251,8 +1258,9 @@ function AssetCard({
                       <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
                       {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>}
                       {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>}
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate</th>
-                      <th style={{ padding: '4px 6px', textAlign: 'left' }}>Rate Unit</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>
+                        Rate ({project.currency}{showUnitColumns ? '' : '/sqm'})
+                      </th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1481,7 +1489,13 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
         </td>
       )}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {/* M2.0j Fix 7: accounting format on blur for the rate / price input. */}
+        {/* M2.0L Pass3 Fix 11 (2026-05-11): merged Rate + Rate Unit
+            column. Rate input on top, per-row unit caption underneath
+            so each row's specific semantics (per unit / per room-night
+            / per sqm/year) remain visible after the Rate Unit column
+            was dropped. Currency comes from project.currency via the
+            existing currency prop, so all labels swap globally when
+            the user picks USD / AED / etc. in Tab 1. */}
         <AccountingNumberInput
           value={subUnit.unitPrice}
           onChange={(n) => onUpdate({ unitPrice: Math.max(0, n) })}
@@ -1491,9 +1505,11 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`subunit-${subUnit.id}-rate`}
         />
-      </td>
-      <td style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
-        {rateUnit ? `${currency} ${rateUnit}` : ''}
+        {rateUnit && (
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
+            {currency} {rateUnit}
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px 6px' }}>
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
