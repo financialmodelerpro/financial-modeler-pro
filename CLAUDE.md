@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (token-efficiency sweep: archived M2.0 → M2.0i closure blocks to CLAUDE-FEATURES.md, consolidated per-phase pattern decisions into one Module 1 Conventions section; live state still M2.0j on v8 schema, P-Sync ships)**
+**Last updated: 2026-05-11 (M2.0L ships: cost line duplication fix via phase-scoped ids + Costs UX polish + full Financing build (capital stack, 9/9 drawdown/repayment methods, 3 IDC treatments, 6-table schedules, cross-tab IDC->Costs sync); M2.0j 16-fix detail archived to CLAUDE-FEATURES.md; v8 schema, additive)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,15 +225,17 @@ npm run verify       # type-check + lint + build
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Canonical green for current state: verify-m20j.ts
+# Canonical green for current state: verify-m20L.ts
+npx tsx scripts/verify-m20L.ts                  # M2.0L cost duplication fix + Financing build (74 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20j.ts                  # M2.0j Module 1 audit + display, 16 fixes (60 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync (70 pass / 0 fail / 3 skip)
 # Older verifiers (M2.0 through M2.0i) still pass against current state and remain in scripts/.
 # See CLAUDE-FEATURES.md "Module 1 (REFM) M2.0 Phase History" for per-verifier scope.
 
 # Playwright e2e (current spec for live state)
-npx playwright test tests/e2e/m20j-costs-audit.spec.ts   # 8 specs + dark-mode
-npx playwright test tests/e2e/psync-flow.spec.ts         # 4 specs
+npx playwright test tests/e2e/m20L-costs-financing.spec.ts  # 10 specs + dark-mode
+npx playwright test tests/e2e/m20j-costs-audit.spec.ts     # 8 specs + dark-mode
+npx playwright test tests/e2e/psync-flow.spec.ts           # 4 specs
 # Older M2.0 → M2.0i specs (m20-full-flow, m20b-shell, m20d-costs-polish,
 # m20e-wizard-tab2, m20f-structural-fixes, m20g-display-recon-costs,
 # m20h-area-hierarchy-cost-granularity, m20i-final-polish) live in tests/e2e/
@@ -268,134 +270,144 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
 
-### Module 1 status (2026-05-07, **M2.0j Module 1 audit + display fixes, 16 fixes shipped after M2.0i**)
+### Module 1 status (2026-05-11, **M2.0L Costs diagnose-and-fix + full Financing build**)
 
-**M2.0j (current, ships):** 16 audit + display + structural fixes after
-Ahmad eyeballed M2.0i. Delivered across 6 commits. Schema stays at v8;
-phasing value-set narrows but read-side accepts legacy values via
-migrateM20jPhasing.
+**M2.0L (current, ships):** Closes the cost-line duplication bug
+Ahmad eyeballed after M2.0j, then expands Tab 4 Financing from a
+single-tab tranche editor into a full multi-facility platform with
+capital-stack overview, schedules sub-tab, and cross-tab IDC sync.
+Schema stays v8 (every new field is additive optional).
 
-- **/1 (Fix 1, Construction Years = 0)**: `Phase.constructionPeriods`
-  accepts 0 (operational-from-start phases). Wizard step2Valid +
-  Tab 1 input + ProjectWizard input + buildWizardSnapshot all allow
-  0; min flipped from 1 to 0.  `computePhaseTimeline` returns
-  `operationsStart === phase.startDate` when cp=0 (no addOneDay or
-  overlap math, since there's no construction window to overlap).
-  Tab 1 displays "Operational from start" instead of a misleading
-  construction end date when cp=0.
+- **Cost duplication root cause** was `makeDefaultCostLines(phaseId)`
+  emitting hardcoded ids ('land-cash', etc.) per phase, producing
+  duplicate ids across phases that propagated via the store's
+  `c.id === id` matchers and made the Results filter walk all 20
+  lines per asset. Fix composes `${baseId}__${phaseId}` at create
+  time. `composeLineId` / `deriveLineBaseId` /
+  `isStandardCostLineBaseId` helpers in `module1-types.ts`.
+  `deriveCostStage` strips the suffix before stage lookup; legacy
+  bare ids still resolve. `migrateM20lDedupeCostLineIds` runs in
+  stripWrapper/stripV8Wrapper to retrofit legacy duplicate-id
+  snapshots + rewrite `selectedLineIds` + `costOverrides.lineId`.
+  `Module1Costs.tsx:1141` Results filter scopes by `c.phaseId === a.phaseId`.
+  Refresh: `scripts/baselines/module1-v5.json` (47.8 KB → 48.4 KB).
 
-  **Fix 9, Phasing simplified to Even + Manual %**: User-pickable
-  values reduced from 6 to 2. New `COST_PHASING_OPTIONS` export
-  ['even','manual']; legacy values ('frontloaded' / 'backloaded' /
-  'sCurve' / 'phase_aligned') still accepted on read but folded to
-  'even' on save via `migrateM20jPhasing` (idempotent migration step
-  in stripWrapper / stripV8Wrapper). Calc engine `distribute()`
-  unchanged for read-side compat. UI dropdown shows only Even +
-  Manual %; existing snapshots with legacy values continue to load
-  and display via `PHASING_LABELS` mapping.
+- **Sub-unit metric round-trip** when `unitArea=0` previously
+  zeroed out area on switch to Units. New `canSwitchMetric` guard
+  refuses the switch when it would destroy non-zero area, with
+  inline warning. Switching with `unitArea>0` continues to
+  preserve area exactly per the M2.0j formula.
 
-- **/2 (Fix 2 + 3 + 4 + 5 partial)**:
-  * **Fix 2, Asset Type optional + editable**: `Asset.type` defaults
-    to '' on add (no longer pre-fills 'High-end Apartments').
-    `resolveTypeCatalog` returns the UNION of all per-category
-    catalogs for Mixed-Use / Custom (so Mixed-Use users see every
-    asset type from every sector). InputLabel now reads "Type
-    (optional)" + placeholder "e.g. Tower, Branded Apartments,
-    Hotel...". Catalog stays a `<datalist>` for autocomplete; user
-    can free-text any value.
-  * **Fix 3, Land Parcel rate column header**: Header now reads
-    `{currency}/sqm` (e.g. "SAR/sqm"). Tooltip on the header explains
-    the rate model. Effective NDA Rate column similarly reads
-    `{currency}/NDA sqm`.
-  * **Fix 4, Display Scale export comment**: Documentation comment
-    in formatter explaining the UI vs. export differences. New
-    `formatScaledForExport` helper (no K/M suffix; preserves scale
-    division + decimals). Reserved for the future Export module.
-  * **Fix 5 partial, Display Scale + Decimals on Land Parcel**:
-    `formatPercent` default decimals flipped from 1 to 2 (percentages
-    always render with 2 decimals regardless of project setting).
-    New `formatArea(num, decimals)` helper (no scale conversion +
-    thousand separators + project decimals). Land Parcel ParcelRow
-    threads `scale + decimals` props; rate / NDA / total cells use
-    `formatScaled` / `formatArea` instead of the local `fmt` helper.
-    Parcels totals row reformats live when user changes display
-    settings.
+- **Costs UX additions**: live currency-chip strip below Manual %
+  inputs (per-period money distribution updates as user edits);
+  always-visible per-row period chip strip below every active
+  cost line (uses `distributeItemCost` so chips match calc
+  schedules); `PercentOfSelectedPicker` sub-row with scrollable
+  sibling-line checkboxes when method = `percent_of_selected`;
+  Results-sub-tab filter pill bar (Combined + per-asset) with
+  SummaryTables `key={`summary-${granularity}-${filter}`}` for
+  clean remount on change.
 
-- **/3 (Fix 6, Sub-unit area/units bidirectional sync)**: `metric=Area`
-  -> Area input editable (= metricValue), Count derives. `metric=Units`
-  -> BOTH Count AND Area editable; Count edit -> metricValue=count;
-  Area edit -> metricValue=area/unitArea (recalcs count). Inline
-  warning "Unit Size required" surfaces under the Unit Size cell when
-  metric=Units AND unitArea=0. Switch behaviour preserves underlying
-  area sqm (no accidental multiplication).
+- **Financing schema additions** (all optional, v8 stays):
+  drawdown methods widen 5 → 9 (`+ front_loaded` `+ equal_periodic`
+  `+ custom_schedule` `+ cash_available` alias for MAAD parity);
+  repayment methods widen 5 → 9 (`+ equal_periodic_amortization`
+  annuity / `+ bullet` / `+ balloon` / `+ custom_schedule`).
+  New enums: `FacilityType` (senior_construction / senior_term /
+  mezzanine / bridge / bullet / other), `InterestRateType`
+  (fixed / floating), `BaseRate` (SAIBOR 1/3/6M / SOFR / EIBOR),
+  `IDCTreatment` (capitalize / expense / mixed), `FeeTreatment`,
+  `EquityTrancheType` (cash / in_kind / jv). `FinancingTranche`
+  gains: `facilityType`, `lender`, `principal` (absolute, overrides
+  ltvPct), `interestRateType`+`baseRate`+`spreadBps`,
+  `tenorPeriods`+`availabilityPeriods`+`gracePeriods`, fee fields,
+  `dscrCovenant`+`ltvCovenant`, `idcTreatment` (replaces boolean
+  when set), `idcMixedSplitPeriod`, `balloonPct`, `sweepRatio`,
+  `prepayments[]`, `pikEnabled`, `autoGenerateIdcCostLine`,
+  `drawdownCustomSchedule`, `repaymentCustomSchedule`.
+  `EquityContribution` gains: `type`, `source`, `scope`+`scopeId`,
+  `assetId`, `irrHurdle`, `preferredReturn`,
+  `autoDetectedFromCostLine`+`sourceCostLineId`.
 
-- **/4 (Fixes 7 + 8 + 10 + 12 + 13 + 14+15)**:
-  * **Fix 7, accounting format on blur**: New
-    `AccountingNumberInput` primitive (`components/ui/`). Renders
-    raw `<input type="number">` on focus + accounting-formatted text
-    on blur. Wired into cost line Value, parcel rate, sub-unit
-    unitPrice. Percent-method values stay scale='full' (raw 0..100).
-  * **Fix 8, cost line caption**: New `costLineCaption` helper in
-    `@core/calculations` returns "Rate × BUA Total -> 4,500 ×
-    130,874 sqm BUA = 588,933,000 SAR" caption per method. Cost row
-    renders inline below the value cell. Threads asset metrics
-    through `metricsByAsset` map -> AssetCostSection -> CostRow.
-    Different per method: rate_per_land/nda/roads/gfa/bua/nsa,
-    rate_per_unit, rate_per_parking_bay, rate_x_support_area,
-    rate_x_parking_area, rate_x_specific_subunit, percent_of_*,
-    fixed, per_sub_unit_custom_rates.
-  * **Fix 10, period dates align to phase start**: New
-    `costLinePeriodEndDate` + `costLineProjectPeriodIndex` helpers.
-    Tab 3 cost row periodLabel now phase-scoped (uses
-    phase.startDate when set). Phase 2 (start 2026-01-01) Y1 now
-    displays "Dec 26", not "Dec 25".
-  * **Fix 12, hide zero-value rows in Results**: Capex by Period
-    filters out asset rows with assetTotal=0; per-line filter
-    already existed at the cost-line level.
-  * **Fix 13, drop stage labels under cost line names**: Stage
-    label ("Land · custom") removed from cost line UI. Only
-    'custom' marker stays for custom lines. Stage stays internal
-    (still drives calc engine via deriveCostStage).
-  * **Fix 14 + 15, drop 3 summary tables**: Capex by Stage / Capex
-    Summary by Treatment / Capex by Cost Type per Asset all removed
-    from Tab 3 Results. Capex by Period is the single remaining
-    summary table.
+- **Financing calc engine**: `computeEqualPeriodicPayment` (annuity
+  PMT with 0-rate edge case), `computeCapitalStack` (sources /
+  uses / senior+total LTV / equity+debt breakdowns / match chip
+  via gap), `computeIdcSummary` (capitalised + expensed per
+  facility + per period), `applyIdcToCapex` (generates
+  `AutoIdcCostLineSeed[]` for cross-tab integration; pro-rata by
+  BUA share when facility scope is project-wide),
+  `computeCombinedDebtService` (aggregate interest / principal /
+  drawdown / outstanding across facilities). `computeFinancing`
+  resolves the 3-way IDC matrix (mixed uses `idcMixedSplitPeriod`),
+  `gracePeriods` defers principal repayment, `availabilityPeriods`
+  narrows drawdown window, `prepayments[]` apply at specific
+  periods, `sweepRatio` modulates sweep-based methods.
 
-- **/5 (Fixes 11 + 16)**:
-  * **Fix 11, Capex by Period audit + granularity remount**:
-    Capex by Period rows offset perPeriod[] by `(phaseStartYear -
-    projectStartYear)` so Phase 2 (start 2026) Y1 lands in project
-    column "Dec 26", not "Dec 25". perPeriod[0] (upfront) lands at
-    `offset - 1`. SummaryTables receives `phases` prop +
-    `key={`summary-${granularity}`}` to force a clean remount on
-    Annual / Quarterly / Monthly toggle.
-  * **Fix 16, per-asset cost structure**: New asset selector bar
-    at top of Tab 3 Inputs with "All Assets" + per-asset buttons.
-    Selecting one asset filters per-phase sections to that asset
-    only (and updates summary cards accordingly). 3 summary cards
-    beneath cost lines: Excl. Land / Excl. Land In-Kind / Incl.
-    Land In-Kind. Computed via
-    `computeAssetCostSummaryFromBreakdown(byStage, cashLandValue,
-    inKindLandValue)`. Aggregates across all visible assets when
-    "All Assets" picked; single asset otherwise.
+- **Financing UI**: two sub-tabs (Inputs + Schedules). Inputs has
+  the Capital Structure Overview cards at top (Total Equity / Total
+  Debt / Total Sources / Total Uses / LTV Senior+Total /
+  Sources-vs-Uses match chip green ✓ / amber gap-or-surplus),
+  Debt Facilities section with TrancheCard exposing every new
+  field (collapsible Advanced section for fees / covenants /
+  prepayments / PIK), Equity Tranches table widened with
+  type/source/IRR-hurdle/preferred-return columns + auto rows
+  disabled-edit for cross-tab synced contributions. Schedules has
+  the granularity toggle (annual / quarterly / monthly), filter
+  pill bar (Combined + per-facility), and 6 tables (Capital Stack
+  Summary / Drawdown per facility / Repayment per facility /
+  Combined Debt Service / IDC Summary / Capital Stack Movement).
 
-- **/6 (verifier + Playwright)**: `scripts/verify-m20j.ts` (60 pass /
-  0 fail / 2 skip without dev server). 5 sections covering schema,
-  baseline diff, calc helpers (caption per method + offset + summary
-  + percent + area + export), 49 source-file markers + em-dash
-  sweep across 10 files, Playwright presence + run gate.
-  `tests/e2e/m20j-costs-audit.spec.ts` (8 specs + dark-mode):
-  cp=0 (Fix 1), currency/sqm header (Fix 3), scale propagation
-  (Fix 5), sub-unit bidirectional sync (Fix 6), Even+Manual options
-  only (Fix 9), caption + no stage label (Fix 8+13), single Results
-  table (Fix 14+15), asset selector + summary cards (Fix 16).
+- **Cross-tab integration**: `useEffect` in Module1Financing watches
+  phase + tranches + resultsMap, calls `applyIdcToCapex`, then
+  materialises each seed as a read-only cost line in Tab 3
+  (id = `auto-idc__${facilityId}__${assetId}`, `isLocked: true`,
+  `name: "Auto: IDC from ${facility.name}"`). Orphans pruned when
+  facility removed or treatment switched to expense. Second effect
+  syncs `equity-auto-inkind-${phaseId}` to total Land In-Kind
+  value across phase assets; auto rows carry
+  `autoDetectedFromCostLine: true` and are disabled-edit in the
+  Equity Tranches table.
 
-### Module 1 Conventions (v8 + M2.0j contract, applies to all downstream modules)
+- **Deferred per brief** (kept as known limitations): DSCR breach
+  alerts (Module 5 dependency), equity waterfall + IRR hurdle math
+  (Module 4), cash-sweep with full operating cashflow (Module 5
+  dependency, ships with capex-only proxy), Sharia Murabaha/Ijara
+  notes, multi-currency facilities, refinancing flows.
 
-> Single source of truth for Module 1 patterns and downstream-module obligations. Replaces the per-phase "pattern decisions" sections that ran M2.0 → M2.0j. Archived per-phase narrative lives in CLAUDE-FEATURES.md under "Module 1 (REFM) M2.0 Phase History".
+- **Verifier + Playwright**: `scripts/verify-m20L.ts` (74 pass /
+  0 fail / 2 skip without dev server) covers schema + calc
+  (annuity PMT / capital stack / IDC summary / 4 new drawdown
+  methods / 4 new repayment methods / cross-tab seeds / custom-
+  schedule clipping) + 39 source markers + em-dash sweep + spec
+  presence. `tests/e2e/m20L-costs-financing.spec.ts` (10 specs
+  + dark-mode): asset selector + summary cards, per-row chip
+  strip, manual money chips, % of Selected picker, Results filter
+  pill bar, Financing sub-tabs, Capital Structure cards, tranche
+  IDC mixed split editor, Schedules 6-table layout + filter pills
+  + granularity toggle.
+
+For the M2.0j 16-fix narrative (pre-M2.0L), see CLAUDE-FEATURES.md
+"Module 1 (REFM) M2.0 Phase History" archive.
+
+### Module 1 status (2026-05-07, M2.0j archived to CLAUDE-FEATURES.md):
+
+The full M2.0j 16-fix narrative (Construction Years = 0, Asset Type
+optional, Land Parcel rate header, Display Scale export comment,
+Display Scale + Decimals on Land Parcel, sub-unit area/units sync,
+accounting format on blur, cost line caption, phasing simplified,
+period dates align to phase start, Capex by Period audit + granularity
+remount, hide zero rows, drop stage labels, drop 3 summary tables,
+per-asset cost structure with asset selector + 3 summary cards) lives
+in CLAUDE-FEATURES.md "Module 1 (REFM) M2.0 Phase History".
+
+
+### Module 1 Conventions (v8 + M2.0L contract, applies to all downstream modules)
+
+> Single source of truth for Module 1 patterns and downstream-module obligations. Replaces the per-phase "pattern decisions" sections that ran M2.0 → M2.0L. Archived per-phase narrative lives in CLAUDE-FEATURES.md under "Module 1 (REFM) M2.0 Phase History".
 
 **Schema + migrations**
-- **Hard-cut on every schema bump.** Pre-vN snapshots flag with explicit error rather than silent coercion. v3/v4 → v5, v5 → v6, v6 → v7, v7 → v8 all follow this policy. Non-version-bumping additive fields (M2.0f, M2.0h, M2.0i, M2.0j) default off/undefined for legacy snapshots.
+- **Hard-cut on every schema bump.** Pre-vN snapshots flag with explicit error rather than silent coercion. v3/v4 → v5, v5 → v6, v6 → v7, v7 → v8 all follow this policy. Non-version-bumping additive fields (M2.0f, M2.0h, M2.0i, M2.0j, M2.0L) default off/undefined for legacy snapshots.
+- **Phase-scoped cost line ids (M2.0L).** Standard catalog ids compose as `${baseId}__${phaseId}` to keep them globally unique across multi-phase projects. Use `composeLineId` / `deriveLineBaseId` / `isStandardCostLineBaseId` from `module1-types.ts`. Calc engine helpers that key by line id (e.g., `deriveCostStage`, `selectedLineIds` resolution) strip the suffix before lookup. Custom user lines (`custom-${timestamp}`) are already unique. `migrateM20lDedupeCostLineIds` retrofits legacy duplicate-id snapshots on hydrate.
 - **Migration banner pattern.** `CheckedHydration.migrationNotice` → `AttachResult.migrationNotice` → dismissable banner once per project open. Migration helper kicks an immediate save so banner doesn't reappear.
 - **Snapshot baseline: ONE file per major schema version** at `scripts/baselines/module1-v5.json` (now v8 content, name retained).
 
@@ -460,19 +472,20 @@ migrateM20jPhasing.
 
 ---
 
-### Module 1 archived phase history (M2.0 → M2.0i)
+### Module 1 archived phase history (M2.0 → M2.0j)
 
-Full closure narrative for each phase below lives in **CLAUDE-FEATURES.md** under "Module 1 (REFM) M2.0 Phase History (M2.0 → M2.0i, archived 2026-05-11)". One-line index here for quick recall:
+Full closure narrative for each phase below lives in **CLAUDE-FEATURES.md** under "Module 1 (REFM) M2.0 Phase History (M2.0 → M2.0j, archived 2026-05-11)". One-line index here for quick recall:
 
-- **M2.0i** (2026-05-07) — final polish (10 fixes): Display Settings panel, drop Model Granularity input + Parking Bays, sub-unit Units/Area, Strategy short labels, compact reconciliation, Operational phase Historical Baseline. `verify-m20i.ts` + `m20i-final-polish.spec.ts`.
-- **M2.0h** (2026-05-07) — area hierarchy + cost granularity (6 fixes + v7→v8 migration banner): NSA/BUA/GFA tiers, parcel NDA toggle, per-sub-unit custom rates, runtime granularity toggle, currency header line. `verify-m20h.ts` + `m20h-area-hierarchy-cost-granularity.spec.ts`.
-- **M2.0g** (2026-05-06) — display + reconciliation + Costs restructure (v7→v8 schema bump): annual-only inputs, displayScale, end-of-period dates, asset Support/Parking, land reconciliation, sub-tabs Inputs/Results, 4 summary tables, Manual % phasing restore. `verify-m20g.ts` + `m20g-display-recon-costs.spec.ts`.
-- **M2.0f** (2026-05-06) — structural fixes (6 fixes): 14 project types, Phase Start Date column, multi-parcel landAllocation, sub-unit BUA source of truth, Parking sub-unit. `verify-m20f.ts` + `m20f-structural-fixes.spec.ts`.
-- **M2.0e** (2026-05-06) — wizard simplification + Tab 2 canonical entry: per-phase asset sections, Sell+Manage / UsefulLife sub-forms, Status pill, computePhaseTimeline. `verify-m20e.ts` + `m20e-wizard-tab2.spec.ts`.
-- **M2.0d** (2026-05-06) — Costs polish + v7 schema: Sell+Manage rename, per-asset cost segregation, classifyAssetCapex, computeCashFlowImpact, 3 summary tables, Tab 4 In-Kind Equity tile. `verify-m20d.ts` + `m20d-costs-polish.spec.ts`.
-- **M2.0c** (2026-05-06) — Dev Costs + Financing restore on v6: 13 cost methods, 5×5 financing matrix, IDC capitalization, per-tranche schedules. `verify-m20c.ts` + `m20c-costs-financing.spec.ts` (skipped, frozen).
-- **M2.0b** (2026-05-06) — brand-styled shell on v5: Topbar + Sidebar + Dashboard + Modals restored, dark-mode toggle, playwright.config.ts baseURL. `verify-m20b.ts` + `m20b-shell.spec.ts`.
-- **M2.0** (2026-05-06) — v5 hard-cut rebuild: flat Project → Phase → Asset → SubUnit hierarchy, 4 tabs, 9 fixed cost lines, 5×3 financing matrix, 30.8 KB v5 baseline. `verify-m20.ts` + `m20-full-flow.spec.ts`.
+- **M2.0j** (2026-05-07), 16 audit + display + structural fixes (cp=0, Asset.type optional, Land Parcel rate header, Display Scale export comment, Display Scale + Decimals on Land Parcel, sub-unit area/units bidirectional sync, accounting format on blur, cost line caption per method, phasing simplified to Even+Manual, period dates align to phase start, Capex by Period audit + granularity remount, hide zero rows, drop stage labels, drop 3 summary tables, asset selector + 3 summary cards). `verify-m20j.ts` + `m20j-costs-audit.spec.ts`. Superseded by M2.0L which fixed the cost line duplication bug it introduced.
+- **M2.0i** (2026-05-07), final polish (10 fixes): Display Settings panel, drop Model Granularity input + Parking Bays, sub-unit Units/Area, Strategy short labels, compact reconciliation, Operational phase Historical Baseline. `verify-m20i.ts` + `m20i-final-polish.spec.ts`.
+- **M2.0h** (2026-05-07), area hierarchy + cost granularity (6 fixes + v7→v8 migration banner): NSA/BUA/GFA tiers, parcel NDA toggle, per-sub-unit custom rates, runtime granularity toggle, currency header line. `verify-m20h.ts` + `m20h-area-hierarchy-cost-granularity.spec.ts`.
+- **M2.0g** (2026-05-06), display + reconciliation + Costs restructure (v7→v8 schema bump): annual-only inputs, displayScale, end-of-period dates, asset Support/Parking, land reconciliation, sub-tabs Inputs/Results, 4 summary tables, Manual % phasing restore. `verify-m20g.ts` + `m20g-display-recon-costs.spec.ts`.
+- **M2.0f** (2026-05-06), structural fixes (6 fixes): 14 project types, Phase Start Date column, multi-parcel landAllocation, sub-unit BUA source of truth, Parking sub-unit. `verify-m20f.ts` + `m20f-structural-fixes.spec.ts`.
+- **M2.0e** (2026-05-06), wizard simplification + Tab 2 canonical entry: per-phase asset sections, Sell+Manage / UsefulLife sub-forms, Status pill, computePhaseTimeline. `verify-m20e.ts` + `m20e-wizard-tab2.spec.ts`.
+- **M2.0d** (2026-05-06), Costs polish + v7 schema: Sell+Manage rename, per-asset cost segregation, classifyAssetCapex, computeCashFlowImpact, 3 summary tables, Tab 4 In-Kind Equity tile. `verify-m20d.ts` + `m20d-costs-polish.spec.ts`.
+- **M2.0c** (2026-05-06), Dev Costs + Financing restore on v6: 13 cost methods, 5×5 financing matrix, IDC capitalization, per-tranche schedules. `verify-m20c.ts` + `m20c-costs-financing.spec.ts` (skipped, frozen).
+- **M2.0b** (2026-05-06), brand-styled shell on v5: Topbar + Sidebar + Dashboard + Modals restored, dark-mode toggle, playwright.config.ts baseURL. `verify-m20b.ts` + `m20b-shell.spec.ts`.
+- **M2.0** (2026-05-06), v5 hard-cut rebuild: flat Project → Phase → Asset → SubUnit hierarchy, 4 tabs, 9 fixed cost lines, 5×3 financing matrix, 30.8 KB v5 baseline. `verify-m20.ts` + `m20-full-flow.spec.ts`.
 
 ---
 

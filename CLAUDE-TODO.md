@@ -4,6 +4,40 @@
 
 ---
 
+## Recently Completed, REFM Module 1 Phase M2.0L Cost Duplication Fix + Full Financing Build (2026-05-11, ~10 commits)
+
+Closes the cost-line duplication bug Ahmad eyeballed after M2.0j, plus expands Tab 4 Financing from a single-tab tranche editor to a full multi-facility platform with capital-stack overview, schedules sub-tab, and cross-tab IDC sync. Schema stays v8 (all additive). Verifier: 74 pass / 0 fail / 2 skip.
+
+| # | What changed |
+|---|--------------|
+| 1 | **Diagnostic note** at `docs/m20L-diagnostic.md` enumerated the root cause: `makeDefaultCostLines(phaseId)` emitted hardcoded ids per phase, producing duplicate ids that propagated via the store's id-matchers; Results filter at `Module1Costs.tsx:1141` ignored `phaseId` and walked all 20 lines per asset on a 2-phase project. |
+| 2 | **Cost line id scoping**: `composeLineId(baseId, phaseId)` returns `${baseId}__${phaseId}` (idempotent on already-scoped ids); `deriveLineBaseId(lineId)` strips the suffix; `isStandardCostLineBaseId` predicate. `makeDefaultCostLines` rewritten to emit scoped ids and reference scoped peers in `selectedLineIds`. `deriveCostStage` strips suffix before stage lookup; legacy bare ids still resolve via fallback. `migrateM20lDedupeCostLineIds` retrofits legacy duplicate-id snapshots in `stripWrapper` / `stripV8Wrapper` (rewrites cost line `id`, `selectedLineIds[]`, and `costOverrides.lineId`). Results filter scopes by `c.phaseId === a.phaseId`. |
+| 3 | **Sub-unit metric round-trip preservation** when `unitArea=0`: `canSwitchMetric` guard refuses the switch when it would destroy non-zero area, surfacing a `window.alert` + `<select title>` warning. Round-trip with `unitArea>0` continues to preserve area exactly per the M2.0j formula. |
+| 4 | **Costs UX additions** in `Module1Costs.tsx`: live currency-chip strip below Manual % inputs (per-period money distribution updates as user edits); always-visible per-row period chip strip below every active cost line (uses `distributeItemCost`); `PercentOfSelectedPicker` sub-row with scrollable sibling-line checkboxes when method=`percent_of_selected`; Results-sub-tab filter pill bar (Combined + per-asset) with SummaryTables `key={`summary-${granularity}-${filter}`}`. |
+| 5 | **Financing schema additions** (all optional, v8 additive): drawdown methods widen 5 → 9 (`+ front_loaded` / `+ equal_periodic` / `+ custom_schedule` / `+ cash_available` MAAD alias); repayment methods widen 5 → 9 (`+ equal_periodic_amortization` annuity / `+ bullet` / `+ balloon` / `+ custom_schedule`). New enums: `FacilityType`, `InterestRateType`, `BaseRate`, `IDCTreatment`, `FeeTreatment`, `EquityTrancheType`. `FinancingTranche` gains 18 new optional fields (facilityType, lender, principal, interestRateType, baseRate, spreadBps, tenor/availability/grace, fees, covenants, idcTreatment, idcMixedSplitPeriod, balloonPct, sweepRatio, prepayments[], pikEnabled, autoGenerateIdcCostLine, drawdownCustomSchedule, repaymentCustomSchedule). `EquityContribution` gains 8 new fields (type, source, scope+scopeId, assetId, irrHurdle, preferredReturn, autoDetectedFromCostLine, sourceCostLineId). |
+| 6 | **Financing calc engine**: `computeEqualPeriodicPayment` (annuity PMT with 0-rate edge case), `computeCapitalStack` (sources/uses/senior+total LTV/equity+debt breakdowns/match chip), `computeIdcSummary` (capitalised + expensed per facility + per period), `applyIdcToCapex` (per-asset seeds, pro-rata by BUA share when project-wide), `computeCombinedDebtService`. `computeFinancing` resolves 3-way IDC matrix (mixed uses `idcMixedSplitPeriod`), `gracePeriods` defers principal, `availabilityPeriods` narrows drawdown window, `prepayments[]` apply at specific periods, `sweepRatio` modulates sweep methods. |
+| 7 | **Financing UI rewrite** (`Module1Financing.tsx` 551 → 1100+ lines): two sub-tabs (Inputs + Schedules). Inputs has Capital Structure Overview cards (Total Equity / Total Debt / Total Sources / Total Uses / LTV / match chip), Debt Facilities section with TrancheCard exposing every new field + collapsible Advanced section for fees/covenants/prepayments/PIK, Equity Tranches table widened with type/source/IRR-hurdle/preferred-return + auto-row disable. Schedules has granularity toggle (annual/quarterly/monthly), filter pill bar (Combined + per-facility), and 6 tables (Capital Stack Summary / Drawdown per facility / Repayment per facility / Combined Debt Service / IDC Summary / Capital Stack Movement). |
+| 8 | **Cross-tab integration**: `useEffect` watches phase + tranches + resultsMap, calls `applyIdcToCapex`, materialises each seed as a read-only cost line in Tab 3 (`id = auto-idc__${facilityId}__${assetId}`, `isLocked: true`). Orphans pruned when facility removed or treatment switched to expense. Second effect syncs `equity-auto-inkind-${phaseId}` to total Land In-Kind value; auto rows carry `autoDetectedFromCostLine: true` and are disabled-edit in the Equity Tranches table. |
+| 9 | **Verifier + Playwright + baseline**: `scripts/verify-m20L.ts` (74 pass / 0 fail / 2 skip without dev server); 5 sections covering schema + calc helpers + 39 source markers + em-dash sweep + spec presence. `tests/e2e/m20L-costs-financing.spec.ts` (10 specs + dark-mode). `scripts/baselines/module1-v5.json` refreshed (47.8 KB → 48.4 KB, sha 7902f85f652d) to reflect phase-scoped cost line ids. |
+| 10 | **Docs**: CLAUDE.md M2.0j detail block (~120 lines) archived to CLAUDE-FEATURES.md "Module 1 (REFM) M2.0 Phase History" with M2.0j entry; new M2.0L closure block ships; archived index renamed M2.0 → M2.0j; Module 1 Conventions header updated to "v8 + M2.0L contract". |
+
+**Deferred (per brief)**:
+- DSCR breach alerts (Module 5 dependency)
+- Equity waterfall + IRR hurdle math (Module 4 dependency)
+- Cash-sweep with full operating cashflow (Module 5 dependency, ships with capex-only proxy)
+- Sharia Murabaha/Ijara product templates
+- Multi-currency facilities
+- Refinancing flows
+- True per-asset financing schedule breakdown across multi-asset phases
+
+**Pattern decisions for downstream modules**:
+- **Phase-scoped storage ids** is the canonical pattern for any future open-ended catalog (Revenue lines in M2.1, OpEx lines in M3, etc.). Composed ids stay unique across phases; migration helpers retrofit legacy snapshots.
+- **Cross-tab auto-generated read-only entities** (IDC -> Cost line, Land In-Kind -> Equity tranche) is the pattern for keeping derived values in sync. Use stable composed ids (`auto-${kind}__${sourceId}__${scopeId}`) + `isLocked: true` / `autoDetectedFromCostLine: true` flag. Effect prunes orphans.
+- **Multi-method calc engine + capability gates**: every Financing method (drawdown / repayment / IDC / fee) reads conditional fields from the tranche. Default-resolved fallback (`idcTreatment ?? (idcCapitalize ? 'capitalize' : 'expense')`) preserves legacy behaviour while new fields take precedence when set.
+- **Compact summary cards above editable surfaces**: Capital Structure Overview cards at top of Tab 4 Inputs mirror the Tab 3 Inputs 3-summary-card pattern (Fix 16). M2.1 Revenue + M3 OpEx adopt the same shape.
+
+---
+
 ## ACTIVE FOLLOW-UP, Re-apply Brevo migration once account activates (2026-05-11)
 
 Brevo account is pending activation (up to 1 business day). Email vendor was **temporarily reverted to Resend** on 2026-05-11 to keep transactional email running. `sendEmail.ts` carries a `// TEMPORARY: Reverted to Resend...` comment at the top as a load-bearing marker.
