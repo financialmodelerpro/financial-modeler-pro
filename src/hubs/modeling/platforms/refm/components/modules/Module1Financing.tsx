@@ -1050,45 +1050,12 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </div>
 
-          {/* M2.0M: Asset-level view toggle (Combined / Single Asset) */}
-          <div style={sectionCardStyle} data-testid="financing-view-mode">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
-              <strong style={{ fontSize: 12, color: 'var(--color-meta)', textTransform: 'uppercase' }}>View:</strong>
-              <button
-                type="button"
-                data-testid="financing-view-combined"
-                onClick={() => setFinancingConfig({ viewMode: 'combined', selectedAssetId: undefined })}
-                style={pillStyle(financingConfig.viewMode === 'combined')}
-              >
-                Combined Project
-              </button>
-              <button
-                type="button"
-                data-testid="financing-view-single"
-                onClick={() => {
-                  const first = phaseAssets[0]?.id;
-                  setFinancingConfig({ viewMode: 'single_asset', selectedAssetId: first });
-                }}
-                style={pillStyle(financingConfig.viewMode === 'single_asset')}
-                disabled={phaseAssets.length === 0}
-              >
-                Single Asset
-              </button>
-              {financingConfig.viewMode === 'single_asset' && (
-                <select
-                  data-testid="financing-view-asset-select"
-                  value={financingConfig.selectedAssetId ?? ''}
-                  onChange={(e) => setFinancingConfig({ selectedAssetId: e.target.value })}
-                  style={{ ...inputStyle, width: 'auto', minWidth: 200 }}
-                >
-                  {phaseAssets.length === 0 && <option value="">No assets</option>}
-                  {phaseAssets.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
+          {/* P3-Fix 1 (2026-05-12): view toggle (Combined / Single Asset)
+              dropped. Tab 4 Inputs always operates on Combined Project
+              basis; asset-level segregation surfaces in the Inputs
+              Summary Tables (Fix 8) and in Schedules. Schema field
+              viewMode + selectedAssetId stay for back-compat; migration
+              flips single_asset -> combined. */}
 
           {/* M2.0M: Funding Method radio */}
           <div style={sectionCardStyle} data-testid="financing-funding-method">

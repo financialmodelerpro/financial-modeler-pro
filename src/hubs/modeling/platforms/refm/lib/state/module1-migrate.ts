@@ -189,15 +189,17 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20costsPass7PerAsset(
-    migrateM20mPass2Financing(
-      migrateM20mPass6NdaToProject(
-        migrateM20mPass6DisplayDefaults(
-          migrateM20MFinancing(
-            migrateM20Pass5Categories(
-              migrateM20Pass4Inheritance(
-                migrateM20lDedupeCostLineIds(
-                  migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20mPass3Financing(
+    migrateM20costsPass7PerAsset(
+      migrateM20mPass2Financing(
+        migrateM20mPass6NdaToProject(
+          migrateM20mPass6DisplayDefaults(
+            migrateM20MFinancing(
+              migrateM20Pass5Categories(
+                migrateM20Pass4Inheritance(
+                  migrateM20lDedupeCostLineIds(
+                    migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+                  ),
                 ),
               ),
             ),
@@ -217,16 +219,18 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
-  // M2.0M Pass 6 display defaults flip.
-  return migrateM20costsPass7PerAsset(
-    migrateM20mPass2Financing(
-      migrateM20mPass6NdaToProject(
-        migrateM20mPass6DisplayDefaults(
-          migrateM20MFinancing(
-            migrateM20Pass5Categories(
-              migrateM20Pass4Inheritance(
-                migrateM20lDedupeCostLineIds(
-                  migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3.
+  return migrateM20mPass3Financing(
+    migrateM20costsPass7PerAsset(
+      migrateM20mPass2Financing(
+        migrateM20mPass6NdaToProject(
+          migrateM20mPass6DisplayDefaults(
+            migrateM20MFinancing(
+              migrateM20Pass5Categories(
+                migrateM20Pass4Inheritance(
+                  migrateM20lDedupeCostLineIds(
+                    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+                  ),
                 ),
               ),
             ),
@@ -337,6 +341,88 @@ function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20COSTS_PASS7_NOTICE =
   "Costs UI simplified to per-asset inputs. Existing cost lines flattened so each asset owns its values. Review in Tab 3.";
+
+// M2.0M Pass 3 (2026-05-12): Financing simplification.
+//   Fix 1: viewMode='single_asset' -> 'combined' + clear selectedAssetId.
+//   Fix 3: deprecate per-facility debtPct + principal (kept on schema; UI no
+//          longer surfaces; calc engine ignores in favor of method-derived).
+//   Fix 5: deprecate drawdownMethod (auto-follows funding method).
+//   Fix 6: deprecate equalRepaymentSubMethod + sweepRatio (single Equal
+//          Repayment mode; cash sweep defaults to 100%).
+//   Fix 7: clear equityTranches (auto-computed from method + Land In-Kind).
+//   Fix 3 multi-facility: default facilitySharePct to even split when
+//          missing across multiple facilities; single facility -> 100.
+// Idempotent: a Pass-3-shaped snapshot returns unchanged.
+function migrateM20mPass3Financing(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  let nextProject = project;
+  let touched = false;
+
+  // Fix 1: view mode.
+  if (project.financing) {
+    const f = project.financing;
+    if (f.viewMode === 'single_asset' || f.selectedAssetId !== undefined) {
+      nextProject = {
+        ...project,
+        financing: { ...f, viewMode: 'combined', selectedAssetId: undefined },
+      };
+      touched = true;
+    }
+  }
+
+  // Fix 7: clear stale equity contributions when auto-computation owns them.
+  // We keep the array on schema for back-compat but drop the data so the UI
+  // does not surface stale rows.
+  const equityContributions = (snap.equityContributions ?? []) as EquityContribution[];
+  let nextEquity = equityContributions;
+  if (equityContributions.length > 0) {
+    nextEquity = [];
+    touched = true;
+  }
+
+  // Fix 3 multi-facility split: default facilitySharePct.
+  const tranches = (snap.financingTranches ?? []) as FinancingTranche[];
+  let nextTranches = tranches;
+  if (tranches.length > 0) {
+    type T = FinancingTranche & { facilitySharePct?: number };
+    const missing = tranches.filter((t) => (t as T).facilitySharePct === undefined);
+    if (missing.length > 0) {
+      const evenShare = tranches.length > 0 ? 100 / tranches.length : 100;
+      nextTranches = tranches.map((t) => {
+        const tt = t as T;
+        if (tt.facilitySharePct === undefined) {
+          return { ...t, facilitySharePct: tranches.length === 1 ? 100 : evenShare } as FinancingTranche;
+        }
+        return t;
+      });
+      touched = true;
+    }
+  }
+
+  if (!touched) return snap;
+  return {
+    ...snap,
+    project: nextProject,
+    equityContributions: nextEquity,
+    financingTranches: nextTranches,
+  };
+}
+
+export const M20M_PASS3_NOTICE =
+  "Financing simplified, facility ratios now auto-compute from chosen funding method. Equity tranches auto-computed from method and Land In-Kind cost line.";
+
+export function snapshotNeedsPass3Migration(s: unknown): boolean {
+  if (s === null || typeof s !== 'object') return false;
+  const snap = s as Partial<HydrateSnapshot>;
+  const project = snap.project as Project | undefined;
+  if (project?.financing?.viewMode === 'single_asset') return true;
+  if ((snap.equityContributions as EquityContribution[] | undefined)?.length) return true;
+  const tranches = (snap.financingTranches as FinancingTranche[] | undefined) ?? [];
+  if (tranches.length > 1 && tranches.some((t) => (t as FinancingTranche & { facilitySharePct?: number }).facilitySharePct === undefined)) {
+    return true;
+  }
+  return false;
+}
 
 // M2.0M Pass 2 (2026-05-11): consolidate Tab 4 Financing schema.
 // Handles 5 concerns in one pass:
@@ -972,15 +1058,17 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20costsPass7PerAsset(
-    migrateM20mPass2Financing(
-      migrateM20mPass6NdaToProject(
-        migrateM20mPass6DisplayDefaults(
-          migrateM20MFinancing(
-            migrateM20Pass5Categories(
-              migrateM20Pass4Inheritance(
-                migrateM20lDedupeCostLineIds(
-                  migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  snap = migrateM20mPass3Financing(
+    migrateM20costsPass7PerAsset(
+      migrateM20mPass2Financing(
+        migrateM20mPass6NdaToProject(
+          migrateM20mPass6DisplayDefaults(
+            migrateM20MFinancing(
+              migrateM20Pass5Categories(
+                migrateM20Pass4Inheritance(
+                  migrateM20lDedupeCostLineIds(
+                    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+                  ),
                 ),
               ),
             ),
@@ -1051,10 +1139,11 @@ function snapshotNeedsM20MMigration(s: unknown): boolean {
   return o.project.financing === undefined;
 }
 
-// Pick the most-recent banner that applies. Pass 7 is the newest;
-// then M20M; then Pass 5; then Pass 4; else the loose / M2.0h v7 -> v8
-// banner upstream.
+// Pick the most-recent banner that applies. Pass 3 (financing) is the
+// newest; then Pass 7 (costs); then M20M; then Pass 5; then Pass 4;
+// else the loose / M2.0h v7 -> v8 banner upstream.
 function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsPass3Migration(s)) return M20M_PASS3_NOTICE;
   if (snapshotNeedsPass7Migration(s)) return M20COSTS_PASS7_NOTICE;
   if (snapshotNeedsM20MMigration(s)) return M20M_FINANCING_NOTICE;
   if (snapshotNeedsPass5Migration(s)) return PASS5_MIGRATION_NOTICE;
