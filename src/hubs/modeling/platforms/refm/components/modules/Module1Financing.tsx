@@ -41,6 +41,9 @@ import {
   type ParcelFundingType,
   type ParcelFundingConfig,
   type ProjectFinancingConfig,
+  type FundingMethod2LineRatio,
+  type CostLine,
+  deriveLineBaseId,
   DRAWDOWN_METHODS,
   DRAWDOWN_METHOD_LABELS,
   REPAYMENT_METHODS_USER,
@@ -147,10 +150,17 @@ const pillStyle = (active: boolean): React.CSSProperties => ({
 
 // M2.0M: per-method input panel. Renders the conditional inputs for the
 // currently-selected funding method directly below its radio entry.
+//
+// P4-Fix 1 (2026-05-12): Method 2 now renders a real editable table.
+// One row per unique cost-line baseId across the project (deduped by
+// stripping the __phaseId__assetId suffix from composed ids). Each row
+// holds debt% (editable) + equity% (auto = 100 - debt%). Stored in
+// cfg.lineItemRatios.master keyed by baseId.
 function renderMethodInputs(
   id: FundingMethodId,
   cfg: ProjectFinancingConfig,
   patch: (next: Partial<ProjectFinancingConfig>) => void,
+  costLines: CostLine[] = [],
 ): React.JSX.Element {
   const numStyle: React.CSSProperties = { ...inputStyle, width: 90 };
   if (id === 1) {
@@ -181,10 +191,80 @@ function renderMethodInputs(
     );
   }
   if (id === 2) {
+    // P4-Fix 1 (2026-05-12): editable per-cost-line debt/equity table.
+    // Build the row set by deduping composed line ids on baseId so the
+    // same standard line (e.g. 'construction') under multiple phases
+    // collapses to a single editable row. Custom lines (id starts with
+    // 'custom-') stay distinct via their unique id.
+    const master = cfg.lineItemRatios?.master ?? [];
+    const seenBase = new Set<string>();
+    const rows: Array<{ baseId: string; label: string }> = [];
+    for (const line of costLines) {
+      if (line.id.startsWith('auto-idc__')) continue;
+      const baseId = deriveLineBaseId(line.id);
+      if (seenBase.has(baseId)) continue;
+      seenBase.add(baseId);
+      rows.push({ baseId, label: line.name || baseId });
+    }
+    const ratioOf = (baseId: string): FundingMethod2LineRatio =>
+      master.find((m) => m.lineId === baseId) ?? { lineId: baseId, debtPct: 70, equityPct: 30 };
+    const setRatio = (baseId: string, debtPct: number): void => {
+      const clamped = Math.max(0, Math.min(100, debtPct));
+      const next: FundingMethod2LineRatio = { lineId: baseId, debtPct: clamped, equityPct: 100 - clamped };
+      const existing = master.find((m) => m.lineId === baseId);
+      const masterNext = existing
+        ? master.map((m) => m.lineId === baseId ? next : m)
+        : [...master, next];
+      patch({ lineItemRatios: { master: masterNext } });
+    };
+    if (rows.length === 0) {
+      return (
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }} data-testid="funding-method-2-inputs">
+          No cost lines defined yet. Add cost lines in Tab 3 to configure per-line debt/equity ratios.
+        </div>
+      );
+    }
     return (
-      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }} data-testid="funding-method-2-inputs">
-        Per-line debt% / equity% configured under each cost row in Tab 3 (next sub-pass).
-        Per-asset override via the existing inheritance toggle.
+      <div style={{ marginTop: 6 }} data-testid="funding-method-2-inputs">
+        <table className="table-standard" style={{ width: '100%', fontSize: 11, tableLayout: 'fixed' }} data-testid="funding-method-2-table">
+          <colgroup>
+            <col style={{ width: '60%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '20%' }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '4px 6px' }}>Cost Line</th>
+              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Debt %</th>
+              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Equity %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ baseId, label }) => {
+              const r = ratioOf(baseId);
+              return (
+                <tr key={baseId} data-testid={`m2-row-${baseId}`}>
+                  <td style={{ padding: '4px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+                    <input
+                      type="number" min={0} max={100}
+                      value={r.debtPct}
+                      onChange={(e) => setRatio(baseId, parseFloat(e.target.value) || 0)}
+                      style={{ ...numStyle, width: 70 }}
+                      data-testid={`m2-debt-${baseId}`}
+                    />
+                  </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`m2-equity-${baseId}`}>
+                    {r.equityPct.toFixed(0)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+          Equity % auto-derives as 100% - Debt %. Per-asset override is available via the inheritance toggle in Tab 3.
+        </div>
       </div>
     );
   }
@@ -1225,7 +1305,7 @@ export default function Module1Financing(): React.JSX.Element {
                       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
                         {FUNDING_METHOD_DESCRIPTIONS[id]}
                       </div>
-                      {isActive && renderMethodInputs(id, financingConfig, setFinancingConfig)}
+                      {isActive && renderMethodInputs(id, financingConfig, setFinancingConfig, costLines)}
                     </div>
                   </label>
                 );
