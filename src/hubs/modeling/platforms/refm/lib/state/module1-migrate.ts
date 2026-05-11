@@ -184,9 +184,13 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0L: dedupe cost line ids across phases by composing with phaseId.
   // M2.0L Pass 4: flag legacy CostOverride entries as overridden=true;
   // strip deprecated Project.costInputMode.
-  return migrateM20Pass4Inheritance(
-    migrateM20lDedupeCostLineIds(
-      migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
+  // unset.
+  return migrateM20Pass5Categories(
+    migrateM20Pass4Inheritance(
+      migrateM20lDedupeCostLineIds(
+        migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+      ),
     ),
   );
 };
@@ -198,13 +202,30 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0g v8: v7 -> v8 migration runs first (aggregate monthly,
   // stamp outputGranularity), then the M2.0g Parking-subunit fold,
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
-  // M2.0L Pass 4 inheritance migration.
-  return migrateM20Pass4Inheritance(
-    migrateM20lDedupeCostLineIds(
-      migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
+  // category defaulting.
+  return migrateM20Pass5Categories(
+    migrateM20Pass4Inheritance(
+      migrateM20lDedupeCostLineIds(
+        migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+      ),
     ),
   );
 };
+
+// M2.0L Pass 5 (2026-05-11): default every master CostLine to
+// costCategory='direct' when unset, preserving the Pass-3+ asset-
+// specific compute path. Idempotent.
+function migrateM20Pass5Categories(snap: HydrateSnapshot): HydrateSnapshot {
+  let touched = false;
+  const newCostLines = (snap.costLines as CostLine[]).map((c) => {
+    if (c.costCategory !== undefined) return c;
+    touched = true;
+    return { ...c, costCategory: 'direct' as const };
+  });
+  if (!touched) return snap;
+  return { ...snap, costLines: newCostLines };
+}
 
 // M2.0L Pass 4 (2026-05-11): inheritance model migration. Two effects:
 //   1. Stamp `overridden = true` on every CostOverride entry that
@@ -423,6 +444,12 @@ export const LEGACY_MIGRATION_NOTICE =
 export const PASS4_MIGRATION_NOTICE =
   "Cost engine upgraded to inheritance model. Review master template and per-asset overrides in Tab 3.";
 
+// M2.0L Pass 5 (2026-05-11): banner shown when CostLines were stamped
+// with a default costCategory='direct'. Prompts user to review pools
+// that should be reclassified as Allocated.
+export const PASS5_MIGRATION_NOTICE =
+  "Cost lines now carry Category + Driver. Existing lines default to Direct; review Tab 3 to mark project-wide pools as Allocated.";
+
 // M2.0L Fix 1 (2026-05-11): loose shape detector. Anything with a
 // `project` object that can plausibly map to v8. Catches legacy
 // snapshots that fall outside the strict v7 fingerprint (e.g. saves
@@ -638,19 +665,40 @@ function snapshotNeedsPass4Migration(s: unknown): boolean {
   return false;
 }
 
+// M2.0L Pass 5 (2026-05-11): true if any CostLine lacks costCategory.
+function snapshotNeedsPass5Migration(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as { costLines?: unknown[] };
+  if (!Array.isArray(o.costLines)) return false;
+  for (const c of o.costLines) {
+    if (c && typeof c === 'object' && (c as Record<string, unknown>).costCategory === undefined) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Pick the most-recent banner that applies. Pass 5 is the newest; if it
+// fires we surface that; else Pass 4; else the loose / M2.0h v7 -> v8
+// banner upstream.
+function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsPass5Migration(s)) return PASS5_MIGRATION_NOTICE;
+  if (snapshotNeedsPass4Migration(s)) return PASS4_MIGRATION_NOTICE;
+  return undefined;
+}
+
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
   if (isV8Snapshot(snapshot)) {
-    const pass4 = snapshotNeedsPass4Migration(snapshot);
     return {
       snapshot: stripV8Wrapper(snapshot),
       recognized: true,
-      migrationNotice: pass4 ? PASS4_MIGRATION_NOTICE : undefined,
+      migrationNotice: resolveBanner(snapshot),
     };
   }
   if (isV7Snapshot(snapshot)) {
     const notice = snapshotNeedsV8Migration(snapshot)
       ? M20H_MIGRATION_NOTICE
-      : (snapshotNeedsPass4Migration(snapshot) ? PASS4_MIGRATION_NOTICE : undefined);
+      : resolveBanner(snapshot);
     return { snapshot: stripWrapper(snapshot), recognized: true, migrationNotice: notice };
   }
   // M2.0L Fix 1 (2026-05-11): pre-v7 and unrecognized shapes flow

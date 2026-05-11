@@ -59,6 +59,9 @@ import type {
   CostPhasing,
   CostStage,
   CostScope,
+  CostType,
+  CostCategory,
+  CostDriver,
   AllocationBasis,
   FinancingTranche,
   EquityContribution,
@@ -1702,6 +1705,32 @@ export function deriveCostScope(line: CostLine): CostScope {
     return 'direct';
   }
   return 'indirect';
+}
+
+// M2.0L Pass 5 (2026-05-11): auto-derived Cost Type. Internal, not
+// user-visible. Powers Results tables + future M5 benchmark callouts.
+//   - method === 'percent_of_cash_land'   -> land_cash
+//   - method === 'percent_of_inkind_land' -> land_in_kind
+//   - stage === 'operating'               -> operating
+//   - stage === 'soft'                    -> soft
+//   - everything else (default hard stage) -> hard
+export function deriveCostType(line: CostLine): CostType {
+  if (line.method === 'percent_of_cash_land')   return 'land_cash';
+  if (line.method === 'percent_of_inkind_land') return 'land_in_kind';
+  const stage = deriveCostStage(line);
+  if (stage === 'operating') return 'operating';
+  if (stage === 'soft')      return 'soft';
+  return 'hard';
+}
+
+// M2.0L Pass 5: resolved category + driver for a line. Helpers used
+// by computeAssetCost to route Direct vs Allocated math.
+export function resolveCostCategory(line: CostLine): CostCategory {
+  return line.costCategory ?? 'direct';
+}
+
+export function resolveCostDriver(line: CostLine): CostDriver {
+  return line.costDriver ?? 'bua_share';
 }
 
 // ── M2.0d: Useful life resolution ─────────────────────────────────────────

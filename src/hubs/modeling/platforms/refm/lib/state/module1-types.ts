@@ -680,6 +680,41 @@ export const ALLOCATION_BASES: readonly AllocationBasis[] = [
   'manual',
 ] as const;
 
+// M2.0L Pass 5 (2026-05-11): Cost Category. User-facing distinction
+// between asset-specific (Direct) and project-wide pool (Allocated)
+// cost lines.
+//   'direct'    -> the cost computes against the asset it's evaluated
+//                  for. Per-asset overrides apply normally.
+//   'allocated' -> the cost is a project-wide pool. Each asset's share
+//                  = total pool x driver factor (BUA / Land / Value
+//                  share). Driver is required when category is
+//                  'allocated'; ignored otherwise.
+export type CostCategory = 'direct' | 'allocated';
+
+export const COST_CATEGORIES: readonly CostCategory[] = ['direct', 'allocated'] as const;
+
+export const COST_CATEGORY_LABELS: Record<CostCategory, string> = {
+  direct:    'Direct (asset-specific)',
+  allocated: 'Allocated (project pool, split by driver)',
+};
+
+export type CostDriver = 'bua_share' | 'land_share' | 'value_share';
+
+export const COST_DRIVERS: readonly CostDriver[] = ['bua_share', 'land_share', 'value_share'] as const;
+
+export const COST_DRIVER_LABELS: Record<CostDriver, string> = {
+  bua_share:   'BUA share',
+  land_share:  'Land share',
+  value_share: 'Value share',
+};
+
+// M2.0L Pass 5: Internal auto-derived cost type from method + stage.
+// Not stored on the line; derived at compute time via deriveCostType().
+// Powers Results tables + future M5 benchmark callouts.
+export type CostType = 'hard' | 'soft' | 'land_cash' | 'land_in_kind' | 'operating';
+
+export const COST_TYPES: readonly CostType[] = ['hard', 'soft', 'land_cash', 'land_in_kind', 'operating'] as const;
+
 // M2.0j Fix 9 (2026-05-07): phasing simplified from 6 options to 2.
 // Real users only need Even (default) or Manual % (custom curve). The 4
 // dropped values ('frontloaded' / 'backloaded' / 'sCurve' / 'phase_aligned')
@@ -754,6 +789,15 @@ export interface CostLine {
   // a line that switched into this method without explicit rates
   // still produces a sensible total.
   perSubUnitRates?: Record<string, number>;
+  // M2.0L Pass 5 (2026-05-11): Cost category. Optional; defaults to
+  // 'direct' on hydrate via migrateM20Pass5Categories so legacy
+  // snapshots keep their Pass-3+ asset-specific compute path.
+  costCategory?: CostCategory;
+  // M2.0L Pass 5 (2026-05-11): Driver. Only consumed when
+  // costCategory === 'allocated'. Picks the share key the calc engine
+  // uses to split the project-wide pool across visible assets in the
+  // phase.
+  costDriver?: CostDriver;
 }
 
 export interface CostOverride {
