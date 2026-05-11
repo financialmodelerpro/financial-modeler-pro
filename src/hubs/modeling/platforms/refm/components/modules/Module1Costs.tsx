@@ -2011,7 +2011,14 @@ function SameModeCostTable({
                           parkingBays: a.parkingBaysRequired ?? 0,
                           resolvedTotal: lineTotal,
                         });
+                        // M2.0M Pass 6 Fix 7: locked lines (Land Cash /
+                        // Land In-Kind / Auto-IDC) flow from upstream
+                        // (parcels in Tab 2 + Financing IDC effects)
+                        // and must not be per-asset overrideable from
+                        // Tab 3.
+                        const isLockedLine = line.isLocked === true;
                         const toggleOverride = (): void => {
+                          if (isLockedLine) return;
                           if (isOverridden) {
                             onRemoveOverride(a.id, line.id);
                           } else {
@@ -2093,20 +2100,35 @@ function SameModeCostTable({
                             <td style={{ padding: '4px', textAlign: 'right', fontSize: 10, color: 'var(--color-meta)' }} title={cap}>{cap}</td>
                             <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>{formatScaled(lineTotal, scale, decimals)}</td>
                             <td style={{ padding: '4px', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={toggleOverride}
-                                style={{
-                                  fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-sm)',
-                                  background: isOverridden ? 'var(--color-warning-bg)' : 'transparent',
-                                  color: isOverridden ? 'var(--color-warning)' : 'var(--color-body)',
-                                  border: '1px solid var(--color-border)', cursor: 'pointer',
-                                }}
-                                title={isOverridden ? 'Click to revert this asset+line to the master template value' : 'Click to break this asset+line from the master and edit independently'}
-                                data-testid={`costs-same-replica-${a.id}-row-${line.id}-toggle`}
-                              >
-                                {isOverridden ? '✓ Revert to master' : 'Override'}
-                              </button>
+                              {isLockedLine ? (
+                                <span
+                                  style={{
+                                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    padding: '2px 8px', borderRadius: 12,
+                                    background: 'color-mix(in srgb, var(--color-meta) 12%, transparent)',
+                                    color: 'var(--color-meta)',
+                                  }}
+                                  title="Locked. Land cost flows from parcels in Tab 2 (edit parcel rate or asset land allocation there). Auto-IDC flows from Financing in Tab 4."
+                                  data-testid={`costs-same-replica-${a.id}-row-${line.id}-locked`}
+                                >
+                                  Locked
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={toggleOverride}
+                                  style={{
+                                    fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                                    background: isOverridden ? 'var(--color-warning-bg)' : 'transparent',
+                                    color: isOverridden ? 'var(--color-warning)' : 'var(--color-body)',
+                                    border: '1px solid var(--color-border)', cursor: 'pointer',
+                                  }}
+                                  title={isOverridden ? 'Click to revert this asset+line to the master template value' : 'Click to break this asset+line from the master and edit independently'}
+                                  data-testid={`costs-same-replica-${a.id}-row-${line.id}-toggle`}
+                                >
+                                  {isOverridden ? '✓ Revert to master' : 'Override'}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
