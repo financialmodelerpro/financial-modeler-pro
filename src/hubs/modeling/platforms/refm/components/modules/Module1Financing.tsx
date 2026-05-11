@@ -76,7 +76,7 @@ import {
   distributeAnnualToPeriods,
   type FinancingResult,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatScaled, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatScaledForExport, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
 import type { DisplayScale } from '../../lib/state/module1-types';
 
 const inputStyle: React.CSSProperties = {
@@ -283,7 +283,9 @@ function TrancheCard({
   tranche, phase, capexPerPeriod, presalesPerPeriod, project, scale, decimals,
   onUpdate, onRemove, assets,
 }: TrancheCardProps): React.JSX.Element {
-  const fmt = (n: number): string => formatScaled(n, scale, decimals);
+  // P2-Fix 9 (2026-05-11): per-tranche schedule cells use the export
+  // formatter (no K/M suffix). Scale indicator stays in the page header.
+  const fmt = (n: number): string => formatScaledForExport(n, scale, decimals);
   const result = useMemo(
     () => computeFinancing(tranche, phase, capexPerPeriod, presalesPerPeriod, project),
     [tranche, phase, capexPerPeriod, presalesPerPeriod, project],
@@ -869,7 +871,9 @@ export default function Module1Financing(): React.JSX.Element {
 
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimalsT = project.displayDecimals ?? 2;
-  const fmt = (n: number): string => formatScaled(n, scale, decimals);
+  // P2-Fix 9 (2026-05-11): schedule cells use the export formatter so
+  // K/M suffix is on the page header line only.
+  const fmt = (n: number): string => formatScaledForExport(n, scale, decimals);
   const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
 
   const periodCount = Math.min(combined.periods, 24);
