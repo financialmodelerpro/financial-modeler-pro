@@ -786,12 +786,24 @@ export interface CostOverride {
 // presales nets pre-sales (Module 2 supplies the schedule when ready
 // in M2.1, today defaults to zero); min_cash_floor watches the
 // running cash position and draws to keep cash >= floor.
+// M2.0L (2026-05-11): drawdown matrix widens to 9 methods (5 original
+// + 4 new). The 4 new options come from the M2.0L brief:
+//   - 'front_loaded': 100% in first period of availability (bullet draw)
+//   - 'equal_periodic': equal drawdown each period across availability
+//   - 'custom_schedule': per-period absolute amounts (not %)
+//   - 'cash_available' alias to capex_minus_presales (KPMG MAAD pattern)
+// The 5 original values continue to be accepted; the calc engine
+// resolves cash_available -> capex_minus_presales.
 export type DrawdownMethod =
   | 'capex_basis'           // tracks construction capex curve × ltvPct
-  | 'manual'                // distribution[] per period
+  | 'manual'                // distribution[] per period (weights, sum to 1)
   | 'debt_equity_ratio'     // ltvPct of capex per period
   | 'capex_minus_presales'  // (capex - presales) × ltvPct, with land toggle
-  | 'min_cash_floor';       // draws when running cash < floor
+  | 'min_cash_floor'        // draws when running cash < floor
+  | 'front_loaded'          // 100% in first period of availability
+  | 'equal_periodic'        // equal drawdown across availability period
+  | 'custom_schedule'       // per-period absolute amounts (drawdownCustomSchedule[])
+  | 'cash_available';       // alias to capex_minus_presales (MAAD pattern)
 
 export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
   'capex_basis',
@@ -799,14 +811,22 @@ export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
   'debt_equity_ratio',
   'capex_minus_presales',
   'min_cash_floor',
+  'front_loaded',
+  'equal_periodic',
+  'custom_schedule',
+  'cash_available',
 ] as const;
 
 export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
-  capex_basis:          'CapEx Basis (LTV × CapEx)',
-  manual:               'Manual per Period',
+  capex_basis:          'Matched to CapEx (LTV × CapEx)',
+  manual:               'Manual % per Period',
   debt_equity_ratio:    'Debt/Equity Ratio % of CapEx',
   capex_minus_presales: 'CapEx minus Pre-sales',
   min_cash_floor:       'Minimum Cash Floor',
+  front_loaded:         'Front-loaded (Bullet draw, Y1)',
+  equal_periodic:       'Equal Periodic over Availability',
+  custom_schedule:      'Custom per-period amounts',
+  cash_available:       'Cash-Available Basis (MAAD)',
 };
 
 // Repayment matrix:
@@ -815,12 +835,20 @@ export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
 // 'cashsweep_continuous' -> sweeps every period after construction
 // 'cashsweep_from_period' -> sweeps from sweepStartPeriod onward
 // 'cashsweep_min_cash' -> sweeps to keep cash above sweepMinCashFloor
+// M2.0L (2026-05-11): repayment matrix widens to 9 methods (5 original
+// + 4 new). New: equal_periodic_amortization (annuity PMT), bullet
+// (interest only + principal at maturity), balloon (small periodic +
+// large balloon), custom_schedule (per-period amounts).
 export type RepaymentMethod =
-  | 'manual'
-  | 'straight_line'
-  | 'cashsweep_continuous'
-  | 'cashsweep_from_period'
-  | 'cashsweep_min_cash';
+  | 'manual'                            // distribution[] per period (% of principal)
+  | 'straight_line'                     // = equal principal per period
+  | 'cashsweep_continuous'              // sweep continuously after grace
+  | 'cashsweep_from_period'             // sweep from sweepStartPeriod onward
+  | 'cashsweep_min_cash'                // sweep to keep cash above sweepMinCashFloor
+  | 'equal_periodic_amortization'       // annuity formula (PMT = P × r(1+r)^n / ((1+r)^n - 1))
+  | 'bullet'                            // interest only during tenor, principal at maturity
+  | 'balloon'                           // small periodic + large balloonPct% at maturity
+  | 'custom_schedule';                  // per-period absolute amounts (repaymentCustomSchedule[])
 
 export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
   'manual',
@@ -828,14 +856,111 @@ export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
   'cashsweep_continuous',
   'cashsweep_from_period',
   'cashsweep_min_cash',
+  'equal_periodic_amortization',
+  'bullet',
+  'balloon',
+  'custom_schedule',
 ] as const;
 
 export const REPAYMENT_METHOD_LABELS: Record<RepaymentMethod, string> = {
-  manual:                 'Manual per Period',
-  straight_line:          'Straight-line over N',
-  cashsweep_continuous:   'Cash Sweep, Continuous',
-  cashsweep_from_period:  'Cash Sweep, from Period N',
-  cashsweep_min_cash:     'Cash Sweep, Maintain Floor',
+  manual:                       'Manual % per Period',
+  straight_line:                'Equal Principal (Straight-line)',
+  cashsweep_continuous:         'Cash Sweep, Continuous',
+  cashsweep_from_period:        'Cash Sweep, from Period N',
+  cashsweep_min_cash:           'Cash Sweep, Maintain Floor',
+  equal_periodic_amortization:  'Equal Periodic Payment (Annuity)',
+  bullet:                       'Bullet at Maturity (interest only)',
+  balloon:                      'Balloon (small periodic + balloon)',
+  custom_schedule:              'Custom per-period amounts',
+};
+
+// M2.0L (2026-05-11): debt facility extensions. Optional fields keep
+// v8 additive. Legacy FinancingTranche shape continues to compute via
+// the calc engine; new fields enable multi-facility (senior_construction
+// / senior_term / mezzanine / bridge / bullet), IDC treatment matrix
+// (capitalize / expense / mixed), fees (upfront + commitment), covenants
+// (DSCR + LTV, informational), prepayments, PIK toggle, principal as
+// absolute amount alternative to ltvPct.
+export type FacilityType =
+  | 'senior_construction'
+  | 'senior_term'
+  | 'mezzanine'
+  | 'bridge'
+  | 'bullet'
+  | 'other';
+
+export const FACILITY_TYPES: readonly FacilityType[] = [
+  'senior_construction',
+  'senior_term',
+  'mezzanine',
+  'bridge',
+  'bullet',
+  'other',
+] as const;
+
+export const FACILITY_TYPE_LABELS: Record<FacilityType, string> = {
+  senior_construction: 'Senior Construction Loan',
+  senior_term:         'Senior Term Loan',
+  mezzanine:           'Mezzanine',
+  bridge:              'Bridge',
+  bullet:              'Bullet Facility',
+  other:               'Other',
+};
+
+export type InterestRateType = 'fixed' | 'floating';
+
+export type BaseRate =
+  | 'saibor_1m' | 'saibor_3m' | 'saibor_6m'
+  | 'sofr' | 'eibor';
+
+export const BASE_RATES: readonly BaseRate[] = ['saibor_1m', 'saibor_3m', 'saibor_6m', 'sofr', 'eibor'] as const;
+
+export const BASE_RATE_LABELS: Record<BaseRate, string> = {
+  saibor_1m: 'SAIBOR 1M',
+  saibor_3m: 'SAIBOR 3M',
+  saibor_6m: 'SAIBOR 6M',
+  sofr:      'SOFR',
+  eibor:     'EIBOR',
+};
+
+// M2.0L: IDC treatment per IFRS 23. 'capitalize' adds IDC to asset
+// basis (auto-generates a read-only cost line in Tab 3). 'expense'
+// charges to P&L immediately. 'mixed' capitalizes during construction
+// and expenses afterwards (idcMixedSplitPeriod is the cut-over).
+export type IDCTreatment = 'capitalize' | 'expense' | 'mixed';
+
+export const IDC_TREATMENTS: readonly IDCTreatment[] = ['capitalize', 'expense', 'mixed'] as const;
+
+export const IDC_TREATMENT_LABELS: Record<IDCTreatment, string> = {
+  capitalize: 'Capitalize (IFRS 23 standard)',
+  expense:    'Expense (P&L during construction)',
+  mixed:      'Mixed (capitalize then expense)',
+};
+
+// M2.0L: fee treatment. 'capitalize' adds to asset basis like IDC
+// when treatment matches; 'expense' charges to P&L; 'amortize'
+// spreads over tenor as interest-equivalent.
+export type FeeTreatment = 'capitalize' | 'expense' | 'amortize';
+
+export const FEE_TREATMENTS: readonly FeeTreatment[] = ['capitalize', 'expense', 'amortize'] as const;
+
+export const FEE_TREATMENT_LABELS: Record<FeeTreatment, string> = {
+  capitalize: 'Capitalize to asset',
+  expense:    'Expense to P&L',
+  amortize:   'Amortize over tenor',
+};
+
+// M2.0L: equity tranche type. 'cash' = sponsor / LP cash. 'in_kind'
+// = non-cash contribution (land, sweat equity). 'jv' = joint venture
+// partner.
+export type EquityTrancheType = 'cash' | 'in_kind' | 'jv';
+
+export const EQUITY_TRANCHE_TYPES: readonly EquityTrancheType[] = ['cash', 'in_kind', 'jv'] as const;
+
+export const EQUITY_TRANCHE_TYPE_LABELS: Record<EquityTrancheType, string> = {
+  cash:    'Cash Equity',
+  in_kind: 'In-Kind',
+  jv:      'JV Partner',
 };
 
 export interface FinancingTranche {
@@ -853,16 +978,62 @@ export interface FinancingTranche {
   drawdownDistribution?: number[];     // manual only
   drawdownIncludeLand?: boolean;       // capex_minus_presales: include land in net
   drawdownMinCashFloor?: number;       // min_cash_floor only
+  // M2.0L (2026-05-11): per-period absolute amounts for custom_schedule
+  drawdownCustomSchedule?: number[];
   // Repayment
   repaymentMethod: RepaymentMethod;
   repaymentPeriods: number;
   repaymentManualDistribution?: number[]; // manual only
   sweepStartPeriod?: number;              // cashsweep_from_period
   sweepMinCashFloor?: number;             // cashsweep_min_cash
+  // M2.0L: per-period absolute amounts for repayment custom_schedule
+  repaymentCustomSchedule?: number[];
   // IDC capitalization (interest during construction goes to principal,
   // not paid in cash). When false, interest is expensed during
   // construction and reduces equity contribution.
+  // M2.0L: superseded by idcTreatment (3 options) when set; this
+  // boolean remains for legacy snapshots (true -> capitalize, false ->
+  // expense).
   idcCapitalize: boolean;
+
+  // ── M2.0L (2026-05-11) extensions — all optional, additive ────────
+  facilityType?: FacilityType;
+  lender?: string;
+  /** Absolute principal. When set, overrides ltvPct calculation. */
+  principal?: number;
+  interestRateType?: InterestRateType;
+  baseRate?: BaseRate;
+  /** Spread over base rate, in basis points (250 = 2.50%). */
+  spreadBps?: number;
+  /** Total facility life in periods (>= availabilityPeriods + gracePeriods). */
+  tenorPeriods?: number;
+  /** Window during which drawdowns can occur (within tenor). */
+  availabilityPeriods?: number;
+  /** Periods during which no principal repayment is due. */
+  gracePeriods?: number;
+  /** Upfront fee % of principal. */
+  upfrontFeePct?: number;
+  upfrontFeeTreatment?: FeeTreatment;
+  /** Commitment fee % per annum on undrawn balance. */
+  commitmentFeePct?: number;
+  /** Informational covenant; future M5 will surface breaches. */
+  dscrCovenant?: number;
+  ltvCovenant?: number;
+  /** Replaces idcCapitalize when set. Mixed treatment uses idcMixedSplitPeriod. */
+  idcTreatment?: IDCTreatment;
+  /** For idcTreatment='mixed': last period of capitalization (inclusive). */
+  idcMixedSplitPeriod?: number;
+  /** For repaymentMethod='balloon': % of principal due at maturity. */
+  balloonPct?: number;
+  /** For cash-sweep repayments: % of available CF directed to principal (default 75). */
+  sweepRatio?: number;
+  /** Discrete prepayments scheduled at specific periods. */
+  prepayments?: Array<{ period: number; amount: number }>;
+  /** Payment-in-kind (capitalised interest deferral). */
+  pikEnabled?: boolean;
+  /** When true (default for capitalize/mixed treatments), auto-generate
+   *  a read-only cost line in Tab 3 for the capitalized IDC. */
+  autoGenerateIdcCostLine?: boolean;
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────
@@ -890,6 +1061,25 @@ export interface EquityContribution {
   amount: number;             // currency
   timing: EquityTiming;
   distribution?: number[];    // manual only; length = constructionPeriods
+
+  // ── M2.0L (2026-05-11) extensions — all optional, additive ────────
+  /** Cash / In-Kind / JV. Drives capital stack categorisation. */
+  type?: EquityTrancheType;
+  /** Free-text source: 'Sponsor', 'Landowner', 'LP Fund X', etc. */
+  source?: string;
+  /** Optional scope narrowing (project-wide / specific phase / specific asset). */
+  scope?: 'project' | 'phase' | 'asset';
+  scopeId?: string;
+  /** Target IRR for waterfall (M4); stored but not yet consumed by calc engine. */
+  irrHurdle?: number;
+  /** Preferred return rate, % per annum (M4). */
+  preferredReturn?: number;
+  /** True when auto-created from a Land (In-Kind) cost line on Tab 3. */
+  autoDetectedFromCostLine?: boolean;
+  /** When autoDetectedFromCostLine, points back at the source cost line id. */
+  sourceCostLineId?: string;
+  /** Per-asset scope reference when scope='asset'. */
+  assetId?: string;
 }
 
 // ── M2.0e: Asset type bank by project type ────────────────────────────────
