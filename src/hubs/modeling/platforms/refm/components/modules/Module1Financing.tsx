@@ -459,16 +459,21 @@ function TrancheCard({
               manual, custom_schedule, equal_periodic_amortization)
               migrate at hydrate; users never see them in the picker. */}
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Method</label>
+          {/* P3-Fix 6 (2026-05-12): Equal Total / Equal Principal
+              sub-method dropdown dropped. Equal Repayment defaults to
+              equal_principal (declining balance, simpler mental model).
+              Cash Sweep drops the sweep ratio input (defaults to 100%
+              above project minimum cash reserve). equalRepaymentSubMethod
+              + cashSweepConfig.sweepRatio stay on schema for back-compat;
+              calc engine treats Equal Repayment as equal_principal and
+              Cash Sweep as 100% sweep ratio. */}
           <select
             value={mapLegacyRepayment(tranche.repaymentMethod)}
             onChange={(e) => {
               const m = e.target.value as RepaymentMethod;
               const patch: Partial<FinancingTranche> = { repaymentMethod: m };
-              if (m === 'equal_repayment' && !tranche.equalRepaymentSubMethod) {
-                patch.equalRepaymentSubMethod = 'equal_total';
-              }
               if (m === 'cash_sweep' && !tranche.cashSweepConfig) {
-                patch.cashSweepConfig = { startingYear: 1, sweepRatio: 75 };
+                patch.cashSweepConfig = { startingYear: 1, sweepRatio: 100 };
               }
               onUpdate(patch);
             }}
@@ -479,41 +484,29 @@ function TrancheCard({
               <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
             ))}
           </select>
-          {mapLegacyRepayment(tranche.repaymentMethod) === 'equal_repayment' && (
-            <select
-              value={tranche.equalRepaymentSubMethod ?? 'equal_total'}
-              onChange={(e) => onUpdate({ equalRepaymentSubMethod: e.target.value as EqualRepaymentSubMethod })}
-              style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-equal-sub`}
-            >
-              {EQUAL_REPAYMENT_SUB_METHODS.map((s) => (
-                <option key={s} value={s}>{EQUAL_REPAYMENT_SUB_METHOD_LABELS[s]}</option>
-              ))}
-            </select>
-          )}
           {mapLegacyRepayment(tranche.repaymentMethod) === 'cash_sweep' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 4 }} data-testid={`tranche-${tranche.id}-cash-sweep-inputs`}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, marginTop: 4 }} data-testid={`tranche-${tranche.id}-cash-sweep-inputs`}>
               <input
                 type="number" min={1}
                 placeholder="Starting Year"
                 value={tranche.cashSweepConfig?.startingYear ?? 1}
-                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: Math.max(1, parseInt(e.target.value) || 1), sweepRatio: tranche.cashSweepConfig?.sweepRatio ?? 75 } })}
+                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: Math.max(1, parseInt(e.target.value) || 1), sweepRatio: 100 } })}
                 style={inputStyle}
                 data-testid={`tranche-${tranche.id}-sweep-start-year`}
               />
-              <input
-                type="number" min={0} max={100}
-                placeholder="Sweep %"
-                value={tranche.cashSweepConfig?.sweepRatio ?? 75}
-                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: tranche.cashSweepConfig?.startingYear ?? 1, sweepRatio: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) } })}
-                style={inputStyle}
-                data-testid={`tranche-${tranche.id}-sweep-ratio`}
-              />
+              <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>
+                Sweep ratio defaults to 100% of excess cash above project minimum cash reserve.
+              </div>
             </div>
           )}
           {mapLegacyRepayment(tranche.repaymentMethod) === 'year_on_year_pct' && (
             <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
               Configure per-period % via Advanced section (sums to 100).
+            </div>
+          )}
+          {mapLegacyRepayment(tranche.repaymentMethod) === 'equal_repayment' && (
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 4, fontStyle: 'italic' }}>
+              Defaults to equal-principal (declining balance) over the tenor.
             </div>
           )}
         </div>
@@ -574,7 +567,10 @@ function TrancheCard({
 
       {advancedOpen && (
         <div style={{ background: 'var(--color-grey-pale)', padding: 8, borderRadius: 4, marginBottom: 8 }} data-testid={`tranche-${tranche.id}-advanced`}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
+          {/* P3-Fix 6 (2026-05-12): legacy Sweep Ratio % input dropped
+              from Advanced. Cash Sweep repayment defaults to 100% of
+              excess cash above project minimum cash reserve. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
               <input type="number" step={0.1} min={0} value={tranche.upfrontFeePct ?? 0} onChange={(e) => onUpdate({ upfrontFeePct: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
@@ -588,10 +584,6 @@ function TrancheCard({
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
               <input type="number" step={0.01} min={0} value={tranche.commitmentFeePct ?? 0} onChange={(e) => onUpdate({ commitmentFeePct: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Sweep Ratio %</label>
-              <input type="number" min={0} max={100} value={tranche.sweepRatio ?? 75} onChange={(e) => onUpdate({ sweepRatio: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-sweep-ratio`} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
