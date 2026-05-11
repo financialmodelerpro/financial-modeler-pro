@@ -937,18 +937,31 @@ export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
 // + 4 new). New: equal_periodic_amortization (annuity PMT), bullet
 // (interest only + principal at maturity), balloon (small periodic +
 // large balloon), custom_schedule (per-period amounts).
+// P2-Fix 5 (2026-05-11): repayment matrix collapses to 3 user-visible
+// methods. Legacy values stay on the type for snapshot compat; the UI
+// emits only the 3 new ones. migrateM20mPass2Financing remaps existing
+// snapshots.
 export type RepaymentMethod =
-  | 'manual'                            // distribution[] per period (% of principal)
-  | 'straight_line'                     // = equal principal per period
-  | 'cashsweep_continuous'              // sweep continuously after grace
-  | 'cashsweep_from_period'             // sweep from sweepStartPeriod onward
-  | 'cashsweep_min_cash'                // sweep to keep cash above sweepMinCashFloor
-  | 'equal_periodic_amortization'       // annuity formula (PMT = P × r(1+r)^n / ((1+r)^n - 1))
-  | 'bullet'                            // interest only during tenor, principal at maturity
-  | 'balloon'                           // small periodic + large balloonPct% at maturity
-  | 'custom_schedule';                  // per-period absolute amounts (repaymentCustomSchedule[])
+  // ── New (P2-Fix 5) ────────────────────────────────────────────────
+  | 'equal_repayment'                   // sub-mode: equal_total (annuity) or equal_principal
+  | 'year_on_year_pct'                  // yearOnYearPctSchedule[] per period
+  | 'cash_sweep'                        // cashSweepConfig: { startingYear, sweepRatio }
+  // ── Legacy (kept for snapshot back-compat, never emitted by UI) ───
+  | 'manual'
+  | 'straight_line'
+  | 'cashsweep_continuous'
+  | 'cashsweep_from_period'
+  | 'cashsweep_min_cash'
+  | 'equal_periodic_amortization'
+  | 'bullet'
+  | 'balloon'
+  | 'custom_schedule';
 
 export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
+  'equal_repayment',
+  'year_on_year_pct',
+  'cash_sweep',
+  // Legacy keys retained for snapshot loaders only.
   'manual',
   'straight_line',
   'cashsweep_continuous',
@@ -960,16 +973,37 @@ export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
   'custom_schedule',
 ] as const;
 
+// UI dropdowns iterate this 3-element constant.
+export const REPAYMENT_METHODS_USER: readonly RepaymentMethod[] = [
+  'equal_repayment',
+  'year_on_year_pct',
+  'cash_sweep',
+] as const;
+
 export const REPAYMENT_METHOD_LABELS: Record<RepaymentMethod, string> = {
-  manual:                       'Manual % per Period',
-  straight_line:                'Equal Principal (Straight-line)',
-  cashsweep_continuous:         'Cash Sweep, Continuous',
-  cashsweep_from_period:        'Cash Sweep, from Period N',
-  cashsweep_min_cash:           'Cash Sweep, Maintain Floor',
-  equal_periodic_amortization:  'Equal Periodic Payment (Annuity)',
-  bullet:                       'Bullet at Maturity (interest only)',
-  balloon:                      'Balloon (small periodic + balloon)',
-  custom_schedule:              'Custom per-period amounts',
+  equal_repayment:              'Equal Repayment',
+  year_on_year_pct:             'Year-on-Year %',
+  cash_sweep:                   'Cash Sweep',
+  // Legacy labels (kept so any old snapshot still renders a name).
+  manual:                       'Manual % per Period (legacy)',
+  straight_line:                'Equal Principal (legacy)',
+  cashsweep_continuous:         'Cash Sweep, Continuous (legacy)',
+  cashsweep_from_period:        'Cash Sweep, from Period N (legacy)',
+  cashsweep_min_cash:           'Cash Sweep, Maintain Floor (legacy)',
+  equal_periodic_amortization:  'Equal Periodic Payment (legacy)',
+  bullet:                       'Bullet at Maturity (legacy)',
+  balloon:                      'Balloon (legacy)',
+  custom_schedule:              'Custom per-period amounts (legacy)',
+};
+
+// P2-Fix 5: sub-mode for the new equal_repayment method.
+export type EqualRepaymentSubMethod = 'equal_total' | 'equal_principal';
+
+export const EQUAL_REPAYMENT_SUB_METHODS: readonly EqualRepaymentSubMethod[] = ['equal_total', 'equal_principal'] as const;
+
+export const EQUAL_REPAYMENT_SUB_METHOD_LABELS: Record<EqualRepaymentSubMethod, string> = {
+  equal_total:     'Equal Total Payment (annuity)',
+  equal_principal: 'Equal Principal (declining)',
 };
 
 // M2.0L (2026-05-11): debt facility extensions. Optional fields keep
@@ -1132,6 +1166,17 @@ export interface FinancingTranche {
   /** When true (default for capitalize/mixed treatments), auto-generate
    *  a read-only cost line in Tab 3 for the capitalized IDC. */
   autoGenerateIdcCostLine?: boolean;
+
+  // ── M2.0M Pass 2 (2026-05-11) ────────────────────────────────────
+  // P2-Fix 5: sub-mode for the new equal_repayment method.
+  equalRepaymentSubMethod?: EqualRepaymentSubMethod;
+  // P2-Fix 5: % per period for year_on_year_pct (sums to 100, auto-normalised).
+  yearOnYearPctSchedule?: number[];
+  // P2-Fix 5: cash sweep config for the new cash_sweep method.
+  cashSweepConfig?: {
+    startingYear: number;
+    sweepRatio: number;  // 0..100, % of excess cash above project min reserve
+  };
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────
@@ -1304,7 +1349,17 @@ export interface ProjectFinancingConfig {
   viewMode: FundingViewMode;
   /** Required when viewMode='single_asset'. */
   selectedAssetId?: string;
+  // P2-Fix 6 (2026-05-11): project-level cash floor applied across ALL
+  // funding methods and cash-sweep repayments. Defaults to 0 on fresh
+  // projects; migrateM20mPass2Financing lifts any legacy
+  // cashDeficitConfig.minimumCashReserve into this field.
+  minimumCashReserve?: number;
+  // P2-Fix 10 (2026-05-11): phase filter for schedules. '__all__' = aggregate
+  // across phases. Specific phase id narrows the views. Defaults to '__all__'.
+  phaseFilter?: string;
 }
+
+export const PHASE_FILTER_ALL = '__all__';
 
 export const DEFAULT_FUNDING_METHOD_1_CONFIG: FundingMethod1Config = { debtPct: 70, equityPct: 30 };
 export const DEFAULT_FUNDING_METHOD_2_CONFIG: FundingMethod2Config = { master: [] };
@@ -1321,6 +1376,8 @@ export const DEFAULT_PROJECT_FINANCING_CONFIG: ProjectFinancingConfig = {
   fixedRatio: { ...DEFAULT_FUNDING_METHOD_1_CONFIG },
   parcelFunding: [],
   viewMode: 'combined',
+  minimumCashReserve: 0,
+  phaseFilter: PHASE_FILTER_ALL,
 };
 
 // ── M2.0e: Asset type bank by project type ────────────────────────────────
@@ -1592,11 +1649,14 @@ export function makeDefaultProject(
     outputGranularity: 'annual',
     // M2.0M (2026-05-11): start every new project on Method 1 (70/30)
     // with no per-parcel land funding configs and Combined view.
+    // P2-Fix 6 + Fix 10: minimumCashReserve=0 + phaseFilter='__all__' by default.
     financing: {
       fundingMethod: 1,
       fixedRatio: { ...DEFAULT_FUNDING_METHOD_1_CONFIG },
       parcelFunding: [],
       viewMode: 'combined',
+      minimumCashReserve: 0,
+      phaseFilter: PHASE_FILTER_ALL,
     },
   };
 }

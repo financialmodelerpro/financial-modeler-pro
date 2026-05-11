@@ -204,7 +204,6 @@ function renderMethodInputs(
   }
   // id === 4
   const m = cfg.cashDeficitConfig ?? { initialCash: 0, minimumCashReserve: 0, debtPct: 70, equityPct: 30 };
-  const minReserveScalar = typeof m.minimumCashReserve === 'number' ? m.minimumCashReserve : 0;
   return (
     <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-4-inputs">
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -217,16 +216,10 @@ function renderMethodInputs(
           style={{ ...numStyle, width: 120 }}
         />
       </label>
-      <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
-        Min Cash Reserve:
-        <input
-          type="number" min={0}
-          data-testid="m4-min-reserve"
-          value={minReserveScalar}
-          onChange={(e) => patch({ cashDeficitConfig: { ...m, minimumCashReserve: parseFloat(e.target.value) || 0 } })}
-          style={{ ...numStyle, width: 120 }}
-        />
-      </label>
+      {/* P2-Fix 6 (2026-05-11): Method 4's min-cash input is gone from
+          here; the project-level Minimum Cash Reserve (top of Inputs)
+          now feeds Method 4. cashDeficitConfig.minimumCashReserve stays
+          on the schema for legacy snapshots. */}
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
         Debt %:
         <input
@@ -963,6 +956,28 @@ export default function Module1Financing(): React.JSX.Element {
       {/* ── Inputs sub-tab ──────────────────────────────────────────── */}
       {subTab === 'inputs' && (
         <>
+          {/* P2-Fix 6 (2026-05-11): project-level cash floor sits ABOVE
+              every other Inputs section. Applies across all 4 funding
+              methods and the cash-sweep repayment. */}
+          <div style={sectionCardStyle} data-testid="financing-min-cash-section">
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>
+              Project Financing Settings
+            </strong>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--sp-2)', alignItems: 'center' }}>
+              <label style={{ fontSize: 12, color: 'var(--color-meta)' }}>Minimum Cash Reserve</label>
+              <input
+                type="number" min={0}
+                data-testid="financing-min-cash-reserve"
+                value={financingConfig.minimumCashReserve ?? 0}
+                onChange={(e) => setFinancingConfig({ minimumCashReserve: Math.max(0, parseFloat(e.target.value) || 0) })}
+                style={{ ...inputStyle, maxWidth: 240 }}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }}>
+              Applies to all funding methods and repayment schedules. No drawdown or repayment will let closing cash fall below this floor.
+            </div>
+          </div>
+
           {/* M2.0M: Asset-level view toggle (Combined / Single Asset) */}
           <div style={sectionCardStyle} data-testid="financing-view-mode">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>

@@ -48,7 +48,9 @@ import {
   makeDefaultFinancingTranche,
   DEFAULT_PHASE_ID,
   DEFAULT_PROJECT_FINANCING_CONFIG,
+  PHASE_FILTER_ALL,
 } from './module1-types';
+import type { RepaymentMethod } from './module1-types';
 
 export const SCHEMA_VERSION = 8;
 
@@ -187,13 +189,15 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20mPass6NdaToProject(
-    migrateM20mPass6DisplayDefaults(
-      migrateM20MFinancing(
-        migrateM20Pass5Categories(
-          migrateM20Pass4Inheritance(
-            migrateM20lDedupeCostLineIds(
-              migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20mPass2Financing(
+    migrateM20mPass6NdaToProject(
+      migrateM20mPass6DisplayDefaults(
+        migrateM20MFinancing(
+          migrateM20Pass5Categories(
+            migrateM20Pass4Inheritance(
+              migrateM20lDedupeCostLineIds(
+                migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+              ),
             ),
           ),
         ),
@@ -212,13 +216,15 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip.
-  return migrateM20mPass6NdaToProject(
-    migrateM20mPass6DisplayDefaults(
-      migrateM20MFinancing(
-        migrateM20Pass5Categories(
-          migrateM20Pass4Inheritance(
-            migrateM20lDedupeCostLineIds(
-              migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  return migrateM20mPass2Financing(
+    migrateM20mPass6NdaToProject(
+      migrateM20mPass6DisplayDefaults(
+        migrateM20MFinancing(
+          migrateM20Pass5Categories(
+            migrateM20Pass4Inheritance(
+              migrateM20lDedupeCostLineIds(
+                migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+              ),
             ),
           ),
         ),
@@ -226,6 +232,119 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
     ),
   );
 };
+
+// M2.0M Pass 2 (2026-05-11): consolidate Tab 4 Financing schema.
+// Handles 5 concerns in one pass:
+//   (Fix 6) lift legacy cashDeficitConfig.minimumCashReserve into
+//           project.financing.minimumCashReserve when top-level absent.
+//   (Fix 7) map deprecated IDC treatment 'mixed' -> 'capitalize'.
+//   (Fix 8) map facility scope='asset' -> 'phase' using parent phase.
+//   (Fix 10) stamp phaseFilter='__all__' default when missing.
+//   (Fix 5) map deprecated repayment methods to the new 3-method enum.
+// Idempotent: re-running on a Pass-2-shaped snapshot is a no-op.
+function migrateM20mPass2Financing(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  let nextProject = project;
+  let touched = false;
+
+  if (project.financing) {
+    const f = project.financing;
+    const patch: Partial<typeof f> = {};
+    // Fix 6: lift minimumCashReserve from cashDeficitConfig.
+    if (f.minimumCashReserve === undefined) {
+      const cd = f.cashDeficitConfig;
+      const fromCd = cd ? cd.minimumCashReserve : undefined;
+      const scalar = typeof fromCd === 'number' ? fromCd : (Array.isArray(fromCd) && fromCd.length > 0 ? fromCd[0] : 0);
+      patch.minimumCashReserve = scalar;
+      touched = true;
+    }
+    // Fix 10: default phaseFilter to '__all__'.
+    if (f.phaseFilter === undefined) {
+      patch.phaseFilter = PHASE_FILTER_ALL;
+      touched = true;
+    }
+    if (Object.keys(patch).length > 0) {
+      nextProject = { ...project, financing: { ...f, ...patch } };
+    }
+  }
+
+  // Fix 7 + Fix 8 + Fix 5: per-facility migrations.
+  const repaymentMap: Record<string, RepaymentMethod> = {
+    straight_line: 'equal_repayment',
+    equal_periodic_amortization: 'equal_repayment',
+    cashsweep_continuous: 'cash_sweep',
+    cashsweep_from_period: 'cash_sweep',
+    cashsweep_min_cash: 'cash_sweep',
+    bullet: 'equal_repayment',
+    balloon: 'year_on_year_pct',
+    manual: 'year_on_year_pct',
+    custom_schedule: 'year_on_year_pct',
+  };
+  const assets = (snap.assets ?? []) as Asset[];
+  const tranches = (snap.financingTranches ?? []) as FinancingTranche[];
+  const newTranches: FinancingTranche[] = tranches.map((t) => {
+    let nt: FinancingTranche = t;
+    // Fix 7: IDC mixed -> capitalize.
+    if ((nt.idcTreatment as unknown) === 'mixed') {
+      nt = { ...nt, idcTreatment: 'capitalize' };
+      touched = true;
+    }
+    // Fix 8: scope='asset' -> 'phase' using parent phase of scopeId/assetId.
+    const tt = nt as FinancingTranche & { scope?: string; scopeId?: string };
+    if (tt.scope === 'asset') {
+      const targetAssetId = tt.scopeId ?? nt.assetId;
+      const parentPhaseId = targetAssetId
+        ? assets.find((a) => a.id === targetAssetId)?.phaseId
+        : undefined;
+      const replacement = { ...nt } as FinancingTranche & { scope?: string; scopeId?: string };
+      replacement.scope = 'phase';
+      replacement.scopeId = parentPhaseId ?? nt.phaseId;
+      nt = replacement as FinancingTranche;
+      touched = true;
+    }
+    // Fix 5: repayment method migration.
+    const oldMethod = nt.repaymentMethod as string;
+    if (oldMethod in repaymentMap) {
+      const newMethod = repaymentMap[oldMethod];
+      const patch: Partial<FinancingTranche> = { repaymentMethod: newMethod };
+      if (newMethod === 'equal_repayment') {
+        // Pick sub-method.
+        const sub = oldMethod === 'straight_line' ? 'equal_principal' : 'equal_total';
+        patch.equalRepaymentSubMethod = nt.equalRepaymentSubMethod ?? sub;
+        if (oldMethod === 'bullet' && (nt.tenorPeriods ?? 0) <= 0) {
+          patch.tenorPeriods = 1;
+        }
+      } else if (newMethod === 'year_on_year_pct') {
+        // Carry over manual distribution where present.
+        if (!nt.yearOnYearPctSchedule && Array.isArray(nt.repaymentManualDistribution)) {
+          patch.yearOnYearPctSchedule = [...nt.repaymentManualDistribution];
+        }
+      } else if (newMethod === 'cash_sweep') {
+        if (!nt.cashSweepConfig) {
+          patch.cashSweepConfig = {
+            startingYear: nt.sweepStartPeriod ?? 1,
+            sweepRatio: nt.sweepRatio ?? 75,
+          };
+        }
+      }
+      nt = { ...nt, ...patch };
+      touched = true;
+    } else if (nt.repaymentMethod === 'equal_repayment' && !nt.equalRepaymentSubMethod) {
+      // Fresh facilities created post-P2 already on equal_repayment need
+      // a sub-method defaulted.
+      nt = { ...nt, equalRepaymentSubMethod: 'equal_total' };
+      touched = true;
+    }
+    return nt;
+  });
+
+  if (!touched) return snap;
+  return {
+    ...snap,
+    project: nextProject,
+    financingTranches: newTranches,
+  };
+}
 
 // M2.0M Pass 6 Fix 3 (2026-05-11): roll up legacy per-parcel NDA
 // toggles into the new project-level fields (projectNdaEnabled +
@@ -748,13 +867,15 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20mPass6NdaToProject(
-    migrateM20mPass6DisplayDefaults(
-      migrateM20MFinancing(
-        migrateM20Pass5Categories(
-          migrateM20Pass4Inheritance(
-            migrateM20lDedupeCostLineIds(
-              migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  snap = migrateM20mPass2Financing(
+    migrateM20mPass6NdaToProject(
+      migrateM20mPass6DisplayDefaults(
+        migrateM20MFinancing(
+          migrateM20Pass5Categories(
+            migrateM20Pass4Inheritance(
+              migrateM20lDedupeCostLineIds(
+                migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+              ),
             ),
           ),
         ),
