@@ -846,17 +846,35 @@ export default function Module1Financing(): React.JSX.Element {
   const capexPerPeriod = phaseCost.perPeriod;
   const presalesPerPeriod = new Array<number>(phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods).fill(0);
 
-  const phaseTranches = financingTranches.filter((t) => t.phaseId === phase.id);
+  // P3-Fix 9 (2026-05-12): All Phases aggregation. When phaseFilter is
+  // '__all__', Schedules sub-tab walks ALL facilities project-wide
+  // (each computed against its own phase's capex); when a specific
+  // phase is picked, schedules narrow to that phase's facilities.
+  // Inputs sub-tab is unaffected (Inputs Summary Tables walk all
+  // phases via inputsSummary regardless of filter).
+  const isAllPhases = (financingConfig.phaseFilter ?? PHASE_FILTER_ALL) === PHASE_FILTER_ALL;
+  const phaseTranches = isAllPhases
+    ? financingTranches
+    : financingTranches.filter((t) => t.phaseId === phase.id);
   const phaseEquity = equityContributions.filter((e) => e.phaseId === phase.id);
 
-  // Compute every facility's schedule once.
+  // Compute every facility's schedule once. P3-Fix 9: when aggregating
+  // across all phases, each facility must compute against its OWN phase
+  // (not the page-header's active phase) so the schedule lines up with
+  // each phase's capex curve.
   const resultsMap = useMemo(() => {
     const map = new Map<string, FinancingResult>();
     for (const t of phaseTranches) {
-      map.set(t.id, computeFinancing(t, phase, capexPerPeriod, presalesPerPeriod, project));
+      const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
+      const facilityCost = computePhaseCost(
+        facilityPhase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode,
+      );
+      const facilityCapex = facilityCost.perPeriod;
+      const facilityPresales = new Array<number>(facilityCost.perPeriod.length).fill(0);
+      map.set(t.id, computeFinancing(t, facilityPhase, facilityCapex, facilityPresales, project));
     }
     return map;
-  }, [phaseTranches, phase, capexPerPeriod, presalesPerPeriod, project]);
+  }, [phaseTranches, phase, phases, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode]);
 
   const stack = useMemo(
     () => computeCapitalStack(phaseTranches, phaseEquity, phaseCost.total),
