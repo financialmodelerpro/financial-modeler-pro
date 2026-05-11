@@ -1293,49 +1293,42 @@ function AssetCard({
               <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
                 No sub-units yet. Add at least one so revenue (Module 2) can attach.
               </div>
-            ) : (() => {
-              // M2.0L Pass2 Fix 1 + Fix 2 (2026-05-11): show Unit Size + Count
-              // columns ONLY when at least one sub-unit uses Units metric.
-              // Column widths are fixed via table-layout: fixed so switching
-              // metrics doesn't reflow the table.
-              const showUnitColumns = assetSubUnits.some((u) =>
-                u.metric === 'units' || (u.metric as unknown as string) === 'count',
-              );
-              return (
+            ) : (
+              /* P7-Fix 3 (2026-05-12): table-layout: fixed + explicit
+                 colgroup. ALL columns (Type, Category, Metric, Area,
+                 Unit Size, Count, Rate, Total Revenue, X) render in
+                 every mode so the table doesn't reflow when a row
+                 toggles between Area / Units. Area cell is editable
+                 in Area mode and a read-only derived caption in Units
+                 mode. Unit Size + Count cells are muted dashes when
+                 a row uses Area metric. New Total Revenue (No
+                 Indexation) column = Area x Rate (Area mode) or
+                 Count x Rate (Units mode); read-only. */
                 <table
                   style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}
                   data-testid={`asset-${asset.id}-subunit-table`}
-                  data-has-units={showUnitColumns}
                 >
                   <colgroup>
-                    <col style={{ width: '15%' }} />
-                    <col style={{ width: '11%' }} />
-                    <col style={{ width: '10%' }} />
                     <col style={{ width: '14%' }} />
-                    {showUnitColumns && <col style={{ width: '12%' }} />}
-                    {showUnitColumns && <col style={{ width: '10%' }} />}
-                    <col style={{ width: showUnitColumns ? '22%' : '44%' }} />
-                    <col style={{ width: '6%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '5%' }} />
                   </colgroup>
                   <thead>
-                    {/* M2.0L Pass3 Fix 11 (2026-05-11): Rate + Rate Unit
-                        columns merged. Header is dynamic per table state:
-                        when ALL rows are Area metric -> "Rate ({cur}/sqm)";
-                        when ANY row is Units metric -> "Rate (per-row unit)".
-                        Each row caption underneath rate input shows that
-                        row's specific unit (per unit / per room-night /
-                        per sqm/year etc) so the merged column is still
-                        unambiguous when category mixes. */}
                     <tr style={{ background: 'var(--color-grey-pale)' }}>
                       <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
                       <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
                       <th style={{ padding: '4px 6px', textAlign: 'left' }}>Metric</th>
                       <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
-                      {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>}
-                      {showUnitColumns && <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>}
-                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>
-                        Rate ({project.currency}{showUnitColumns ? '' : '/sqm'})
-                      </th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate ({project.currency})</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-total-revenue-header`}>Total Revenue (No Indexation)</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1348,15 +1341,14 @@ function AssetCard({
                         onUpdate={(patch) => updateSubUnit(u.id, patch)}
                         onRemove={() => removeSubUnit(u.id)}
                         decimals={project.displayDecimals ?? 2}
-                        showUnitColumns={showUnitColumns}
+                        scale={project.displayScale ?? 'full'}
                         assetStrategy={asset.strategy}
                         assetType={asset.type}
                       />
                     ))}
                   </tbody>
                 </table>
-              );
-            })()}
+              )}
           </div>
 
           {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy. */}
@@ -1448,55 +1440,32 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitColumns, assetStrategy, assetType }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; showUnitColumns: boolean; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
-  // M2.0j Fix 6 (2026-05-07): full bidirectional sync between count
-  // and area when metric === 'units'. Schema stays the same:
-  // metricValue is the canonical count (when metric=units) OR total
-  // sqm (when metric=area).
-  //
-  // Behaviour:
-  //   metric=area  -> Area input editable (= metricValue). Count derives
-  //                   (metricValue / unitArea) read-only, "-" when
-  //                   unitArea=0.
-  //   metric=units -> Count input editable (= metricValue). Area input
-  //                   ALSO editable; entering area recalcs metricValue
-  //                   = area / unitArea (count). Both stay in sync.
-  //                   When unitArea=0, area edit ignored (we cannot
-  //                   derive a count without a unit size). Inline
-  //                   warning surfaced via aria-invalid + caption.
+function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
+  // P7-Fix 3 (2026-05-12): all columns always render. Area cell is
+  // editable in Area mode; in Units mode it becomes a read-only
+  // derived caption (count x unitArea = total). Unit Size + Count
+  // cells are editable inputs in Units mode and muted dashes in
+  // Area mode. Total Revenue (No Indexation) = (Area mode: area x
+  // rate) or (Units mode: count x rate). Read-only.
   const isUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
   const unitArea = Math.max(0, subUnit.unitArea ?? 0);
-  // Resolved area + count for the row's display cells.
   const totalArea = isUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
   const count = isUnits
     ? subUnit.metricValue
     : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
+  const totalRevenueNoIdx = isUnits
+    ? subUnit.metricValue * subUnit.unitPrice
+    : subUnit.metricValue * subUnit.unitPrice;
   const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
-  // M2.0M Pass 6 Fix 1: per-row count unit label (Units / Keys / Beds /
-  // Bays / Tenants / Items) rendered as a caption beneath the Count cell.
   const countUnit = countUnitLabel(subUnit.category, assetStrategy, assetType);
-  // M2.0j Fix 6: validation - metric=units requires unitArea > 0.
   const unitsButNoSize = isUnits && unitArea === 0 && subUnit.metricValue > 0;
-  // Edit handlers
   const onEditCount = (next: number): void => {
     onUpdate({ metricValue: Math.max(0, next) });
-  };
-  const onEditAreaWhenUnits = (next: number): void => {
-    if (unitArea > 0) {
-      const newCount = Math.max(0, next) / unitArea;
-      onUpdate({ metricValue: newCount });
-    }
-    // If unitArea === 0, we cannot derive count; ignore the area edit.
   };
   const onEditAreaWhenArea = (next: number): void => {
     onUpdate({ metricValue: Math.max(0, next) });
   };
-  // M2.0L Pass 5 (2026-05-11): Units-mode derived area moves from the
-  // cell to a caption row that renders BELOW the main row. Computed
-  // here so the caption can mention both Count and Unit Size.
-  const captionRowColspan = showUnitColumns ? 9 : 7;
   return (
-    <>
     <tr data-testid={`subunit-row-${subUnit.id}`}>
       <td style={{ padding: '4px 6px' }}>
         <input type="text" value={subUnit.name} data-testid={`subunit-${subUnit.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={{ ...inputStyle, fontSize: 11 }} placeholder="1BR, Hotel Twin..." />
@@ -1514,9 +1483,6 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
             const next = e.target.value as SubUnitMetric;
             const check = canSwitchMetric(subUnit, next);
             if (!check.ok) {
-              // M2.0L: refuse the switch when it would zero out area
-              // (unitArea=0, metric=area, area>0). User must set Unit
-              // Size first. The dropdown stays on the current value.
               if (typeof window !== 'undefined' && typeof window.alert === 'function') {
                 window.alert(check.reason);
               }
@@ -1532,56 +1498,44 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
         </select>
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {/* M2.0L Pass 5 (2026-05-11): Units-mode area readout moves
-            from the cell into a small caption that renders BELOW the
-            row (see <tr> sibling at the bottom of the component).
-            Area-mode keeps the editable input here.
-            M2.0L Fix 3 (2026-05-11): Area mode: input editable. Unit
-            Size + Count cells hidden entirely via {showUnitColumns}.
-            Units mode: cell empty (caption in sibling row carries the
-            derived area). */}
         {isUnits ? (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-area-cell-empty`}>-</span>
+          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-area-derived`}>
+            {formatArea(totalArea, decimals)}
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 2 }} data-testid={`subunit-${subUnit.id}-area-readout`}>
+              {unitArea > 0
+                ? `${Number(count.toFixed(2)).toLocaleString('en-US')} x ${Number(unitArea.toFixed(2)).toLocaleString('en-US')}`
+                : 'set Unit Size'}
+            </div>
+          </div>
         ) : (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}
       </td>
-      {showUnitColumns && (
-        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-          {isUnits ? (
-            <>
-              <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
-              {unitsButNoSize && (
-                <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
-              )}
-            </>
-          ) : (
-            <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
-          )}
-        </td>
-      )}
-      {showUnitColumns && (
-        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-          {isUnits ? (
-            <>
-              <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
-              <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
-                {countUnit}
-              </div>
-            </>
-          ) : (
-            <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
-          )}
-        </td>
-      )}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {/* M2.0L Pass3 Fix 11 (2026-05-11): merged Rate + Rate Unit
-            column. Rate input on top, per-row unit caption underneath
-            so each row's specific semantics (per unit / per room-night
-            / per sqm/year) remain visible after the Rate Unit column
-            was dropped. Currency comes from project.currency via the
-            existing currency prop, so all labels swap globally when
-            the user picks USD / AED / etc. in Tab 1. */}
+        {isUnits ? (
+          <>
+            <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
+            {unitsButNoSize && (
+              <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+            )}
+          </>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
+        )}
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {isUnits ? (
+          <>
+            <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
+              {countUnit}
+            </div>
+          </>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
+        )}
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         <AccountingNumberInput
           value={subUnit.unitPrice}
           onChange={(n) => onUpdate({ unitPrice: Math.max(0, n) })}
@@ -1597,20 +1551,13 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
           </div>
         )}
       </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-total-revenue`}>
+        {formatScaled(totalRevenueNoIdx, scale, decimals)}
+      </td>
       <td style={{ padding: '4px 6px' }}>
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
       </td>
     </tr>
-    {isUnits && (
-      <tr data-testid={`subunit-row-${subUnit.id}-caption`}>
-        <td colSpan={captionRowColspan} style={{ padding: '0 6px 6px 6px', fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'right' }}>
-          {unitArea > 0
-            ? `Derived area: ${Number(count.toFixed(2)).toLocaleString('en-US')} units x ${Number(unitArea.toFixed(2)).toLocaleString('en-US')} sqm = ${formatArea(totalArea, decimals)} sqm`
-            : 'Derived area: set Unit Size to compute total area'}
-        </td>
-      </tr>
-    )}
-    </>
   );
 }
 
