@@ -309,53 +309,11 @@ export default function Module1ProjectPhases(): React.JSX.Element {
         </div>
       </div>
 
-      {/* M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA deduction.
-          Replaces the per-parcel toggle in Tab 2. When enabled, applies
-          (roads% + parks%) uniformly to TOTAL phase land area when
-          deriving NDA for the rate_per_nda / rate_per_roads cost methods. */}
-      <div style={sectionCardStyle} data-testid="project-nda">
-        <h3 style={{ fontSize: 'var(--font-h3)', marginBottom: 'var(--sp-2)' }}>
-          Roads + Parks Deduction (NDA)
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', gap: 'var(--sp-2)', alignItems: 'center' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-small)', cursor: 'pointer' }} data-testid="project-nda-toggle-label">
-            <input
-              type="checkbox"
-              data-testid="project-nda-enabled"
-              checked={project.projectNdaEnabled === true}
-              onChange={(e) => setProject({ projectNdaEnabled: e.target.checked })}
-            />
-            Apply Roads/Parks Deduction
-          </label>
-          <div>
-            <InputLabel label="Roads %" help="Project-wide share of total land area reserved for roads. Applied uniformly to phase land when the deduction is enabled." />
-            <input
-              type="number" min={0} max={100}
-              data-testid="project-roads-pct"
-              value={project.projectRoadsPct ?? 0}
-              onChange={(e) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
-              disabled={project.projectNdaEnabled !== true}
-              style={{ ...inputStyle, opacity: project.projectNdaEnabled !== true ? 0.6 : 1 }}
-            />
-          </div>
-          <div>
-            <InputLabel label="Parks %" help="Project-wide share of total land area reserved for parks / green space." />
-            <input
-              type="number" min={0} max={100}
-              data-testid="project-parks-pct"
-              value={project.projectParksPct ?? 0}
-              onChange={(e) => setProject({ projectParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
-              disabled={project.projectNdaEnabled !== true}
-              style={{ ...inputStyle, opacity: project.projectNdaEnabled !== true ? 0.6 : 1 }}
-            />
-          </div>
-        </div>
-        {project.projectNdaEnabled === true && (
-          <div style={{ marginTop: 'var(--sp-1)', fontSize: 'var(--font-small)', color: 'var(--color-meta)' }} data-testid="project-nda-summary">
-            NDA = total land area x (1 - {Math.min(100, (project.projectRoadsPct ?? 0) + (project.projectParksPct ?? 0))}% deducted). Per-parcel NDA toggles in Tab 2 are ignored while this is enabled.
-          </div>
-        )}
-      </div>
+      {/* P8-Fix 1 (2026-05-12): NDA card moved to Tab 2 Assets & Sub-units
+          (lives below the Land Parcels totals row). Tab 1 stays focused
+          on project identity + phases. project.projectNdaEnabled +
+          projectRoadsPct + projectParksPct + projectNdaScope are
+          edited in the Tab 2 NDA card now. */}
 
       <div style={sectionCardStyle} data-testid="phases-section">
         <div

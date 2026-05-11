@@ -475,34 +475,37 @@ export default function Module1Assets(): React.JSX.Element {
           </tfoot>
         </table>
 
-        {/* P7-Fix 1 (2026-05-11): project-level NDA summary block. Replaces
-            the legacy per-parcel Roads %/Parks % inputs (still on schema for
-            back-compat) with a single project-wide toggle + roads% + parks%
-            inputs and a clear Gross / Net NDA derivation below the Total
-            Land row. The Tab 1 NDA card (Pass 6 Fix 3) is the same field
-            set; both surfaces write to project.projectNdaEnabled +
-            projectRoadsPct + projectParksPct. */}
+        {/* P8-Fix 1 (2026-05-12): NDA card with scope toggle. Replaces
+            Pass 7's project-only NDA card. Scope = 'project' (single
+            project-level Roads%/Parks% applied to total land) or 'asset'
+            (each asset card carries its own Roads%/Parks%). Land COST
+            always stays on gross land; NDA reduces only the developable
+            area consumed by rate_per_nda / development-capacity calcs.
+            Light-amber background per brief makes the deduction
+            distinction obvious. */}
         {(() => {
           const ndaEnabled = project.projectNdaEnabled === true;
+          const scope = project.projectNdaScope ?? 'project';
           const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
           const parksPct = Math.max(0, Math.min(100, project.projectParksPct ?? 0));
           const totalDeductPct = Math.min(100, roadsPct + parksPct);
           const totalLand = aggregate.totalAreaSqm;
           const grossNda = totalLand * (1 - totalDeductPct / 100);
-          const netNda = grossNda; // No additional deductions today.
+          const netNda = grossNda;
+          const projectMode = scope === 'project';
           return (
             <div
               style={{
                 marginTop: 'var(--sp-2)',
                 padding: 'var(--sp-2)',
-                background: 'var(--color-grey-pale)',
-                border: '1px solid var(--color-border)',
+                background: 'color-mix(in srgb, var(--color-accent-warm) 8%, transparent)',
+                border: '1px solid var(--color-accent-warm)',
                 borderRadius: 'var(--radius-sm)',
               }}
               data-testid="parcels-nda-summary"
             >
-              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                NDA Calculation (project-level)
+              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Net Developable Area (NDA)
               </strong>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 6 }}>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }} data-testid="parcels-nda-toggle-label">
@@ -512,45 +515,78 @@ export default function Module1Assets(): React.JSX.Element {
                     checked={ndaEnabled}
                     onChange={(e) => setProject({ projectNdaEnabled: e.target.checked })}
                   />
-                  Apply NDA Deduction
+                  Apply Roads/Parks Deduction
                 </label>
-                <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  Roads %:
-                  <input
-                    type="number" min={0} max={100} step={0.5}
-                    data-testid="parcels-nda-roads-pct"
-                    value={roadsPct}
-                    onChange={(e) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
-                    disabled={!ndaEnabled}
-                    style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  Parks %:
-                  <input
-                    type="number" min={0} max={100} step={0.5}
-                    data-testid="parcels-nda-parks-pct"
-                    value={parksPct}
-                    onChange={(e) => setProject({ projectParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
-                    disabled={!ndaEnabled}
-                    style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
-                  />
-                </label>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--color-meta)', display: 'grid', gap: 4 }} data-testid="parcels-nda-derivation">
-                <div>
-                  Gross NDA = Total Land x (100% - Roads% - Parks%)
-                </div>
-                <div>
-                  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= {formatArea(totalLand, project.displayDecimals ?? 2)} x {(100 - totalDeductPct).toFixed(1)}%
-                </div>
-                <div data-testid="parcels-nda-gross">
-                  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <strong style={{ color: 'var(--color-body)' }}>{formatArea(grossNda, project.displayDecimals ?? 2)} sqm</strong>
-                </div>
-                <div data-testid="parcels-nda-net" style={{ marginTop: 4 }}>
-                  Net NDA &nbsp;&nbsp;= Gross NDA - (any other deductions if applicable) = <strong style={{ color: 'var(--color-body)' }}>{formatArea(netNda, project.displayDecimals ?? 2)} sqm</strong>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12 }} data-testid="parcels-nda-scope">
+                  <span style={{ color: 'var(--color-meta)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Scope:</span>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: ndaEnabled ? 'pointer' : 'not-allowed', opacity: ndaEnabled ? 1 : 0.5 }}>
+                    <input
+                      type="radio"
+                      name="nda-scope"
+                      value="project"
+                      data-testid="parcels-nda-scope-project"
+                      checked={projectMode}
+                      disabled={!ndaEnabled}
+                      onChange={() => setProject({ projectNdaScope: 'project' })}
+                    />
+                    Project-level
+                  </label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: ndaEnabled ? 'pointer' : 'not-allowed', opacity: ndaEnabled ? 1 : 0.5 }}>
+                    <input
+                      type="radio"
+                      name="nda-scope"
+                      value="asset"
+                      data-testid="parcels-nda-scope-asset"
+                      checked={!projectMode}
+                      disabled={!ndaEnabled}
+                      onChange={() => setProject({ projectNdaScope: 'asset' })}
+                    />
+                    Per-Asset
+                  </label>
                 </div>
               </div>
+              {projectMode && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      Roads %:
+                      <input
+                        type="number" min={0} max={100} step={0.5}
+                        data-testid="parcels-nda-roads-pct"
+                        value={roadsPct}
+                        onChange={(e) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                        disabled={!ndaEnabled}
+                        style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      Parks %:
+                      <input
+                        type="number" min={0} max={100} step={0.5}
+                        data-testid="parcels-nda-parks-pct"
+                        value={parksPct}
+                        onChange={(e) => setProject({ projectParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                        disabled={!ndaEnabled}
+                        style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
+                      />
+                    </label>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', display: 'grid', gap: 4 }} data-testid="parcels-nda-derivation">
+                    <div>Gross Land: <strong style={{ color: 'var(--color-body)' }}>{formatArea(totalLand, project.displayDecimals ?? 2)} sqm</strong></div>
+                    <div>Less Roads: <strong style={{ color: 'var(--color-body)' }}>{formatArea(totalLand * (roadsPct / 100), project.displayDecimals ?? 2)} sqm</strong> ({roadsPct.toFixed(1)}%)</div>
+                    <div>Less Parks: <strong style={{ color: 'var(--color-body)' }}>{formatArea(totalLand * (parksPct / 100), project.displayDecimals ?? 2)} sqm</strong> ({parksPct.toFixed(1)}%)</div>
+                    <div data-testid="parcels-nda-net">Net Developable: <strong style={{ color: 'var(--color-body)' }}>{formatArea(netNda, project.displayDecimals ?? 2)} sqm</strong></div>
+                    <div data-testid="parcels-nda-gross" style={{ fontStyle: 'italic', marginTop: 4 }}>
+                      Asset land allocation uses Net Developable Land. Land COST stays on gross land (purchase price unchanged).
+                    </div>
+                  </div>
+                </>
+              )}
+              {!projectMode && ndaEnabled && (
+                <div style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid="parcels-nda-per-asset-note">
+                  Per-Asset mode: each asset card below carries its own Roads % + Parks % + Apply Roads/Parks toggle. Project-level inputs disabled while scope = Per-Asset.
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1224,6 +1260,61 @@ function AssetCard({
               <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} placeholder={`auto = derived`} style={inputStyle} />
             </div>
           </div>
+
+          {/* P8-Fix 1 (2026-05-12): per-asset NDA inputs. Only rendered when
+              project.projectNdaEnabled === true AND projectNdaScope === 'asset'.
+              Otherwise the project-level NDA card at the top of Tab 2 owns
+              the deduction. */}
+          {project.projectNdaEnabled === true && project.projectNdaScope === 'asset' && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto 1fr 1fr',
+                gap: 'var(--sp-2)',
+                marginBottom: 'var(--sp-2)',
+                padding: 'var(--sp-1) var(--sp-2)',
+                background: 'color-mix(in srgb, var(--color-accent-warm) 8%, transparent)',
+                border: '1px solid var(--color-accent-warm)',
+                borderRadius: 'var(--radius-sm)',
+                alignItems: 'center',
+              }}
+              data-testid={`asset-${asset.id}-nda-row`}
+            >
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  data-testid={`asset-${asset.id}-nda-enabled`}
+                  checked={asset.assetNdaEnabled === true}
+                  onChange={(e) => onUpdate({ assetNdaEnabled: e.target.checked })}
+                />
+                Apply NDA
+              </label>
+              <div>
+                <InputLabel label="Roads %" help="Per-asset roads deduction. Applied to this asset's land allocation when Apply NDA is on." inputId={`asset-${asset.id}-roads-pct`} />
+                <input
+                  id={`asset-${asset.id}-roads-pct`}
+                  data-testid={`asset-${asset.id}-roads-pct`}
+                  type="number" min={0} max={100} step={0.5}
+                  value={asset.assetRoadsPct ?? 0}
+                  onChange={(e) => onUpdate({ assetRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                  disabled={asset.assetNdaEnabled !== true}
+                  style={{ ...inputStyle, opacity: asset.assetNdaEnabled !== true ? 0.6 : 1 }}
+                />
+              </div>
+              <div>
+                <InputLabel label="Parks %" help="Per-asset parks deduction." inputId={`asset-${asset.id}-parks-pct`} />
+                <input
+                  id={`asset-${asset.id}-parks-pct`}
+                  data-testid={`asset-${asset.id}-parks-pct`}
+                  type="number" min={0} max={100} step={0.5}
+                  value={asset.assetParksPct ?? 0}
+                  onChange={(e) => onUpdate({ assetParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                  disabled={asset.assetNdaEnabled !== true}
+                  style={{ ...inputStyle, opacity: asset.assetNdaEnabled !== true ? 0.6 : 1 }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* M2.0h Fix 3: NSA / BUA / GFA hierarchy chips. Read-only
               derived from sub-units + asset-level Support + Parking. */}

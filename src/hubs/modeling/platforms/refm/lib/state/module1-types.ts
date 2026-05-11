@@ -284,6 +284,16 @@ export interface Project {
   // legacy per-parcel toggles into these fields.
   projectParksPct?: number;  // 0..100, fraction of TOTAL land used for parks
   projectNdaEnabled?: boolean;
+  // M2.0 Pass 8 (2026-05-12): NDA scope toggle. 'project' uses the
+  // project-level projectRoadsPct + projectParksPct above; 'asset' lets
+  // each Asset carry its own assetRoadsPct + assetParksPct + assetNdaEnabled.
+  // Defaults to 'project' on hydrate when projectNdaEnabled is true and
+  // this field is unset.
+  projectNdaScope?: 'project' | 'asset';
+  // M2.0 Pass 8 Fix 8: Tab 3 Results view mode + selected asset (Single
+  // Asset mode). Defaults to 'combined' post-migration.
+  resultsViewMode?: 'combined' | 'single_asset';
+  resultsSelectedAssetId?: string;
   // M2.0e: project type drives Tab 2's asset-type catalog filter and
   // the empty-state asset suggestions per phase. Captured in Wizard
   // Step 3.
@@ -563,6 +573,17 @@ export interface Asset {
   // phase (e.g. Phase 1 has Hotel operational + Apt-Tower-3 still in
   // construction, each carries its own baseline).
   historicalBaseline?: PhaseHistoricalBaseline;
+  // M2.0 Pass 8 (2026-05-12): per-asset NDA inputs (when
+  // project.projectNdaScope === 'asset'). Each asset can carry its own
+  // Roads %/Parks % deduction; Apply Roads/Parks toggle gates whether
+  // the asset's NDA reduction applies at all. Defaults: undefined / 0.
+  assetRoadsPct?: number;
+  assetParksPct?: number;
+  assetNdaEnabled?: boolean;
+  // M2.0 Pass 8 Fix 2c: sub-unit metric uniform per asset. Replaces the
+  // per-row SubUnit.metric. Migration takes the first sub-unit's metric
+  // as the asset metric. SubUnit.metric stays on schema for back-compat.
+  subUnitMetric?: SubUnitMetric;
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
