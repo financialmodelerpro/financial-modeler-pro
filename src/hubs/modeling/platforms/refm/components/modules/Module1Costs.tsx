@@ -1861,7 +1861,19 @@ function SameModeCostTable({
       </div>
       {masterSyntheticAsset && refAsset ? (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }} data-testid={`costs-same-phase-${phaseId}-master-table`}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }} data-testid={`costs-same-phase-${phaseId}-master-table`}>
+            {/* M2.0M Pass 6 Fix 4: constrain Method col to 200px; other
+                cols flex naturally so the cost-line label has breathing room. */}
+            <colgroup>
+              <col />
+              <col style={{ width: 200 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 100 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
@@ -2044,7 +2056,13 @@ function SameModeCostTable({
                                 </span>
                               )}
                             </td>
-                            <td style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10 }}>{COST_METHOD_LABELS[effMethod]}</td>
+                            {/* M2.0M Pass 6 Fix 4: ellipsis + hover tooltip when label exceeds 200px. */}
+                            <td
+                              style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={COST_METHOD_LABELS[effMethod]}
+                            >
+                              {COST_METHOD_LABELS[effMethod]}
+                            </td>
                             <td style={{ padding: '4px', textAlign: 'right' }}>
                               {isOverridden ? (
                                 <input
