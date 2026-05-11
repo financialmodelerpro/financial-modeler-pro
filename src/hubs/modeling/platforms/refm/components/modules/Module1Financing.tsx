@@ -288,13 +288,18 @@ interface TrancheCardProps {
   // the Facility Share % input surfaces so the user can split total
   // debt across facilities (e.g., Senior 70%, Mezz 30%).
   facilityCount: number;
+  // P3-Fix 4 (2026-05-12): list of assets in the phase, surfaced when
+  // scope='asset' so the user can pick which asset the facility funds.
+  phaseAssets: Array<{ id: string; name: string }>;
+  // P3-Fix 4: list of phases project-wide, surfaced when scope='phase'.
+  allPhases: Array<{ id: string; name: string }>;
   onUpdate: (patch: Partial<FinancingTranche>) => void;
   onRemove: () => void;
 }
 
 function TrancheCard({
   tranche, phase, capexPerPeriod, presalesPerPeriod, project, scale, decimals,
-  facilityCount,
+  facilityCount, phaseAssets, allPhases,
   onUpdate, onRemove,
 }: TrancheCardProps): React.JSX.Element {
   // P2-Fix 9 (2026-05-11): per-tranche schedule cells use the export
@@ -512,7 +517,59 @@ function TrancheCard({
         </div>
       </div>
 
+      {/* P3-Fix 4 (2026-05-12): facility scope dropdown re-exposed with
+          3 options (project / phase / asset). Asset-specific opens an
+          asset picker. Phase-specific opens a phase picker so a user
+          can target a phase other than the page-header's active phase. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+        <div>
+          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Scope</label>
+          <select
+            value={(tranche.scope as 'project' | 'phase' | 'asset' | undefined) ?? 'phase'}
+            onChange={(e) => {
+              const nextScope = e.target.value as 'project' | 'phase' | 'asset';
+              const patch: Partial<FinancingTranche> = { scope: nextScope };
+              if (nextScope === 'project') {
+                patch.scopeId = undefined;
+                patch.assetId = undefined;
+              } else if (nextScope === 'phase') {
+                patch.scopeId = tranche.phaseId;
+                patch.assetId = undefined;
+              } else {
+                const firstAsset = phaseAssets[0]?.id;
+                patch.scopeId = firstAsset;
+                patch.assetId = firstAsset;
+              }
+              onUpdate(patch);
+            }}
+            style={inputStyle}
+            data-testid={`tranche-${tranche.id}-scope`}
+          >
+            <option value="project">Project-wide</option>
+            <option value="phase">Phase-specific</option>
+            <option value="asset" disabled={phaseAssets.length === 0}>Asset-specific</option>
+          </select>
+          {tranche.scope === 'phase' && allPhases.length > 0 && (
+            <select
+              value={tranche.scopeId ?? tranche.phaseId}
+              onChange={(e) => onUpdate({ scopeId: e.target.value })}
+              style={{ ...inputStyle, marginTop: 4 }}
+              data-testid={`tranche-${tranche.id}-scope-phase`}
+            >
+              {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+            </select>
+          )}
+          {tranche.scope === 'asset' && phaseAssets.length > 0 && (
+            <select
+              value={tranche.scopeId ?? tranche.assetId ?? ''}
+              onChange={(e) => onUpdate({ scopeId: e.target.value, assetId: e.target.value })}
+              style={{ ...inputStyle, marginTop: 4 }}
+              data-testid={`tranche-${tranche.id}-scope-asset`}
+            >
+              {phaseAssets.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+            </select>
+          )}
+        </div>
         <div>
           {/* P2-Fix 7 (2026-05-11): dropdown shows Capitalize / Expense
               only. Mixed retained on schema for back-compat; migration
@@ -529,12 +586,6 @@ function TrancheCard({
             <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
           </select>
         </div>
-        {/* P2-Fix 8 (2026-05-11): per-asset scope dropdown removed.
-            Each facility is phase-scoped (driven by activePhaseId in
-            the page header). The brief's "project-wide" view surfaces
-            via Tab 4's Phase Filter (All Phases) in the Schedules
-            sub-tab. tranche.assetId stays on the schema for legacy
-            snapshots; migration converts any scope='asset' to phase. */}
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
             <input
@@ -1260,6 +1311,8 @@ export default function Module1Financing(): React.JSX.Element {
                 scale={scale}
                 decimals={decimals}
                 facilityCount={phaseTranches.length}
+                phaseAssets={phaseAssets.map((a) => ({ id: a.id, name: a.name }))}
+                allPhases={phases.map((p) => ({ id: p.id, name: p.name }))}
                 onUpdate={(patch) => updateFinancingTranche(t.id, patch)}
                 onRemove={() => removeFinancingTranche(t.id)}
               />
