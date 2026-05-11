@@ -88,7 +88,7 @@ import {
   generatePeriodLabels,
   type FinancingResult,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatScaled, formatScaledForExport, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
 import type { DisplayScale } from '../../lib/state/module1-types';
 
 const inputStyle: React.CSSProperties = {
@@ -308,9 +308,10 @@ function TrancheCard({
   facilityCount, phaseAssets, allPhases,
   onUpdate, onRemove,
 }: TrancheCardProps): React.JSX.Element {
-  // P2-Fix 9 (2026-05-11): per-tranche schedule cells use the export
-  // formatter (no K/M suffix). Scale indicator stays in the page header.
-  const fmt = (n: number): string => formatScaledForExport(n, scale, decimals);
+  // P4-Fix 6 (2026-05-12): universal accounting format. zero -> "-",
+  // negative -> parens, positive -> "1,234,567", null/undef -> blank.
+  // No K/M suffix per cell; scale indicator stays in page header.
+  const fmt = (n: number): string => formatAccounting(n, scale, decimals);
   const result = useMemo(
     () => computeFinancing(tranche, phase, capexPerPeriod, presalesPerPeriod, project),
     [tranche, phase, capexPerPeriod, presalesPerPeriod, project],
@@ -1056,9 +1057,10 @@ export default function Module1Financing(): React.JSX.Element {
 
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimalsT = project.displayDecimals ?? 2;
-  // P2-Fix 9 (2026-05-11): schedule cells use the export formatter so
-  // K/M suffix is on the page header line only.
-  const fmt = (n: number): string => formatScaledForExport(n, scale, decimals);
+  // P4-Fix 6 (2026-05-12): universal accounting format (zero -> "-",
+  // negative -> parens, null/undef -> blank). K/M suffix stays in page
+  // header only.
+  const fmt = (n: number): string => formatAccounting(n, scale, decimals);
   const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
 
   const periodCount = Math.min(combined.periods, 24);
@@ -1448,7 +1450,7 @@ export default function Module1Financing(): React.JSX.Element {
               const totalsRow = inputsSummary.totals;
               const debtRow = totalsRow.map((v) => v * inputsSummary.debtPct);
               const equityRow = totalsRow.map((v) => v * inputsSummary.equityPct);
-              const fmtCell = (v: number): string => formatScaledForExport(v, scale, decimals);
+              const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
               const renderTable = (
                 id: 'funding' | 'debt' | 'equity',
                 title: string,

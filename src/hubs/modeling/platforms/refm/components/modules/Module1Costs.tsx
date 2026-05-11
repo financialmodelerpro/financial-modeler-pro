@@ -82,7 +82,7 @@ import {
   type AssetCostBreakdown,
   type AssetCostSummaryTotals,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -1387,11 +1387,11 @@ function SummaryTables({
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
   const decimals = project.displayDecimals ?? 2;
-  // M2.0M Pass 6 Fix 9 (2026-05-11): Results cells use formatScaledForExport
-  // (no K / M suffix per cell). The Results sub-tab still has the
-  // header-line "All figures in SAR '000" via currencyHeaderLine; cells
-  // stay clean and tabular.
-  const fmt = (v: number): string => formatScaledForExport(v, scale, decimals);
+  // M2.0M Pass 4 Fix 6 (2026-05-12): universal accounting format applied
+  // across Module 1. zero -> "-", negative -> parens, null/undef -> blank.
+  // Results sub-tab header-line "All figures in SAR '000" via
+  // currencyHeaderLine; cells stay clean and tabular.
+  const fmt = (v: number): string => formatAccounting(v, scale, decimals);
   // M2.0h Fix 6: at annual granularity, 1 column per construction year
   // (capped at 24 for layout). At quarterly: 4× columns. Monthly: 12×.
   const annualPeriodCount = Math.min(totalConstructionPeriods, 24);

@@ -179,6 +179,28 @@ export function formatScaledForExport(num: number | null | undefined, scale: Dis
   return text;
 }
 
+// M2.0M Pass 4 Fix 6 (2026-05-12): universal accounting number format.
+// Single helper applied across Module 1 (and downstream modules) for
+// every numeric cell. Rules:
+//   - null / undefined / NaN  -> empty string (cell renders blank)
+//   - exactly 0               -> en-dash "-" (no scale suffix)
+//   - positive                -> "1,234,567" (or scaled)
+//   - negative                -> "(1,234,567)" (parentheses)
+// Scale division + decimals follow the same conventions as
+// formatScaledForExport: no K / M suffix per cell (scale is shown
+// once in the tab header line via currencyHeaderLine).
+export function formatAccounting(num: number | null | undefined, scale: DisplayScale = 'full', decimals?: number): string {
+  if (num === null || num === undefined || isNaN(num as number)) return '';
+  if (num === 0) return '-';
+  const divisor = SCALE_DIVISOR[scale];
+  const scaled = (num as number) / divisor;
+  if (scaled === 0) return '-';
+  const abs = Math.abs(scaled);
+  const d = decimals ?? SCALE_DECIMALS[scale];
+  const text = abs.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  return scaled < 0 ? `(${text})` : text;
+}
+
 // M2.0h Fix 2 (2026-05-07): currency header line text used at the top
 // of every Module 1 tab. Cells stay free of currency suffix to keep the
 // table visually clean; this single line tells the user what unit /
