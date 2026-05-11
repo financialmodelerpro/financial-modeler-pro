@@ -74,12 +74,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Failed to generate code' }, { status: 500 });
     }
 
-    // Send OTP via Resend
+    // Send OTP via Brevo. The previous version swallowed errors silently
+    // (empty catch + always returned success:true), which let the UI advance
+    // to "check your email" over an OTP that was never delivered. Now we
+    // log the underlying SDK error and surface a failure to the form so the
+    // student gets a real signal instead of waiting indefinitely.
     try {
       const { subject, html, text } = await otpVerificationTemplate({ code, expiresMinutes: 10 });
       await sendEmail({ to: email, subject, html, text, from: FROM.training });
-    } catch {
-      // Email sending failed - code still generated; UI will show error
+    } catch (emailErr) {
+      console.error('[send-verification] Brevo send failed:', emailErr);
+      return NextResponse.json(
+        { success: false, error: 'Failed to send verification code. Please try again or contact support.' },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({ success: true });

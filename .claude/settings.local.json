@@ -174,7 +174,9 @@
       "PowerShell(Get-Content *)",
       "Bash(echo \"tsc exit=$?\")",
       "Bash(gh --version)",
-      "PowerShell(Get-Command *)"
+      "PowerShell(Get-Command *)",
+      "Bash(echo \"---exit=$?\")",
+      "PowerShell($env:BREVO_API_KEY = \"xkeysib-fake-key-for-diagnostic-1234567890\"; $env:EMAIL_FROM_TRAINING = \"training@financialmodelerpro.com\"; $env:EMAIL_FROM_NOREPLY = \"no-reply@financialmodelerpro.com\"; npx tsx scripts/testBrevoSend.ts diagnostic@example.com 2>&1 | Select-Object -First 60)"
     ]
   }
 }
