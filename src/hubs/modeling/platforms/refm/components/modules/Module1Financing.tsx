@@ -66,6 +66,7 @@ import {
   PARCEL_FUNDING_TYPES,
   PARCEL_FUNDING_TYPE_LABELS,
   DEFAULT_PROJECT_FINANCING_CONFIG,
+  PHASE_FILTER_ALL,
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
 import {
@@ -938,14 +939,29 @@ export default function Module1Financing(): React.JSX.Element {
             {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
           </div>
         </div>
-        <select
-          value={phase.id}
-          onChange={(e) => setActivePhaseId(e.target.value)}
-          style={inputStyle}
-          data-testid="financing-phase-select"
-        >
-          {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        {/* P2-Fix 10 (2026-05-11): Phase Filter with "All Phases" option.
+            When the filter is '__all__' (default), Schedules aggregate
+            across phases; when a specific phase is picked, schedules
+            narrow to that phase. The Inputs editor still operates on
+            activePhaseId (set via the dropdown when not 'all'). */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Phase Filter</label>
+          <select
+            value={financingConfig.phaseFilter ?? PHASE_FILTER_ALL}
+            onChange={(e) => {
+              const v = e.target.value;
+              setFinancingConfig({ phaseFilter: v });
+              if (v !== PHASE_FILTER_ALL) {
+                setActivePhaseId(v);
+              }
+            }}
+            style={inputStyle}
+            data-testid="financing-phase-filter"
+          >
+            <option value={PHASE_FILTER_ALL} data-testid="financing-phase-filter-all">All Phases</option>
+            {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Sub-tab switcher */}
