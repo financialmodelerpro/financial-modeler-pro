@@ -2413,17 +2413,11 @@ export default function Module1Costs(): React.JSX.Element {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {/* M2.0L Pass 4 (2026-05-11): cost-input-mode toggle removed.
-              Tab 3 now renders the parent/child inheritance surface
-              unconditionally (master template + per-asset replicas). */}
-          <select
-            value={currentPhase.id}
-            onChange={(e) => setActivePhaseId(e.target.value)}
-            style={inputStyle}
-            data-testid="costs-phase-select"
-          >
-            {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {/* P8-Fix 3 (2026-05-12): top-right phase dropdown removed.
+              Phase filter inside the Inputs sub-tab (above the asset
+              pill bar) is the sole navigation; Results sub-tab uses its
+              own Combined/Single Asset toggle (P8-Fix 8). Stage filter
+              kept for cross-tab stage-based filtering. */}
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value as CostStage | 'all')}
