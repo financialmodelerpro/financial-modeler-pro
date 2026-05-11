@@ -587,10 +587,25 @@ export function resolveAssetAreaMetrics(
   // GFA = BUA + Parking. Replaces the M2.0g convention where BUA
   // included Parking. asset.gfaSqm input still wins when > 0; when
   // blank, GFA derives from the hierarchy.
+  // M2.0L Fix 4 (2026-05-11): when an asset has no sub-units yet, fall
+  // back to the legacy asset-level area inputs (asset.buaSqm /
+  // asset.sellableBuaSqm) so cost lines using rate_per_bua / rate_per_nsa
+  // still compute against the user's entered area. Mirrors the existing
+  // GFA fallback to asset.gfaSqm. This is what unblocks legacy projects
+  // (no sub-units configured) from getting 0 totals on every area-driven
+  // cost line.
   const hierarchy = computeAssetAreaHierarchy(asset, subUnits);
-  const bua = hierarchy.bua;
-  const nsa = hierarchy.nsa;
-  const gfa = asset.gfaSqm > 0 ? asset.gfaSqm : hierarchy.gfa;
+  const assetSubUnitCount = subUnits.filter((u) => u.assetId === asset.id).length;
+  const sellableSubUnitCount = subUnits.filter(
+    (u) => u.assetId === asset.id && u.category !== 'Support',
+  ).length;
+  const bua = hierarchy.bua > 0
+    ? hierarchy.bua
+    : (assetSubUnitCount === 0 ? Math.max(0, asset.buaSqm ?? 0) : 0);
+  const nsa = hierarchy.nsa > 0
+    ? hierarchy.nsa
+    : (sellableSubUnitCount === 0 ? Math.max(0, asset.sellableBuaSqm ?? 0) : 0);
+  const gfa = asset.gfaSqm > 0 ? asset.gfaSqm : (hierarchy.gfa > 0 ? hierarchy.gfa : bua);
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
   let cashLandValue = 0;
@@ -2082,33 +2097,42 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   const fmtArea = (n: number): string => fmt(n, 0);
   const fmtMoney = (n: number): string => fmt(n, 0);
   const eq = `= ${fmtMoney(resolvedTotal)}`;
+  // M2.0L Fix 4 (2026-05-11): when the area metric is 0 for an area-
+  // driven method, surface a "no X defined yet" warning so the user
+  // knows to add sub-units / set the asset-level input rather than
+  // wondering why the total is 0.
+  const noArea = (label: string): string => `${fmt(value, 2)} x - (no ${label} defined yet) = 0`;
   switch (method) {
     case 'fixed':
       return `Fixed = ${fmtMoney(resolvedTotal)}`;
     case 'rate_per_land':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land ${eq}`;
+      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land ${eq}` : noArea('Land area');
     case 'rate_per_nda':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA ${eq}`;
+      return metrics.ndaSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA ${eq}` : noArea('NDA');
     case 'rate_per_roads':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads ${eq}`;
+      return metrics.roadsSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads ${eq}` : noArea('Roads area');
     case 'rate_per_gfa':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA ${eq}`;
+      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA ${eq}` : noArea('GFA');
     case 'rate_per_bua':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA ${eq}`;
+      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA ${eq}` : noArea('BUA');
     case 'rate_per_nsa':
-      return `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA ${eq}`;
+      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA ${eq}` : noArea('NSA');
     case 'rate_per_unit':
-      return `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units ${eq}`;
+      return metrics.unitCount > 0 ? `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units ${eq}` : noArea('Unit count');
     case 'rate_per_parking_bay':
-      return `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays ${eq}`;
-    case 'rate_x_support_area':
-      return `${fmt(value, 2)} x ${fmtArea(asset.supportArea ?? 0)} sqm Support ${eq}`;
-    case 'rate_x_parking_area':
-      return `${fmt(value, 2)} x ${fmtArea(asset.parkingArea ?? 0)} sqm Parking ${eq}`;
+      return parkingBays > 0 ? `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays ${eq}` : noArea('Parking bays');
+    case 'rate_x_support_area': {
+      const sa = Math.max(0, asset.supportArea ?? 0);
+      return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support ${eq}` : noArea('Support area');
+    }
+    case 'rate_x_parking_area': {
+      const pa = Math.max(0, asset.parkingArea ?? 0);
+      return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking ${eq}` : noArea('Parking area');
+    }
     case 'rate_x_specific_subunit':
-      return `Rate x specific sub-unit ${eq}`;
+      return resolvedTotal > 0 ? `Rate x specific sub-unit ${eq}` : noArea('selected sub-unit');
     case 'per_sub_unit_custom_rates':
-      return `Sum of ${perSubUnitRows ?? 0} sub-unit rows ${eq}`;
+      return (perSubUnitRows ?? 0) > 0 ? `Sum of ${perSubUnitRows ?? 0} sub-unit rows ${eq}` : noArea('sub-unit rates');
     case 'percent_of_selected':
       return `${fmt(value, 2)}% x ${fmtMoney(selectedTotal ?? 0)} (selected lines) ${eq}`;
     case 'percent_of_construction':
