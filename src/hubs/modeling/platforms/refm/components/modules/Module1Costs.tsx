@@ -2275,6 +2275,9 @@ export default function Module1Costs(): React.JSX.Element {
   // per-asset sections to just that one and reflects its 3 summary
   // cards (Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind).
   const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
+  // P7-Fix 5b (2026-05-11): phase filter for the asset pill bar. '__all__'
+  // shows every visible asset; a phase id narrows to that phase's assets.
+  const [inputsPhaseFilter, setInputsPhaseFilter] = useState<string>('__all__');
   // M2.0L (2026-05-11): Results sub-tab filter pill bar. null = Combined
   // (all assets in the Capex by Period table). Specific asset id filters
   // the table rows to that asset only.
@@ -2485,72 +2488,149 @@ export default function Module1Costs(): React.JSX.Element {
           + per-asset resolved replicas (read-only by default; each row
           carries an Override toggle that activates a CostOverride entry
           for that asset+line). */}
-      {subTab === 'inputs' && (
-        <>
-          {perPhaseBreakdowns.map((pb) => {
-            const phaseObj = phases.find((ph) => ph.id === pb.phaseId);
-            const phaseStart = phaseObj?.startDate && phaseObj.startDate.length === 10
-              ? phaseObj.startDate
-              : project.startDate;
-            const phaseScopedPeriodLabel = (idx: number): string =>
-              getPeriodLabel(idx, phaseStart, project.modelType);
-            const masterLines = costLines
-              .filter((c) => c.phaseId === pb.phaseId)
-              .filter((c) => !c.targetAssetId)
-              .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-              .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
-            return (
-              <SameModeCostTable
-                key={pb.phaseId}
-                phaseId={pb.phaseId}
-                phaseName={pb.phaseName}
-                constructionPeriods={pb.cp}
-                phaseAssets={pb.phaseAssets}
-                lines={masterLines}
-                costOverrides={costOverrides}
-                breakdowns={pb.assetTotals}
+      {subTab === 'inputs' && (() => {
+        // P7-Fix 5b + 6 (2026-05-11): per-asset Inputs view.
+        // The master + replicas + Override inheritance surface from Pass 4
+        // is gone. Each asset owns its own cost lines; user picks an asset
+        // via the pill bar, sees ONLY that asset's editable table.
+        //
+        // inputsPhaseFilter: '__all__' or specific phaseId. Narrows the
+        // asset pill bar. Default '__all__'.
+        const pf = inputsPhaseFilter;
+        const visiblePillAssets = allVisibleAssets.filter((a) => pf === '__all__' ? true : a.phaseId === pf);
+        const activeAsset = visiblePillAssets.find((a) => a.id === selectedCostAssetId)
+          ?? visiblePillAssets[0];
+        if (!activeAsset) {
+          return (
+            <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-inputs-empty">
+              No visible assets in the selected phase. Add an asset in Tab 2.
+            </div>
+          );
+        }
+        const assetPhase = phases.find((p) => p.id === activeAsset.phaseId);
+        const phaseStart = assetPhase?.startDate && assetPhase.startDate.length === 10
+          ? assetPhase.startDate
+          : project.startDate;
+        const phaseScopedPeriodLabel = (idx: number): string =>
+          getPeriodLabel(idx, phaseStart, project.modelType);
+        const assetLines = costLines
+          .filter((c) => c.targetAssetId === activeAsset.id)
+          .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
+          .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
+        const assetBreakdown = perPhaseBreakdowns
+          .find((pb) => pb.phaseId === activeAsset.phaseId)
+          ?.assetTotals[activeAsset.id];
+        const assetMetrics = metricsByAsset.get(activeAsset.id);
+
+        const pillStyle = (active: boolean): React.CSSProperties => ({
+          fontSize: 11,
+          fontWeight: 700,
+          padding: '6px 12px',
+          borderRadius: 999,
+          border: active ? 'none' : '1px solid var(--color-border)',
+          background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+          color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+          cursor: 'pointer',
+        });
+
+        return (
+          <>
+            {/* P7-Fix 5b: phase filter + asset pill bar */}
+            <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }} data-testid="costs-inputs-asset-nav">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
+                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase Filter:</strong>
+                <select
+                  value={inputsPhaseFilter}
+                  onChange={(e) => setInputsPhaseFilter(e.target.value)}
+                  style={{ ...inputStyle, width: 'auto', minWidth: 160 }}
+                  data-testid="costs-inputs-phase-filter"
+                >
+                  <option value="__all__">All Phases</option>
+                  {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-asset-pills">
+                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Asset:</strong>
+                {visiblePillAssets.map((a) => {
+                  const ph = phases.find((p) => p.id === a.phaseId);
+                  const isActive = a.id === activeAsset.id;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setSelectedCostAssetId(a.id)}
+                      style={pillStyle(isActive)}
+                      data-testid={`costs-inputs-asset-pill-${a.id}`}
+                    >
+                      {a.name}
+                      <span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ph?.name ?? ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* P7-Fix 5b: stats summary line for the selected asset */}
+            {assetMetrics && (
+              <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', fontSize: 11, color: 'var(--color-meta)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }} data-testid={`costs-inputs-asset-stats-${activeAsset.id}`}>
+                <span><strong>{activeAsset.name}</strong> · {assetPhase?.name ?? ''} · {activeAsset.strategy}</span>
+                <span>BUA: <strong>{Math.round(assetMetrics.bua).toLocaleString()}</strong> sqm</span>
+                <span>NSA: <strong>{Math.round(assetMetrics.nsa).toLocaleString()}</strong> sqm</span>
+                <span>Land: <strong>{Math.round(assetMetrics.landSqm).toLocaleString()}</strong> sqm</span>
+                <span>Land Cost: <strong>{formatScaled(assetMetrics.landValue, scale, decimals)}</strong></span>
+              </div>
+            )}
+
+            {/* Single editable table for the selected asset */}
+            {assetBreakdown && assetMetrics && (
+              <AssetCostSection
+                key={activeAsset.id}
+                asset={activeAsset}
+                lines={assetLines}
+                costOverrides={[]}
+                breakdown={assetBreakdown}
                 currency={project.currency}
                 scale={scale}
                 decimals={decimals}
                 periodLabel={phaseScopedPeriodLabel}
+                constructionPeriods={assetPhase?.constructionPeriods ?? 1}
                 subUnits={subUnits}
-                metricsByAsset={metricsByAsset}
+                metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
+                onUpdateOverride={() => { /* Pass 7: override surface removed */ }}
+                onRemoveOverride={() => { /* Pass 7: override surface removed */ }}
                 onRemoveLine={(lineId) => {
                   const line = costLines.find((c) => c.id === lineId);
                   const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}' from every asset? Per-asset overrides for this line will also be dropped.`)
+                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}' from ${activeAsset.name}?`)
                     : true;
                   if (!ok) return;
-                  // Drop matching overrides first, then the master line.
-                  for (const o of costOverrides) {
-                    if (o.lineId === lineId) removeCostOverride(o.assetId, lineId);
-                  }
                   removeCostLine(lineId);
                 }}
-                onUpdateOverride={setCostOverride}
-                onRemoveOverride={removeCostOverride}
                 onAddCustom={() => {
-                  const id = `custom-${Date.now()}`;
+                  const id = `custom-${Date.now()}__${activeAsset.phaseId}__${activeAsset.id}`;
+                  const cp = assetPhase?.constructionPeriods ?? 1;
                   addCostLine({
                     id,
-                    phaseId: pb.phaseId,
+                    phaseId: activeAsset.phaseId,
+                    targetAssetId: activeAsset.id,
                     name: 'Custom Cost',
                     method: 'fixed',
                     value: 0,
                     stage: 'soft',
                     scope: 'direct',
-                    allocationBasis: 'bua_share',
+                    allocationBasis: 'per_asset',
                     startPeriod: 1,
-                    endPeriod: Math.max(1, pb.cp),
+                    endPeriod: Math.max(1, cp),
                     phasing: 'even',
+                    costCategory: 'direct',
                   });
                 }}
               />
-            );
-          })}
-        </>
-      )}
+            )}
+          </>
+        );
+      })()}
 
 
       {subTab === 'results' && allVisibleAssets.length > 0 && (
