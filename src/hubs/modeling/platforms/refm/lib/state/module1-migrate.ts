@@ -182,8 +182,12 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   delete out.savedAt;
   // M2.0j Fix 9: fold any legacy phasing values to 'even'.
   // M2.0L: dedupe cost line ids across phases by composing with phaseId.
-  return migrateM20lDedupeCostLineIds(
-    migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  // M2.0L Pass 4: flag legacy CostOverride entries as overridden=true;
+  // strip deprecated Project.costInputMode.
+  return migrateM20Pass4Inheritance(
+    migrateM20lDedupeCostLineIds(
+      migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+    ),
   );
 };
 
@@ -193,11 +197,45 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   delete out.savedAt;
   // M2.0g v8: v7 -> v8 migration runs first (aggregate monthly,
   // stamp outputGranularity), then the M2.0g Parking-subunit fold,
-  // then the M2.0j phasing fold, then the M2.0L id dedupe.
-  return migrateM20lDedupeCostLineIds(
-    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
+  // M2.0L Pass 4 inheritance migration.
+  return migrateM20Pass4Inheritance(
+    migrateM20lDedupeCostLineIds(
+      migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+    ),
   );
 };
+
+// M2.0L Pass 4 (2026-05-11): inheritance model migration. Two effects:
+//   1. Stamp `overridden = true` on every CostOverride entry that
+//      doesn't carry the flag yet. Legacy overrides were ALL
+//      intentional (the previous data model had no toggle), so we
+//      preserve their behaviour by marking them active.
+//   2. Strip deprecated `Project.costInputMode`. The Same vs
+//      Individual mode UX is gone; both surface views are now always
+//      rendered (master template + per-asset resolved replicas).
+// Idempotent: re-running on a Pass-4-shaped snapshot is a no-op.
+function migrateM20Pass4Inheritance(snap: HydrateSnapshot): HydrateSnapshot {
+  let touched = false;
+  const overrides = (snap.costOverrides ?? []) as CostOverride[];
+  const newOverrides = overrides.map((o) => {
+    if (o.overridden === undefined) {
+      touched = true;
+      return { ...o, overridden: true };
+    }
+    return o;
+  });
+  const project = snap.project as Project & { costInputMode?: unknown };
+  let newProject = project;
+  if (project && 'costInputMode' in project && project.costInputMode !== undefined) {
+    const stripped: Partial<Project & { costInputMode?: unknown }> = { ...project };
+    delete stripped.costInputMode;
+    newProject = stripped as Project;
+    touched = true;
+  }
+  if (!touched) return snap;
+  return { ...snap, costOverrides: newOverrides, project: newProject };
+}
 
 // M2.0L (2026-05-11): legacy snapshots seeded cost lines with hardcoded
 // ids ('land-cash', 'construction-bua', etc.) per phase, so a 2-phase
@@ -377,6 +415,13 @@ export const M20H_MIGRATION_NOTICE =
 // the user verifies their inputs after the schema update.
 export const LEGACY_MIGRATION_NOTICE =
   "Project updated to latest schema, please verify your inputs.";
+
+// M2.0L Pass 4 (2026-05-11): banner shown when the snapshot carried
+// either deprecated costInputMode OR un-flagged CostOverride entries.
+// Indicates the cost engine surface has changed from Same/Individual
+// toggle to the parent/child inheritance view.
+export const PASS4_MIGRATION_NOTICE =
+  "Cost engine upgraded to inheritance model. Review master template and per-asset overrides in Tab 3.";
 
 // M2.0L Fix 1 (2026-05-11): loose shape detector. Anything with a
 // `project` object that can plausibly map to v8. Catches legacy
@@ -575,12 +620,37 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   return snap;
 }
 
+// M2.0L Pass 4 (2026-05-11): true if the raw snapshot carries
+// costInputMode OR any CostOverride without the overridden flag.
+// Surfaced as the Pass 4 banner so the user knows the input surface
+// changed even when the on-disk version stays v8.
+function snapshotNeedsPass4Migration(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as { project?: { costInputMode?: unknown }; costOverrides?: unknown[] };
+  if (o.project && typeof o.project === 'object' && o.project.costInputMode !== undefined) return true;
+  if (Array.isArray(o.costOverrides)) {
+    for (const ov of o.costOverrides) {
+      if (ov && typeof ov === 'object' && (ov as Record<string, unknown>).overridden === undefined) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
   if (isV8Snapshot(snapshot)) {
-    return { snapshot: stripV8Wrapper(snapshot), recognized: true };
+    const pass4 = snapshotNeedsPass4Migration(snapshot);
+    return {
+      snapshot: stripV8Wrapper(snapshot),
+      recognized: true,
+      migrationNotice: pass4 ? PASS4_MIGRATION_NOTICE : undefined,
+    };
   }
   if (isV7Snapshot(snapshot)) {
-    const notice = snapshotNeedsV8Migration(snapshot) ? M20H_MIGRATION_NOTICE : undefined;
+    const notice = snapshotNeedsV8Migration(snapshot)
+      ? M20H_MIGRATION_NOTICE
+      : (snapshotNeedsPass4Migration(snapshot) ? PASS4_MIGRATION_NOTICE : undefined);
     return { snapshot: stripWrapper(snapshot), recognized: true, migrationNotice: notice };
   }
   // M2.0L Fix 1 (2026-05-11): pre-v7 and unrecognized shapes flow

@@ -932,17 +932,48 @@ export function computeAssetCost(
   );
   const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
 
-  // Resolve the per-asset method/value/phasing for each line, applying
-  // overrides where present. M2.0d: line.disabled OR override.disabled
-  // zeros the row out (kept in resolved[] for stage / phase indexing
-  // but the value is forced to 0).
-  const resolved: Array<{ line: CostLine; method: CostMethod; value: number; phasing: CostPhasing; distribution?: number[]; disabled: boolean }> = phaseLines.map((line) => {
+  // Resolve the per-asset method/value/phasing/timing for each line.
+  //
+  // M2.0L Pass 4 inheritance resolver:
+  //   - override.overridden === false -> inactive, read master.
+  //   - override.overridden !== false (true or legacy undefined) -> active.
+  //     Every defined field on the override replaces the master; undefined
+  //     fields fall back to master. Optional startPeriod / endPeriod on
+  //     the override carry through to the per-period distribution loop
+  //     below.
+  // M2.0d: line.disabled OR override.disabled zeros the row out (kept
+  // in resolved[] for stage / phase indexing but the value is forced
+  // to 0).
+  const resolved: Array<{
+    line: CostLine; method: CostMethod; value: number;
+    phasing: CostPhasing; distribution?: number[]; disabled: boolean;
+    startPeriod: number; endPeriod: number;
+  }> = phaseLines.map((line) => {
     const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === line.id);
-    const disabled = line.disabled === true || ov?.disabled === true;
-    if (ov) {
-      return { line, method: ov.method, value: disabled ? 0 : ov.value, phasing: ov.phasing, distribution: ov.distribution, disabled };
+    const isActive = ov !== undefined && ov.overridden !== false;
+    const disabled = line.disabled === true || (isActive && ov?.disabled === true);
+    if (isActive && ov) {
+      return {
+        line,
+        method:      ov.method      ?? line.method,
+        value:       disabled ? 0 : (ov.value      ?? line.value),
+        phasing:     ov.phasing     ?? line.phasing,
+        distribution: ov.distribution ?? line.distribution,
+        disabled,
+        startPeriod: ov.startPeriod ?? line.startPeriod,
+        endPeriod:   ov.endPeriod   ?? line.endPeriod,
+      };
     }
-    return { line, method: line.method, value: disabled ? 0 : line.value, phasing: line.phasing, distribution: line.distribution, disabled };
+    return {
+      line,
+      method:      line.method,
+      value:       disabled ? 0 : line.value,
+      phasing:     line.phasing,
+      distribution: line.distribution,
+      disabled,
+      startPeriod: line.startPeriod,
+      endPeriod:   line.endPeriod,
+    };
   });
 
   // Pass 1: direct methods (everything except percent_of_selected /
@@ -1033,8 +1064,10 @@ export function computeAssetCost(
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
+    // M2.0L Pass 4: respect per-asset timing overrides when distributing.
+    // r.startPeriod / r.endPeriod = override-resolved (or master fallback).
     const dist = distributeItemCost(
-      { ...r.line, phasing: r.phasing, distribution: r.distribution },
+      { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
       t,
       cp,
     );

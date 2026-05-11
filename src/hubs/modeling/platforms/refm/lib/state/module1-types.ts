@@ -293,10 +293,13 @@ export interface Project {
   // layer how to split annual schedules into quarters / months for
   // viewing. Optional so v7 snapshots stay valid (default 'annual').
   outputGranularity?: OutputGranularity;
-  // M2.0L Fix 2 (2026-05-11): Tab 3 cost input mode. 'same' renders a
-  // single cost table that applies uniformly to every asset; 'individual'
-  // shows a per-asset selector with separate cost tables. Undefined =
-  // user has not chosen yet, which triggers the first-open chooser modal.
+  // M2.0L Fix 2 (2026-05-11): Tab 3 cost input mode.
+  // M2.0L Pass 4 (2026-05-11): **DEPRECATED.** The Same vs Individual
+  // mode toggle was replaced by the single parent/child inheritance
+  // surface (master template + per-asset resolved replicas with
+  // per-row override toggle). The field stays on the schema for
+  // back-compat on legacy snapshots; the UI no longer reads it and
+  // migrateM20Pass4Inheritance strips it on hydrate.
   costInputMode?: CostInputMode;
 }
 
@@ -767,6 +770,19 @@ export interface CostOverride {
   // M2.0h Fix 5: per-asset override of perSubUnitRates so each asset
   // can carry its own rate sheet on top of a project-wide line.
   perSubUnitRates?: Record<string, number>;
+  // M2.0L Pass 4 (2026-05-11): explicit inheritance toggle.
+  //   undefined  -> legacy entry, treated as overridden=true (intentional
+  //                 override pre-Pass-4).
+  //   false      -> override exists but is inactive; resolver reads master.
+  //   true       -> override is active; each defined field overrides
+  //                 master, undefined fields fall back to master.
+  overridden?: boolean;
+  // M2.0L Pass 4 (2026-05-11): optional per-asset timing override. When
+  // either is set AND overridden !== false, the calc engine substitutes
+  // these for the master line's startPeriod / endPeriod when computing
+  // this asset's contribution + per-period distribution.
+  startPeriod?: number;
+  endPeriod?: number;
 }
 
 // ── Financing tranche ──────────────────────────────────────────────────────
