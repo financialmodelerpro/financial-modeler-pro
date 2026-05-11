@@ -30,7 +30,8 @@ import {
   type RepaymentMethod,
   type EquityContribution,
   type EquityTrancheType,
-  type FacilityType,
+  // P2-Fix 3: FacilityType import dropped (UI no longer renders dropdown).
+  // Schema field stays via FinancingTranche['facilityType'] when read.
   type InterestRateType,
   type BaseRate,
   type IDCTreatment,
@@ -47,8 +48,7 @@ import {
   EQUITY_TIMINGS,
   EQUITY_TRANCHE_TYPES,
   EQUITY_TRANCHE_TYPE_LABELS,
-  FACILITY_TYPES,
-  FACILITY_TYPE_LABELS,
+  // P2-Fix 3: FACILITY_TYPES + FACILITY_TYPE_LABELS imports dropped.
   BASE_RATES,
   BASE_RATE_LABELS,
   IDC_TREATMENTS,
@@ -286,7 +286,8 @@ function TrancheCard({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const idcTreatment: IDCTreatment = tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense');
   const interestRateType: InterestRateType = tranche.interestRateType ?? 'fixed';
-  const facilityType: FacilityType = tranche.facilityType ?? 'senior_construction';
+  // P2-Fix 3: facilityType retained on schema for back-compat but not
+  // referenced in the rendered UI.
 
   return (
     <div style={sectionCardStyle} data-testid={`tranche-${tranche.id}`}>
@@ -299,14 +300,11 @@ function TrancheCard({
             style={{ ...inputStyle, fontSize: 14, fontWeight: 700, maxWidth: 260 }}
             data-testid={`tranche-${tranche.id}-name`}
           />
-          <select
-            value={facilityType}
-            onChange={(e) => onUpdate({ facilityType: e.target.value as FacilityType })}
-            style={{ ...inputStyle, maxWidth: 220 }}
-            data-testid={`tranche-${tranche.id}-facility-type`}
-          >
-            {FACILITY_TYPES.map((f) => (<option key={f} value={f}>{FACILITY_TYPE_LABELS[f]}</option>))}
-          </select>
+          {/* P2-Fix 3 (2026-05-11): facility-type dropdown hidden from
+              UI. Schema field still populated (defaulted to
+              'senior_construction' on new facilities) for any back-end
+              consumer expecting it; users distinguish facilities by
+              name + rate + tenor instead. */}
           <input
             type="text"
             placeholder="Lender (optional)"
