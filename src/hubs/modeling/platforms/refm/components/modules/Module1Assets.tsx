@@ -60,6 +60,7 @@ import {
 import {
   computeAssetAreaHierarchy,
   computeAssetLandBreakdown,
+  computeAssetLandSqm,
   computeLandAggregate,
   computeLandReconciliation,
   computeParcelNda,
@@ -602,6 +603,21 @@ export default function Module1Assets(): React.JSX.Element {
         currency={project.currency}
         scale={project.displayScale ?? 'full'}
         decimals={project.displayDecimals ?? 2}
+        projectNdaEnabled={project.projectNdaEnabled === true}
+        projectRoadsPct={Math.max(0, Math.min(100, project.projectRoadsPct ?? 0))}
+        projectParksPct={Math.max(0, Math.min(100, project.projectParksPct ?? 0))}
+        assets={assets}
+        phases={phases}
+        assetLandSqmByAssetId={(() => {
+          const map = new Map<string, number>();
+          for (const a of assets) {
+            if (!a.visible) continue;
+            const phaseAssets = assets.filter((x) => x.phaseId === a.phaseId && x.visible);
+            const sqm = computeAssetLandSqm(a, parcels, phaseAssets, subUnits, landAllocationMode);
+            map.set(a.id, sqm);
+          }
+          return map;
+        })()}
       />
 
       {/* Land Allocation Mode (unchanged) */}
@@ -1814,6 +1830,16 @@ interface LandReconciliationBlockProps {
   currency: string;
   scale: import('../../lib/state/module1-types').DisplayScale;
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
+  // P9-Fix 2 (2026-05-12): project-level NDA inputs for the deductions
+  // walk. When ndaEnabled is true, the block renders an explicit
+  // Total - Roads% - Parks% = NDA walk + a per-asset allocation block
+  // whose sums tie back to NDA (vs Total when disabled).
+  projectNdaEnabled: boolean;
+  projectRoadsPct: number;
+  projectParksPct: number;
+  assets: Asset[];
+  assetLandSqmByAssetId: Map<string, number>;
+  phases: Phase[];
 }
 
 const RECON_LS_KEY = 'm20i-land-recon-collapsed';
@@ -1832,6 +1858,8 @@ function writeCollapsed(v: boolean): void {
 
 function LandReconciliationBlock({
   landReconciliation, parcels, currency, scale, decimals,
+  projectNdaEnabled, projectRoadsPct, projectParksPct,
+  assets, assetLandSqmByAssetId, phases,
 }: LandReconciliationBlockProps): React.JSX.Element {
   const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
   const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
@@ -1892,6 +1920,55 @@ function LandReconciliationBlock({
           {collapsed ? 'expand' : 'collapse'}
         </button>
       </div>
+      {!collapsed && projectNdaEnabled && (() => {
+        // P9-Fix 2 (2026-05-12): explicit Total -> NDA walk + per-asset
+        // allocations. Numbers come from project-level NDA inputs; the
+        // walk holds regardless of per-parcel toggles (project scope wins
+        // when projectNdaEnabled).
+        const totalLand = landReconciliation.parcelsTotalSqm;
+        const roadsSqm = totalLand * (projectRoadsPct / 100);
+        const parksSqm = totalLand * (projectParksPct / 100);
+        const nda = Math.max(0, totalLand - roadsSqm - parksSqm);
+        const fmtSqm = (n: number): string => fmt(n);
+        return (
+          <div
+            style={{ marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-small)' }}
+            data-testid="land-reconciliation-nda-walk"
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Land Reconciliation</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)' }}>
+              <div>Total Parcel Land:</div>
+              <div data-testid="recon-total-land" style={{ textAlign: 'right' }}>{fmtSqm(totalLand)} sqm</div>
+              <div>Less: Roads ({projectRoadsPct.toFixed(1)}%):</div>
+              <div data-testid="recon-roads" style={{ textAlign: 'right' }}>-{fmtSqm(roadsSqm)} sqm</div>
+              <div>Less: Parks ({projectParksPct.toFixed(1)}%):</div>
+              <div data-testid="recon-parks" style={{ textAlign: 'right' }}>-{fmtSqm(parksSqm)} sqm</div>
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700 }}>Net Developable Area:</div>
+              <div data-testid="recon-nda" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>{fmtSqm(nda)} sqm</div>
+            </div>
+            <div style={{ marginTop: 'var(--sp-2)', fontSize: 11, color: 'var(--color-meta)' }}>
+              Asset Land Allocations (sum to NDA):
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)', marginTop: 4 }}>
+              {assets.filter((a) => a.visible).map((a) => {
+                const phaseName = phases.find((p) => p.id === a.phaseId)?.name ?? '';
+                const sqm = assetLandSqmByAssetId.get(a.id) ?? 0;
+                return (
+                  <React.Fragment key={a.id}>
+                    <div>{a.name} ({phaseName}):</div>
+                    <div data-testid={`recon-asset-${a.id}-sqm`} style={{ textAlign: 'right' }}>{fmtSqm(sqm)} sqm</div>
+                  </React.Fragment>
+                );
+              })}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700 }}>Total Allocated:</div>
+              <div data-testid="recon-allocated" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>
+                {fmtSqm(landReconciliation.assetsAllocatedSqm)} sqm
+                {Math.abs(landReconciliation.assetsAllocatedSqm - nda) < 1 ? ' ✓ matches NDA' : ''}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {!collapsed && (
         <div style={{ marginTop: 'var(--sp-2)', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
           <div>
