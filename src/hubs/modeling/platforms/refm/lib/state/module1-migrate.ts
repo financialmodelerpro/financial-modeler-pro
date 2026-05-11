@@ -189,14 +189,16 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20mPass2Financing(
-    migrateM20mPass6NdaToProject(
-      migrateM20mPass6DisplayDefaults(
-        migrateM20MFinancing(
-          migrateM20Pass5Categories(
-            migrateM20Pass4Inheritance(
-              migrateM20lDedupeCostLineIds(
-                migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  return migrateM20costsPass7PerAsset(
+    migrateM20mPass2Financing(
+      migrateM20mPass6NdaToProject(
+        migrateM20mPass6DisplayDefaults(
+          migrateM20MFinancing(
+            migrateM20Pass5Categories(
+              migrateM20Pass4Inheritance(
+                migrateM20lDedupeCostLineIds(
+                  migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+                ),
               ),
             ),
           ),
@@ -216,14 +218,16 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip.
-  return migrateM20mPass2Financing(
-    migrateM20mPass6NdaToProject(
-      migrateM20mPass6DisplayDefaults(
-        migrateM20MFinancing(
-          migrateM20Pass5Categories(
-            migrateM20Pass4Inheritance(
-              migrateM20lDedupeCostLineIds(
-                migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  return migrateM20costsPass7PerAsset(
+    migrateM20mPass2Financing(
+      migrateM20mPass6NdaToProject(
+        migrateM20mPass6DisplayDefaults(
+          migrateM20MFinancing(
+            migrateM20Pass5Categories(
+              migrateM20Pass4Inheritance(
+                migrateM20lDedupeCostLineIds(
+                  migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+                ),
               ),
             ),
           ),
@@ -232,6 +236,104 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
     ),
   );
 };
+
+// M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
+// introduced the master + replica inheritance surface; Pass 7 drops
+// it. Every cost line becomes asset-owned (targetAssetId required in
+// the post-Pass-7 surface). Migration flattens any legacy master line
+// (targetAssetId undefined) into one replica per visible asset in the
+// same phase, folding matching CostOverride values onto each replica.
+// CostOverride[] entries are dropped after the walk (schema retained
+// for snapshot compat, UI no longer reads or writes).
+function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = (snap.costLines as CostLine[]) ?? [];
+  const overrides = (snap.costOverrides as CostOverride[]) ?? [];
+  const assets = (snap.assets as Asset[]) ?? [];
+
+  // Detect work: any master line (targetAssetId undefined) OR any
+  // override entry. If neither, snapshot is already Pass 7-shaped.
+  const hasMaster = lines.some((c) => !c.targetAssetId);
+  const hasOverrides = overrides.length > 0;
+  if (!hasMaster && !hasOverrides) return snap;
+
+  // Build asset-by-phase index for replication.
+  const assetsByPhase = new Map<string, Asset[]>();
+  for (const a of assets) {
+    if (!a.visible) continue;
+    if (!assetsByPhase.has(a.phaseId)) assetsByPhase.set(a.phaseId, []);
+    assetsByPhase.get(a.phaseId)!.push(a);
+  }
+
+  // Walk master lines and emit per-asset replicas.
+  const newLines: CostLine[] = [];
+  // Map old-base-id -> per-asset-id rewrite for selectedLineIds
+  // resolution. Key: `${phaseId}:${baseId}:${assetId}` -> new line id.
+  const idRewrite = new Map<string, string>();
+  for (const line of lines) {
+    if (line.targetAssetId) {
+      // Already per-asset, but the original asset might no longer exist
+      // (orphan) -> drop.
+      const ownerOk = assets.some((a) => a.id === line.targetAssetId);
+      if (ownerOk) newLines.push(line);
+      continue;
+    }
+    // Master line. Replicate per visible asset in the same phase.
+    const phaseAssets = assetsByPhase.get(line.phaseId) ?? [];
+    if (phaseAssets.length === 0) continue; // no assets, drop.
+    const baseId = deriveLineBaseId(line.id);
+    for (const a of phaseAssets) {
+      const newId = `${baseId}__${line.phaseId}__${a.id}`;
+      idRewrite.set(`${line.phaseId}:${baseId}:${a.id}`, newId);
+      const ov = overrides.find((o) => o.assetId === a.id && o.lineId === line.id);
+      const isActive = ov !== undefined && ov.overridden !== false;
+      const replica: CostLine = {
+        ...line,
+        id: newId,
+        targetAssetId: a.id,
+      };
+      if (isActive && ov) {
+        if (ov.method !== undefined) replica.method = ov.method;
+        if (ov.value !== undefined) replica.value = ov.value;
+        if (ov.phasing !== undefined) replica.phasing = ov.phasing;
+        if (ov.distribution !== undefined) replica.distribution = ov.distribution;
+        if (ov.startPeriod !== undefined) replica.startPeriod = ov.startPeriod;
+        if (ov.endPeriod !== undefined) replica.endPeriod = ov.endPeriod;
+        if (ov.perSubUnitRates !== undefined) replica.perSubUnitRates = ov.perSubUnitRates;
+        if (ov.disabled !== undefined) replica.disabled = ov.disabled;
+      }
+      newLines.push(replica);
+    }
+  }
+
+  // Rewrite selectedLineIds: master selectedLineIds[X] -> the same
+  // asset's replica of X. For lines that referenced master ids,
+  // remap to the per-asset replica id within the same phase + asset.
+  const rewriteSelected = (assetId: string, phaseId: string, ids?: string[]): string[] | undefined => {
+    if (!Array.isArray(ids) || ids.length === 0) return ids;
+    return ids.map((ref) => {
+      const baseRef = deriveLineBaseId(ref);
+      const mapped = idRewrite.get(`${phaseId}:${baseRef}:${assetId}`);
+      return mapped ?? ref;
+    });
+  };
+  const finalLines = newLines.map((c) => {
+    if (!Array.isArray(c.selectedLineIds) || c.selectedLineIds.length === 0) return c;
+    const assetId = c.targetAssetId;
+    if (!assetId) return c;
+    const next = rewriteSelected(assetId, c.phaseId, c.selectedLineIds);
+    if (next === c.selectedLineIds) return c;
+    return { ...c, selectedLineIds: next };
+  });
+
+  return {
+    ...snap,
+    costLines: finalLines,
+    costOverrides: [],
+  };
+}
+
+export const M20COSTS_PASS7_NOTICE =
+  "Costs UI simplified to per-asset inputs. Existing cost lines flattened so each asset owns its values. Review in Tab 3.";
 
 // M2.0M Pass 2 (2026-05-11): consolidate Tab 4 Financing schema.
 // Handles 5 concerns in one pass:
@@ -867,14 +969,16 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20mPass2Financing(
-    migrateM20mPass6NdaToProject(
-      migrateM20mPass6DisplayDefaults(
-        migrateM20MFinancing(
-          migrateM20Pass5Categories(
-            migrateM20Pass4Inheritance(
-              migrateM20lDedupeCostLineIds(
-                migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+  snap = migrateM20costsPass7PerAsset(
+    migrateM20mPass2Financing(
+      migrateM20mPass6NdaToProject(
+        migrateM20mPass6DisplayDefaults(
+          migrateM20MFinancing(
+            migrateM20Pass5Categories(
+              migrateM20Pass4Inheritance(
+                migrateM20lDedupeCostLineIds(
+                  migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(snap))),
+                ),
               ),
             ),
           ),
@@ -916,6 +1020,23 @@ function snapshotNeedsPass5Migration(s: unknown): boolean {
   return false;
 }
 
+// M2.0M Pass 7 (2026-05-11): true if any cost line is missing
+// targetAssetId (legacy master) or any CostOverride entry exists.
+// Triggers M20COSTS_PASS7_NOTICE once on first hydrate.
+function snapshotNeedsPass7Migration(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as { costLines?: unknown[]; costOverrides?: unknown[] };
+  if (Array.isArray(o.costLines)) {
+    for (const c of o.costLines) {
+      if (c && typeof c === 'object' && (c as Record<string, unknown>).targetAssetId === undefined) {
+        return true;
+      }
+    }
+  }
+  if (Array.isArray(o.costOverrides) && o.costOverrides.length > 0) return true;
+  return false;
+}
+
 // M2.0M (2026-05-11): true if the snapshot's project lacks a
 // `financing` wrapper. Surfaced as the M20M banner so the user knows
 // the new funding-method selector + per-parcel funding config is now
@@ -927,10 +1048,11 @@ function snapshotNeedsM20MMigration(s: unknown): boolean {
   return o.project.financing === undefined;
 }
 
-// Pick the most-recent banner that applies. M20M is the newest; if it
-// fires we surface that; else Pass 5; else Pass 4; else the loose /
-// M2.0h v7 -> v8 banner upstream.
+// Pick the most-recent banner that applies. Pass 7 is the newest;
+// then M20M; then Pass 5; then Pass 4; else the loose / M2.0h v7 -> v8
+// banner upstream.
 function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsPass7Migration(s)) return M20COSTS_PASS7_NOTICE;
   if (snapshotNeedsM20MMigration(s)) return M20M_FINANCING_NOTICE;
   if (snapshotNeedsPass5Migration(s)) return PASS5_MIGRATION_NOTICE;
   if (snapshotNeedsPass4Migration(s)) return PASS4_MIGRATION_NOTICE;
