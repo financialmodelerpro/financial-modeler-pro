@@ -45,6 +45,7 @@ import {
   type OutputGranularity,
   type Phase,
   type SubUnit,
+  type CostInputMode,
   COST_METHODS,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
@@ -366,13 +367,16 @@ interface CostRowProps {
   // inline formula caption beneath the value cell. Required so the
   // caption can show "x 130,874 sqm BUA = 588,933,000 SAR".
   metrics: import('@/src/core/calculations').AssetAreaMetrics;
+  // M2.0L Fix 2 (2026-05-11): when true, edits route to the cost line
+  // directly (no per-asset overrides). Used by Same-mode rendering.
+  editsGoToLine?: boolean;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics,
+  metrics, editsGoToLine,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -382,7 +386,10 @@ function CostRow({
   // M2.0g Addendum 2: resolved period labels for the row's start / end.
   const periodStartLabel = periodLabel(line.startPeriod);
   const periodEndLabel   = periodLabel(line.endPeriod);
-  const isProjectWide = !line.targetAssetId;
+  // M2.0L Fix 2: in Same-mode, every edit lands on the line itself
+  // (no per-asset overrides). Otherwise project-wide lines still
+  // surface override entries.
+  const isProjectWide = !line.targetAssetId && !editsGoToLine;
   // Effective values: override wins per-asset, line provides default
   const effMethod = override?.method ?? line.method;
   const effValue = override?.value ?? line.value;
@@ -1423,6 +1430,229 @@ function SummaryTables({
   );
 }
 
+// ── M2.0L Fix 2: Cost Input Mode chooser modal ───────────────────────────
+// Shown the first time the user opens Tab 3 on a project (Project.costInput-
+// Mode is undefined). One-shot: closes once the user picks a mode; the
+// choice persists on Project.costInputMode and can be switched later via
+// the toggle button at the top of Tab 3.
+interface CostInputModeModalProps {
+  onPick: (mode: CostInputMode) => void;
+}
+
+function CostInputModeModal({ onPick }: CostInputModeModalProps): React.JSX.Element {
+  const overlay: React.CSSProperties = {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  };
+  const modal: React.CSSProperties = {
+    background: 'var(--color-surface)',
+    color: 'var(--color-heading)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius)',
+    padding: 'var(--sp-3)',
+    minWidth: 480,
+    maxWidth: 560,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+  };
+  const optionCard: React.CSSProperties = {
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-sm)',
+    padding: 'var(--sp-2)',
+    cursor: 'pointer',
+    background: 'var(--color-grey-pale)',
+    textAlign: 'left',
+  };
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" data-testid="cost-input-mode-modal">
+      <div style={modal}>
+        <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 'var(--font-h3)' }}>How do you want to enter costs?</h3>
+        <p style={{ margin: 0, marginBottom: 'var(--sp-2)', fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
+          Pick the entry style that fits this project. You can switch later from the toggle at the top of Tab 3.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+          <button
+            type="button"
+            onClick={() => onPick('same')}
+            style={optionCard}
+            data-testid="cost-input-mode-modal-same"
+          >
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Same for All Assets</div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
+              Single cost table, costs apply uniformly (allocated by BUA share or land area).
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => onPick('individual')}
+            style={optionCard}
+            data-testid="cost-input-mode-modal-individual"
+          >
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Individual per Asset</div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
+              Separate input table per asset. Override rates and methods per asset.
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── M2.0L Fix 2: Same-mode cost table ────────────────────────────────────
+// Renders ONE cost table per phase that drives every visible asset in
+// that phase. Edits land on the cost line itself (no per-asset overrides);
+// the calc engine still distributes the line across assets by its
+// allocationBasis (bua_share / land_share / per_asset / etc.). The
+// caption shows the aggregated multiplier across all visible assets in
+// the phase so the user sees the resolved total.
+interface SameModeCostTableProps {
+  phaseId: string;
+  phaseName: string;
+  constructionPeriods: number;
+  phaseAssets: Asset[];
+  lines: CostLine[];
+  costOverrides: CostOverride[];
+  breakdowns: Record<string, AssetCostBreakdown>;
+  currency: string;
+  scale: DisplayScale;
+  decimals: DisplayDecimals;
+  periodLabel: (idx: number) => string;
+  subUnits: SubUnit[];
+  metricsByAsset: Map<string, import('@/src/core/calculations').AssetAreaMetrics>;
+  onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
+  onRemoveLine: (lineId: string) => void;
+  onAddCustom: () => void;
+}
+
+function SameModeCostTable({
+  phaseId, phaseName, constructionPeriods, phaseAssets,
+  lines, costOverrides, breakdowns, currency, scale, decimals, periodLabel,
+  subUnits, metricsByAsset, onUpdateLine, onRemoveLine, onAddCustom,
+}: SameModeCostTableProps): React.JSX.Element {
+  // Aggregated phase total per line: sum across visible assets.
+  const totalByLineId = (lineId: string): number => {
+    let s = 0;
+    for (const a of phaseAssets) {
+      const bd = breakdowns[a.id];
+      if (!bd) continue;
+      s += bd.byLineId[lineId] ?? 0;
+    }
+    return s;
+  };
+  // Use the first visible asset as the renderer (CostRow needs an asset
+  // for caption context). The caption value shows that asset's share;
+  // the Total cell aggregates across all assets in the phase.
+  const refAsset = phaseAssets[0];
+  const refMetrics = refAsset ? metricsByAsset.get(refAsset.id) : undefined;
+  const phaseSubtotal = lines.reduce((s, l) => s + totalByLineId(l.id), 0);
+  return (
+    <div style={assetSectionStyle} data-testid={`costs-same-phase-${phaseId}`}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 'var(--sp-1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{phaseName}</span>
+          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+            Single cost table - applies to {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'} uniformly
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Phase Subtotal</span>
+          <strong style={{ fontSize: 14 }} data-testid={`costs-same-phase-${phaseId}-subtotal`}>
+            {formatScaled(phaseSubtotal, scale, decimals)}
+          </strong>
+        </div>
+      </div>
+      {refAsset && refMetrics ? (
+        <>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Method</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Value</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Phasing</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Total</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Toggle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line) => {
+                const total = totalByLineId(line.id);
+                return (
+                  <CostRow
+                    key={line.id}
+                    asset={refAsset}
+                    line={line}
+                    override={undefined}
+                    total={total}
+                    isLocked={line.isLocked === true}
+                    currency={currency}
+                    scale={scale}
+                    decimals={decimals}
+                    periodLabel={periodLabel}
+                    constructionPeriods={constructionPeriods}
+                    subUnits={subUnits}
+                    metrics={refMetrics}
+                    editsGoToLine
+                    onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
+                    onUpdateOverride={() => { /* same mode: no overrides */ }}
+                    onRemoveOverride={() => { /* same mode: no overrides */ }}
+                    onRemoveLine={() => onRemoveLine(line.id)}
+                  />
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--color-grey-pale)' }}>
+                <td colSpan={6} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
+                  Phase Subtotal
+                </td>
+                <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
+                  {formatScaled(phaseSubtotal, scale, decimals)}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+          {costOverrides.length > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4, fontStyle: 'italic' }}>
+              Note: {costOverrides.length} per-asset override{costOverrides.length === 1 ? '' : 's'} from a previous Individual session remain in the snapshot; switch to Individual mode to view or clear them.
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onAddCustom}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              data-testid={`costs-same-phase-${phaseId}-add-custom`}
+            >
+              + Add Custom Cost
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--color-meta)', padding: 'var(--sp-2)' }}>
+          Add an asset in Tab 2 before configuring costs.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 export default function Module1Costs(): React.JSX.Element {
   const {
@@ -1452,6 +1682,36 @@ export default function Module1Costs(): React.JSX.Element {
 
   const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
+  // M2.0L Fix 2 (2026-05-11): cost input mode chooser state. The modal
+  // is open ONLY when project.costInputMode is undefined (first open on
+  // this project). The toggle at the top of Tab 3 calls handleSwitchMode
+  // afterwards.
+  const costInputMode: CostInputMode | undefined = project.costInputMode;
+  const showModeChooser = costInputMode === undefined;
+  const removeAllCostOverrides = useModule1Store((s) => s.costOverrides);
+  void removeAllCostOverrides;
+  const setCostOverrideAction = useModule1Store((s) => s.setCostOverride);
+  void setCostOverrideAction;
+  const handleSwitchMode = (next: CostInputMode): void => {
+    if (next === costInputMode) return;
+    // M2.0L: Individual -> Same clears per-asset overrides so the user
+    // sees a clean single-table experience. Confirm first since this
+    // is destructive of user input.
+    if (costInputMode === 'individual' && next === 'same' && costOverrides.length > 0) {
+      const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+        ? window.confirm(
+            `Switching to Same-for-All clears ${costOverrides.length} per-asset cost override${costOverrides.length === 1 ? '' : 's'}. Continue?`,
+          )
+        : true;
+      if (!ok) return;
+      // Drop every override via the store action.
+      const overridesNow = useModule1Store.getState().costOverrides;
+      for (const o of overridesNow) {
+        useModule1Store.getState().removeCostOverride(o.assetId, o.lineId);
+      }
+    }
+    setProject({ costInputMode: next });
+  };
   // M2.0g Fix 7: sub-tab state. 'inputs' shows the per-asset cost
   // tables (editable surface). 'results' shows the 4 capex summary
   // tables (read-only).
@@ -1572,6 +1832,35 @@ export default function Module1Costs(): React.JSX.Element {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* M2.0L Fix 2 (2026-05-11): cost input mode toggle. Always
+              visible at the top of Tab 3 so the user can switch between
+              Same / Individual after the initial chooser. */}
+          {costInputMode && (
+            <div
+              style={{ display: 'inline-flex', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}
+              data-testid="cost-input-mode-toggle"
+            >
+              {(['same', 'individual'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => handleSwitchMode(m)}
+                  data-testid={`cost-input-mode-toggle-${m}`}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    border: 'none',
+                    background: costInputMode === m ? 'var(--color-navy)' : 'var(--color-surface)',
+                    color: costInputMode === m ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {m === 'same' ? 'Same for All' : 'Individual'}
+                </button>
+              ))}
+            </div>
+          )}
           <select
             value={currentPhase.id}
             onChange={(e) => setActivePhaseId(e.target.value)}
@@ -1640,7 +1929,70 @@ export default function Module1Costs(): React.JSX.Element {
         ))}
       </div>
 
-      {subTab === 'inputs' && (
+      {/* M2.0L Fix 2: Same-mode rendering replaces the per-asset
+          selector + sections with one cost table per phase. */}
+      {subTab === 'inputs' && costInputMode === 'same' && (
+        <>
+          {perPhaseBreakdowns.map((pb) => {
+            const phaseObj = phases.find((ph) => ph.id === pb.phaseId);
+            const phaseStart = phaseObj?.startDate && phaseObj.startDate.length === 10
+              ? phaseObj.startDate
+              : project.startDate;
+            const phaseScopedPeriodLabel = (idx: number): string =>
+              getPeriodLabel(idx, phaseStart, project.modelType);
+            // Project-wide lines only (drop any per-asset custom-tagged lines
+            // since Same mode doesn't expose them).
+            const sameModeLines = costLines
+              .filter((c) => c.phaseId === pb.phaseId)
+              .filter((c) => !c.targetAssetId)
+              .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
+              .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
+            return (
+              <SameModeCostTable
+                key={pb.phaseId}
+                phaseId={pb.phaseId}
+                phaseName={pb.phaseName}
+                constructionPeriods={pb.cp}
+                phaseAssets={pb.phaseAssets}
+                lines={sameModeLines}
+                costOverrides={costOverrides}
+                breakdowns={pb.assetTotals}
+                currency={project.currency}
+                scale={scale}
+                decimals={decimals}
+                periodLabel={phaseScopedPeriodLabel}
+                subUnits={subUnits}
+                metricsByAsset={metricsByAsset}
+                onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
+                onRemoveLine={removeCostLine}
+                onAddCustom={() => {
+                  // In Same mode there is no per-asset target. Open the
+                  // custom popup against the first visible asset; the
+                  // resulting custom line is targeted but still rendered
+                  // in Individual mode. For Same mode, we instead seed
+                  // a project-wide custom line directly via the store.
+                  const id = `custom-${Date.now()}`;
+                  addCostLine({
+                    id,
+                    phaseId: pb.phaseId,
+                    name: 'Custom Cost',
+                    method: 'fixed',
+                    value: 0,
+                    stage: 'soft',
+                    scope: 'direct',
+                    allocationBasis: 'bua_share',
+                    startPeriod: 1,
+                    endPeriod: Math.max(1, pb.cp),
+                    phasing: 'even',
+                  });
+                }}
+              />
+            );
+          })}
+        </>
+      )}
+
+      {subTab === 'inputs' && costInputMode === 'individual' && (
         <>
           {/* M2.0j Fix 16 (2026-05-07): asset selector bar. "All Assets"
               shows every asset section concatenated; picking a specific
@@ -1947,6 +2299,11 @@ export default function Module1Costs(): React.JSX.Element {
           onClose={() => setPopupAssetId(null)}
           onSave={handleCustomSave}
         />
+      )}
+      {/* M2.0L Fix 2: first-open chooser modal. Persists the pick via
+          Project.costInputMode, then never reopens for this project. */}
+      {showModeChooser && (
+        <CostInputModeModal onPick={(mode) => setProject({ costInputMode: mode })} />
       )}
     </div>
   );

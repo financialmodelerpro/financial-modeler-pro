@@ -208,6 +208,20 @@ export type DisplayDecimals = 0 | 1 | 2 | 3;
 
 export const DISPLAY_DECIMALS: readonly DisplayDecimals[] = [0, 1, 2, 3] as const;
 
+// M2.0L Fix 2 (2026-05-11): cost input mode. Drives whether Tab 3
+// shows one cost table that applies to ALL assets uniformly ('same')
+// or a per-asset selector with separate cost tables ('individual').
+// Undefined = user has not chosen yet, which triggers the first-open
+// modal in Module1Costs.
+export type CostInputMode = 'same' | 'individual';
+
+export const COST_INPUT_MODES: readonly CostInputMode[] = ['same', 'individual'] as const;
+
+export const COST_INPUT_MODE_LABELS: Record<CostInputMode, string> = {
+  same:       'Same for All Assets',
+  individual: 'Individual per Asset',
+};
+
 // M2.0e: closed-enum project type that drives Tab 2's asset-type catalog.
 // Mixed-Use exposes every type from every category; Custom = free-text
 // fallback (still shows the full bank as suggestions).
@@ -279,6 +293,11 @@ export interface Project {
   // layer how to split annual schedules into quarters / months for
   // viewing. Optional so v7 snapshots stay valid (default 'annual').
   outputGranularity?: OutputGranularity;
+  // M2.0L Fix 2 (2026-05-11): Tab 3 cost input mode. 'same' renders a
+  // single cost table that applies uniformly to every asset; 'individual'
+  // shows a per-asset selector with separate cost tables. Undefined =
+  // user has not chosen yet, which triggers the first-open chooser modal.
+  costInputMode?: CostInputMode;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
