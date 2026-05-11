@@ -903,27 +903,45 @@ export function computeAssetCost(
   });
 
   // Pass 1: direct methods (everything except percent_of_selected /
-  // percent_of_construction). Apply allocation factor for project-level
-  // lines (allocationBasis !== 'per_asset' && !== 'manual').
+  // percent_of_construction).
+  //
+  // M2.0L Pass2 Fix 3 (2026-05-11): allocation factor previously
+  // multiplied EVERY method's total, even asset-specific ones whose
+  // value already encodes the asset's share (rate_per_bua reads
+  // m.bua = THIS asset's BUA; percent_of_cash_land reads
+  // m.cashLandValue = THIS asset's cash land slice). The double-apply
+  // halved or quartered cost line totals on multi-asset phases.
+  //
+  // The correct semantics: only the `fixed` method delivers a project-
+  // wide lump sum that needs distributing via allocationBasis. Every
+  // other method (rate_per_X, percent_of_X_land, etc.) already returns
+  // the asset's contribution because m.X is asset-scoped via
+  // resolveAssetAreaMetrics. allocationBasis stays on the schema for
+  // back-compat + the `fixed` distribution path; for asset-specific
+  // methods we ignore it (allocFactor = 1).
+  const FIXED_METHODS_NEEDING_ALLOC = new Set<CostMethod>(['fixed']);
   const directTotals: Record<string, number> = {};
   for (const r of resolved) {
     const isPct = r.method === 'percent_of_selected' || r.method === 'percent_of_construction';
     if (isPct) continue;
     const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {} };
-    const projectLevelTotal = calculateItemTotal(
+    const lineTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
       ctxStub,
       true,
     );
-    const allocFactor = resolveAllocationFactor(
-      r.line.allocationBasis,
-      asset,
-      phaseAssets,
-      parcels,
-      subUnits,
-      landAllocationMode,
-    );
-    directTotals[r.line.id] = projectLevelTotal * allocFactor;
+    const needsAlloc = FIXED_METHODS_NEEDING_ALLOC.has(r.method);
+    const allocFactor = needsAlloc
+      ? resolveAllocationFactor(
+          r.line.allocationBasis,
+          asset,
+          phaseAssets,
+          parcels,
+          subUnits,
+          landAllocationMode,
+        )
+      : 1;
+    directTotals[r.line.id] = lineTotal * allocFactor;
   }
 
   // Pass 2: percent_of_construction = % × sum of stage='hard' direct totals.

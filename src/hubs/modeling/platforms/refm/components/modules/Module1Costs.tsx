@@ -1785,10 +1785,16 @@ export default function Module1Costs(): React.JSX.Element {
   // Per-asset metrics map (for treatment table + Fix 8 caption + Fix 16 cards).
   // M2.0j: store the full AssetAreaMetrics shape so CostRow can render
   // the inline formula caption (e.g. "x 130,874 sqm BUA = 588M SAR").
+  // M2.0L Pass2 Fix 3 (2026-05-11): scope phaseAssets to the asset's own
+  // phase. Before this, every asset was resolved against ALL visible
+  // assets across every phase, which broke the autoByBua land allocation
+  // share computation (asset's slice became diluted across foreign
+  // phases that don't share its parcels).
   const metricsByAsset = useMemo(() => {
     const map = new Map<string, ReturnType<typeof resolveAssetAreaMetrics>>();
     for (const a of allVisibleAssets) {
-      const m = resolveAssetAreaMetrics(a, project, parcels, allVisibleAssets, subUnits, landAllocationMode);
+      const phaseAssets = allVisibleAssets.filter((x) => x.phaseId === a.phaseId);
+      const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssets, subUnits, landAllocationMode);
       map.set(a.id, m);
     }
     return map;
