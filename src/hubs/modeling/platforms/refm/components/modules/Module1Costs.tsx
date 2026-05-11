@@ -140,6 +140,42 @@ const PHASING_LABELS: Record<CostPhasing, string> = {
   phase_aligned: 'Phase-aligned',
 };
 
+// M2.0L Pass2 Fix 5 (2026-05-11): per-row unit hint for the Value cell.
+// Reactive to method dropdown changes. Renders next to the value input
+// so user immediately sees what they're entering (SAR/sqm vs SAR/unit
+// vs % vs flat amount).
+function valueUnitHint(method: CostMethod, currency: string): string {
+  switch (method) {
+    case 'fixed':
+      return currency;
+    case 'rate_per_land':
+    case 'rate_per_nda':
+    case 'rate_per_roads':
+    case 'rate_per_gfa':
+    case 'rate_per_bua':
+    case 'rate_per_nsa':
+    case 'rate_x_support_area':
+    case 'rate_x_parking_area':
+      return `${currency}/sqm`;
+    case 'rate_per_unit':
+      return `${currency}/unit`;
+    case 'rate_per_parking_bay':
+      return `${currency}/bay`;
+    case 'rate_x_specific_subunit':
+      return `${currency}/sqm or unit`;
+    case 'per_sub_unit_custom_rates':
+      return 'Multiple rates';
+    case 'percent_of_selected':
+    case 'percent_of_construction':
+    case 'percent_of_total_land':
+    case 'percent_of_cash_land':
+    case 'percent_of_inkind_land':
+      return '%';
+    default:
+      return '';
+  }
+}
+
 const STAGE_BG: Record<CostStage, string> = {
   land:      'color-mix(in srgb, var(--color-navy) 12%, transparent)',
   hard:      'color-mix(in srgb, var(--color-success) 12%, transparent)',
@@ -543,19 +579,27 @@ function CostRow({
         </select>
       </td>
       <td style={{ padding: '4px', width: 96 }}>
-        {/* M2.0j Fix 7: accounting format on blur, raw on focus.
-            Percent-method values (% of selected, % of construction, etc.)
-            are NOT scaled to thousands/millions; they stay raw via
-            scale='full'. */}
+        {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
+            scale regardless of project.displayScale. The Display Scale
+            setting applies only to computed/result cells (Total column,
+            summary cards, summary tables). User types a rate as
+            4,500 / 4,500.00, never as "4.50 K". */}
         <AccountingNumberInput
           value={effValue}
           onChange={writeValue}
-          scale={effMethod.startsWith('percent_') ? 'full' : scale}
+          scale="full"
           decimals={decimals}
           disabled={isLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-value`}
         />
+        {/* M2.0L Pass2 Fix 5 (2026-05-11): unit hint reactive to method. */}
+        <div
+          style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+          data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+        >
+          {valueUnitHint(effMethod, currency)}
+        </div>
         {/* M2.0j Fix 8 (2026-05-07): inline formula caption showing the
             multiplier value AND the result. Helps the user verify math
             at a glance without leaving Tab 3. Hidden when value is 0
@@ -574,6 +618,7 @@ function CostRow({
         <input
           type="number"
           min={0}
+          max={constructionPeriods}
           value={line.startPeriod}
           onChange={(e) => writeStartPeriod(parseInt(e.target.value) || 0)}
           disabled={isLocked}
@@ -585,18 +630,29 @@ function CostRow({
         </div>
       </td>
       <td style={{ padding: '4px', width: 70 }}>
+        {/* M2.0L Pass2 Fix 7 (2026-05-11): max bound = phase
+            constructionPeriods. Inline warning shown when End exceeds
+            construction window (cost extends into operations). */}
         <input
           type="number"
           min={0}
+          max={constructionPeriods}
           value={line.endPeriod}
           onChange={(e) => writeEndPeriod(parseInt(e.target.value) || 0)}
           disabled={isLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-end`}
+          aria-invalid={line.endPeriod > constructionPeriods}
+          title={line.endPeriod > constructionPeriods ? `End extends into operations (construction window = ${constructionPeriods})` : undefined}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
+        {line.endPeriod > constructionPeriods && (
+          <div style={{ fontSize: 9, color: 'var(--color-warning)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
+            into operations
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
         <select
@@ -646,18 +702,29 @@ function CostRow({
             reset
           </button>
         )}
-        {isCustom && (
+        {/* M2.0L Pass2 Fix 8 (2026-05-11): delete button on EVERY non-
+            locked cost line (not just custom). Locked seed lines (Land
+            Cash / Land In-Kind / auto-IDC) keep the button hidden so
+            the user can't break auto-generated rows. Confirm dialog
+            before remove. */}
+        {!isLocked && (
           <button
             type="button"
-            onClick={onRemoveLine}
+            onClick={() => {
+              const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                ? window.confirm(`Delete cost line "${line.name}"?`)
+                : true;
+              if (ok) onRemoveLine();
+            }}
             style={{
               ...inputStyle, background: 'transparent', cursor: 'pointer',
               fontSize: 10, marginTop: 2, color: 'var(--color-negative)',
               padding: '2px 4px',
             }}
+            title={isCustom ? 'Delete custom cost line' : 'Delete cost line'}
             data-testid={`cost-${asset.id}-${line.id}-remove`}
           >
-            ✕
+            ✕ delete
           </button>
         )}
       </td>
