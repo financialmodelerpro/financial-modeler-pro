@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
-    "@getbrevo/brevo": "^5.0.4",
     "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@hello-pangea/dnd": "^18.0.1",
     "@hookform/resolvers": "^5.2.2",
@@ -49,6 +48,7 @@
     "react-is": "^19.2.5",
     "react-rnd": "^10.5.3",
     "recharts": "^3.8.0",
+    "resend": "^6.10.0",
     "satori": "^0.26.0",
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",

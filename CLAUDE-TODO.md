@@ -4,6 +4,22 @@
 
 ---
 
+## ACTIVE FOLLOW-UP, Re-apply Brevo migration once account activates (2026-05-11)
+
+Brevo account is pending activation (up to 1 business day). Email vendor was **temporarily reverted to Resend** on 2026-05-11 to keep transactional email running. `sendEmail.ts` carries a `// TEMPORARY: Reverted to Resend...` comment at the top as a load-bearing marker.
+
+**When Brevo activates, the re-migration is essentially cherry-picking commit `166a8ec` on top of current main, minus the docs changes that already landed in the follow-up docs commit.**
+
+Re-apply steps:
+1. `git cherry-pick 166a8ec` (will conflict on `src/shared/email/sendEmail.ts`; resolve by taking the Brevo version and removing the TEMPORARY comment).
+2. Manually re-apply: `package.json` (drop `resend`, add `@getbrevo/brevo`), `.env.example` (Resend section → Brevo section), `app/api/admin/env-check/route.ts` (`RESEND_API_KEY` → `BREVO_API_KEY`), `scripts/testEmails.ts` (comment).
+3. KEEP the per-session quiz email removal (already in main from 166a8ec / submit-assessment, not affected by this revert).
+4. KEEP the af1900b error-surfacing fix on `send-verification/route.ts` (vendor-agnostic, untouched by the revert).
+5. `npm install` + `npx tsc --noEmit` + `npm run build`.
+6. Vercel env: add `BREVO_API_KEY`, optionally leave `RESEND_API_KEY` in place for a few days as a safety net before removing.
+
+---
+
 ## Recently Completed, Email Migration Resend → Brevo + Per-Session Quiz Email Removal (2026-05-11, 1 commit + 1 docs commit)
 
 Closes the Resend → Brevo transactional-email migration and removes per-session quiz result emails. Templates were untouched (sender-agnostic). Final-exam result, lockout, certificate, and all transactional emails still fire.
