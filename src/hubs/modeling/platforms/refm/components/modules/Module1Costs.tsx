@@ -64,7 +64,9 @@ import {
   computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
+  distribute,
   distributeAnnualToPeriods,
+  distributeItemCost,
   generatePeriodLabels,
   costLineCaption,
   costLineProjectPeriodIndex,
@@ -657,10 +659,15 @@ function CostRow({
         Renders only when the effective phasing is 'manual'. The
         period range is [line.startPeriod, line.endPeriod]; one input
         per period in that range. Sum indicator + auto-normalize
-        button on the right. */}
+        button on the right. M2.0L (2026-05-11) adds the live currency
+        chip strip below the % inputs so the user sees the actual
+        money distribution as they edit weights. */}
     {effPhasing === 'manual' && (() => {
       const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
       const sumOk = Math.abs(distSum - 100) < 0.5;
+      // Money per period = total × pct/100 when sum~=100; otherwise
+      // total × pct/sum (so partial sums still produce sensible chips).
+      const sumDenom = distSum > 0 ? distSum : 1;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-manual-row`} style={{ background: 'var(--color-grey-pale)' }}>
           <td colSpan={8} style={{ padding: '8px 12px' }}>
@@ -708,10 +715,124 @@ function CostRow({
                 Auto-normalize
               </button>
             </div>
+            {/* M2.0L: currency chip strip below the % inputs. Shows
+                the live money distribution per period given the
+                current weights and the line's total. */}
+            <div
+              style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--color-border)' }}
+              data-testid={`cost-${asset.id}-${line.id}-manual-money-chips`}
+            >
+              <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', alignSelf: 'center' }}>
+                Money {currency}
+              </strong>
+              {Array.from({ length: periods }, (_, i) => {
+                const periodIdx = line.startPeriod + i;
+                const pct = effDistribution[i] ?? 0;
+                const money = (total * pct) / sumDenom;
+                const positive = money > 0;
+                return (
+                  <span
+                    key={i}
+                    data-testid={`cost-${asset.id}-${line.id}-money-${i}`}
+                    title={`${periodLabel(periodIdx)}: ${formatScaled(money, scale, decimals)}`}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      padding: '3px 6px',
+                      minWidth: 64,
+                      borderRadius: 4,
+                      background: positive
+                        ? 'color-mix(in srgb, var(--color-navy) 12%, transparent)'
+                        : 'var(--color-grey-pale)',
+                      fontSize: 10,
+                      fontWeight: positive ? 700 : 400,
+                      color: positive ? 'var(--color-heading)' : 'var(--color-meta)',
+                    }}
+                  >
+                    <span style={{ fontSize: 9, color: 'var(--color-meta)', fontWeight: 400 }}>{periodLabel(periodIdx)}</span>
+                    <span>{formatScaled(money, scale, decimals)}</span>
+                  </span>
+                );
+              })}
+            </div>
           </td>
         </tr>
       );
     })()}
+    {/* M2.0L (2026-05-11): always-visible per-row period chip strip
+        (also renders when phasing != manual). Visual scan of cash
+        deployment without leaving the row. Skipped when line is
+        upfront (startPeriod=0, endPeriod=0) and total=0. */}
+    {!effDisabled && total > 0 && line.endPeriod > 0 && (() => {
+      // Distribute the resolved total across [startPeriod, endPeriod]
+      // using the same phasing the calc engine will use. Skip the
+      // upfront slot (index 0) — these rows live in the construction
+      // window.
+      const cp = constructionPeriods;
+      const perPeriod = distributeItemCost(
+        { ...line, phasing: effPhasing, distribution: effDistribution },
+        total,
+        cp,
+      );
+      // Build chips ONLY for the span (startPeriod..endPeriod), keep
+      // the upfront lump if startPeriod===0.
+      const start = Math.min(line.startPeriod, cp);
+      const end = Math.min(line.endPeriod, cp);
+      const chips: Array<{ idx: number; amount: number }> = [];
+      for (let p = start; p <= end; p++) {
+        chips.push({ idx: p, amount: perPeriod[p] ?? 0 });
+      }
+      if (chips.length === 0) return null;
+      return (
+        <tr data-testid={`cost-row-${asset.id}-${line.id}-chip-strip`} style={{ background: 'transparent' }}>
+          <td colSpan={8} style={{ padding: '2px 12px 6px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {chips.map(({ idx, amount }) => {
+                const positive = amount > 0;
+                return (
+                  <span
+                    key={idx}
+                    data-testid={`cost-${asset.id}-${line.id}-chip-${idx}`}
+                    title={`${periodLabel(idx)}: ${formatScaled(amount, scale, decimals)}`}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      padding: '2px 6px',
+                      minWidth: 60,
+                      borderRadius: 4,
+                      background: positive
+                        ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)'
+                        : 'var(--color-grey-pale)',
+                      fontSize: 10,
+                      fontWeight: positive ? 600 : 400,
+                      color: positive ? 'var(--color-heading)' : 'var(--color-meta)',
+                    }}
+                  >
+                    <span style={{ fontSize: 9, color: 'var(--color-meta)', fontWeight: 400 }}>{periodLabel(idx)}</span>
+                    <span>{formatScaled(amount, scale, decimals)}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </td>
+        </tr>
+      );
+    })()}
+    {/* M2.0L (2026-05-11): % of Selected Lines checkbox picker. Renders
+        only when method === 'percent_of_selected'. Lets user toggle
+        which sibling lines (same phase + same asset / project-wide)
+        compose the base. Was a free-form selectedLineIds array before;
+        the picker is the canonical editor now. */}
+    {effMethod === 'percent_of_selected' && (
+      <PercentOfSelectedPicker
+        line={line}
+        asset={asset}
+        isLocked={isLocked}
+        onChangeSelected={(ids) => onUpdateLine({ selectedLineIds: ids })}
+      />
+    )}
     {/* M2.0h Fix 5 (2026-05-07): Per-sub-unit custom rates sub-row.
         Renders only when effMethod === 'per_sub_unit_custom_rates'.
         Lists each sub-unit + asset-level Support + asset-level Parking
@@ -782,6 +903,99 @@ function CostRow({
       );
     })()}
     </>
+  );
+}
+
+// ── M2.0L: % of Selected Lines checkbox picker ────────────────────────────
+// Renders a scrollable list of sibling cost lines (same phase, either
+// project-wide or targeted at this asset) with checkboxes for which
+// ones compose the percent_of_selected base. The current selection is
+// the line.selectedLineIds array.
+function PercentOfSelectedPicker({
+  line, asset, isLocked, onChangeSelected,
+}: {
+  line: CostLine;
+  asset: Asset;
+  isLocked: boolean;
+  onChangeSelected: (ids: string[]) => void;
+}): React.JSX.Element {
+  const costLines = useModule1Store(useShallow((s) => s.costLines));
+  // Sibling lines: same phase, NOT this line itself, NOT a
+  // percent_of_selected (we don't allow recursive references), and
+  // visible to this asset (project-wide OR targeted at this asset).
+  const siblings = costLines.filter((c) =>
+    c.phaseId === line.phaseId &&
+    c.id !== line.id &&
+    c.method !== 'percent_of_selected' &&
+    (c.targetAssetId === undefined || c.targetAssetId === asset.id),
+  );
+  const selected = new Set(line.selectedLineIds ?? []);
+  const toggle = (id: string): void => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChangeSelected(Array.from(next));
+  };
+  return (
+    <tr data-testid={`cost-row-${asset.id}-${line.id}-pct-picker`} style={{ background: 'var(--color-grey-pale)' }}>
+      <td colSpan={8} style={{ padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+            Apply to lines (base for the %)
+          </strong>
+          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+            {selected.size === 0 ? 'No base selected, totalling 0' : `${selected.size} line${selected.size === 1 ? '' : 's'} selected`}
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 4,
+            maxHeight: 160,
+            overflowY: 'auto',
+            border: '1px solid var(--color-border)',
+            padding: 6,
+            background: 'var(--color-surface)',
+            borderRadius: 4,
+          }}
+          data-testid={`cost-${asset.id}-${line.id}-pct-picker-list`}
+        >
+          {siblings.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: 6 }}>
+              No eligible sibling lines in this phase. Add construction / soft / land cost lines first.
+            </div>
+          )}
+          {siblings.map((s) => {
+            const checked = selected.has(s.id);
+            return (
+              <label
+                key={s.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  cursor: isLocked ? 'not-allowed' : 'pointer',
+                  padding: '2px 4px',
+                  background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'transparent',
+                  borderRadius: 3,
+                }}
+                data-testid={`cost-${asset.id}-${line.id}-pct-picker-${s.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(s.id)}
+                  disabled={isLocked}
+                />
+                <span>{s.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -1247,6 +1461,10 @@ export default function Module1Costs(): React.JSX.Element {
   // per-asset sections to just that one and reflects its 3 summary
   // cards (Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind).
   const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
+  // M2.0L (2026-05-11): Results sub-tab filter pill bar. null = Combined
+  // (all assets in the Capex by Period table). Specific asset id filters
+  // the table rows to that asset only.
+  const [resultsAssetFilter, setResultsAssetFilter] = useState<string | null>(null);
   // M2.0h Fix 6: runtime view granularity for Results sub-tab.
   // Defaults to project.outputGranularity ('annual' on new projects).
   // User toggles persist via setProject so the next session opens the
@@ -1627,11 +1845,66 @@ export default function Module1Costs(): React.JSX.Element {
               Inputs are entered annually; sub-period view distributes via cost line phasing.
             </span>
           </div>
+          {/* M2.0L (2026-05-11): Results filter pill bar. Combined +
+              one pill per visible asset. Picking an asset narrows the
+              Capex by Period table to that asset only. */}
+          {allVisibleAssets.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 'var(--sp-1)',
+                flexWrap: 'wrap',
+                padding: 'var(--sp-1) var(--sp-2)',
+                marginBottom: 'var(--sp-2)',
+                background: 'var(--color-grey-pale)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                alignItems: 'center',
+              }}
+              data-testid="costs-results-asset-filter"
+            >
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginRight: 'var(--sp-1)' }}>Filter:</strong>
+              <button
+                type="button"
+                onClick={() => setResultsAssetFilter(null)}
+                data-testid="costs-results-filter-combined"
+                style={{
+                  fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 999,
+                  border: resultsAssetFilter === null ? 'none' : '1px solid var(--color-border)',
+                  background: resultsAssetFilter === null ? 'var(--color-navy)' : 'var(--color-surface)',
+                  color: resultsAssetFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  cursor: 'pointer',
+                }}
+              >
+                Combined
+              </button>
+              {allVisibleAssets.map((a) => {
+                const isActive = resultsAssetFilter === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setResultsAssetFilter(a.id)}
+                    data-testid={`costs-results-filter-${a.id}`}
+                    style={{
+                      fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 999,
+                      border: isActive ? 'none' : '1px solid var(--color-border)',
+                      background: isActive ? 'var(--color-navy)' : 'var(--color-surface)',
+                      color: isActive ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {/* M2.0j Fix 11: key forces a remount on granularity change so
               the per-period table refreshes immediately. */}
           <SummaryTables
-            key={`summary-${granularity}`}
-            phaseAssets={allVisibleAssets}
+            key={`summary-${granularity}-${resultsAssetFilter ?? 'all'}`}
+            phaseAssets={resultsAssetFilter ? allVisibleAssets.filter((a) => a.id === resultsAssetFilter) : allVisibleAssets}
             perPhaseBreakdowns={perPhaseBreakdowns}
             parcelsByPhase={new Map()}
             metricsByAsset={metricsByAsset}
