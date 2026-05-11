@@ -1416,26 +1416,38 @@ export default function Module1Financing(): React.JSX.Element {
             })}
           </div>
 
-          {/* Capital Structure Overview */}
+          {/* P4-Fix 3 (2026-05-12): Capital Structure Overview restructured.
+              Total Funding leads as the headline KPI. Sources block splits
+              into Total Debt + Equity Cash + Equity In-Kind sub-cards.
+              Uses block shows Total Capex. LTV + match/gap chip in own row. */}
           <div style={sectionCardStyle} data-testid="financing-capital-stack">
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Capital Structure Overview</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--sp-1)' }}>
-              <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-equity">
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Equity</div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(stack.totalEquity)}</div>
-                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((stack.totalEquity / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
-              </div>
+            <div style={{ ...calcOutputStyle, padding: 12, marginBottom: 'var(--sp-1)' }} data-testid="cap-stack-total-funding">
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Funding</div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{fmt(funding.totalNeed)}</div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', fontWeight: 600, marginBottom: 4 }}>Sources</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
               <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-debt">
                 <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Debt</div>
                 <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(stack.totalDebt)}</div>
                 <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((stack.totalDebt / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
               </div>
-              <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-sources">
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Sources</div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(stack.totalSources)}</div>
+              <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-equity-cash">
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Equity (Cash)</div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(equity.cashContribution)}</div>
+                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((equity.cashContribution / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
               </div>
+              <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-equity-inkind">
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Equity (In-Kind)</div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(equity.inKindContribution)}</div>
+                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((equity.inKindContribution / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', fontWeight: 600, marginBottom: 4 }}>Uses</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
               <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-uses">
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Uses (CapEx)</div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Capex</div>
                 <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(stack.totalUses)}</div>
               </div>
               <div style={{ ...calcOutputStyle, padding: 8 }} data-testid="cap-stack-ltv">
