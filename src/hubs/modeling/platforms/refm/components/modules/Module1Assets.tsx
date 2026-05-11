@@ -1831,7 +1831,12 @@ function LandReconciliationBlock({
   );
 }
 
-// ── M2.0i Fix 9: AssetAreaReconciliationBlock (compact / expandable) ─────
+// ── P7-Fix 2: AssetAreaReconciliationBlock (single compact line) ─────────
+// Pass 7 collapses the previously multi-row reconciliation panel down to
+// one line: `Verification: BUA X | NSA X | Eff X% | Land X | Land Cost X`.
+// Mismatch state (sub-units exist with Support/Parking but NSA = 0) still
+// surfaces an inline warning prefix. expand/collapse + localStorage state
+// removed (always single-line).
 interface AssetAreaReconciliationBlockProps {
   asset: Asset;
   assetSubUnits: SubUnit[];
@@ -1845,45 +1850,17 @@ interface AssetAreaReconciliationBlockProps {
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
 }
 
-const ASSET_RECON_LS_KEY = 'm20i-asset-recon-collapsed';
-
-function readAssetReconCollapsed(): boolean {
-  if (typeof window === 'undefined') return true;
-  try { return window.localStorage.getItem(ASSET_RECON_LS_KEY) !== 'false'; }
-  catch { return true; }
-}
-function writeAssetReconCollapsed(v: boolean): void {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(ASSET_RECON_LS_KEY, v ? 'true' : 'false'); }
-  catch { /* noop */ }
-}
-
 function AssetAreaReconciliationBlock({
   asset, assetSubUnits, derivedSellable, supportSum, parkingSum, landSqm, landCost,
   currency, scale, decimals,
 }: AssetAreaReconciliationBlockProps): React.JSX.Element {
-  const [userCollapsed, setUserCollapsed] = useState<boolean>(readAssetReconCollapsed);
   const bua = derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0);
-  const gfa = bua + parkingSum;
-  // Mismatch detection: when the asset has no sub-units yet (everything 0)
-  // suppress the warning; otherwise flag if NSA > BUA (impossible) or
-  // sanity check (no current rule beyond derived numbers always matching).
-  // We auto-expand when sub-units exist but NSA = 0 (user added support /
-  // parking only without revenue units yet).
+  const eff = bua > 0 ? (derivedSellable / bua) * 100 : 0;
   const noSubUnits = assetSubUnits.filter((u) => u.category !== 'Support').length === 0;
   const hasSupportOrParking = supportSum > 0 || (asset.supportArea ?? 0) > 0 || parkingSum > 0;
   const mismatch = !noSubUnits && derivedSellable === 0 && hasSupportOrParking;
-  const collapsed = mismatch ? false : userCollapsed;
-
-  const toggle = (): void => {
-    const next = !collapsed;
-    setUserCollapsed(next);
-    writeAssetReconCollapsed(next);
-  };
-
   const accent = mismatch ? 'var(--color-accent-warm)' : 'var(--color-success)';
   const fmtMoney = (n: number): string => fmtCurrency(n, currency, scale, decimals);
-
   return (
     <div
       style={{
@@ -1893,71 +1870,23 @@ function AssetAreaReconciliationBlock({
         padding: 'var(--sp-1) var(--sp-2)',
         marginBottom: 'var(--sp-2)',
         fontSize: 11,
+        display: 'flex',
+        gap: 'var(--sp-2)',
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
       }}
       data-testid={`asset-${asset.id}-area-reconciliation`}
     >
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', gap: 'var(--sp-2)' }}
-        onClick={toggle}
-        data-testid={`asset-${asset.id}-area-reconciliation-toggle`}
-      >
-        <div style={{ fontSize: 11, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-          <span style={{ color: accent, fontWeight: 700 }}>{mismatch ? '⚠' : '✓'}</span>
-          <strong>{asset.name || 'Asset'} BUA:</strong>
-          <span data-testid={`asset-${asset.id}-recon-summary`}>
-            {fmt(bua)} sqm (NSA {fmt(derivedSellable)} + Support {fmt(supportSum + Math.max(0, asset.supportArea ?? 0))})
-            {mismatch ? ' · no revenue sub-units yet' : ''}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); toggle(); }}
-          data-testid={`asset-${asset.id}-area-reconciliation-expand`}
-          style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 10, color: 'var(--color-meta)' }}
-        >
-          {collapsed ? 'expand' : 'collapse'}
-        </button>
-      </div>
-      {!collapsed && (
-        <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 4 }}>
-          <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em', marginTop: 2 }}>
-            Sub-units (revenue-generating):
-          </div>
-          {assetSubUnits.filter((u) => u.category !== 'Support').map((u) => (
-            <React.Fragment key={u.id}>
-              <div style={{ paddingLeft: 12 }}>{u.name || 'Sub-unit'} ({u.category}):</div>
-              <div style={{ textAlign: 'right' }}>{fmt(computeSubUnitArea(u))} sqm</div>
-            </React.Fragment>
-          ))}
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, paddingLeft: 12, fontWeight: 700 }}>NSA (Net Sellable)</div>
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-nsa`}>{fmt(derivedSellable)} sqm</div>
-
-          {(supportSum > 0 || (asset.supportArea ?? 0) > 0) && (
-            <>
-              <div style={{ paddingTop: 4 }}>Sub-unit Support:</div>
-              <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(supportSum)} sqm</div>
-              <div>Asset Support Area:</div>
-              <div style={{ textAlign: 'right' }}>{fmt(Math.max(0, asset.supportArea ?? 0))} sqm</div>
-            </>
-          )}
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>BUA (NSA + Support)</div>
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-bua`}>{fmt(bua)} sqm</div>
-
-          {parkingSum > 0 && (
-            <>
-              <div style={{ paddingTop: 4 }}>Asset Parking Area:</div>
-              <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(parkingSum)} sqm</div>
-            </>
-          )}
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>GFA (BUA + Parking)</div>
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-gfa`}>{fmt(gfa)} sqm</div>
-
-          <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', color: 'var(--color-meta)' }}>Land allocation:</div>
-          <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', textAlign: 'right', color: 'var(--color-meta)' }}>{fmt(landSqm)} sqm</div>
-          <div style={{ color: 'var(--color-meta)' }}>Land cost:</div>
-          <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtMoney(landCost)}</div>
-        </div>
-      )}
+      <span style={{ color: accent, fontWeight: 700 }}>{mismatch ? '⚠' : '✓'}</span>
+      <strong>Verification:</strong>
+      <span data-testid={`asset-${asset.id}-recon-summary`} style={{ color: 'var(--color-body)' }}>
+        BUA <strong data-testid={`asset-${asset.id}-recon-bua`}>{fmt(bua)}</strong>
+        {' | '}NSA <strong data-testid={`asset-${asset.id}-recon-nsa`}>{fmt(derivedSellable)}</strong>
+        {' | '}Eff <strong data-testid={`asset-${asset.id}-recon-eff`}>{bua > 0 ? `${fmt(eff, 1)}%` : 'n/a'}</strong>
+        {' | '}Land <strong data-testid={`asset-${asset.id}-recon-land`}>{fmt(landSqm)}</strong>
+        {' | '}Land Cost <strong data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtMoney(landCost)}</strong>
+        {mismatch && <span style={{ color: 'var(--color-accent-warm)', marginLeft: 8 }}>· no revenue sub-units yet</span>}
+      </span>
     </div>
   );
 }
