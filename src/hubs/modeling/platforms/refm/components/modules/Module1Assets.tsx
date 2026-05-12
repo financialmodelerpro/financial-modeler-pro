@@ -1437,7 +1437,10 @@ function AssetCard({
               M2.0i Fix 5 (2026-05-07): Parking Bays count input dropped.
               Parking Area (sqm) is the canonical cost driver; if a future
               use case needs a per-bay revenue (parking fee / bay / year),
-              model it as a Leasable sub-unit. */}
+              model it as a Leasable sub-unit.
+              T2P2 Fix 2 (2026-05-12): companions never carry their own
+              areas (Support / Parking / GFA). Section is hidden. */}
+          {!asset.isCompanion && (
           <div
             style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
             data-testid={`asset-${asset.id}-areas-row`}
@@ -1483,12 +1486,15 @@ function AssetCard({
               />
             </div>
           </div>
+          )}
 
           {/* P8-Fix 1 (2026-05-12): per-asset NDA inputs. Only rendered when
               project.projectNdaEnabled === true AND projectNdaScope === 'asset'.
               Otherwise the project-level NDA card at the top of Tab 2 owns
-              the deduction. */}
-          {project.projectNdaEnabled === true && project.projectNdaScope === 'asset' && (
+              the deduction.
+              T2P2 Fix 2 (2026-05-12): companion has no land, so NDA never
+              applies. Hidden on companion. */}
+          {!asset.isCompanion && project.projectNdaEnabled === true && project.projectNdaScope === 'asset' && (
             <div
               style={{
                 display: 'grid',
@@ -1540,8 +1546,10 @@ function AssetCard({
           )}
 
           {/* M2.0h Fix 3: NSA / BUA / GFA hierarchy chips. Read-only
-              derived from sub-units + asset-level Support + Parking. */}
-          {(() => {
+              derived from sub-units + asset-level Support + Parking.
+              T2P2 Fix 2 (2026-05-12): companion has no BUA / NSA / GFA
+              of its own (Rule 2). Hidden on companion. */}
+          {!asset.isCompanion && (() => {
             const hier = computeAssetAreaHierarchy(asset, subUnits);
             const gfaDisplay = asset.gfaSqm > 0 ? asset.gfaSqm : hier.gfa;
             return (
@@ -1577,28 +1585,48 @@ function AssetCard({
               Reconciliation block. Collapsed by default with summary
               line; expand reveals itemized three-tier breakdown. The
               user's expand/collapse preference persists in
-              localStorage per project (key 'm20i-asset-recon-{id}'). */}
-          {/* P10-Fix 7 (2026-05-12): compute totalRevenue locally from
-              revenue sub-units. Sum of metricValue * unitPrice across
-              Sellable / Operable / Leasable categories. Support
-              category is intentionally excluded (cost basis, not
-              revenue source). Land + parking handled at asset level,
-              not sub-unit level. */}
-          <AssetAreaReconciliationBlock
-            asset={asset}
-            assetSubUnits={assetSubUnits}
-            derivedSellable={derivedSellable}
-            supportSum={supportSum}
-            parkingSum={parkingSum}
-            landSqm={landBreakdown.landSqm}
-            landCost={landCost}
-            totalRevenue={assetSubUnits
+              localStorage per project (key 'm20i-asset-recon-{id}').
+              T2P2 Fix 3 (2026-05-12): companion has no BUA / NSA / Land,
+              so the area recon summary is meaningless. Hidden on
+              companion.
+              T2P2 Fix 4 (2026-05-12): non-companion assets that carry
+              ZERO data in every physical attribute (no BUA, no NSA, no
+              sub-units, no land area) auto-hide the recon block too.
+              The user is just starting; surfacing "0 / 0 / 0%" is
+              noise. The block reappears the moment the user enters
+              any of: a sub-unit, an explicit land allocation, an
+              asset-level Support/Parking/GFA value. */}
+          {!asset.isCompanion && (() => {
+            const reconRevenue = assetSubUnits
               .filter((u) => u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable')
-              .reduce((s, u) => s + Math.max(0, u.metricValue) * Math.max(0, u.unitPrice ?? 0), 0)}
-            currency={project.currency}
-            scale={project.displayScale ?? 'full'}
-            decimals={project.displayDecimals ?? 2}
-          />
+              .reduce((s, u) => s + Math.max(0, u.metricValue) * Math.max(0, u.unitPrice ?? 0), 0);
+            const hierForRecon = computeAssetAreaHierarchy(asset, subUnits);
+            const allZero =
+              assetSubUnits.length === 0
+              && hierForRecon.bua === 0
+              && hierForRecon.nsa === 0
+              && hierForRecon.breakdown.supportArea === 0
+              && hierForRecon.breakdown.parkingArea === 0
+              && landBreakdown.landSqm === 0
+              && landCost === 0
+              && reconRevenue === 0;
+            if (allZero) return null;
+            return (
+              <AssetAreaReconciliationBlock
+                asset={asset}
+                assetSubUnits={assetSubUnits}
+                derivedSellable={derivedSellable}
+                supportSum={supportSum}
+                parkingSum={parkingSum}
+                landSqm={landBreakdown.landSqm}
+                landCost={landCost}
+                totalRevenue={reconRevenue}
+                currency={project.currency}
+                scale={project.displayScale ?? 'full'}
+                decimals={project.displayDecimals ?? 2}
+              />
+            );
+          })()}
           {/* Sub-unit table */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
             {(() => {
@@ -1737,8 +1765,10 @@ function AssetCard({
             })()}
           </div>
 
-          {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy. */}
-          {(() => {
+          {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy.
+              T2P2 Fix 2 (2026-05-12): companion has no BUA / NSA /
+              Efficiency / Land cost. Hidden on companion. */}
+          {!asset.isCompanion && (() => {
             const hier = computeAssetAreaHierarchy(asset, subUnits);
             const eff = hier.bua > 0 ? (hier.nsa / hier.bua) * 100 : 0;
             return (
@@ -2303,8 +2333,10 @@ function LandReconciliationBlock({
               <div />
               <div />
 
-              {/* Per-asset rows */}
-              {assets.filter((a) => a.visible).map((a) => {
+              {/* Per-asset rows. T2P2 Fix 2 (2026-05-12): companion
+                  assets are excluded entirely from the Asset Allocations
+                  list because they carry no land (Rule 2 + Rule 4). */}
+              {assets.filter((a) => a.visible && a.isCompanion !== true).map((a) => {
                 const phaseName = phases.find((p) => p.id === a.phaseId)?.name ?? '';
                 const sqm = assetLandSqmByAssetId.get(a.id) ?? 0;
                 const value = assetLandValueByAssetId.get(a.id) ?? 0;
