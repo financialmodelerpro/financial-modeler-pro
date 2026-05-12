@@ -1,5 +1,7 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-12, Tab 3 Costs Critical Fixes ship on top of the Tab 3 default seed regression fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 + M2.0 Pass 10. Four commits: diagnostic, UI filter + engine short-circuit + endPeriod buffer (Fixes 1+2+4), strip+dedup migration (Fix 3), closure verifier. The smoking gun was a strict-equality cost-line filter at Module1Costs.tsx:2724 (`c.targetAssetId === activeAsset.id`) that excluded Pass 10 hybrid master lines (targetAssetId === undefined); the engine produced correct breakdowns but the UI rendered an empty cost table. Fixed by switching to the engine-matching shape `c.targetAssetId === undefined || c.targetAssetId === activeAsset.id` + a phaseId guard. computeAssetCost now short-circuits to the canonical empty breakdown when asset.isCompanion === true so companions carry zero cost burden at engine level (no double-count of parent masters). Module1Costs.tsx swaps the cost-line table for a CompanionInfoBlock with parent name + units count + avg starting ADR + Operating End when a companion pill is selected. New migrateT3StripCompanionAndDedup defensively strips any line with targetAssetId pointing at a companion + dedupes by (phaseId, baseId, targetAssetId), wired into all 3 hydrate chains BEFORE the default-seed pass. makeDefaultCostLines bumps endPeriod from cp to cp+1 on the 8 construction / soft default lines (Land Cash + Land In-Kind stay at start=0/end=0). MAAD-shape verifier proves Branded Apt T2&T3 sole-asset phase produces 2.85B subtotal: 2.17B land + 588.9M construction-bua (= 4500 x 130874) + soft cost stack. Snapshot baseline refreshed (sha256 5961f588b4c2). Tab 1, Tab 2, Tab 4 untouched.
+**Last updated: 2026-05-12, Tab 3 Critical Regressions Round 2 ships on top of the Tab 3 Critical Fixes (UI filter + engine short-circuit + companion info + strip+dedup + endPeriod buffer) + Tab 3 default seed regression + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 + M2.0 Pass 10. Seven commits: diagnostic, Fix 1 (split `isLocked` into per-field gates in CostRow so Land Cash/In-Kind keep Start/End/Phasing/Name editable while Value+Method stay locked; Auto-IDC fully locked), Fix 2 (`migrateT3ClampStartEnd` clamps Start outside `[0, cp]` to 0 and End outside `[start, cp+1]` to `cp+1`; Land lines forced to 0/0), Fix 3 (Land cash/in-kind caption now reads "100% of 1,737,918,160 (this asset's cash land share)" matching brief), Fix 4 (`migrateT3DedupCustomLines` folds two custom lines with same name on same phase+asset under a `custom` keyBase bucket), Fix 5 (CostRow Land Value cell branches on isLand to render `metrics.cashLandValue` / `inKindLandValue` directly + "-" when no share; internal `line.value=100` unchanged so engine path identical), closure verifier `scripts/verify-tab3-regression-2.ts` 35/0. Branded Apt T2&T3 on MAAD fixture (130,874 sqm × 16,597 SAR/sqm × 80/20) produces 1.738B Cash + 434M In-Kind end-to-end. Tab 1, Tab 2, Tab 4 untouched. Em-dash sweep across all 4 touched files (the diagnostic doc was scrubbed of 19 accidental em-dashes).
+
+**Tab 3 Costs Critical Fixes (prior, still in place):** Four commits before the Round 2 pass: smoking gun was the strict-equality cost-line filter at Module1Costs.tsx:2724 (`c.targetAssetId === activeAsset.id`) that excluded Pass 10 hybrid master lines (`targetAssetId === undefined`); engine produced correct breakdowns but UI rendered empty. Fixed by switching to the engine-matching shape `c.targetAssetId === undefined || c.targetAssetId === activeAsset.id` + phaseId guard. `computeAssetCost` short-circuits to the canonical empty breakdown when `asset.isCompanion === true`. Module1Costs.tsx swaps the cost-line table for a CompanionInfoBlock with parent name + units count + avg starting ADR + Operating End when a companion pill is selected. `migrateT3StripCompanionAndDedup` defensively strips any line with `targetAssetId` pointing at a companion + dedupes by (phaseId, baseId, targetAssetId), wired BEFORE the default-seed pass. `makeDefaultCostLines` bumps `endPeriod` from `cp` to `cp+1` on the 8 construction/soft default lines (Land lines stay at 0/0). Snapshot baseline refreshed (sha256 5961f588b4c2).
 
 **Tab 3 default seed regression fix (prior, still in place):** migrateT3DefaultCostLineSeed runs at the tail of every hydrate chain and seeds the 10-line catalog for every phase whose costLines slice is empty post-migration. Idempotent; user custom lines preserved. The default-seed fix closes a regression where snapshots with empty `costLines` (or phases with zero lines after Pass 7 dropped asset-less masters) hydrated with no cost catalog and Tab 3 rendered empty. New migration `migrateT3DefaultCostLineSeed` runs at the tail of every hydrate chain and seeds the 10-line catalog (Land Cash + Land In-Kind + Construction BUA + Construction Parking + Infrastructure + Landscaping + Pre-operating + Professional Fee + Commission + Contingency) for every phase whose slice is empty post-migration. Idempotent: a phase with any existing line is left untouched (user edits + custom lines preserved). Verifier `verify-tab3-default-seed.ts` 29/0 across 7 sections including a partial-pre-existing-lines case (Phase A 1 line + asset preserved; Phase B 0 lines + asset seeded). The "Project Total 15M vs Asset Subtotal 434K" complaint was traced to Tab 3's `stageFilter` UX (filter active → visible table is a subset, Project Total tile still rolls up all stages); not a calc bug. Once defaults seed, the table populates and both views reconcile.
 
@@ -33,7 +35,8 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifiers (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Current canonical green: verify-tab3-critical.ts (Critical Fixes)
+# Current canonical green: verify-tab3-regression-2.ts (Critical Regressions Round 2)
+npx tsx scripts/verify-tab3-regression-2.ts     # Tab 3 Critical Regressions Round 2 Fixes 1+2+3+4+5 (35/0)
 npx tsx scripts/verify-tab3-critical.ts         # Tab 3 Critical Fixes 1+2+3+4+6 (39/0)
 npx tsx scripts/verify-tab3-default-seed.ts     # Tab 3 default cost line seed regression (29/0)
 npx tsx scripts/verify-tab2-pass3.ts            # T2 Pass 3 Quick Fixes 1+2+3 (33/0)
@@ -74,6 +77,75 @@ Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phas
 Test-user fixture id `00000000-0000-0000-0000-000000000000` with `ON DELETE CASCADE` cleans downstream rows on teardown. M1.7 reference: 25 pass / 0 fail / 2 skip without dev server.
 
 **Dev dependencies**: `@playwright/test ^1.59.1` + chromium browser (`npx playwright install chromium`).
+
+---
+
+## Module 1 status (2026-05-12, **Tab 3 Critical Regressions Round 2**)
+
+**Tab 3 Regressions Round 2 (current, ships):** 5 fixes layered on the
+Tab 3 Critical Fixes pass. Schema unchanged. Tab 1 / Tab 2 / Tab 4
+untouched per brief.
+
+- **Diagnostic first**, `docs/tab3-regression-diagnostic-2.md`. Captures
+  root cause for each regression: (A) editability blocked because the
+  binary `isLocked` flag disables every input in `CostRow`; (B) Start /
+  End garbage values from pre-M2.0L snapshots whose `cp` drifted post-
+  hydrate; (C) Land Cash / In-Kind appear "not flowing" because the
+  Value cell renders the stored percent (100), not the per-asset
+  currency.
+
+- **Fix 1 (per-field gates in CostRow, ships):** binary `isLocked`
+  derives 4 per-field gates: `isValueLocked` (Land + Auto-IDC),
+  `isStartEndLocked` (Auto-IDC only), `isPhasingLocked` (same),
+  `isNameLocked` (same). Land Cash + Land In-Kind keep Start / End /
+  Phasing / Name editable so the user controls cash-flow timing; Value
+  + Method stay locked because they flow from Tab 2 parcels x asset
+  land share. Auto-IDC stays fully locked. Helper `deriveLineBaseId`
+  imported into `Module1Costs.tsx`.
+
+- **Fix 2 (`migrateT3ClampStartEnd`, ships):** per cost line, given
+  `cp = phase.constructionPeriods`:
+  - Land Cash / In-Kind: force `startPeriod=0, endPeriod=0`.
+  - Other lines: `startPeriod` outside `[0, cp]` -> 0; `endPeriod`
+    outside `[start, cp+1]` -> `cp+1`.
+  Idempotent. Wired into all 3 hydrate chains AFTER
+  `migrateT3DefaultCostLineSeed`. Logs clamped count to console.
+
+- **Fix 3 (Land caption format, ships):** `percent_of_cash_land` and
+  `percent_of_inkind_land` captions in `costLineCaption` now read
+  "100% of 1,737,918,160 (this asset's cash land share)" /
+  "100% of 434,479,540 (this asset's in-kind land share)" per brief.
+  Previous "X sqm x Y/sqm (cash)" form split the calculation across
+  effective sqm rate, which confused the row.
+
+- **Fix 4 (`migrateT3DedupCustomLines`, ships):** keyed on
+  `(phaseId, baseIdOrCustomBucket, targetAssetId, nameLower)`. Catalog
+  rows keep their stable `baseId` as part of the key; custom rows fold
+  under a single `'custom'` keyBase so two user-added "Site Prep" rows
+  on the same phase + asset collapse to one (first occurrence wins).
+  Idempotent. Wired into all 3 hydrate chains AFTER
+  `migrateT3ClampStartEnd`.
+
+- **Fix 5 (Land Value cell shows auto-derived currency, ships):**
+  `CostRow` branches on `isLand` for the Value column. Land rows
+  render `metrics.cashLandValue` / `inKindLandValue` formatted as
+  accounting currency (collapsed and expanded both). When the asset
+  has no land share (`metrics.landSqm === 0` or the derived share is
+  0), renders "-" so the user reads "no land yet" instead of "0".
+  Internal `line.value` stays at 100 so `computeAssetCost`'s
+  `percent_of_cash_land = m.cashLandValue * 100/100` flows through
+  unchanged. Unit hint chip on Land row reads "<currency> (auto from
+  Tab 2)" to make the wiring legible.
+
+- **Verifier:** `scripts/verify-tab3-regression-2.ts` 35 pass / 0 fail
+  across 6 sections (per-field gate markers + input wiring + clamp
+  migration + caption text on MAAD-style fixture + dedup migration +
+  Land value flow with engine byLineId check + em-dash sweep).
+
+Commits (7): `9f64327` (diagnostic), `655900c` (Fix 1 per-field gates),
+`20b6c6f` (Fix 2 clamp), `db8e288` (Fix 3 caption), `4614e22` (Fix 4
+dedup), `848a6ed` (Fix 5 Land Value cell), `1973677` (verifier + diag
+em-dash sweep). Type-check + build clean on every commit.
 
 ---
 
