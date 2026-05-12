@@ -2486,6 +2486,13 @@ export default function Module1Costs(): React.JSX.Element {
   // per-asset sections to just that one and reflects its 3 summary
   // cards (Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind).
   const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
+  // P11 Fix 1 (2026-05-13): "Copy to other assets" panel state. Lets the
+  // user push the active asset's cost configuration (method, value, start,
+  // end, phasing, perSubUnitRates, disabled, debt/equity ratios) onto a
+  // user-picked subset of peer assets in the same phase. Multi-select to
+  // cherry-pick targets instead of a blanket apply-to-all.
+  const [copyTargetIds, setCopyTargetIds] = useState<Set<string>>(new Set());
+  const [copyPanelOpen, setCopyPanelOpen] = useState<boolean>(false);
   // P7-Fix 5b (2026-05-11): phase filter for the asset pill bar. '__all__'
   // shows every visible asset; a phase id narrows to that phase's assets.
   // P8-Fix 7 (2026-05-12): phase filter drops the "All Phases" sentinel.
@@ -2868,6 +2875,156 @@ export default function Module1Costs(): React.JSX.Element {
                 <span>Land Cost: <strong>{formatAccounting(assetMetrics.landValue, scale, decimals)}</strong></span>
               </div>
             )}
+
+            {/* P11 Fix 1 (2026-05-13): Copy active asset's cost
+                configuration to a user-picked subset of peer assets
+                in the same phase. Per-line semantics: when the active
+                asset carries an active override for a line, that
+                override (method/value/start/end/phasing/distribution/
+                disabled/perSubUnitRates/debt+equityPctOverride) is
+                mirrored onto every selected target. When the active
+                asset inherits the master, the target's override (if
+                any) is removed so it also inherits, leaving both
+                assets identical in caption + total + phasing. */}
+            {phaseHasAssets && activeAsset && activeAsset.isCompanion !== true && (() => {
+              const peerAssets = visiblePillAssets.filter((a) =>
+                a.id !== activeAsset.id && a.isCompanion !== true
+              );
+              if (peerAssets.length === 0) return null;
+              const selectedCount = copyTargetIds.size;
+              return (
+                <div
+                  style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }}
+                  data-testid={`costs-copy-panel-${activeAsset.id}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+                      <strong style={{ color: 'var(--color-body)', fontSize: 12 }}>
+                        Apply {activeAsset.name}&apos;s cost configuration to other assets
+                      </strong>
+                      <span style={{ marginLeft: 8 }}>
+                        copies method, value, start, end, phasing per line.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCopyPanelOpen((v) => !v)}
+                      style={{ fontSize: 11, padding: '4px 10px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                      data-testid={`costs-copy-panel-toggle-${activeAsset.id}`}
+                    >
+                      {copyPanelOpen ? 'Hide' : 'Choose target assets...'}
+                    </button>
+                  </div>
+                  {copyPanelOpen && (
+                    <div style={{ marginTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+                          Target assets ({assetPhase?.name ?? 'phase'}):
+                        </strong>
+                        <button
+                          type="button"
+                          onClick={() => setCopyTargetIds(new Set(peerAssets.map((a) => a.id)))}
+                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                          data-testid={`costs-copy-panel-select-all-${activeAsset.id}`}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCopyTargetIds(new Set())}
+                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                          data-testid={`costs-copy-panel-clear-${activeAsset.id}`}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {peerAssets.map((a) => {
+                          const checked = copyTargetIds.has(a.id);
+                          return (
+                            <label
+                              key={a.id}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 11,
+                                padding: '4px 8px',
+                                border: '1px solid var(--color-border)',
+                                borderRadius: 'var(--radius-sm)',
+                                background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'var(--color-surface)',
+                                cursor: 'pointer',
+                              }}
+                              data-testid={`costs-copy-panel-target-${a.id}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = new Set(copyTargetIds);
+                                  if (e.target.checked) next.add(a.id);
+                                  else next.delete(a.id);
+                                  setCopyTargetIds(next);
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              {a.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
+                        <button
+                          type="button"
+                          disabled={selectedCount === 0}
+                          onClick={() => {
+                            if (selectedCount === 0) return;
+                            const targetIds = Array.from(copyTargetIds);
+                            const targetNames = peerAssets
+                              .filter((a) => copyTargetIds.has(a.id))
+                              .map((a) => a.name)
+                              .join(', ');
+                            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                              ? window.confirm(
+                                  `Copy ${activeAsset.name}'s cost configuration (${assetLines.length} line${assetLines.length === 1 ? '' : 's'}) to ${targetIds.length} other asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nAny existing per-asset overrides on the targets will be overwritten.`,
+                                )
+                              : true;
+                            if (!ok) return;
+                            for (const line of assetLines) {
+                              const activeOv = costOverrides.find((o) =>
+                                o.assetId === activeAsset.id && o.lineId === line.id,
+                              );
+                              for (const tId of targetIds) {
+                                if (activeOv && activeOv.overridden !== false) {
+                                  setCostOverride({ ...activeOv, assetId: tId });
+                                } else {
+                                  removeCostOverride(tId, line.id);
+                                }
+                              }
+                            }
+                            setCopyPanelOpen(false);
+                            setCopyTargetIds(new Set());
+                          }}
+                          style={{
+                            fontSize: 11,
+                            padding: '6px 14px',
+                            background: selectedCount === 0 ? 'var(--color-grey-pale)' : 'var(--color-navy)',
+                            color: selectedCount === 0 ? 'var(--color-meta)' : 'var(--color-on-primary-navy)',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: selectedCount === 0 ? 'not-allowed' : 'pointer',
+                            fontWeight: 700,
+                          }}
+                          data-testid={`costs-copy-panel-apply-${activeAsset.id}`}
+                        >
+                          Apply to {selectedCount} asset{selectedCount === 1 ? '' : 's'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* T3-companion Fix 2 (2026-05-12): companion assets carry
                 NO cost lines. When the active asset is a companion,
