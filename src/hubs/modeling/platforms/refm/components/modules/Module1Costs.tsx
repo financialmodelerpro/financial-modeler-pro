@@ -436,14 +436,20 @@ function CostRow({
   // (the value flows from Tab 2 parcels x asset land allocation; method
   // is fixed at percent_of_cash_land / percent_of_inkind_land) but the
   // user can still adjust Start / End / Phasing to express cash-flow
-  // strategy. Auto-IDC stays fully locked (every field flows from the
-  // Tab 4 Financing facility). All non-locked lines remain fully
-  // editable.
+  // strategy.
+  // P11 Fix 8 (2026-05-13): Start/End is now universally editable per
+  // user spec ("applied universally no restriction to change"). The
+  // previous gate (isStartEndLocked = isLocked && !isLand) locked
+  // Auto-IDC lines, so any phase that had a financing tranche feeding
+  // it (e.g. Phase 3 in the user's report) carried locked Start/End
+  // cells while phases without tranches stayed editable. Method +
+  // Value remain locked on locked lines (those still flow from the
+  // master / financing facility); only the timing fields open up.
   const baseId = deriveLineBaseId(line.id);
   const isLand = baseId === 'land-cash' || baseId === 'land-inkind';
   const isAutoIdc = line.id.startsWith('auto-idc__');
   const isValueLocked = isLocked; // master gate: every locked line locks Value + Method.
-  const isStartEndLocked = isLocked && !isLand; // Land lines: Start/End stay editable.
+  const isStartEndLocked = false; // universally editable; see P11 Fix 8 note.
   const isPhasingLocked = isLocked && !isLand; // Land lines: Phasing stays editable.
   const isNameLocked = isLocked && !isLand; // Land lines: name stays editable (rename).
   const isFullyLocked = isAutoIdc; // Auto-IDC retains the old binary semantics.
