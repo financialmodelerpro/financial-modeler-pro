@@ -102,13 +102,6 @@ test.describe('Tab 3 Edit Mode Runtime Diagnostic', () => {
       { name: 'next-auth.session-token', value: token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' },
     ]);
 
-    // Seed snapshot before navigation so the store hydrates from
-    // localStorage on first paint.
-    await page.goto('http://localhost:3000/');
-    await page.evaluate((snap) => {
-      window.localStorage.setItem('module1-store', JSON.stringify({ state: snap, version: 0 }));
-    }, MAAD_SNAPSHOT);
-
     // T3-edit-runtime: navigate to the diagnostic-only page that
     // bypasses the auth + project-list flow and renders Module1Costs
     // directly against a seeded MAAD store. The page lives at

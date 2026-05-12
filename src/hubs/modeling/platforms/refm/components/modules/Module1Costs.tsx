@@ -703,64 +703,77 @@ function CostRow({
           the row. costCategory + costDriver stay on schema for
           back-compat (calc engine treats every line as Direct in the
           Pass 7 per-asset surface). */}
-      <td style={{ padding: '4px', overflow: 'hidden' }}>
-        {/* T3-regr-2 Fix 5 + T3-edit-runtime followup (2026-05-12):
-            Land Cash / Land In-Kind rows display the auto-derived
-            per-asset currency (parcel.rate x asset land share x
-            cashPct/inKindPct) instead of the stored percent. When the
-            asset has zero computed land share, the cell shows "-" plus
-            a diagnostic tooltip explaining WHY (no parcels in phase /
-            asset BUA = 0 / parcel rate = 0 / cash or in-kind pct = 0)
-            so the user can fix the upstream input. */}
+      <td style={{ padding: '4px', overflow: 'hidden' }} data-debug-land-baseid={isLand ? baseId : undefined}>
+        {/* T3-edit-runtime v2 (2026-05-12): Land Cash / Land In-Kind
+            value cell. Always renders three artifacts so the user
+            always has feedback:
+              1. The numeric value (or 0) in plain text.
+              2. The math caption (asset sqm x rate x cash/inKind%).
+              3. A red-orange chip with the actionable next step when
+                 the value is zero.
+            Rendered in BOTH collapsed and expanded modes; collapsed
+            just hides items #2 and #3 behind the chevron click. */}
         {(() => {
           if (!isLand) return null;
           const landDisplayValue = baseId === 'land-cash' ? metrics.cashLandValue : metrics.inKindLandValue;
+          const pctKey: 'cashPct' | 'inKindPct' = baseId === 'land-cash' ? 'cashPct' : 'inKindPct';
           const landHasShare = landDisplayValue > 0;
           // Diagnostic explanation when the per-asset land value is 0.
-          // Walks the chain to surface the missing input.
           const zeroReason = (): string => {
-            if (metrics.landSqm <= 0) return 'asset has zero land share (check Tab 2: parcels in this phase + asset BUA > 0)';
-            if (metrics.landValue <= 0) return 'parcel rate is 0 (check Tab 2 parcel SAR/sqm)';
-            const pct = baseId === 'land-cash' ? 'cashPct' : 'inKindPct';
-            return `parcel ${pct} is 0 (check Tab 2 cash / in-kind split)`;
+            if (metrics.landSqm <= 0) return `Add a parcel in Tab 2 + enter BUA for this asset (currently landSqm = ${metrics.landSqm.toFixed(0)}).`;
+            if (metrics.landValue <= 0) return `Parcel rate is 0; enter SAR/sqm in Tab 2 (landSqm = ${metrics.landSqm.toFixed(0)}, landValue = ${metrics.landValue.toFixed(0)}).`;
+            return `Parcel ${pctKey} is 0; check Tab 2 cash / in-kind split (landValue = ${metrics.landValue.toFixed(0)}).`;
           };
-          const landTooltip = landHasShare
-            ? `Auto-derived from Tab 2: asset land share (${metrics.landSqm.toLocaleString('en-US', { maximumFractionDigits: 0 })} sqm) x parcel rate x ${baseId === 'land-cash' ? 'cashPct' : 'inKindPct'} = ${landDisplayValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-            : `Land value is 0 because ${zeroReason()}.`;
-          const renderLandValue = (): React.JSX.Element => (
-            <div
-              style={{ fontSize: 11, color: landHasShare ? 'var(--color-body)' : 'var(--color-meta)', textAlign: 'right', fontWeight: 600, cursor: 'help' }}
-              data-testid={`cost-${asset.id}-${line.id}-value-land`}
-              title={landTooltip}
-            >
-              {landHasShare ? formatAccounting(landDisplayValue, scale, decimals) : '-'}
-            </div>
-          );
-          if (collapsed) {
-            return renderLandValue();
-          }
+          const mathCaption = `${metrics.landSqm.toLocaleString('en-US', { maximumFractionDigits: 0 })} sqm asset share x parcel rate x ${pctKey} = ${landDisplayValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
           return (
             <>
-              {renderLandValue()}
               <div
-                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
-                data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+                style={{
+                  fontSize: 12,
+                  color: landHasShare ? 'var(--color-body)' : 'var(--color-meta)',
+                  textAlign: 'right',
+                  fontWeight: 700,
+                  cursor: 'help',
+                }}
+                data-testid={`cost-${asset.id}-${line.id}-value-land`}
+                title={landHasShare ? mathCaption : `Auto-derived value is 0. ${zeroReason()}`}
               >
-                {valueUnitHint(effMethod, currency)} (auto from Tab 2)
+                {landHasShare
+                  ? formatAccounting(landDisplayValue, scale, decimals)
+                  : (landDisplayValue === 0 ? '0' : formatAccounting(landDisplayValue, scale, decimals))}
               </div>
-              <div
-                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                data-testid={`cost-${asset.id}-${line.id}-caption`}
-                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-              >
-                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-              </div>
+              {!collapsed && (
+                <>
+                  <div
+                    style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+                    data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+                  >
+                    auto from Tab 2 (locked)
+                  </div>
+                  <div
+                    style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
+                    data-testid={`cost-${asset.id}-${line.id}-caption`}
+                  >
+                    {mathCaption}
+                  </div>
+                </>
+              )}
               {!landHasShare && (
                 <div
-                  style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, lineHeight: 1.3 }}
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--color-on-accent-warm, white)',
+                    background: 'var(--color-accent-warm)',
+                    marginTop: 4,
+                    padding: '3px 6px',
+                    borderRadius: 4,
+                    lineHeight: 1.3,
+                    fontWeight: 600,
+                    whiteSpace: 'normal',
+                  }}
                   data-testid={`cost-${asset.id}-${line.id}-zero-hint`}
                 >
-                  zero: {zeroReason()}
+                  Why 0? {zeroReason()}
                 </div>
               )}
             </>

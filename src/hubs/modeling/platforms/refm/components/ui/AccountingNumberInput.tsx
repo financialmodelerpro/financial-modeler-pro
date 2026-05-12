@@ -1,25 +1,27 @@
 'use client';
 
 /**
- * AccountingNumberInput (T3-edit-runtime rewrite, 2026-05-12)
+ * AccountingNumberInput (T3-edit-runtime v2 rewrite, 2026-05-12)
  *
- * Single-state numeric input that's directly editable. User clicks,
- * cursor enters, types, value updates, blur saves. No readOnly text
- * mode, no click-to-flip-mode layer.
+ * Direct numeric input. No focus-flip, no readOnly intermediate
+ * state, no formatted-text overlay. Click goes straight to typing,
+ * keystroke updates the parent on every valid parse.
  *
- * Replaces the M2.0j Fix 7 two-state design (readOnly text on blur,
- * type=number on focus) which produced the regression where users
- * thought the input was permanently locked because the unfocused
- * branch carried `readOnly` and the click-to-focus swap was invisible.
+ * The legacy two-state design (formatted text on blur, type=number on
+ * focus) caused two bugs:
+ *   (a) DevTools showed readOnly=true on the unfocused state, looking
+ *       permanently locked.
+ *   (b) Click-to-flip lost focus on some browsers because React reused
+ *       the same input element when swapping type=text -> type=number.
  *
- * Display: formatScaled is still used to put thousand separators in
- * the *blur* display via a sibling overlay div that fades in/out, but
- * the underlying input is type="number" ALWAYS so click and type work
- * with zero ceremony.
+ * This rewrite drops both behaviors. Numbers display raw (no thousand
+ * separators) directly in the input. Less polished visually, but the
+ * editability is unambiguous and the click handler is the browser's
+ * native focus handler.
  */
 
-import React, { useCallback, useState } from 'react';
-import { formatScaled, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import React, { useCallback } from 'react';
+import type { DisplayScale, DisplayDecimals } from '@/src/core/formatters';
 
 export interface AccountingNumberInputProps {
   value: number;
@@ -37,78 +39,47 @@ export interface AccountingNumberInputProps {
   'aria-invalid'?: boolean;
   title?: string;
   id?: string;
-  /** When true, renders a clear "(0)" instead of formatted "0.00". */
+  /** When true, renders an empty string instead of "0". */
   blankWhenZero?: boolean;
 }
 
 export function AccountingNumberInput(props: AccountingNumberInputProps): React.JSX.Element {
   const {
-    value, onChange, scale = 'full', decimals = 2,
+    value, onChange,
     min, max, step, disabled, style, className, placeholder,
     'data-testid': testId,
     'aria-invalid': ariaInvalid,
     title, id, blankWhenZero,
+    // scale / decimals retained on the interface for back-compat but no
+    // longer consumed; the input renders raw numbers.
   } = props;
 
-  // Local string state so the user can type freely (including
-  // intermediate states like "-", "1.", ".5") without React clobbering
-  // the input on every keystroke. We sync to the parent's number value
-  // on every successful parse and on blur.
-  const [draft, setDraft] = useState<string>(() => String(value));
-  const [focused, setFocused] = useState(false);
-
-  // When the parent updates the value externally (e.g. another field
-  // edit triggered a recompute), and the user isn't actively typing,
-  // sync the draft. Skipping this sync while focused keeps the user's
-  // partial input from being overwritten mid-typing.
-  React.useEffect(() => {
-    if (!focused) setDraft(String(value));
-  }, [value, focused]);
-
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const next = e.target.value;
-    setDraft(next);
-    // Only propagate when the parsed number is finite. Lets the user
-    // type "1." without immediately becoming 1 (which would block them
-    // typing the decimal portion).
-    const n = Number(next);
+    const raw = e.target.value;
+    // Empty string -> 0. Otherwise parse via Number; reject NaN.
+    if (raw === '') {
+      onChange(0);
+      return;
+    }
+    const n = Number(raw);
     if (Number.isFinite(n)) onChange(n);
   }, [onChange]);
 
   const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    setFocused(true);
     if (!disabled) e.currentTarget.select();
   }, [disabled]);
 
-  const handleBlur = useCallback(() => {
-    setFocused(false);
-    // Normalise empty / NaN to 0 on commit. The parent already has
-    // every finite value via handleChange; this only fires on commit
-    // for the edge cases.
-    const n = Number(draft);
-    if (!Number.isFinite(n)) onChange(0);
-  }, [draft, onChange]);
-
-  // Unfocused display: thousand-separated string. We render this in
-  // the same <input> element via the `value` prop swap.
-  const formatted = blankWhenZero && (value === 0 || !Number.isFinite(value))
+  const displayValue = blankWhenZero && (value === 0 || !Number.isFinite(value))
     ? ''
-    : formatScaled(value, scale, decimals);
-  const displayValue = focused ? draft : formatted;
-  // The underlying type is "text" so the formatted value (with commas)
-  // can render when not focused. inputMode="decimal" tells mobile
-  // keyboards to show the numeric keypad. The onChange handler parses
-  // through Number() so any non-numeric characters just produce NaN
-  // and are rejected (no propagation, draft holds the raw string).
+    : String(value);
+
   return (
     <input
-      type="text"
-      inputMode="decimal"
+      type="number"
       id={id}
       value={displayValue}
       onChange={handleChange}
       onFocus={handleFocus}
-      onBlur={handleBlur}
       min={min}
       max={max}
       step={step}
