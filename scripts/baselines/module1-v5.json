@@ -190,7 +190,7 @@
         "scope": "direct",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -203,7 +203,7 @@
         "scope": "direct",
         "allocationBasis": "per_asset",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -216,7 +216,7 @@
         "scope": "direct",
         "allocationBasis": "land_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -229,7 +229,7 @@
         "scope": "direct",
         "allocationBasis": "land_share",
         "startPeriod": 12,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -242,7 +242,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 18,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_1",
@@ -261,7 +261,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_1",
@@ -278,7 +278,7 @@
         "scope": "indirect",
         "allocationBasis": "per_asset",
         "startPeriod": 12,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": []
       },
@@ -292,7 +292,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_1",
@@ -337,7 +337,7 @@
         "scope": "direct",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -350,7 +350,7 @@
         "scope": "direct",
         "allocationBasis": "per_asset",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -363,7 +363,7 @@
         "scope": "direct",
         "allocationBasis": "land_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -376,7 +376,7 @@
         "scope": "direct",
         "allocationBasis": "land_share",
         "startPeriod": 12,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even"
       },
       {
@@ -389,7 +389,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 18,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_2",
@@ -408,7 +408,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_2",
@@ -425,7 +425,7 @@
         "scope": "indirect",
         "allocationBasis": "per_asset",
         "startPeriod": 12,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": []
       },
@@ -439,7 +439,7 @@
         "scope": "indirect",
         "allocationBasis": "bua_share",
         "startPeriod": 1,
-        "endPeriod": 24,
+        "endPeriod": 25,
         "phasing": "even",
         "selectedLineIds": [
           "construction-bua__phase_2",

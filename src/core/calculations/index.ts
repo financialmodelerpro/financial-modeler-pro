@@ -1036,6 +1036,25 @@ export function computeAssetCost(
   costOverrides: CostOverride[],
   landAllocationMode: LandAllocationMode,
 ): AssetCostBreakdown {
+  // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
+  // Operate sibling, isCompanion === true) carry NO physical attributes
+  // and inherit operating revenue from the parent. They must NOT pull
+  // any cost line. Short-circuit the entire pipeline before any phase
+  // line filter / metric resolution. Returns the canonical empty
+  // breakdown so downstream consumers (UI render, Project Total
+  // rollup, financing engine) see explicit zeros instead of any
+  // accidentally inherited master totals.
+  if (asset.isCompanion === true) {
+    const cpZero = phase.constructionPeriods + 1;
+    return {
+      byLineId: {},
+      byStage: { land: 0, hard: 0, soft: 0, operating: 0 },
+      total: 0,
+      perPeriod: new Array<number>(cpZero).fill(0),
+      perPeriodLandTotal: new Array<number>(cpZero).fill(0),
+      perPeriodLandInKind: new Array<number>(cpZero).fill(0),
+    };
+  }
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
   // M2.0d: filter targeted custom lines so each asset only sees its own
   // (untagged lines = project-wide and apply to all assets).

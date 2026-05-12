@@ -1797,6 +1797,12 @@ export function isStandardCostLineBaseId(baseId: string): baseId is StandardCost
 // makeDefaultPhase.
 export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
   const cp = Math.max(1, constructionPeriods);
+  // T3-defaults Fix 4 (2026-05-12): construction-line endPeriod defaults
+  // to cp+1 (one-period buffer beyond construction) per brief so heavy
+  // costs spilling into the first operations period are captured by
+  // default. User can shorten back to cp via the input. Land Cash + Land
+  // In-Kind keep startPeriod=0/endPeriod=0 (single-period upfront draw).
+  const cpEnd = cp + 1;
   // M2.0L (2026-05-11): every seed line id is composed with phaseId
   // so a multi-phase project produces globally unique ids.
   // selectedLineIds reference the phase-scoped peer ids in the SAME phase.
@@ -1822,33 +1828,33 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
       id: id('construction-bua'), phaseId, name: 'Construction (BUA)',
       method: 'rate_per_bua', value: 4500,
       stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
+      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
     },
     {
       id: id('construction-parking'), phaseId, name: 'Construction (Parking)',
       method: 'rate_per_parking_bay', value: 25000,
       stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
+      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
     },
     // ── Infrastructure / Landscaping ────────────────────────────────────
     {
       id: id('infrastructure'), phaseId, name: 'Infrastructure',
       method: 'rate_per_nda', value: 250,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
+      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
     },
     {
       id: id('landscaping'), phaseId, name: 'Landscaping',
       method: 'rate_per_nda', value: 75,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'even',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
     },
     // ── Pre-operating (% of Construction + Infra + Landscaping) ─────────
     {
       id: id('pre-operating'), phaseId, name: 'Pre-operating',
       method: 'percent_of_selected', value: 3,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: Math.max(1, cp - 6), endPeriod: cp, phasing: 'even',
+      startPeriod: Math.max(1, cp - 6), endPeriod: cpEnd, phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking'), id('infrastructure'), id('landscaping')],
     },
     // ── Professional Fee (% of Construction BUA + Parking) ──────────────
@@ -1856,7 +1862,7 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
       id: id('professional-fee'), phaseId, name: 'Professional Fee',
       method: 'percent_of_selected', value: 6,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
+      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
     // ── Commission (% of Revenue) ───────────────────────────────────────
@@ -1866,7 +1872,7 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
       id: id('commission'), phaseId, name: 'Commission',
       method: 'percent_of_selected', value: 4,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'even',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
       selectedLineIds: [],
     },
     // ── Contingency (% of Construction BUA + Parking) ───────────────────
@@ -1874,7 +1880,7 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
       id: id('contingency'), phaseId, name: 'Contingency',
       method: 'percent_of_selected', value: 5,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
+      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
   ];

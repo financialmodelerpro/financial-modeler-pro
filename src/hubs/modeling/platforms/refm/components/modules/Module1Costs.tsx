@@ -2721,9 +2721,19 @@ export default function Module1Costs(): React.JSX.Element {
           : project.startDate;
         const phaseScopedPeriodLabel = (idx: number): string =>
           getPeriodLabel(idx, phaseStart, project.modelType);
+        // T3-render Fix 1 (2026-05-12): include project-wide master lines
+        // (targetAssetId === undefined) plus any per-asset replicas
+        // (targetAssetId === activeAsset.id). Pass 10 hybrid stores every
+        // line as a master, so the prior strict-equality filter
+        // `c.targetAssetId === activeAsset.id` excluded everything and
+        // the rendered cost table was empty even though the engine
+        // produced correct breakdowns. Matches the engine's filter at
+        // calculations/index.ts:1042 + the linesForAsset helper at
+        // Module1Costs.tsx:2596.
         const assetLines = activeAsset
           ? costLines
-              .filter((c) => c.targetAssetId === activeAsset.id)
+              .filter((c) => c.phaseId === activeAsset.phaseId)
+              .filter((c) => c.targetAssetId === undefined || c.targetAssetId === activeAsset.id)
               .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
               .filter((c) => !c.requiresCountry || c.requiresCountry === project.country)
           : [];
@@ -2851,14 +2861,75 @@ export default function Module1Costs(): React.JSX.Element {
               </div>
             )}
 
+            {/* T3-companion Fix 2 (2026-05-12): companion assets carry
+                NO cost lines. When the active asset is a companion,
+                render an info block instead of the cost-line table.
+                The engine has already short-circuited to an empty
+                breakdown so Project Total + Asset Subtotal rollups
+                exclude the companion's burden. */}
+            {phaseHasAssets && activeAsset && activeAsset.isCompanion === true && (() => {
+              const parent = assets.find((a) => a.id === activeAsset.parentAssetId);
+              const phase = phases.find((p) => p.id === activeAsset.phaseId);
+              const opEndYear = phase
+                ? (new Date(phase.startDate ?? project.startDate).getUTCFullYear()
+                    + Math.max(0, phase.constructionPeriods - (phase.overlapPeriods ?? 0))
+                    + Math.max(0, phase.operationsPeriods)
+                    - 1)
+                : null;
+              const opEndLabel = opEndYear !== null && Number.isFinite(opEndYear) ? `Dec ${opEndYear}` : '-';
+              const companionSubs = subUnits.filter((u) => u.assetId === activeAsset.id);
+              const totalUnits = companionSubs.reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+              const adrSum = companionSubs.reduce((s, u) => s + Math.max(0, u.startingAdr ?? u.unitPrice ?? 0), 0);
+              const avgAdr = companionSubs.length > 0 ? adrSum / companionSubs.length : 0;
+              return (
+                <div
+                  data-testid={`costs-companion-info-${activeAsset.id}`}
+                  style={{
+                    ...sectionCardStyle,
+                    background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+                    border: '1px dashed var(--color-navy)',
+                    padding: 'var(--sp-3)',
+                  }}
+                >
+                  <strong style={{ fontSize: 14, display: 'block', marginBottom: 6, color: 'var(--color-navy)' }}>
+                    {activeAsset.name} (Companion)
+                  </strong>
+                  <div style={{ fontSize: 12, color: 'var(--color-body)', marginBottom: 'var(--sp-2)' }}>
+                    This asset operates the units sold from <strong>{parent?.name ?? '(parent)'}</strong>. No development costs apply here.
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-2)', fontStyle: 'italic' }}>
+                    Operating revenue inputs (ADR, occupancy, indexation) handled in Revenue module (M2.1).
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 12 }}>
+                    <div>
+                      <div style={{ color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Units</div>
+                      <strong data-testid={`costs-companion-info-${activeAsset.id}-units`}>{Math.round(totalUnits).toLocaleString()} (from parent)</strong>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Starting ADR</div>
+                      <strong data-testid={`costs-companion-info-${activeAsset.id}-adr`}>{formatAccounting(avgAdr, scale, decimals)} {project.currency}/night</strong>
+                      <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>(set in Tab 2)</div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Operating End</div>
+                      <strong data-testid={`costs-companion-info-${activeAsset.id}-end`}>{opEndLabel}</strong>
+                      <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>(from {phase?.name ?? 'Phase'} setup)</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Single editable table for the selected asset.
                 P10-Fix 3 (2026-05-12): hybrid architecture. The lines
                 array now carries project-wide masters (no targetAssetId)
                 + companion-specific custom lines. CostOverride[] re-
                 introduced for per-asset rate divergence; passed scoped
                 to the active asset. AssetCostSection renders the
-                Override toggle inline per row when not locked. */}
-            {phaseHasAssets && activeAsset && assetBreakdown && assetMetrics && (
+                Override toggle inline per row when not locked.
+                T3-companion Fix 2 (2026-05-12): companion branch
+                handled above (info block instead of cost table). */}
+            {phaseHasAssets && activeAsset && activeAsset.isCompanion !== true && assetBreakdown && assetMetrics && (
               <AssetCostSection
                 key={activeAsset.id}
                 asset={activeAsset}
