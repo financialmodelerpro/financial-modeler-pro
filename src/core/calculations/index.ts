@@ -183,56 +183,68 @@ export function computeAssetLandSqm(
   subUnits: SubUnit[],
   mode: LandAllocationMode,
 ): number {
-  // M2.0f Fix 2: explicit multi-parcel allocation wins.
+  // T2P2 Fix 1 (2026-05-12): data-ownership rewrite per
+  // Tab2_Pass2_Data_Rules.md. Resolution order matches the user's
+  // pseudocode exactly so the function is predictable across every
+  // call site (Land Recon table, cost engine, area metrics):
+  //
+  //   Rule 2  -> companion has NO land. Return 0 first.
+  //   M2.0f   -> multiParcelSplits explicit. Return their sum.
+  //   Rule 1  -> explicit sqm wins when > 0.
+  //   Rule 4b -> no parcels in phase. Return 0.
+  //   Crit    -> no non-companion assets in phase. Return 0.
+  //   Rule 1.b-> explicit percent wins when > 0 (proportional to gross).
+  //   Rule 2  -> autoByBua bua-share when totalBua > 0.
+  //   Rule 3  -> equal-share fallback when totalBua = 0.
+  //
+  // Each gate is an early return so the function reads top-to-bottom
+  // in priority order. Sqm/percent modes with 0 explicit input fall
+  // through to autoByBua so brand-new projects (default autoByBua mode
+  // OR sqm-mode with no input) show a meaningful per-asset value.
+  // This preserves the Pass 1 Fix 1 behaviour the user explicitly
+  // asked for (no more "Sqm Allocated: 0" rows when the user has not
+  // typed explicit values yet) while making the data ownership
+  // boundaries crisp.
+  //
+  // Rule 2: companion has no land.
+  if (asset.isCompanion === true) return 0;
+  // M2.0f Fix 2: multi-parcel splits are explicit allocations.
   const splits = asset.landAllocation?.multiParcelSplits;
   if (splits && splits.length > 0) {
     return splits.reduce((s, sp) => s + Math.max(0, sp.sqm), 0);
   }
+  // Rule 1: explicit sqm wins.
+  const explicitSqm = asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0;
+  if (mode === 'sqm' && explicitSqm > 0) {
+    return Math.max(0, explicitSqm);
+  }
+  // Rule 4b: no parcels in this asset's phase = no land.
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  if (phaseParcels.length === 0) return 0;
   const agg = computeLandAggregate(phaseParcels);
   if (agg.totalAreaSqm <= 0) return 0;
-  // T2 Fix 1 (2026-05-12): explicit allocation wins; otherwise the
-  // mode falls through to autoByBua so the Land Reconciliation table
-  // always shows a meaningful per-asset value (no more "Sqm Allocated:
-  // 0" rows when the user hasn't typed explicit sqm/percent yet).
-  // Cost lines that read landSqm pick up the same fallback so Land
-  // (Cash) + Land (In-Kind) compute non-zero out of the box.
-  if (mode === 'sqm') {
-    const sqm = asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0;
-    if (sqm > 0) return Math.max(0, sqm);
-    // fall through to autoByBua share below
+  // Rule 1.b: explicit percent wins (proportional to phase parcel gross).
+  const explicitPct = asset.landAllocation?.pct ?? asset.landAreaPct ?? 0;
+  if (mode === 'percent' && explicitPct > 0) {
+    return agg.totalAreaSqm * (Math.max(0, explicitPct) / 100);
   }
-  if (mode === 'percent') {
-    const pct = asset.landAllocation?.pct ?? asset.landAreaPct ?? 0;
-    if (pct > 0) return agg.totalAreaSqm * (Math.max(0, pct) / 100);
-    // fall through to autoByBua share below
-  }
-  // autoByBua
-  // P10-Fix 9 (2026-05-12): when totalBua across phase assets is 0
-  // (every asset is a stub with no sub-units and no buaSqm yet), fall
-  // back to equal-share allocation across visible phase assets so the
-  // Land cost line renders a non-zero value the moment the user adds
-  // a parcel. Without this fallback, the autoByBua path returns 0 for
-  // every asset until BUA is entered, leaving Land (Cash) / Land
-  // (In-Kind) cost lines at 0 even though parcels carry value. Pass 9
-  // Fix 8 widened computeAssetBua to use asset.buaSqm when sub-units
-  // sum to 0, but if NO asset in the phase has buaSqm either, totalBua
-  // stays 0 and line 206 returned 0. This branch closes the gap.
-  //
-  // P10-Fix 4 (2026-05-12): companion assets (Sell + Manage operate
-  // role) MUST NOT participate in land allocation. They inherit only
-  // a units count from the parent and have no land/BUA of their own.
-  // Filter isCompanion=true out of phaseAssets before any allocation
-  // math. If asset itself is a companion, return 0 (no land).
-  if (asset.isCompanion === true) return 0;
+  // Crit: phase with NO non-companion assets has NO allocation. Should
+  // never happen for a non-companion asset (the asset itself is in the
+  // list) but defensive.
   const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId && a.isCompanion !== true);
+  if (phaseAssets.length === 0) return 0;
+  // Rule 2 + 3: autoByBua bua-share, or equal-share fallback when
+  // totalBua = 0. phaseLandSqm uses gross parcel area; NDA reduces
+  // the developable read elsewhere (recon table) but cost basis and
+  // bua-share denominator stay on gross so Land (Cash) + Land
+  // (In-Kind) cost lines render correctly.
+  const phaseLandSqm = agg.totalAreaSqm;
   const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
   if (totalBua <= 0) {
-    if (phaseAssets.length === 0) return 0;
-    return agg.totalAreaSqm / phaseAssets.length;
+    return phaseLandSqm / phaseAssets.length;
   }
   const myBua = computeAssetBua(asset, subUnits);
-  return agg.totalAreaSqm * (myBua / totalBua);
+  return phaseLandSqm * (myBua / totalBua);
 }
 
 // M2.0f Fix 2: per-asset land breakdown for cost engine + UI display.

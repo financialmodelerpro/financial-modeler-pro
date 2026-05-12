@@ -79,9 +79,9 @@ console.log('\n[1/9] Fix 1: computeAssetLandSqm fall-through on sqm/percent=0');
   if (sqm > 0) pass(`sqm-mode fallback returns ${sqm} (parcel area shared via autoByBua)`);
   else fail('sqm-mode fallback', `expected >0, got ${sqm}`);
 
-  // Source marker: the calc engine has the fall-through comment.
-  if (CALC_SRC.includes('fall through to autoByBua share below')) pass('CALC_SRC carries fall-through marker');
-  else fail('CALC_SRC fall-through marker', 'missing');
+  // Source marker: Pass 2 rewrite header sits at top of computeAssetLandSqm.
+  if (CALC_SRC.includes('T2P2 Fix 1 (2026-05-12)')) pass('CALC_SRC carries T2P2 Fix 1 rewrite header');
+  else fail('CALC_SRC T2P2 marker', 'missing');
 }
 
 // ── Section 2: Fix 2 + 3 Land Recon table ─────────────────────────────────
