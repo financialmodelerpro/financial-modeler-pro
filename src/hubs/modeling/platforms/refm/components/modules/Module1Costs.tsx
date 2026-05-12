@@ -704,47 +704,67 @@ function CostRow({
           back-compat (calc engine treats every line as Direct in the
           Pass 7 per-asset surface). */}
       <td style={{ padding: '4px', overflow: 'hidden' }}>
-        {/* T3-regr-2 Fix 5 (2026-05-12): Land Cash / Land In-Kind rows
-            display the auto-derived per-asset currency (parcel.rate x
-            asset land share x cashPct/inKindPct) instead of the stored
-            percent (line.value = 100). When the asset has no land
-            allocation for this parcel, render "-" so the user reads
-            "no land yet" rather than "0". Internal line.value stays at
-            100 so computeAssetCost still flows through unchanged. */}
+        {/* T3-regr-2 Fix 5 + T3-edit-runtime followup (2026-05-12):
+            Land Cash / Land In-Kind rows display the auto-derived
+            per-asset currency (parcel.rate x asset land share x
+            cashPct/inKindPct) instead of the stored percent. When the
+            asset has zero computed land share, the cell shows "-" plus
+            a diagnostic tooltip explaining WHY (no parcels in phase /
+            asset BUA = 0 / parcel rate = 0 / cash or in-kind pct = 0)
+            so the user can fix the upstream input. */}
         {(() => {
-          const landDisplayValue = isLand
-            ? (baseId === 'land-cash' ? metrics.cashLandValue : metrics.inKindLandValue)
-            : null;
-          const landHasShare = isLand && (metrics.landSqm > 0) && (landDisplayValue ?? 0) > 0;
+          if (!isLand) return null;
+          const landDisplayValue = baseId === 'land-cash' ? metrics.cashLandValue : metrics.inKindLandValue;
+          const landHasShare = landDisplayValue > 0;
+          // Diagnostic explanation when the per-asset land value is 0.
+          // Walks the chain to surface the missing input.
+          const zeroReason = (): string => {
+            if (metrics.landSqm <= 0) return 'asset has zero land share (check Tab 2: parcels in this phase + asset BUA > 0)';
+            if (metrics.landValue <= 0) return 'parcel rate is 0 (check Tab 2 parcel SAR/sqm)';
+            const pct = baseId === 'land-cash' ? 'cashPct' : 'inKindPct';
+            return `parcel ${pct} is 0 (check Tab 2 cash / in-kind split)`;
+          };
+          const landTooltip = landHasShare
+            ? `Auto-derived from Tab 2: asset land share (${metrics.landSqm.toLocaleString('en-US', { maximumFractionDigits: 0 })} sqm) x parcel rate x ${baseId === 'land-cash' ? 'cashPct' : 'inKindPct'} = ${landDisplayValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+            : `Land value is 0 because ${zeroReason()}.`;
           const renderLandValue = (): React.JSX.Element => (
-            <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'right', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-value-land`}>
-              {landHasShare ? formatAccounting(landDisplayValue ?? 0, scale, decimals) : '-'}
+            <div
+              style={{ fontSize: 11, color: landHasShare ? 'var(--color-body)' : 'var(--color-meta)', textAlign: 'right', fontWeight: 600, cursor: 'help' }}
+              data-testid={`cost-${asset.id}-${line.id}-value-land`}
+              title={landTooltip}
+            >
+              {landHasShare ? formatAccounting(landDisplayValue, scale, decimals) : '-'}
             </div>
           );
-          if (isLand) {
-            if (collapsed) {
-              return renderLandValue();
-            }
-            return (
-              <>
-                {renderLandValue()}
-                <div
-                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
-                  data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
-                >
-                  {valueUnitHint(effMethod, currency)} (auto from Tab 2)
-                </div>
-                <div
-                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                  data-testid={`cost-${asset.id}-${line.id}-caption`}
-                  title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-                >
-                  {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
-                </div>
-              </>
-            );
+          if (collapsed) {
+            return renderLandValue();
           }
-          return null;
+          return (
+            <>
+              {renderLandValue()}
+              <div
+                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+                data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+              >
+                {valueUnitHint(effMethod, currency)} (auto from Tab 2)
+              </div>
+              <div
+                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                data-testid={`cost-${asset.id}-${line.id}-caption`}
+                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+              >
+                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+              </div>
+              {!landHasShare && (
+                <div
+                  style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, lineHeight: 1.3 }}
+                  data-testid={`cost-${asset.id}-${line.id}-zero-hint`}
+                >
+                  zero: {zeroReason()}
+                </div>
+              )}
+            </>
+          );
         })()}
         {!isLand && (collapsed ? (
           // P10-Fix 1 (2026-05-12): collapsed cells render the actual
