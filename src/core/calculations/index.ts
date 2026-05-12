@@ -2628,22 +2628,23 @@ export function costLineCaption(input: CostLineCaptionInput): string {
       }
       return `${fmt(value, 2)}% x ${fmtMoney(metrics.landValue)} (land value)`;
     case 'percent_of_cash_land': {
+      // T3-regr-2 Fix 3 (2026-05-12): caption shows the value (percent)
+      // applied to the asset's cash land share, per brief format:
+      // "100% of 1,737,918,160 (this asset's cash land share)".
       if (metrics.cashLandValue <= 0) {
         if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
         if (metrics.landValue <= 0) return noArea('parcel rate');
-        return `${fmt(value, 2)}% x ${fmtMoney(0)} (cash portion = 0; check parcel cashPct)`;
+        return `${fmt(value, 2)}% of ${fmtMoney(0)} (cash portion = 0; check parcel cashPct)`;
       }
-      const effRate = metrics.landSqm > 0 ? metrics.cashLandValue / metrics.landSqm : 0;
-      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (cash)`;
+      return `${fmt(value, 2)}% of ${fmtMoney(metrics.cashLandValue)} (this asset's cash land share)`;
     }
     case 'percent_of_inkind_land': {
       if (metrics.inKindLandValue <= 0) {
         if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
         if (metrics.landValue <= 0) return noArea('parcel rate');
-        return `${fmt(value, 2)}% x ${fmtMoney(0)} (in-kind portion = 0; check parcel inKindPct)`;
+        return `${fmt(value, 2)}% of ${fmtMoney(0)} (in-kind portion = 0; check parcel inKindPct)`;
       }
-      const effRate = metrics.landSqm > 0 ? metrics.inKindLandValue / metrics.landSqm : 0;
-      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (in-kind)`;
+      return `${fmt(value, 2)}% of ${fmtMoney(metrics.inKindLandValue)} (this asset's in-kind land share)`;
     }
     default:
       return '';
