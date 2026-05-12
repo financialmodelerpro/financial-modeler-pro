@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12. Current REFM phase: Tab 3 Critical Regressions Round 2 (per-field locks on CostRow + Start/End clamp migration + Land caption format + custom-line dedup migration + Land Value cell auto-derived currency) on top of Tab 3 Costs Critical Fixes + Tab 3 default seed regression fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 layered on M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
+**Last updated: 2026-05-13. Current REFM phase: M2.0 Pass 11 (Tab 3 Costs + Results polish), 11 commits closing per-line per-period unify, project-level copy panel with source picker + cross-phase clone, universal Start/End edit + asset area picking, Results phase-offset + active-range crop + header/subtotal pattern. Layered on Tab 3 Critical Regressions Round 2 + Tab 3 Costs Critical Fixes + Tab 3 default seed fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 + M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
 
 > **See also:**
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
