@@ -1861,6 +1861,35 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
   ];
 }
 
+// P10-Fix 4 (2026-05-12): companion asset factory for Sell + Manage.
+// Returns a sibling Asset that represents the post-handover operate
+// role (developer keeps a management agreement after units are sold).
+// Inherits ONLY the parent's units count via unitsFromParent. Land /
+// BUA / sub-units stay 0 on the companion (filtered from land basis
+// + cost rollups so they do not double-count). Companions are flagged
+// isCompanion=true + parentAssetId points back at the parent.
+// makeCompanionAsset is called from the store's updateAsset bookkeeper
+// when the user picks 'Sell + Manage' as strategy on a parent asset.
+export function makeCompanionAsset(parent: Asset, unitsFromParent: number): Asset {
+  return {
+    id: `companion_${parent.id}`,
+    phaseId: parent.phaseId,
+    name: `${parent.name} - Operate`,
+    type: '',
+    strategy: 'Operate',
+    visible: true,
+    gfaSqm: 0,
+    buaSqm: 0,
+    sellableBuaSqm: 0,
+    parkingBaysRequired: 0,
+    status: parent.status ?? 'planned',
+    parentAssetId: parent.id,
+    isCompanion: true,
+    companionType: 'operate',
+    unitsFromParent: Math.max(0, unitsFromParent),
+  };
+}
+
 export function makeDefaultFinancingTranche(
   id: string,
   phaseId: string,

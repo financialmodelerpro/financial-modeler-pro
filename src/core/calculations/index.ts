@@ -211,7 +211,14 @@ export function computeAssetLandSqm(
   // Fix 8 widened computeAssetBua to use asset.buaSqm when sub-units
   // sum to 0, but if NO asset in the phase has buaSqm either, totalBua
   // stays 0 and line 206 returned 0. This branch closes the gap.
-  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
+  //
+  // P10-Fix 4 (2026-05-12): companion assets (Sell + Manage operate
+  // role) MUST NOT participate in land allocation. They inherit only
+  // a units count from the parent and have no land/BUA of their own.
+  // Filter isCompanion=true out of phaseAssets before any allocation
+  // math. If asset itself is a companion, return 0 (no land).
+  if (asset.isCompanion === true) return 0;
+  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId && a.isCompanion !== true);
   const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
   if (totalBua <= 0) {
     if (phaseAssets.length === 0) return 0;

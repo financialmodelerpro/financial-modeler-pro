@@ -35,6 +35,7 @@ import {
   makeDefaultPhase,
   makeDefaultParcel,
   makeDefaultCostLines,
+  makeCompanionAsset,
   makeDefaultFinancingTranche,
 } from './module1-types';
 
@@ -127,6 +128,27 @@ export type HydrateSnapshot = Pick<Module1Store,
   | 'financingTranches'
   | 'equityContributions'
 >;
+
+// P10-Fix 4 (2026-05-12): sub-unit -> companion bookkeeper. Recomputes
+// `unitsFromParent` on every companion asset based on its parent's
+// current Sellable sub-unit count. Returns a new assets array if any
+// companion needs updating; otherwise returns the input array
+// unchanged so React.memo / Zustand identity checks short-circuit.
+function syncCompanionUnits(assets: Asset[], subUnits: SubUnit[]): Asset[] {
+  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId);
+  if (companions.length === 0) return assets;
+  let changed = false;
+  const next = assets.map((a) => {
+    if (!a.isCompanion || !a.parentAssetId) return a;
+    const sellableUnits = subUnits
+      .filter((u) => u.assetId === a.parentAssetId && u.category === 'Sellable')
+      .reduce((sum, u) => sum + Math.max(0, u.metricValue), 0);
+    if ((a.unitsFromParent ?? 0) === sellableUnits) return a;
+    changed = true;
+    return { ...a, unitsFromParent: sellableUnits };
+  });
+  return changed ? next : assets;
+}
 
 // ── Default state ──────────────────────────────────────────────────────────
 // Brand-new project: 1 phase, 1 parcel, no assets, default cost lines, 1
@@ -233,9 +255,47 @@ export function createModule1Store() {
         costLines: [...s.costLines, ...replicas],
       };
     }),
-    updateAsset: (id, patch) => set((s) => ({
-      assets: s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a)),
-    })),
+    // P10-Fix 4 (2026-05-12): updateAsset reconciles Sell + Manage
+    // companion lifecycle. When strategy changes TO Sell + Manage and
+    // the parent has no companion yet, auto-create one via
+    // makeCompanionAsset (sellable units count derived from parent's
+    // existing Sellable sub-units). When strategy changes AWAY from
+    // Sell + Manage, cascade-remove the companion + its cost lines.
+    // Direct edits on a companion (e.g. unitsFromParent override) flow
+    // through unchanged.
+    updateAsset: (id, patch) => set((s) => {
+      const next = s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      if (!('strategy' in patch)) {
+        return { assets: next };
+      }
+      const before = s.assets.find((a) => a.id === id);
+      const after = next.find((a) => a.id === id);
+      if (!before || !after) return { assets: next };
+      const becomesSellManage = before.strategy !== 'Sell + Manage' && after.strategy === 'Sell + Manage';
+      const leavesSellManage = before.strategy === 'Sell + Manage' && after.strategy !== 'Sell + Manage';
+      if (becomesSellManage) {
+        const existing = s.assets.find((a) => a.parentAssetId === id);
+        if (existing) return { assets: next };
+        const sellableUnits = s.subUnits
+          .filter((u) => u.assetId === id && u.category === 'Sellable')
+          .reduce((sum, u) => sum + Math.max(0, u.metricValue), 0);
+        const companion = makeCompanionAsset(after, sellableUnits);
+        return { assets: [...next, companion] };
+      }
+      if (leavesSellManage) {
+        const companionIds = new Set(
+          s.assets.filter((a) => a.parentAssetId === id).map((a) => a.id),
+        );
+        if (companionIds.size === 0) return { assets: next };
+        return {
+          assets: next.filter((a) => !companionIds.has(a.id)),
+          subUnits: s.subUnits.filter((u) => !companionIds.has(u.assetId)),
+          costLines: s.costLines.filter((c) => !c.targetAssetId || !companionIds.has(c.targetAssetId)),
+          costOverrides: s.costOverrides.filter((o) => !companionIds.has(o.assetId)),
+        };
+      }
+      return { assets: next };
+    }),
     // P10-Fix 2 (2026-05-12): cascade-delete per-asset cost lines + any
     // child companion assets (Fix 4) when removing the parent. Without
     // this, costLines accumulate orphans (targetAssetId pointing at an
@@ -254,13 +314,22 @@ export function createModule1Store() {
     }),
 
     setSubUnits: (subUnits) => set({ subUnits }),
-    addSubUnit: (subUnit) => set((s) => ({ subUnits: [...s.subUnits, subUnit] })),
-    updateSubUnit: (id, patch) => set((s) => ({
-      subUnits: s.subUnits.map((u) => (u.id === id ? { ...u, ...patch } : u)),
-    })),
-    removeSubUnit: (id) => set((s) => ({
-      subUnits: s.subUnits.filter((u) => u.id !== id),
-    })),
+    // P10-Fix 4 (2026-05-12): sub-unit mutations sync the unitsFromParent
+    // field on any companion whose parent owns the affected sub-unit.
+    // Sellable categories drive the keys count. Helper closed over the
+    // next subUnits array + assets array; idempotent.
+    addSubUnit: (subUnit) => set((s) => {
+      const nextSubUnits = [...s.subUnits, subUnit];
+      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+    }),
+    updateSubUnit: (id, patch) => set((s) => {
+      const nextSubUnits = s.subUnits.map((u) => (u.id === id ? { ...u, ...patch } : u));
+      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+    }),
+    removeSubUnit: (id) => set((s) => {
+      const nextSubUnits = s.subUnits.filter((u) => u.id !== id);
+      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+    }),
 
     setCostLines: (costLines) => set({ costLines }),
     addCostLine: (costLine) => set((s) => ({ costLines: [...s.costLines, costLine] })),

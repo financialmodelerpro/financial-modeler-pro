@@ -1189,11 +1189,33 @@ function AssetCard({
             </div>
           </div>
 
-          {asset.strategy === 'Sell + Manage' && (
-            <ManagementAgreementForm asset={asset} onUpdate={onUpdate} />
-          )}
+          {/* P10-Fix 4 (2026-05-12): ManagementAgreementForm hidden.
+              Sell + Manage now auto-creates a companion Operate asset
+              that captures the hospitality role. Management fee +
+              owner share fields stay on schema (asset.managementAgreement)
+              for back-compat but no longer render. Companion's
+              hospitality params (occupancy / indexation / days) land
+              in M2.1 Revenue. */}
           {(asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
             <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
+          )}
+          {asset.isCompanion && (
+            <div
+              data-testid={`asset-${asset.id}-companion-badge`}
+              style={{
+                background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+                border: '1px dashed var(--color-navy)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 8px',
+                fontSize: 11,
+                color: 'var(--color-navy)',
+                marginBottom: 'var(--sp-1)',
+              }}
+            >
+              ↳ Auto-generated Operate companion. Units track parent
+              ({asset.unitsFromParent ?? 0} keys from parent's Sellable
+              sub-units). Removing the parent removes this companion.
+            </div>
           )}
 
           {/* M2.0f Fix 2: Land row (parcel dropdown + sqm/% input + multi-parcel splits)
