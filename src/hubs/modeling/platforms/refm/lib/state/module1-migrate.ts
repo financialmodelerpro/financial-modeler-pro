@@ -742,13 +742,17 @@ function migrateT3DefaultCostLineSeed(snap: HydrateSnapshot): HydrateSnapshot {
 // T3-regr-2 Fix 2 + T3-edit-runtime v5 (2026-05-12): sanity-check Start /
 // End on cost lines. Costs CAN extend past construction (commissioning,
 // post-handover operate fees), so the prior cp+1 upper cap is dropped.
-// Rules per line:
-//   - Land Cash / Land In-Kind: force startPeriod=0, endPeriod=0
-//     (single-period upfront draw at period 0).
-//   - All other lines:
-//       * startPeriod < 0 OR non-finite -> reset to 0.
-//       * endPeriod   < startPeriod OR non-finite -> reset to startPeriod
-//         (degenerate single-period cost; better than reversed range).
+// Rules per line (all lines, including Land):
+//   - startPeriod < 0 OR non-finite -> reset to 0.
+//   - endPeriod   < startPeriod OR non-finite -> reset to startPeriod
+//     (degenerate single-period cost; better than reversed range).
+// P11 Fix 15 (2026-05-13): Land Cash / Land In-Kind used to be force-
+// reset to startPeriod=0 / endPeriod=0 here on every hydrate, which
+// silently wiped the user's chosen draw timing on refresh. Land now
+// follows the same sanity rule as every other line; the default seed
+// still seeds Land at 0/0 (single-period upfront) but the user can
+// reschedule the master via the Start/End inputs and the value
+// persists across reloads.
 // Idempotent: when everything is in shape, returns the original snapshot.
 function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
   const lines = (snap.costLines as CostLine[]) ?? [];
@@ -756,12 +760,6 @@ function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
   if (lines.length === 0 || phases.length === 0) return snap;
   let touched = 0;
   const next: CostLine[] = lines.map((c) => {
-    const baseId = deriveLineBaseId(c.id);
-    if (baseId === 'land-cash' || baseId === 'land-inkind') {
-      if (c.startPeriod === 0 && c.endPeriod === 0) return c;
-      touched += 1;
-      return { ...c, startPeriod: 0, endPeriod: 0 };
-    }
     const startOk = Number.isFinite(c.startPeriod) && c.startPeriod >= 0;
     const nextStart = startOk ? c.startPeriod : 0;
     const endOk = Number.isFinite(c.endPeriod) && c.endPeriod >= nextStart;
