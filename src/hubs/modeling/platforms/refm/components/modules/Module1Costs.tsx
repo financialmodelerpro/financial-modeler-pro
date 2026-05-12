@@ -1579,6 +1579,65 @@ function SummaryTables({
   // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
   const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
 
+  // P11 Fix 4 (2026-05-13): crop the rendered column range to the
+  // periods where in-scope assets actually have cost activity.
+  // Walks every in-scope asset's bd.perPeriod across every phase,
+  // applies the same offset = phaseStartYear - projectStartYear shift
+  // used by the row builders, and tracks the min / max non-zero
+  // annual column. Combined view -> union across phaseAssets; Single
+  // Asset view -> just that asset's span (phaseAssets is already
+  // filtered upstream when resultsViewMode = 'single_asset'). With a
+  // project starting 2025 and the earliest activity in 2026, the
+  // leading "Dec 25" column drops out; with the latest activity in
+  // 2030, trailing empty columns drop out too.
+  const projectStartYearForCrop = new Date(project.startDate).getUTCFullYear();
+  let activeFirstAnnual = annualPeriodCount;
+  let activeLastAnnual = -1;
+  for (const asset of phaseAssets) {
+    for (const pb of perPhaseBreakdowns) {
+      const bd = pb.assetTotals[asset.id];
+      if (!bd) continue;
+      const phaseObj = phases.find((p) => p.id === pb.phaseId);
+      const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10
+        ? phaseObj.startDate
+        : project.startDate;
+      const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+      const offset = Number.isFinite(phaseStartYear - projectStartYearForCrop)
+        ? Math.max(0, phaseStartYear - projectStartYearForCrop)
+        : 0;
+      // perPeriod[0] is the upfront / Y0 lump. For Phase 1 it lives
+      // at project Y0 (outside the column grid so not counted as
+      // activity here). For later phases it lands at offset - 1.
+      if (offset > 0 && offset - 1 >= 0 && offset - 1 < annualPeriodCount) {
+        if (Math.abs(bd.perPeriod[0] ?? 0) > 0.5) {
+          if (offset - 1 < activeFirstAnnual) activeFirstAnnual = offset - 1;
+          if (offset - 1 > activeLastAnnual) activeLastAnnual = offset - 1;
+        }
+      }
+      for (let i = 1; i < bd.perPeriod.length; i++) {
+        if (Math.abs(bd.perPeriod[i] ?? 0) <= 0.5) continue;
+        const col = offset + i - 1;
+        if (col >= 0 && col < annualPeriodCount) {
+          if (col < activeFirstAnnual) activeFirstAnnual = col;
+          if (col > activeLastAnnual) activeLastAnnual = col;
+        }
+      }
+    }
+  }
+  if (activeLastAnnual < activeFirstAnnual) {
+    // No activity in scope: keep one column so colSpan stays > 0 and
+    // empty-state messages render correctly.
+    activeFirstAnnual = 0;
+    activeLastAnnual = Math.max(0, annualPeriodCount - 1);
+  }
+  const cropSubFirst = activeFirstAnnual * subPerYear;
+  const cropSubCount = (activeLastAnnual - activeFirstAnnual + 1) * subPerYear;
+  function cropRow<T>(arr: T[]): T[] {
+    return arr.slice(cropSubFirst, cropSubFirst + cropSubCount);
+  }
+  const croppedPeriodLabels = cropRow(periodLabels);
+  const croppedPeriodCount = cropSubCount;
+
   // M2.0h Fix 6: per-asset per-period at chosen granularity. Annual
   // values from the calc engine (one per year) get distributed to
   // sub-periods using even phasing within each year; the cost-line-
@@ -1745,7 +1804,7 @@ function SummaryTables({
               <tr>
                 <th style={headLeftStyle}>Asset / Cost Line</th>
                 <th style={headStyle}>Total</th>
-                {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                {croppedPeriodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
               </tr>
             </thead>
             <tbody>
@@ -1804,7 +1863,7 @@ function SummaryTables({
                     <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
                       <td style={cellName}>{a.name}</td>
                       <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
-                      {assetRow.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      {cropRow(assetRow).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
                     </tr>
                     {linesForThisAsset.map((line) => {
                       let lineTotal = 0;
@@ -1853,7 +1912,7 @@ function SummaryTables({
                         <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
                           <td style={{ ...cellName, paddingLeft: 24, fontWeight: 400, color: 'var(--color-meta)' }}>{line.name}</td>
                           <td style={cellNum}>{fmt(lineTotal)}</td>
-                          {linePerPeriod.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                          {cropRow(linePerPeriod).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
                         </tr>
                       );
                     })}
@@ -1865,7 +1924,7 @@ function SummaryTables({
               <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                 <td style={cellName}>Project Total</td>
                 <td style={cellNum} data-testid="capex-period-grand-total">{fmt(periodTotals.reduce((s, v) => s + v, 0))}</td>
-                {periodTotals.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
+                {cropRow(periodTotals).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
               </tr>
             </tfoot>
           </table>
@@ -1946,17 +2005,17 @@ function SummaryTables({
                     <tr>
                       <th style={headLeftStyle}>Asset</th>
                       <th style={headStyle}>Total</th>
-                      {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                      {croppedPeriodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
-                      <tr><td style={cellName} colSpan={2 + periodCount}>No non-zero values for this view.</td></tr>
+                      <tr><td style={cellName} colSpan={2 + croppedPeriodCount}>No non-zero values for this view.</td></tr>
                     ) : rows.map((r) => (
                       <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
                         <td style={cellName}>{r.asset.name}</td>
                         <td style={cellNum} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
-                        {r.row.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                        {cropRow(r.row).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
                       </tr>
                     ))}
                   </tbody>
@@ -1964,7 +2023,7 @@ function SummaryTables({
                     <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                       <td style={cellName}>Project Total</td>
                       <td style={cellNum} data-testid={`capex-summary-${testidKey}-grand-total`}>{fmt(projTotal)}</td>
-                      {periodTotalsLocal.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                      {cropRow(periodTotalsLocal).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
                     </tr>
                   </tfoot>
                 </table>
