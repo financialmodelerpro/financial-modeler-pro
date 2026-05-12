@@ -766,9 +766,17 @@ export function resolveAssetAreaMetrics(
     : (hierarchy.gfa > 0 ? hierarchy.gfa : bua);
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
+  // T3-edit-runtime v7 (2026-05-13): per-asset cash / in-kind split.
+  // When the asset has explicit multi-parcel splits, each slice picks
+  // up its parcel's specific cashPct / inKindPct (preserves the
+  // per-parcel intent). Otherwise (autoByBua + single-parcel modes
+  // without explicit splits), use the PROJECT-WIDE weighted-avg
+  // cashPct so an asset in a phase whose parcels have cashPct=0 still
+  // surfaces a cash share via the project blend. Matches user spec:
+  // "Cash Value = Land Value x weighted-avg cashPct / 100".
   let cashLandValue = 0;
   let inKindLandValue = 0;
-  if (breakdown.splits.length > 0) {
+  if (breakdown.splits.length > 0 && breakdown.splits.some((s) => phaseParcels.find((p) => p.id === s.parcelId))) {
     for (const split of breakdown.splits) {
       const parcel = phaseParcels.find((p) => p.id === split.parcelId);
       if (!parcel) continue;
@@ -776,10 +784,11 @@ export function resolveAssetAreaMetrics(
       inKindLandValue += split.value * (Math.max(0, parcel.inKindPct) / 100);
     }
   } else {
-    const agg = computeLandAggregate(phaseParcels);
-    const valueShare = agg.totalValue > 0 ? landValue / agg.totalValue : 0;
-    cashLandValue = agg.cashValue * valueShare;
-    inKindLandValue = agg.inKindValue * valueShare;
+    const projAgg = computeLandAggregate(parcels);
+    const cashShare = projAgg.totalValue > 0 ? projAgg.cashValue / projAgg.totalValue : 0;
+    const inKindShare = projAgg.totalValue > 0 ? projAgg.inKindValue / projAgg.totalValue : 0;
+    cashLandValue = landValue * cashShare;
+    inKindLandValue = landValue * inKindShare;
   }
 
   return {
