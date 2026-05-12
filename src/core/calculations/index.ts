@@ -755,15 +755,23 @@ export function resolveAssetAreaMetrics(
   // had ZERO sub-units, which left these stubbed projects with x 0
   // multipliers across every rate_per_X cost line.
   const hierarchy = computeAssetAreaHierarchy(asset, subUnits);
-  const bua = hierarchy.bua > 0
-    ? hierarchy.bua
-    : Math.max(0, asset.buaSqm ?? 0);
-  const nsa = hierarchy.nsa > 0
-    ? hierarchy.nsa
-    : Math.max(0, asset.sellableBuaSqm ?? 0);
-  const gfa = asset.gfaSqm > 0
-    ? asset.gfaSqm
-    : (hierarchy.gfa > 0 ? hierarchy.gfa : bua);
+  // P11 Fix 10 (2026-05-13): universal area-picking rule. Previously
+  //   bua = hierarchy.bua > 0 ? hierarchy.bua : asset.buaSqm
+  // which let a partially-filled sub-unit table (e.g. one Sellable row
+  // with metric='units' + metricValue=100 but unitArea blank, yielding
+  // a TINY non-zero hierarchy.bua) drown out the real value the user
+  // had typed into the asset-level buaSqm field. Different phases
+  // exhibited the discrepancy depending on whether the user filled
+  // sub-units or the asset-level inputs first.
+  //
+  // Universal rule: pick whichever input carries the meaningful value
+  // (Math.max). If only sub-units are filled, hierarchy wins. If only
+  // the asset-level input is filled, asset wins. If both, the larger
+  // wins (sub-unit total typically dominates once rows are complete).
+  // GFA cascades through bua so it never reads smaller than BUA.
+  const bua = Math.max(hierarchy.bua, Math.max(0, asset.buaSqm ?? 0));
+  const nsa = Math.max(hierarchy.nsa, Math.max(0, asset.sellableBuaSqm ?? 0));
+  const gfa = Math.max(hierarchy.gfa, Math.max(0, asset.gfaSqm ?? 0), bua);
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
   // T3-edit-runtime v7 (2026-05-13): per-asset cash / in-kind split.
