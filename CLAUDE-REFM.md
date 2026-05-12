@@ -1,5 +1,5 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-12, M2.0 Costs Cleanup Pass 10 fully ships. All 10 fixes + audit + closure landed across 12 commits: regression audit + Fix 6 collapse foundation + Fix 1 readonly collapsed cells + Fix 9 deeper Land Zero fallback + Fix 2 (superseded by Fix 3) + Fix 5 NDA Recon polish + Fix 7 Revenue in sub-unit summary + Fix 4 Sell+Manage Operate companion auto-creation + Fix 10 commission revenue hooks + Fix 3 hybrid project-wide cost lines + per-asset override architecture + Fix 8 AccountingNumberInput sweep across Tab 2 + Tab 4 large-number inputs. Verifier verify-m20costsCleanup-pass10.ts 53/0/0 across 12 sections; Playwright spec tests/e2e/m20costs-pass10.spec.ts scaffolds the Land Zero DOM screenshot (skips in dev without NextAuth; runs post-auth via `--headed`). Schema stays v8 additive (Asset gains parentAssetId / isCompanion / companionType / unitsFromParent; CostMethod gains percent_of_revenue_cash / _sale; FinancingDataHooks gains getTotalRevenueCashBasis / _SaleBasis; CostOverride re-introduced as the lightweight per-asset override surface; migrateM20costsPass10Hybrid + M20_PASS10_NOTICE wired into all 3 hydrate chains).**
+**Last updated: 2026-05-12, Tab 2 Focused Fixes ship on top of M2.0 Pass 10. Three commits land 5 fixes scoped strictly to Tab 2 (Assets & Sub-units). T2-Fix 1 patches computeAssetLandSqm so sqm/percent modes fall through to autoByBua when the allocation is 0, so the per-asset Sqm Allocated row in Land Reconciliation renders non-zero on greenfield projects. T2-Fix 2+3 rewrites LandReconciliationBlock as a single 3-column structured table (Description / Sqm / Land Value) with NDA always shown, Roads/Parks rows only when NDA is on, per-asset rows surfacing both Sqm Allocated AND Land Cost, a Total Allocated row carrying independent Equal/Under/Over chips on both columns (Sqm vs NDA + Land Cost vs Total Parcel Value), an Unassigned Land row, and a status footer summarizing both columns; the legacy red short-by section is gone. T2-Fix 4 is a no-op verification (Revenue is in the AssetAreaReconciliationBlock summary line already since Pass 10 Fix 7). T2-Fix 5a/b/c are the companion (Sell+Manage Operate sibling) corrections: Land Allocation block hidden, Useful Life replaced with a read-only "Operating Period: X years" chip sourced from the parent phase's operationsPeriods, and companion sub-units auto-mirrored from the parent's Sellable rows (new SubUnit.parentSubUnitId + startingAdr fields; makeCompanionSubUnit factory; syncCompanionSubUnits store helper; migrateT2CompanionSubUnits migration preserving ADR by parentSubUnitId then by name, dropping orphan rows, idempotent). Schema stays v8 additive. Verifier verify-tab2-fixes.ts 47/0 across 9 sections. Tab 1, Tab 3, Tab 4 untouched.**
 
 > **See also:**
 > - [CLAUDE.md](CLAUDE.md), Root project brief, session rules, stack, auth, envs
@@ -27,7 +27,9 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifiers (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Current canonical green: verify-m20costsCleanup-pass9.ts (latest Costs surface)
+# Current canonical green: verify-tab2-fixes.ts (latest Tab 2 surface)
+npx tsx scripts/verify-tab2-fixes.ts            # T2 Focused Fixes 1+2+3+4+5a+5b+5c (47/0)
+npx tsx scripts/verify-m20costsCleanup-pass10.ts # M2.0 Pass 10 Cost cleanup + audit (53/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass9.ts # M2.0 Pass 9 Land zero forced fix (37/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass8.ts # M2.0 Pass 8 Costs cleanup (41/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass7.ts # M2.0M Pass 7 per-asset architecture (52/0/2)
@@ -62,6 +64,94 @@ Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phas
 Test-user fixture id `00000000-0000-0000-0000-000000000000` with `ON DELETE CASCADE` cleans downstream rows on teardown. M1.7 reference: 25 pass / 0 fail / 2 skip without dev server.
 
 **Dev dependencies**: `@playwright/test ^1.59.1` + chromium browser (`npx playwright install chromium`).
+
+---
+
+## Module 1 status (2026-05-12, **Tab 2 Focused Fixes**)
+
+**Tab 2 Focused Fixes (current, ships):** 5 issues scoped strictly to
+Tab 2 (Assets & Sub-units). Tab 1, Tab 3, Tab 4 untouched per brief.
+Schema stays v8 additive (SubUnit gains `parentSubUnitId?` +
+`startingAdr?`; no other shape changes).
+
+- **Fix 1 (per-asset Sqm Allocated population)**: `computeAssetLandSqm`
+  sqm and percent modes now fall through to the autoByBua branch when
+  the asset's allocation is 0, so brand-new projects with allocations
+  not yet entered still surface a non-zero Sqm Allocated row in Land
+  Reconciliation. Existing non-zero allocations keep their explicit
+  values. MAAD-shape fixture (1 parcel, 1 asset, sqm=0) now returns
+  22066 sqm via the equal-share fallback (Pass 10 Fix 9 path).
+
+- **Fix 2 + 3 (Land Recon NDA + Land Value layout + chips)**:
+  `LandReconciliationBlock` rewritten as a single 3-column structured
+  table (Description / Sqm / Land Value, `data-testid="land-reconciliation-table"`).
+  Always renders (no longer gated on `projectNdaEnabled`). Roads / Parks
+  rows appear only when NDA is on; the Net Developable Area row is
+  always shown (equals Total Parcel when NDA disabled). Per-asset rows
+  surface BOTH `Sqm Allocated` AND `Land Cost`. Total Allocated row
+  carries independent Equal / Under / Over chips on both columns via a
+  shared `chipFor` helper: Sqm chip compares vs NDA, Land Cost chip
+  compares vs Total Parcel Value. Unassigned Land row appears below the
+  Total Allocated row. Status footer at the bottom summarises both
+  columns side-by-side. The legacy red "short by X" section is gone.
+
+- **Fix 4 (Revenue in sub-unit verification)**: no-op confirmation. The
+  `Revenue` field in `AssetAreaReconciliationBlock`'s inline summary
+  was added in Pass 10 Fix 7 (commit `aaf847b`) and is still in place.
+  Verifier asserts the marker is present.
+
+- **Fix 5a (companion Land Allocation hidden)**: Land Allocation block
+  is wrapped in a `!asset.isCompanion` guard. Companion (Sell + Manage
+  Operate sibling) inherits its units count from the parent and never
+  carries land of its own; rendering Land Allocation on a companion
+  was misleading.
+
+- **Fix 5b (companion Operating Period chip)**: companion assets
+  replace `UsefulLifeForm` with a read-only "Operating Period: X years"
+  chip sourced from the parent phase's `operationsPeriods`. Caption
+  directs the user to Project Setup to edit. Non-companion Operate /
+  Lease assets keep the existing `UsefulLifeForm`.
+
+- **Fix 5c (companion sub-units auto-mirrored from parent Sellables)**:
+  - **Schema (additive)**: `SubUnit.parentSubUnitId?: string` marks a
+    row as a companion shadow; `SubUnit.startingAdr?: number` carries
+    the Average Daily Rate (the only editable field on a companion
+    sub-unit).
+  - **Factory**: `makeCompanionSubUnit(parentSubUnit, companionAssetId, preservedAdr?)`
+    in `module1-types.ts`. metric='units', unitArea=0, metricValue =
+    parent's metricValue (units mode) or `round(area / unitSize)` (area
+    mode). unitPrice mirrors startingAdr so legacy revenue math still
+    works.
+  - **Store sync**: new `syncCompanionSubUnits(assets, subUnits)` helper.
+    `addSubUnit / updateSubUnit / removeSubUnit` chain it after
+    `syncCompanionUnits` so any change to the parent's Sellable list
+    propagates to every companion. `updateAsset` `becomesSellManage`
+    transition also seeds the initial mirror.
+  - **Migration**: `migrateT2CompanionSubUnits` runs at the tail of
+    every hydrate chain (`stripV8Wrapper / stripWrapper /
+    migrateLegacyToV8`). For each companion asset, walks the parent's
+    Sellable sub-units, preserves ADR by matching `parentSubUnitId`
+    first then by lowered name as a fallback (so legacy snapshots with
+    hand-edited companion sub-units carry ADR forward), drops sub-units
+    whose parent has been deleted, and adds shadows for new parent
+    Sellables with ADR=0. Idempotent.
+  - **UI**: `SubUnitRow` has an `isCompanionSub` branch that renders
+    Type (parent name) + Category ("Operable") as read-only mirrors,
+    Area + Unit Size as muted dashes, Count derived from parent,
+    `startingAdr` editable, Total Revenue = `count x ADR`, no delete
+    cell. Sub-units header on companion hides the `+ Sub-unit` button
+    + metric toggle and shows a small "Mirrored from parent. Edit ADR
+    only." note.
+
+- **Verifier**: `scripts/verify-tab2-fixes.ts` 47 pass / 0 fail across
+  9 sections (calc fall-through math + Land Recon table + chip helper
+  + Revenue summary marker + Fix 5a guard + Fix 5b chip markers +
+  Fix 5c schema/factory/row branch + store integration + migration
+  end-to-end smoke test with ADR preservation + idempotency + em-dash
+  sweep).
+
+Commits (3): `162c3ee` (Fix 1) - `a48d66a` (Fix 2 + 3) - `cfd1588`
+(Fix 5a + 5b + 5c). Type-check + snapshot diff clean on every commit.
 
 ---
 

@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12. Current REFM phase: M2.0 Costs Cleanup Pass 9 (see CLAUDE-REFM.md for status).**
+**Last updated: 2026-05-12. Current REFM phase: Tab 2 Focused Fixes layered on M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
 
 > **See also:**
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
