@@ -68,6 +68,7 @@ import {
   computeSubUnitArea,
   computePhaseTimeline,
   formatOperatingEndDate,
+  resolveAssetAreaMetrics,
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
@@ -632,6 +633,31 @@ export default function Module1Assets(): React.JSX.Element {
           }
           return map;
         })()}
+        // T3-edit-runtime v7 (2026-05-13): per-asset Cash + In-Kind
+        // value maps. resolveAssetAreaMetrics is the single source of
+        // truth shared with Tab 3 Land cost lines.
+        assetCashValueByAssetId={(() => {
+          const map = new Map<string, number>();
+          for (const a of assets) {
+            if (!a.visible || a.isCompanion === true) continue;
+            const phaseAssets = assets.filter((x) => x.phaseId === a.phaseId && x.visible);
+            const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssets, subUnits, landAllocationMode);
+            map.set(a.id, m.cashLandValue);
+          }
+          return map;
+        })()}
+        assetInKindValueByAssetId={(() => {
+          const map = new Map<string, number>();
+          for (const a of assets) {
+            if (!a.visible || a.isCompanion === true) continue;
+            const phaseAssets = assets.filter((x) => x.phaseId === a.phaseId && x.visible);
+            const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssets, subUnits, landAllocationMode);
+            map.set(a.id, m.inKindLandValue);
+          }
+          return map;
+        })()}
+        totalCashValue={parcels.reduce((s, p) => s + Math.max(0, p.area) * Math.max(0, p.rate) * (Math.max(0, p.cashPct) / 100), 0)}
+        totalInKindValue={parcels.reduce((s, p) => s + Math.max(0, p.area) * Math.max(0, p.rate) * (Math.max(0, p.inKindPct) / 100), 0)}
       />
 
       {/* Land Allocation Mode (unchanged) */}
@@ -2159,6 +2185,14 @@ interface LandReconciliationBlockProps {
   assets: Asset[];
   assetLandSqmByAssetId: Map<string, number>;
   assetLandValueByAssetId: Map<string, number>;
+  // T3-edit-runtime v7 (2026-05-13): per-asset Cash + In-Kind value
+  // maps. Tab 3 Land (Cash) + Land (In-Kind) cost lines read these
+  // pre-computed values directly per asset (single source of truth).
+  assetCashValueByAssetId: Map<string, number>;
+  assetInKindValueByAssetId: Map<string, number>;
+  // Parcel-level totals for the top "Total Parcel Land" row.
+  totalCashValue: number;
+  totalInKindValue: number;
   phases: Phase[];
 }
 
@@ -2179,7 +2213,9 @@ function writeCollapsed(v: boolean): void {
 function LandReconciliationBlock({
   landReconciliation, parcels, currency, scale, decimals,
   projectNdaEnabled, projectRoadsPct, projectParksPct,
-  assets, assetLandSqmByAssetId, assetLandValueByAssetId, phases,
+  assets, assetLandSqmByAssetId, assetLandValueByAssetId,
+  assetCashValueByAssetId, assetInKindValueByAssetId,
+  totalCashValue, totalInKindValue, phases,
 }: LandReconciliationBlockProps): React.JSX.Element {
   const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
   const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
@@ -2295,9 +2331,11 @@ function LandReconciliationBlock({
           if (status === 'under') return <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>⚠ Under</span>;
           return <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>❌ Over</span>;
         };
+        // T3-edit-runtime v7 (2026-05-13): 5-column grid:
+        // Description | Sqm | Land Value | Cash Value | In-Kind Value
         const gridStyle: React.CSSProperties = {
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+          gridTemplateColumns: 'minmax(0, 1fr) auto auto auto auto',
           columnGap: 'var(--sp-3)',
           rowGap: 2,
           fontFamily: 'var(--font-mono, monospace)',
@@ -2321,11 +2359,15 @@ function LandReconciliationBlock({
               <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</div>
               <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sqm</div>
               <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Value ({currency})</div>
+              <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cash Value ({currency})</div>
+              <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>In-Kind Value ({currency})</div>
 
               {/* Total Parcel Land */}
               <div>Total Parcel Land</div>
               <div data-testid="recon-total-land" style={cellRight}>{fmtSqm(totalLand)}</div>
               <div data-testid="recon-total-land-value" style={cellRight}>{fmtMoney(totalLandValue)}</div>
+              <div data-testid="recon-total-land-cash" style={cellRight}>{fmtMoney(totalCashValue)}</div>
+              <div data-testid="recon-total-land-inkind" style={cellRight}>{fmtMoney(totalInKindValue)}</div>
 
               {/* Roads / Parks only when NDA enabled */}
               {projectNdaEnabled && (
@@ -2333,8 +2375,12 @@ function LandReconciliationBlock({
                   <div>Less: Roads ({projectRoadsPct.toFixed(1)}%)</div>
                   <div data-testid="recon-roads" style={cellRight}>({fmtSqm(roadsSqm)})</div>
                   <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
                   <div>Less: Parks ({projectParksPct.toFixed(1)}%)</div>
                   <div data-testid="recon-parks" style={cellRight}>({fmtSqm(parksSqm)})</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
                   <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
                 </>
               )}
@@ -2343,36 +2389,65 @@ function LandReconciliationBlock({
               <div style={{ ...rowTopBorder, ...rowBold }}>Net Developable Area</div>
               <div data-testid="recon-nda" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtSqm(nda)}</div>
               <div data-testid="recon-nda-value" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtMoney(totalLandValue)}</div>
+              <div data-testid="recon-nda-cash" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtMoney(totalCashValue)}</div>
+              <div data-testid="recon-nda-inkind" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtMoney(totalInKindValue)}</div>
 
               {/* Spacer + Asset Allocations header */}
               <div style={{ marginTop: 'var(--sp-1)', fontSize: 11, color: 'var(--color-meta)' }}>Asset Allocations:</div>
               <div />
               <div />
+              <div />
+              <div />
 
               {/* Per-asset rows. T2P2 Fix 2 (2026-05-12): companion
                   assets are excluded entirely from the Asset Allocations
-                  list because they carry no land (Rule 2 + Rule 4). */}
+                  list because they carry no land (Rule 2 + Rule 4).
+                  T3-edit-runtime v7: per-asset Cash + In-Kind values
+                  pull from resolveAssetAreaMetrics, same source Tab 3
+                  Land cost lines use. */}
               {assets.filter((a) => a.visible && a.isCompanion !== true).map((a) => {
                 const phaseName = phases.find((p) => p.id === a.phaseId)?.name ?? '';
                 const sqm = assetLandSqmByAssetId.get(a.id) ?? 0;
                 const value = assetLandValueByAssetId.get(a.id) ?? 0;
+                const cashV = assetCashValueByAssetId.get(a.id) ?? 0;
+                const inkV = assetInKindValueByAssetId.get(a.id) ?? 0;
                 return (
                   <React.Fragment key={a.id}>
                     <div>{a.name} ({phaseName})</div>
                     <div data-testid={`recon-asset-${a.id}-sqm`} style={cellRight}>{fmtSqm(sqm)}</div>
                     <div data-testid={`recon-asset-${a.id}-value`} style={cellRight}>{fmtMoney(value)}</div>
+                    <div data-testid={`recon-asset-${a.id}-cash`} style={cellRight}>{fmtMoney(cashV)}</div>
+                    <div data-testid={`recon-asset-${a.id}-inkind`} style={cellRight}>{fmtMoney(inkV)}</div>
                   </React.Fragment>
                 );
               })}
 
               {/* Total Allocated with chips */}
-              <div style={{ ...rowTopBorder, ...rowBold }}>Total Allocated</div>
-              <div data-testid="recon-allocated" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
-                {fmtSqm(allocatedSqm)} <span style={{ marginLeft: 6 }}>{chipFor(sqmStatus)}</span>
-              </div>
-              <div data-testid="recon-allocated-value" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
-                {fmtMoney(allocatedValue)} <span style={{ marginLeft: 6 }}>{chipFor(valueStatus)}</span>
-              </div>
+              {(() => {
+                const allocatedCash = assets
+                  .filter((a) => a.visible && a.isCompanion !== true)
+                  .reduce((s, a) => s + (assetCashValueByAssetId.get(a.id) ?? 0), 0);
+                const allocatedInk = assets
+                  .filter((a) => a.visible && a.isCompanion !== true)
+                  .reduce((s, a) => s + (assetInKindValueByAssetId.get(a.id) ?? 0), 0);
+                return (
+                  <>
+                    <div style={{ ...rowTopBorder, ...rowBold }}>Total Allocated</div>
+                    <div data-testid="recon-allocated" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                      {fmtSqm(allocatedSqm)} <span style={{ marginLeft: 6 }}>{chipFor(sqmStatus)}</span>
+                    </div>
+                    <div data-testid="recon-allocated-value" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                      {fmtMoney(allocatedValue)} <span style={{ marginLeft: 6 }}>{chipFor(valueStatus)}</span>
+                    </div>
+                    <div data-testid="recon-allocated-cash" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                      {fmtMoney(allocatedCash)}
+                    </div>
+                    <div data-testid="recon-allocated-inkind" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                      {fmtMoney(allocatedInk)}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Unassigned Land row */}
               <div>Unassigned Land</div>
@@ -2382,6 +2457,8 @@ function LandReconciliationBlock({
               <div data-testid="recon-unassigned-value" style={cellRight}>
                 {valueStatus === 'equal' ? <span style={{ color: 'var(--color-meta)' }}>-</span> : valueStatus === 'over' ? <span style={{ color: 'var(--color-negative)' }}>over by {fmtMoney(Math.abs(valueDiff))}</span> : fmtMoney(valueDiff)}
               </div>
+              <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+              <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
             </div>
 
             {/* Status footer */}
