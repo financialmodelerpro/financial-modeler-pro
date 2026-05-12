@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-13. Current REFM phase: M2.0 Pass 11 (Tab 3 Costs + Results polish), 11 commits closing per-line per-period unify, project-level copy panel with source picker + cross-phase clone, universal Start/End edit + asset area picking, Results phase-offset + active-range crop + header/subtotal pattern. Layered on Tab 3 Critical Regressions Round 2 + Tab 3 Costs Critical Fixes + Tab 3 default seed fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 + M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
+**Last updated: 2026-05-13. Current REFM phase: M2.0 Pass 11 (Tab 3 Costs + Results polish), 14 commits + 1 diagnostic doc. Themes: project-level copy panel + one-time deep-clone Apply, engine `perLinePerPeriod` as one source of truth, universal Start/End + area picking, Results universal period range + header/subtotal pattern across Tables 1-4. Layered on Tab 3 Critical Regressions Round 2 + Tab 3 Costs Critical Fixes + Tab 3 default seed fix + Tab 2 Pass 1-3 + M2.0 Pass 10. See CLAUDE-REFM.md.**
 
 > **See also:**
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
