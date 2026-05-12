@@ -4,9 +4,12 @@
 
 ## What
 
-Every hospitality asset (`strategy === 'Operate'` and every
-`isCompanion === true` companion) carries an Operating End Date sourced
-from its phase. The date is the LAST day of the phase's operating
+Every asset, regardless of strategy (Sell, Operate, Lease, Sell + Manage,
+and the Operate companion), carries an Operating End Date sourced from
+its phase. For Sell strategy it reads as the post-handover horizon; for
+Lease it's the lease-term end; for Operate it's the hospitality
+operations end; for Support / mixed assets it's the same phase
+operations end. The date is the LAST day of the phase's operating
 window:
 
 ```
@@ -41,15 +44,14 @@ helper renders `Mon YYYY` (e.g. `Dec 2039`).
 ## UI contract
 
 Tab 2 AssetCard surfaces the date with the testid
-`asset-{id}-operating-end-date`. The inner value cell carries
-`asset-{id}-operating-end-date-value`. Caption is fixed:
+`asset-{id}-operating-end-date` for every asset. The inner value cell
+carries `asset-{id}-operating-end-date-value`. Caption is fixed:
 
 > Operating end date from Phase Setup. Edit phase operating period to
 > change.
 
-`UsefulLifeForm` no longer renders for Operate or companion assets;
-only Lease assets keep depreciation (their terminal value concept is a
-roll, not a horizon).
+`UsefulLifeForm` is retired entirely. Depreciation horizon collapses
+into the same phase-driven end-date across every strategy.
 
 ## M5 / valuation hook contract
 
@@ -81,10 +83,9 @@ next render automatically.
 ## Why not Useful Life
 
 Useful Life was a depreciation horizon (per asset type catalog default
-or per-asset override). It's still applicable for Lease assets and any
-future depreciable asset (Sell-with-Manage shell, parking structure).
-But for hospitality the user's mental model is "the year operations
-stop" rather than "years of depreciation life". The two collapse only
-when construction + operating periods == useful life, which is rarely
-the case. Operating End Date is the cleaner anchor and the cash-flow
-horizon already needs it for terminal value.
+or per-asset override). The user's mental model across every strategy
+is "the year activity stops" rather than "years of depreciation life".
+The two collapse only when construction + operating periods == useful
+life, which is rarely the case. Operating End Date is the cleaner
+anchor and the cash-flow horizon already needs it for terminal value,
+so it now drives every asset uniformly. UsefulLifeForm is retired.

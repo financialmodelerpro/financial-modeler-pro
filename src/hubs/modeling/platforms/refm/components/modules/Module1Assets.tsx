@@ -1206,47 +1206,45 @@ function AssetCard({
               for back-compat but no longer render. Companion's
               hospitality params (occupancy / indexation / days) land
               in M2.1 Revenue. */}
-          {/* T2P3 Fix 3 (2026-05-12): for hospitality assets (Operate
-              strategy, plus the Sell+Manage Operate companion), surface
-              the Operating End Date instead of "Operating Period: X years"
-              or the depreciable Useful Life. The end date is the terminal
-              year for cash flow / valuation work in M5; the M5 implementer
-              reads `getOperatingEndDate(assetId)` to anchor the horizon.
-              Computed from phase.startDate + (constructionPeriods - overlap
-              + operatingPeriods - 1) years, displayed as 'Mon YYYY'.
-              Lease assets keep the depreciation UsefulLifeForm (the
-              terminal year concept doesn't apply; leases roll). */}
-          {(asset.strategy === 'Operate' || asset.isCompanion) ? (
-            (() => {
-              const phase = allPhases.find((p) => p.id === asset.phaseId);
-              const endDate = computeOperatingEndDate(asset, phase);
-              const display = formatOperatingEndDate(endDate);
-              return (
-                <div
-                  data-testid={`asset-${asset.id}-operating-end-date`}
-                  style={{
-                    background: 'var(--color-grey-pale)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: 'var(--sp-1) var(--sp-2)',
-                    marginBottom: 'var(--sp-2)',
-                    fontSize: 'var(--font-small)',
-                    color: 'var(--color-body)',
-                  }}
-                >
-                  <strong>Operating End:</strong>{' '}
-                  <span data-testid={`asset-${asset.id}-operating-end-date-value`}>{display}</span>
-                  <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 2 }}>
-                    Operating end date from Phase Setup. Edit phase operating period to change.
-                  </div>
+          {/* T2P3 Fix 3 (2026-05-12) + T2P3-followup (2026-05-12):
+              Universal Operating End Date. Every asset, regardless of
+              strategy (Sell, Operate, Lease, Sell + Manage, plus the
+              Operate companion), surfaces the same chip sourced from
+              the parent phase. For Sell strategy the date reads as the
+              post-handover horizon (when phase operations end);
+              for Lease it's the lease-term end from phase setup;
+              for Operate it's the hospitality operations end; for
+              Support / mixed assets it's the same phase operations
+              end. The M5 implementer reads
+              `computeOperatingEndDate(asset, phase)` for terminal
+              valuation regardless of strategy. UsefulLifeForm is
+              retired entirely (depreciation horizon collapses into
+              the same phase-driven end-date now). */}
+          {(() => {
+            const phase = allPhases.find((p) => p.id === asset.phaseId);
+            const endDate = computeOperatingEndDate(asset, phase);
+            const display = formatOperatingEndDate(endDate);
+            return (
+              <div
+                data-testid={`asset-${asset.id}-operating-end-date`}
+                style={{
+                  background: 'var(--color-grey-pale)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  marginBottom: 'var(--sp-2)',
+                  fontSize: 'var(--font-small)',
+                  color: 'var(--color-body)',
+                }}
+              >
+                <strong>Operating End:</strong>{' '}
+                <span data-testid={`asset-${asset.id}-operating-end-date-value`}>{display}</span>
+                <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 2 }}>
+                  Operating end date from Phase Setup. Edit phase operating period to change.
                 </div>
-              );
-            })()
-          ) : (
-            asset.strategy === 'Lease' && (
-              <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
-            )
-          )}
+              </div>
+            );
+          })()}
           {asset.isCompanion && (
             <div
               data-testid={`asset-${asset.id}-companion-badge`}

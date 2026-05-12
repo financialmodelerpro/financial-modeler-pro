@@ -164,15 +164,17 @@ console.log('\n[3/4] Fix 3: Operating End Date helper + UI');
   else fail('UI testid', 'missing');
   if (ASSETS_SRC.includes('-operating-end-date-value`}')) pass('AssetCard renders end-date-value testid');
   else fail('UI value testid', 'missing');
-  if (ASSETS_SRC.includes("asset.strategy === 'Operate' || asset.isCompanion")) {
-    pass('AssetCard surfaces end date on Operate strategy OR companion');
-  } else fail('UI hospitality condition', 'guard not found');
+  // T2P3 follow-up (2026-05-12): universal (no strategy gate). Operating
+  // End Date renders for every asset regardless of strategy.
+  if (ASSETS_SRC.includes('Universal Operating End Date')) {
+    pass('AssetCard surfaces end date universally (no strategy gate)');
+  } else fail('UI universal end-date', 'marker not found');
   if (ASSETS_SRC.includes('Operating end date from Phase Setup')) pass('AssetCard caption matches brief');
   else fail('UI caption', 'missing');
-  // Lease keeps UsefulLifeForm.
-  if (ASSETS_SRC.includes("asset.strategy === 'Lease' && (\n              <UsefulLifeForm")) {
-    pass('Lease keeps UsefulLifeForm (depreciation still applies)');
-  } else fail('Lease branch', 'UsefulLifeForm guard missing');
+  // UsefulLifeForm is retired — no longer called from any branch.
+  if (!ASSETS_SRC.includes('<UsefulLifeForm')) {
+    pass('UsefulLifeForm retired (no render call)');
+  } else fail('UsefulLifeForm retired', 'still rendered somewhere');
 
   // M5 doc.
   const docPath = resolve(REPO_ROOT, 'docs/operating-end-date-hook.md');
