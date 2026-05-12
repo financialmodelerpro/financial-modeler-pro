@@ -1627,13 +1627,41 @@ function SummaryTables({
     // is deferred to advanced).
     return distributeAnnualToPeriods(annual, granularity, 'even');
   };
+  // P11 Fix 2 (2026-05-13): apply phase offset when placing per-asset
+  // perPeriod values onto the project-wide axis. Previously the loop
+  // dropped each bd.perPeriod[i+1] into annualRow[i] regardless of
+  // phaseStartYear, which misaligned Phase 2+ assets by their full
+  // phase offset (a Phase 2 asset starting 2026 had its Y1 spend
+  // posted to the project's 2025 column). The per-asset table rows
+  // already corrected for this offset inline; this builder now
+  // matches so periodTotals (used by the Project Total footer)
+  // agrees with the asset rows it sums.
+  const projectStartYearTable = new Date(project.startDate).getUTCFullYear();
   const periodTable = phaseAssets.map((a) => {
     const annualRow = new Array<number>(annualPeriodCount).fill(0);
     for (const pb of perPhaseBreakdowns) {
       const bd = pb.assetTotals[a.id];
       if (!bd) continue;
-      for (let i = 0; i < annualPeriodCount; i++) {
-        annualRow[i] += bd.perPeriod[i + 1] ?? 0; // +1 because perPeriod[0] is upfront
+      const phaseObj = phases.find((p) => p.id === pb.phaseId);
+      const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10
+        ? phaseObj.startDate
+        : project.startDate;
+      const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+      const offset = Number.isFinite(phaseStartYear - projectStartYearTable)
+        ? Math.max(0, phaseStartYear - projectStartYearTable)
+        : 0;
+      for (let i = 0; i < pb.cp; i++) {
+        const dest = offset + i;
+        if (dest >= 0 && dest < annualPeriodCount) {
+          annualRow[dest] += bd.perPeriod[i + 1] ?? 0;
+        }
+      }
+      // perPeriod[0] is the upfront / Y0 lump. For Phase 1 it lands at
+      // project Y0, which is outside the column grid (grid starts at Y1).
+      // For later phases the upfront falls at the phase's first project
+      // year minus one (= the year before the phase begins).
+      if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
+        annualRow[offset - 1] += bd.perPeriod[0] ?? 0;
       }
     }
     const row = transformAnnualSeries(annualRow);
@@ -1823,14 +1851,35 @@ function SummaryTables({
                         const t = bd.byLineId[line.id] ?? 0;
                         if (t === 0) continue;
                         lineTotal += t;
+                        // P11 Fix 2 (2026-05-13): apply the phase offset when
+                        // smearing this line's total across the project axis,
+                        // matching the asset-row builder above. Without the
+                        // offset, a Phase 2 line's amount was being spread
+                        // into project Y1+ columns instead of phase Y1+.
+                        const phaseObj2 = phases.find((p) => p.id === pb.phaseId);
+                        const phaseStartIso2 = phaseObj2?.startDate && phaseObj2.startDate.length === 10
+                          ? phaseObj2.startDate
+                          : project.startDate;
+                        const phaseStartYear2 = new Date(phaseStartIso2).getUTCFullYear();
+                        const offset2 = Number.isFinite(phaseStartYear2 - projectStartYear)
+                          ? Math.max(0, phaseStartYear2 - projectStartYear)
+                          : 0;
                         // Approximate per-period split: distribute t across
                         // perPeriod proportional to overall asset perPeriod.
                         const assetPP = bd.perPeriod;
                         const assetPPTotal = assetPP.reduce((s, v) => s + v, 0);
                         if (assetPPTotal > 0) {
-                          for (let i = 0; i < annualPeriodCount; i++) {
+                          for (let i = 0; i < pb.cp; i++) {
+                            const dest = offset2 + i;
+                            if (dest < 0 || dest >= annualPeriodCount) continue;
                             const share = (assetPP[i + 1] ?? 0) / assetPPTotal;
-                            linePerPeriodAnnual[i] += t * share;
+                            linePerPeriodAnnual[dest] += t * share;
+                          }
+                          // Upfront perPeriod[0] (Phase 2+ only) follows
+                          // the same offset rule used for assetRowAnnual.
+                          if (offset2 > 0 && offset2 - 1 < annualPeriodCount && offset2 - 1 >= 0) {
+                            const share0 = (assetPP[0] ?? 0) / assetPPTotal;
+                            linePerPeriodAnnual[offset2 - 1] += t * share0;
                           }
                         }
                       }
