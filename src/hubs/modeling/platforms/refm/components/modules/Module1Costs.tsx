@@ -1564,11 +1564,18 @@ interface SummaryTablesProps {
   // M2.0j Fix 11 (2026-05-07): phase list for phase-start-aware
   // period allocation in Capex by Period.
   phases: Phase[];
+  // P11 Fix 9 (2026-05-13): view mode. Combined view splits each
+  // asset's Table 1 group into a header row (asset name only, full-
+  // width highlight, no values) + per-line nested rows + an
+  // "Asset Subtotal" row at the bottom. Single Asset view keeps the
+  // single-row asset header (name + total + periods on one row).
+  resultsView: 'combined' | 'single_asset';
 }
 
 function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
   project, totalConstructionPeriods, costLines, granularity, phases,
+  resultsView,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
   const decimals = project.displayDecimals ?? 2;
@@ -1873,13 +1880,38 @@ function SummaryTables({
                   c.phaseId === a.phaseId &&
                   (c.targetAssetId === undefined || c.targetAssetId === a.id)
                 );
+                // P11 Fix 9 (2026-05-13): Combined view splits each
+                // asset's row group into:
+                //   (a) header row - asset name only, full-width
+                //       highlight, no values;
+                //   (b) per-line nested rows (existing);
+                //   (c) "Asset Subtotal" row at the bottom carrying
+                //       the asset total + per-period values, same
+                //       highlight color as the header.
+                // Single Asset view keeps the legacy single-row
+                // header (name + total + periods together) since
+                // there's no need to demarcate one group from
+                // another - the table only contains one asset.
+                const groupBg = 'color-mix(in srgb, var(--color-navy) 12%, transparent)';
                 return (
                   <React.Fragment key={a.id}>
-                    <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
-                      <td style={cellName}>{a.name}</td>
-                      <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
-                      {cropRow(assetRow).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
-                    </tr>
+                    {resultsView === 'combined' ? (
+                      <tr style={{ background: groupBg, fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
+                        <td
+                          style={{ ...cellName, fontSize: 12, padding: '6px 6px' }}
+                          colSpan={2 + croppedPeriodCount}
+                          data-testid={`capex-period-asset-${a.id}-header`}
+                        >
+                          {a.name}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr style={{ background: groupBg, fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
+                        <td style={cellName}>{a.name}</td>
+                        <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        {cropRow(assetRow).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      </tr>
+                    )}
                     {linesForThisAsset.map((line) => {
                       let lineTotal = 0;
                       const linePerPeriodAnnual = new Array<number>(annualPeriodCount).fill(0);
@@ -1930,6 +1962,16 @@ function SummaryTables({
                         </tr>
                       );
                     })}
+                    {resultsView === 'combined' && (
+                      <tr
+                        style={{ background: groupBg, fontWeight: 700 }}
+                        data-testid={`capex-period-asset-${a.id}-subtotal`}
+                      >
+                        <td style={cellName}>Asset Subtotal</td>
+                        <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        {cropRow(assetRow).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}
@@ -3444,6 +3486,7 @@ export default function Module1Costs(): React.JSX.Element {
                   costLines={costLines}
                   granularity={granularity}
                   phases={phases}
+                  resultsView={resultsView}
                 />
               </>
             );
