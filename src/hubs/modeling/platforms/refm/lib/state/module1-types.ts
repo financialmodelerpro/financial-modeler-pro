@@ -584,6 +584,21 @@ export interface Asset {
   // per-row SubUnit.metric. Migration takes the first sub-unit's metric
   // as the asset metric. SubUnit.metric stays on schema for back-compat.
   subUnitMetric?: SubUnitMetric;
+  // P10-Fix 4 (2026-05-12): Sell + Manage companion-asset linkage. When
+  // the user picks 'Sell + Manage' as strategy on an asset, a companion
+  // Operate asset is auto-created with name '[Parent] - Operate'.
+  // parentAssetId points at the parent (sell) asset; isCompanion marks
+  // the row as auto-generated; companionType captures the role (today
+  // only 'operate'). The companion inherits its units count from the
+  // parent's total sellable units (unitsFromParent updates when the
+  // parent's sub-units change). Companions are filtered out of land
+  // allocation aggregation (computeAssetLandSqm + aggregatePhaseMetrics)
+  // so they do NOT double-count land basis. Cascade-delete on parent
+  // removal is handled in module1-store.ts removeAsset.
+  parentAssetId?: string;
+  isCompanion?: boolean;
+  companionType?: 'operate';
+  unitsFromParent?: number;
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
