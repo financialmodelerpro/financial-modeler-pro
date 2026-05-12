@@ -179,6 +179,7 @@ const ctx: AssetCostContext = {
     parkingBays: 100,
     supportArea: 0, parkingArea: 0,
     landValue: 2500000, cashLandValue: 1500000, inKindLandValue: 1000000,
+    totalRevenue: 0,
   },
   resolvedDirectLineTotals: {},
 };

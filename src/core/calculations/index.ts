@@ -203,6 +203,21 @@ export function computeAssetUnitCount(asset: Asset, subUnits: SubUnit[]): number
     .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
 }
 
+// T3-edit-runtime v7 (2026-05-13): asset revenue used by commission
+// cost lines (% of total revenue / % of revenue cash / % of revenue
+// sale). Mirrors the Tab 2 AssetAreaReconciliationBlock formula:
+// sum of (metricValue x unitPrice) across revenue sub-unit categories
+// (Sellable / Operable / Leasable). Support + Parking excluded.
+// Until M2.1 ships proper period-by-period revenue arrays, all three
+// commission methods resolve to this asset-level total. The cash-basis
+// vs sale-basis distinction stays on the schema for forward-compat;
+// today both produce the same number.
+export function computeAssetRevenue(asset: Asset, subUnits: SubUnit[]): number {
+  return subUnits
+    .filter((u) => u.assetId === asset.id && (u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable'))
+    .reduce((s, u) => s + Math.max(0, u.metricValue) * Math.max(0, u.unitPrice ?? 0), 0);
+}
+
 // ── Asset land sqm + value ─────────────────────────────────────────────────
 // Resolve each asset's land area in sqm based on landAllocationMode.
 //
@@ -471,6 +486,7 @@ export function aggregatePhaseMetrics(
     unitCount: 0, parkingBays: 0,
     supportArea: 0, parkingArea: 0,
     landValue: 0, cashLandValue: 0, inKindLandValue: 0,
+    totalRevenue: 0,
   };
   for (const a of phaseAssets) {
     const m = metricsByAsset.get(a.id);
@@ -488,6 +504,7 @@ export function aggregatePhaseMetrics(
     agg.landValue += m.landValue;
     agg.cashLandValue += m.cashLandValue;
     agg.inKindLandValue += m.inKindLandValue;
+    agg.totalRevenue += m.totalRevenue;
   }
   return agg;
 }
@@ -512,6 +529,11 @@ export interface AssetAreaMetrics {
   landValue: number;
   cashLandValue: number;
   inKindLandValue: number;
+  // T3-edit-runtime v7 (2026-05-13): asset revenue (sum of metricValue
+  // x unitPrice across Sellable / Operable / Leasable sub-units).
+  // Powers the commission cost methods until M2.1 ships proper period-
+  // by-period revenue arrays.
+  totalRevenue: number;
 }
 
 // M2.0g Fix 4 (2026-05-06): asset BUA + sub-unit reconciliation.
@@ -774,6 +796,7 @@ export function resolveAssetAreaMetrics(
     landValue,
     cashLandValue,
     inKindLandValue,
+    totalRevenue: computeAssetRevenue(asset, subUnits),
   };
 }
 
@@ -883,18 +906,17 @@ export function calculateItemTotal(
       // ensures the right base is computed in pass 2.
       return base * (clamp(v, 0, 100) / 100);
     }
-    // P10-Fix 10 (2026-05-12): revenue-driven cost methods. Commission
-    // cost lines tied to revenue collected (cash) or recognised (sale).
-    // Hooks at src/hubs/modeling/platforms/refm/lib/financing-hooks.ts
-    // (getTotalRevenueCashBasis / getTotalRevenueSaleBasis) return
-    // zero-stub PeriodArrays until Module 2.1 Revenue ships. Total
-    // here returns 0 because no revenue is recognised pre-M2.1; the
-    // per-period distribution in computeAssetCost picks up the
-    // PeriodArray when revenue is non-zero. See
-    // docs/cost-revenue-hooks.md for the contract.
+    // T3-edit-runtime v7 (2026-05-13): revenue-driven commission cost
+    // methods all resolve to the same per-asset total revenue (from
+    // Tab 2 sub-units) until M2.1 ships period-by-period revenue
+    // arrays. Cash basis vs sale basis distinction kept on the schema
+    // for forward-compat. computeAssetRevenue mirrors the Tab 2
+    // AssetAreaReconciliationBlock formula: sum of metricValue x
+    // unitPrice across revenue sub-unit categories.
+    case 'percent_of_total_revenue':
     case 'percent_of_revenue_cash':
     case 'percent_of_revenue_sale':
-      return 0;
+      return m.totalRevenue * (clamp(v, 0, 100) / 100);
   }
 }
 
@@ -2653,6 +2675,15 @@ export function costLineCaption(input: CostLineCaptionInput): string {
         return `${fmt(value, 2)}% of ${fmtMoney(0)} (cash portion = 0; check parcel cashPct)`;
       }
       return `${fmt(value, 2)}% of ${fmtMoney(metrics.cashLandValue)} (this asset's cash land share)`;
+    }
+    case 'percent_of_total_revenue':
+    case 'percent_of_revenue_cash':
+    case 'percent_of_revenue_sale': {
+      if (metrics.totalRevenue <= 0) return noArea('asset revenue (set sub-unit metric x price in Tab 2)');
+      const basisLabel = method === 'percent_of_revenue_cash'
+        ? 'revenue cash basis'
+        : method === 'percent_of_revenue_sale' ? 'revenue sale basis' : 'total revenue';
+      return `${fmt(value, 2)}% of ${fmtMoney(metrics.totalRevenue)} (${basisLabel})`;
     }
     case 'percent_of_inkind_land': {
       if (metrics.inKindLandValue <= 0) {

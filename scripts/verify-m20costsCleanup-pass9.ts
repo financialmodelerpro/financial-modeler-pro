@@ -218,6 +218,7 @@ console.log('\n[7/10] Fix 5: costLineCaption drops "= result" suffix');
     landSqm: 0, ndaSqm: 0, roadsSqm: 0, gfa: 130874, bua: 130874, nsa: 100000,
     unitCount: 0, parkingBays: 0, supportArea: 0, parkingArea: 0,
     landValue: 0, cashLandValue: 0, inKindLandValue: 0,
+    totalRevenue: 0,
   };
   const caption = costLineCaption({ line, asset, metrics, parkingBays: 0, resolvedTotal: 588933000 });
   if (caption === '4,500 x 130,874 sqm BUA') {
