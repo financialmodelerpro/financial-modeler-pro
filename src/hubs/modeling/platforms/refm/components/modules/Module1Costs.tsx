@@ -1596,28 +1596,24 @@ function SummaryTables({
   // Results sub-tab header-line "All figures in SAR '000" via
   // currencyHeaderLine; cells stay clean and tabular.
   const fmt = (v: number): string => formatAccounting(v, scale, decimals);
-  // M2.0h Fix 6: at annual granularity, 1 column per construction year
-  // (capped at 24 for layout). At quarterly: 4× columns. Monthly: 12×.
-  const annualPeriodCount = Math.min(totalConstructionPeriods, 24);
   const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
-  const periodCount = annualPeriodCount * subPerYear;
-  // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
-  const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
-
-  // P11 Fix 4 (2026-05-13): crop the rendered column range to the
-  // periods where in-scope assets actually have cost activity.
-  // Walks every in-scope asset's bd.perPeriod across every phase,
-  // applies the same offset = phaseStartYear - projectStartYear shift
-  // used by the row builders, and tracks the min / max non-zero
-  // annual column. Combined view -> union across phaseAssets; Single
-  // Asset view -> just that asset's span (phaseAssets is already
-  // filtered upstream when resultsViewMode = 'single_asset'). With a
-  // project starting 2025 and the earliest activity in 2026, the
-  // leading "Dec 25" column drops out; with the latest activity in
-  // 2030, trailing empty columns drop out too.
+  // P11 Fix 13 (2026-05-13): universal period range rule. Scan every
+  // in-scope asset's bd.perPeriod across every phase WITHOUT an upper
+  // bound, applying the phase offset = phaseStartYear - projectStart
+  // shift. Track the min and max non-zero annual columns; the rendered
+  // axis covers exactly that range. Previously the scan clamped each
+  // candidate column by annualPeriodCount (= min(totalConstructionPeriods,
+  // 24)), so cost lines phased past the phase's constructionPeriods
+  // (e.g. operations-tail commissioning) were dropped from the axis
+  // entirely. The 24-cap also lost projects with a long total horizon.
+  // Now: annualPeriodCount is derived FROM the data extent, with the
+  // construction window as a floor and a 60-year hard cap for layout
+  // safety. Combined view = union across phaseAssets; Single Asset
+  // view = that asset's range only (phaseAssets is already filtered
+  // upstream by resultsViewMode).
   const projectStartYearForCrop = new Date(project.startDate).getUTCFullYear();
-  let activeFirstAnnual = annualPeriodCount;
-  let activeLastAnnual = -1;
+  let dataFirstAnnual = Number.POSITIVE_INFINITY;
+  let dataLastAnnual = -1;
   for (const asset of phaseAssets) {
     for (const pb of perPhaseBreakdowns) {
       const bd = pb.assetTotals[asset.id];
@@ -1630,31 +1626,53 @@ function SummaryTables({
       const offset = Number.isFinite(phaseStartYear - projectStartYearForCrop)
         ? Math.max(0, phaseStartYear - projectStartYearForCrop)
         : 0;
-      // perPeriod[0] is the upfront / Y0 lump. For Phase 1 it lives
-      // at project Y0 (outside the column grid so not counted as
-      // activity here). For later phases it lands at offset - 1.
-      if (offset > 0 && offset - 1 >= 0 && offset - 1 < annualPeriodCount) {
-        if (Math.abs(bd.perPeriod[0] ?? 0) > 0.5) {
-          if (offset - 1 < activeFirstAnnual) activeFirstAnnual = offset - 1;
-          if (offset - 1 > activeLastAnnual) activeLastAnnual = offset - 1;
+      // perPeriod[0] is the upfront / Y0 lump. Phase 1 (offset === 0)
+      // lands its upfront at project Y0, which is outside the column
+      // grid (grid starts at project Y1, column 0). Phase 2+ lands the
+      // upfront at column offset - 1.
+      if (offset > 0 && Math.abs(bd.perPeriod[0] ?? 0) > 0.5) {
+        const col = offset - 1;
+        if (col >= 0) {
+          if (col < dataFirstAnnual) dataFirstAnnual = col;
+          if (col > dataLastAnnual) dataLastAnnual = col;
         }
       }
+      // No upper clamp - line endPeriod may exceed phase cp (operations
+      // tail) and the engine's perPeriod array is sized to fit, so we
+      // walk the whole array.
       for (let i = 1; i < bd.perPeriod.length; i++) {
         if (Math.abs(bd.perPeriod[i] ?? 0) <= 0.5) continue;
         const col = offset + i - 1;
-        if (col >= 0 && col < annualPeriodCount) {
-          if (col < activeFirstAnnual) activeFirstAnnual = col;
-          if (col > activeLastAnnual) activeLastAnnual = col;
-        }
+        if (col < 0) continue;
+        if (col < dataFirstAnnual) dataFirstAnnual = col;
+        if (col > dataLastAnnual) dataLastAnnual = col;
       }
     }
   }
-  if (activeLastAnnual < activeFirstAnnual) {
+  const hasData = dataLastAnnual >= 0 && Number.isFinite(dataFirstAnnual);
+  let activeFirstAnnual: number;
+  let activeLastAnnual: number;
+  if (hasData) {
+    activeFirstAnnual = dataFirstAnnual;
+    activeLastAnnual = dataLastAnnual;
+  } else {
     // No activity in scope: keep one column so colSpan stays > 0 and
     // empty-state messages render correctly.
     activeFirstAnnual = 0;
-    activeLastAnnual = Math.max(0, annualPeriodCount - 1);
+    activeLastAnnual = 0;
   }
+  // annualPeriodCount must cover from project Y1 through the latest
+  // active column, with the legacy construction window as a floor so
+  // multi-phase projects with zero-tail trailing space don't shrink
+  // below the master construction horizon. 60-year hard cap retained
+  // for layout safety; up from the prior 24.
+  const annualPeriodCount = Math.min(
+    Math.max(totalConstructionPeriods, activeLastAnnual + 1, 1),
+    60,
+  );
+  const periodCount = annualPeriodCount * subPerYear;
+  // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
+  const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
   const cropSubFirst = activeFirstAnnual * subPerYear;
   const cropSubCount = (activeLastAnnual - activeFirstAnnual + 1) * subPerYear;
   function cropRow<T>(arr: T[]): T[] {
