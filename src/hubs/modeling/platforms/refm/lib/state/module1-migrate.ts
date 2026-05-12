@@ -192,7 +192,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -210,7 +210,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))));
+  )))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -224,7 +224,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -242,7 +242,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))));
+  )))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -736,6 +736,48 @@ function migrateT3DefaultCostLineSeed(snap: HydrateSnapshot): HydrateSnapshot {
   }
   if (seeded.length === 0) return snap;
   return { ...snap, costLines: [...existing, ...seeded] };
+}
+
+// T3-regr-2 Fix 2 (2026-05-12): clamp out-of-range Start / End on cost
+// lines. Legacy snapshots whose phase.constructionPeriods drifted post-
+// hydrate carry Start/End values like 19, 12, 6 that no longer make
+// sense (often End < Start, or End past cp+1). Rules per line:
+//   - Land Cash / Land In-Kind: force startPeriod=0, endPeriod=0
+//     (single-period upfront draw at period 0).
+//   - All other lines, given cp = phase.constructionPeriods:
+//       * startPeriod outside [0, cp] -> reset to 0.
+//       * endPeriod  outside [startPeriod, cp+1] -> reset to cp+1.
+// Idempotent: when nothing is out of range, returns the original snapshot.
+function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = (snap.costLines as CostLine[]) ?? [];
+  const phases = (snap.phases as Phase[]) ?? [];
+  if (lines.length === 0 || phases.length === 0) return snap;
+  const cpByPhase = new Map<string, number>();
+  for (const p of phases) cpByPhase.set(p.id, Math.max(1, p.constructionPeriods ?? 24));
+  let touched = 0;
+  const next: CostLine[] = lines.map((c) => {
+    const baseId = deriveLineBaseId(c.id);
+    if (baseId === 'land-cash' || baseId === 'land-inkind') {
+      if (c.startPeriod === 0 && c.endPeriod === 0) return c;
+      touched += 1;
+      return { ...c, startPeriod: 0, endPeriod: 0 };
+    }
+    const cp = cpByPhase.get(c.phaseId) ?? 24;
+    const startOk = Number.isFinite(c.startPeriod) && c.startPeriod >= 0 && c.startPeriod <= cp;
+    const nextStart = startOk ? c.startPeriod : 0;
+    const upperEnd = cp + 1;
+    const endOk = Number.isFinite(c.endPeriod) && c.endPeriod >= nextStart && c.endPeriod <= upperEnd;
+    const nextEnd = endOk ? c.endPeriod : upperEnd;
+    if (nextStart === c.startPeriod && nextEnd === c.endPeriod) return c;
+    touched += 1;
+    return { ...c, startPeriod: nextStart, endPeriod: nextEnd };
+  });
+  if (touched === 0) return snap;
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] T3 clamp Start/End: clamped ${touched} cost line(s) outside [0, cp+1]`);
+  }
+  return { ...snap, costLines: next };
 }
 
 // T2P3 Fix 2 (2026-05-12): companion type inheritance migration. Walks
@@ -1491,7 +1533,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1509,7 +1551,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  ))))))));
+  )))))))));
   return snap;
 }
 
