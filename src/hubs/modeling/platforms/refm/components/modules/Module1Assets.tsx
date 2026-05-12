@@ -63,9 +63,11 @@ import {
   computeAssetLandSqm,
   computeLandAggregate,
   computeLandReconciliation,
+  computeOperatingEndDate,
   computeParcelNda,
   computeSubUnitArea,
   computePhaseTimeline,
+  formatOperatingEndDate,
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
@@ -1204,18 +1206,24 @@ function AssetCard({
               for back-compat but no longer render. Companion's
               hospitality params (occupancy / indexation / days) land
               in M2.1 Revenue. */}
-          {/* T2-Fix 5b (2026-05-12): on a companion (Operate) asset, replace
-              UsefulLifeForm with a read-only Operating Period chip sourced
-              from the parent phase's operationsPeriods. Companions cannot
-              depreciate independently; their period of activity follows
-              the phase's operations window. */}
-          {asset.isCompanion ? (
+          {/* T2P3 Fix 3 (2026-05-12): for hospitality assets (Operate
+              strategy, plus the Sell+Manage Operate companion), surface
+              the Operating End Date instead of "Operating Period: X years"
+              or the depreciable Useful Life. The end date is the terminal
+              year for cash flow / valuation work in M5; the M5 implementer
+              reads `getOperatingEndDate(assetId)` to anchor the horizon.
+              Computed from phase.startDate + (constructionPeriods - overlap
+              + operatingPeriods - 1) years, displayed as 'Mon YYYY'.
+              Lease assets keep the depreciation UsefulLifeForm (the
+              terminal year concept doesn't apply; leases roll). */}
+          {(asset.strategy === 'Operate' || asset.isCompanion) ? (
             (() => {
               const phase = allPhases.find((p) => p.id === asset.phaseId);
-              const opPeriods = phase?.operationsPeriods ?? 0;
+              const endDate = computeOperatingEndDate(asset, phase);
+              const display = formatOperatingEndDate(endDate);
               return (
                 <div
-                  data-testid={`asset-${asset.id}-operating-period`}
+                  data-testid={`asset-${asset.id}-operating-end-date`}
                   style={{
                     background: 'var(--color-grey-pale)',
                     border: '1px solid var(--color-border)',
@@ -1226,16 +1234,16 @@ function AssetCard({
                     color: 'var(--color-body)',
                   }}
                 >
-                  <strong>Operating Period:</strong>{' '}
-                  <span data-testid={`asset-${asset.id}-operating-period-years`}>{opPeriods} {opPeriods === 1 ? 'year' : 'years'}</span>
+                  <strong>Operating End:</strong>{' '}
+                  <span data-testid={`asset-${asset.id}-operating-end-date-value`}>{display}</span>
                   <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 2 }}>
-                    Operating period defined per phase in Project Setup. Edit there to change.
+                    Operating end date from Phase Setup. Edit phase operating period to change.
                   </div>
                 </div>
               );
             })()
           ) : (
-            (asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
+            asset.strategy === 'Lease' && (
               <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
             )
           )}

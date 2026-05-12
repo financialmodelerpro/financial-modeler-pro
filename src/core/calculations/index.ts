@@ -79,6 +79,42 @@ import {
   deriveLineBaseId,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
+// ── Operating end date (T2P3 Fix 3) ───────────────────────────────────────
+// Computed from phase.startDate + (constructionPeriods + operatingPeriods).
+// Phases are annual since M2.0i so each period == 1 year. Operations begin
+// the year after construction ends (overlap subtracted); operations end
+// the LAST day of `startDate.year + constructionPeriods - overlap +
+// operatingPeriods - 1`. Returns null when the phase is missing or
+// operatingPeriods <= 0 (asset is not operational). M5 / terminal-value
+// consumers can read getOperatingEndDate(assetId) to anchor cash-flow
+// horizons.
+export function computeOperatingEndDate(
+  asset: Asset,
+  phase: Phase | undefined,
+): Date | null {
+  if (!phase) return null;
+  const ops = Math.max(0, phase.operationsPeriods ?? 0);
+  if (ops <= 0) return null;
+  if (!phase.startDate) return null;
+  const start = new Date(phase.startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  const construction = Math.max(0, phase.constructionPeriods ?? 0);
+  const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+  // Operations start year: start.year + construction - overlap.
+  // Operations end year (inclusive): start.year + construction - overlap + ops - 1.
+  // Operating End Date = Dec 31 of that year (last day of the operating window).
+  const endYear = start.getUTCFullYear() + construction - overlap + ops - 1;
+  return new Date(Date.UTC(endYear, 11, 31));
+}
+
+// Display-format helper. Returns 'Mon YYYY' (e.g. 'Dec 2039'). Falls back
+// to '-' when the date is null.
+export function formatOperatingEndDate(date: Date | null): string {
+  if (!date) return '-';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
 // ── Land aggregates ────────────────────────────────────────────────────────
 export interface LandAggregate {
   totalAreaSqm: number;
