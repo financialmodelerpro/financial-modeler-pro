@@ -457,43 +457,80 @@ function CostRow({
   const writeName = (name: string): void => {
     onUpdateLine({ name });
   };
+  // P10-Fix 3 (2026-05-12): hybrid write semantics.
+  //   - When `override` exists on this (asset, line): edits route to
+  //     the override (asset-specific divergence).
+  //   - When no override: edits route to the master line (project-wide
+  //     effect; every asset that doesn't override sees the new value).
+  //   - For asset-specific custom lines (targetAssetId set, e.g.
+  //     companion or 'Custom Cost' before Pass 10 Fix 3): edits route
+  //     to the line directly (no override surface).
+  // The Override toggle (rendered below) explicitly creates / removes
+  // the override entry, giving the user a clear visual cue when a
+  // value diverges from the project-wide master.
   const writeMethod = (method: CostMethod): void => {
-    if (isProjectWide) {
-      // Per-asset override carries method when user diverges.
-      onUpdateOverride({ assetId: asset.id, lineId: line.id, method, value: effValue, phasing: effPhasing, distribution: override?.distribution, disabled: override?.disabled });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
     } else {
       onUpdateLine({ method });
     }
   };
   const writeValue = (value: number): void => {
-    if (isProjectWide) {
-      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value, phasing: effPhasing, distribution: override?.distribution, disabled: override?.disabled });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
     } else {
       onUpdateLine({ value });
     }
   };
   const writePhasing = (phasing: CostPhasing): void => {
-    if (isProjectWide) {
-      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing, distribution: override?.distribution, disabled: override?.disabled });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
     } else {
       onUpdateLine({ phasing });
     }
   };
   const writeStartPeriod = (n: number): void => {
-    onUpdateLine({ startPeriod: n });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, startPeriod: n, endPeriod: override.endPeriod ?? line.endPeriod, overridden: true });
+    } else {
+      onUpdateLine({ startPeriod: n });
+    }
   };
   const writeEndPeriod = (n: number): void => {
-    onUpdateLine({ endPeriod: n });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, startPeriod: override.startPeriod ?? line.startPeriod, endPeriod: n, overridden: true });
+    } else {
+      onUpdateLine({ endPeriod: n });
+    }
   };
   const toggleDisabled = (disabled: boolean): void => {
-    if (isProjectWide) {
-      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override?.distribution, disabled });
+    if (override) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled, overridden: true });
     } else {
       onUpdateLine({ disabled });
     }
   };
   const reset = (): void => {
     if (override) onRemoveOverride();
+  };
+  // P10-Fix 3 (2026-05-12): startOverride seeds a CostOverride entry
+  // with the master's current values so the user has a non-zero
+  // starting point. Switching back to inherited master is a single
+  // click on Revert (drops the override entry).
+  const startOverride = (): void => {
+    onUpdateOverride({
+      assetId: asset.id,
+      lineId: line.id,
+      method: line.method,
+      value: line.value,
+      phasing: line.phasing,
+      distribution: line.distribution,
+      disabled: line.disabled === true ? true : undefined,
+      perSubUnitRates: line.perSubUnitRates,
+      startPeriod: line.startPeriod,
+      endPeriod: line.endPeriod,
+      overridden: true,
+    });
   };
 
   // M2.0g Addendum 1: per-period % distribution editor (Manual % phasing).
@@ -792,6 +829,64 @@ function CostRow({
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
           {formatAccounting(total, scale, decimals)}
         </div>
+        {/* P10-Fix 3 (2026-05-12): per-asset Override toggle.
+            Hidden for asset-specific custom lines (isCustom; the line
+            already lives only on this asset) and for locked seed
+            lines (Land Cash / Land In-Kind / Auto-IDC).
+            - No override: shows ✏ "Override for {asset}" button.
+              Click creates an override seeded from master.
+            - Override active: shows ↺ "Inherit from master" button.
+              Click removes the override; cell reverts to master. */}
+        {isProjectWide && !isLocked && !isCustom && !collapsed && (
+          override ? (
+            <button
+              type="button"
+              onClick={reset}
+              data-testid={`cost-${asset.id}-${line.id}-revert`}
+              title={`Drop the override and inherit the project-wide value for ${asset.name}.`}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--color-accent-warm)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 6px',
+                marginTop: 4,
+                fontSize: 9,
+                color: 'var(--color-accent-warm)',
+                cursor: 'pointer',
+                fontWeight: 700,
+              }}
+            >
+              ↺ Inherit master
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={startOverride}
+              data-testid={`cost-${asset.id}-${line.id}-override`}
+              title={`Override the project-wide value for this cost line, only on ${asset.name}.`}
+              style={{
+                background: 'transparent',
+                border: '1px dashed var(--color-meta)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 6px',
+                marginTop: 4,
+                fontSize: 9,
+                color: 'var(--color-meta)',
+                cursor: 'pointer',
+              }}
+            >
+              ✏ Override
+            </button>
+          )
+        )}
+        {isProjectWide && override && !collapsed && (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-override-active`}
+            style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, fontStyle: 'italic' }}
+          >
+            asset-specific
+          </div>
+        )}
       </td>
       {/* P7-Fix 4: Toggle column = On/Off checkbox + (optional) reset. */}
       <td style={{ padding: '4px', textAlign: 'center', overflow: 'hidden' }}>
@@ -2756,13 +2851,19 @@ export default function Module1Costs(): React.JSX.Element {
               </div>
             )}
 
-            {/* Single editable table for the selected asset */}
+            {/* Single editable table for the selected asset.
+                P10-Fix 3 (2026-05-12): hybrid architecture. The lines
+                array now carries project-wide masters (no targetAssetId)
+                + companion-specific custom lines. CostOverride[] re-
+                introduced for per-asset rate divergence; passed scoped
+                to the active asset. AssetCostSection renders the
+                Override toggle inline per row when not locked. */}
             {phaseHasAssets && activeAsset && assetBreakdown && assetMetrics && (
               <AssetCostSection
                 key={activeAsset.id}
                 asset={activeAsset}
                 lines={assetLines}
-                costOverrides={[]}
+                costOverrides={costOverrides.filter((o) => o.assetId === activeAsset.id)}
                 breakdown={assetBreakdown}
                 currency={project.currency}
                 scale={scale}
@@ -2772,27 +2873,30 @@ export default function Module1Costs(): React.JSX.Element {
                 subUnits={subUnits}
                 metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                onUpdateOverride={() => { /* Pass 7: override surface removed */ }}
-                onRemoveOverride={() => { /* Pass 7: override surface removed */ }}
+                onUpdateOverride={(override) => setCostOverride(override)}
+                onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
                 onRemoveLine={(lineId) => {
                   const line = costLines.find((c) => c.id === lineId);
                   const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}' from ${activeAsset.name}?`)
+                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}'?`)
                     : true;
                   if (!ok) return;
                   removeCostLine(lineId);
                 }}
                 onAddCustom={() => {
-                  const id = `custom-${Date.now()}__${activeAsset.phaseId}__${activeAsset.id}`;
+                  const id = `custom-${Date.now()}__${activeAsset.phaseId}`;
                   // P8-Fix 5 (2026-05-12): defaults Start=0, End=maxCp+1.
                   // maxCp = max constructionPeriods across all phases so a
                   // multi-phase project gets the longest construction window
                   // plus a 1-period buffer.
                   const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0);
+                  // P10-Fix 3 (2026-05-12): custom cost lines added via
+                  // the Add Custom Cost button are PROJECT-WIDE masters
+                  // (no targetAssetId). Users override per-asset via the
+                  // Override toggle on each row.
                   addCostLine({
                     id,
                     phaseId: activeAsset.phaseId,
-                    targetAssetId: activeAsset.id,
                     name: 'Custom Cost',
                     method: 'fixed',
                     value: 0,

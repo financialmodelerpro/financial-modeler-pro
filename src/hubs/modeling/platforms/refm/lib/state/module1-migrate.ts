@@ -189,7 +189,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -207,7 +207,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )));
+  ))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -220,7 +220,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8.
-  return migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -238,7 +238,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )));
+  ))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -497,6 +497,182 @@ function migrateM20mPass4Financing(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20M_PASS4_NOTICE =
   "Financing Pass 4: project-wide capex feeds the Capital Structure Overview + schedules; phase filter replaced by asset filter.";
+
+// M2.0 Pass 10 Fix 3 (2026-05-12): hybrid project-wide + per-asset
+// override architecture. Walks back Pass 7's per-asset CostLine
+// architecture (composed id `${baseId}__${phaseId}__${assetId}`)
+// to a single project-wide master per (phaseId, baseId) plus
+// optional CostOverride[] entries for assets whose value, method,
+// phasing, distribution, perSubUnitRates, startPeriod, endPeriod
+// or selectedLineIds differ from the master.
+//
+// First-asset-wins on conflict: when multiple per-asset replicas in
+// the same phase share the same baseId but different values, the
+// first asset (by current assets[] order) becomes the master and
+// the rest are stamped as CostOverride entries.
+//
+// id rewrite: each surviving line's id is recomposed as
+// `${baseId}__${phaseId}` (drop the asset suffix). selectedLineIds
+// cross-references are rewritten in the same sweep so percent_of_
+// selected lines continue to resolve.
+//
+// Companion assets (Pass 10 Fix 4, isCompanion=true) keep their
+// targetAssetId so any hospitality-specific cost line stays bound
+// to that companion. Migration does NOT collapse companions into
+// the master surface.
+//
+// Idempotent: a snapshot that has no targetAssetId on any non-
+// companion cost line is already Pass 10-shaped and returns
+// unchanged.
+function migrateM20costsPass10Hybrid(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = (snap.costLines as CostLine[]) ?? [];
+  const overrides = (snap.costOverrides as CostOverride[]) ?? [];
+  const assets = (snap.assets as Asset[]) ?? [];
+  const companionIds = new Set(assets.filter((a) => a.isCompanion === true).map((a) => a.id));
+
+  // Detect work: any non-companion line with targetAssetId set.
+  // Pass 7 stamped this on every line. Pass 10 strips it on the master.
+  const needsWork = lines.some((c) => c.targetAssetId !== undefined && !companionIds.has(c.targetAssetId));
+  if (!needsWork) return snap;
+
+  // Group non-companion lines by (phaseId, baseId).
+  type Group = { phaseId: string; baseId: string; replicas: CostLine[] };
+  const groups = new Map<string, Group>();
+  const passThrough: CostLine[] = [];
+  for (const line of lines) {
+    if (line.targetAssetId !== undefined && companionIds.has(line.targetAssetId)) {
+      passThrough.push(line);
+      continue;
+    }
+    if (line.targetAssetId === undefined) {
+      // Already master-shaped (rare). Pass through directly; later we
+      // dedupe by re-emitting if no replica fights.
+      passThrough.push(line);
+      continue;
+    }
+    const baseId = deriveLineBaseId(line.id);
+    const key = `${line.phaseId}::${baseId}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { phaseId: line.phaseId, baseId, replicas: [] };
+      groups.set(key, g);
+    }
+    g.replicas.push(line);
+  }
+
+  // Walk groups: pick first replica as master, stamp overrides for
+  // diverging replicas, recompose master id.
+  const phaseAssetOrder = new Map<string, string[]>();
+  for (const a of assets) {
+    if (a.isCompanion === true) continue;
+    const list = phaseAssetOrder.get(a.phaseId) ?? [];
+    list.push(a.id);
+    phaseAssetOrder.set(a.phaseId, list);
+  }
+
+  const newMasters: CostLine[] = [];
+  const newOverrides: CostOverride[] = [...overrides];
+  const oldIdToNewId = new Map<string, string>();
+  for (const g of groups.values()) {
+    const phaseOrder = phaseAssetOrder.get(g.phaseId) ?? [];
+    // Pick the FIRST asset's replica (by phase asset order) as canonical.
+    let canonical: CostLine | undefined;
+    for (const aid of phaseOrder) {
+      const replica = g.replicas.find((r) => r.targetAssetId === aid);
+      if (replica) { canonical = replica; break; }
+    }
+    if (!canonical) canonical = g.replicas[0];
+    const masterId = `${g.baseId}__${g.phaseId}`;
+    const master: CostLine = {
+      ...canonical,
+      id: masterId,
+      targetAssetId: undefined,
+    };
+    newMasters.push(master);
+    for (const r of g.replicas) {
+      oldIdToNewId.set(r.id, masterId);
+      if (!r.targetAssetId || r.targetAssetId === canonical.targetAssetId) continue;
+      // Compare replica vs master. Stamp an override for any field
+      // that differs. Skip fields the resolver inherits from master
+      // when unset.
+      const diffMethod = r.method !== master.method;
+      const diffValue = (r.value ?? 0) !== (master.value ?? 0);
+      const diffPhasing = r.phasing !== master.phasing;
+      const diffDist = JSON.stringify(r.distribution ?? null) !== JSON.stringify(master.distribution ?? null);
+      const diffPerSub = JSON.stringify(r.perSubUnitRates ?? null) !== JSON.stringify(master.perSubUnitRates ?? null);
+      const diffStart = (r.startPeriod ?? 0) !== (master.startPeriod ?? 0);
+      const diffEnd = (r.endPeriod ?? 0) !== (master.endPeriod ?? 0);
+      const diffDisabled = (r.disabled === true) !== (master.disabled === true);
+      if (!diffMethod && !diffValue && !diffPhasing && !diffDist && !diffPerSub && !diffStart && !diffEnd && !diffDisabled) {
+        continue;
+      }
+      newOverrides.push({
+        assetId: r.targetAssetId,
+        lineId: masterId,
+        method: r.method,
+        value: r.value,
+        phasing: r.phasing,
+        distribution: r.distribution,
+        perSubUnitRates: r.perSubUnitRates,
+        startPeriod: r.startPeriod,
+        endPeriod: r.endPeriod,
+        disabled: r.disabled === true ? true : undefined,
+        overridden: true,
+      });
+    }
+  }
+
+  // Add pass-through masters (any line that was already master-shaped
+  // or companion-bound). Dedupe by (phaseId, baseId) so we do not
+  // emit two masters when a snapshot already had a master + replicas.
+  for (const line of passThrough) {
+    if (line.targetAssetId !== undefined && companionIds.has(line.targetAssetId)) {
+      newMasters.push(line);
+      continue;
+    }
+    // master-shaped (untargeted) line: only keep if not already
+    // produced by the group walk.
+    const baseId = deriveLineBaseId(line.id);
+    const masterId = `${baseId}__${line.phaseId}`;
+    if (newMasters.some((m) => m.id === masterId)) continue;
+    newMasters.push({ ...line, id: masterId, targetAssetId: undefined });
+  }
+
+  // Rewrite selectedLineIds: each old per-asset id maps to its
+  // master id. selectedLineIds that point at base ids in the same
+  // phase (rare in practice) collapse identically.
+  const rewriteSelected = (ids: string[] | undefined): string[] | undefined => {
+    if (!ids || ids.length === 0) return ids;
+    return ids.map((id) => oldIdToNewId.get(id) ?? id);
+  };
+
+  const finalMasters = newMasters.map((m) => ({
+    ...m,
+    selectedLineIds: rewriteSelected(m.selectedLineIds),
+  }));
+
+  // Also rewrite selectedLineIds in any override entry that carries them.
+  // (Override schema does NOT include selectedLineIds today, but defensive.)
+  const finalOverrides = newOverrides;
+
+  return {
+    ...snap,
+    costLines: finalMasters,
+    costOverrides: finalOverrides,
+  };
+}
+
+export const M20_PASS10_NOTICE =
+  "Cost lines simplified to project-wide. Where assets carried different rates, the first asset's rate was used as the master; per-asset overrides preserved. Check Tab 3 and re-enter overrides where needed.";
+
+export function snapshotNeedsPass10Migration(s: unknown): boolean {
+  if (s === null || typeof s !== 'object') return false;
+  const snap = s as Partial<HydrateSnapshot>;
+  const lines = (snap.costLines as CostLine[] | undefined) ?? [];
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  const companionIds = new Set(assets.filter((a) => a.isCompanion === true).map((a) => a.id));
+  return lines.some((c) => c.targetAssetId !== undefined && !companionIds.has(c.targetAssetId));
+}
 
 export function snapshotNeedsPass4FinancingMigration(s: unknown): boolean {
   if (s === null || typeof s !== 'object') return false;
@@ -1171,7 +1347,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1189,7 +1365,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  )));
+  ))));
   return snap;
 }
 
@@ -1257,6 +1433,12 @@ function snapshotNeedsM20MMigration(s: unknown): boolean {
 // then Pass 5; then Pass 4; else the loose / M2.0h v7 -> v8 banner
 // upstream.
 function resolveBanner(s: unknown): string | undefined {
+  // P10-Fix 3 (2026-05-12): Pass 10 hybrid migration takes priority
+  // over older banners. When a snapshot carries per-asset cost line
+  // targetAssetId, Pass 10 collapses to project-wide masters +
+  // overrides on first hydrate; surface the notice so the user
+  // knows where to look (Tab 3 + any per-asset rate divergence).
+  if (snapshotNeedsPass10Migration(s)) return M20_PASS10_NOTICE;
   if (snapshotNeedsPass4FinancingMigration(s)) return M20M_PASS4_NOTICE;
   if (snapshotNeedsPass8Migration(s)) return M20_PASS8_NOTICE;
   if (snapshotNeedsPass3Migration(s)) return M20M_PASS3_NOTICE;

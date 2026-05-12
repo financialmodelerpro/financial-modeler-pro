@@ -222,37 +222,25 @@ export function createModule1Store() {
     })),
 
     setAssets: (assets) => set({ assets }),
-    // P10-Fix 2 (2026-05-12): auto-replicate cost lines for newly-added
-    // assets. Pass 7's per-asset architecture requires every cost line
-    // to carry targetAssetId (composed id pattern
-    // `${baseId}__${phaseId}__${assetId}`). Migration replicated lines
-    // for assets that existed at migration time, but addAsset did not
-    // replicate for subsequent additions, leaving new assets with zero
-    // lines (Tab 3 rendered effectively blank). Auto-replicate: take
-    // the first existing asset's lines in the same phase as the
-    // template, re-compose ids + retarget to the new asset, append.
-    // When the phase has no prior assets, fall back to
-    // makeDefaultCostLines + re-compose for the new asset.
+    // P10-Fix 3 (2026-05-12): hybrid project-wide architecture.
+    // Cost lines are project-wide masters (one per (phaseId, baseId)),
+    // so a newly-added asset automatically inherits every existing
+    // cost line in its phase via the master. No per-asset replication
+    // is needed. Auto-replication (Pass 10 Fix 2) is reverted here.
+    //
+    // When the phase has no cost lines yet (first asset in a brand-
+    // new phase), seed the master catalog via makeDefaultCostLines so
+    // the asset's Total column has something to display from period 0.
     addAsset: (asset) => set((s) => {
-      const phasePeer = s.assets.find((a) => a.phaseId === asset.phaseId && a.visible !== false);
-      const templateLines: CostLine[] = phasePeer
-        ? s.costLines.filter((c) => c.phaseId === asset.phaseId && c.targetAssetId === phasePeer.id)
-        : [];
+      const phaseHasLines = s.costLines.some((c) => c.phaseId === asset.phaseId);
+      if (phaseHasLines) {
+        return { assets: [...s.assets, asset] };
+      }
       const phase = s.phases.find((p) => p.id === asset.phaseId);
-      const fallback: CostLine[] = templateLines.length === 0
-        ? makeDefaultCostLines(asset.phaseId, phase?.constructionPeriods ?? 24)
-        : [];
-      const source = templateLines.length > 0 ? templateLines : fallback;
-      const replicas: CostLine[] = source.map((line) => {
-        const baseId = line.id.includes('__')
-          ? line.id.split('__')[0]
-          : line.id;
-        const newId = `${baseId}__${asset.phaseId}__${asset.id}`;
-        return { ...line, id: newId, targetAssetId: asset.id };
-      });
+      const seed = makeDefaultCostLines(asset.phaseId, phase?.constructionPeriods ?? 24);
       return {
         assets: [...s.assets, asset],
-        costLines: [...s.costLines, ...replicas],
+        costLines: [...s.costLines, ...seed],
       };
     }),
     // P10-Fix 4 (2026-05-12): updateAsset reconciles Sell + Manage
