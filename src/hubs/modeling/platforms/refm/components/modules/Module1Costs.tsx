@@ -454,9 +454,21 @@ function CostRow({
   const isNameLocked = isLocked && !isLand; // Land lines: name stays editable (rename).
   const isFullyLocked = isAutoIdc; // Auto-IDC retains the old binary semantics.
   void isFullyLocked; // exposed for future use (toggle/delete affordances).
+  // P11 Fix 12 (2026-05-13): effective Start/End mirror effMethod /
+  // effValue / effPhasing - read from override when present, fall back
+  // to master. Without this the Start/End inputs were displaying the
+  // MASTER value while writeStartPeriod/writeEndPeriod wrote to the
+  // OVERRIDE, so on every override carrier (which is every asset after
+  // the Apply panel writes full overrides per Fix 7) the input visibly
+  // snapped back to the master on rerender even though the override had
+  // taken the user's value. "Unable to change Start/End for some lines
+  // in Phase 3" was this read/write asymmetry, scoped to assets that
+  // had any override on the line.
+  const effStartPeriod = override?.startPeriod ?? line.startPeriod;
+  const effEndPeriod   = override?.endPeriod   ?? line.endPeriod;
   // M2.0g Addendum 2: resolved period labels for the row's start / end.
-  const periodStartLabel = periodLabel(line.startPeriod);
-  const periodEndLabel   = periodLabel(line.endPeriod);
+  const periodStartLabel = periodLabel(effStartPeriod);
+  const periodEndLabel   = periodLabel(effEndPeriod);
   // M2.0L Fix 2: in Same-mode, every edit lands on the line itself
   // (no per-asset overrides). Otherwise project-wide lines still
   // surface override entries.
@@ -569,13 +581,13 @@ function CostRow({
     }
   };
   const updateDistAt = (idx: number, val: number): void => {
-    const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+    const periods = Math.max(1, effEndPeriod - effStartPeriod + 1);
     const dist = Array.from({ length: periods }, (_, i) => effDistribution[i] ?? 0);
     dist[idx] = Math.max(0, val);
     writeDistribution(dist);
   };
   const autoNormalize = (): void => {
-    const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+    const periods = Math.max(1, effEndPeriod - effStartPeriod + 1);
     const dist = Array.from({ length: periods }, (_, i) => effDistribution[i] ?? 0);
     const total = dist.reduce((s, v) => s + v, 0);
     if (total === 0) {
@@ -780,7 +792,7 @@ function CostRow({
         <input
           type="number"
           min={0}
-          value={line.startPeriod}
+          value={effStartPeriod}
           onChange={(e) => {
             const next = parseInt(e.target.value) || 0;
             writeStartPeriod(Math.max(0, next));
@@ -792,7 +804,7 @@ function CostRow({
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
           {periodStartLabel}
         </div>
-        {line.startPeriod > constructionPeriods && (
+        {effStartPeriod > constructionPeriods && (
           <div style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-warning`}>
             past construction
           </div>
@@ -802,7 +814,7 @@ function CostRow({
         <input
           type="number"
           min={0}
-          value={line.endPeriod}
+          value={effEndPeriod}
           onChange={(e) => {
             const next = parseInt(e.target.value) || 0;
             writeEndPeriod(Math.max(0, next));
@@ -810,21 +822,21 @@ function CostRow({
           disabled={isStartEndLocked}
           style={{
             ...inputStyle,
-            ...(line.endPeriod < line.startPeriod ? { borderColor: 'var(--color-negative)' } : {}),
+            ...(effEndPeriod < effStartPeriod ? { borderColor: 'var(--color-negative)' } : {}),
           }}
           data-testid={`cost-${asset.id}-${line.id}-end`}
-          aria-invalid={line.endPeriod < line.startPeriod}
-          title={line.endPeriod < line.startPeriod ? 'End must be on or after Start.' : ''}
+          aria-invalid={effEndPeriod < effStartPeriod}
+          title={effEndPeriod < effStartPeriod ? 'End must be on or after Start.' : ''}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
-        {line.endPeriod < line.startPeriod && (
+        {effEndPeriod < effStartPeriod && (
           <div style={{ fontSize: 9, color: 'var(--color-negative)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-error`}>
             End must be on or after Start
           </div>
         )}
-        {line.endPeriod >= line.startPeriod && line.endPeriod > constructionPeriods && (
+        {effEndPeriod >= effStartPeriod && effEndPeriod > constructionPeriods && (
           <div style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-warning`}>
             extends into operations period
           </div>
@@ -966,7 +978,7 @@ function CostRow({
         chip strip below the % inputs so the user sees the actual
         money distribution as they edit weights. */}
     {effPhasing === 'manual' && (() => {
-      const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+      const periods = Math.max(1, effEndPeriod - effStartPeriod + 1);
       const sumOk = Math.abs(distSum - 100) < 0.5;
       // Money per period = total × pct/100 when sum~=100; otherwise
       // total × pct/sum (so partial sums still produce sensible chips).
@@ -979,7 +991,7 @@ function CostRow({
                 Manual %
               </strong>
               {Array.from({ length: periods }, (_, i) => {
-                const periodIdx = line.startPeriod + i;
+                const periodIdx = effStartPeriod + i;
                 return (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                     <input
@@ -1029,7 +1041,7 @@ function CostRow({
                 Money {currency}
               </strong>
               {Array.from({ length: periods }, (_, i) => {
-                const periodIdx = line.startPeriod + i;
+                const periodIdx = effStartPeriod + i;
                 const pct = effDistribution[i] ?? 0;
                 const money = (total * pct) / sumDenom;
                 const positive = money > 0;
@@ -1070,14 +1082,14 @@ function CostRow({
         [startPeriod, endPeriod] range, including periods past
         construction; distributeItemCost sizes the output array to
         fit endPeriod regardless of cp. */}
-    {!effDisabled && total > 0 && line.endPeriod > 0 && effPhasing !== 'manual' && (() => {
+    {!effDisabled && total > 0 && effEndPeriod > 0 && effPhasing !== 'manual' && (() => {
       const perPeriod = distributeItemCost(
-        { ...line, phasing: effPhasing, distribution: effDistribution },
+        { ...line, phasing: effPhasing, distribution: effDistribution, startPeriod: effStartPeriod, endPeriod: effEndPeriod },
         total,
         constructionPeriods,
       );
-      const start = Math.max(0, line.startPeriod);
-      const end = Math.max(start, line.endPeriod);
+      const start = Math.max(0, effStartPeriod);
+      const end = Math.max(start, effEndPeriod);
       const chips: Array<{ idx: number; amount: number }> = [];
       for (let p = start; p <= end; p++) {
         chips.push({ idx: p, amount: perPeriod[p] ?? 0 });
