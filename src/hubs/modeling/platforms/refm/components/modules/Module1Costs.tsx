@@ -3039,16 +3039,68 @@ export default function Module1Costs(): React.JSX.Element {
                                 )
                               : true;
                             if (!ok) return;
+                            // P11 Fix 7 (2026-05-13): one-time deep clone,
+                            // not a live link. Apply was previously routing
+                            // through master + override inheritance: when
+                            // the source inherited the master, targets had
+                            // their overrides REMOVED so they also inherited
+                            // the master. That made every later edit to the
+                            // master cascade across source + targets, which
+                            // is the opposite of what the user wants.
+                            //
+                            // Now: resolve the source line's effective
+                            // values once (master XOR active source
+                            // override) and write a FULL CostOverride on
+                            // the source AND every target, with cloned
+                            // distribution[] and perSubUnitRates{} so no
+                            // reference is shared. After apply each asset
+                            // resolves to its own override and master
+                            // mutations stop propagating; subsequent edits
+                            // via the CostRow inputs route through
+                            // setCostOverride (since the row finds an
+                            // override on the asset) so edits stay
+                            // contained to the asset being edited.
                             for (const line of sourceLines) {
                               const sourceOv = costOverrides.find((o) =>
                                 o.assetId === sourceAsset.id && o.lineId === line.id,
                               );
+                              const sourceActive = sourceOv !== undefined && sourceOv.overridden !== false;
+                              const effMethod       = sourceActive ? (sourceOv?.method      ?? line.method)      : line.method;
+                              const effValue        = sourceActive ? (sourceOv?.value       ?? line.value)       : line.value;
+                              const effPhasing      = sourceActive ? (sourceOv?.phasing     ?? line.phasing)     : line.phasing;
+                              const effDistribution = sourceActive ? (sourceOv?.distribution ?? line.distribution) : line.distribution;
+                              const effDisabled     = sourceActive
+                                ? (sourceOv?.disabled === true || line.disabled === true)
+                                : line.disabled === true;
+                              const effPerSubUnit   = sourceActive ? (sourceOv?.perSubUnitRates ?? line.perSubUnitRates) : line.perSubUnitRates;
+                              const effStartPeriod  = sourceActive ? (sourceOv?.startPeriod ?? line.startPeriod) : line.startPeriod;
+                              const effEndPeriod    = sourceActive ? (sourceOv?.endPeriod   ?? line.endPeriod)   : line.endPeriod;
+                              const effDebtPct      = sourceActive ? sourceOv?.debtPctOverride   : undefined;
+                              const effEquityPct    = sourceActive ? sourceOv?.equityPctOverride : undefined;
+                              const makeOverride = (assetId: string, lineId: string): CostOverride => ({
+                                assetId,
+                                lineId,
+                                method: effMethod,
+                                value: effValue,
+                                phasing: effPhasing,
+                                distribution: effDistribution ? [...effDistribution] : undefined,
+                                disabled: effDisabled ? true : undefined,
+                                perSubUnitRates: effPerSubUnit ? { ...effPerSubUnit } : undefined,
+                                startPeriod: effStartPeriod,
+                                endPeriod: effEndPeriod,
+                                debtPctOverride: effDebtPct,
+                                equityPctOverride: effEquityPct,
+                                overridden: true,
+                              });
+                              // Source first: isolates the source asset
+                              // from master mutations by Other Phase Asset
+                              // edits later.
+                              setCostOverride(makeOverride(sourceAsset.id, line.id));
                               for (const tId of targetIds) {
                                 const target = peerAssets.find((a) => a.id === tId);
                                 if (!target) continue;
                                 let targetLineId = line.id;
                                 if (target.phaseId !== sourceAsset.phaseId) {
-                                  // Cross-phase: line IDs differ, match by name.
                                   const match = costLines.find((c) =>
                                     c.phaseId === target.phaseId &&
                                     (c.targetAssetId === undefined || c.targetAssetId === target.id) &&
@@ -3057,11 +3109,7 @@ export default function Module1Costs(): React.JSX.Element {
                                   if (!match) continue;
                                   targetLineId = match.id;
                                 }
-                                if (sourceOv && sourceOv.overridden !== false) {
-                                  setCostOverride({ ...sourceOv, assetId: tId, lineId: targetLineId });
-                                } else {
-                                  removeCostOverride(tId, targetLineId);
-                                }
+                                setCostOverride(makeOverride(tId, targetLineId));
                               }
                             }
                             setCopyPanelOpen(false);
