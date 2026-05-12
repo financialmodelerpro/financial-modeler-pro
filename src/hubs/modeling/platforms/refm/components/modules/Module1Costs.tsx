@@ -650,7 +650,14 @@ function CostRow({
           Pass 7 per-asset surface). */}
       <td style={{ padding: '4px', overflow: 'hidden' }}>
         {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-value-collapsed`}>-</div>
+          // P10-Fix 1 (2026-05-12): collapsed cells render the actual
+          // numeric values (read-only) instead of dashes. User can SEE
+          // Value/Start/End/Phasing without expanding. Addresses the
+          // Pass 9 "removed things" perception while keeping Fix 6
+          // collapsed-by-default. Expand to edit.
+          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'right', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-value-collapsed`}>
+            {formatScaled(effValue, 'full', decimals)}
+          </div>
         ) : (
           <>
             {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
@@ -684,7 +691,9 @@ function CostRow({
       </td>
       <td style={{ padding: '4px', width: 70 }}>
         {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'center' }}>-</div>
+          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'center', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-start-collapsed`}>
+            {line.startPeriod}
+          </div>
         ) : (
           <>
             <input
@@ -714,7 +723,9 @@ function CostRow({
             only blocking error is End < Start. HTML5 max attribute +
             JS clamp removed. */}
         {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-meta)', textAlign: 'center' }}>-</div>
+          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'center', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-end-collapsed`}>
+            {line.endPeriod}
+          </div>
         ) : (
         <>
         <input
@@ -755,7 +766,9 @@ function CostRow({
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
         {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>-</div>
+          <div style={{ fontSize: 11, color: 'var(--color-body)', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-phasing-collapsed`}>
+            {PHASING_LABELS[effPhasing]}
+          </div>
         ) : (
         <select
           value={effPhasing}
