@@ -676,11 +676,17 @@ function CostRow({
           const landHasShare = landDisplayValue > 0;
           // Diagnostic explanation when the per-asset land value is 0.
           const zeroReason = (): string => {
-            if (metrics.landSqm <= 0) return `Add a parcel in Tab 2 + enter BUA for this asset (currently landSqm = ${metrics.landSqm.toFixed(0)}).`;
+            if (metrics.landSqm <= 0) return `Asset has no land allocation in Tab 2 (landSqm = ${metrics.landSqm.toFixed(0)}). Set asset's land sqm or BUA so autoByBua can derive a share.`;
             if (metrics.landValue <= 0) return `Parcel rate is 0; enter SAR/sqm in Tab 2 (landSqm = ${metrics.landSqm.toFixed(0)}, landValue = ${metrics.landValue.toFixed(0)}).`;
             return `Parcel ${pctKey} is 0; check Tab 2 cash / in-kind split (landValue = ${metrics.landValue.toFixed(0)}).`;
           };
-          const mathCaption = `${metrics.landSqm.toLocaleString('en-US', { maximumFractionDigits: 0 })} sqm asset share x parcel rate x ${pctKey} = ${landDisplayValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+          // T3-edit-runtime v6 (2026-05-12): caption matches the user's
+          // mental model: asset land value (from Tab 2) split by the
+          // parcel's cash / in-kind percentages.
+          const splitPct = baseId === 'land-cash'
+            ? `${(metrics.landValue > 0 ? (landDisplayValue / metrics.landValue) * 100 : 0).toFixed(0)}% cash`
+            : `${(metrics.landValue > 0 ? (landDisplayValue / metrics.landValue) * 100 : 0).toFixed(0)}% in-kind`;
+          const mathCaption = `Asset land value ${metrics.landValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} x ${splitPct} = ${landDisplayValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
           return (
             <>
               <div
