@@ -2565,6 +2565,12 @@ export default function Module1Costs(): React.JSX.Element {
   // cherry-pick targets instead of a blanket apply-to-all.
   const [copyTargetIds, setCopyTargetIds] = useState<Set<string>>(new Set());
   const [copyPanelOpen, setCopyPanelOpen] = useState<boolean>(false);
+  // P11 Fix 5 (2026-05-13): user-selectable source asset for the copy
+  // panel. null = fall back to the currently active asset; otherwise
+  // a specific asset id from anywhere in the project. Decoupling the
+  // source from the active pill lets the user push configuration from
+  // any asset without first navigating to it.
+  const [copySourceId, setCopySourceId] = useState<string | null>(null);
   // P7-Fix 5b (2026-05-11): phase filter for the asset pill bar. '__all__'
   // shows every visible asset; a phase id narrows to that phase's assets.
   // P8-Fix 7 (2026-05-12): phase filter drops the "All Phases" sentinel.
@@ -2855,16 +2861,30 @@ export default function Module1Costs(): React.JSX.Element {
                 scoped (each phase carries its own master records);
                 lines that exist in the source asset's phase but not in
                 the target asset's phase are skipped silently. */}
-            {activeAsset && activeAsset.isCompanion !== true && (() => {
-              const peerAssets = allVisibleAssets.filter((a) =>
-                a.id !== activeAsset.id && a.isCompanion !== true,
-              );
+            {activeAsset && (() => {
+              const eligibleSources = allVisibleAssets.filter((a) => a.isCompanion !== true);
+              if (eligibleSources.length === 0) return null;
+              const sourceAsset =
+                eligibleSources.find((a) => a.id === copySourceId)
+                ?? eligibleSources.find((a) => a.id === activeAsset.id)
+                ?? eligibleSources[0];
+              const peerAssets = eligibleSources.filter((a) => a.id !== sourceAsset.id);
               if (peerAssets.length === 0) return null;
               const selectedCount = copyTargetIds.size;
               const peersByPhase = phases
                 .map((p) => ({ phase: p, assets: peerAssets.filter((a) => a.phaseId === p.id) }))
                 .filter((g) => g.assets.length > 0);
-              const sourceLines = assetLines;
+              const sourcesByPhase = phases
+                .map((p) => ({ phase: p, assets: eligibleSources.filter((a) => a.phaseId === p.id) }))
+                .filter((g) => g.assets.length > 0);
+              // P11 Fix 5 (2026-05-13): build sourceLines off the chosen
+              // source asset (its phase, its visibility) instead of the
+              // pill-bar activeAsset, so picking any project asset as
+              // source pulls the right master + custom-targeted lines.
+              const sourceLines = costLines
+                .filter((c) => c.phaseId === sourceAsset.phaseId)
+                .filter((c) => c.targetAssetId === undefined || c.targetAssetId === sourceAsset.id)
+                .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
               return (
                 <div
                   style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', borderColor: 'color-mix(in srgb, var(--color-navy) 30%, var(--color-border))' }}
@@ -2873,10 +2893,10 @@ export default function Module1Costs(): React.JSX.Element {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
                     <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>
                       <strong style={{ color: 'var(--color-body)', fontSize: 12 }}>
-                        Apply {activeAsset.name}&apos;s cost configuration to other assets
+                        Copy cost configuration between assets
                       </strong>
                       <span style={{ marginLeft: 8 }}>
-                        copies method, value, start, end, phasing per cost line. Cross-phase targets match lines by name.
+                        pick a source asset + one or more targets; copies method, value, start, end, phasing per cost line. Cross-phase targets match lines by name.
                       </span>
                     </div>
                     <button
@@ -2885,13 +2905,47 @@ export default function Module1Costs(): React.JSX.Element {
                       style={{ fontSize: 11, padding: '4px 10px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
                       data-testid="costs-copy-panel-toggle"
                     >
-                      {copyPanelOpen ? 'Hide' : 'Choose target assets...'}
+                      {copyPanelOpen ? 'Hide' : 'Open copy panel...'}
                     </button>
                   </div>
                   {copyPanelOpen && (
                     <div style={{ marginTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 'var(--sp-1)' }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', minWidth: 90 }}>
+                          Source asset:
+                        </strong>
+                        <select
+                          value={sourceAsset.id}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            setCopySourceId(nextId);
+                            // Drop the newly-chosen source from any target
+                            // selection so the user doesn't accidentally
+                            // overwrite the source onto itself.
+                            setCopyTargetIds((prev) => {
+                              if (!prev.has(nextId)) return prev;
+                              const next = new Set(prev);
+                              next.delete(nextId);
+                              return next;
+                            });
+                          }}
+                          style={{ ...inputStyle, width: 'auto', minWidth: 240 }}
+                          data-testid="costs-copy-panel-source-select"
+                        >
+                          {sourcesByPhase.map((g) => (
+                            <optgroup key={g.phase.id} label={g.phase.name}>
+                              {g.assets.map((a) => (
+                                <option key={a.id} value={a.id}>{a.name}</option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                          {sourceLines.length} cost line{sourceLines.length === 1 ? '' : 's'} on {phases.find((p) => p.id === sourceAsset.phaseId)?.name ?? 'phase'}
+                        </span>
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
-                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', minWidth: 90 }}>
                           Target assets (all phases):
                         </strong>
                         <button
@@ -2919,7 +2973,7 @@ export default function Module1Costs(): React.JSX.Element {
                             </strong>
                             {g.assets.map((a) => {
                               const checked = copyTargetIds.has(a.id);
-                              const samePhase = a.phaseId === activeAsset.phaseId;
+                              const samePhase = a.phaseId === sourceAsset.phaseId;
                               return (
                                 <label
                                   key={a.id}
@@ -2971,19 +3025,19 @@ export default function Module1Costs(): React.JSX.Element {
                               .join(', ');
                             const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
                               ? window.confirm(
-                                  `Copy ${activeAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nCross-phase targets match lines by name. Existing per-asset overrides on the targets will be overwritten.`,
+                                  `Copy ${sourceAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nCross-phase targets match lines by name. Existing per-asset overrides on the targets will be overwritten.`,
                                 )
                               : true;
                             if (!ok) return;
                             for (const line of sourceLines) {
-                              const activeOv = costOverrides.find((o) =>
-                                o.assetId === activeAsset.id && o.lineId === line.id,
+                              const sourceOv = costOverrides.find((o) =>
+                                o.assetId === sourceAsset.id && o.lineId === line.id,
                               );
                               for (const tId of targetIds) {
                                 const target = peerAssets.find((a) => a.id === tId);
                                 if (!target) continue;
                                 let targetLineId = line.id;
-                                if (target.phaseId !== activeAsset.phaseId) {
+                                if (target.phaseId !== sourceAsset.phaseId) {
                                   // Cross-phase: line IDs differ, match by name.
                                   const match = costLines.find((c) =>
                                     c.phaseId === target.phaseId &&
@@ -2993,8 +3047,8 @@ export default function Module1Costs(): React.JSX.Element {
                                   if (!match) continue;
                                   targetLineId = match.id;
                                 }
-                                if (activeOv && activeOv.overridden !== false) {
-                                  setCostOverride({ ...activeOv, assetId: tId, lineId: targetLineId });
+                                if (sourceOv && sourceOv.overridden !== false) {
+                                  setCostOverride({ ...sourceOv, assetId: tId, lineId: targetLineId });
                                 } else {
                                   removeCostOverride(tId, targetLineId);
                                 }
@@ -3015,7 +3069,7 @@ export default function Module1Costs(): React.JSX.Element {
                           }}
                           data-testid="costs-copy-panel-apply"
                         >
-                          Apply to {selectedCount} asset{selectedCount === 1 ? '' : 's'}
+                          Apply {sourceAsset.name} to {selectedCount} asset{selectedCount === 1 ? '' : 's'}
                         </button>
                       </div>
                     </div>
