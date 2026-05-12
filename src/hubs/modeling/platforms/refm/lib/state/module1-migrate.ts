@@ -41,6 +41,7 @@ import {
   STANDARD_COST_LINE_IDS,
   composeLineId,
   deriveLineBaseId,
+  isStandardCostLineBaseId,
   makeDefaultProject,
   makeDefaultPhase,
   makeDefaultParcel,
@@ -192,7 +193,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -210,7 +211,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))));
+  ))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -224,7 +225,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -242,7 +243,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))));
+  ))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -778,6 +779,40 @@ function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
     console.log(`[REFM] T3 clamp Start/End: clamped ${touched} cost line(s) outside [0, cp+1]`);
   }
   return { ...snap, costLines: next };
+}
+
+// T3-regr-2 Fix 4 (2026-05-12): dedup custom cost lines keyed on
+// (phaseId, baseId-bucket, targetAssetId, name). The existing Pass 10
+// post-strip dedup keys on (phaseId, baseId, targetAssetId) which only
+// handles catalog rows. Custom lines (ids `custom-${timestamp}`) carry
+// distinct baseIds even when their human name + target match, so the
+// older sweep let duplicates through whenever the user re-added a
+// custom row after a partial migration. New dedup folds all custom
+// lines into the same key bucket so two "Site Prep" rows on the same
+// phase + asset collapse to one (keeps the first occurrence).
+// Idempotent. Logs removed count to console for diagnostic.
+function migrateT3DedupCustomLines(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = (snap.costLines as CostLine[]) ?? [];
+  if (lines.length === 0) return snap;
+  const seen = new Set<string>();
+  const kept: CostLine[] = [];
+  for (const c of lines) {
+    const baseId = deriveLineBaseId(c.id);
+    const isStandard = isStandardCostLineBaseId(baseId);
+    const keyBase = isStandard ? baseId : 'custom';
+    const normalizedName = (c.name ?? '').trim().toLowerCase();
+    const key = `${c.phaseId}::${keyBase}::${c.targetAssetId ?? ''}::${normalizedName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(c);
+  }
+  const removed = lines.length - kept.length;
+  if (removed === 0) return snap;
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] T3 custom-line dedup: removed ${removed} duplicate cost line(s)`);
+  }
+  return { ...snap, costLines: kept };
 }
 
 // T2P3 Fix 2 (2026-05-12): companion type inheritance migration. Walks
@@ -1533,7 +1568,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1551,7 +1586,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  )))))))));
+  ))))))))));
   return snap;
 }
 
