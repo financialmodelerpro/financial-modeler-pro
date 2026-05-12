@@ -143,7 +143,7 @@ This explains why Land Zero "persists in some projects" even after Pass 9. The M
 **What's missing:**
 1. Per-asset Land Cost column. Current grid is 2-col (Asset name | Sqm Allocated). Pass 10 needs 3-col (Asset name | Sqm Allocated | Asset Land Cost).
 2. `Unassigned Land = NDA - Total Allocated` row. Currently only the closing chip indicates mismatch; user wants an explicit subtraction row.
-3. Pass 10 brief mentions "remove red section showing 'short by 10,630'" — this exists at Module1Assets.tsx:1910-1911:
+3. Pass 10 brief mentions "remove red section showing 'short by 10,630'", this exists at Module1Assets.tsx:1910-1911:
 
 ```ts
 {landReconciliation.status === 'short' && (
@@ -220,7 +220,7 @@ Revenue is computable locally from sub-units: `sum(subUnit.metricValue * subUnit
 
 Tab 1 (Module1Project.tsx) + Tab 4 (Module1Financing.tsx) likely have additional bare inputs (not enumerated this audit but Pass 10 sweeps them too).
 
-**Pass 10 work:** wrap or replace every numeric input intended for "large numbers / money / area" with AccountingNumberInput. Percentages can stay bare (0-100 small numbers) OR also use AccountingNumberInput with decimals=2 — TBD per visual review. Period numbers (Start, End, integer 0..N) stay bare.
+**Pass 10 work:** wrap or replace every numeric input intended for "large numbers / money / area" with AccountingNumberInput. Percentages can stay bare (0-100 small numbers) OR also use AccountingNumberInput with decimals=2, TBD per visual review. Period numbers (Start, End, integer 0..N) stay bare.
 
 ---
 
