@@ -29,7 +29,7 @@
  *     stays full magnitude on focus so the user types raw numbers.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { formatScaled, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 
 export interface AccountingNumberInputProps {
@@ -61,6 +61,7 @@ export function AccountingNumberInput(props: AccountingNumberInputProps): React.
     title, id, blankWhenZero,
   } = props;
   const [focused, setFocused] = useState(false);
+  const numberInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFocus = useCallback(() => setFocused(true), []);
   const handleBlur = useCallback(() => setFocused(false), []);
@@ -68,13 +69,21 @@ export function AccountingNumberInput(props: AccountingNumberInputProps): React.
   if (focused || disabled) {
     // While focused, show raw editable number. Disabled also shows raw
     // (no formatted display since user can't interact anyway).
+    // T3-edit-runtime UX softener (2026-05-12): select-all on focus so
+    // typing replaces the existing value rather than appending. Removes
+    // the surprise where users typed "5500" expecting it to replace
+    // "4500" but got "45005500".
     return (
       <input
+        ref={numberInputRef}
         type="number"
         id={id}
         value={value}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        onFocus={handleFocus}
+        onFocus={(e) => {
+          handleFocus();
+          if (!disabled) e.currentTarget.select();
+        }}
         onBlur={handleBlur}
         min={min}
         max={max}
@@ -91,6 +100,12 @@ export function AccountingNumberInput(props: AccountingNumberInputProps): React.
     );
   }
   // Unfocused: show formatted display in a text input. Click to focus.
+  // T3-edit-runtime UX softener (2026-05-12): aria-readonly="false" +
+  // explicit "Click to edit" title so DOM inspectors see this is an
+  // editable cell that's just in formatted-display mode. The native
+  // `readOnly` attribute stays so the text field doesn't accept
+  // keystrokes in the formatted-display state; the click handler swaps
+  // it for the type=number input on first interaction.
   const display = blankWhenZero && (value === 0 || !Number.isFinite(value))
     ? ''
     : formatScaled(value, scale, decimals);
@@ -99,10 +114,11 @@ export function AccountingNumberInput(props: AccountingNumberInputProps): React.
       type="text"
       id={id}
       readOnly
+      aria-readonly="false"
       value={display}
       onFocus={handleFocus}
       onClick={handleFocus}
-      style={style}
+      style={{ ...style, cursor: 'text' }}
       className={className}
       placeholder={placeholder}
       data-testid={testId}

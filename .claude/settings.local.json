@@ -182,7 +182,9 @@
       "Bash(awk 'NR==2354,NR==2529' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)",
       "Bash(awk 'NR==2528,NR==2532' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)",
       "PowerShell(gh api *)",
-      "Bash(kill 298 296)"
+      "Bash(kill 298 296)",
+      "Bash(taskkill /PID 26984 /F)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }
