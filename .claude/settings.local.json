@@ -184,7 +184,9 @@
       "PowerShell(gh api *)",
       "Bash(kill 298 296)",
       "Bash(taskkill /PID 26984 /F)",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-NetTCPConnection *)"
     ]
   }
 }
