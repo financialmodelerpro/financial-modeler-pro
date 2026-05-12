@@ -193,7 +193,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -211,7 +211,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))));
+  )))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -225,7 +225,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -243,7 +243,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))));
+  )))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -776,6 +776,53 @@ function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
     console.log(`[REFM] T3 sanity-check Start/End: corrected ${touched} cost line(s) with invalid range`);
   }
   return { ...snap, costLines: next };
+}
+
+// T3-edit-runtime v6 (2026-05-12): ensure every parcel carries a valid
+// cash / in-kind split so Land (Cash) + Land (In-Kind) cost lines
+// resolve to a non-zero per-asset value. Default rule:
+//   - cashPct + inKindPct == 100 (within 0.1 tolerance): leave alone.
+//   - cashPct + inKindPct == 0 OR both NaN / undefined: set cashPct=100,
+//     inKindPct=0. The wizard's default is 60/40 but legacy snapshots
+//     that pre-date the cash/in-kind split fields land here with both
+//     undefined; 100% cash is the safest "all in" default.
+//   - cashPct set, inKindPct undefined / 0: inKindPct = 100 - cashPct.
+//   - inKindPct set, cashPct undefined / 0: cashPct = 100 - inKindPct.
+// Idempotent. Logs touched count to console.
+function migrateT3ParcelSplitDefault(snap: HydrateSnapshot): HydrateSnapshot {
+  const parcels = (snap.parcels as Parcel[]) ?? [];
+  if (parcels.length === 0) return snap;
+  let touched = 0;
+  const next: Parcel[] = parcels.map((p) => {
+    const cash = Number.isFinite(p.cashPct) ? Number(p.cashPct) : 0;
+    const ink = Number.isFinite(p.inKindPct) ? Number(p.inKindPct) : 0;
+    const sum = cash + ink;
+    if (sum >= 99.9 && sum <= 100.1) return p; // already in shape
+    if (sum === 0) {
+      touched += 1;
+      return { ...p, cashPct: 100, inKindPct: 0 };
+    }
+    if (cash > 0 && ink === 0) {
+      touched += 1;
+      return { ...p, cashPct: cash, inKindPct: Math.max(0, 100 - cash) };
+    }
+    if (ink > 0 && cash === 0) {
+      touched += 1;
+      return { ...p, cashPct: Math.max(0, 100 - ink), inKindPct: ink };
+    }
+    // Both set but sum != 100: renormalize so cashPct is preserved as
+    // the proportion of the user-entered total, and inKindPct fills.
+    const cashShare = sum > 0 ? cash / sum : 1;
+    const cashPct = Math.round(cashShare * 100);
+    touched += 1;
+    return { ...p, cashPct, inKindPct: 100 - cashPct };
+  });
+  if (touched === 0) return snap;
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] T3 parcel split default: corrected ${touched} parcel(s) with invalid cash/in-kind percentages`);
+  }
+  return { ...snap, parcels: next };
 }
 
 // T3-regr-2 Fix 4 (2026-05-12): dedup custom cost lines keyed on
@@ -1565,7 +1612,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1583,7 +1630,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  ))))))))));
+  )))))))))));
   return snap;
 }
 
