@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12. Current REFM phase: Tab 3 default cost line seed regression fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 layered on M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
+**Last updated: 2026-05-12. Current REFM phase: Tab 3 Costs Critical Fixes (UI filter + companion engine short-circuit + companion info block + strip+dedup migration + endPeriod buffer) on top of Tab 3 default seed regression fix + universal Operating End Date + Tab 2 Pass 3 / Pass 2 / Pass 1 layered on M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
 
 > **See also:**
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
