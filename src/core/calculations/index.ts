@@ -1067,6 +1067,17 @@ export interface AssetCostBreakdown {
   // lines via tagging convention).
   perPeriodLandTotal: number[];
   perPeriodLandInKind: number[];
+  // P11 Fix 6 (2026-05-13): per-line per-period currency schedule keyed
+  // by costLine.id. Each entry is the exact distribution returned by
+  // distributeItemCost for that line (phase-relative, length =
+  // periodSlots = max(cp, maxLineEnd) + 1). Exists so Module1Costs
+  // Table 1 per-line nested rows can render the LINE's own phasing
+  // curve instead of smearing the line total proportional to the
+  // asset-wide perPeriod (which destroyed manual % and single-period
+  // line curves for multi-line assets). One source of truth: the
+  // engine's existing distributeItemCost call inside the per-period
+  // loop fills both perPeriod (aggregated) and this map.
+  perLinePerPeriod: Record<string, number[]>;
 }
 
 export function computeAssetCost(
@@ -1097,6 +1108,7 @@ export function computeAssetCost(
       perPeriod: new Array<number>(cpZero).fill(0),
       perPeriodLandTotal: new Array<number>(cpZero).fill(0),
       perPeriodLandInKind: new Array<number>(cpZero).fill(0),
+      perLinePerPeriod: {},
     };
   }
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
@@ -1276,6 +1288,12 @@ export function computeAssetCost(
   const perPeriod = new Array<number>(periodSlots).fill(0);
   const perPeriodLandTotal = new Array<number>(periodSlots).fill(0);
   const perPeriodLandInKind = new Array<number>(periodSlots).fill(0);
+  // P11 Fix 6 (2026-05-13): retain the per-line schedule so Module1
+  // Costs Table 1 per-line nested rows can render the line's own
+  // phasing curve. Same distributeItemCost call powers both the
+  // aggregated perPeriod accumulators above AND this map - one source
+  // of truth for per-line per-period.
+  const perLinePerPeriod: Record<string, number[]> = {};
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
@@ -1284,6 +1302,7 @@ export function computeAssetCost(
       t,
       cp,
     );
+    perLinePerPeriod[r.line.id] = dist;
     const isLand = deriveCostStage(r.line) === 'land';
     const isInKindLand = r.method === 'percent_of_inkind_land';
     const lim = Math.min(dist.length, periodSlots);
@@ -1295,7 +1314,7 @@ export function computeAssetCost(
     }
   }
 
-  return { byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind };
+  return { byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind, perLinePerPeriod };
 }
 
 // ── Phase cost rollup ──────────────────────────────────────────────────────

@@ -1673,10 +1673,14 @@ function SummaryTables({
       const offset = Number.isFinite(phaseStartYear - projectStartYearTable)
         ? Math.max(0, phaseStartYear - projectStartYearTable)
         : 0;
-      for (let i = 0; i < pb.cp; i++) {
-        const dest = offset + i;
+      // P11 Fix 6: iterate the full perPeriod length so operating-tail
+      // costs (lines with endPeriod > cp) survive into the project axis.
+      for (let i = 1; i < bd.perPeriod.length; i++) {
+        const v = bd.perPeriod[i] ?? 0;
+        if (v === 0) continue;
+        const dest = offset + i - 1;
         if (dest >= 0 && dest < annualPeriodCount) {
-          annualRow[dest] += bd.perPeriod[i + 1] ?? 0;
+          annualRow[dest] += v;
         }
       }
       // perPeriod[0] is the upfront / Y0 lump. For Phase 1 it lands at
@@ -1831,10 +1835,15 @@ function SummaryTables({
                   const offset = Number.isFinite(phaseStartYear - projectStartYear)
                     ? Math.max(0, phaseStartYear - projectStartYear)
                     : 0;
-                  for (let i = 0; i < pb.cp; i++) {
-                    const dest = offset + i;
+                  // P11 Fix 6: iterate the full perPeriod length so
+                  // operating-tail costs (lines with endPeriod > cp)
+                  // appear in the project axis.
+                  for (let i = 1; i < bd.perPeriod.length; i++) {
+                    const v = bd.perPeriod[i] ?? 0;
+                    if (v === 0) continue;
+                    const dest = offset + i - 1;
                     if (dest >= 0 && dest < annualPeriodCount) {
-                      assetRowAnnual[dest] += bd.perPeriod[i + 1] ?? 0;
+                      assetRowAnnual[dest] += v;
                     }
                   }
                   // perPeriod[0] is the upfront (Y0 / land cash) lump.
@@ -1874,11 +1883,14 @@ function SummaryTables({
                         const t = bd.byLineId[line.id] ?? 0;
                         if (t === 0) continue;
                         lineTotal += t;
-                        // P11 Fix 2 (2026-05-13): apply the phase offset when
-                        // smearing this line's total across the project axis,
-                        // matching the asset-row builder above. Without the
-                        // offset, a Phase 2 line's amount was being spread
-                        // into project Y1+ columns instead of phase Y1+.
+                        // P11 Fix 6 (2026-05-13): consume the engine's
+                        // exact per-line schedule (perLinePerPeriod[line.id])
+                        // instead of smearing the line total proportional
+                        // to the asset-wide perPeriod curve. The schedule
+                        // is phase-relative (index 0 = Y0 upfront, index 1
+                        // = phase Y1, ...) so we apply the same phase
+                        // offset used by the asset-row builder to lift it
+                        // onto the project axis.
                         const phaseObj2 = phases.find((p) => p.id === pb.phaseId);
                         const phaseStartIso2 = phaseObj2?.startDate && phaseObj2.startDate.length === 10
                           ? phaseObj2.startDate
@@ -1887,23 +1899,19 @@ function SummaryTables({
                         const offset2 = Number.isFinite(phaseStartYear2 - projectStartYear)
                           ? Math.max(0, phaseStartYear2 - projectStartYear)
                           : 0;
-                        // Approximate per-period split: distribute t across
-                        // perPeriod proportional to overall asset perPeriod.
-                        const assetPP = bd.perPeriod;
-                        const assetPPTotal = assetPP.reduce((s, v) => s + v, 0);
-                        if (assetPPTotal > 0) {
-                          for (let i = 0; i < pb.cp; i++) {
-                            const dest = offset2 + i;
-                            if (dest < 0 || dest >= annualPeriodCount) continue;
-                            const share = (assetPP[i + 1] ?? 0) / assetPPTotal;
-                            linePerPeriodAnnual[dest] += t * share;
+                        const linePP = bd.perLinePerPeriod[line.id] ?? [];
+                        for (let i = 1; i < linePP.length; i++) {
+                          const v = linePP[i] ?? 0;
+                          if (v === 0) continue;
+                          const dest = offset2 + i - 1;
+                          if (dest >= 0 && dest < annualPeriodCount) {
+                            linePerPeriodAnnual[dest] += v;
                           }
-                          // Upfront perPeriod[0] (Phase 2+ only) follows
-                          // the same offset rule used for assetRowAnnual.
-                          if (offset2 > 0 && offset2 - 1 < annualPeriodCount && offset2 - 1 >= 0) {
-                            const share0 = (assetPP[0] ?? 0) / assetPPTotal;
-                            linePerPeriodAnnual[offset2 - 1] += t * share0;
-                          }
+                        }
+                        // Upfront perPeriod[0] (Phase 2+ only): lands at
+                        // offset - 1 (year before the phase starts).
+                        if (offset2 > 0 && offset2 - 1 < annualPeriodCount && offset2 - 1 >= 0) {
+                          linePerPeriodAnnual[offset2 - 1] += linePP[0] ?? 0;
                         }
                       }
                       if (lineTotal === 0) return null;
@@ -1953,12 +1961,14 @@ function SummaryTables({
             const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10 ? phaseObj.startDate : project.startDate;
             const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
             const offset = Math.max(0, phaseStartYear - projectStartYear);
-            for (let i = 0; i < pb.cp; i++) {
-              const dest = offset + i;
+            // P11 Fix 6: iterate the full perPeriod length so operating-
+            // tail entries (lines with endPeriod > cp) reach the axis.
+            for (let i = 1; i < bd.perPeriod.length; i++) {
+              const dest = offset + i - 1;
               if (dest < 0 || dest >= annualPeriodCount) continue;
-              const tot = bd.perPeriod[i + 1] ?? 0;
-              const landAll = bd.perPeriodLandTotal[i + 1] ?? 0;
-              const landInKind = bd.perPeriodLandInKind[i + 1] ?? 0;
+              const tot = bd.perPeriod[i] ?? 0;
+              const landAll = bd.perPeriodLandTotal[i] ?? 0;
+              const landInKind = bd.perPeriodLandInKind[i] ?? 0;
               const v =
                 mode === 'exclAll' ? tot - landAll
                 : mode === 'exclInKind' ? tot - landInKind

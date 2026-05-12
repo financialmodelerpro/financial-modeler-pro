@@ -97,6 +97,11 @@ console.log('\n[2/7] Fix 2: engine short-circuit for companions');
   if (breakdown.perPeriodLandTotal.every((v) => v === 0) && breakdown.perPeriodLandInKind.every((v) => v === 0)) {
     pass('companion perPeriodLandTotal + perPeriodLandInKind all zero');
   } else fail('companion land period arrays', 'non-zero entries detected');
+  // P11 Fix 6 (2026-05-13): companion short-circuit returns an empty
+  // perLinePerPeriod map; assert it stays empty.
+  if (Object.keys(breakdown.perLinePerPeriod).length === 0) {
+    pass('companion perLinePerPeriod empty');
+  } else fail('companion perLinePerPeriod', `expected empty, got ${Object.keys(breakdown.perLinePerPeriod).length} keys`);
 
   // Non-companion sanity: same fixture, run on parent. Should produce non-zero.
   const parentBreakdown = computeAssetCost(parent, project, phase, [parcel], [parent, companion], [], lines, [], 'autoByBua');
