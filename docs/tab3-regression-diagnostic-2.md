@@ -8,7 +8,7 @@ This note explains the root cause of each before code lands. The follow-up commi
 implement the fixes; this commit (first one in the pass) is documentation only so the
 codepath analysis is anchored before any code changes.
 
-## Regression A — Value / Start / End / Phasing fields not editable
+## Regression A ,  Value / Start / End / Phasing fields not editable
 
 ### Observed
 On every cost line row (Land Cash, Land In-Kind, Construction BUA, Infrastructure, etc.),
@@ -30,9 +30,9 @@ That prop is wired at two call sites:
 
 The `isLocked` flag itself is set on the schema in two places only:
 
-1. `makeDefaultCostLines` in `module1-types.ts:1817 / 1824` — Land Cash + Land In-Kind both
+1. `makeDefaultCostLines` in `module1-types.ts:1817 / 1824` ,  Land Cash + Land In-Kind both
    carry `isLocked: true`.
-2. `Module1Financing.tsx:1144` — every Auto-IDC line synthesised from a facility carries
+2. `Module1Financing.tsx:1144` ,  every Auto-IDC line synthesised from a facility carries
    `isLocked: true`.
 
 So strictly speaking, only Land Cash, Land In-Kind, and Auto-IDC have `isLocked === true`.
@@ -40,7 +40,7 @@ The other 8 catalog lines + custom user lines should render with `disabled={fals
 
 The user's report that "all fields are not editable" is in practice the Land Cash + Land
 In-Kind rows being the first two rows in the table (every other line should be fine).
-The non-Land lines ARE editable — but the visual shock of the top two rows being fully
+The non-Land lines ARE editable ,  but the visual shock of the top two rows being fully
 greyed out has produced the report.
 
 The brief carves a finer rule than the binary flag supports:
@@ -54,18 +54,18 @@ The brief carves a finer rule than the binary flag supports:
 ### Fix plan
 Split the binary `isLocked` into two derived gates inside `CostRow`:
 
-- `isValueLocked` — disables Value + Method inputs only. True when `line.isLocked === true`
+- `isValueLocked` ,  disables Value + Method inputs only. True when `line.isLocked === true`
   AND `baseId IN ('land-cash', 'land-inkind')`. Also true for Auto-IDC.
-- `isFullyLocked` — disables Name + Start + End + Phasing + Toggle + Delete. True only for
+- `isFullyLocked` ,  disables Name + Start + End + Phasing + Toggle + Delete. True only for
   Auto-IDC (heuristic: `line.id.startsWith('auto-idc__')`).
 
 Each input then picks the appropriate gate. The schema flag stays as is; the per-field
 derivation happens inside `CostRow`.
 
-## Regression B — Start / End showing garbage values (19, 12, 6)
+## Regression B ,  Start / End showing garbage values (19, 12, 6)
 
 ### Observed
-After hydrating an existing project, some cost lines have Start = 19, End = 12, etc. — values
+After hydrating an existing project, some cost lines have Start = 19, End = 12, etc. ,  values
 that are non-zero, often exceed the phase's `constructionPeriods` (typically 16 or 24), and
 in some cases End < Start.
 
@@ -98,7 +98,7 @@ New migration `migrateT3ClampStartEnd`:
 - Wired into all three hydrate chains (the two `stripWrapper` variants and `migrateLegacyToV8`),
   positioned AFTER `migrateT3DefaultCostLineSeed` so newly-seeded defaults aren't double-touched.
 
-## Regression C — Land Cash / In-Kind values not flowing per asset
+## Regression C ,  Land Cash / In-Kind values not flowing per asset
 
 ### Observed
 On a project with multiple assets sharing a parcel, the Land Cash row Total column shows 0
@@ -123,7 +123,7 @@ What the user actually sees as broken is the Value cell in the row, not the Tota
 - Total cell renders `formatAccounting(total, scale, decimals)` = the resolved currency
   amount.
 
-The user reads the row as: "Cost Line: Land (Cash), Value: 100, Total: 1,737,918,160" — the
+The user reads the row as: "Cost Line: Land (Cash), Value: 100, Total: 1,737,918,160" ,  the
 Value of "100" looks like a bug, when it's really the percent. Combined with the row being
 fully locked (Regression A), the natural read is "this row isn't doing anything".
 
@@ -131,15 +131,15 @@ fully locked (Regression A), the natural read is "this row isn't doing anything"
 For Land Cash / Land In-Kind rows specifically, the Value cell displays the auto-computed
 per-asset currency (metrics.cashLandValue or metrics.inKindLandValue) instead of the
 stored percent. When no land allocation exists for the asset (metrics.landSqm === 0 or
-metrics.cashLandValue === 0), render an em-dash glyph "—" so the user sees "no value yet"
+metrics.cashLandValue === 0), render an em-dash glyph ", " so the user sees "no value yet"
 instead of "0".
 
 (Em-dash: this is a rendered display character, NOT a hyphen-style separator. Project em-dash
 rule covers prose/code/JSX; a single en-dash or hyphen-minus suffices and avoids the U+2014
-character. The fix uses "—" in a `formatAccounting`-like style. Per CLAUDE.md and to comply
+character. The fix uses ", " in a `formatAccounting`-like style. Per CLAUDE.md and to comply
 with the strict em-dash rule, the actual character will be either a hyphen-minus "-" or two
 hyphens "--". Final pick documented in the implementation commit. NOTE: re-reading the rule,
-"—" is the long dash U+2014 and is forbidden. Final implementation uses "-".)
+", " is the long dash U+2014 and is forbidden. Final implementation uses "-".)
 
 Internal `line.value` stays 100% so the underlying contract with `computeAssetCost` is
 preserved.
@@ -147,15 +147,15 @@ preserved.
 ## Implementation order
 
 1. Commit 1: this diagnostic doc only. No code changes.
-2. Commit 2: Fix 1 — split isLocked into per-field gates in CostRow.
-3. Commit 3: Fix 2 — migrateT3ClampStartEnd migration + wire into 3 hydrate chains.
-4. Commit 4: Fix 3 — confirm costLineCaption drops "= result" (already shipped in Pass 9
+2. Commit 2: Fix 1 ,  split isLocked into per-field gates in CostRow.
+3. Commit 3: Fix 2 ,  migrateT3ClampStartEnd migration + wire into 3 hydrate chains.
+4. Commit 4: Fix 3 ,  confirm costLineCaption drops "= result" (already shipped in Pass 9
    Fix 5; verifier coverage only).
-5. Commit 5: Fix 4 — migrateT3DedupCustomLines, keyed on (phaseId, baseId, targetAssetId,
+5. Commit 5: Fix 4 ,  migrateT3DedupCustomLines, keyed on (phaseId, baseId, targetAssetId,
    name).
-6. Commit 6: Fix 5 — Land Cash / Land In-Kind Value cell shows auto-derived per-asset
+6. Commit 6: Fix 5 ,  Land Cash / Land In-Kind Value cell shows auto-derived per-asset
    currency, "-" when zero. Schema unchanged.
-7. Commit 7: scripts/verify-tab3-regression-2.ts — closure verifier across all 5 fixes.
+7. Commit 7: scripts/verify-tab3-regression-2.ts ,  closure verifier across all 5 fixes.
 
 Each commit runs type-check + build before push. Per CLAUDE.md, no em-dashes anywhere
 in code, comments, JSX text, or commit messages.
