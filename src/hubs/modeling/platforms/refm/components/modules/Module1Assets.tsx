@@ -2270,10 +2270,20 @@ function LandReconciliationBlock({
         const allocatedValue = landReconciliation.assetsAllocatedValue;
         const sqmDiff = nda - allocatedSqm;
         const valueDiff = totalLandValue - allocatedValue;
+        // T2P3 Fix 1 (2026-05-12): tolerance band. Status reads Equal
+        // when the gap is within 1000 sqm (or 1000 SAR for Land Value).
+        // Floating-point rounding artifacts produced spurious Under/Over
+        // chips on projects whose math actually tied. The captions
+        // surface "(within rounding tolerance)" when the band kicks in
+        // so the user knows the chip is a rounding read, not exact zero.
+        const SQM_EPSILON = 1000;
+        const VALUE_EPSILON = 1000;
         const sqmStatus: 'equal' | 'under' | 'over' =
-          Math.abs(sqmDiff) < 0.5 ? 'equal' : sqmDiff > 0 ? 'under' : 'over';
+          Math.abs(sqmDiff) < SQM_EPSILON ? 'equal' : sqmDiff > 0 ? 'under' : 'over';
         const valueStatus: 'equal' | 'under' | 'over' =
-          Math.abs(valueDiff) < 0.5 ? 'equal' : valueDiff > 0 ? 'under' : 'over';
+          Math.abs(valueDiff) < VALUE_EPSILON ? 'equal' : valueDiff > 0 ? 'under' : 'over';
+        const sqmWithinTolerance = sqmStatus === 'equal' && Math.abs(sqmDiff) > 0.5;
+        const valueWithinTolerance = valueStatus === 'equal' && Math.abs(valueDiff) > 0.5;
         const chipFor = (status: 'equal' | 'under' | 'over'): React.JSX.Element => {
           if (status === 'equal') return <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>✓ Equal</span>;
           if (status === 'under') return <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>⚠ Under</span>;
@@ -2372,9 +2382,15 @@ function LandReconciliationBlock({
             <div style={{ marginTop: 'var(--sp-2)', fontSize: 11, color: 'var(--color-meta)' }} data-testid="recon-status-footer">
               <div>
                 Sqm: {fmtSqm(allocatedSqm)} / {fmtSqm(nda)} {projectNdaEnabled ? 'NDA' : 'Total Parcel'} <span style={{ marginLeft: 6 }}>{chipFor(sqmStatus)}</span>
+                {sqmWithinTolerance && (
+                  <span style={{ marginLeft: 6, fontStyle: 'italic' }} data-testid="recon-sqm-tolerance-caption">(within rounding tolerance)</span>
+                )}
               </div>
               <div style={{ marginTop: 2 }}>
                 Land Cost: {fmtMoney(allocatedValue)} / {fmtMoney(totalLandValue)} Total Parcel Value <span style={{ marginLeft: 6 }}>{chipFor(valueStatus)}</span>
+                {valueWithinTolerance && (
+                  <span style={{ marginLeft: 6, fontStyle: 'italic' }} data-testid="recon-value-tolerance-caption">(within rounding tolerance)</span>
+                )}
               </div>
             </div>
           </div>
