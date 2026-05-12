@@ -315,7 +315,22 @@ export function createModule1Store() {
     // Direct edits on a companion (e.g. unitsFromParent override) flow
     // through unchanged.
     updateAsset: (id, patch) => set((s) => {
-      const next = s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      let next = s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      // T2P3 Fix 2 (2026-05-12): when the parent's `type` changes,
+      // propagate to every companion whose parentAssetId matches so the
+      // companion's type stays mirrored (Residential parent -> Residential
+      // companion). Runs regardless of whether the strategy changed.
+      if ('type' in patch) {
+        const editedAsset = next.find((a) => a.id === id);
+        if (editedAsset && editedAsset.isCompanion !== true) {
+          const newType = editedAsset.type ?? '';
+          next = next.map((a) =>
+            a.parentAssetId === id && a.isCompanion === true
+              ? { ...a, type: newType }
+              : a,
+          );
+        }
+      }
       if (!('strategy' in patch)) {
         return { assets: next };
       }

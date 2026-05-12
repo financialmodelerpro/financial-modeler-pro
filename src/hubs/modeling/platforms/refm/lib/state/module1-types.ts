@@ -1894,7 +1894,11 @@ export function makeCompanionAsset(parent: Asset, unitsFromParent: number): Asse
     id: `companion_${parent.id}`,
     phaseId: parent.phaseId,
     name: `${parent.name} - Operate`,
-    type: '',
+    // T2P3 Fix 2 (2026-05-12): companion.type mirrors parent.type so a
+    // "Residential" Sell+Manage parent yields a "Residential" Operate
+    // companion (matches the user's mental model: same asset class, two
+    // strategies). Empty parent.type passes through as empty.
+    type: parent.type ?? '',
     strategy: 'Operate',
     visible: true,
     gfaSqm: 0,

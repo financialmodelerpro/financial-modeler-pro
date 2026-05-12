@@ -192,7 +192,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -210,7 +210,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))));
+  ))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -224,7 +224,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -242,7 +242,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))));
+  ))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -668,6 +668,28 @@ function migrateM20costsPass10Hybrid(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20_PASS10_NOTICE =
   "Cost lines simplified to project-wide. Where assets carried different rates, the first asset's rate was used as the master; per-asset overrides preserved. Check Tab 3 and re-enter overrides where needed.";
+
+// T2P3 Fix 2 (2026-05-12): companion type inheritance migration. Walks
+// every companion asset (isCompanion === true with parentAssetId set)
+// and copies the parent's `type` onto the companion when the two
+// diverge. Idempotent: a snapshot whose companions already match the
+// parent.type returns unchanged.
+function migrateT2P3CompanionType(snap: HydrateSnapshot): HydrateSnapshot {
+  const assets = (snap.assets as Asset[]) ?? [];
+  const companions = assets.filter((a) => a.isCompanion === true && a.parentAssetId);
+  if (companions.length === 0) return snap;
+  let changed = false;
+  const next = assets.map((a) => {
+    if (a.isCompanion !== true || !a.parentAssetId) return a;
+    const parent = assets.find((p) => p.id === a.parentAssetId);
+    if (!parent) return a;
+    const parentType = parent.type ?? '';
+    if ((a.type ?? '') === parentType) return a;
+    changed = true;
+    return { ...a, type: parentType };
+  });
+  return changed ? { ...snap, assets: next } : snap;
+}
 
 // T2-Fix 5c (2026-05-12): companion sub-unit mirror migration. Walks
 // every companion (Operate) asset and reconciles its sub-units against
@@ -1400,7 +1422,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1418,7 +1440,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  )))));
+  ))))));
   return snap;
 }
 
