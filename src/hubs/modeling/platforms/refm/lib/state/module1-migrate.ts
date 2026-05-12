@@ -192,7 +192,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -210,7 +210,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))));
+  ))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -224,7 +224,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -242,7 +242,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))));
+  ))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -668,6 +668,47 @@ function migrateM20costsPass10Hybrid(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20_PASS10_NOTICE =
   "Cost lines simplified to project-wide. Where assets carried different rates, the first asset's rate was used as the master; per-asset overrides preserved. Check Tab 3 and re-enter overrides where needed.";
+
+// T3-companion strip + dedup Fix 3 (2026-05-12): defensive migration
+// that runs ahead of the default-seed pass. Two passes:
+//   (a) Strip any cost line whose targetAssetId points at an asset
+//       flagged isCompanion === true. Companions carry no cost lines
+//       by absolute rule; legacy snapshots from before the rule was
+//       enforced (Pass 4 / Pass 7 era) may have accumulated such
+//       lines. Engine short-circuit at computeAssetCost handles the
+//       runtime case, but stripping them from storage keeps the
+//       snapshot clean and rules out future drift.
+//   (b) Dedup lines by (phaseId, baseId) keeping the FIRST occurrence.
+//       Pass 10 hybrid already dedupes within its own grouping; this
+//       defensive sweep catches edge cases (manual edits, partial
+//       migration runs).
+// Idempotent. Logs the dedup count to console for diagnostic.
+function migrateT3StripCompanionAndDedup(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = (snap.costLines as CostLine[]) ?? [];
+  const assets = (snap.assets as Asset[]) ?? [];
+  if (lines.length === 0) return snap;
+  const companionIds = new Set(assets.filter((a) => a.isCompanion === true).map((a) => a.id));
+  // Pass (a): strip companion-targeted lines.
+  const afterStrip = lines.filter((c) => !(c.targetAssetId && companionIds.has(c.targetAssetId)));
+  // Pass (b): dedup by (phaseId, baseId).
+  const seen = new Set<string>();
+  const afterDedup: CostLine[] = [];
+  for (const c of afterStrip) {
+    const baseId = deriveLineBaseId(c.id);
+    const key = `${c.phaseId}::${baseId}::${c.targetAssetId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    afterDedup.push(c);
+  }
+  const stripped = lines.length - afterStrip.length;
+  const deduped = afterStrip.length - afterDedup.length;
+  if (stripped === 0 && deduped === 0) return snap;
+  if (typeof console !== 'undefined' && (stripped + deduped) > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] T3 companion strip + dedup: removed ${stripped} companion-targeted line(s), ${deduped} duplicate(s)`);
+  }
+  return { ...snap, costLines: afterDedup };
+}
 
 // T3-defaults Fix (2026-05-12): Pass 10 hybrid short-circuits when no
 // line carries a non-companion targetAssetId (needsWork === false).
@@ -1450,7 +1491,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1468,7 +1509,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  )))))));
+  ))))))));
   return snap;
 }
 
