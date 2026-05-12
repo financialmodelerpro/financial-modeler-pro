@@ -61,6 +61,7 @@ import {
   PER_SUBUNIT_RATE_KEY_PARKING,
   OUTPUT_GRANULARITIES,
   OUTPUT_GRANULARITY_LABELS,
+  deriveLineBaseId,
 } from '../../lib/state/module1-types';
 import {
   computePhaseCost,
@@ -430,6 +431,23 @@ function CostRow({
   // segregation makes everything direct by definition).
   const stage = deriveCostStage(line);
   const isCustom = line.targetAssetId === asset.id;
+  // T3-regr-2 Fix 1 (2026-05-12): split the binary isLocked into two
+  // per-field gates. Land Cash + Land In-Kind keep VALUE + METHOD locked
+  // (the value flows from Tab 2 parcels x asset land allocation; method
+  // is fixed at percent_of_cash_land / percent_of_inkind_land) but the
+  // user can still adjust Start / End / Phasing to express cash-flow
+  // strategy. Auto-IDC stays fully locked (every field flows from the
+  // Tab 4 Financing facility). All non-locked lines remain fully
+  // editable.
+  const baseId = deriveLineBaseId(line.id);
+  const isLand = baseId === 'land-cash' || baseId === 'land-inkind';
+  const isAutoIdc = line.id.startsWith('auto-idc__');
+  const isValueLocked = isLocked; // master gate: every locked line locks Value + Method.
+  const isStartEndLocked = isLocked && !isLand; // Land lines: Start/End stay editable.
+  const isPhasingLocked = isLocked && !isLand; // Land lines: Phasing stays editable.
+  const isNameLocked = isLocked && !isLand; // Land lines: name stays editable (rename).
+  const isFullyLocked = isAutoIdc; // Auto-IDC retains the old binary semantics.
+  void isFullyLocked; // exposed for future use (toggle/delete affordances).
   // M2.0g Addendum 2: resolved period labels for the row's start / end.
   const periodStartLabel = periodLabel(line.startPeriod);
   const periodEndLabel   = periodLabel(line.endPeriod);
@@ -657,7 +675,7 @@ function CostRow({
             type="text"
             value={line.name}
             onChange={(e) => writeName(e.target.value)}
-            disabled={isLocked}
+            disabled={isNameLocked}
             style={{ ...inputStyle, width: '100%' }}
             data-testid={`cost-${asset.id}-${line.id}-name`}
             title={line.name}
@@ -671,7 +689,7 @@ function CostRow({
         <select
           value={effMethod}
           onChange={(e) => writeMethod(e.target.value as CostMethod)}
-          disabled={isLocked}
+          disabled={isValueLocked}
           style={{ ...inputStyle, fontSize: 11, width: '100%' }}
           data-testid={`cost-${asset.id}-${line.id}-method`}
           title={COST_METHOD_LABELS[effMethod]}
@@ -704,7 +722,7 @@ function CostRow({
               onChange={writeValue}
               scale="full"
               decimals={decimals}
-              disabled={isLocked}
+              disabled={isValueLocked}
               style={inputStyle}
               data-testid={`cost-${asset.id}-${line.id}-value`}
             />
@@ -742,7 +760,7 @@ function CostRow({
                 const next = parseInt(e.target.value) || 0;
                 writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
               }}
-              disabled={isLocked}
+              disabled={isStartEndLocked}
               style={inputStyle}
               data-testid={`cost-${asset.id}-${line.id}-start`}
               title={`Max = ${constructionPeriods}`}
@@ -773,7 +791,7 @@ function CostRow({
             const next = parseInt(e.target.value) || 0;
             writeEndPeriod(Math.max(0, next));
           }}
-          disabled={isLocked}
+          disabled={isStartEndLocked}
           style={{
             ...inputStyle,
             ...(line.endPeriod < line.startPeriod ? { borderColor: 'var(--color-negative)' } : {}),
@@ -810,7 +828,7 @@ function CostRow({
         <select
           value={effPhasing}
           onChange={(e) => writePhasing(e.target.value as CostPhasing)}
-          disabled={isLocked}
+          disabled={isPhasingLocked}
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`cost-${asset.id}-${line.id}-phasing`}
         >

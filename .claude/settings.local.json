@@ -181,7 +181,8 @@
       "Bash(vercel --version)",
       "Bash(awk 'NR==2354,NR==2529' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)",
       "Bash(awk 'NR==2528,NR==2532' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)",
-      "PowerShell(gh api *)"
+      "PowerShell(gh api *)",
+      "Bash(kill 298 296)"
     ]
   }
 }
