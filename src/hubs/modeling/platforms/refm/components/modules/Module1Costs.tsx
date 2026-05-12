@@ -704,7 +704,49 @@ function CostRow({
           back-compat (calc engine treats every line as Direct in the
           Pass 7 per-asset surface). */}
       <td style={{ padding: '4px', overflow: 'hidden' }}>
-        {collapsed ? (
+        {/* T3-regr-2 Fix 5 (2026-05-12): Land Cash / Land In-Kind rows
+            display the auto-derived per-asset currency (parcel.rate x
+            asset land share x cashPct/inKindPct) instead of the stored
+            percent (line.value = 100). When the asset has no land
+            allocation for this parcel, render "-" so the user reads
+            "no land yet" rather than "0". Internal line.value stays at
+            100 so computeAssetCost still flows through unchanged. */}
+        {(() => {
+          const landDisplayValue = isLand
+            ? (baseId === 'land-cash' ? metrics.cashLandValue : metrics.inKindLandValue)
+            : null;
+          const landHasShare = isLand && (metrics.landSqm > 0) && (landDisplayValue ?? 0) > 0;
+          const renderLandValue = (): React.JSX.Element => (
+            <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'right', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-value-land`}>
+              {landHasShare ? formatAccounting(landDisplayValue ?? 0, scale, decimals) : '-'}
+            </div>
+          );
+          if (isLand) {
+            if (collapsed) {
+              return renderLandValue();
+            }
+            return (
+              <>
+                {renderLandValue()}
+                <div
+                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+                  data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+                >
+                  {valueUnitHint(effMethod, currency)} (auto from Tab 2)
+                </div>
+                <div
+                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  data-testid={`cost-${asset.id}-${line.id}-caption`}
+                  title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+                >
+                  {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+                </div>
+              </>
+            );
+          }
+          return null;
+        })()}
+        {!isLand && (collapsed ? (
           // P10-Fix 1 (2026-05-12): collapsed cells render the actual
           // numeric values (read-only) instead of dashes. User can SEE
           // Value/Start/End/Phasing without expanding. Addresses the
@@ -742,7 +784,7 @@ function CostRow({
               </div>
             )}
           </>
-        )}
+        ))}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
         {collapsed ? (
