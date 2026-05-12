@@ -1448,46 +1448,10 @@ function AssetCostSection({
       </div>
       {!collapsed && (
         <>
-          {/* P9-Fix 6 (2026-05-12): Expand all / Collapse all toggles
-              for cost line rows. Per-row state still persists via
-              localStorage (per line id); these buttons broadcast a
-              single value across every visible row by rewriting the
-              backing keys, then trigger a window reload-free refresh
-              via storage event (handled by listener in row mount). */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 6 }}>
-            <button
-              type="button"
-              data-testid={`asset-section-${asset.id}-expand-all`}
-              onClick={() => {
-                if (typeof window === 'undefined') return;
-                try {
-                  for (const l of lines) {
-                    window.localStorage.setItem(`m20-cost-row-collapsed-${l.id}`, 'false');
-                  }
-                  window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
-                } catch { /* noop */ }
-              }}
-              style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-            >
-              Expand all
-            </button>
-            <button
-              type="button"
-              data-testid={`asset-section-${asset.id}-collapse-all`}
-              onClick={() => {
-                if (typeof window === 'undefined') return;
-                try {
-                  for (const l of lines) {
-                    window.localStorage.setItem(`m20-cost-row-collapsed-${l.id}`, 'true');
-                  }
-                  window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
-                } catch { /* noop */ }
-              }}
-              style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-            >
-              Collapse all
-            </button>
-          </div>
+          {/* P11 Fix 3 (2026-05-13): per-section Expand all / Collapse all
+              buttons removed. Per-row collapse state was deleted in
+              T3-edit-runtime v4 ("remove that layer permanently"), so the
+              bulk toggle had no row state to flip; clicks were no-ops. */}
           {/* P8-Fix 4 (2026-05-12): cost table reduced from 11 cols to 9.
               Category + Driver columns dropped (Pass 5 Direct/Allocated
               + per-driver split surface caused confusion; every cost line
@@ -2822,6 +2786,185 @@ export default function Module1Costs(): React.JSX.Element {
         const phaseHasAssets = visiblePillAssets.length > 0;
         return (
           <>
+            {/* P11 Fix 3 (2026-05-13): project-level "Apply cost
+                configuration to other assets" panel. Sits ABOVE the
+                phase filter so it's clearly project-wide, not phase-
+                scoped. Source = whichever asset is currently active.
+                Target list = every visible non-companion asset across
+                EVERY phase except the active one. Cross-phase apply
+                matches lines by name because cost line IDs are phase-
+                scoped (each phase carries its own master records);
+                lines that exist in the source asset's phase but not in
+                the target asset's phase are skipped silently. */}
+            {activeAsset && activeAsset.isCompanion !== true && (() => {
+              const peerAssets = allVisibleAssets.filter((a) =>
+                a.id !== activeAsset.id && a.isCompanion !== true,
+              );
+              if (peerAssets.length === 0) return null;
+              const selectedCount = copyTargetIds.size;
+              const peersByPhase = phases
+                .map((p) => ({ phase: p, assets: peerAssets.filter((a) => a.phaseId === p.id) }))
+                .filter((g) => g.assets.length > 0);
+              const sourceLines = assetLines;
+              return (
+                <div
+                  style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', borderColor: 'color-mix(in srgb, var(--color-navy) 30%, var(--color-border))' }}
+                  data-testid="costs-copy-panel"
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+                      <strong style={{ color: 'var(--color-body)', fontSize: 12 }}>
+                        Apply {activeAsset.name}&apos;s cost configuration to other assets
+                      </strong>
+                      <span style={{ marginLeft: 8 }}>
+                        copies method, value, start, end, phasing per cost line. Cross-phase targets match lines by name.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCopyPanelOpen((v) => !v)}
+                      style={{ fontSize: 11, padding: '4px 10px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                      data-testid="costs-copy-panel-toggle"
+                    >
+                      {copyPanelOpen ? 'Hide' : 'Choose target assets...'}
+                    </button>
+                  </div>
+                  {copyPanelOpen && (
+                    <div style={{ marginTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+                          Target assets (all phases):
+                        </strong>
+                        <button
+                          type="button"
+                          onClick={() => setCopyTargetIds(new Set(peerAssets.map((a) => a.id)))}
+                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                          data-testid="costs-copy-panel-select-all"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCopyTargetIds(new Set())}
+                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                          data-testid="costs-copy-panel-clear"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {peersByPhase.map((g) => (
+                          <div key={g.phase.id} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: 80 }}>
+                              {g.phase.name}
+                            </strong>
+                            {g.assets.map((a) => {
+                              const checked = copyTargetIds.has(a.id);
+                              const samePhase = a.phaseId === activeAsset.phaseId;
+                              return (
+                                <label
+                                  key={a.id}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    fontSize: 11,
+                                    padding: '4px 8px',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'var(--color-surface)',
+                                    cursor: 'pointer',
+                                  }}
+                                  data-testid={`costs-copy-panel-target-${a.id}`}
+                                  title={samePhase ? 'Same phase as source' : 'Cross-phase target, matched by line name'}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const next = new Set(copyTargetIds);
+                                      if (e.target.checked) next.add(a.id);
+                                      else next.delete(a.id);
+                                      setCopyTargetIds(next);
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  {a.name}
+                                  {!samePhase && (
+                                    <span style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }}>(cross-phase)</span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
+                        <button
+                          type="button"
+                          disabled={selectedCount === 0}
+                          onClick={() => {
+                            if (selectedCount === 0) return;
+                            const targetIds = Array.from(copyTargetIds);
+                            const targetNames = peerAssets
+                              .filter((a) => copyTargetIds.has(a.id))
+                              .map((a) => a.name)
+                              .join(', ');
+                            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                              ? window.confirm(
+                                  `Copy ${activeAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nCross-phase targets match lines by name. Existing per-asset overrides on the targets will be overwritten.`,
+                                )
+                              : true;
+                            if (!ok) return;
+                            for (const line of sourceLines) {
+                              const activeOv = costOverrides.find((o) =>
+                                o.assetId === activeAsset.id && o.lineId === line.id,
+                              );
+                              for (const tId of targetIds) {
+                                const target = peerAssets.find((a) => a.id === tId);
+                                if (!target) continue;
+                                let targetLineId = line.id;
+                                if (target.phaseId !== activeAsset.phaseId) {
+                                  // Cross-phase: line IDs differ, match by name.
+                                  const match = costLines.find((c) =>
+                                    c.phaseId === target.phaseId &&
+                                    (c.targetAssetId === undefined || c.targetAssetId === target.id) &&
+                                    c.name.trim().toLowerCase() === line.name.trim().toLowerCase(),
+                                  );
+                                  if (!match) continue;
+                                  targetLineId = match.id;
+                                }
+                                if (activeOv && activeOv.overridden !== false) {
+                                  setCostOverride({ ...activeOv, assetId: tId, lineId: targetLineId });
+                                } else {
+                                  removeCostOverride(tId, targetLineId);
+                                }
+                              }
+                            }
+                            setCopyPanelOpen(false);
+                            setCopyTargetIds(new Set());
+                          }}
+                          style={{
+                            fontSize: 11,
+                            padding: '6px 14px',
+                            background: selectedCount === 0 ? 'var(--color-grey-pale)' : 'var(--color-navy)',
+                            color: selectedCount === 0 ? 'var(--color-meta)' : 'var(--color-on-primary-navy)',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: selectedCount === 0 ? 'not-allowed' : 'pointer',
+                            fontWeight: 700,
+                          }}
+                          data-testid="costs-copy-panel-apply"
+                        >
+                          Apply to {selectedCount} asset{selectedCount === 1 ? '' : 's'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* P8-Fix 7 (2026-05-12): Phase filter shows individual phases
                 only; no "All Phases" option. P8-Fix 3: empty-phase state
                 renders a helpful message but keeps the filter active so
@@ -2839,42 +2982,11 @@ export default function Module1Costs(): React.JSX.Element {
                     {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
-                {/* P10-Fix 6 (2026-05-12): Tab 3 global Expand all /
-                    Collapse all toggles broadcasting to every cost row
-                    via m20-cost-row-collapse-bulk (event scheme set up
-                    in Pass 9 Fix 6). Visible cost line ids walked by
-                    deriveLineBaseId on the activeAsset's lines so the
-                    bulk write is scoped to the row backing keys. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }} data-testid="costs-collapse-bulk">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        const ids = costLines.filter((c) => !c.targetAssetId || c.targetAssetId === activeAsset?.id).map((c) => c.id);
-                        ids.forEach((id) => window.localStorage.setItem(`m20-cost-row-collapsed-${id}`, 'false'));
-                        window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
-                      } catch { /* noop */ }
-                    }}
-                    style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
-                    data-testid="costs-expand-all"
-                  >
-                    Expand all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        const ids = costLines.filter((c) => !c.targetAssetId || c.targetAssetId === activeAsset?.id).map((c) => c.id);
-                        ids.forEach((id) => window.localStorage.setItem(`m20-cost-row-collapsed-${id}`, 'true'));
-                        window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
-                      } catch { /* noop */ }
-                    }}
-                    style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
-                    data-testid="costs-collapse-all"
-                  >
-                    Collapse all
-                  </button>
-                </div>
+                {/* P11 Fix 3 (2026-05-13): top-of-tab Expand all /
+                    Collapse all removed. Per-row collapse state was
+                    deleted in T3-edit-runtime v4 ("remove that layer
+                    permanently"), so the bulk toggle had nothing to
+                    flip; clicks were silent no-ops. */}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-asset-pills">
                 <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Asset:</strong>
@@ -2924,156 +3036,6 @@ export default function Module1Costs(): React.JSX.Element {
                 <span>Land Cost: <strong>{formatAccounting(assetMetrics.landValue, scale, decimals)}</strong></span>
               </div>
             )}
-
-            {/* P11 Fix 1 (2026-05-13): Copy active asset's cost
-                configuration to a user-picked subset of peer assets
-                in the same phase. Per-line semantics: when the active
-                asset carries an active override for a line, that
-                override (method/value/start/end/phasing/distribution/
-                disabled/perSubUnitRates/debt+equityPctOverride) is
-                mirrored onto every selected target. When the active
-                asset inherits the master, the target's override (if
-                any) is removed so it also inherits, leaving both
-                assets identical in caption + total + phasing. */}
-            {phaseHasAssets && activeAsset && activeAsset.isCompanion !== true && (() => {
-              const peerAssets = visiblePillAssets.filter((a) =>
-                a.id !== activeAsset.id && a.isCompanion !== true
-              );
-              if (peerAssets.length === 0) return null;
-              const selectedCount = copyTargetIds.size;
-              return (
-                <div
-                  style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }}
-                  data-testid={`costs-copy-panel-${activeAsset.id}`}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-                      <strong style={{ color: 'var(--color-body)', fontSize: 12 }}>
-                        Apply {activeAsset.name}&apos;s cost configuration to other assets
-                      </strong>
-                      <span style={{ marginLeft: 8 }}>
-                        copies method, value, start, end, phasing per line.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCopyPanelOpen((v) => !v)}
-                      style={{ fontSize: 11, padding: '4px 10px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                      data-testid={`costs-copy-panel-toggle-${activeAsset.id}`}
-                    >
-                      {copyPanelOpen ? 'Hide' : 'Choose target assets...'}
-                    </button>
-                  </div>
-                  {copyPanelOpen && (
-                    <div style={{ marginTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-1)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
-                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
-                          Target assets ({assetPhase?.name ?? 'phase'}):
-                        </strong>
-                        <button
-                          type="button"
-                          onClick={() => setCopyTargetIds(new Set(peerAssets.map((a) => a.id)))}
-                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                          data-testid={`costs-copy-panel-select-all-${activeAsset.id}`}
-                        >
-                          Select all
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCopyTargetIds(new Set())}
-                          style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                          data-testid={`costs-copy-panel-clear-${activeAsset.id}`}
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {peerAssets.map((a) => {
-                          const checked = copyTargetIds.has(a.id);
-                          return (
-                            <label
-                              key={a.id}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                fontSize: 11,
-                                padding: '4px 8px',
-                                border: '1px solid var(--color-border)',
-                                borderRadius: 'var(--radius-sm)',
-                                background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'var(--color-surface)',
-                                cursor: 'pointer',
-                              }}
-                              data-testid={`costs-copy-panel-target-${a.id}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const next = new Set(copyTargetIds);
-                                  if (e.target.checked) next.add(a.id);
-                                  else next.delete(a.id);
-                                  setCopyTargetIds(next);
-                                }}
-                                style={{ cursor: 'pointer' }}
-                              />
-                              {a.name}
-                            </label>
-                          );
-                        })}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
-                        <button
-                          type="button"
-                          disabled={selectedCount === 0}
-                          onClick={() => {
-                            if (selectedCount === 0) return;
-                            const targetIds = Array.from(copyTargetIds);
-                            const targetNames = peerAssets
-                              .filter((a) => copyTargetIds.has(a.id))
-                              .map((a) => a.name)
-                              .join(', ');
-                            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                              ? window.confirm(
-                                  `Copy ${activeAsset.name}'s cost configuration (${assetLines.length} line${assetLines.length === 1 ? '' : 's'}) to ${targetIds.length} other asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nAny existing per-asset overrides on the targets will be overwritten.`,
-                                )
-                              : true;
-                            if (!ok) return;
-                            for (const line of assetLines) {
-                              const activeOv = costOverrides.find((o) =>
-                                o.assetId === activeAsset.id && o.lineId === line.id,
-                              );
-                              for (const tId of targetIds) {
-                                if (activeOv && activeOv.overridden !== false) {
-                                  setCostOverride({ ...activeOv, assetId: tId });
-                                } else {
-                                  removeCostOverride(tId, line.id);
-                                }
-                              }
-                            }
-                            setCopyPanelOpen(false);
-                            setCopyTargetIds(new Set());
-                          }}
-                          style={{
-                            fontSize: 11,
-                            padding: '6px 14px',
-                            background: selectedCount === 0 ? 'var(--color-grey-pale)' : 'var(--color-navy)',
-                            color: selectedCount === 0 ? 'var(--color-meta)' : 'var(--color-on-primary-navy)',
-                            border: 'none',
-                            borderRadius: 'var(--radius-sm)',
-                            cursor: selectedCount === 0 ? 'not-allowed' : 'pointer',
-                            fontWeight: 700,
-                          }}
-                          data-testid={`costs-copy-panel-apply-${activeAsset.id}`}
-                        >
-                          Apply to {selectedCount} asset{selectedCount === 1 ? '' : 's'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
 
             {/* T3-companion Fix 2 (2026-05-12): companion assets carry
                 NO cost lines. When the active asset is a companion,
