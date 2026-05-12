@@ -607,41 +607,13 @@ function CostRow({
     writePerSubUnitRates({ ...effPerSubUnitRates, [key]: Math.max(0, rate) });
   };
 
-  // P9-Fix 6 (2026-05-12): per-row collapse state. Collapsed shows
-  // only Name + Method (read-only summary) + Total + Toggle + Delete;
-  // expanded shows the full input surface (Value / Start / End /
-  // Phasing). State persists per session via localStorage keyed by
-  // line id. The asset-section's "Expand all / Collapse all" button
-  // updates a parent-scoped key prefix that this hook reads on mount.
-  const collapseKey = `m20-cost-row-collapsed-${line.id}`;
-  const readCollapsed = (): boolean => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = window.localStorage.getItem(collapseKey);
-      return stored === null ? true : stored === 'true';
-    } catch { return true; }
-  };
-  const [collapsed, setCollapsed] = React.useState<boolean>(readCollapsed);
-  // Listen for bulk Expand all / Collapse all events from the asset
-  // section header. The bulk button rewrites localStorage for every
-  // row id then dispatches m20-cost-row-collapse-bulk; we re-read on
-  // event.
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const handler = (): void => { setCollapsed(readCollapsed()); };
-    window.addEventListener('m20-cost-row-collapse-bulk', handler);
-    return () => window.removeEventListener('m20-cost-row-collapse-bulk', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [line.id]);
-  const toggleCollapsed = (): void => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      if (typeof window !== 'undefined') {
-        try { window.localStorage.setItem(collapseKey, next ? 'true' : 'false'); } catch { /* noop */ }
-      }
-      return next;
-    });
-  };
+  // T3-edit-runtime v4 (2026-05-12): per-row collapse state removed
+  // entirely. User feedback: "I am still seeing this layer, can you
+  // diagnose and remove that layer permanently". The chevron + the
+  // collapsed-state static-div branches forced an extra click before
+  // any of Value / Start / End / Phasing became editable; removing
+  // them makes every input render directly. Pass 9 Fix 6 compaction
+  // is dropped to prioritise discoverability.
   // M2.0L Pass3 Fix 13 (2026-05-11): per-row Stage tooltip dropped.
   // Stage classification still drives the row background color (via
   // STAGE_BG[stage]) but no hover hint, no per-row caption. Strategy
@@ -656,31 +628,15 @@ function CostRow({
       }}
     >
       <td style={{ padding: '4px', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            data-testid={`cost-${asset.id}-${line.id}-collapse`}
-            aria-expanded={!collapsed}
-            title={collapsed ? 'Expand row' : 'Collapse row'}
-            style={{
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              padding: '0 2px', fontSize: 12, color: 'var(--color-meta)',
-              flexShrink: 0,
-            }}
-          >
-            {collapsed ? '▶' : '▼'}
-          </button>
-          <input
-            type="text"
-            value={line.name}
-            onChange={(e) => writeName(e.target.value)}
-            disabled={isNameLocked}
-            style={{ ...inputStyle, width: '100%' }}
-            data-testid={`cost-${asset.id}-${line.id}-name`}
-            title={line.name}
-          />
-        </div>
+        <input
+          type="text"
+          value={line.name}
+          onChange={(e) => writeName(e.target.value)}
+          disabled={isNameLocked}
+          style={{ ...inputStyle, width: '100%' }}
+          data-testid={`cost-${asset.id}-${line.id}-name`}
+          title={line.name}
+        />
         {isCustom && (
           <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>custom</div>
         )}
@@ -742,22 +698,18 @@ function CostRow({
                   ? formatAccounting(landDisplayValue, scale, decimals)
                   : (landDisplayValue === 0 ? '0' : formatAccounting(landDisplayValue, scale, decimals))}
               </div>
-              {!collapsed && (
-                <>
-                  <div
-                    style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
-                    data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
-                  >
-                    auto from Tab 2 (locked)
-                  </div>
-                  <div
-                    style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
-                    data-testid={`cost-${asset.id}-${line.id}-caption`}
-                  >
-                    {mathCaption}
-                  </div>
-                </>
-              )}
+              <div
+                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'right', fontStyle: 'italic' }}
+                data-testid={`cost-${asset.id}-${line.id}-unit-hint`}
+              >
+                auto from Tab 2 (locked)
+              </div>
+              <div
+                style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
+                data-testid={`cost-${asset.id}-${line.id}-caption`}
+              >
+                {mathCaption}
+              </div>
               {!landHasShare && (
                 <div
                   style={{
@@ -779,19 +731,8 @@ function CostRow({
             </>
           );
         })()}
-        {!isLand && (collapsed ? (
-          // P10-Fix 1 (2026-05-12): collapsed cells render the actual
-          // numeric values (read-only) instead of dashes. User can SEE
-          // Value/Start/End/Phasing without expanding. Addresses the
-          // Pass 9 "removed things" perception while keeping Fix 6
-          // collapsed-by-default. Expand to edit.
-          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'right', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-value-collapsed`}>
-            {formatScaled(effValue, 'full', decimals)}
-          </div>
-        ) : (
+        {!isLand && (
           <>
-            {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
-                scale regardless of project.displayScale. */}
             <AccountingNumberInput
               value={effValue}
               onChange={writeValue}
@@ -817,47 +758,28 @@ function CostRow({
               </div>
             )}
           </>
-        ))}
-      </td>
-      <td style={{ padding: '4px', width: 70 }}>
-        {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'center', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-start-collapsed`}>
-            {line.startPeriod}
-          </div>
-        ) : (
-          <>
-            <input
-              type="number"
-              min={0}
-              max={constructionPeriods}
-              value={line.startPeriod}
-              onChange={(e) => {
-                const next = parseInt(e.target.value) || 0;
-                writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
-              }}
-              disabled={isStartEndLocked}
-              style={inputStyle}
-              data-testid={`cost-${asset.id}-${line.id}-start`}
-              title={`Max = ${constructionPeriods}`}
-            />
-            <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
-              {periodStartLabel}
-            </div>
-          </>
         )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
-        {/* P9-Fix 3 (2026-05-12): max cap dropped. User can enter ANY
-            end period value. Informational warning chips surface when
-            End extends into operations or past project timeline; the
-            only blocking error is End < Start. HTML5 max attribute +
-            JS clamp removed. */}
-        {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-body)', textAlign: 'center', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-end-collapsed`}>
-            {line.endPeriod}
-          </div>
-        ) : (
-        <>
+        <input
+          type="number"
+          min={0}
+          max={constructionPeriods}
+          value={line.startPeriod}
+          onChange={(e) => {
+            const next = parseInt(e.target.value) || 0;
+            writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
+          }}
+          disabled={isStartEndLocked}
+          style={inputStyle}
+          data-testid={`cost-${asset.id}-${line.id}-start`}
+          title={`Max = ${constructionPeriods}`}
+        />
+        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
+          {periodStartLabel}
+        </div>
+      </td>
+      <td style={{ padding: '4px', width: 70 }}>
         <input
           type="number"
           min={0}
@@ -878,9 +800,6 @@ function CostRow({
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
-        {/* P9-Fix 3 (2026-05-12): informational warning chips, no
-            blocking clamp. End > maxCp+1 -> operations. End < Start ->
-            blocking error chip. */}
         {line.endPeriod < line.startPeriod && (
           <div style={{ fontSize: 9, color: 'var(--color-negative)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-error`}>
             End must be on or after Start
@@ -891,15 +810,8 @@ function CostRow({
             extends into operations period
           </div>
         )}
-        </>
-        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
-        {collapsed ? (
-          <div style={{ fontSize: 11, color: 'var(--color-body)', fontWeight: 600 }} data-testid={`cost-${asset.id}-${line.id}-phasing-collapsed`}>
-            {PHASING_LABELS[effPhasing]}
-          </div>
-        ) : (
         <select
           value={effPhasing}
           onChange={(e) => writePhasing(e.target.value as CostPhasing)}
@@ -907,16 +819,10 @@ function CostRow({
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`cost-${asset.id}-${line.id}-phasing`}
         >
-          {/* M2.0j Fix 9: dropdown shows only Even + Manual %.  Legacy
-              values (sCurve / front-loaded / back-loaded / phase_aligned)
-              still load + render correctly via PHASING_LABELS but are
-              not user-pickable; opening the dropdown silently normalises
-              to Even on next save (handled by migrateM20jPhasing). */}
           {COST_PHASING_OPTIONS.map((p) => (
             <option key={p} value={p}>{PHASING_LABELS[p]}</option>
           ))}
         </select>
-        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
@@ -930,7 +836,7 @@ function CostRow({
               Click creates an override seeded from master.
             - Override active: shows ↺ "Inherit from master" button.
               Click removes the override; cell reverts to master. */}
-        {isProjectWide && !isLocked && !isCustom && !collapsed && (
+        {isProjectWide && !isLocked && !isCustom && (
           override ? (
             <button
               type="button"
@@ -972,7 +878,7 @@ function CostRow({
             </button>
           )
         )}
-        {isProjectWide && override && !collapsed && (
+        {isProjectWide && override && (
           <div
             data-testid={`cost-${asset.id}-${line.id}-override-active`}
             style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, fontStyle: 'italic' }}
