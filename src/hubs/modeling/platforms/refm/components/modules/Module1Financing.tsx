@@ -864,6 +864,23 @@ export default function Module1Financing(): React.JSX.Element {
   // M2.0L: filter pill (Schedules sub-tab). null = Combined.
   const [scheduleFilter, setScheduleFilter] = useState<string | null>(null);
 
+  // P10-Fix 6 (2026-05-12): Inputs Summary Tables default-collapsed
+  // with localStorage persistence + bulk event listener. Reduces
+  // visual noise on first Tab 4 load; user expands when reviewing
+  // the funding / debt / equity split.
+  const inputsSummaryKey = 'm20-financing-summary-collapsed';
+  const readInputsSummaryCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(inputsSummaryKey);
+      return stored === null ? true : stored === 'true';
+    } catch { return true; }
+  };
+  const [inputsSummaryCollapsed, setInputsSummaryCollapsed] = useState<boolean>(readInputsSummaryCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(inputsSummaryKey, String(inputsSummaryCollapsed)); } catch { /* noop */ }
+  }, [inputsSummaryCollapsed]);
+
   const phase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
   const phaseAssets = useMemo(
     () => assets.filter((a) => a.phaseId === phase?.id && a.visible),
@@ -1581,8 +1598,19 @@ export default function Module1Financing(): React.JSX.Element {
               Land In-Kind). Debt = Funding x debt%. Equity = Funding x
               equity%, with Cash + In-Kind sub-rows in the Total row. */}
           <div style={sectionCardStyle} data-testid="inputs-summary-tables">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Inputs Summary (Auto-computed)</strong>
-            {(() => {
+            {/* P10-Fix 6 (2026-05-12): collapsible header. Default
+                collapsed; click chevron to expand the 3 stacked tables
+                (Funding / Debt / Equity). localStorage persisted via
+                inputsSummaryKey. */}
+            <div
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: inputsSummaryCollapsed ? 0 : 'var(--sp-1)' }}
+              onClick={() => setInputsSummaryCollapsed(!inputsSummaryCollapsed)}
+              data-testid="inputs-summary-tables-header"
+            >
+              <strong style={{ fontSize: 13 }}>Inputs Summary (Auto-computed)</strong>
+              <span style={{ fontSize: 14, color: 'var(--color-meta)' }} data-testid="inputs-summary-tables-chevron">{inputsSummaryCollapsed ? '▶' : '▼'}</span>
+            </div>
+            {!inputsSummaryCollapsed && (() => {
               const totalsRow = inputsSummary.totals;
               const debtRow = totalsRow.map((v) => v * inputsSummary.debtPct);
               const equityRow = totalsRow.map((v) => v * inputsSummary.equityPct);

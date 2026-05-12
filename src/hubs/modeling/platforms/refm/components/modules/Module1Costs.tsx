@@ -2645,16 +2645,54 @@ export default function Module1Costs(): React.JSX.Element {
                 renders a helpful message but keeps the filter active so
                 the user can navigate to a populated phase. */}
             <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }} data-testid="costs-inputs-asset-nav">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
-                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase Filter:</strong>
-                <select
-                  value={effectivePhaseId}
-                  onChange={(e) => setInputsPhaseFilter(e.target.value)}
-                  style={{ ...inputStyle, width: 'auto', minWidth: 160 }}
-                  data-testid="costs-inputs-phase-filter"
-                >
-                  {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase Filter:</strong>
+                  <select
+                    value={effectivePhaseId}
+                    onChange={(e) => setInputsPhaseFilter(e.target.value)}
+                    style={{ ...inputStyle, width: 'auto', minWidth: 160 }}
+                    data-testid="costs-inputs-phase-filter"
+                  >
+                    {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                {/* P10-Fix 6 (2026-05-12): Tab 3 global Expand all /
+                    Collapse all toggles broadcasting to every cost row
+                    via m20-cost-row-collapse-bulk (event scheme set up
+                    in Pass 9 Fix 6). Visible cost line ids walked by
+                    deriveLineBaseId on the activeAsset's lines so the
+                    bulk write is scoped to the row backing keys. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }} data-testid="costs-collapse-bulk">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const ids = costLines.filter((c) => !c.targetAssetId || c.targetAssetId === activeAsset?.id).map((c) => c.id);
+                        ids.forEach((id) => window.localStorage.setItem(`m20-cost-row-collapsed-${id}`, 'false'));
+                        window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
+                      } catch { /* noop */ }
+                    }}
+                    style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
+                    data-testid="costs-expand-all"
+                  >
+                    Expand all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const ids = costLines.filter((c) => !c.targetAssetId || c.targetAssetId === activeAsset?.id).map((c) => c.id);
+                        ids.forEach((id) => window.localStorage.setItem(`m20-cost-row-collapsed-${id}`, 'true'));
+                        window.dispatchEvent(new Event('m20-cost-row-collapse-bulk'));
+                      } catch { /* noop */ }
+                    }}
+                    style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
+                    data-testid="costs-collapse-all"
+                  >
+                    Collapse all
+                  </button>
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-asset-pills">
                 <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Asset:</strong>

@@ -26,7 +26,7 @@
  * + Asset card footer (BUA reconciliation + Land Cost + Capex preview).
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
@@ -656,6 +656,45 @@ export default function Module1Assets(): React.JSX.Element {
         )}
       </div>
 
+      {/* P10-Fix 6 (2026-05-12): Tab 2 Expand all / Collapse all bulk
+          toggles. Rewrites localStorage for every visible phase + asset
+          card then dispatches m20-tab2-collapse-bulk so each section's
+          listener re-reads its key. Mirrors the per-section pattern in
+          Tab 3 Costs (Pass 9 Fix 6 broadcast m20-cost-row-collapse-bulk). */}
+      <div
+        style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}
+        data-testid="assets-collapse-bulk"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              phases.forEach((p) => window.localStorage.setItem(`m20-phase-collapsed-${p.id}`, 'false'));
+              assets.forEach((a) => window.localStorage.setItem(`m20-asset-collapsed-${a.id}`, 'false'));
+              window.dispatchEvent(new Event('m20-tab2-collapse-bulk'));
+            } catch { /* noop */ }
+          }}
+          style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
+          data-testid="assets-expand-all"
+        >
+          Expand all
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              phases.forEach((p) => window.localStorage.setItem(`m20-phase-collapsed-${p.id}`, 'true'));
+              assets.forEach((a) => window.localStorage.setItem(`m20-asset-collapsed-${a.id}`, 'true'));
+              window.dispatchEvent(new Event('m20-tab2-collapse-bulk'));
+            } catch { /* noop */ }
+          }}
+          style={{ fontSize: 11, padding: '4px 10px', cursor: 'pointer', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
+          data-testid="assets-collapse-all"
+        >
+          Collapse all
+        </button>
+      </div>
+
       {/* Per-phase asset sections */}
       {phaseGroups.map(({ phase, timeline, phaseAssets }) => (
         <PhaseAssetSection
@@ -821,7 +860,30 @@ function PhaseAssetSection({
   phase, phaseTimeline, phaseAssets, allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: PhaseAssetSectionProps): React.JSX.Element {
-  const [collapsed, setCollapsed] = useState(false);
+  // P10-Fix 6 (2026-05-12): default-collapsed + localStorage persistence
+  // + bulk event listener. Tab 2 phase headers collapse by default so
+  // the user opens what they want to work on (clean default view per
+  // Pass 10 brief). Bulk event m20-tab2-collapse-bulk lets the top-of-
+  // tab Expand all / Collapse all buttons toggle every phase+asset card
+  // simultaneously by rewriting localStorage and dispatching the event.
+  const collapseKey = `m20-phase-collapsed-${phase.id}`;
+  const readCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(collapseKey);
+      return stored === null ? true : stored === 'true';
+    } catch { return true; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, collapseKey]);
+  useEffect(() => {
+    const handler = (): void => setCollapsed(readCollapsed());
+    window.addEventListener('m20-tab2-collapse-bulk', handler);
+    return () => window.removeEventListener('m20-tab2-collapse-bulk', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseKey]);
   const suggestions = SUGGESTED_CATEGORIES_BY_PROJECT_TYPE[project.projectType ?? 'Mixed-Use'] ?? [];
 
   return (
@@ -923,7 +985,28 @@ function AssetCard({
       removeSubUnit: s.removeSubUnit,
     })),
   );
-  const [collapsed, setCollapsed] = useState(false);
+  // P10-Fix 6 (2026-05-12): default-collapsed + localStorage persistence
+  // + bulk event listener (m20-tab2-collapse-bulk). Each asset card opens
+  // only when the user explicitly clicks the chevron. Reduces visual
+  // noise on first load of multi-asset projects.
+  const collapseKey = `m20-asset-collapsed-${asset.id}`;
+  const readCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(collapseKey);
+      return stored === null ? true : stored === 'true';
+    } catch { return true; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, collapseKey]);
+  useEffect(() => {
+    const handler = (): void => setCollapsed(readCollapsed());
+    window.addEventListener('m20-tab2-collapse-bulk', handler);
+    return () => window.removeEventListener('m20-tab2-collapse-bulk', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseKey]);
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
   // M2.0f Fix 6: BUA totals derive from sub-units. Asset.buaSqm /
   // sellableBuaSqm fields stay on the schema for v7 compat but are
