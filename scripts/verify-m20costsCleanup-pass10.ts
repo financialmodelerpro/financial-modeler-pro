@@ -166,18 +166,23 @@ console.log('\n[4/10] Fix 9: equal-share land fallback when totalBua=0');
   else fail('MAAD fixture', `landSqm=${maadLand}; expected ${parcel.area}`);
 }
 
-// ── Section 5: Fix 2 addAsset cost line replication ──────────────────────
-console.log('\n[5/10] Fix 2: addAsset replicates cost lines + removeAsset cascades');
+// ── Section 5: Fix 2 + Fix 3 addAsset behaviour ──────────────────────────
+console.log('\n[5/10] Fix 2 + Fix 3: addAsset inherits project-wide masters + removeAsset cascades');
 {
-  if (STORE_SRC.includes('phasePeer') && STORE_SRC.includes('templateLines')) {
-    pass('addAsset finds phase peer for cost line template');
-  } else fail('addAsset replication', 'phasePeer/templateLines not in store');
-  if (STORE_SRC.includes("`${baseId}__${asset.phaseId}__${asset.id}`")) {
-    pass('addAsset re-composes cost line ids with new asset id');
-  } else fail('addAsset id pattern', 'composed id template missing');
+  // Pass 10 Fix 3 (hybrid revert) replaces Fix 2's per-asset cost
+  // line replication with project-wide masters. New asset inherits
+  // automatically via linesForAsset filter (c.targetAssetId ===
+  // undefined). Seed makeDefaultCostLines only when the asset's
+  // phase has zero cost lines yet (first asset in fresh phase).
+  if (STORE_SRC.includes('phaseHasLines') && STORE_SRC.includes('makeDefaultCostLines(asset.phaseId')) {
+    pass('addAsset seeds master catalog only when phase has no lines (hybrid)');
+  } else fail('addAsset hybrid behaviour', 'phaseHasLines check or makeDefaultCostLines seed missing');
   if (STORE_SRC.includes('companionIds') && STORE_SRC.includes('removedIds')) {
-    pass('removeAsset cascades to companions + cost lines');
+    pass('removeAsset cascades to companions + cost lines + overrides');
   } else fail('removeAsset cascade', 'missing companion/removed ID logic');
+  if (STORE_SRC.includes('migrateM20costsPass10Hybrid') || readFileSync(resolve(REPO_ROOT, 'src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts'), 'utf8').includes('migrateM20costsPass10Hybrid')) {
+    pass('migrateM20costsPass10Hybrid wired into hydrate chain');
+  } else fail('Pass 10 migration', 'migrateM20costsPass10Hybrid missing');
 }
 
 // ── Section 6: Fix 5 NDA Recon ────────────────────────────────────────────
@@ -271,6 +276,78 @@ console.log('\n[9/10] Fix 10: commission revenue hooks');
   const contractPath = resolve(REPO_ROOT, 'docs/cost-revenue-hooks.md');
   if (existsSync(contractPath)) pass('docs/cost-revenue-hooks.md contract published');
   else fail('hook contract', 'docs/cost-revenue-hooks.md missing');
+}
+
+// ── Section 10a: Fix 3 hybrid architecture markers ──────────────────────
+console.log('\n[10a] Fix 3: hybrid project-wide + per-asset override surface');
+{
+  const migrateSrc = readFileSync(resolve(REPO_ROOT, 'src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts'), 'utf8');
+  if (migrateSrc.includes('migrateM20costsPass10Hybrid') && migrateSrc.includes('M20_PASS10_NOTICE')) {
+    pass('migration helper + banner constant defined');
+  } else fail('Pass 10 migration', 'helper or banner missing');
+  if (migrateSrc.includes('snapshotNeedsPass10Migration')) pass('snapshotNeedsPass10Migration detector exported');
+  else fail('detector', 'snapshotNeedsPass10Migration missing');
+  // resolveBanner priority order: Pass 10 ahead of Pass 4.
+  const m10Idx = migrateSrc.indexOf('snapshotNeedsPass10Migration(s)');
+  const m4Idx = migrateSrc.indexOf('snapshotNeedsPass4FinancingMigration(s)');
+  if (m10Idx > 0 && m4Idx > m10Idx) pass('resolveBanner prioritises Pass 10 ahead of Pass 4 Financing');
+  else fail('banner priority', 'Pass 10 should resolve before Pass 4 Financing');
+  // CostRow override toggle markers.
+  if (COSTS_SRC.includes('-override') && COSTS_SRC.includes('-revert') && COSTS_SRC.includes('-override-active')) {
+    pass('CostRow renders Override toggle + Revert + asset-specific marker');
+  } else fail('override toggle UI', 'missing testid markers');
+  if (COSTS_SRC.includes('startOverride')) pass('startOverride helper seeds CostOverride from master');
+  else fail('startOverride', 'helper missing');
+  // Module1Costs passes filtered overrides + real mutations.
+  if (COSTS_SRC.includes('costOverrides.filter((o) => o.assetId === activeAsset.id)')) {
+    pass('Module1Costs filters costOverrides to active asset');
+  } else fail('override filtering', 'costOverrides filter missing');
+  if (COSTS_SRC.includes('onUpdateOverride={(override) => setCostOverride(override)}')
+      && COSTS_SRC.includes('onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}')) {
+    pass('AssetCostSection wires real setCostOverride / removeCostOverride mutations');
+  } else fail('override mutations', 'no-op handlers still in place');
+}
+
+// ── Section 10b: Fix 8 accounting input sweep ────────────────────────────
+console.log('\n[10b] Fix 8: AccountingNumberInput sweep on large-number inputs');
+{
+  // Tab 2 large-number inputs that should have migrated.
+  const tab2Sweep = [
+    'data-testid={`parcel-${parcel.id}-area`}',
+    'data-testid={`subunit-${subUnit.id}-area-input`}',
+    'data-testid={`subunit-${subUnit.id}-unitArea`}',
+    'data-testid={`asset-${asset.id}-landAreaSqm`}',
+    'data-testid={`asset-${asset.id}-supportArea`}',
+    'data-testid={`asset-${asset.id}-parkingArea`}',
+    'data-testid={`asset-${asset.id}-gfaSqm`}',
+  ];
+  let tab2Hits = 0;
+  for (const needle of tab2Sweep) {
+    // For each testid, check it appears in an AccountingNumberInput block
+    // (not in a raw <input type="number">).
+    const idx = ASSETS_SRC.indexOf(needle);
+    if (idx === -1) continue;
+    // Look backwards for the nearest opening tag.
+    const before = ASSETS_SRC.lastIndexOf('<', idx);
+    const tagSlice = ASSETS_SRC.slice(before, idx + needle.length + 1);
+    if (tagSlice.includes('AccountingNumberInput')) tab2Hits++;
+  }
+  if (tab2Hits === tab2Sweep.length) pass(`Tab 2: ${tab2Hits}/${tab2Sweep.length} large-number inputs use AccountingNumberInput`);
+  else fail('Tab 2 sweep', `only ${tab2Hits}/${tab2Sweep.length} migrated`);
+
+  // Tab 4 sweep markers.
+  if (FINANCING_SRC.includes('data-testid="m3-existing-cash"')
+      && FINANCING_SRC.slice(0, FINANCING_SRC.indexOf('data-testid="m3-existing-cash"')).lastIndexOf('AccountingNumberInput')
+         > FINANCING_SRC.slice(0, FINANCING_SRC.indexOf('data-testid="m3-existing-cash"')).lastIndexOf('<input ')) {
+    pass('Tab 4: Existing Cash uses AccountingNumberInput');
+  } else fail('Tab 4 existing cash', 'still bare number input');
+  if (FINANCING_SRC.includes('data-testid="financing-min-cash-reserve"')) {
+    const idx = FINANCING_SRC.indexOf('data-testid="financing-min-cash-reserve"');
+    const before = FINANCING_SRC.slice(0, idx).lastIndexOf('<');
+    const slice = FINANCING_SRC.slice(before, idx);
+    if (slice.includes('AccountingNumberInput')) pass('Tab 4: Minimum Cash Reserve uses AccountingNumberInput');
+    else fail('Tab 4 min cash', 'still bare number input');
+  } else fail('Tab 4 min cash', 'testid missing');
 }
 
 // ── Section 10: em-dash sweep + deferred notice ──────────────────────────

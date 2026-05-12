@@ -92,6 +92,7 @@ import {
   type FinancingResult,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
 
 const inputStyle: React.CSSProperties = {
@@ -274,12 +275,15 @@ function renderMethodInputs(
       <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-3-inputs">
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Existing Cash:
-          <input
-            type="number" min={0}
-            data-testid="m3-existing-cash"
+          {/* P10-Fix 8 (2026-05-12): accounting format on blur. */}
+          <AccountingNumberInput
             value={m.existingCash}
-            onChange={(e) => patch({ netFundingConfig: { ...m, existingCash: parseFloat(e.target.value) || 0 } })}
+            onChange={(n) => patch({ netFundingConfig: { ...m, existingCash: Math.max(0, n) } })}
+            scale="full"
+            decimals={0}
+            min={0}
             style={{ ...numStyle, width: 120 }}
+            data-testid="m3-existing-cash"
           />
         </label>
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -1273,12 +1277,15 @@ export default function Module1Financing(): React.JSX.Element {
             </strong>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--sp-2)', alignItems: 'center' }}>
               <label style={{ fontSize: 12, color: 'var(--color-meta)' }}>Minimum Cash Reserve</label>
-              <input
-                type="number" min={0}
-                data-testid="financing-min-cash-reserve"
+              {/* P10-Fix 8 (2026-05-12): accounting format on blur. */}
+              <AccountingNumberInput
                 value={financingConfig.minimumCashReserve ?? 0}
-                onChange={(e) => setFinancingConfig({ minimumCashReserve: Math.max(0, parseFloat(e.target.value) || 0) })}
+                onChange={(n) => setFinancingConfig({ minimumCashReserve: Math.max(0, n) })}
+                scale="full"
+                decimals={0}
+                min={0}
                 style={{ ...inputStyle, maxWidth: 240 }}
+                data-testid="financing-min-cash-reserve"
               />
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }}>

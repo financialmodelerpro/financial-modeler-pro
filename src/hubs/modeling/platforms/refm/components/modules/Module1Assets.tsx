@@ -795,9 +795,17 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
         <input type="text" value={parcel.name} data-testid={`parcel-${parcel.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input type="number" min={0} value={parcel.area} data-testid={`parcel-${parcel.id}-area`} onChange={(e) => onUpdate({ area: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
-        {/* M2.0j Fix 5: formatted area readout (project decimals + thousand separator). */}
-        <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-area-fmt`}>{formatArea(parcel.area, decimals)} sqm</div>
+        {/* P10-Fix 8 (2026-05-12): accounting format on blur. Parcel
+            area is sqm; large enough that thousand separators help. */}
+        <AccountingNumberInput
+          value={parcel.area}
+          onChange={(n) => onUpdate({ area: Math.max(0, n) })}
+          scale="full"
+          decimals={0}
+          min={0}
+          style={inputStyle}
+          data-testid={`parcel-${parcel.id}-area`}
+        />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         {/* M2.0j Fix 7: accounting format on blur. Raw number on focus.
@@ -1330,12 +1338,30 @@ function AssetCard({
                     </div>
                     <div>
                       <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the chosen parcel." inputId={`asset-${asset.id}-landAreaSqm`} />
-                      <input id={`asset-${asset.id}-landAreaSqm`} data-testid={`asset-${asset.id}-landAreaSqm`} type="number" min={0} value={allocation.sqm ?? asset.landAreaSqm ?? 0} onChange={(e) => setAllocation({ sqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+                      <AccountingNumberInput
+                        id={`asset-${asset.id}-landAreaSqm`}
+                        data-testid={`asset-${asset.id}-landAreaSqm`}
+                        value={allocation.sqm ?? asset.landAreaSqm ?? 0}
+                        onChange={(n) => setAllocation({ sqm: Math.max(0, n) })}
+                        scale="full"
+                        decimals={0}
+                        min={0}
+                        style={inputStyle}
+                      />
                     </div>
                     {allocation.parcelId === PARCEL_CUSTOM_RATE ? (
                       <div>
                         <InputLabel label="Custom Rate" help="Per-sqm rate override. Used instead of any parcel's rate." inputId={`asset-${asset.id}-customRate`} />
-                        <input id={`asset-${asset.id}-customRate`} data-testid={`asset-${asset.id}-customRate`} type="number" min={0} value={allocation.customRate ?? 0} onChange={(e) => setAllocation({ customRate: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+                        <AccountingNumberInput
+                          id={`asset-${asset.id}-customRate`}
+                          data-testid={`asset-${asset.id}-customRate`}
+                          value={allocation.customRate ?? 0}
+                          onChange={(n) => setAllocation({ customRate: Math.max(0, n) })}
+                          scale="full"
+                          decimals={2}
+                          min={0}
+                          style={inputStyle}
+                        />
                       </div>
                     ) : (
                       <div>
@@ -1382,15 +1408,43 @@ function AssetCard({
           >
             <div>
               <InputLabel label="Support Area (sqm)" help="Asset-level Support / back-of-house area. Combined with any Support sub-units to derive BUA = NSA + Support." inputId={`asset-${asset.id}-supportArea`} />
-              <input id={`asset-${asset.id}-supportArea`} data-testid={`asset-${asset.id}-supportArea`} type="number" min={0} value={asset.supportArea ?? 0} onChange={(e) => onUpdate({ supportArea: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput
+                id={`asset-${asset.id}-supportArea`}
+                data-testid={`asset-${asset.id}-supportArea`}
+                value={asset.supportArea ?? 0}
+                onChange={(n) => onUpdate({ supportArea: Math.max(0, n) })}
+                scale="full"
+                decimals={0}
+                min={0}
+                style={inputStyle}
+              />
             </div>
             <div>
               <InputLabel label="Parking Area (sqm)" help="Asset-level Parking area. GFA = BUA + Parking. Cost-only, no revenue." inputId={`asset-${asset.id}-parkingArea`} />
-              <input id={`asset-${asset.id}-parkingArea`} data-testid={`asset-${asset.id}-parkingArea`} type="number" min={0} value={asset.parkingArea ?? 0} onChange={(e) => onUpdate({ parkingArea: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput
+                id={`asset-${asset.id}-parkingArea`}
+                data-testid={`asset-${asset.id}-parkingArea`}
+                value={asset.parkingArea ?? 0}
+                onChange={(n) => onUpdate({ parkingArea: Math.max(0, n) })}
+                scale="full"
+                decimals={0}
+                min={0}
+                style={inputStyle}
+              />
             </div>
             <div>
               <InputLabel label="GFA Override (sqm)" help="Optional GFA override. Leave 0 to use derived BUA + Parking." inputId={`asset-${asset.id}-gfaSqm`} />
-              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} placeholder={`auto = derived`} style={inputStyle} />
+              <AccountingNumberInput
+                id={`asset-${asset.id}-gfaSqm`}
+                data-testid={`asset-${asset.id}-gfaSqm`}
+                value={asset.gfaSqm}
+                onChange={(n) => onUpdate({ gfaSqm: Math.max(0, n) })}
+                scale="full"
+                decimals={0}
+                min={0}
+                placeholder="auto = derived"
+                style={inputStyle}
+              />
             </div>
           </div>
 
@@ -1797,26 +1851,32 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         </select>
       </td>
       {/* Area: always editable. In Units mode, user-entered Area drives
-          the derived Count via Unit Size. */}
+          the derived Count via Unit Size.
+          P10-Fix 8 (2026-05-12): accounting format on blur. */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        <input
-          type="number" min={0}
+        <AccountingNumberInput
           value={Number(totalArea.toFixed(2))}
-          data-testid={`subunit-${subUnit.id}-area-input`}
-          onChange={(e) => isUnits ? onEditAreaUnits(Number(e.target.value) || 0) : onEditAreaWhenArea(Number(e.target.value) || 0)}
+          onChange={(n) => isUnits ? onEditAreaUnits(n) : onEditAreaWhenArea(n)}
+          scale="full"
+          decimals={0}
+          min={0}
           style={{ ...inputStyle, fontSize: 11 }}
+          data-testid={`subunit-${subUnit.id}-area-input`}
         />
       </td>
-      {/* Unit Size: editable in Units mode, muted dash in Area mode. */}
+      {/* Unit Size: editable in Units mode, muted dash in Area mode.
+          P10-Fix 8 (2026-05-12): accounting format on blur. */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
           <>
-            <input
-              type="number" min={0}
+            <AccountingNumberInput
               value={Number((subUnit.unitArea ?? 0).toFixed(2))}
-              data-testid={`subunit-${subUnit.id}-unitArea`}
-              onChange={(e) => onEditUnitSize(Number(e.target.value) || 0)}
+              onChange={(n) => onEditUnitSize(n)}
+              scale="full"
+              decimals={0}
+              min={0}
               style={{ ...inputStyle, fontSize: 11 }}
+              data-testid={`subunit-${subUnit.id}-unitArea`}
               aria-invalid={unitsButNoSize}
             />
             {unitsButNoSize && (
