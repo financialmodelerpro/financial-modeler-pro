@@ -375,14 +375,22 @@ console.log('\n[10/10] Em-dash sweep + deferred fixes documented');
   if (emDashCount === 0) pass('no em-dashes in any touched Pass 10 file');
   else fail('em-dash sweep', `${emDashCount} em-dashes found across touched files`);
 
-  // CLAUDE-REFM.md should record Pass 10 status + the deferred items.
+  // CLAUDE-REFM.md should record Pass 10 status + flag the
+  // hybrid architecture + AccountingNumberInput sweep as shipped.
   const refmMd = resolve(REPO_ROOT, 'CLAUDE-REFM.md');
   const refm = existsSync(refmMd) ? readFileSync(refmMd, 'utf8') : '';
   if (refm.includes('Pass 10')) pass('CLAUDE-REFM.md mentions Pass 10');
   else fail('CLAUDE-REFM.md', 'Pass 10 status block missing');
-  if (refm.toLowerCase().includes('deferred') && (refm.includes('Fix 3') || refm.includes('hybrid'))) {
-    pass('CLAUDE-REFM.md flags Fix 3 hybrid architecture as deferred');
-  } else fail('deferred Fix 3', 'CLAUDE-REFM.md does not flag Fix 3 deferral');
+  if (refm.includes('hybrid project-wide') && refm.includes('ships')) {
+    pass('CLAUDE-REFM.md records Fix 3 hybrid architecture as shipped');
+  } else fail('Fix 3 shipped status', 'CLAUDE-REFM.md does not record Fix 3 as shipped');
+  if (refm.includes('AccountingNumberInput')) {
+    pass('CLAUDE-REFM.md records Fix 8 AccountingNumberInput sweep');
+  } else fail('Fix 8 shipped status', 'CLAUDE-REFM.md does not record Fix 8 sweep');
+  // Playwright spec presence.
+  const specPath = resolve(REPO_ROOT, 'tests/e2e/m20costs-pass10.spec.ts');
+  if (existsSync(specPath)) pass('Playwright spec tests/e2e/m20costs-pass10.spec.ts present');
+  else fail('Playwright spec', 'tests/e2e/m20costs-pass10.spec.ts missing');
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────
