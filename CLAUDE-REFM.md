@@ -1,5 +1,7 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-12, Tab 2 Focused Fixes ship on top of M2.0 Pass 10. Three commits land 5 fixes scoped strictly to Tab 2 (Assets & Sub-units). T2-Fix 1 patches computeAssetLandSqm so sqm/percent modes fall through to autoByBua when the allocation is 0, so the per-asset Sqm Allocated row in Land Reconciliation renders non-zero on greenfield projects. T2-Fix 2+3 rewrites LandReconciliationBlock as a single 3-column structured table (Description / Sqm / Land Value) with NDA always shown, Roads/Parks rows only when NDA is on, per-asset rows surfacing both Sqm Allocated AND Land Cost, a Total Allocated row carrying independent Equal/Under/Over chips on both columns (Sqm vs NDA + Land Cost vs Total Parcel Value), an Unassigned Land row, and a status footer summarizing both columns; the legacy red short-by section is gone. T2-Fix 4 is a no-op verification (Revenue is in the AssetAreaReconciliationBlock summary line already since Pass 10 Fix 7). T2-Fix 5a/b/c are the companion (Sell+Manage Operate sibling) corrections: Land Allocation block hidden, Useful Life replaced with a read-only "Operating Period: X years" chip sourced from the parent phase's operationsPeriods, and companion sub-units auto-mirrored from the parent's Sellable rows (new SubUnit.parentSubUnitId + startingAdr fields; makeCompanionSubUnit factory; syncCompanionSubUnits store helper; migrateT2CompanionSubUnits migration preserving ADR by parentSubUnitId then by name, dropping orphan rows, idempotent). Schema stays v8 additive. Verifier verify-tab2-fixes.ts 47/0 across 9 sections. Tab 1, Tab 3, Tab 4 untouched.**
+**Last updated: 2026-05-12, Tab 2 Pass 2 (Data Ownership + Auto-Rendering Logic) ships on top of Tab 2 Pass 1 + M2.0 Pass 10. Five commits land an audit + 4 fixes scoped strictly to Tab 2. T2P2-Fix 1 rewrites computeAssetLandSqm so resolution follows the 4 data rules exactly (companion-zero -> multiParcelSplits -> explicit sqm > 0 -> no parcels in phase -> explicit percent > 0 -> no non-companion assets in phase -> autoByBua bua-share -> equal-share fallback when totalBua = 0). Each gate is an early return; companion check moves to the top per Rule 2; phase parcels + phase non-companion assets are explicit gates; signature unchanged. T2P2-Fix 2 sweeps the remaining companion guards: Areas Row (Support / Parking / GFA inputs), per-asset NDA row, NSA/BUA/GFA hierarchy chips, and the per-asset footer summary all hide on companion. Land Reconciliation Asset Allocations list filters out isCompanion === true. T2P2-Fix 3 drops the Area Reconciliation summary line on companion (none of BUA / NSA / Efficiency / Land Cost / Revenue applies). T2P2-Fix 4 auto-hides the Area Reconciliation block on any non-companion asset whose 8 physical attributes are all zero (no sub-units, no BUA, no NSA, no Support, no Parking, no land sqm, no land cost, no sub-unit revenue); the block reappears the moment any of them gets a value. Verifier verify-tab2-pass2.ts 24/0 across 5 sections; Playwright spec tests/e2e/tab2-pass2.spec.ts captures the Phase 2 Sqm Allocated non-zero + companion-no-land-blocks DOM proofs. Schema stays v8 additive. Tab 1, Tab 3, Tab 4 untouched.
+
+**Tab 2 Pass 1 (prior, still in place):** 5 issues over 4 commits. T2-Fix 1 added the sqm/percent fall-through to autoByBua (refined in Pass 2). T2-Fix 2+3 rewrote LandReconciliationBlock as a 3-col structured table with Equal/Under/Over chips. T2-Fix 4 verified Revenue stays in the AssetAreaReconciliationBlock summary line (from Pass 10 Fix 7). T2-Fix 5a/b/c shipped the companion (Sell + Manage Operate sibling) corrections: Land Allocation hidden, Useful Life replaced with Operating Period chip from parent phase, companion sub-units auto-mirrored from parent's Sellable rows.**
 
 > **See also:**
 > - [CLAUDE.md](CLAUDE.md), Root project brief, session rules, stack, auth, envs
@@ -27,9 +29,10 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifiers (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Current canonical green: verify-tab2-fixes.ts (latest Tab 2 surface)
-npx tsx scripts/verify-tab2-fixes.ts            # T2 Focused Fixes 1+2+3+4+5a+5b+5c (47/0)
-npx tsx scripts/verify-m20costsCleanup-pass10.ts # M2.0 Pass 10 Cost cleanup + audit (53/0/0)
+# Current canonical green: verify-tab2-pass2.ts (Data Ownership + Auto-Rendering)
+npx tsx scripts/verify-tab2-pass2.ts            # T2 Pass 2 data rules + Fix 1+2+3+4 (24/0)
+npx tsx scripts/verify-tab2-fixes.ts            # T2 Pass 1 Focused Fixes 1+2+3+4+5a+5b+5c (47/0)
+npx tsx scripts/verify-m20costsCleanup-pass10.ts # M2.0 Pass 10 Cost cleanup + audit (55/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass9.ts # M2.0 Pass 9 Land zero forced fix (37/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass8.ts # M2.0 Pass 8 Costs cleanup (41/0/0)
 npx tsx scripts/verify-m20costsCleanup-pass7.ts # M2.0M Pass 7 per-asset architecture (52/0/2)
@@ -64,6 +67,89 @@ Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phas
 Test-user fixture id `00000000-0000-0000-0000-000000000000` with `ON DELETE CASCADE` cleans downstream rows on teardown. M1.7 reference: 25 pass / 0 fail / 2 skip without dev server.
 
 **Dev dependencies**: `@playwright/test ^1.59.1` + chromium browser (`npx playwright install chromium`).
+
+---
+
+## Module 1 status (2026-05-12, **Tab 2 Pass 2: Data Ownership + Auto-Rendering**)
+
+**Tab 2 Pass 2 (current, ships):** 4 data rules + 4 fixes. Audit doc
+lands first per the brief; fixes follow naturally from the rules.
+Schema stays v8 additive (no new fields). Tab 1 / Tab 3 / Tab 4
+untouched.
+
+- **Rule 1: Asset Land Allocation** has a strict resolution order:
+  multiParcelSplits → explicit `landAllocation.sqm > 0` → autoByBua
+  bua-share within phase → equal-share fallback when phase totalBua=0.
+  Phase with no parcels returns 0; phase with no non-companion assets
+  returns 0; companion always returns 0.
+
+- **Rule 2: Companion has no physical attributes.** Companion does NOT
+  carry Land Allocation, BUA / NSA / GFA, sub-unit area, land cost,
+  area reconciliation, or area-based cost lines. Companion DOES carry
+  mirrored sub-units (Pass 1 Fix 5c), Operating Period (Pass 1 Fix 5b),
+  and ADR-based revenue inputs (M2.1 work).
+
+- **Rule 3: Conditional rendering** of UI sections must respect data
+  ownership.
+
+- **Rule 4: Phase-level aggregation** sums only non-companion assets in
+  that phase. Companions never contribute to phase land totals.
+
+- **Fix 1 (`computeAssetLandSqm` rewrite, ships):** rewrites the calc
+  function so the resolution order matches the rules exactly. Each
+  gate is an early return so the function reads top-to-bottom in
+  priority order. Companion guard moves to the top (Rule 2) so a
+  companion never participates in any allocation math even when called
+  with a fixture that has parcels in its phase. Phase parcels + phase
+  non-companion assets are explicit gates; either being empty returns
+  0 instead of accidentally allocating across phase boundaries.
+  Sqm / percent modes with 0 explicit input still fall through to
+  autoByBua (Pass 1 Fix 1 behaviour kept) so brand-new projects show
+  meaningful per-asset values. Signature unchanged (5 args). Verifier
+  Section 2 proves the math on the user's MAAD multi-phase fixture
+  (Phase 1: parcel + no assets → 0 for any phantom call; Phase 2:
+  Branded Apt + Residential split 50000 sqm by BUA proportion; Phase 3:
+  Hotel + Retail split 40000 sqm by BUA proportion; companion always
+  0; explicit sqm > 0 wins; equal-share fallback when totalBua=0).
+
+- **Fix 2 (companion guard sweep, ships):** wraps the Areas Row
+  (Support / Parking / GFA inputs), the per-asset NDA row, the
+  NSA / BUA / GFA hierarchy chips, and the per-asset footer summary
+  (BUA / NSA / Efficiency / Land cost) in `!asset.isCompanion`. The
+  companion now renders just its header + Operating Period chip +
+  Sub-units mirror; nothing else. Land Reconciliation Asset Allocations
+  list filters out `isCompanion === true` so the recon never gets a
+  phantom row for an asset that owns no land.
+
+- **Fix 3 (companion drops Area Reconciliation summary, ships):**
+  companion never renders the `AssetAreaReconciliationBlock` (the
+  verification chip with BUA / NSA / Efficiency / Land Cost / Revenue).
+  None of those concepts apply to a companion.
+
+- **Fix 4 (auto-managed Area Reconciliation, ships):** non-companion
+  assets that carry ZERO data in every physical attribute (no
+  sub-units, no BUA, no NSA, no Support, no Parking, no land sqm, no
+  land cost, no sub-unit revenue) auto-hide the recon block. The
+  block reappears the moment the user enters any data. Surfacing
+  "0 / 0 / 0%" on a brand-new empty asset is noise.
+
+- **Verifier:** `scripts/verify-tab2-pass2.ts` 24 pass / 0 fail across
+  5 sections (audit doc + Fix 1 calc end-to-end on MAAD multi-phase
+  shape + Fix 2 companion guards + Fix 3+4 auto-managed recon +
+  em-dash sweep).
+
+- **Playwright spec:** `tests/e2e/tab2-pass2.spec.ts` (2 specs). First
+  seeds the MAAD multi-phase snapshot (Phase 1 parcel + no assets;
+  Phase 2 parcel + Branded Apt + Residential + companion; Phase 3
+  parcel + Hotel + Retail) and asserts the `recon-asset-a-branded-sqm`
+  cell renders non-zero post-Fix 1. Second asserts the companion card
+  carries NO Land Allocation / Areas Row / NDA / hierarchy / footer /
+  Area Reconciliation surfaces and DOES carry the Operating Period +
+  companion badge. Captures screenshots to
+  `tests/screenshots/tab2-pass2/`. Skips in headless dev without
+  NextAuth; runs post-auth via `--headed`.
+
+Commits (5): audit doc - Fix 1 - Fix 2+3+4 - verifier - closure.
 
 ---
 

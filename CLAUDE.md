@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12. Current REFM phase: Tab 2 Focused Fixes layered on M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
+**Last updated: 2026-05-12. Current REFM phase: Tab 2 Pass 2 (Data Ownership + Auto-Rendering Logic) layered on Tab 2 Pass 1 + M2.0 Pass 10 (see CLAUDE-REFM.md for status).**
 
 > **See also:**
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
