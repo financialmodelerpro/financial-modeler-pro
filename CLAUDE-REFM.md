@@ -1,5 +1,7 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-12, Tab 2 Pass 2 (Data Ownership + Auto-Rendering Logic) ships on top of Tab 2 Pass 1 + M2.0 Pass 10. Five commits land an audit + 4 fixes scoped strictly to Tab 2. T2P2-Fix 1 rewrites computeAssetLandSqm so resolution follows the 4 data rules exactly (companion-zero -> multiParcelSplits -> explicit sqm > 0 -> no parcels in phase -> explicit percent > 0 -> no non-companion assets in phase -> autoByBua bua-share -> equal-share fallback when totalBua = 0). Each gate is an early return; companion check moves to the top per Rule 2; phase parcels + phase non-companion assets are explicit gates; signature unchanged. T2P2-Fix 2 sweeps the remaining companion guards: Areas Row (Support / Parking / GFA inputs), per-asset NDA row, NSA/BUA/GFA hierarchy chips, and the per-asset footer summary all hide on companion. Land Reconciliation Asset Allocations list filters out isCompanion === true. T2P2-Fix 3 drops the Area Reconciliation summary line on companion (none of BUA / NSA / Efficiency / Land Cost / Revenue applies). T2P2-Fix 4 auto-hides the Area Reconciliation block on any non-companion asset whose 8 physical attributes are all zero (no sub-units, no BUA, no NSA, no Support, no Parking, no land sqm, no land cost, no sub-unit revenue); the block reappears the moment any of them gets a value. Verifier verify-tab2-pass2.ts 24/0 across 5 sections; Playwright spec tests/e2e/tab2-pass2.spec.ts captures the Phase 2 Sqm Allocated non-zero + companion-no-land-blocks DOM proofs. Schema stays v8 additive. Tab 1, Tab 3, Tab 4 untouched.
+**Last updated: 2026-05-12, Tab 2 Pass 3 (Quick Fixes) ships on top of Tab 2 Pass 2 + Pass 1 + M2.0 Pass 10. Four commits land 3 quick fixes. T2P3-Fix 1 widens the Land Reconciliation "Equal" chip threshold from 0.5 to 1000 sqm / 1000 SAR so projects that tie within rounding noise read Equal instead of Under / Over, with an italic "(within rounding tolerance)" caption when the band kicks in. T2P3-Fix 2 makes companion.type inherit from parent.type: makeCompanionAsset reads parent.type, updateAsset propagates type edits live, and a new migrateT2P3CompanionType migration retroactively syncs legacy snapshots (wired into all 3 hydrate chains; idempotent). T2P3-Fix 3 replaces the period-count "Operating Period: X years" chip and the depreciation UsefulLifeForm with an Operating End Date sourced from the parent phase (computeOperatingEndDate helper: end_year = startDate.year + constructionPeriods - overlapPeriods + operatingPeriods - 1; returns Dec 31 of that year; null when phase missing or ops <= 0). Applied to every hospitality asset (Operate strategy + Sell+Manage companion); Lease assets keep UsefulLifeForm. M5 / terminal-valuation hook contract documented at docs/operating-end-date-hook.md. Verifier verify-tab2-pass3.ts 33/0 across 4 sections. Schema unchanged. Tab 1, Tab 3, Tab 4 untouched.
+
+**Tab 2 Pass 2 (prior, still in place):** 4 data rules + 4 fixes. T2P2-Fix 1 rewrote computeAssetLandSqm so resolution follows the 4 data rules exactly (companion-zero -> multiParcelSplits -> explicit sqm > 0 -> no parcels in phase -> explicit percent > 0 -> no non-companion assets in phase -> autoByBua bua-share -> equal-share fallback when totalBua = 0). T2P2-Fix 2 swept companion guards across the asset card (Areas Row + per-asset NDA + NSA/BUA/GFA chips + footer summary + Land Recon list). T2P2-Fix 3 dropped the Area Reconciliation summary on companion. T2P2-Fix 4 auto-hid the recon block on non-companion assets with zero data across all 8 physical attributes.
 
 **Tab 2 Pass 1 (prior, still in place):** 5 issues over 4 commits. T2-Fix 1 added the sqm/percent fall-through to autoByBua (refined in Pass 2). T2-Fix 2+3 rewrote LandReconciliationBlock as a 3-col structured table with Equal/Under/Over chips. T2-Fix 4 verified Revenue stays in the AssetAreaReconciliationBlock summary line (from Pass 10 Fix 7). T2-Fix 5a/b/c shipped the companion (Sell + Manage Operate sibling) corrections: Land Allocation hidden, Useful Life replaced with Operating Period chip from parent phase, companion sub-units auto-mirrored from parent's Sellable rows.**
 
@@ -29,7 +31,8 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifiers (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Current canonical green: verify-tab2-pass2.ts (Data Ownership + Auto-Rendering)
+# Current canonical green: verify-tab2-pass3.ts (Quick Fixes)
+npx tsx scripts/verify-tab2-pass3.ts            # T2 Pass 3 Quick Fixes 1+2+3 (33/0)
 npx tsx scripts/verify-tab2-pass2.ts            # T2 Pass 2 data rules + Fix 1+2+3+4 (24/0)
 npx tsx scripts/verify-tab2-fixes.ts            # T2 Pass 1 Focused Fixes 1+2+3+4+5a+5b+5c (47/0)
 npx tsx scripts/verify-m20costsCleanup-pass10.ts # M2.0 Pass 10 Cost cleanup + audit (55/0/0)
@@ -67,6 +70,61 @@ Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phas
 Test-user fixture id `00000000-0000-0000-0000-000000000000` with `ON DELETE CASCADE` cleans downstream rows on teardown. M1.7 reference: 25 pass / 0 fail / 2 skip without dev server.
 
 **Dev dependencies**: `@playwright/test ^1.59.1` + chromium browser (`npx playwright install chromium`).
+
+---
+
+## Module 1 status (2026-05-12, **Tab 2 Pass 3: Quick Fixes**)
+
+**Tab 2 Pass 3 (current, ships):** 3 quick fixes layered on Pass 2.
+Schema unchanged. Tab 1 / Tab 3 / Tab 4 untouched.
+
+- **Fix 1 (Land Recon tolerance band, ships):** the Equal chip and
+  status footer now treat allocated-vs-NDA gaps under 1000 sqm and
+  allocated-vs-Total Parcel Value gaps under 1000 SAR (currency
+  units) as Equal. Below the band, status reads "✓ Equal" with an
+  italic "(within rounding tolerance)" caption when the gap is
+  non-zero. Out-of-band stays Under / Over.
+
+- **Fix 2 (companion.type inherits from parent.type, ships):** three
+  surfaces. (a) `makeCompanionAsset` factory reads `parent.type` so a
+  Residential Sell + Manage parent yields a Residential Operate
+  companion. (b) Store `updateAsset` action propagates `type` edits
+  on the parent to every companion whose `parentAssetId` matches; runs
+  regardless of whether strategy is in the patch. (c) New
+  `migrateT2P3CompanionType` migration walks every snapshot's
+  companions and copies `parent.type` when the two diverge. Wired into
+  all 3 hydrate chains (`stripV8Wrapper`, `stripWrapper`,
+  `migrateLegacyToV8`). Idempotent.
+
+- **Fix 3 (Operating End Date replaces period count + Useful Life on
+  hospitality, ships):** new helpers in `src/core/calculations`:
+  - `computeOperatingEndDate(asset, phase): Date | null` returns Dec
+    31 of `startDate.year + constructionPeriods - overlapPeriods +
+    operatingPeriods - 1` (annual phase model since M2.0i). Returns
+    `null` when phase missing or `operatingPeriods <= 0`.
+  - `formatOperatingEndDate(date): string` returns 'Mon YYYY' (e.g.
+    'Dec 2039') or '-' for null.
+
+  Tab 2 AssetCard surfaces the date with testid
+  `asset-{id}-operating-end-date` for every hospitality asset
+  (`strategy === 'Operate'` OR `isCompanion === true`). Caption:
+  *Operating end date from Phase Setup. Edit phase operating period
+  to change.* The previous "Operating Period: X years" chip
+  (companion only, Pass 1 Fix 5b) and `UsefulLifeForm` (regular
+  Operate) are both replaced. Lease assets keep `UsefulLifeForm`
+  because depreciation life still applies; the terminal-horizon
+  concept does not (leases roll). M5 / terminal-valuation hook
+  contract documented at `docs/operating-end-date-hook.md`.
+
+- **Verifier:** `scripts/verify-tab2-pass3.ts` 33 pass / 0 fail across
+  4 sections (Fix 1 markers + Fix 2 factory + store + migration
+  end-to-end smoke test with retroactive inheritance + idempotency +
+  Fix 3 helper math on real fixture + UI markers + M5 doc + em-dash
+  sweep).
+
+Commits (4): `d40ffd3` (Fix 1 tolerance band), `891611c` (Fix 2
+companion type inheritance), `0209d89` (Fix 3 Operating End Date),
+closure (verifier + CLAUDE update).
 
 ---
 

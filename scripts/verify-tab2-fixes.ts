@@ -124,14 +124,17 @@ console.log('\n[4/9] Fix 5a: Land Allocation block hidden on companion');
   else fail('Fix 5a marker', 'missing');
 }
 
-// ── Section 5: Fix 5b Operating Period from Phase ─────────────────────────
-console.log('\n[5/9] Fix 5b: Operating Period chip from parent phase');
+// ── Section 5: Fix 5b Operating chip from parent phase ────────────────────
+// T2P3 Fix 3 (2026-05-12) supersedes the period-count chip with an
+// Operating End Date sourced from the phase. The hospitality assets
+// still get a phase-sourced chip; the labels just shifted.
+console.log('\n[5/9] Fix 5b (superseded by T2P3 Fix 3): hospitality chip sourced from phase');
 {
   const needles = [
-    'operating-period',
-    'operating-period-years',
-    'Operating period defined per phase in Project Setup',
-    'phase?.operationsPeriods',
+    'operating-end-date',
+    'operating-end-date-value',
+    'Operating end date from Phase Setup',
+    'computeOperatingEndDate(asset, phase)',
   ];
   for (const n of needles) {
     if (ASSETS_SRC.includes(n)) pass(`marker "${n}"`);

@@ -53,7 +53,12 @@ roll, not a horizon).
 
 ## M5 / valuation hook contract
 
-The M5 implementer should read the helper directly when anchoring
+The brief specifies a `getOperatingEndDate(assetId): Date` hook on the
+M5 surface. Today (Tab 2 Pass 3) that hook resolves to the pure helper
+below; once M5 ships a FinancingDataHooks-style hooks bag, it will
+expose `getOperatingEndDate(assetId)` that internally looks up the
+asset + phase and calls `computeOperatingEndDate(asset, phase)`. The
+M5 implementer should read the helper directly when anchoring
 horizons:
 
 ```typescript
