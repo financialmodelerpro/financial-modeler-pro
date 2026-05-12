@@ -1057,25 +1057,21 @@ function CostRow({
         </tr>
       );
     })()}
-    {/* M2.0L (2026-05-11): always-visible per-row period chip strip
-        (also renders when phasing != manual). Visual scan of cash
-        deployment without leaving the row. Skipped when line is
-        upfront (startPeriod=0, endPeriod=0) and total=0. */}
-    {!effDisabled && total > 0 && line.endPeriod > 0 && (() => {
-      // Distribute the resolved total across [startPeriod, endPeriod]
-      // using the same phasing the calc engine will use. Skip the
-      // upfront slot (index 0); these rows live in the construction
-      // window.
-      const cp = constructionPeriods;
+    {/* T3-edit-runtime v6 (2026-05-12): per-row period chip strip.
+        Renders ONLY when phasing != manual; Manual % phasing has its
+        own % grid + money chip strip below (so we don't double-render
+        and confuse the user). Chips span the line's actual
+        [startPeriod, endPeriod] range, including periods past
+        construction; distributeItemCost sizes the output array to
+        fit endPeriod regardless of cp. */}
+    {!effDisabled && total > 0 && line.endPeriod > 0 && effPhasing !== 'manual' && (() => {
       const perPeriod = distributeItemCost(
         { ...line, phasing: effPhasing, distribution: effDistribution },
         total,
-        cp,
+        constructionPeriods,
       );
-      // Build chips ONLY for the span (startPeriod..endPeriod), keep
-      // the upfront lump if startPeriod===0.
-      const start = Math.min(line.startPeriod, cp);
-      const end = Math.min(line.endPeriod, cp);
+      const start = Math.max(0, line.startPeriod);
+      const end = Math.max(start, line.endPeriod);
       const chips: Array<{ idx: number; amount: number }> = [];
       for (let p = start; p <= end; p++) {
         chips.push({ idx: p, amount: perPeriod[p] ?? 0 });

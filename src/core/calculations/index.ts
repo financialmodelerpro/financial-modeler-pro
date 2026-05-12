@@ -946,25 +946,38 @@ export function distribute(method: CostPhasing, periods: number, manual?: number
 }
 
 // distributeItemCost returns a per-period schedule of the line's currency
-// across the construction window (length = constructionPeriods + 1, index
-// 0 = upfront / pre-construction). startPeriod = 0 means upfront-lump.
+// across the line's full [startPeriod, endPeriod] range. The output
+// array is sized to max(constructionPeriods, line.endPeriod) + 1 so
+// that costs phased into operations periods (e.g. commissioning fees,
+// post-handover Operate costs) are captured in their actual period.
+// Index 0 is the upfront / pre-construction lump.
+//
+// T3-edit-runtime v6 (2026-05-12): drop the end <= constructionPeriods
+// clamp per user "sometime we pay costs after construction period so,
+// user can select whatever start and end period wants". Even / Manual %
+// distribute across (endPeriod - startPeriod + 1), not the construction
+// window.
 export function distributeItemCost(
   line: CostLine,
   total: number,
   constructionPeriods: number,
 ): number[] {
-  const out = new Array<number>(constructionPeriods + 1).fill(0);
+  // Output array size accommodates whichever is bigger: the construction
+  // window OR the line's actual span. Caller usually passes cp from the
+  // phase; result may be longer.
+  const start = Math.max(0, Math.floor(line.startPeriod));
+  const endRaw = Math.max(start, Math.floor(line.endPeriod));
+  const outLen = Math.max(constructionPeriods + 1, endRaw + 1);
+  const out = new Array<number>(outLen).fill(0);
   if (line.startPeriod === 0 && line.endPeriod === 0) {
     out[0] = total;
     return out;
   }
-  const start = clamp(line.startPeriod, 0, constructionPeriods);
-  const end = clamp(line.endPeriod, start, constructionPeriods);
-  const span = Math.max(1, end - start + 1);
+  const span = Math.max(1, endRaw - start + 1);
   const weights = distribute(line.phasing, span, line.distribution);
   for (let i = 0; i < span; i++) {
     const p = start + i;
-    if (p <= constructionPeriods) out[p] = total * (weights[i] ?? 0);
+    if (p < outLen) out[p] = total * (weights[i] ?? 0);
   }
   return out;
 }
@@ -1222,17 +1235,19 @@ export function computeAssetCost(
     byStage[r.line.stage] += t;
   }
 
-  // Per-period schedule
+  // Per-period schedule. T3-edit-runtime v6 (2026-05-12): size the
+  // perPeriod array to span the construction window OR the latest cost
+  // line endPeriod, whichever is larger. Lines phased into operations
+  // (endPeriod > cp) populate the trailing slots.
   const cp = phase.constructionPeriods;
-  const perPeriod = new Array<number>(cp + 1).fill(0);
-  // M2.0L Pass2 Fix 9: per-period land splits.
-  const perPeriodLandTotal = new Array<number>(cp + 1).fill(0);
-  const perPeriodLandInKind = new Array<number>(cp + 1).fill(0);
+  const maxLineEnd = resolved.reduce((m, r) => Math.max(m, r.endPeriod), 0);
+  const periodSlots = Math.max(cp, maxLineEnd) + 1;
+  const perPeriod = new Array<number>(periodSlots).fill(0);
+  const perPeriodLandTotal = new Array<number>(periodSlots).fill(0);
+  const perPeriodLandInKind = new Array<number>(periodSlots).fill(0);
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
-    // M2.0L Pass 4: respect per-asset timing overrides when distributing.
-    // r.startPeriod / r.endPeriod = override-resolved (or master fallback).
     const dist = distributeItemCost(
       { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
       t,
@@ -1240,7 +1255,8 @@ export function computeAssetCost(
     );
     const isLand = deriveCostStage(r.line) === 'land';
     const isInKindLand = r.method === 'percent_of_inkind_land';
-    for (let i = 0; i <= cp; i++) {
+    const lim = Math.min(dist.length, periodSlots);
+    for (let i = 0; i < lim; i++) {
       const v = dist[i] ?? 0;
       perPeriod[i] += v;
       if (isLand) perPeriodLandTotal[i] += v;
