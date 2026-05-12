@@ -646,7 +646,13 @@ export type CostMethod =
   | 'percent_of_construction'  // value% × sum of stage='hard' line totals
   | 'percent_of_total_land'    // value% × parcels total value
   | 'percent_of_cash_land'     // value% × parcels cash value
-  | 'percent_of_inkind_land';  // value% × parcels in-kind value
+  | 'percent_of_inkind_land'   // value% × parcels in-kind value
+  // P10-Fix 10 (2026-05-12): commission cost lines tied to revenue.
+  // Hook-backed; today the hooks return zero-stub PeriodArrays until
+  // M2.1 Revenue ships. See docs/cost-revenue-hooks.md for the
+  // contract that the Revenue engine must satisfy.
+  | 'percent_of_revenue_cash'  // value% × revenue collected per period (cash basis)
+  | 'percent_of_revenue_sale'; // value% × revenue recognised per period (sale basis)
 
 export const COST_METHODS: readonly CostMethod[] = [
   'fixed',
@@ -667,6 +673,8 @@ export const COST_METHODS: readonly CostMethod[] = [
   'percent_of_total_land',
   'percent_of_cash_land',
   'percent_of_inkind_land',
+  'percent_of_revenue_cash',
+  'percent_of_revenue_sale',
 ] as const;
 
 // M2.0h Fix 5: special keys for asset-level Support / Parking rows in
@@ -694,6 +702,8 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   percent_of_total_land:   '% of Total Land Value',
   percent_of_cash_land:    '% of Cash Land Value',
   percent_of_inkind_land:  '% of In-Kind Land Value',
+  percent_of_revenue_cash: '% of Total Revenue (Cash Basis)',
+  percent_of_revenue_sale: '% of Total Revenue (Sale Basis)',
 };
 
 export type CostStage = 'land' | 'hard' | 'soft' | 'operating';

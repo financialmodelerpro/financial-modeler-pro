@@ -67,6 +67,14 @@ export interface FinancingDataHooks {
   getRevenueSchedule(): PeriodArray;
   /** Operating expense per project period. */
   getOperatingExpenses(): PeriodArray;
+  // P10-Fix 10 (2026-05-12): revenue-driven commission hooks. Two
+  // bases because revenue commission is sometimes paid on cash
+  // collections, sometimes on sale (recognition) timing. Cost engine
+  // multiplies the cost line's value% against the corresponding
+  // PeriodArray. Today: zero-stub until M2.1 Revenue ships. Contract
+  // in docs/cost-revenue-hooks.md.
+  getTotalRevenueCashBasis(assetId?: string): PeriodArray;
+  getTotalRevenueSaleBasis(assetId?: string): PeriodArray;
 }
 
 // Snapshot shape that the factory consumes. Mirrors HydrateSnapshot
@@ -243,6 +251,12 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
   const getDepreciationSchedule = (): PeriodArray => zeros(totalPeriods + 1);
   const getRevenueSchedule = (): PeriodArray => zeros(totalPeriods + 1);
   const getOperatingExpenses = (): PeriodArray => zeros(totalPeriods + 1);
+  // P10-Fix 10 (2026-05-12): commission revenue hooks. Zero-stub
+  // until M2.1 Revenue ships. assetId is honored at the contract
+  // level even though both bases return zero today (the M2.1
+  // implementation will filter by assetId when set).
+  const getTotalRevenueCashBasis = (_assetId?: string): PeriodArray => zeros(totalPeriods + 1);
+  const getTotalRevenueSaleBasis = (_assetId?: string): PeriodArray => zeros(totalPeriods + 1);
 
   const getClosingCashBalance = (prevPeriod: number): number => {
     if (prevPeriod < 0) return src.project.financing?.cashDeficitConfig?.initialCash ?? 0;
@@ -262,6 +276,8 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
     getDepreciationSchedule,
     getRevenueSchedule,
     getOperatingExpenses,
+    getTotalRevenueCashBasis,
+    getTotalRevenueSaleBasis,
   };
 }
 
@@ -282,5 +298,7 @@ export function createNoopHooks(totalPeriods: number): FinancingDataHooks {
     getDepreciationSchedule: () => zeros(totalPeriods + 1),
     getRevenueSchedule: () => zeros(totalPeriods + 1),
     getOperatingExpenses: () => zeros(totalPeriods + 1),
+    getTotalRevenueCashBasis: () => zeros(totalPeriods + 1),
+    getTotalRevenueSaleBasis: () => zeros(totalPeriods + 1),
   };
 }

@@ -828,6 +828,18 @@ export function calculateItemTotal(
       // ensures the right base is computed in pass 2.
       return base * (clamp(v, 0, 100) / 100);
     }
+    // P10-Fix 10 (2026-05-12): revenue-driven cost methods. Commission
+    // cost lines tied to revenue collected (cash) or recognised (sale).
+    // Hooks at src/hubs/modeling/platforms/refm/lib/financing-hooks.ts
+    // (getTotalRevenueCashBasis / getTotalRevenueSaleBasis) return
+    // zero-stub PeriodArrays until Module 2.1 Revenue ships. Total
+    // here returns 0 because no revenue is recognised pre-M2.1; the
+    // per-period distribution in computeAssetCost picks up the
+    // PeriodArray when revenue is non-zero. See
+    // docs/cost-revenue-hooks.md for the contract.
+    case 'percent_of_revenue_cash':
+    case 'percent_of_revenue_sale':
+      return 0;
   }
 }
 
