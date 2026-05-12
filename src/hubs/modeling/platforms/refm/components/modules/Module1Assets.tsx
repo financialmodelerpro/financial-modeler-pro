@@ -618,6 +618,18 @@ export default function Module1Assets(): React.JSX.Element {
           }
           return map;
         })()}
+        // P10-Fix 5 (2026-05-12): per-asset land VALUE map for the
+        // Asset Land Cost column in the NDA recon table.
+        assetLandValueByAssetId={(() => {
+          const map = new Map<string, number>();
+          for (const a of assets) {
+            if (!a.visible) continue;
+            const phaseAssets = assets.filter((x) => x.phaseId === a.phaseId && x.visible);
+            const bd = computeAssetLandBreakdown(a, parcels, phaseAssets, subUnits, landAllocationMode);
+            map.set(a.id, bd.landValue);
+          }
+          return map;
+        })()}
       />
 
       {/* Land Allocation Mode (unchanged) */}
@@ -1454,6 +1466,12 @@ function AssetCard({
               line; expand reveals itemized three-tier breakdown. The
               user's expand/collapse preference persists in
               localStorage per project (key 'm20i-asset-recon-{id}'). */}
+          {/* P10-Fix 7 (2026-05-12): compute totalRevenue locally from
+              revenue sub-units. Sum of metricValue * unitPrice across
+              Sellable / Operable / Leasable categories. Support
+              category is intentionally excluded (cost basis, not
+              revenue source). Land + parking handled at asset level,
+              not sub-unit level. */}
           <AssetAreaReconciliationBlock
             asset={asset}
             assetSubUnits={assetSubUnits}
@@ -1462,6 +1480,9 @@ function AssetCard({
             parkingSum={parkingSum}
             landSqm={landBreakdown.landSqm}
             landCost={landCost}
+            totalRevenue={assetSubUnits
+              .filter((u) => u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable')
+              .reduce((s, u) => s + Math.max(0, u.metricValue) * Math.max(0, u.unitPrice ?? 0), 0)}
             currency={project.currency}
             scale={project.displayScale ?? 'full'}
             decimals={project.displayDecimals ?? 2}
@@ -1922,6 +1943,7 @@ interface LandReconciliationBlockProps {
   projectParksPct: number;
   assets: Asset[];
   assetLandSqmByAssetId: Map<string, number>;
+  assetLandValueByAssetId: Map<string, number>;
   phases: Phase[];
 }
 
@@ -1942,7 +1964,7 @@ function writeCollapsed(v: boolean): void {
 function LandReconciliationBlock({
   landReconciliation, parcels, currency, scale, decimals,
   projectNdaEnabled, projectRoadsPct, projectParksPct,
-  assets, assetLandSqmByAssetId, phases,
+  assets, assetLandSqmByAssetId, assetLandValueByAssetId, phases,
 }: LandReconciliationBlockProps): React.JSX.Element {
   const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
   const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
@@ -1982,16 +2004,32 @@ function LandReconciliationBlock({
         onClick={toggle}
         data-testid="land-reconciliation-toggle"
       >
+        {/* P10-Fix 5 (2026-05-12): when projectNdaEnabled, the summary
+            compares allocations against NDA (post-deduction) instead
+            of gross parcels. Drops the misleading "short by 10,630"
+            message that confused users (allocations matched NDA but
+            were short of gross). The summary suffix follows the same
+            three-way state (matches / over / unassigned) using the
+            NDA-aware basis. */}
         <div style={{ fontSize: 'var(--font-small)', display: 'flex', gap: 8, alignItems: 'baseline' }}>
           <span style={{ color: accent, fontWeight: 700 }}>{landReconciliation.matches ? '✓' : landReconciliation.overBy > 0 ? '✗' : '⚠'}</span>
           <strong>Land:</strong>
           <span data-testid="land-reconciliation-summary">
-            {fmt(landReconciliation.assetsAllocatedSqm)} sqm allocated, {fmtMoney(landReconciliation.assetsAllocatedValue)}
-            {landReconciliation.matches
-              ? ' (matches parcels)'
-              : landReconciliation.overBy > 0
-                ? ` (over by ${fmt(landReconciliation.overBy)} sqm)`
-                : ` (short by ${fmt(landReconciliation.shortBy)} sqm)`}
+            {(() => {
+              const allocated = landReconciliation.assetsAllocatedSqm;
+              const allocatedValue = landReconciliation.assetsAllocatedValue;
+              if (projectNdaEnabled) {
+                const totalLand = landReconciliation.parcelsTotalSqm;
+                const nda = Math.max(0, totalLand - totalLand * (projectRoadsPct / 100) - totalLand * (projectParksPct / 100));
+                const diff = nda - allocated;
+                if (Math.abs(diff) < 1) return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (matches NDA)`;
+                if (diff < 0) return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (over NDA by ${fmt(Math.abs(diff))} sqm)`;
+                return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (${fmt(diff)} sqm unassigned)`;
+              }
+              if (landReconciliation.matches) return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (matches parcels)`;
+              if (landReconciliation.overBy > 0) return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (over by ${fmt(landReconciliation.overBy)} sqm)`;
+              return `${fmt(allocated)} sqm allocated, ${fmtMoney(allocatedValue)} (${fmt(landReconciliation.shortBy)} sqm unassigned)`;
+            })()}
           </span>
         </div>
         <button
@@ -2032,14 +2070,25 @@ function LandReconciliationBlock({
             <div style={{ marginTop: 'var(--sp-2)', fontSize: 11, color: 'var(--color-meta)' }}>
               Asset Land Allocations (sum to NDA):
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)', marginTop: 4 }}>
+            {/* P10-Fix 5 (2026-05-12): 3-column grid (Asset | Sqm |
+                Asset Land Cost). Adds Asset Land Cost column + Unassigned
+                Land row (NDA - Total Allocated) after the Total row.
+                Over-allocation surfaces a red chip; under-allocation
+                shows the positive Unassigned value (not the misleading
+                "short by" math that was comparing against gross parcels). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)', marginTop: 4 }}>
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Sqm Allocated</div>
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Asset Land Cost</div>
               {assets.filter((a) => a.visible).map((a) => {
                 const phaseName = phases.find((p) => p.id === a.phaseId)?.name ?? '';
                 const sqm = assetLandSqmByAssetId.get(a.id) ?? 0;
+                const value = assetLandValueByAssetId.get(a.id) ?? 0;
                 return (
                   <React.Fragment key={a.id}>
                     <div>{a.name} ({phaseName}):</div>
                     <div data-testid={`recon-asset-${a.id}-sqm`} style={{ textAlign: 'right' }}>{fmtSqm(sqm)} sqm</div>
+                    <div data-testid={`recon-asset-${a.id}-value`} style={{ textAlign: 'right' }}>{fmtMoney(value)}</div>
                   </React.Fragment>
                 );
               })}
@@ -2048,6 +2097,29 @@ function LandReconciliationBlock({
                 {fmtSqm(landReconciliation.assetsAllocatedSqm)} sqm
                 {Math.abs(landReconciliation.assetsAllocatedSqm - nda) < 1 ? ' ✓ matches NDA' : ''}
               </div>
+              <div data-testid="recon-allocated-value" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>
+                {fmtMoney(landReconciliation.assetsAllocatedValue)}
+              </div>
+              {(() => {
+                const unassigned = nda - landReconciliation.assetsAllocatedSqm;
+                const overAllocated = unassigned < -0.5;
+                if (overAllocated) {
+                  return (
+                    <>
+                      <div style={{ marginTop: 2, color: 'var(--color-negative)', fontWeight: 700 }}>Over-allocated:</div>
+                      <div data-testid="recon-over-allocated-sqm" style={{ textAlign: 'right', color: 'var(--color-negative)', fontWeight: 700 }}>{fmtSqm(Math.abs(unassigned))} sqm</div>
+                      <div data-testid="recon-over-allocated-spacer" />
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    <div style={{ marginTop: 2 }}>Unassigned Land:</div>
+                    <div data-testid="recon-unassigned-sqm" style={{ textAlign: 'right' }}>{Math.abs(unassigned) < 0.5 ? '-' : `${fmtSqm(Math.max(0, unassigned))} sqm`}</div>
+                    <div data-testid="recon-unassigned-spacer" />
+                  </>
+                );
+              })()}
             </div>
           </div>
         );
@@ -2115,13 +2187,19 @@ interface AssetAreaReconciliationBlockProps {
   parkingSum: number;
   landSqm: number;
   landCost: number;
+  // P10-Fix 7 (2026-05-12): sum of sub-unit Total Revenue (no
+  // indexation). Computed at caller from metricValue * unitPrice
+  // across revenue sub-unit categories (Sellable / Operable /
+  // Leasable). Surfaces inline in the verification summary so the
+  // user sees revenue alongside BUA / NSA / Land at a glance.
+  totalRevenue: number;
   currency: string;
   scale: import('../../lib/state/module1-types').DisplayScale;
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
 }
 
 function AssetAreaReconciliationBlock({
-  asset, assetSubUnits, derivedSellable, supportSum, parkingSum, landSqm, landCost,
+  asset, assetSubUnits, derivedSellable, supportSum, parkingSum, landSqm, landCost, totalRevenue,
   currency, scale, decimals,
 }: AssetAreaReconciliationBlockProps): React.JSX.Element {
   const bua = derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0);
@@ -2155,6 +2233,7 @@ function AssetAreaReconciliationBlock({
         {' | '}Eff <strong data-testid={`asset-${asset.id}-recon-eff`}>{bua > 0 ? `${fmt(eff, 1)}%` : 'n/a'}</strong>
         {' | '}Land <strong data-testid={`asset-${asset.id}-recon-land`}>{fmt(landSqm)}</strong>
         {' | '}Land Cost <strong data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtMoney(landCost)}</strong>
+        {' | '}Revenue <strong data-testid={`asset-${asset.id}-recon-revenue`}>{fmtMoney(totalRevenue)}</strong>
         {mismatch && <span style={{ color: 'var(--color-accent-warm)', marginLeft: 8 }}>· no revenue sub-units yet</span>}
       </span>
     </div>
