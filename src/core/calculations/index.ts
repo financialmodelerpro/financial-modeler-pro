@@ -191,14 +191,21 @@ export function computeAssetLandSqm(
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
   const agg = computeLandAggregate(phaseParcels);
   if (agg.totalAreaSqm <= 0) return 0;
+  // T2 Fix 1 (2026-05-12): explicit allocation wins; otherwise the
+  // mode falls through to autoByBua so the Land Reconciliation table
+  // always shows a meaningful per-asset value (no more "Sqm Allocated:
+  // 0" rows when the user hasn't typed explicit sqm/percent yet).
+  // Cost lines that read landSqm pick up the same fallback so Land
+  // (Cash) + Land (In-Kind) compute non-zero out of the box.
   if (mode === 'sqm') {
-    // Read from structured shape first, then legacy field.
     const sqm = asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0;
-    return Math.max(0, sqm);
+    if (sqm > 0) return Math.max(0, sqm);
+    // fall through to autoByBua share below
   }
   if (mode === 'percent') {
     const pct = asset.landAllocation?.pct ?? asset.landAreaPct ?? 0;
-    return agg.totalAreaSqm * (Math.max(0, pct) / 100);
+    if (pct > 0) return agg.totalAreaSqm * (Math.max(0, pct) / 100);
+    // fall through to autoByBua share below
   }
   // autoByBua
   // P10-Fix 9 (2026-05-12): when totalBua across phase assets is 0
