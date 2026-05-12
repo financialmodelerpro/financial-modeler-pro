@@ -761,23 +761,30 @@ function CostRow({
         )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
+        {/* T3-edit-runtime v5 (2026-05-12): no max cap on Start. User
+            asked to be able to phase costs after construction (e.g.
+            commissioning, post-handover Operate fees). Only floor at
+            zero. Out-of-range surfaces an informational chip below. */}
         <input
           type="number"
           min={0}
-          max={constructionPeriods}
           value={line.startPeriod}
           onChange={(e) => {
             const next = parseInt(e.target.value) || 0;
-            writeStartPeriod(Math.min(Math.max(0, next), constructionPeriods));
+            writeStartPeriod(Math.max(0, next));
           }}
           disabled={isStartEndLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-start`}
-          title={`Max = ${constructionPeriods}`}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
           {periodStartLabel}
         </div>
+        {line.startPeriod > constructionPeriods && (
+          <div style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-warning`}>
+            past construction
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
         <input

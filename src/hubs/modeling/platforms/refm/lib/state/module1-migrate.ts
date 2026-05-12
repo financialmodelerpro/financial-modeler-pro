@@ -739,22 +739,21 @@ function migrateT3DefaultCostLineSeed(snap: HydrateSnapshot): HydrateSnapshot {
   return { ...snap, costLines: [...existing, ...seeded] };
 }
 
-// T3-regr-2 Fix 2 (2026-05-12): clamp out-of-range Start / End on cost
-// lines. Legacy snapshots whose phase.constructionPeriods drifted post-
-// hydrate carry Start/End values like 19, 12, 6 that no longer make
-// sense (often End < Start, or End past cp+1). Rules per line:
+// T3-regr-2 Fix 2 + T3-edit-runtime v5 (2026-05-12): sanity-check Start /
+// End on cost lines. Costs CAN extend past construction (commissioning,
+// post-handover operate fees), so the prior cp+1 upper cap is dropped.
+// Rules per line:
 //   - Land Cash / Land In-Kind: force startPeriod=0, endPeriod=0
 //     (single-period upfront draw at period 0).
-//   - All other lines, given cp = phase.constructionPeriods:
-//       * startPeriod outside [0, cp] -> reset to 0.
-//       * endPeriod  outside [startPeriod, cp+1] -> reset to cp+1.
-// Idempotent: when nothing is out of range, returns the original snapshot.
+//   - All other lines:
+//       * startPeriod < 0 OR non-finite -> reset to 0.
+//       * endPeriod   < startPeriod OR non-finite -> reset to startPeriod
+//         (degenerate single-period cost; better than reversed range).
+// Idempotent: when everything is in shape, returns the original snapshot.
 function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
   const lines = (snap.costLines as CostLine[]) ?? [];
   const phases = (snap.phases as Phase[]) ?? [];
   if (lines.length === 0 || phases.length === 0) return snap;
-  const cpByPhase = new Map<string, number>();
-  for (const p of phases) cpByPhase.set(p.id, Math.max(1, p.constructionPeriods ?? 24));
   let touched = 0;
   const next: CostLine[] = lines.map((c) => {
     const baseId = deriveLineBaseId(c.id);
@@ -763,12 +762,10 @@ function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
       touched += 1;
       return { ...c, startPeriod: 0, endPeriod: 0 };
     }
-    const cp = cpByPhase.get(c.phaseId) ?? 24;
-    const startOk = Number.isFinite(c.startPeriod) && c.startPeriod >= 0 && c.startPeriod <= cp;
+    const startOk = Number.isFinite(c.startPeriod) && c.startPeriod >= 0;
     const nextStart = startOk ? c.startPeriod : 0;
-    const upperEnd = cp + 1;
-    const endOk = Number.isFinite(c.endPeriod) && c.endPeriod >= nextStart && c.endPeriod <= upperEnd;
-    const nextEnd = endOk ? c.endPeriod : upperEnd;
+    const endOk = Number.isFinite(c.endPeriod) && c.endPeriod >= nextStart;
+    const nextEnd = endOk ? c.endPeriod : nextStart;
     if (nextStart === c.startPeriod && nextEnd === c.endPeriod) return c;
     touched += 1;
     return { ...c, startPeriod: nextStart, endPeriod: nextEnd };
@@ -776,7 +773,7 @@ function migrateT3ClampStartEnd(snap: HydrateSnapshot): HydrateSnapshot {
   if (touched === 0) return snap;
   if (typeof console !== 'undefined') {
     // eslint-disable-next-line no-console
-    console.log(`[REFM] T3 clamp Start/End: clamped ${touched} cost line(s) outside [0, cp+1]`);
+    console.log(`[REFM] T3 sanity-check Start/End: corrected ${touched} cost line(s) with invalid range`);
   }
   return { ...snap, costLines: next };
 }
