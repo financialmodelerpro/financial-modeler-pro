@@ -201,9 +201,22 @@ export function computeAssetLandSqm(
     return agg.totalAreaSqm * (Math.max(0, pct) / 100);
   }
   // autoByBua
+  // P10-Fix 9 (2026-05-12): when totalBua across phase assets is 0
+  // (every asset is a stub with no sub-units and no buaSqm yet), fall
+  // back to equal-share allocation across visible phase assets so the
+  // Land cost line renders a non-zero value the moment the user adds
+  // a parcel. Without this fallback, the autoByBua path returns 0 for
+  // every asset until BUA is entered, leaving Land (Cash) / Land
+  // (In-Kind) cost lines at 0 even though parcels carry value. Pass 9
+  // Fix 8 widened computeAssetBua to use asset.buaSqm when sub-units
+  // sum to 0, but if NO asset in the phase has buaSqm either, totalBua
+  // stays 0 and line 206 returned 0. This branch closes the gap.
   const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
   const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-  if (totalBua <= 0) return 0;
+  if (totalBua <= 0) {
+    if (phaseAssets.length === 0) return 0;
+    return agg.totalAreaSqm / phaseAssets.length;
+  }
   const myBua = computeAssetBua(asset, subUnits);
   return agg.totalAreaSqm * (myBua / totalBua);
 }
