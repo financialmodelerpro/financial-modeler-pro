@@ -1204,8 +1204,40 @@ function AssetCard({
               for back-compat but no longer render. Companion's
               hospitality params (occupancy / indexation / days) land
               in M2.1 Revenue. */}
-          {(asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
-            <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
+          {/* T2-Fix 5b (2026-05-12): on a companion (Operate) asset, replace
+              UsefulLifeForm with a read-only Operating Period chip sourced
+              from the parent phase's operationsPeriods. Companions cannot
+              depreciate independently; their period of activity follows
+              the phase's operations window. */}
+          {asset.isCompanion ? (
+            (() => {
+              const phase = allPhases.find((p) => p.id === asset.phaseId);
+              const opPeriods = phase?.operationsPeriods ?? 0;
+              return (
+                <div
+                  data-testid={`asset-${asset.id}-operating-period`}
+                  style={{
+                    background: 'var(--color-grey-pale)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--sp-1) var(--sp-2)',
+                    marginBottom: 'var(--sp-2)',
+                    fontSize: 'var(--font-small)',
+                    color: 'var(--color-body)',
+                  }}
+                >
+                  <strong>Operating Period:</strong>{' '}
+                  <span data-testid={`asset-${asset.id}-operating-period-years`}>{opPeriods} {opPeriods === 1 ? 'year' : 'years'}</span>
+                  <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 2 }}>
+                    Operating period defined per phase in Project Setup. Edit there to change.
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
+            (asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
+              <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
+            )
           )}
           {asset.isCompanion && (
             <div
@@ -1227,7 +1259,10 @@ function AssetCard({
           )}
 
           {/* M2.0f Fix 2: Land row (parcel dropdown + sqm/% input + multi-parcel splits)
-              + M2.0f Fix 6: Areas row (BUA + breakdown derived from sub-units; GFA optional input). */}
+              + M2.0f Fix 6: Areas row (BUA + breakdown derived from sub-units; GFA optional input).
+              T2-Fix 5a (2026-05-12): hidden on companion assets (Operate). The companion
+              inherits its units count from the parent and never carries its own land. */}
+          {!asset.isCompanion && (
           <div
             style={{
               border: '1px dashed var(--color-border)',
@@ -1390,6 +1425,7 @@ function AssetCard({
               </div>
             )}
           </div>
+          )}
 
           {/* M2.0h Fix 3 (2026-05-07): three-tier area hierarchy.
               The M2.0g "Asset BUA Total" hand-typed input is removed
@@ -1600,39 +1636,45 @@ function AssetCard({
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)', flexWrap: 'wrap', gap: 8 }}>
                     <strong style={{ fontSize: 'var(--font-small)' }}>Sub-units</strong>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Metric:</span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name={`subunit-metric-${asset.id}`}
-                          value="area"
-                          data-testid={`asset-${asset.id}-subunit-metric-area`}
-                          checked={assetMetric === 'area'}
-                          onChange={() => switchAssetMetric('area')}
-                        />
-                        Area
-                      </label>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name={`subunit-metric-${asset.id}`}
-                          value="units"
-                          data-testid={`asset-${asset.id}-subunit-metric-units`}
-                          checked={assetMetric === 'units'}
-                          onChange={() => switchAssetMetric('units')}
-                        />
-                        Units
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleAddSubUnit}
-                        data-testid={`asset-${asset.id}-add-subunit`}
-                        style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)', marginLeft: 8 }}
-                      >
-                        + Sub-unit
-                      </button>
-                    </div>
+                    {asset.isCompanion ? (
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid={`asset-${asset.id}-companion-subunit-note`}>
+                        Mirrored from parent. Edit ADR only.
+                      </span>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Metric:</span>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name={`subunit-metric-${asset.id}`}
+                            value="area"
+                            data-testid={`asset-${asset.id}-subunit-metric-area`}
+                            checked={assetMetric === 'area'}
+                            onChange={() => switchAssetMetric('area')}
+                          />
+                          Area
+                        </label>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name={`subunit-metric-${asset.id}`}
+                            value="units"
+                            data-testid={`asset-${asset.id}-subunit-metric-units`}
+                            checked={assetMetric === 'units'}
+                            onChange={() => switchAssetMetric('units')}
+                          />
+                          Units
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleAddSubUnit}
+                          data-testid={`asset-${asset.id}-add-subunit`}
+                          style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)', marginLeft: 8 }}
+                        >
+                          + Sub-unit
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {assetSubUnits.length === 0 ? (
                     <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
@@ -1684,6 +1726,7 @@ function AssetCard({
                             scale={project.displayScale ?? 'full'}
                             assetStrategy={asset.strategy}
                             assetType={asset.type}
+                            isCompanionSub={asset.isCompanion === true && !!u.parentSubUnitId}
                           />
                         ))}
                       </tbody>
@@ -1783,7 +1826,61 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string }): React.JSX.Element {
+function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean }): React.JSX.Element {
+  // T2-Fix 5c (2026-05-12): companion sub-unit (parentSubUnitId set) is
+  // a read-only mirror of its parent's Sellable row. Type / Category /
+  // Area / Unit Size / Count are derived; the user only edits ADR
+  // (startingAdr). No delete button (the row vanishes when the parent
+  // Sellable is removed). Total Revenue = count * startingAdr.
+  if (isCompanionSub) {
+    const companionCount = Math.max(0, Math.round(subUnit.metricValue));
+    const adr = subUnit.startingAdr ?? subUnit.unitPrice;
+    const countLabel = countUnitLabel('Operable', assetStrategy, assetType);
+    const companionRevenue = companionCount * Math.max(0, adr);
+    return (
+      <tr data-testid={`subunit-row-${subUnit.id}`} data-companion-row="true">
+        <td style={{ padding: '4px 6px' }}>
+          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-name-readonly`}>{subUnit.name || '-'}</div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }}>from parent</div>
+        </td>
+        <td style={{ padding: '4px 6px' }}>
+          <div style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-category-readonly`}>Operable</div>
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-area-hidden`}>-</span>
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-count`}>
+            {companionCount.toLocaleString('en-US')}
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
+              {countLabel}
+            </div>
+          </div>
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+          <AccountingNumberInput
+            value={adr}
+            onChange={(n) => onUpdate({ startingAdr: Math.max(0, n), unitPrice: Math.max(0, n) })}
+            scale="full"
+            decimals={decimals}
+            min={0}
+            style={{ ...inputStyle, fontSize: 11 }}
+            data-testid={`subunit-${subUnit.id}-startingAdr`}
+          />
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
+            {currency} ADR / key / night
+          </div>
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-total-revenue`}>
+          {formatAccounting(companionRevenue, scale, decimals)}
+        </td>
+        <td style={{ padding: '4px 6px' }} />
+      </tr>
+    );
+  }
   // P8-Fix 2 (2026-05-12): metric is per-asset (no per-row dropdown).
   // Storage stays the same: subUnit.metricValue carries total area when
   // metric='area' and count when metric='units'. In Units mode the user

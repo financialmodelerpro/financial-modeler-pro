@@ -36,6 +36,7 @@ import {
   makeDefaultParcel,
   makeDefaultCostLines,
   makeCompanionAsset,
+  makeCompanionSubUnit,
   makeDefaultFinancingTranche,
 } from './module1-types';
 
@@ -148,6 +149,68 @@ function syncCompanionUnits(assets: Asset[], subUnits: SubUnit[]): Asset[] {
     return { ...a, unitsFromParent: sellableUnits };
   });
   return changed ? next : assets;
+}
+
+// T2-Fix 5c (2026-05-12): companion sub-unit mirror sync. For each
+// companion (Operate) asset, ensures its sub-unit list mirrors the
+// parent's Sellable sub-units one-for-one. ADR is preserved by
+// matching parentSubUnitId; rows whose parent vanished are dropped;
+// rows for newly added parent Sellables get a fresh companion shadow.
+// Returns a new subUnits array only if a change is required.
+function syncCompanionSubUnits(assets: Asset[], subUnits: SubUnit[]): SubUnit[] {
+  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId);
+  if (companions.length === 0) return subUnits;
+  let changed = false;
+  let working = subUnits;
+  for (const companion of companions) {
+    const parentSellables = subUnits.filter(
+      (u) => u.assetId === companion.parentAssetId && u.category === 'Sellable',
+    );
+    const parentIds = new Set(parentSellables.map((u) => u.id));
+    const existingCompanionSubs = working.filter((u) => u.assetId === companion.id);
+    // Drop existing companion sub-units whose parent is gone OR are not mirrors.
+    const adrByParentId = new Map<string, number>();
+    for (const cs of existingCompanionSubs) {
+      if (cs.parentSubUnitId && cs.startingAdr !== undefined) {
+        adrByParentId.set(cs.parentSubUnitId, cs.startingAdr);
+      }
+    }
+    // Build target set: one mirror per parent Sellable, ordered to match parent.
+    const targetMirrors = parentSellables.map((parentSub) => {
+      const preservedAdr = adrByParentId.get(parentSub.id);
+      const existing = existingCompanionSubs.find((u) => u.parentSubUnitId === parentSub.id);
+      const next = makeCompanionSubUnit(parentSub, companion.id, existing?.startingAdr ?? preservedAdr);
+      // Preserve operate-only fields if user set them.
+      if (existing) {
+        return {
+          ...next,
+          occupancyPct: existing.occupancyPct,
+          operatingMargin: existing.operatingMargin,
+        };
+      }
+      return next;
+    });
+    // Replace this companion's sub-units in the working list.
+    const before = existingCompanionSubs;
+    const sameLength = before.length === targetMirrors.length;
+    const sameContents = sameLength && before.every((b, i) => {
+      const t = targetMirrors[i]!;
+      return b.id === t.id
+        && b.name === t.name
+        && b.metricValue === t.metricValue
+        && b.unitPrice === t.unitPrice
+        && b.startingAdr === t.startingAdr
+        && b.parentSubUnitId === t.parentSubUnitId;
+    });
+    if (sameContents) continue;
+    changed = true;
+    working = [
+      ...working.filter((u) => u.assetId !== companion.id),
+      ...targetMirrors,
+    ];
+    void parentIds;
+  }
+  return changed ? working : subUnits;
 }
 
 // ── Default state ──────────────────────────────────────────────────────────
@@ -268,7 +331,11 @@ export function createModule1Store() {
           .filter((u) => u.assetId === id && u.category === 'Sellable')
           .reduce((sum, u) => sum + Math.max(0, u.metricValue), 0);
         const companion = makeCompanionAsset(after, sellableUnits);
-        return { assets: [...next, companion] };
+        // T2-Fix 5c (2026-05-12): mirror parent Sellable sub-units onto the
+        // new companion so the user immediately sees them with ADR=0.
+        const nextAssets = [...next, companion];
+        const nextSubUnits = syncCompanionSubUnits(nextAssets, s.subUnits);
+        return { assets: nextAssets, subUnits: nextSubUnits };
       }
       if (leavesSellManage) {
         const companionIds = new Set(
@@ -307,16 +374,22 @@ export function createModule1Store() {
     // Sellable categories drive the keys count. Helper closed over the
     // next subUnits array + assets array; idempotent.
     addSubUnit: (subUnit) => set((s) => {
-      const nextSubUnits = [...s.subUnits, subUnit];
-      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+      const draftSubs = [...s.subUnits, subUnit];
+      const nextAssets = syncCompanionUnits(s.assets, draftSubs);
+      const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
+      return { subUnits: nextSubUnits, assets: nextAssets };
     }),
     updateSubUnit: (id, patch) => set((s) => {
-      const nextSubUnits = s.subUnits.map((u) => (u.id === id ? { ...u, ...patch } : u));
-      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+      const draftSubs = s.subUnits.map((u) => (u.id === id ? { ...u, ...patch } : u));
+      const nextAssets = syncCompanionUnits(s.assets, draftSubs);
+      const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
+      return { subUnits: nextSubUnits, assets: nextAssets };
     }),
     removeSubUnit: (id) => set((s) => {
-      const nextSubUnits = s.subUnits.filter((u) => u.id !== id);
-      return { subUnits: nextSubUnits, assets: syncCompanionUnits(s.assets, nextSubUnits) };
+      const draftSubs = s.subUnits.filter((u) => u.id !== id);
+      const nextAssets = syncCompanionUnits(s.assets, draftSubs);
+      const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
+      return { subUnits: nextSubUnits, assets: nextAssets };
     }),
 
     setCostLines: (costLines) => set({ costLines }),

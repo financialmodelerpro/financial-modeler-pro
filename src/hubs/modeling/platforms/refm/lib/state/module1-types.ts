@@ -446,6 +446,15 @@ export interface SubUnit {
   // Operate-only (Module 2 picks these up; ignored for other strategies):
   occupancyPct?: number;        // 0..100, hospitality / leasable utilisation
   operatingMargin?: number;     // 0..100, share of revenue retained as NOI
+  // T2-Fix 5c (2026-05-12): Companion sub-unit linkage. When this
+  // SubUnit lives on a companion (Operate) asset and mirrors a parent
+  // Sellable sub-unit, parentSubUnitId points at the parent row.
+  // Mirrored rows are auto-rendered (no Add / Delete; no Area input;
+  // Count derives from parent metricValue). startingAdr captures the
+  // Average Daily Rate the user enters; it is the only editable field
+  // on a companion sub-unit row.
+  parentSubUnitId?: string;
+  startingAdr?: number;
 }
 
 // ── Asset ──────────────────────────────────────────────────────────────────
@@ -1897,6 +1906,38 @@ export function makeCompanionAsset(parent: Asset, unitsFromParent: number): Asse
     isCompanion: true,
     companionType: 'operate',
     unitsFromParent: Math.max(0, unitsFromParent),
+  };
+}
+
+// T2-Fix 5c (2026-05-12): companion sub-unit factory. Mirrors a parent
+// Sellable sub-unit into the companion (Operate) asset's sub-unit row.
+// metric='units', unitArea=0, metricValue = parent's metricValue (count
+// derives from parent). unitPrice mirrors startingAdr so legacy revenue
+// math that reads unitPrice still works. preservedAdr lets the migration
+// or sync pass keep the user's ADR when the parent sub-unit gets renamed
+// or otherwise re-mirrored.
+export function makeCompanionSubUnit(
+  parentSubUnit: SubUnit,
+  companionAssetId: string,
+  preservedAdr?: number,
+): SubUnit {
+  const count = parentSubUnit.metric === 'units'
+    ? Math.max(0, parentSubUnit.metricValue)
+    : (parentSubUnit.unitArea && parentSubUnit.unitArea > 0
+        ? Math.round(parentSubUnit.metricValue / parentSubUnit.unitArea)
+        : 0);
+  const adr = Math.max(0, preservedAdr ?? 0);
+  return {
+    id: `companion-sub_${parentSubUnit.id}`,
+    assetId: companionAssetId,
+    name: parentSubUnit.name,
+    category: 'Operable',
+    metric: 'units',
+    metricValue: count,
+    unitArea: 0,
+    unitPrice: adr,
+    parentSubUnitId: parentSubUnit.id,
+    startingAdr: adr,
   };
 }
 

@@ -46,6 +46,7 @@ import {
   makeDefaultParcel,
   makeDefaultCostLines,
   makeDefaultFinancingTranche,
+  makeCompanionSubUnit,
   DEFAULT_PHASE_ID,
   DEFAULT_PROJECT_FINANCING_CONFIG,
   PHASE_FILTER_ALL,
@@ -189,7 +190,9 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
+  // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
+  return migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -207,7 +210,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))));
+  )))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -219,8 +222,9 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
-  // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8.
-  return migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
+  // then T2-Fix 5c companion sub-unit mirror.
+  return migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -238,7 +242,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))));
+  )))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -664,6 +668,55 @@ function migrateM20costsPass10Hybrid(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20_PASS10_NOTICE =
   "Cost lines simplified to project-wide. Where assets carried different rates, the first asset's rate was used as the master; per-asset overrides preserved. Check Tab 3 and re-enter overrides where needed.";
+
+// T2-Fix 5c (2026-05-12): companion sub-unit mirror migration. Walks
+// every companion (Operate) asset and reconciles its sub-units against
+// the parent's Sellable list. Existing companion sub-units are matched
+// to parent rows by type name (case-insensitive) when parentSubUnitId
+// is missing, so legacy snapshots whose companions were edited by hand
+// pre-T2 carry their ADR forward. Sub-units on the companion whose
+// parent has been deleted are dropped. New parent Sellables get fresh
+// companion shadows with ADR=0. Idempotent: a snapshot already in
+// T2-Fix 5c shape returns unchanged.
+function migrateT2CompanionSubUnits(snap: HydrateSnapshot): HydrateSnapshot {
+  const assets = (snap.assets as Asset[]) ?? [];
+  const subUnits = (snap.subUnits as SubUnit[]) ?? [];
+  const companions = assets.filter((a) => a.isCompanion === true && a.parentAssetId);
+  if (companions.length === 0) return snap;
+  let working: SubUnit[] = subUnits;
+  let changed = false;
+  for (const companion of companions) {
+    const parentSellables = subUnits.filter(
+      (u) => u.assetId === companion.parentAssetId && u.category === 'Sellable',
+    );
+    const existing = working.filter((u) => u.assetId === companion.id);
+    // Index ADR by parentSubUnitId, then by name (lowercased) as fallback.
+    const adrByParentId = new Map<string, number>();
+    const adrByName = new Map<string, number>();
+    for (const cs of existing) {
+      const adr = cs.startingAdr !== undefined ? cs.startingAdr : cs.unitPrice;
+      if (cs.parentSubUnitId) adrByParentId.set(cs.parentSubUnitId, adr);
+      if (cs.name) adrByName.set(cs.name.toLowerCase(), adr);
+    }
+    const target = parentSellables.map((parentSub) => {
+      const preserved = adrByParentId.get(parentSub.id) ?? adrByName.get((parentSub.name ?? '').toLowerCase());
+      return makeCompanionSubUnit(parentSub, companion.id, preserved);
+    });
+    const sameLen = existing.length === target.length;
+    const sameContents = sameLen && existing.every((b, i) => {
+      const t = target[i]!;
+      return b.id === t.id && b.parentSubUnitId === t.parentSubUnitId
+        && b.metricValue === t.metricValue && (b.startingAdr ?? 0) === (t.startingAdr ?? 0);
+    });
+    if (sameContents) continue;
+    changed = true;
+    working = [
+      ...working.filter((u) => u.assetId !== companion.id),
+      ...target,
+    ];
+  }
+  return changed ? { ...snap, subUnits: working } : snap;
+}
 
 export function snapshotNeedsPass10Migration(s: unknown): boolean {
   if (s === null || typeof s !== 'object') return false;
@@ -1345,9 +1398,9 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Run the full migration chain so the loose result is identical to
   // a v7 -> v8 hydration: aggregate monthly to annual, fold legacy
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
-  // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
-  // display defaults.
-  snap = migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
+  // display defaults, then T2-Fix 5c companion sub-unit mirror.
+  snap = migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1365,7 +1418,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  ))));
+  )))));
   return snap;
 }
 
