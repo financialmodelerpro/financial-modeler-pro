@@ -1910,29 +1910,34 @@ function SummaryTables({
                   c.phaseId === a.phaseId &&
                   (c.targetAssetId === undefined || c.targetAssetId === a.id)
                 );
-                // P11 Fix 9 (2026-05-13) + Fix 11 (2026-05-13): every
-                // view splits each asset's row group into:
-                //   (a) header row - asset name only, full-width
-                //       highlight, no values;
-                //   (b) per-line nested rows;
-                //   (c) closing subtotal row carrying the asset total
-                //       + per-period values, same highlight color as
-                //       the header. Combined view labels the subtotal
-                //       "Asset Subtotal" (one of many in the table);
-                //       Single Asset view labels it "{name} Subtotal"
-                //       since it doubles as the table's bottom line.
+                // P11 Fix 9 (2026-05-13) + Fix 11 (2026-05-13) +
+                // Fix 14 (2026-05-13): Combined view splits each asset
+                // into header row (asset name, colSpan, no values) ->
+                // per-line nested rows -> closing subtotal row carrying
+                // total + per-period values. Single Asset view drops
+                // both the top header row AND the Project Total footer
+                // - one asset, one subtotal at the bottom is enough.
+                // Subtotal label = "Subtotal - {asset name}" in both
+                // views (project no-em-dash rule -> hyphen). Subtotal
+                // row applies the navy 12% mix on every <td> directly
+                // (not just the <tr>) so the label cell fills along
+                // with the number cells.
                 const groupBg = 'color-mix(in srgb, var(--color-navy) 12%, transparent)';
+                const subtotalCellName: React.CSSProperties = { ...cellName, background: groupBg };
+                const subtotalCellNum: React.CSSProperties = { ...cellNum, background: groupBg };
                 return (
                   <React.Fragment key={a.id}>
-                    <tr style={{ background: groupBg, fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
-                      <td
-                        style={{ ...cellName, fontSize: 12, padding: '6px 6px' }}
-                        colSpan={2 + croppedPeriodCount}
-                        data-testid={`capex-period-asset-${a.id}-header`}
-                      >
-                        {a.name}
-                      </td>
-                    </tr>
+                    {resultsView === 'combined' && (
+                      <tr data-testid={`capex-period-asset-${a.id}`}>
+                        <td
+                          style={{ ...cellName, background: groupBg, fontWeight: 700, fontSize: 12, padding: '6px 6px' }}
+                          colSpan={2 + croppedPeriodCount}
+                          data-testid={`capex-period-asset-${a.id}-header`}
+                        >
+                          {a.name}
+                        </td>
+                      </tr>
+                    )}
                     {linesForThisAsset.map((line) => {
                       let lineTotal = 0;
                       const linePerPeriodAnnual = new Array<number>(annualPeriodCount).fill(0);
@@ -1984,26 +1989,28 @@ function SummaryTables({
                       );
                     })}
                     <tr
-                      style={{ background: groupBg, fontWeight: 700 }}
+                      style={{ fontWeight: 700 }}
                       data-testid={`capex-period-asset-${a.id}-subtotal`}
                     >
-                      <td style={cellName}>
-                        {resultsView === 'single_asset' ? `${a.name} Subtotal` : 'Asset Subtotal'}
+                      <td style={{ ...subtotalCellName, fontWeight: 700 }}>
+                        Subtotal - {a.name}
                       </td>
-                      <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
-                      {cropRow(assetRow).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      <td style={{ ...subtotalCellNum, fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                      {cropRow(assetRow).map((v, i) => (<td key={i} style={{ ...subtotalCellNum, fontWeight: 700 }} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
                     </tr>
                   </React.Fragment>
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                <td style={cellName}>Project Total</td>
-                <td style={cellNum} data-testid="capex-period-grand-total">{fmt(periodTotals.reduce((s, v) => s + v, 0))}</td>
-                {cropRow(periodTotals).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
-              </tr>
-            </tfoot>
+            {resultsView === 'combined' && (
+              <tfoot>
+                <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                  <td style={cellName}>Project Total</td>
+                  <td style={cellNum} data-testid="capex-period-grand-total">{fmt(periodTotals.reduce((s, v) => s + v, 0))}</td>
+                  {cropRow(periodTotals).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
@@ -2091,33 +2098,34 @@ function SummaryTables({
                     {rows.length === 0 ? (
                       <tr><td style={cellName} colSpan={2 + croppedPeriodCount}>No non-zero values for this view.</td></tr>
                     ) : rows.map((r) => {
-                      // P11 Fix 11 (2026-05-13): apply the same subtotal
-                      // styling Table 1 uses so Single Asset view feels
-                      // consistent across all four tables - bold, navy
-                      // 12% fill, "{name} Subtotal" label. In Combined
-                      // view the rows keep the simple {name} label to
-                      // avoid noise when many assets stack.
+                      // P11 Fix 14 (2026-05-13): every per-asset row in
+                      // Tables 2/3/4 reads as a subtotal: bold, navy 12%
+                      // fill applied directly on each <td> so the label
+                      // cell fills alongside the number cells, label =
+                      // "Subtotal - {asset name}". Pattern matches
+                      // Table 1's closing subtotal row in both Combined
+                      // and Single Asset views.
                       const summaryBg = 'color-mix(in srgb, var(--color-navy) 12%, transparent)';
-                      const rowStyle = resultsView === 'single_asset'
-                        ? { background: summaryBg, fontWeight: 700 }
-                        : undefined;
-                      const label = resultsView === 'single_asset' ? `${r.asset.name} Subtotal` : r.asset.name;
+                      const subName: React.CSSProperties = { ...cellName, background: summaryBg, fontWeight: 700 };
+                      const subNum: React.CSSProperties = { ...cellNum, background: summaryBg, fontWeight: 700 };
                       return (
-                        <tr key={r.asset.id} style={rowStyle} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
-                          <td style={cellName}>{label}</td>
-                          <td style={cellNum} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
-                          {cropRow(r.row).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                        <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
+                          <td style={subName}>Subtotal - {r.asset.name}</td>
+                          <td style={subNum} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
+                          {cropRow(r.row).map((v, i) => (<td key={i} style={subNum}>{fmt(v)}</td>))}
                         </tr>
                       );
                     })}
                   </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                      <td style={cellName}>Project Total</td>
-                      <td style={cellNum} data-testid={`capex-summary-${testidKey}-grand-total`}>{fmt(projTotal)}</td>
-                      {cropRow(periodTotalsLocal).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
-                    </tr>
-                  </tfoot>
+                  {resultsView === 'combined' && (
+                    <tfoot>
+                      <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                        <td style={cellName}>Project Total</td>
+                        <td style={cellNum} data-testid={`capex-summary-${testidKey}-grand-total`}>{fmt(projTotal)}</td>
+                        {cropRow(periodTotalsLocal).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
