@@ -1693,54 +1693,9 @@ function SummaryTables({
     // is deferred to advanced).
     return distributeAnnualToPeriods(annual, granularity, 'even');
   };
-  // P11 Fix 2 (2026-05-13): apply phase offset when placing per-asset
-  // perPeriod values onto the project-wide axis. Previously the loop
-  // dropped each bd.perPeriod[i+1] into annualRow[i] regardless of
-  // phaseStartYear, which misaligned Phase 2+ assets by their full
-  // phase offset (a Phase 2 asset starting 2026 had its Y1 spend
-  // posted to the project's 2025 column). The per-asset table rows
-  // already corrected for this offset inline; this builder now
-  // matches so periodTotals (used by the Project Total footer)
-  // agrees with the asset rows it sums.
-  const projectStartYearTable = new Date(project.startDate).getUTCFullYear();
-  const periodTable = phaseAssets.map((a) => {
-    const annualRow = new Array<number>(annualPeriodCount).fill(0);
-    for (const pb of perPhaseBreakdowns) {
-      const bd = pb.assetTotals[a.id];
-      if (!bd) continue;
-      const phaseObj = phases.find((p) => p.id === pb.phaseId);
-      const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10
-        ? phaseObj.startDate
-        : project.startDate;
-      const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
-      const offset = Number.isFinite(phaseStartYear - projectStartYearTable)
-        ? Math.max(0, phaseStartYear - projectStartYearTable)
-        : 0;
-      // P11 Fix 6: iterate the full perPeriod length so operating-tail
-      // costs (lines with endPeriod > cp) survive into the project axis.
-      for (let i = 1; i < bd.perPeriod.length; i++) {
-        const v = bd.perPeriod[i] ?? 0;
-        if (v === 0) continue;
-        const dest = offset + i - 1;
-        if (dest >= 0 && dest < annualPeriodCount) {
-          annualRow[dest] += v;
-        }
-      }
-      // perPeriod[0] is the upfront / Y0 lump. For Phase 1 it lands at
-      // project Y0, which is outside the column grid (grid starts at Y1).
-      // For later phases the upfront falls at the phase's first project
-      // year minus one (= the year before the phase begins).
-      if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
-        annualRow[offset - 1] += bd.perPeriod[0] ?? 0;
-      }
-    }
-    const row = transformAnnualSeries(annualRow);
-    return { id: a.id, name: a.name, row };
-  });
-  const periodTotals = new Array<number>(periodCount).fill(0);
-  for (const r of periodTable) {
-    for (let i = 0; i < periodCount; i++) periodTotals[i] += r.row[i] ?? 0;
-  }
+  // P11 Fix 16 (2026-05-13): periodTable + periodTotals builders
+  // removed - they fed only the now-deleted Project Total footer.
+  // Per-asset rows + closing subtotal still compute inline below.
 
   // Capex by Stage: rows = period (cap 24), cols = land/hard/soft/operating/total.
   // M2.0h Fix 6: stage rows distributed annually first, then split to
@@ -2002,15 +1957,12 @@ function SummaryTables({
                 );
               })}
             </tbody>
-            {resultsView === 'combined' && (
-              <tfoot>
-                <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                  <td style={cellName}>Project Total</td>
-                  <td style={cellNum} data-testid="capex-period-grand-total">{fmt(periodTotals.reduce((s, v) => s + v, 0))}</td>
-                  {cropRow(periodTotals).map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
-                </tr>
-              </tfoot>
-            )}
+            {/* P11 Fix 16 (2026-05-13): Project Total footer removed
+                from Table 1. Each asset's closing "Subtotal - {name}"
+                row already carries the asset total + per-period
+                values; the project-wide rollup is available in the
+                top stage tile bar + the per-table tfoot was reading
+                as redundant single-amount noise. */}
           </table>
         </div>
       </div>
@@ -2077,11 +2029,9 @@ function SummaryTables({
             .map((a) => ({ asset: a, ...buildAssetRow(a, mode) }))
             // Hide zero rows (brief: hide rows with total = 0).
             .filter((r) => Math.abs(r.total) > 0.5);
-          const projTotal = rows.reduce((s, r) => s + r.total, 0);
-          const periodTotalsLocal = new Array<number>(periodCount).fill(0);
-          for (const r of rows) {
-            for (let i = 0; i < periodCount; i++) periodTotalsLocal[i] += r.row[i] ?? 0;
-          }
+          // P11 Fix 16 (2026-05-13): projTotal + periodTotalsLocal
+          // were only consumed by the removed Project Total footer; no
+          // remaining consumers in this helper.
           return (
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
               <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 14 }}>{title}</h3>
@@ -2117,15 +2067,11 @@ function SummaryTables({
                       );
                     })}
                   </tbody>
-                  {resultsView === 'combined' && (
-                    <tfoot>
-                      <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                        <td style={cellName}>Project Total</td>
-                        <td style={cellNum} data-testid={`capex-summary-${testidKey}-grand-total`}>{fmt(projTotal)}</td>
-                        {cropRow(periodTotalsLocal).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
-                      </tr>
-                    </tfoot>
-                  )}
+                  {/* P11 Fix 16 (2026-05-13): Project Total footer
+                      removed from Tables 2/3/4 to match Table 1. The
+                      per-asset "Subtotal - {name}" rows already carry
+                      every value the user needs at the row level; the
+                      project-wide rollup is in the top stage tile bar. */}
                 </table>
               </div>
             </div>
