@@ -2123,134 +2123,134 @@ function LandReconciliationBlock({
           {collapsed ? 'expand' : 'collapse'}
         </button>
       </div>
-      {!collapsed && projectNdaEnabled && (() => {
-        // P9-Fix 2 (2026-05-12): explicit Total -> NDA walk + per-asset
-        // allocations. Numbers come from project-level NDA inputs; the
-        // walk holds regardless of per-parcel toggles (project scope wins
-        // when projectNdaEnabled).
+      {!collapsed && (() => {
+        // T2 Fix 2 + 3 (2026-05-12): single 3-column structured table
+        // (Description | Sqm | Land Value). Always rendered when
+        // expanded; Roads/Parks rows surface only when projectNdaEnabled.
+        // NDA row always visible (when NDA disabled, NDA = Total Parcel).
+        // Land Value column shows GROSS values (NDA reduces developable
+        // sqm only; cost basis stays on gross). Per-asset rows + Total
+        // Allocated + Unassigned Land. Equal/Under/Over chips applied
+        // to both Sqm and Land Value columns. Replaces the prior
+        // NDA-only walk + 3-col bottom grid + red "short by" section.
         const totalLand = landReconciliation.parcelsTotalSqm;
-        const roadsSqm = totalLand * (projectRoadsPct / 100);
-        const parksSqm = totalLand * (projectParksPct / 100);
-        const nda = Math.max(0, totalLand - roadsSqm - parksSqm);
+        const totalLandValue = landReconciliation.parcelsTotalValue;
+        const roadsSqm = projectNdaEnabled ? totalLand * (projectRoadsPct / 100) : 0;
+        const parksSqm = projectNdaEnabled ? totalLand * (projectParksPct / 100) : 0;
+        const nda = projectNdaEnabled ? Math.max(0, totalLand - roadsSqm - parksSqm) : totalLand;
         const fmtSqm = (n: number): string => fmt(n);
+        const allocatedSqm = landReconciliation.assetsAllocatedSqm;
+        const allocatedValue = landReconciliation.assetsAllocatedValue;
+        const sqmDiff = nda - allocatedSqm;
+        const valueDiff = totalLandValue - allocatedValue;
+        const sqmStatus: 'equal' | 'under' | 'over' =
+          Math.abs(sqmDiff) < 0.5 ? 'equal' : sqmDiff > 0 ? 'under' : 'over';
+        const valueStatus: 'equal' | 'under' | 'over' =
+          Math.abs(valueDiff) < 0.5 ? 'equal' : valueDiff > 0 ? 'under' : 'over';
+        const chipFor = (status: 'equal' | 'under' | 'over'): React.JSX.Element => {
+          if (status === 'equal') return <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>✓ Equal</span>;
+          if (status === 'under') return <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>⚠ Under</span>;
+          return <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>❌ Over</span>;
+        };
+        const gridStyle: React.CSSProperties = {
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+          columnGap: 'var(--sp-3)',
+          rowGap: 2,
+          fontFamily: 'var(--font-mono, monospace)',
+          fontSize: 'var(--font-small)',
+        };
+        const cellRight: React.CSSProperties = { textAlign: 'right' };
+        const rowTopBorder: React.CSSProperties = {
+          borderTop: '1px solid var(--color-border)',
+          paddingTop: 4,
+          marginTop: 2,
+        };
+        const rowBold: React.CSSProperties = { fontWeight: 700 };
         return (
           <div
-            style={{ marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-small)' }}
-            data-testid="land-reconciliation-nda-walk"
+            style={{ marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)' }}
+            data-testid="land-reconciliation-table"
           >
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Land Reconciliation</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)' }}>
-              <div>Total Parcel Land:</div>
-              <div data-testid="recon-total-land" style={{ textAlign: 'right' }}>{fmtSqm(totalLand)} sqm</div>
-              <div>Less: Roads ({projectRoadsPct.toFixed(1)}%):</div>
-              <div data-testid="recon-roads" style={{ textAlign: 'right' }}>-{fmtSqm(roadsSqm)} sqm</div>
-              <div>Less: Parks ({projectParksPct.toFixed(1)}%):</div>
-              <div data-testid="recon-parks" style={{ textAlign: 'right' }}>-{fmtSqm(parksSqm)} sqm</div>
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700 }}>Net Developable Area:</div>
-              <div data-testid="recon-nda" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>{fmtSqm(nda)} sqm</div>
-            </div>
-            <div style={{ marginTop: 'var(--sp-2)', fontSize: 11, color: 'var(--color-meta)' }}>
-              Asset Land Allocations (sum to NDA):
-            </div>
-            {/* P10-Fix 5 (2026-05-12): 3-column grid (Asset | Sqm |
-                Asset Land Cost). Adds Asset Land Cost column + Unassigned
-                Land row (NDA - Total Allocated) after the Total row.
-                Over-allocation surfaces a red chip; under-allocation
-                shows the positive Unassigned value (not the misleading
-                "short by" math that was comparing against gross parcels). */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', columnGap: 'var(--sp-2)', rowGap: 2, fontFamily: 'var(--font-mono, monospace)', marginTop: 4 }}>
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Sqm Allocated</div>
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Asset Land Cost</div>
+            <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 'var(--font-small)' }}>Land Reconciliation</div>
+            <div style={gridStyle}>
+              {/* Header row */}
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</div>
+              <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sqm</div>
+              <div style={{ ...cellRight, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Value ({currency})</div>
+
+              {/* Total Parcel Land */}
+              <div>Total Parcel Land</div>
+              <div data-testid="recon-total-land" style={cellRight}>{fmtSqm(totalLand)}</div>
+              <div data-testid="recon-total-land-value" style={cellRight}>{fmtMoney(totalLandValue)}</div>
+
+              {/* Roads / Parks only when NDA enabled */}
+              {projectNdaEnabled && (
+                <>
+                  <div>Less: Roads ({projectRoadsPct.toFixed(1)}%)</div>
+                  <div data-testid="recon-roads" style={cellRight}>({fmtSqm(roadsSqm)})</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+                  <div>Less: Parks ({projectParksPct.toFixed(1)}%)</div>
+                  <div data-testid="recon-parks" style={cellRight}>({fmtSqm(parksSqm)})</div>
+                  <div style={{ ...cellRight, color: 'var(--color-meta)' }}>-</div>
+                </>
+              )}
+
+              {/* Net Developable Area (always shown; when NDA disabled, = total) */}
+              <div style={{ ...rowTopBorder, ...rowBold }}>Net Developable Area</div>
+              <div data-testid="recon-nda" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtSqm(nda)}</div>
+              <div data-testid="recon-nda-value" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>{fmtMoney(totalLandValue)}</div>
+
+              {/* Spacer + Asset Allocations header */}
+              <div style={{ marginTop: 'var(--sp-1)', fontSize: 11, color: 'var(--color-meta)' }}>Asset Allocations:</div>
+              <div />
+              <div />
+
+              {/* Per-asset rows */}
               {assets.filter((a) => a.visible).map((a) => {
                 const phaseName = phases.find((p) => p.id === a.phaseId)?.name ?? '';
                 const sqm = assetLandSqmByAssetId.get(a.id) ?? 0;
                 const value = assetLandValueByAssetId.get(a.id) ?? 0;
                 return (
                   <React.Fragment key={a.id}>
-                    <div>{a.name} ({phaseName}):</div>
-                    <div data-testid={`recon-asset-${a.id}-sqm`} style={{ textAlign: 'right' }}>{fmtSqm(sqm)} sqm</div>
-                    <div data-testid={`recon-asset-${a.id}-value`} style={{ textAlign: 'right' }}>{fmtMoney(value)}</div>
+                    <div>{a.name} ({phaseName})</div>
+                    <div data-testid={`recon-asset-${a.id}-sqm`} style={cellRight}>{fmtSqm(sqm)}</div>
+                    <div data-testid={`recon-asset-${a.id}-value`} style={cellRight}>{fmtMoney(value)}</div>
                   </React.Fragment>
                 );
               })}
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700 }}>Total Allocated:</div>
-              <div data-testid="recon-allocated" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>
-                {fmtSqm(landReconciliation.assetsAllocatedSqm)} sqm
-                {Math.abs(landReconciliation.assetsAllocatedSqm - nda) < 1 ? ' ✓ matches NDA' : ''}
+
+              {/* Total Allocated with chips */}
+              <div style={{ ...rowTopBorder, ...rowBold }}>Total Allocated</div>
+              <div data-testid="recon-allocated" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                {fmtSqm(allocatedSqm)} <span style={{ marginLeft: 6 }}>{chipFor(sqmStatus)}</span>
               </div>
-              <div data-testid="recon-allocated-value" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, marginTop: 2, fontWeight: 700, textAlign: 'right' }}>
-                {fmtMoney(landReconciliation.assetsAllocatedValue)}
+              <div data-testid="recon-allocated-value" style={{ ...cellRight, ...rowTopBorder, ...rowBold }}>
+                {fmtMoney(allocatedValue)} <span style={{ marginLeft: 6 }}>{chipFor(valueStatus)}</span>
               </div>
-              {(() => {
-                const unassigned = nda - landReconciliation.assetsAllocatedSqm;
-                const overAllocated = unassigned < -0.5;
-                if (overAllocated) {
-                  return (
-                    <>
-                      <div style={{ marginTop: 2, color: 'var(--color-negative)', fontWeight: 700 }}>Over-allocated:</div>
-                      <div data-testid="recon-over-allocated-sqm" style={{ textAlign: 'right', color: 'var(--color-negative)', fontWeight: 700 }}>{fmtSqm(Math.abs(unassigned))} sqm</div>
-                      <div data-testid="recon-over-allocated-spacer" />
-                    </>
-                  );
-                }
-                return (
-                  <>
-                    <div style={{ marginTop: 2 }}>Unassigned Land:</div>
-                    <div data-testid="recon-unassigned-sqm" style={{ textAlign: 'right' }}>{Math.abs(unassigned) < 0.5 ? '-' : `${fmtSqm(Math.max(0, unassigned))} sqm`}</div>
-                    <div data-testid="recon-unassigned-spacer" />
-                  </>
-                );
-              })()}
+
+              {/* Unassigned Land row */}
+              <div>Unassigned Land</div>
+              <div data-testid="recon-unassigned-sqm" style={cellRight}>
+                {sqmStatus === 'equal' ? <span style={{ color: 'var(--color-meta)' }}>-</span> : sqmStatus === 'over' ? <span style={{ color: 'var(--color-negative)' }}>over by {fmtSqm(Math.abs(sqmDiff))}</span> : fmtSqm(sqmDiff)}
+              </div>
+              <div data-testid="recon-unassigned-value" style={cellRight}>
+                {valueStatus === 'equal' ? <span style={{ color: 'var(--color-meta)' }}>-</span> : valueStatus === 'over' ? <span style={{ color: 'var(--color-negative)' }}>over by {fmtMoney(Math.abs(valueDiff))}</span> : fmtMoney(valueDiff)}
+              </div>
+            </div>
+
+            {/* Status footer */}
+            <div style={{ marginTop: 'var(--sp-2)', fontSize: 11, color: 'var(--color-meta)' }} data-testid="recon-status-footer">
+              <div>
+                Sqm: {fmtSqm(allocatedSqm)} / {fmtSqm(nda)} {projectNdaEnabled ? 'NDA' : 'Total Parcel'} <span style={{ marginLeft: 6 }}>{chipFor(sqmStatus)}</span>
+              </div>
+              <div style={{ marginTop: 2 }}>
+                Land Cost: {fmtMoney(allocatedValue)} / {fmtMoney(totalLandValue)} Total Parcel Value <span style={{ marginLeft: 6 }}>{chipFor(valueStatus)}</span>
+              </div>
             </div>
           </div>
         );
       })()}
-      {!collapsed && (
-        <div style={{ marginTop: 'var(--sp-2)', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
-            <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
-            <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
-            <div data-testid="land-reconciliation-status">
-              {landReconciliation.matches && (
-                <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
-              )}
-              {landReconciliation.overBy > 0 && (
-                <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
-              )}
-              {landReconciliation.shortBy > 0 && (
-                <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
-              )}
-            </div>
-          </div>
-          {anyNda && (
-            <>
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total NDA</div>
-                <div data-testid="land-reconciliation-total-nda"><strong>{fmt(totalParcelsNda)}</strong> sqm <span style={{ color: 'var(--color-meta)' }}>({fmt(totalReservedRoadsParks)} reserved for roads / parks)</span></div>
-              </div>
-              <div></div>
-              <div></div>
-            </>
-          )}
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
-            <div data-testid="land-reconciliation-parcels-value"><strong>{fmtMoney(landReconciliation.parcelsTotalValue)}</strong></div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
-            <div data-testid="land-reconciliation-allocated-value"><strong>{fmtMoney(landReconciliation.assetsAllocatedValue)}</strong></div>
-          </div>
-          <div></div>
-        </div>
-      )}
     </div>
   );
 }
