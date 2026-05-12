@@ -192,7 +192,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -210,7 +210,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))));
+  )))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -224,7 +224,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -242,7 +242,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))));
+  )))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -668,6 +668,34 @@ function migrateM20costsPass10Hybrid(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20_PASS10_NOTICE =
   "Cost lines simplified to project-wide. Where assets carried different rates, the first asset's rate was used as the master; per-asset overrides preserved. Check Tab 3 and re-enter overrides where needed.";
+
+// T3-defaults Fix (2026-05-12): Pass 10 hybrid short-circuits when no
+// line carries a non-companion targetAssetId (needsWork === false).
+// Snapshots whose costLines array landed empty for any reason
+// (legacy migration drop, user added a phase but never added an
+// asset, etc.) re-hydrate with that phase still empty and the user
+// sees Tab 3 with no cost lines + 0 totals. This migration runs at
+// the tail of every hydrate chain and seeds the 10-line default
+// catalog (Land Cash, Land In-Kind, Construction BUA, Construction
+// Parking, Infrastructure, Landscaping, Pre-operating, Professional
+// Fee, Commission, Contingency) for every phase whose slice is
+// empty post-migration. Idempotent: a phase that already has any
+// cost lines is left untouched (user edits + custom lines preserved).
+function migrateT3DefaultCostLineSeed(snap: HydrateSnapshot): HydrateSnapshot {
+  const phases = (snap.phases as Phase[]) ?? [];
+  const existing = (snap.costLines as CostLine[]) ?? [];
+  if (phases.length === 0) return snap;
+  const phaseHasLines = (phaseId: string): boolean =>
+    existing.some((c) => c.phaseId === phaseId);
+  const seeded: CostLine[] = [];
+  for (const phase of phases) {
+    if (phaseHasLines(phase.id)) continue;
+    const cp = Math.max(1, phase.constructionPeriods ?? 24);
+    seeded.push(...makeDefaultCostLines(phase.id, cp));
+  }
+  if (seeded.length === 0) return snap;
+  return { ...snap, costLines: [...existing, ...seeded] };
+}
 
 // T2P3 Fix 2 (2026-05-12): companion type inheritance migration. Walks
 // every companion asset (isCompanion === true with parentAssetId set)
@@ -1422,7 +1450,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, Pass 6
   // display defaults, then T2-Fix 5c companion sub-unit mirror.
-  snap = migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateT3DefaultCostLineSeed(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1440,7 +1468,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  ))))));
+  )))))));
   return snap;
 }
 
