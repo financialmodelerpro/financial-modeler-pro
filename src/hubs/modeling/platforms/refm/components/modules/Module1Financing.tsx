@@ -1908,6 +1908,15 @@ export default function Module1Financing(): React.JSX.Element {
             const fundNonLabelPct = nonLabelColumnPct(1 + fundAxis.count);
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
+            // M2.0 Pass 18 (2026-05-13) Fix 9: Methods 2 + 3 depend on
+            // presales + OCF data that ships with M2 Revenue + M4 FS.
+            // Until those engines land, the computed numbers use stubbed
+            // zeros and are misleading. Render dashes for those rows
+            // (and for the Selected row when the active method is 2/3)
+            // until the dependency lands. Switch back to numbers by
+            // returning false from this guard.
+            const isMethodStubbed = (m: FundingMethodId): boolean => m === 2 || m === 3;
+            const DASH = '-';
             const renderRow = (m: FundingMethodId, isSelected: boolean): React.JSX.Element => {
               const row = results[m].periodArray;
               const cropped = inputsAxis.cropRow(row);
@@ -1917,12 +1926,15 @@ export default function Module1Financing(): React.JSX.Element {
                 ? `Selected: Method ${m} ${FUNDING_METHOD_LABELS[m]}`
                 : `Method ${m}: ${FUNDING_METHOD_LABELS[m]}`;
               const testid = isSelected ? 'funding-req-selected' : `funding-req-method-${m}`;
+              const stub = isMethodStubbed(m);
               return (
                 <tr data-testid={testid} key={isSelected ? 'sel' : `m${m}`}>
                   <td style={nameStyle}>{label}</td>
-                  <td style={numStyle}>{fmtCell(sum(row))}</td>
-                  <td style={numStyle}>{fmtCell(0)}</td>
-                  {cropped.map((v, i) => (<td key={i} style={numStyle}>{fmtCell(v)}</td>))}
+                  <td style={numStyle}>{stub ? DASH : fmtCell(sum(row))}</td>
+                  <td style={numStyle}>{stub ? DASH : fmtCell(0)}</td>
+                  {cropped.map((v, i) => (
+                    <td key={i} style={numStyle}>{stub ? DASH : fmtCell(v)}</td>
+                  ))}
                 </tr>
               );
             };
@@ -1950,7 +1962,7 @@ export default function Module1Financing(): React.JSX.Element {
                   </table>
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-                  Methods 3 and 4 use stubbed presales and operating cash flow until M2 Revenue and M4 Financial Statements modules ship. Their numbers will refine then.
+                  Methods 2 and 3 use stubbed presales and operating cash flow until M2 Revenue and M4 Financial Statements modules ship. Their numbers will refine then.
                 </div>
               </div>
             );
