@@ -2726,17 +2726,23 @@ export default function Module1Costs(): React.JSX.Element {
     );
   }
 
-  // Per-phase pre-compute (one breakdown per (phase, asset))
+  // Per-phase pre-compute (one breakdown per (phase, asset)).
+  // M2.0 Pass 14 (2026-05-13): parcel funding config threaded into
+  // computeAssetCost so deferred-payment parcels spread Land Cash
+  // across their configured periods. Read straight off project.financing
+  // (same path Tab 4 uses); legacy projects without financing get
+  // undefined and the engine takes its no-deferred fallback.
+  const parcelFunding = project.financing?.parcelFunding;
   const perPhaseBreakdowns = useMemo(() => {
     return phases.map((phase) => {
       const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
       const assetTotals: Record<string, AssetCostBreakdown> = {};
       for (const a of phaseAssets) {
-        assetTotals[a.id] = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode);
+        assetTotals[a.id] = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding);
       }
       return { phaseId: phase.id, phaseName: phase.name, cp: phase.constructionPeriods, phaseAssets, assetTotals };
     });
-  }, [phases, assets, project, parcels, subUnits, costLines, costOverrides, landAllocationMode]);
+  }, [phases, assets, project, parcels, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding]);
 
   const allVisibleAssets = useMemo(() => assets.filter((a) => a.visible), [assets]);
 

@@ -118,6 +118,8 @@ function aggregateProjectPeriodArray(
         src.costLines,
         src.costOverrides,
         src.landAllocationMode,
+        // M2.0 Pass 14 (2026-05-13): deferred-payment Land Cash spread.
+        src.project.financing?.parcelFunding,
       );
       const series = pick(breakdown);
       for (let localPeriod = 0; localPeriod < series.length; localPeriod++) {
@@ -225,6 +227,7 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
     const breakdown = computeAssetCost(
       asset, src.project, phase, src.parcels, src.assets, src.subUnits,
       src.costLines, src.costOverrides, src.landAllocationMode,
+      src.project.financing?.parcelFunding,
     );
     for (let localPeriod = 0; localPeriod < breakdown.perPeriod.length; localPeriod++) {
       const pp = costLineProjectPeriodIndex(src.project, phase, localPeriod);

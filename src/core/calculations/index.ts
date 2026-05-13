@@ -70,6 +70,7 @@ import type {
   RepaymentMethod,
   OutputGranularity,
   FundingMethodId,
+  ParcelFundingConfig,
   ProjectFinancingConfig,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
@@ -1098,6 +1099,12 @@ export function computeAssetCost(
   costLines: CostLine[],
   costOverrides: CostOverride[],
   landAllocationMode: LandAllocationMode,
+  // M2.0 Pass 14 (2026-05-13): parcel funding config, threaded in so
+  // percent_of_cash_land lines can distribute deferred-payment parcel
+  // slices via expandDeferredSchedule instead of lumping at Y0.
+  // Optional: legacy callers (and tests that mock the engine) keep
+  // the existing Y0 behaviour when omitted.
+  parcelFunding?: ParcelFundingConfig[],
 ): AssetCostBreakdown {
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
@@ -1296,6 +1303,45 @@ export function computeAssetCost(
   const perPeriod = new Array<number>(periodSlots).fill(0);
   const perPeriodLandTotal = new Array<number>(periodSlots).fill(0);
   const perPeriodLandInKind = new Array<number>(periodSlots).fill(0);
+  // M2.0 Pass 14 (2026-05-13): per-parcel cash-share fractions for this
+  // asset, used to decompose a percent_of_cash_land line by parcel so
+  // deferred-payment parcels can distribute via expandDeferredSchedule
+  // instead of lumping at Y0. Sums to 1.0 across the asset's phase
+  // parcels' cash slices (or stays empty when no parcel info is
+  // available, in which case the loop below falls back to the
+  // single-distributeItemCost path).
+  const phaseCashFractions = new Map<string, number>();
+  if (parcelFunding && parcelFunding.length > 0) {
+    const phaseParcels = parcels.filter((p) => p.phaseId === phase.id);
+    const landBd = computeAssetLandBreakdown(asset, parcels, assets, subUnits, landAllocationMode);
+    let total = 0;
+    const cashByParcel: Record<string, number> = {};
+    if (landBd.splits.length > 0) {
+      for (const sp of landBd.splits) {
+        const parcel = phaseParcels.find((p) => p.id === sp.parcelId);
+        if (!parcel) continue;
+        const slice = sp.value * Math.max(0, parcel.cashPct) / 100;
+        cashByParcel[sp.parcelId] = slice;
+        total += slice;
+      }
+    } else {
+      // Fallback: distribute the asset's cashLandValue across phase
+      // parcels pro-rata by each parcel's cash value within the phase.
+      // Mirrors the aggregate path in resolveAssetAreaMetrics so the
+      // per-parcel decomposition stays consistent with the total.
+      for (const p of phaseParcels) {
+        const slice = Math.max(0, p.area) * Math.max(0, p.rate) * Math.max(0, p.cashPct) / 100;
+        cashByParcel[p.id] = slice;
+        total += slice;
+      }
+    }
+    if (total > 0) {
+      for (const [pid, v] of Object.entries(cashByParcel)) {
+        phaseCashFractions.set(pid, v / total);
+      }
+    }
+  }
+
   // P11 Fix 6 (2026-05-13): retain the per-line schedule so Module1
   // Costs Table 1 per-line nested rows can render the line's own
   // phasing curve. Same distributeItemCost call powers both the
@@ -1305,11 +1351,51 @@ export function computeAssetCost(
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
-    const dist = distributeItemCost(
-      { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
-      t,
-      cp,
-    );
+    let dist: number[];
+    // M2.0 Pass 14 (2026-05-13): percent_of_cash_land lines decompose
+    // by parcel so deferred-payment parcels can spread via
+    // expandDeferredSchedule. Non-deferred parcel slices fall back to
+    // the line's existing schedule (default = Y0 lump). When no
+    // parcelFunding is supplied or no parcel has deferred config, the
+    // line takes the unchanged single distributeItemCost path so
+    // existing callers / fixtures stay bit-identical.
+    if (
+      r.method === 'percent_of_cash_land' &&
+      phaseCashFractions.size > 0 &&
+      parcelFunding &&
+      parcelFunding.some((pf) =>
+        pf.fundingType === 'deferred_payment' &&
+        phaseCashFractions.has(pf.parcelId),
+      )
+    ) {
+      dist = new Array<number>(periodSlots).fill(0);
+      let nonDeferredTotal = 0;
+      for (const [parcelId, frac] of phaseCashFractions) {
+        const slice = t * frac;
+        const cfg = parcelFunding.find((pf) => pf.parcelId === parcelId);
+        if (cfg?.fundingType === 'deferred_payment' && cfg.deferredSchedule) {
+          const weights = expandDeferredSchedule(cfg.deferredSchedule, periodSlots);
+          for (let i = 0; i < periodSlots; i++) dist[i] += slice * (weights[i] ?? 0);
+        } else {
+          nonDeferredTotal += slice;
+        }
+      }
+      if (nonDeferredTotal > 0) {
+        const tmp = distributeItemCost(
+          { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+          nonDeferredTotal,
+          cp,
+        );
+        const lim = Math.min(tmp.length, periodSlots);
+        for (let i = 0; i < lim; i++) dist[i] += tmp[i] ?? 0;
+      }
+    } else {
+      dist = distributeItemCost(
+        { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+        t,
+        cp,
+      );
+    }
     perLinePerPeriod[r.line.id] = dist;
     const isLand = deriveCostStage(r.line) === 'land';
     const isInKindLand = r.method === 'percent_of_inkind_land';
@@ -1342,6 +1428,9 @@ export function computePhaseCost(
   assets: Asset[],
   subUnits: SubUnit[],
   landAllocationMode: LandAllocationMode = 'autoByBua',
+  // M2.0 Pass 14 (2026-05-13): pass-through for deferred-payment Land
+  // Cash distribution. Forwarded as-is to computeAssetCost per asset.
+  parcelFunding?: ParcelFundingConfig[],
 ): PhaseCostBreakdown {
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
   const byAssetId: Record<string, AssetCostBreakdown> = {};
@@ -1351,7 +1440,7 @@ export function computePhaseCost(
   const perPeriod = new Array<number>(cp + 1).fill(0);
 
   for (const a of phaseAssets) {
-    const breakdown = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode);
+    const breakdown = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding);
     byAssetId[a.id] = breakdown;
     total += breakdown.total;
     for (const k of ['land', 'hard', 'soft', 'operating'] as CostStage[]) byStage[k] += breakdown.byStage[k];
@@ -1395,11 +1484,11 @@ export interface FinancingResult {
  * Window is clamped to [0, totalPeriods - 1]; out-of-range entries
  * are silently dropped.
  *
- * NOTE: the cost engine's land-cash cost line still produces a Y0
- * lump today. Wiring this helper into the engine's per-period
- * distribution (so a deferred parcel actually splits its cash value
- * across the chosen periods) requires touching the cost line's
- * phasing logic; that follow-up lands separately.
+ * Wired into computeAssetCost (M2.0 Pass 14, 2026-05-13): the
+ * percent_of_cash_land line decomposes by parcel and applies these
+ * weights to any parcel whose fundingType === 'deferred_payment'.
+ * Non-deferred parcels keep the line's existing schedule (default
+ * = Y0 lump via distributeItemCost short-circuit).
  */
 export function expandDeferredSchedule(
   schedule: { type: 'even' | 'manual_pct'; startPeriod: number; endPeriod: number; distribution?: number[] } | undefined,
@@ -1942,8 +2031,13 @@ function parcelDebtEquityFractions(
       // wiring is unusual; route to equity for safety.
       return { debt: 0, equity: 1 };
     case 'deferred_payment':
-      // Engine wire deferred (per Fix 3 spec, 2026-05-13): treat as
-      // 100pct_equity until the deferred-payment routing lands.
+      // M2.0 Pass 14 (2026-05-13): per-period distribution is now wired
+      // via expandDeferredSchedule in computeAssetCost (Land Cash spreads
+      // across the configured periods). Debt/equity split for deferred
+      // parcels stays 100% equity for now - schema does not carry a
+      // separate customDebtPct/customEquityPct on deferred type. If
+      // future user feedback wants debt-routed deferred, extend the
+      // schema and route here.
       return { debt: 0, equity: 1 };
     default:
       return { debt: 0, equity: 1 };

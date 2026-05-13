@@ -1130,7 +1130,7 @@ export default function Module1Financing(): React.JSX.Element {
     for (const ph of phases) {
       const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
       for (const a of phaseAssetsLocal) {
-        const breakdown = computeAssetCost(a, project, ph, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode);
+        const breakdown = computeAssetCost(a, project, ph, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, financingConfig.parcelFunding);
         const series = new Array<number>(totalPeriods).fill(0);
         const inclSeries = breakdown.perPeriod;
         const inKindSeries = breakdown.perPeriodLandInKind;
@@ -1730,9 +1730,6 @@ export default function Module1Financing(): React.JSX.Element {
                             </div>
                           </>
                         )}
-                        <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }}>
-                          Note: engine wire-up to split the parcel cash value across these periods lands in a follow-up. Schedule is captured on schema today.
-                        </div>
                       </div>
                     );
                   })()}
