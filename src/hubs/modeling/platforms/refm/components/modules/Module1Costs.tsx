@@ -1417,7 +1417,12 @@ function AssetCostSection({
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
-  const [collapsed, setCollapsed] = useState(false);
+  // Default-collapsed (2026-05-13): every per-asset cost section in
+  // Tab 3 Inputs starts closed; user expands when ready to edit. Matches
+  // Tab 2's default-collapsed convention. Per-session re-open is the
+  // user's normal interaction; no localStorage persistence on this one
+  // since the inputs are scoped to the active asset pill.
+  const [collapsed, setCollapsed] = useState(true);
   const dest = accountingDestination(asset);
   const subtotal = breakdown.total;
 
@@ -3218,22 +3223,29 @@ export default function Module1Costs(): React.JSX.Element {
               );
             })()}
 
-            {/* P8-Fix 7 (2026-05-12): Phase filter shows individual phases
-                only; no "All Phases" option. P8-Fix 3: empty-phase state
-                renders a helpful message but keeps the filter active so
-                the user can navigate to a populated phase. */}
+            {/* Phase navigator (2026-05-13): replaced the legacy
+                <select> with a row of pill buttons that mirror the
+                asset pill row below. Same state field
+                (inputsPhaseFilter) and the same downstream filter
+                logic; only the control type changes. */}
             <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }} data-testid="costs-inputs-asset-nav">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
-                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase Filter:</strong>
-                  <select
-                    value={effectivePhaseId}
-                    onChange={(e) => setInputsPhaseFilter(e.target.value)}
-                    style={{ ...inputStyle, width: 'auto', minWidth: 160 }}
-                    data-testid="costs-inputs-phase-filter"
-                  >
-                    {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-phase-pills">
+                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase:</strong>
+                  {phases.map((p) => {
+                    const isActive = p.id === effectivePhaseId;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setInputsPhaseFilter(p.id)}
+                        style={pillStyle(isActive)}
+                        data-testid={`costs-inputs-phase-pill-${p.id}`}
+                      >
+                        {p.name}
+                      </button>
+                    );
+                  })}
                 </div>
                 {/* P11 Fix 3 (2026-05-13): top-of-tab Expand all /
                     Collapse all removed. Per-row collapse state was
