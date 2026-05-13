@@ -1085,21 +1085,31 @@ export default function Module1Financing(): React.JSX.Element {
     setFinancingConfig({ parcelFunding: next });
   };
 
-  // M2.0L: cross-tab integration, Land In-Kind auto-detection.
-  // For every Land (In-Kind) cost line in this phase, ensure there's
-  // a matching equity contribution (autoDetectedFromCostLine=true,
-  // sourceCostLineId=line.id). Idempotent; removed when the cost line
-  // is gone. Runs only on schema'd change in costLines + parcels.
+  // Land In-Kind auto-detection (2026-05-13 rewrite):
+  // Identify in-kind cost lines for this phase by their method
+  // (`percent_of_inkind_land`) rather than by hardcoded baseId. This
+  // matches both the default seed (makeDefaultCostLines) and any
+  // user-added custom line that uses the same method. When at least
+  // one active in-kind cost line exists, ensure an EquityContribution
+  // mirrors the parcel-derived inKindLandValue. sourceCostLineId is
+  // stamped with the actual composed id of the matched line (not a
+  // bare baseId), so the link survives future id schemes.
   useEffect(() => {
     if (!phase) return;
+    const inKindLines = costLines.filter(
+      (l) => l.phaseId === phase.id && l.method === 'percent_of_inkind_land' && l.disabled !== true,
+    );
+    const hasInKindLine = inKindLines.length > 0;
     const phaseAssetsLocal = assets.filter((a) => a.phaseId === phase.id && a.visible);
-    const totalInKind = phaseAssetsLocal.reduce((s, a) => {
-      const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssetsLocal, subUnits, landAllocationMode);
-      return s + Math.max(0, m.inKindLandValue);
-    }, 0);
+    const totalInKind = hasInKindLine
+      ? phaseAssetsLocal.reduce((s, a) => {
+          const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssetsLocal, subUnits, landAllocationMode);
+          return s + Math.max(0, m.inKindLandValue);
+        }, 0)
+      : 0;
     const expectedId = `equity-auto-inkind-${phase.id}`;
     const existing = equityContributions.find((e) => e.id === expectedId);
-    if (totalInKind > 0 && !existing) {
+    if (hasInKindLine && totalInKind > 0 && !existing) {
       addEquityContribution({
         id: expectedId,
         phaseId: phase.id,
@@ -1109,11 +1119,21 @@ export default function Module1Financing(): React.JSX.Element {
         type: 'in_kind',
         source: 'Landowner',
         autoDetectedFromCostLine: true,
-        sourceCostLineId: 'land-inkind',
+        // First matched in-kind line (the default seed when present;
+        // user-added custom lines fall in here if they share the same
+        // method and the default has been removed).
+        sourceCostLineId: inKindLines[0].id,
       });
-    } else if (totalInKind > 0 && existing && Math.abs(existing.amount - totalInKind) > 1) {
-      updateEquityContribution(expectedId, { amount: totalInKind });
-    } else if (totalInKind <= 0 && existing && existing.autoDetectedFromCostLine) {
+    } else if (hasInKindLine && totalInKind > 0 && existing) {
+      const needsAmountUpdate = Math.abs(existing.amount - totalInKind) > 1;
+      const needsSourceUpdate = existing.sourceCostLineId !== inKindLines[0].id;
+      if (needsAmountUpdate || needsSourceUpdate) {
+        updateEquityContribution(expectedId, {
+          amount: totalInKind,
+          sourceCostLineId: inKindLines[0].id,
+        });
+      }
+    } else if ((!hasInKindLine || totalInKind <= 0) && existing && existing.autoDetectedFromCostLine) {
       removeEquityContribution(expectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
