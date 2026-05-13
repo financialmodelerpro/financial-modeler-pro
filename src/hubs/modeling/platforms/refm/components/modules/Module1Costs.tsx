@@ -97,6 +97,7 @@ import {
   tableMinWidth,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
+import { GranularityRadioBar } from './_shared/GranularityRadioBar';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -3463,31 +3464,16 @@ export default function Module1Costs(): React.JSX.Element {
       {subTab === 'results' && allVisibleAssets.length > 0 && (
         <>
           {/* M2.0h Fix 6 (2026-05-07): runtime view granularity. Annual
-              data on disk, view toggle only. */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--sp-2)',
-              padding: 'var(--sp-1) var(--sp-2)',
-              marginBottom: 'var(--sp-2)',
-              background: 'var(--color-grey-pale)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-            }}
-            data-testid="costs-results-granularity-toggle"
-          >
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>View as:</strong>
-            {OUTPUT_GRANULARITIES.map((g) => (
-              <label key={g} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`costs-granularity-${g}`}>
-                <input type="radio" name="costs-granularity" value={g} checked={granularity === g} onChange={() => setGranularity(g)} />
-                {OUTPUT_GRANULARITY_LABELS[g]}
-              </label>
-            ))}
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-meta)' }}>
-              Inputs are entered annually; sub-period view distributes via cost line phasing.
-            </span>
-          </div>
+              data on disk, view toggle only. Shared GranularityRadioBar
+              (2026-05-13) keeps the same pill look across Tab 3 Results,
+              Tab 4 Schedules + Tab 4 Inputs Capex Breakdown. */}
+          <GranularityRadioBar
+            granularity={granularity}
+            onChange={(g) => setGranularity(g)}
+            radioName="costs-granularity"
+            helper="Inputs are entered annually; sub-period view distributes via cost line phasing."
+            dataTestid="costs-results-granularity-toggle"
+          />
           {/* P8-Fix 8 (2026-05-12): Combined / Single Asset toggle.
               Replaces the M2.0L filter pill bar with an explicit radio
               toggle per brief. Combined view shows all visible assets;

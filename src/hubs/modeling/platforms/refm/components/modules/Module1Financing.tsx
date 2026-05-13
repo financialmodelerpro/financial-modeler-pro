@@ -93,7 +93,8 @@ import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounti
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
-import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, tableMinWidth } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, tableMinWidth, ROW_DATA, ROW_GRAND_TOTAL } from './_shared/tableStyles';
+import { GranularityRadioBar } from './_shared/GranularityRadioBar';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -1130,6 +1131,20 @@ export default function Module1Financing(): React.JSX.Element {
     const labels = generatePeriodLabels(project.startDate, totalPeriods, 'annual');
     const perAsset = new Map<string, { id: string; name: string; perPeriod: number[]; total: number }>();
     const totals = new Array<number>(totalPeriods).fill(0);
+    // M2.0 Pass 13 (2026-05-13): land cash schedule per project period,
+    // sliced out of perLinePerPeriod for any cost line with
+    // method === 'percent_of_cash_land'. Drives the new Capex Breakdown
+    // table (row 2 = Land Cash; row 1 = totals - landCash) AND the new
+    // Debt + Equity Required tables (Land Cash routed per parcel
+    // funding type instead of via the project-wide Method 1 ratio).
+    const landCashPerPeriod = new Array<number>(totalPeriods).fill(0);
+    // Per-parcel land cash series. Each parcel's contribution to Land
+    // Cash is derived as: line value (which on a percent_of_cash_land
+    // line is the full parcel cash sum across that line's phase) split
+    // pro rata by parcel.cashLandValue. Land-Cash cost-line values are
+    // pre-scaled by line.value / 100 (the % of cash land basis).
+    const parcelCashPerPeriod = new Map<string, number[]>();
+    for (const p of parcels) parcelCashPerPeriod.set(p.id, new Array<number>(totalPeriods).fill(0));
     for (const ph of phases) {
       const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
       for (const a of phaseAssetsLocal) {
@@ -1148,6 +1163,35 @@ export default function Module1Financing(): React.JSX.Element {
         const merged = existing ? existing.perPeriod.map((v, i) => v + (series[i] ?? 0)) : series;
         const total = merged.reduce((s, v) => s + v, 0);
         perAsset.set(a.id, { id: a.id, name: a.name, perPeriod: merged, total });
+        // Slice Land Cash per period from perLinePerPeriod, and split
+        // pro rata across the PHASE's parcels by each parcel's cash
+        // value (area * rate * cashPct / 100). Parcels with zero cash
+        // contribute nothing. Used by the new Capex Breakdown row 2
+        // AND by the new Debt/Equity Required tables to route Land
+        // Cash via parcel funding type.
+        const perLine = breakdown.perLinePerPeriod ?? {};
+        const phaseParcels = parcels.filter((p) => p.phaseId === ph.id);
+        const parcelCashValueOf = (p: typeof parcels[number]): number =>
+          Math.max(0, (p.area ?? 0) * (p.rate ?? 0) * Math.max(0, p.cashPct ?? 0) / 100);
+        const phaseCashTotal = phaseParcels.reduce((s, p) => s + parcelCashValueOf(p), 0);
+        for (const [lineId, localSeries] of Object.entries(perLine)) {
+          if (!Array.isArray(localSeries)) continue;
+          const line = costLines.find((c) => c.id === lineId);
+          if (!line || line.method !== 'percent_of_cash_land') continue;
+          for (let lp = 0; lp < localSeries.length; lp++) {
+            const pp = costLineProjectPeriodIndex(project, ph, lp);
+            if (pp < 0 || pp >= totalPeriods) continue;
+            const v = localSeries[lp] ?? 0;
+            landCashPerPeriod[pp] += v;
+            if (phaseCashTotal > 0) {
+              for (const p of phaseParcels) {
+                const w = parcelCashValueOf(p) / phaseCashTotal;
+                const ser = parcelCashPerPeriod.get(p.id);
+                if (ser) ser[pp] += v * w;
+              }
+            }
+          }
+        }
       }
     }
     const ratio = (() => {
@@ -1158,7 +1202,16 @@ export default function Module1Financing(): React.JSX.Element {
     })();
     const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
     const equityPct = ratio.equity / (ratio.debt + ratio.equity || 1);
-    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods };
+    return {
+      labels,
+      perAsset: Array.from(perAsset.values()),
+      totals,
+      debtPct,
+      equityPct,
+      totalPeriods,
+      landCashPerPeriod,
+      parcelCashPerPeriod: Array.from(parcelCashPerPeriod.entries()).map(([parcelId, perPeriod]) => ({ parcelId, perPeriod })),
+    };
   }, [project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode, financingConfig]);
   // Land In-Kind value project-wide (sum across all phases) drives the
   // Equity Total breakdown into Cash + In-Kind sub-rows.
@@ -1407,6 +1460,87 @@ export default function Module1Financing(): React.JSX.Element {
               Summary Tables (Fix 8) and in Schedules. Schema field
               viewMode + selectedAssetId stay for back-compat; migration
               flips single_asset -> combined. */}
+
+          {/* M2.0 Pass 13 (2026-05-13): Capex Breakdown table on top of
+              Inputs. Three rows (Capex excl Land / Land Cash Value /
+              Total Capex Incl Cash Land), driven by inputsSummary +
+              the granularity toggle. Row 3 = inputsSummary.totals (cash
+              capex incl Land Cash, excl Land In-Kind), row 2 = Land
+              Cash slice, row 1 = row 3 - row 2. */}
+          {(() => {
+            const annualTotals = inputsSummary.totals;
+            const annualLandCash = inputsSummary.landCashPerPeriod;
+            const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
+            const rowTotal = granularity === 'annual'
+              ? [...annualTotals]
+              : distributeAnnualToPeriods(annualTotals, granularity, 'even');
+            const rowLandCash = granularity === 'annual'
+              ? [...annualLandCash]
+              : distributeAnnualToPeriods(annualLandCash, granularity, 'even');
+            const rowExclLand = rowTotal.map((v, i) => v - (rowLandCash[i] ?? 0));
+            const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
+            const capexAxis = buildResultsPeriodAxis({
+              startIso: project.startDate,
+              granularity,
+              numAnnualPeriods: inputsSummary.totalPeriods,
+            });
+            const capexMinWidth = tableMinWidth(capexAxis.count);
+            const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
+            return (
+              <div style={sectionCardStyle} data-testid="capex-breakdown">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
+                  <strong style={TABLE_TITLE}>Capex Breakdown</strong>
+                  <GranularityRadioBar
+                    granularity={granularity}
+                    onChange={(g) => setProject({ outputGranularity: g })}
+                    radioName="capex-breakdown-granularity"
+                    dataTestid="capex-breakdown-granularity-toggle"
+                  />
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: capexMinWidth }}>
+                    <colgroup>
+                      <col />
+                      <col style={{ width: COLUMN_WIDTHS.total }} />
+                      {capexAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={CELL_HEADER}>Description</th>
+                        <th style={CELL_HEADER}>Total</th>
+                        {capexAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr data-testid="capex-breakdown-excl-land">
+                        <td style={ROW_DATA.name}>Capex (excluding Land)</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-total">{fmtCell(sum(rowExclLand))}</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(0)}</td>
+                        {rowExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                      <tr data-testid="capex-breakdown-land-cash">
+                        <td style={ROW_DATA.name}>Land Cash Value</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-total">{fmtCell(sum(rowLandCash))}</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-prior">{fmtCell(0)}</td>
+                        {rowLandCash.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                      <tr data-testid="capex-breakdown-total">
+                        <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-amount">{fmtCell(sum(rowTotal))}</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(0)}</td>
+                        {rowTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                  Row 3 (Total Capex Incl Cash Land) reconciles to Tab 3 Costs Results Table 2 (Total Capex Including Land Value) minus the project's Land In-Kind value.
+                </div>
+              </div>
+            );
+            // subPerYear is computed for future per-period weighting; not consumed yet.
+            void subPerYear;
+          })()}
 
           {/* M2.0M: Funding Method radio */}
           <div style={sectionCardStyle} data-testid="financing-funding-method">
