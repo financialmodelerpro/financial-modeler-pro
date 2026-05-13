@@ -2067,56 +2067,14 @@ export default function Module1Financing(): React.JSX.Element {
             })}
           </div>
 
-          {/* Schedule 1: Capital Stack Summary */}
-          <div style={sectionCardStyle} data-testid="capital-stack-summary">
-            <strong style={TABLE_TITLE}>1. Capital Stack Summary</strong>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
-              <colgroup>
-                <col />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 90 }} />
-                <col style={{ width: 140 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th style={CELL_HEADER}>Source</th>
-                  <th style={CELL_HEADER}>Amount</th>
-                  <th style={CELL_HEADER}>% of Total</th>
-                  <th style={CELL_HEADER}>Category</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...stack.equityBreakdown, ...stack.debtBreakdown].map((e) => (
-                  <tr key={e.id} data-testid={`stack-row-${e.id}`}>
-                    <td style={{ padding: '4px 6px' }}>{e.name}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(e.amount)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{e.pct.toFixed(1)}%</td>
-                    <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>{e.category}</td>
-                  </tr>
-                ))}
-                <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                  <td style={{ padding: '4px 6px' }}>Total Sources</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="stack-total-sources">{fmt(stack.totalSources)}</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>100.0%</td>
-                  <td></td>
-                </tr>
-                <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                  <td style={{ padding: '4px 6px' }}>Total Uses (CapEx)</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(stack.totalUses)}</td>
-                  <td colSpan={2}></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          {/* M2.0 Pass 18 (2026-05-13): old "Capital Stack Summary"
+              schedule removed - same data is covered by the new
+              Funding Requirement + Debt Required + Equity Required
+              tables on the Inputs sub-tab + the per-facility breakdown
+              in Debt Movement below. Remaining schedules renumbered
+              1..5 (was 2..6). */}
 
-          {/* P4-Fix 7 (2026-05-12): Schedules restructure.
-              Old standalone Drawdown schedule dropped (rolled into Debt
-              Movement). Old Repayment schedule replaced with Debt Movement
-              per facility: Opening Balance + Drawdown + Interest Capitalized
-              + Principal Repaid + Closing Balance, a single ledger-style
-              walk per facility. */}
-
-          {/* Schedule 2: Debt Movement per facility (filtered) */}
+          {/* Schedule 1: Debt Movement per facility (filtered) */}
           {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
             const r = resultsMap.get(t.id);
             if (!r) return null;
@@ -2129,7 +2087,7 @@ export default function Module1Financing(): React.JSX.Element {
             return (
               <ScheduleTable
                 key={`debt-movement-${t.id}`}
-                title={`2. Debt Movement, ${t.name}`}
+                title={`1. Debt Movement, ${t.name}`}
                 dataTestid={`debt-movement-${t.id}`}
                 labels={schedulesAxis.labels}
                 rows={[
@@ -2143,9 +2101,9 @@ export default function Module1Financing(): React.JSX.Element {
             );
           })}
 
-          {/* Schedule 3: Combined Debt Service */}
+          {/* Schedule 2: Combined Debt Service */}
           <ScheduleTable
-            title="3. Combined Debt Service"
+            title="2. Combined Debt Service"
             dataTestid="combined-debt-service"
             labels={schedulesAxis.labels}
             rows={[
@@ -2168,7 +2126,7 @@ export default function Module1Financing(): React.JSX.Element {
             return (
               <ScheduleTable
                 key={`finance-cost-${t.id}`}
-                title={`4. Finance Cost, ${t.name}`}
+                title={`3. Finance Cost, ${t.name}`}
                 dataTestid={`finance-cost-${t.id}`}
                 labels={schedulesAxis.labels}
                 rows={[
@@ -2181,9 +2139,9 @@ export default function Module1Financing(): React.JSX.Element {
             );
           })}
 
-          {/* Schedule 5: IDC Summary */}
+          {/* Schedule 4: IDC Summary */}
           <div style={sectionCardStyle} data-testid="idc-summary">
-            <strong style={TABLE_TITLE}>5. IDC Summary</strong>
+            <strong style={TABLE_TITLE}>4. IDC Summary</strong>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
               <colgroup>
                 <col />
@@ -2232,7 +2190,7 @@ export default function Module1Financing(): React.JSX.Element {
             const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
             return (
               <ScheduleTable
-                title="6. Equity Movement"
+                title="5. Equity Movement"
                 dataTestid="equity-movement"
                 labels={schedulesAxis.labels}
                 rows={[
