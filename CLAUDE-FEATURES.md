@@ -1731,3 +1731,233 @@ auto-archives pre-v5 projects.
 engine, 4 new tab components, 3-step ProjectWizard rewrite, slim
 shell components, single 30.8 KB v5 snapshot baseline, verify-
 m20.ts (42 pass / 0 fail / 1 skip), m20-full-flow.spec.ts.
+
+### M2.0 Pass 11 (2026-05-13, Tab 3 Costs + Results polish, 14 commits + 1 diagnostic)
+
+Closes the cost-line + period-axis cleanup that started at the
+top of Pass 10. Schema stays v8 additive.
+
+- **Copy panel rewrite (Fix 1, 3, 5, 7).** Project-level "Copy
+  cost configuration" panel above the phase filter. Source asset
+  picker `<select>` grouped by phase + multi-select targets across
+  every phase grouped by phase. Apply does a one-time deep clone:
+  writes a FULL `CostOverride` on source AND every target with
+  cloned `distribution[]` / `perSubUnitRates{}`, so subsequent
+  master edits stop cascading. Cross-phase targets match lines by
+  case-insensitive name (master cost line ids are phase-scoped).
+- **Universal period range (Fix 2, 4, 13).** Engine offsets
+  propagated everywhere: per-asset row, per-line nested row, footer,
+  and the active-range scanner all apply
+  `phaseStartYear - projectStartYear`. Results column axis is now
+  the union of non-zero data across in-scope assets;
+  `annualPeriodCount = max(totalConstructionPeriods, dataLastAnnual + 1, 1)`
+  capped at 60. No more 24-year hard cap, no more truncation of
+  operations-tail line endings.
+- **One source of truth, per-line per-period (Fix 6).**
+  `AssetCostBreakdown.perLinePerPeriod: Record<lineId, number[]>`
+  filled by the same `distributeItemCost` call that feeds
+  `perPeriod`. Module1Costs Table 1 per-line rows consume it
+  directly; the prior "smear line total proportional to asset curve"
+  approximation is gone (was destroying manual % + single-period
+  line phasing for multi-line assets). Diagnostic:
+  `docs/m20-t3-perline-divergence-diag.md`.
+- **Universal editability (Fix 8, 12).** `isStartEndLocked` dropped
+  to constant `false`; Start/End is editable on Land, Auto-IDC, and
+  every other line on every phase. `effStartPeriod` / `effEndPeriod`
+  constants in CostRow mirror `effMethod` / `effValue` / `effPhasing`,
+  so the input value reads the override when one exists (fixes a
+  read/write asymmetry where writes went to override but the input
+  snapped back to master on rerender).
+- **Universal area picking (Fix 10).** `resolveAssetAreaMetrics`
+  switches `bua` / `nsa` / `gfa` to `Math.max(hierarchy, asset-level)`.
+  Stub sub-units no longer drown out a real `asset.buaSqm`;
+  identical rule across every phase + asset.
+- **Results visual polish (Fix 9, 11, 14).** Combined view: each
+  asset = header row (name only, full `colSpan`, navy 12% fill) ->
+  per-line rows -> closing subtotal row ("Subtotal - {name}",
+  full-row fill via per-`<td>` background, total + per-period
+  values). Single Asset view drops the header + Project Total
+  footer; the closing subtotal is the only summary row. Same
+  pattern across Tables 1, 2, 3, 4 (renderSummary).
+
+### M2.0 Pass 12 (2026-05-13, Universal formatting standards + Tab 4 Financing deep refactor, 15 commits)
+
+Two parallel tracks: a platform-wide formatting / token standard,
+and an 8-commit Tab 4 Financing refactor. Schema stays v8 additive.
+
+- **Shared `_shared/tableStyles.ts` token suite.** New module-level
+  file at
+  `src/hubs/modeling/platforms/refm/components/modules/_shared/tableStyles.ts`
+  owning every results-table style: `ROW_ASSET_HEADING` / `ROW_DATA`
+  / `ROW_SUBTOTAL` (light navy 12% fill + top+bottom navy borders)
+  / `ROW_GRAND_TOTAL` (navy fill + white bold + top+bottom border)
+  / `CELL_HEADER` (navy fill, white uppercase, centered horizontally
+  + vertically) / `TABLE_TITLE` (display block, fontSize 13,
+  fontWeight 700, marginBottom var(--sp-1)). Base cell carries
+  `verticalAlign: 'middle'` + `borderTop/Bottom: 'none'` to override
+  the global `td { border-bottom: 1px solid var(--color-border) }`
+  in `app/globals.css` line 319. Every Tab 1 / 2 / 3 / 4 results
+  table now routes through these tokens.
+- **Universal accounting + percent format on blur.**
+  `AccountingNumberInput` rewritten (commit `88affc6`): stays on
+  `type="text"` + `inputMode="decimal"` throughout, blur-formats via
+  `formatAccounting` (commas, parens for negatives, "-" for zero,
+  blank via `blankWhenZero`), focus reveals raw editable number.
+  Avoids the v2-era bugs (readOnly look, type-swap focus loss). New
+  `PercentageInput` mirrors the pattern with `formatPercent`
+  (2 decimals, "%" suffix, parens for negatives, "0.00%" explicit
+  for zero). `formatPercent` helper extended for parens-negative.
+  Every raw `<input type="number">` for currency / area / period /
+  count across REFM Module 1 + ProjectWizard migrated; every
+  percent input migrated to `PercentageInput`. DSCR covenant left
+  on `AccountingNumberInput` (it is a ratio, not a percent).
+- **Tab 3 phase buttons + AssetCostSection default-collapsed.**
+  Phase Filter `<select>` replaced with a row of pill buttons using
+  the same `pillStyle(isActive)` treatment as the asset pills
+  directly below (commit `b45869d`). Per-asset cost section in
+  Tab 3 Inputs flipped from `useState(false)` to `useState(true)`
+  (default-collapsed; matches Tab 2 convention).
+- **Tab 4 Financing 8-commit deep refactor (commits `99a7a59` ->
+  `e1e5279`):**
+  - **Fix 1 - Asset Filter removed.** Dropdown deleted from header;
+    `assetFilter` / `selectedAssetId` / `viewMode` / `phaseFilter`
+    marked `@deprecated` on `ProjectFinancingConfig` (kept on schema
+    for snapshot round-trip).
+  - **Fix 2 - Method 2 per-line engine wire** (later removed in
+    Pass 13). New `PerLineAssetCapex` + `PerAssetLineRatioOverride`
+    exported types; `ComputeFundingContext` additive
+    `perLineAssetCapex` + `perAssetRatioOverrides`; new
+    `resolveMethod2Ratio` helper with precedence per-asset
+    `CostOverride.debtPctOverride/equityPctOverride` ->
+    `lineItemRatios.master[baseLineId]` -> `fixedRatio`.
+  - **Fix 3 - Existing Operations.** Additive fields on
+    `FinancingTranche`: `origin?: 'new' | 'existing'`,
+    `openingBalance?`, `remainingTenorPeriods?`,
+    `remainingRepaymentPeriods?`. `computeFinancing` branches at
+    the top for existing facilities (skip drawdown switch, seed
+    `balance = openingBalance`, replace tranche.repaymentPeriods
+    with effRepaymentPeriods, force graceEndIdx = 0, force-expense
+    IDC). TrancheCard new Facility Origination radio row reveals
+    the existing-facility input panel.
+  - **Fix 4 - YoY % per-period editor + engine.** New exported
+    `normalizeYoYSchedule(raw, n)` helper. New `year_on_year_pct`
+    branch in `computeFinancing` repayment switch. TrancheCard
+    per-period `PercentageInput` grid + live green/amber sum chip.
+  - **Fix 5 - Mixed IDC exposed.** Three IDC options render
+    explicitly (no coalescing). Conditional `idcMixedSplitPeriod`
+    input appears when `idcTreatment === 'mixed'`.
+  - **Fix 6 - Deferred Payment land editor + helper.** New exported
+    `expandDeferredSchedule(schedule, totalPeriods)` helper. Editor
+    in Land Funding card with type selector + start/end + per-period
+    Manual % grid OR even preview. Engine wire of
+    `expandDeferredSchedule` into `computeAssetCost`'s land-cash
+    distribution is deferred to a follow-up.
+  - **Fix 7 - Capital Structure Inputs Sources collapsible +
+    unified formula.** Sources table wrapped in `<details>` (default
+    collapsed). Source data switched to `stack.equityBreakdown` +
+    `stack.debtBreakdown` so it matches the Schedules Capital Stack
+    Summary table line for line.
+  - **Fix 8 - `land-inkind` method-based lookup.** Auto-detect
+    filters by `method === 'percent_of_inkind_land'` + `!disabled`
+    + matching `phaseId` (not hardcoded id). Corrects drift on
+    `sourceCostLineId` of existing in-kind EquityContributions on
+    the same write.
+- **Universal `TABLE_TITLE` token (commit `88a55c0`).** Every
+  above-table caption across Tabs 2 / 3 / 4 routes through the new
+  `TABLE_TITLE` style constant for explicit `fontWeight: 700`.
+
+### M2.0 Pass 13 (2026-05-13, Universal results-table layout + Tab 4 Financing restructure, 5 commits)
+
+Three commits land the universal results-table layout standard +
+three Tab 4 restructure fixes. Schema mostly stays v8 additive
+EXCEPT for the Method 2 schema fields removed in Fix 1 (explicit
+authorized exception per the brief).
+
+- **Universal prior-period column (commit `1c89859`).** New shared
+  helper `buildResultsPeriodAxis({ startIso, granularity,
+  numAnnualPeriods, cropAnnualOffset? })` in
+  `src/hubs/modeling/platforms/refm/components/modules/_shared/periodAxis.ts`
+  prepends ONE prior calendar period (Dec YY at annual, Q4 YY at
+  quarterly, Dec YY at monthly) before the first active column.
+  Pure layout, zero engine change. Consumed by Tab 3 Results
+  (Tables 1-4), Tab 4 Inputs Summary, Tab 4 Schedules. The
+  drawdown-zero column filter on Tab 4 Inputs was dropped so the
+  axis matches Tab 3 column-for-column; Tab 4 Schedules 24-year cap
+  raised to 60 to match Tab 3 horizon; local `getPeriodLabel`
+  helper deleted (now routed through `generatePeriodLabels` via the
+  shared helper).
+- **Universal column-width consistency.** `_shared/tableStyles.ts`
+  gains `COLUMN_WIDTHS = { total: 110, period: 75, labelMin: 200 }`
+  + `tableMinWidth(count)` helper + `whiteSpace:'nowrap'` on every
+  numeric/header cell token. Every results table renders
+  `<table style={{ width:'100%', tableLayout:'fixed',
+   minWidth: tableMinWidth(axis.count) }}>` with a shared
+  `<colgroup>` (flexible label + fixed Total + fixed period cols).
+  When granularity flips (monthly adds columns), all stacked tables
+  on the same page adjust uniformly top-to-bottom because they
+  share the same colgroup pattern and minWidth. ScheduleTable's
+  prop signature changes `columns: string[]` -> `labels: string[]`
+  + `minWidth: number` and renders its prior cell internally.
+- **Fix 1 - Method 2 (Line-Item Based Financing) removed entirely
+  (commit `3e41344`).** Authorized exception to the additive-only
+  rule. `FundingMethodId` narrows `1|2|3|4 -> 1|3|4`;
+  `FUNDING_METHOD_IDS` / `FUNDING_METHOD_LABELS[2]` /
+  `FUNDING_METHOD_DESCRIPTIONS[2]` / `FundingMethod2LineRatio` /
+  `FundingMethod2Config` / `ProjectFinancingConfig.lineItemRatios?`
+  / `DEFAULT_FUNDING_METHOD_2_CONFIG` /
+  `CostOverride.debtPctOverride` /
+  `CostOverride.equityPctOverride` / `PerLineAssetCapex` /
+  `PerAssetLineRatioOverride` / `resolveMethod2Ratio` /
+  `ComputeFundingContext.perLineAssetCapex` +
+  `perAssetRatioOverrides` / Method-2 branch in `computeFunding`
+  all deleted. UI: `renderMethodInputs id===2` branch +
+  `inputs-summary-tables` Method 2 piping + all `funding-method-2`
+  / `m2-*` data-testids gone. Tab 3 cost-override propagation drops
+  `effDebtPct` / `effEquityPct` plus the `debtPctOverride` /
+  `equityPctOverride` fields on `makeOverride`. New outermost
+  migration `migrateM20pass13DropMethod2()` forces
+  `fundingMethod===2 -> 1`, strips `lineItemRatios`, strips
+  `debtPctOverride` / `equityPctOverride` from every CostOverride.
+  Wired into both `stripV8Wrapper` + `stripWrapper`. Verifiers
+  `scripts/verify-m20M.ts` + `scripts/verify-m20M-pass4.ts`:
+  Section 5 inverted to assert Method 2 UI / schema / build paths
+  are GONE.
+- **Fix 2 - New Capex Breakdown table on top of Tab 4 Inputs
+  (commit `3038e34`).** Three rows (Capex excluding Land /
+  Land Cash Value / Total Capex Incl Cash Land = ROW_GRAND_TOTAL)
+  driven by `inputsSummary.totals` + new
+  `inputsSummary.landCashPerPeriod` slice (sum of
+  `percent_of_cash_land` cost-line series). Row 3 reconciles to
+  Tab 3 Table 2 (Total Capex Incl Land) minus Land In-Kind value.
+  Granularity toggle at the top right of the block via new shared
+  `_shared/GranularityRadioBar.tsx` component (also consumed by
+  Tab 3 Costs Results; Tab 4 Schedules keeps its inline bar because
+  the radios are bundled with facility-filter pills there).
+  `inputsSummary` memo extended with `parcelCashPerPeriod`
+  (per-parcel Land Cash split pro rata by
+  `area * rate * cashPct / 100`).
+- **Fix 3 - Two-rule Method 1 engine + Debt/Equity Required tables
+  (commit `c944df8`).** `ComputeFundingContext` gains optional
+  `landCashPerPeriod` + `parcelCashPerPeriod` arrays; when supplied,
+  Method 1 splits capex: non-land routes via `fixedRatio`, Land
+  Cash routes per-parcel via new `parcelDebtEquityFractions()`
+  helper (`100pct_equity` / `100pct_debt` / `custom_split` /
+  `in_kind` -> equity / `deferred_payment` -> equity for now,
+  engine wire pending). Callers that omit the arrays get the
+  pre-Pass-13 uniform fallback (numerically identical to old
+  Method 1). `computeEquity.totalEquityNeed` reads from the actual
+  `debtEquitySplit.equity` sum instead of `totalNeed * equityPct`
+  so the two-rule routing flows through to In-Kind / Cash split.
+  Old 3-table Inputs Summary collapsible (Funding / Debt / Equity)
+  deleted along with its `inputsSummaryCollapsed` localStorage key
+  `m20-financing-summary-collapsed`. New always-visible Total Debt
+  Required (single ROW_GRAND_TOTAL row) + Total Equity Required
+  (Equity Cash / Equity In-Kind / Total = ROW_GRAND_TOTAL) tables
+  render after Capital Structure Sources, before the Debt
+  Facilities list.
+
+Commits: `1c89859` (universal prior column + COLUMN_WIDTHS,
+Pass 12 closure) -> `3e41344` (Fix 1 Method 2 removal) ->
+`3038e34` (Fix 2 Capex Breakdown) -> `c944df8` (Fix 3 Debt/Equity
+Required + two-rule engine). Type-check + build clean on every
+commit.
