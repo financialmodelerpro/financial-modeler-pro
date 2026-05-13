@@ -179,10 +179,10 @@ function renderMethodInputs(
       </div>
     );
   }
-  if (id === 3) {
+  if (id === 2) {
     const m = cfg.netFundingConfig ?? { existingCash: 0, debtPct: 70, equityPct: 30 };
     return (
-      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-3-inputs">
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-2-inputs">
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Existing Cash:
           {/* P10-Fix 8 (2026-05-12): accounting format on blur. */}
@@ -193,14 +193,14 @@ function renderMethodInputs(
             decimals={0}
             min={0}
             style={{ ...numStyle, width: 120 }}
-            data-testid="m3-existing-cash"
+            data-testid="m2-existing-cash"
           />
         </label>
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Debt %:
           <PercentageInput
             min={0} max={100}
-            data-testid="m3-debt-pct"
+            data-testid="m2-debt-pct"
             value={m.debtPct}
             onChange={(n) => patch({ netFundingConfig: { ...m, debtPct: n, equityPct: 100 - n } })}
             style={numStyle}
@@ -210,7 +210,7 @@ function renderMethodInputs(
           Equity %:
           <PercentageInput
             min={0} max={100}
-            data-testid="m3-equity-pct"
+            data-testid="m2-equity-pct"
             value={m.equityPct}
             onChange={(n) => patch({ netFundingConfig: { ...m, equityPct: n, debtPct: 100 - n } })}
             style={numStyle}
@@ -219,10 +219,10 @@ function renderMethodInputs(
       </div>
     );
   }
-  // id === 4
+  // id === 3 (was Method 4 pre-Pass-17)
   const m = cfg.cashDeficitConfig ?? { initialCash: 0, minimumCashReserve: 0, debtPct: 70, equityPct: 30 };
   return (
-    <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-4-inputs">
+    <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-3-inputs">
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
         Initial Cash:
         <AccountingNumberInput
@@ -241,7 +241,7 @@ function renderMethodInputs(
         Debt %:
         <PercentageInput
           min={0} max={100}
-          data-testid="m4-debt-pct"
+          data-testid="m3-debt-pct"
           value={m.debtPct}
           onChange={(n) => patch({ cashDeficitConfig: { ...m, debtPct: n, equityPct: 100 - n } })}
           style={numStyle}
@@ -251,7 +251,7 @@ function renderMethodInputs(
         Equity %:
         <PercentageInput
           min={0} max={100}
-          data-testid="m4-equity-pct"
+          data-testid="m3-equity-pct"
           value={m.equityPct}
           onChange={(n) => patch({ cashDeficitConfig: { ...m, equityPct: n, debtPct: 100 - n } })}
           style={numStyle}
@@ -1214,7 +1214,7 @@ export default function Module1Financing(): React.JSX.Element {
     const ratio = (() => {
       const f = financingConfig;
       if (f.fundingMethod === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
-      if (f.fundingMethod === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
+      if (f.fundingMethod === 2) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
       return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
     })();
     const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
@@ -1358,7 +1358,7 @@ export default function Module1Financing(): React.JSX.Element {
   const funding = useMemo(() => {
     // Pass 15 (2026-05-13): under Method 3 ONLY, the capex basis
     // includes any tranche's "add_to_funding_need" grace interest.
-    const capex = financingConfig.fundingMethod === 3
+    const capex = financingConfig.fundingMethod === 2
       ? inputsSummary.totals.map((v, i) => v + (m3GraceCapexAdd[i] ?? 0))
       : inputsSummary.totals;
     return computeFunding({
@@ -1639,7 +1639,7 @@ export default function Module1Financing(): React.JSX.Element {
               const m = financingConfig.fundingMethod;
               const basisLabel =
                 m === 1 ? 'Total Capex (excl Land In-Kind)' :
-                m === 3 ? 'Net Funding (Capex - Pre-Sales - OCF - Existing Cash)' :
+                m === 2 ? 'Net Funding (Capex - Pre-Sales - OCF - Existing Cash)' :
                 'Cash Deficit (period-by-period fill to minimum cash reserve)';
               const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
               // M2.0 Pass 16 (2026-05-13): Sources vs Uses match chip
@@ -1874,8 +1874,8 @@ export default function Module1Financing(): React.JSX.Element {
             };
             const results: Record<FundingMethodId, FundingResult> = {
               1: computeFunding({ ...baseCtx, method: 1 }),
-              3: computeFunding({ ...baseCtx, method: 3, capexPerPeriod: m3Capex }),
-              4: computeFunding({ ...baseCtx, method: 4 }),
+              2: computeFunding({ ...baseCtx, method: 2, capexPerPeriod: m3Capex }),
+              3: computeFunding({ ...baseCtx, method: 3 }),
             };
             const activeMethod = financingConfig.fundingMethod;
             const fundAxis = inputsAxis.axis;

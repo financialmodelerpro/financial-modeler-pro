@@ -203,7 +203,7 @@ console.log('\n[3/7] Uniform funding pipeline');
   const fresh = makeDefaultProject();
   const cfg = fresh.financing as ProjectFinancingConfig;
   const capex = [10_000_000, 20_000_000, 20_000_000, 10_000_000];
-  for (const method of [1, 2, 3, 4] as FundingMethodId[]) {
+  for (const method of [1, 2, 3] as FundingMethodId[]) {
     const f = computeFunding({ method, financing: cfg, capexPerPeriod: capex });
     if (f.method === method && Array.isArray(f.periodArray) && f.periodArray.length === capex.length) {
       pass(`Method ${method}: uniform output shape (totalNeed, periodArray, debtEquitySplit)`);
@@ -218,34 +218,29 @@ console.log('\n[3/7] Uniform funding pipeline');
   if (Math.abs(m1.totalNeed - 60_000_000) < 1) pass('Method 1 totalNeed = sum(capex) = 60M');
   else fail('Method 1 totalNeed', `got ${m1.totalNeed}`);
 
-  // Method 3 with existingCash + minCash.
-  const m3cfg: ProjectFinancingConfig = {
+  // Method 2 (was Method 3 pre-Pass-17) with existingCash + minCash.
+  const m2cfg: ProjectFinancingConfig = {
     ...cfg,
-    fundingMethod: 3,
+    fundingMethod: 2,
     netFundingConfig: { existingCash: 5_000_000, debtPct: 70, equityPct: 30 },
     minimumCashReserve: 3_000_000,
   };
-  const m3 = computeFunding({ method: 3, financing: m3cfg, capexPerPeriod: capex });
+  const m2 = computeFunding({ method: 2, financing: m2cfg, capexPerPeriod: capex });
   // sum capex - 0 presales - 0 ocf - 5M existing + 3M minCash = 58M.
-  if (Math.abs(m3.totalNeed - 58_000_000) < 1) pass('Method 3 totalNeed = capex - existingCash + minCash');
-  else fail('Method 3 totalNeed', `expected 58M, got ${m3.totalNeed}`);
+  if (Math.abs(m2.totalNeed - 58_000_000) < 1) pass('Method 2 totalNeed = capex - existingCash + minCash');
+  else fail('Method 2 totalNeed', `expected 58M, got ${m2.totalNeed}`);
 
-  // Method 4 enforces min cash floor (deficit fills the gap).
-  const m4cfg: ProjectFinancingConfig = {
+  // Method 3 (was Method 4 pre-Pass-17) enforces min cash floor.
+  const m3cfg: ProjectFinancingConfig = {
     ...cfg,
-    fundingMethod: 4,
+    fundingMethod: 3,
     cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 70, equityPct: 30 },
     minimumCashReserve: 2_000_000,
   };
-  const m4 = computeFunding({ method: 4, financing: m4cfg, capexPerPeriod: capex });
+  const m3 = computeFunding({ method: 3, financing: m3cfg, capexPerPeriod: capex });
   // initial=0, minCash=2M, capex 10/20/20/10. Each period required draw = capex + minCash top-up.
-  // Period 0: cash 0 - 10M + draw = at least 2M -> draw 12M. After draw, cash=2M.
-  // Period 1: cash 2M - 20M + draw = 2M -> draw 20M. cash=2M.
-  // Period 2: 2M - 20M + 20M = 2M. cash=2M.
-  // Period 3: 2M - 10M + 10M = 2M. cash=2M.
-  // Total draws = 12 + 20 + 20 + 10 = 62M.
-  if (Math.abs(m4.totalNeed - 62_000_000) < 1) pass(`Method 4 totalNeed enforces minCash floor (got ${m4.totalNeed})`);
-  else fail('Method 4 totalNeed', `expected 62M, got ${m4.totalNeed}`);
+  if (Math.abs(m3.totalNeed - 62_000_000) < 1) pass(`Method 3 totalNeed enforces minCash floor (got ${m3.totalNeed})`);
+  else fail('Method 3 totalNeed', `expected 62M, got ${m3.totalNeed}`);
 }
 
 // ── Section 4: computeEquity ─────────────────────────────────────────────

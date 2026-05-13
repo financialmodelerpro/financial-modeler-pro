@@ -1350,20 +1350,25 @@ export interface EquityContribution {
 // methods behave as documented in docs/m20M-financing-architecture.md.
 // Method 2 (Line-Item Based Financing) removed 2026-05-13. Old snapshots
 // migrate fundingMethod 2 -> 1 via migrateM20pass5DropMethod2.
-export type FundingMethodId = 1 | 3 | 4;
+// M2.0 Pass 17 (2026-05-13): methods renumbered 1 | 3 | 4 -> 1 | 2 | 3.
+// Method 1 = Fixed Debt-to-Equity Ratio (unchanged).
+// Method 2 = Net Funding Requirement (was Method 3).
+// Method 3 = Cash Deficit Funding (was Method 4).
+// migrateM20pass17MethodRenumber backfills legacy snapshots.
+export type FundingMethodId = 1 | 2 | 3;
 
-export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 3, 4] as const;
+export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3] as const;
 
 export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
   1: 'Fixed Debt-to-Equity Ratio',
-  3: 'Net Funding Requirement',
-  4: 'Cash Deficit Funding',
+  2: 'Net Funding Requirement',
+  3: 'Cash Deficit Funding',
 };
 
 export const FUNDING_METHOD_DESCRIPTIONS: Record<FundingMethodId, string> = {
   1: 'Single global debt% / equity% applied to total capex (excl. land in-kind).',
-  3: 'Net funding = capex minus pre-sales minus operating CF minus existing cash, then split by ratio.',
-  4: 'Period-by-period: draw debt+equity only when closing cash would fall below minimum reserve.',
+  2: 'Net funding = capex minus pre-sales minus operating CF minus existing cash, then split by ratio.',
+  3: 'Period-by-period: draw debt+equity only when closing cash would fall below minimum reserve.',
 };
 
 export interface FundingMethod1Config {

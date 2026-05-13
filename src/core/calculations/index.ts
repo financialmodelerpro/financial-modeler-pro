@@ -1989,7 +1989,7 @@ export interface ComputeFundingContext {
 
 function pickRatio(method: FundingMethodId, f: ProjectFinancingConfig): { debt: number; equity: number } {
   if (method === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
-  if (method === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
+  if (method === 2) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
   return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
 }
 
@@ -2089,14 +2089,14 @@ export function computeFunding(ctx: ComputeFundingContext): FundingResult {
     // Pre-Pass-13 uniform Method 1: per-period = capex schedule.
     periodArray = [...capexPerPeriod];
     totalNeed = periodArray.reduce((s, v) => s + v, 0);
-  } else if (method === 3) {
-    // Method 3: net of pre-sales + OCF - existing cash + min reserve top-up.
+  } else if (method === 2) {
+    // Method 2 (was Method 3 pre-Pass-17): net of pre-sales + OCF - existing cash + min reserve top-up.
     const existing = financing.netFundingConfig?.existingCash ?? 0;
     periodArray = capexPerPeriod.map((c, i) => Math.max(0, c - (preSales[i] ?? 0) - (ocf[i] ?? 0)));
     totalNeed = periodArray.reduce((s, v) => s + v, 0) - existing + minCash;
     totalNeed = Math.max(0, totalNeed);
   } else {
-    // Method 4: walk period-by-period; draw to maintain minCash floor.
+    // Method 3 (was Method 4 pre-Pass-17): walk period-by-period; draw to maintain minCash floor.
     const initial = financing.cashDeficitConfig?.initialCash ?? 0;
     periodArray = new Array(capexPerPeriod.length).fill(0);
     let cash = initial;

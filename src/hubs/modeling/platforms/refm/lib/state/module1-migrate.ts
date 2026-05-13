@@ -196,7 +196,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost step
   // so legacy fundingMethod=2 + lineItemRatios + debt/equityPctOverride
   // are scrubbed after every earlier-pass financing migration).
-  return migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -214,7 +214,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))));
+  )))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -230,7 +230,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // then T2-Fix 5c companion sub-unit mirror.
   // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost so legacy
   // fundingMethod=2 / lineItemRatios / debt-equityPctOverride scrub last).
-  return migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -248,7 +248,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))));
+  )))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1857,5 +1857,22 @@ export function migrateM20pass16LandFundingSimplify(snap: HydrateSnapshot): Hydr
   });
   if (!touched) return out as unknown as HydrateSnapshot;
   out.financingConfig = { ...fcAny, parcelFunding: next };
+  return out as unknown as HydrateSnapshot;
+}
+
+// M2.0 Pass 17 (2026-05-13): renumber funding methods 1/3/4 -> 1/2/3.
+// Method 1 (Fixed Ratio) unchanged; Method 3 (Net Funding) -> 2;
+// Method 4 (Cash Deficit) -> 3.
+export function migrateM20pass17MethodRenumber(snap: HydrateSnapshot): HydrateSnapshot {
+  const raw = snap as unknown as Record<string, unknown>;
+  const out = { ...raw };
+  const fcAny = out.financingConfig as Record<string, unknown> | undefined;
+  if (!fcAny) return out as unknown as HydrateSnapshot;
+  const m = fcAny.fundingMethod;
+  if (m === 3) {
+    out.financingConfig = { ...fcAny, fundingMethod: 2 };
+  } else if (m === 4) {
+    out.financingConfig = { ...fcAny, fundingMethod: 3 };
+  }
   return out as unknown as HydrateSnapshot;
 }
