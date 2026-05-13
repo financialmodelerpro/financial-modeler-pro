@@ -2028,7 +2028,12 @@ export function makeDefaultFinancingTranche(
     interestRatePct: 7.5,
     drawdownMethod: 'capex_basis',
     repaymentMethod: 'straight_line',
-    repaymentPeriods: 60,
+    // M2.0 Pass 18 (2026-05-13): drop the 60-period default so the YoY %
+    // editor doesn't render a P1..P60 grid when the user hasn't picked
+    // a repayment window yet. The UI's handleAddTranche overrides this
+    // to phase.operationsPeriods on creation; the YoY editor falls back
+    // to phase.constructionPeriods (capex window) when this stays 0.
+    repaymentPeriods: 0,
     idcCapitalize: true,
     // M2.0 Pass 15 (2026-05-13): new tranches default to OCF treatment
     // (zero impact today; wires when M2+M4 land).

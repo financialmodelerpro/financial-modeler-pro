@@ -619,9 +619,17 @@ function TrancheCard({
             // remainingRepaymentPeriods (existing) or repaymentPeriods
             // (new). Sum chip recomputes live; engine auto-normalises
             // to 100 on the calc side so the model always reconciles.
-            const totalPeriods = isExistingFacility
+            //
+            // M2.0 Pass 18 (2026-05-13): when neither field is set the
+            // editor falls back to phase.constructionPeriods (capex
+            // window) instead of showing a placeholder. Hard 60-period
+            // cap removed entirely.
+            const userPeriods = isExistingFacility
               ? (tranche.remainingRepaymentPeriods ?? 0)
               : (tranche.repaymentPeriods ?? 0);
+            const totalPeriods = userPeriods > 0
+              ? userPeriods
+              : Math.max(0, phase.constructionPeriods);
             const raw = tranche.yearOnYearPctSchedule ?? [];
             const sched: number[] = new Array(totalPeriods).fill(0).map((_, i) => raw[i] ?? 0);
             const sum = sched.reduce((s, v) => s + v, 0);
