@@ -83,6 +83,7 @@ import {
   computeProjectTimeline,
   costLineProjectPeriodIndex,
   type FinancingResult,
+  type FundingResult,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
@@ -1928,6 +1929,78 @@ export default function Module1Financing(): React.JSX.Element {
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
                   Row 3 (Total Capex Incl Cash Land) reconciles to Tab 3 Costs Results Table 2 (Total Capex Including Land Value) minus the project's Land In-Kind value.
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* M2.0 Pass 15 (2026-05-13): Funding Requirement table.
+              Three method rows computed in parallel + a Selected row
+              that mirrors the active method. The Selected row's data
+              IS what flows into Total Debt + Equity Required below
+              (via the `funding` memo, which is already routed off the
+              same active method). Method 3 + 4 today consume stubbed
+              presales / OCF (zeros) until M2 Revenue + M4 FS land. */}
+          {(() => {
+            const baseCtx = {
+              financing: financingConfig,
+              capexPerPeriod: inputsSummary.totals,
+              landCashPerPeriod: inputsSummary.landCashPerPeriod,
+              parcelCashPerPeriod: inputsSummary.parcelCashPerPeriod,
+            };
+            const results: Record<FundingMethodId, FundingResult> = {
+              1: computeFunding({ ...baseCtx, method: 1 }),
+              3: computeFunding({ ...baseCtx, method: 3 }),
+              4: computeFunding({ ...baseCtx, method: 4 }),
+            };
+            const activeMethod = financingConfig.fundingMethod;
+            const fundAxis = inputsAxis.axis;
+            const fundNonLabelPct = nonLabelColumnPct(1 + fundAxis.count);
+            const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
+            const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
+            const renderRow = (m: FundingMethodId, isSelected: boolean): React.JSX.Element => {
+              const row = results[m].periodArray;
+              const cropped = inputsAxis.cropRow(row);
+              const nameStyle = isSelected ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
+              const numStyle = isSelected ? ROW_GRAND_TOTAL.num : ROW_DATA.num;
+              const label = isSelected
+                ? `Selected: Method ${m} ${FUNDING_METHOD_LABELS[m]}`
+                : `Method ${m}: ${FUNDING_METHOD_LABELS[m]}`;
+              const testid = isSelected ? 'funding-req-selected' : `funding-req-method-${m}`;
+              return (
+                <tr data-testid={testid} key={isSelected ? 'sel' : `m${m}`}>
+                  <td style={nameStyle}>{label}</td>
+                  <td style={numStyle}>{fmtCell(sum(row))}</td>
+                  <td style={numStyle}>{fmtCell(0)}</td>
+                  {cropped.map((v, i) => (<td key={i} style={numStyle}>{fmtCell(v)}</td>))}
+                </tr>
+              );
+            };
+            return (
+              <div style={sectionCardStyle} data-testid="funding-requirement">
+                <strong style={TABLE_TITLE}>Funding Requirement</strong>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: COLUMN_WIDTHS.label }} />
+                      <col style={{ width: fundNonLabelPct }} />
+                      {fundAxis.labels.map((_, i) => (<col key={i} style={{ width: fundNonLabelPct }} />))}
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={CELL_HEADER}>Description</th>
+                        <th style={CELL_HEADER}>Total</th>
+                        {fundAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {FUNDING_METHOD_IDS.map((m) => renderRow(m, false))}
+                      {renderRow(activeMethod, true)}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                  Methods 3 and 4 use stubbed presales and operating cash flow until M2 Revenue and M4 Financial Statements modules ship. Their numbers will refine then.
                 </div>
               </div>
             );
