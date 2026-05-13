@@ -1670,15 +1670,12 @@ function SummaryTables({
     activeFirstAnnual = 0;
     activeLastAnnual = 0;
   }
-  // annualPeriodCount must cover from project Y1 through the latest
-  // active column, with the legacy construction window as a floor so
-  // multi-phase projects with zero-tail trailing space don't shrink
-  // below the master construction horizon. 60-year hard cap retained
-  // for layout safety; up from the prior 24.
-  const annualPeriodCount = Math.min(
-    Math.max(totalConstructionPeriods, activeLastAnnual + 1, 1),
-    60,
-  );
+  // M2.0 Pass 14 (2026-05-13): data-driven axis, no hard cap.
+  // annualPeriodCount = max(project duration, latest active column + 1, 1).
+  // Project duration = totalConstructionPeriods (max construction + ops
+  // offset across all phases, computed upstream in computeProjectTimeline
+  // and threaded in via the SummaryTablesProps). 60-year clamp removed.
+  const annualPeriodCount = Math.max(totalConstructionPeriods, activeLastAnnual + 1, 1);
   const periodCount = annualPeriodCount * subPerYear;
   // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
   const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
@@ -1696,7 +1693,6 @@ function SummaryTables({
   // _shared/periodAxis.ts for the helper that prepends the prior label.
   const periodAxis = buildResultsPeriodAxis({
     startIso: project.startDate,
-    granularity,
     numAnnualPeriods: activeLastAnnual - activeFirstAnnual + 1,
     cropAnnualOffset: activeFirstAnnual,
   });
@@ -2784,10 +2780,11 @@ export default function Module1Costs(): React.JSX.Element {
   // M2.0M Pass 6 Fix 8 (2026-05-11): proper project-period reducer.
   // Each phase contributes (phaseStartYear - projectStartYear) + cp,
   // so multi-phase projects render columns out to the latest phase's
-  // construction end + 1 year buffer (capped at 24). Previously the
-  // reducer only considered constructionStart + cp and the offset was
-  // applied at render time, producing column ranges that either fell
-  // short or spilled past the actual construction tail.
+  // construction end + 1 year buffer.
+  // M2.0 Pass 14 (2026-05-13): project duration = max construction +
+  // operating periods across all phases. Floor for the data-driven
+  // axis so brand-new projects without cost-line data still render the
+  // full project horizon. No hard cap.
   const projectStartYear = new Date(project.startDate).getUTCFullYear();
   const totalConstructionPeriods = phases.reduce((max, p) => {
     const phaseStartIso = p.startDate && p.startDate.length === 10 ? p.startDate : project.startDate;
@@ -2795,7 +2792,9 @@ export default function Module1Costs(): React.JSX.Element {
     const offset = Number.isFinite(phaseStartYear - projectStartYear)
       ? Math.max(0, phaseStartYear - projectStartYear)
       : 0;
-    return Math.max(max, offset + p.constructionPeriods);
+    const phaseDuration =
+      p.constructionPeriods + p.operationsPeriods - p.overlapPeriods;
+    return Math.max(max, offset + phaseDuration);
   }, 0);
 
   const handleAddCustom = (assetId: string): void => {

@@ -1319,13 +1319,14 @@ export default function Module1Financing(): React.JSX.Element {
   // negative -> parens, null/undef -> blank). K/M suffix stays in page
   // header only.
   const fmt = (n: number): string => formatAccounting(n, scale, decimals);
-  // M2.0 Pass 14 (2026-05-13): annual-only basis until M5 Financial
-  // Statements introduces a granularity toggle scoped to FS output.
-  // project.outputGranularity is @deprecated; everything renders annual.
-  const periodCount = combined.periods;
+  // M2.0 Pass 14 (2026-05-13): annual-only basis + data-driven axis,
+  // no hard cap. Period count = max(project duration, combined debt
+  // service horizon, 1) so the axis covers the full project (including
+  // operations tail) AND any long-running facility that outlasts the
+  // active construction window.
+  const periodCount = Math.max(inputsSummary.totalPeriods, combined.periods, 1);
   const schedulesAxis = buildResultsPeriodAxis({
     startIso: project.startDate,
-    granularity: 'annual',
     numAnnualPeriods: periodCount,
   });
   const schedulesMinWidth = tableMinWidth(schedulesAxis.count);
@@ -1454,7 +1455,6 @@ export default function Module1Financing(): React.JSX.Element {
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
             const capexAxis = buildResultsPeriodAxis({
               startIso: project.startDate,
-              granularity: 'annual',
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
             const capexMinWidth = tableMinWidth(capexAxis.count);
@@ -1915,7 +1915,6 @@ export default function Module1Financing(): React.JSX.Element {
             const equityTotal = cashEquityTotal + inKindTotal;
             const reqAxis = buildResultsPeriodAxis({
               startIso: project.startDate,
-              granularity: 'annual',
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
             const reqMinWidth = tableMinWidth(reqAxis.count);
