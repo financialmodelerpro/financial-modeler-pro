@@ -1,19 +1,21 @@
 /* eslint-disable no-console */
 /**
- * verify-financing-rebuild.ts (Tab 4 Rebuild + Existing Ops, 2026-05-14)
+ * verify-financing-rebuild.ts (Tab 4 Rebuild + Existing Ops + Post-Rebuild
+ * Fixes, 2026-05-14)
  *
  * Fixture A (new-only): three new facilities (straight-line + bullet +
  * equal-periodic-amortization) over one construction phase. Asserts all
- * 9 reconciliation identities + full amortisation to zero.
+ * core reconciliation identities + full amortisation to zero.
  *
  * Fixture B (VOCO operational): one operational Phase 1 (pre-capex 3.6B,
  * existing debt 2.4B, existing equity 1.2B) + one construction Phase 2
  * + one existing facility (openingBalance 2.4B, 6% rate, equal-periodic
- * 15 years, 0 grace) + one new facility on Phase 2. Asserts existing
- * outstanding[0] = openingBalance, full amortisation by remaining
- * period, no new drawdown on existing, existing aggregate populated
- * correctly, no double-counting in capex perPeriod, validation chip
- * math (pre-capex = debt + equity).
+ * 15 years, 0 grace) + one new facility on Phase 2.
+ *
+ * Fixture C (post-rebuild user scenario): 3.5B non-land capex, 0.7B
+ * land cash, 1.35B land in-kind, Method 1 70/30, Senior at 7.5%,
+ * 50/50 parcel split. Asserts all 9 reconciliation identities from
+ * the post-rebuild fix brief by construction.
  *
  * Usage: npx tsx scripts/verify-financing-rebuild.ts
  */
@@ -328,6 +330,213 @@ console.log('\n[B9] New facility on Phase 2 still works');
 
 console.log('\n[B10] Reconciliation still green with operational phase');
 if (rB.reconciliation.ok) pass('reconciliation.ok'); else { fail('reconciliation.ok', 'false'); for (const m of rB.reconciliation.issues) console.log(`     - ${m}`); }
+
+// ── Fixture C: post-rebuild user scenario ──────────────────────────────
+
+function buildFixtureC() {
+  const project = makeDefaultProject('Post-Rebuild Scenario', 'SAR', 'annual');
+  project.startDate = '2025-01-01';
+  project.financing = {
+    fundingMethod: 1,
+    fixedRatio: { debtPct: 70, equityPct: 30 },
+    parcelFunding: [{ parcelId: 'p_main', debtPct: 50, equityPct: 50 }],
+    viewMode: 'combined',
+    minimumCashReserve: 0,
+  } as ProjectFinancingConfig;
+
+  // Phase: 5 construction periods, 15 operations.
+  const phase = makeDefaultPhase('phase_1', 'Phase 1', 5, 15, 0);
+
+  // One parcel: area*rate = 2.05B, with cashPct = 34.146% so cash =
+  // 0.7B, in-kind = 1.35B (matches user's brief exactly). Critical:
+  // the cost engine reads parcel.inKindPct directly (not 100 - cashPct),
+  // so both fields must be set or land-in-kind computes NaN.
+  const cashPct = (0.7 / 2.05) * 100;
+  const parcel: Parcel = {
+    id: 'p_main', phaseId: 'phase_1', name: 'Main Parcel',
+    area: 2050, rate: 1_000_000, cashPct, inKindPct: 100 - cashPct,
+  };
+
+  const asset: Asset = {
+    id: 'asset_1', phaseId: 'phase_1', name: 'Asset 1', type: 'Mixed-Use', strategy: 'Sell', visible: true,
+    gfaSqm: 80000, buaSqm: 60000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
+    landAllocation: { parcelId: 'p_main', sqm: 2050 },
+  };
+
+  // Cost lines: non-land construction (fixed 3.5B over 5 periods) plus
+  // the two locked land lines from the standard catalog (which route
+  // through percent_of_cash_land / percent_of_inkind_land off the asset
+  // metrics produced by resolveAssetAreaMetrics + the parcel).
+  const costLines: CostLine[] = [
+    {
+      id: 'construction-bua__phase_1', phaseId: 'phase_1', name: 'Construction',
+      method: 'fixed', value: 3_500_000_000, stage: 'hard', scope: 'direct',
+      allocationBasis: 'per_asset',
+      startPeriod: 1, endPeriod: 5, phasing: 'even',
+    },
+    {
+      id: 'land-cash__phase_1', phaseId: 'phase_1', name: 'Land (Cash)',
+      method: 'percent_of_cash_land', value: 100,
+      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 0, endPeriod: 0, phasing: 'even',
+      isLocked: true,
+    },
+    {
+      id: 'land-inkind__phase_1', phaseId: 'phase_1', name: 'Land (In-Kind)',
+      method: 'percent_of_inkind_land', value: 100,
+      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 0, endPeriod: 0, phasing: 'even',
+      isLocked: true,
+    },
+  ];
+
+  const senior: FinancingTranche = {
+    ...makeDefaultFinancingTranche('fac_senior', 'phase_1'),
+    name: 'Senior Debt',
+    interestRatePct: 7.5,
+    facilitySharePct: 100,
+    drawdownStartPeriod: 0,
+    repaymentMethod: 'equal_periodic_amortization',
+    repaymentPeriods: 15,
+    gracePeriods: 0,
+  };
+
+  return {
+    project, phases: [phase], parcels: [parcel],
+    assets: [asset], subUnits: [] as SubUnit[], costLines, costOverrides: [],
+    landAllocationMode: 'autoByBua' as const, financingConfig: project.financing!,
+    tranches: [senior], equityContributions: [] as EquityContribution[],
+  };
+}
+
+console.log('\n========== Fixture C: post-rebuild user scenario ==========');
+const rC = computeFinancingResult(buildFixtureC());
+
+console.log('\n[C0] Expected totals from the spec');
+{
+  if (near(rC.capex.totals.exclAllLand, 3_500_000_000, 1)) pass('non-land capex = 3.5B');
+  else fail('non-land capex', `${rC.capex.totals.exclAllLand}`);
+  const landCashTotal = rC.capex.perPeriod.landCash.reduce((s, v) => s + v, 0);
+  if (near(landCashTotal, 700_000_000, 1)) pass('land cash = 0.7B');
+  else fail('land cash', `${landCashTotal}`);
+  const landInKindTotal = rC.capex.perPeriod.landInKind.reduce((s, v) => s + v, 0);
+  if (near(landInKindTotal, 1_350_000_000, 1)) pass('land in-kind = 1.35B');
+  else fail('land in-kind', `${landInKindTotal}`);
+  if (near(rC.capex.totals.exclLandInKind, 4_200_000_000, 1)) pass('total capex excl in-kind = 4.2B');
+  else fail('total capex excl in-kind', `${rC.capex.totals.exclLandInKind}`);
+}
+
+console.log('\n[C1] Σ Capex Breakdown rows = Total Capex Incl Cash Land per period');
+{
+  let ok = true;
+  for (let i = 0; i < rC.axis.totalPeriods; i++) {
+    const sum = (rC.capex.perPeriod.exclAllLand[i] ?? 0) + (rC.capex.perPeriod.landCash[i] ?? 0);
+    const expected = rC.capex.perPeriod.exclLandInKind[i] ?? 0;
+    if (!near(sum, expected, 1)) { fail(`period ${i}`, `${sum} vs ${expected}`); ok = false; break; }
+  }
+  if (ok) pass('per-period sum identity');
+}
+
+console.log('\n[C2] Funding Requirement Selected per period = debt + cash equity per period');
+{
+  let ok = true;
+  for (let i = 0; i < rC.axis.totalPeriods; i++) {
+    const need = rC.capex.perPeriod.exclLandInKind[i] ?? 0;
+    const debt = rC.debtEquitySplit.debt[i] ?? 0;
+    const equity = rC.debtEquitySplit.equity[i] ?? 0;
+    if (!near(need, debt + equity, 1)) { fail(`period ${i}`, `need ${need} vs d+e ${debt + equity}`); ok = false; break; }
+  }
+  if (ok) pass('funding identity holds per period');
+}
+
+console.log('\n[C3] Σ facility drawdown per period = Total Debt Required per period');
+{
+  let ok = true;
+  for (let i = 0; i < rC.axis.totalPeriods; i++) {
+    let s = 0;
+    for (const f of rC.facilities.values()) s += f.drawSchedule[i] ?? 0;
+    const expected = rC.debtEquitySplit.debt[i] ?? 0;
+    if (!near(s, expected, 1)) { fail(`period ${i}`, `${s} vs ${expected}`); ok = false; break; }
+  }
+  if (ok) pass('facility drawdown sum = total debt per period');
+}
+
+console.log('\n[C4] Combined Debt Service Total Drawdown per period = Total Debt Required per period');
+{
+  let ok = true;
+  for (let i = 0; i < rC.axis.totalPeriods; i++) {
+    const combined = rC.combined.totalDrawdown[i] ?? 0;
+    const expected = rC.debtEquitySplit.debt[i] ?? 0;
+    if (!near(combined, expected, 1)) { fail(`period ${i}`, `${combined} vs ${expected}`); ok = false; break; }
+  }
+  if (ok) pass('combined drawdown = total debt per period');
+}
+
+console.log('\n[C5] Equity Movement In-Kind total = Land In-Kind value (single sum)');
+{
+  if (near(rC.equity.totalInKind, 1_350_000_000, 1)) pass('in-kind = 1.35B (not doubled, single sum from parcel)');
+  else fail('in-kind', `${rC.equity.totalInKind}`);
+}
+
+console.log('\n[C6] Equity Movement Total = Cash + In-Kind');
+{
+  const expected = rC.equity.totalCash + rC.equity.totalInKind + rC.equity.totalExisting;
+  if (near(rC.equity.grandTotal, expected, 1)) pass('grand total = cash + in-kind + existing');
+  else fail('grand total', `${rC.equity.grandTotal} vs ${expected}`);
+}
+
+console.log('\n[C7] Finance Cost Capitalized + Expensed per period = Charge per period');
+{
+  let ok = true;
+  for (const f of rC.facilities.values()) {
+    for (let i = 0; i < rC.axis.totalPeriods; i++) {
+      const cap = f.interestCapitalized[i] ?? 0;
+      const exp = f.interestPaid[i] ?? 0;
+      const charge = f.interestAccrued[i] ?? 0;
+      if (!near(cap + exp, charge, 1)) {
+        fail(`facility ${f.trancheId} period ${i}`, `cap+exp ${cap + exp} vs charge ${charge}`);
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) break;
+  }
+  if (ok) pass('cap + exp = charge per period per facility');
+}
+
+console.log('\n[C8] IDC Summary Capitalised per facility = Σ Finance Cost Capitalized per facility');
+{
+  for (const f of rC.facilities.values()) {
+    const capSum = f.interestCapitalized.reduce((s, v) => s + v, 0);
+    if (capSum > 0) pass(`facility ${f.trancheId} IDC = ${capSum.toFixed(0)}`);
+    else fail(`facility ${f.trancheId} IDC`, 'expected positive (Senior 7.5% over 5-period capex window)');
+  }
+}
+
+console.log('\n[C9] Closing Balance accounting identity holds for every period every facility');
+{
+  let ok = true;
+  for (const f of rC.facilities.values()) {
+    const t = buildFixtureC().tranches.find((x) => x.id === f.trancheId);
+    const openingInitial = t?.origin === 'existing' ? Math.max(0, t.openingBalance ?? 0) : 0;
+    for (let i = 0; i < rC.axis.totalPeriods; i++) {
+      const opening = i === 0 ? openingInitial : (f.outstanding[i - 1] ?? 0);
+      const expectedClosing = opening + (f.drawSchedule[i] ?? 0) + (f.interestCapitalized[i] ?? 0) - (f.principalRepaid[i] ?? 0);
+      const actual = f.outstanding[i] ?? 0;
+      if (!near(expectedClosing, actual, 1)) {
+        fail(`closing[${i}] for ${f.trancheId}`, `${expectedClosing} vs ${actual}`);
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) break;
+  }
+  if (ok) pass('closing identity per period per facility');
+}
+
+console.log('\n[C10] Reconciliation green on user scenario');
+if (rC.reconciliation.ok) pass('reconciliation.ok');
+else { fail('reconciliation.ok', 'false'); for (const m of rC.reconciliation.issues) console.log(`     - ${m}`); }
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
