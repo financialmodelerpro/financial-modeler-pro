@@ -1176,9 +1176,23 @@ export interface FinancingTranche {
   // finances the whole phase pro-rata across visible assets.
   assetId?: string;
   name: string;
+  /**
+   * @deprecated M2.0 Pass 18 (2026-05-13). Per-facility drawdown is now
+   * derived from the project-level funding.debtEquitySplit.debt[] series
+   * scaled by `facilitySharePct`. `ltvPct` stays on schema for snapshot
+   * back-compat; engine ignores it when `precomputedDrawSchedule` is
+   * supplied (the new path for all UI callers).
+   */
   ltvPct: number;
   interestRatePct: number;
   // Drawdown
+  /**
+   * @deprecated M2.0 Pass 18 (2026-05-13). Drawdown method dropdown
+   * dropped from TrancheCard UI; the engine no longer consults this
+   * field when `precomputedDrawSchedule` is supplied. Kept for snapshot
+   * back-compat; legacy callers that omit `precomputedDrawSchedule`
+   * still use this switch.
+   */
   drawdownMethod: DrawdownMethod;
   drawdownDistribution?: number[];     // manual only
   drawdownIncludeLand?: boolean;       // capex_minus_presales: include land in net

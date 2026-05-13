@@ -1099,40 +1099,10 @@ export default function Module1Financing(): React.JSX.Element {
     : financingTranches.filter((t) => t.phaseId === phase.id);
   const phaseEquity = equityContributions.filter((e) => e.phaseId === phase.id);
 
-  // Compute every facility's schedule once. P3-Fix 9: when aggregating
-  // across all phases, each facility must compute against its OWN phase
-  // (not the page-header's active phase) so the schedule lines up with
-  // each phase's capex curve.
-  const resultsMap = useMemo(() => {
-    const map = new Map<string, FinancingResult>();
-    for (const t of phaseTranches) {
-      const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
-      const facilityCost = computePhaseCost(
-        facilityPhase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode,
-      );
-      const facilityCapex = facilityCost.perPeriod;
-      const facilityPresales = new Array<number>(facilityCost.perPeriod.length).fill(0);
-      map.set(t.id, computeFinancing(t, facilityPhase, facilityCapex, facilityPresales, project));
-    }
-    return map;
-  }, [phaseTranches, phase, phases, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode]);
-
-  // P4-Fix 10 (2026-05-12): funding + equity routed off PROJECT-WIDE
-  // capex (inputsSummary.totals) instead of the single-phase
-  // capexPerPeriod. Pre-Pass-4 this only summed the active phase, so
-  // multi-phase projects + the Capital Structure Overview rendered
-  // zero when activePhaseId pointed at a phase with no cost lines.
-  // Now: funding sees the union of all phase capex excluding Land
-  // In-Kind, so totals match the Inputs Summary Tables Total Funding
-  // row exactly.
-  const idcSummary = useMemo(
-    () => computeIdcSummary(phaseTranches, resultsMap),
-    [phaseTranches, resultsMap],
-  );
-  const combined = useMemo(
-    () => computeCombinedDebtService(resultsMap),
-    [resultsMap],
-  );
+  // M2.0 Pass 18 (2026-05-13): resultsMap + idcSummary + combined moved
+  // BELOW the `funding` memo because per-facility drawdown now derives
+  // from funding.debtEquitySplit.debt[i] x facilitySharePct / 100 (the
+  // only allocation rule). See the new definitions after `equity`.
 
   // P3-Fix 8 (2026-05-12): per-asset capex project-wide for the Inputs
   // Summary Tables. Excludes Land In-Kind (non-cash equity) so the
@@ -1376,6 +1346,49 @@ export default function Module1Financing(): React.JSX.Element {
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],
   );
+
+  // M2.0 Pass 18 (2026-05-13): per-facility schedules computed AFTER
+  // `funding` so the drawdown series for each new facility = the active
+  // method's debt[period] x facilitySharePct/100. Existing facilities
+  // (origin === 'existing') skip the precomputed arg and amortise from
+  // openingBalance. Mapping from project-period -> facility-local uses
+  // costLineProjectPeriodIndex with offset = 0 (facility-local i maps
+  // to project period `phaseStartYear - projectStartYear + i`).
+  const resultsMap = useMemo(() => {
+    const map = new Map<string, FinancingResult>();
+    const projectDebt = funding.debtEquitySplit.debt;
+    for (const t of phaseTranches) {
+      const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
+      const facilityCost = computePhaseCost(
+        facilityPhase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode,
+      );
+      const facilityCapex = facilityCost.perPeriod;
+      const facilityPresales = new Array<number>(facilityCapex.length).fill(0);
+      let precomputedDraw: number[] | undefined;
+      if (t.origin !== 'existing') {
+        const sharePct = Math.max(0, t.facilitySharePct ?? 100) / 100;
+        precomputedDraw = new Array<number>(facilityCapex.length).fill(0);
+        const offset = costLineProjectPeriodIndex(project, facilityPhase, 0);
+        for (let i = 0; i < facilityCapex.length; i++) {
+          const pp = offset + i;
+          if (pp < 0 || pp >= projectDebt.length) continue;
+          precomputedDraw[i] = (projectDebt[pp] ?? 0) * sharePct;
+        }
+      }
+      map.set(t.id, computeFinancing(t, facilityPhase, facilityCapex, facilityPresales, project, precomputedDraw));
+    }
+    return map;
+  }, [phaseTranches, phase, phases, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode, funding]);
+
+  const idcSummary = useMemo(
+    () => computeIdcSummary(phaseTranches, resultsMap),
+    [phaseTranches, resultsMap],
+  );
+  const combined = useMemo(
+    () => computeCombinedDebtService(resultsMap),
+    [resultsMap],
+  );
+
   // P4-Fix 3 / Fix 10: Capital Structure Overview totals are derived
   // directly from funding + equity now (NOT computeCapitalStack which
   // reads deprecated tranche.ltvPct + tranche.principal fields that

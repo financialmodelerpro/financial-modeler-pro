@@ -1544,6 +1544,21 @@ export function computeFinancing(
   capexPerPeriod: number[],
   presalesPerPeriod: number[],
   project: Project,
+  /**
+   * M2.0 Pass 18 (2026-05-13): when supplied, the facility's drawdown
+   * series is taken verbatim and the legacy `tranche.drawdownMethod`
+   * switch is skipped. Caller derives this from the project-level
+   * `funding.debtEquitySplit.debt[period]` series scaled by the
+   * facility's `facilitySharePct` (the only allocation rule today).
+   *
+   * Existing facilities (origin === 'existing') ignore this arg
+   * because their drawWindow is 0; they amortise from openingBalance.
+   *
+   * When omitted, computeFinancing falls back to its pre-Pass-18
+   * behaviour (drawdownMethod switch with tranche.ltvPct + capex).
+   * Legacy callers stay bit-identical.
+   */
+  precomputedDrawSchedule?: number[],
 ): FinancingResult {
   const constructionPeriods = phase.constructionPeriods;
   const operationsPeriods = phase.operationsPeriods;
@@ -1590,6 +1605,14 @@ export function computeFinancing(
       : drawWindow,
   );
 
+  // M2.0 Pass 18 (2026-05-13): when the caller supplies a precomputed
+  // drawdown series, use it verbatim and skip the legacy drawdownMethod
+  // switch. Existing facilities (drawWindow=0) ignore both paths.
+  if (precomputedDrawSchedule && !isExisting) {
+    for (let i = 0; i < periods; i++) {
+      drawSchedule[i] = Math.max(0, precomputedDrawSchedule[i] ?? 0);
+    }
+  } else {
   // Existing facilities skip the drawdown switch entirely (drawWindow=0).
   switch (isExisting ? '__skip_existing__' as never : tranche.drawdownMethod) {
     case 'capex_basis': {
@@ -1670,6 +1693,7 @@ export function computeFinancing(
       }
       break;
     }
+  }
   }
 
   // Total principal that the repayment schedule must amortize: for new
