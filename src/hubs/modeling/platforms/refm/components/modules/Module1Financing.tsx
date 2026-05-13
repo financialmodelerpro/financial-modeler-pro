@@ -70,14 +70,16 @@ import {
   // P4-Fix 10 (2026-05-12): computeCapitalStack import dropped. Capital
   // Structure Overview now derives directly from funding + equity to
   // avoid the deprecated tranche.ltvPct + tranche.principal code path.
-  computeIdcSummary,
-  computeCombinedDebtService,
+  // M2.0 Pass 24 (2026-05-13): computeIdcSummary +
+  // computeCombinedDebtService dropped (UI side `debtScheduleByFacility`
+  // + `debtIdcSummary` derive the same totals from funding directly).
   applyIdcToCapex,
   computeFunding,
   computeEquity,
   computeAssetCost,
   computeProjectTimeline,
   costLineProjectPeriodIndex,
+  normalizeYoYSchedule,
   type FinancingResult,
   type FundingResult,
 } from '@/src/core/calculations';
@@ -1329,14 +1331,174 @@ export default function Module1Financing(): React.JSX.Element {
     return map;
   }, [phaseTranches, phase, phases, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode, funding]);
 
-  const idcSummary = useMemo(
-    () => computeIdcSummary(phaseTranches, resultsMap),
-    [phaseTranches, resultsMap],
-  );
-  const combined = useMemo(
-    () => computeCombinedDebtService(resultsMap),
-    [resultsMap],
-  );
+  // M2.0 Pass 24 (2026-05-13): UI-side debt schedule that reconciles
+  // to Inputs Total Debt Required by construction. Built in
+  // project-period space (length N = funding.debtEquitySplit.debt.length)
+  // so every output array crops with cropProject the same way the
+  // Total Debt Required + Equity Movement tables do, eliminating the
+  // facility-local indexing drift that left Pass-22-23 Schedules tables
+  // mismatched against the Inputs sub-tab.
+  //
+  // Per-period accounting flow:
+  //   opening[i]   = closing[i-1] (or openingBalance for existing at i=0)
+  //   drawdown[i]  = funding.debtEquitySplit.debt[i] × facilitySharePct
+  //                  (gated to i >= drawdownStartPeriod; existing skips)
+  //   accrual on (opening + drawdown), capitalize during the
+  //   construction window (any i where any facility drew capex into
+  //   funding) and expense otherwise
+  //   repayment kicks in at `opsStart + grace`, sized by repaymentMethod
+  //   (straight-line / YoY% / cash-sweep stubbed to straight-line)
+  //   closing[i]   = opening[i] + drawdown[i] + interestCapitalized[i]
+  //                  - principalRepaid[i]
+  type DebtSchedule = {
+    drawdown: number[];
+    interestAccrued: number[];
+    interestCapitalized: number[];
+    interestExpensed: number[];
+    principalRepaid: number[];
+    opening: number[];
+    closing: number[];
+  };
+  const debtScheduleByFacility = useMemo(() => {
+    const out = new Map<string, DebtSchedule>();
+    const debt = funding.debtEquitySplit.debt;
+    const N = debt.length;
+    // Construction window = where the project actually carries debt
+    // financing (capex × debt%). Operations start right after the last
+    // non-zero debt period. Capitalise interest during construction,
+    // expense afterwards. This is independent of any single facility's
+    // drawdownStartPeriod or share — every facility shares the same
+    // construction window because they all fund the same project capex.
+    let firstDebtIdx = -1;
+    let lastDebtIdx = -1;
+    for (let i = 0; i < N; i++) {
+      if (Math.abs(debt[i] ?? 0) > 0.5) {
+        if (firstDebtIdx < 0) firstDebtIdx = i;
+        lastDebtIdx = i;
+      }
+    }
+    const opsStartIdx = lastDebtIdx >= 0 ? lastDebtIdx + 1 : 0;
+    for (const t of phaseTranches) {
+      const share = Math.max(0, t.facilitySharePct ?? 100) / 100;
+      const drawStart = Math.max(0, t.drawdownStartPeriod ?? 0);
+      const periodRate = project.modelType === 'monthly'
+        ? Math.max(0, t.interestRatePct ?? 0) / 100 / 12
+        : Math.max(0, t.interestRatePct ?? 0) / 100;
+      const grace = Math.max(0, t.gracePeriods ?? 0);
+      const isExisting = t.origin === 'existing';
+      const openingBal = isExisting ? Math.max(0, t.openingBalance ?? 0) : 0;
+      const repayPeriods = isExisting
+        ? Math.max(0, t.remainingRepaymentPeriods ?? 0)
+        : Math.max(0, t.repaymentPeriods ?? 0);
+
+      const drawdown = new Array<number>(N).fill(0);
+      const interestAccrued = new Array<number>(N).fill(0);
+      const interestCapitalized = new Array<number>(N).fill(0);
+      const interestExpensed = new Array<number>(N).fill(0);
+      const principalRepaid = new Array<number>(N).fill(0);
+      const opening = new Array<number>(N).fill(0);
+      const closing = new Array<number>(N).fill(0);
+
+      // Drawdown comes off the project's debt slice scaled by the
+      // facility's share. Existing facilities skip drawdown entirely.
+      if (!isExisting) {
+        for (let i = 0; i < N; i++) {
+          if (i < drawStart) continue;
+          drawdown[i] = Math.max(0, (debt[i] ?? 0)) * share;
+        }
+      }
+
+      // Principal schedule. For existing facilities we amortize the
+      // opening balance; for new facilities we amortize the sum of
+      // draws. Method picker mirrors the Pass 23 UI dropdown:
+      //   equal_repayment / cash_sweep (stubbed) -> equal principal
+      //   year_on_year_pct                       -> normalised weights
+      const principalToAmortize = isExisting
+        ? openingBal
+        : drawdown.reduce((s, v) => s + v, 0);
+      let principalSchedule: number[] = [];
+      if (repayPeriods > 0 && principalToAmortize > 0) {
+        const method = mapLegacyRepayment(t.repaymentMethod);
+        if (method === 'year_on_year_pct') {
+          const sched = normalizeYoYSchedule(t.yearOnYearPctSchedule ?? [], repayPeriods);
+          principalSchedule = sched.map((p) => principalToAmortize * (p / 100));
+        } else {
+          principalSchedule = new Array<number>(repayPeriods).fill(principalToAmortize / repayPeriods);
+        }
+      }
+      // Repayment window in project-period space. For existing
+      // facilities ops starts at i=0 (already in operations) so grace +
+      // repayment indices count from the start.
+      const repayStart = isExisting ? grace : opsStartIdx + grace;
+
+      let balance = openingBal;
+      for (let i = 0; i < N; i++) {
+        opening[i] = balance;
+        balance += drawdown[i];
+        const interest = balance * periodRate;
+        interestAccrued[i] = interest;
+        // Capitalise during construction (new facilities only). Existing
+        // facilities always expense — they amortise from openingBalance.
+        const inConstruction = !isExisting && i >= firstDebtIdx && i < opsStartIdx;
+        if (inConstruction) {
+          interestCapitalized[i] = interest;
+          balance += interest;
+        } else {
+          interestExpensed[i] = interest;
+        }
+        // Principal repayment after grace.
+        const repayOffset = i - repayStart;
+        if (repayOffset >= 0 && repayOffset < principalSchedule.length) {
+          const pay = Math.min(principalSchedule[repayOffset] ?? 0, balance);
+          principalRepaid[i] = pay;
+          balance -= pay;
+        }
+        closing[i] = balance;
+      }
+
+      out.set(t.id, { drawdown, interestAccrued, interestCapitalized, interestExpensed, principalRepaid, opening, closing });
+    }
+    return out;
+  }, [phaseTranches, funding, project.modelType]);
+
+  const debtScheduleCombined = useMemo(() => {
+    const N = funding.debtEquitySplit.debt.length;
+    const drawdown = new Array<number>(N).fill(0);
+    const interestAccrued = new Array<number>(N).fill(0);
+    const interestCapitalized = new Array<number>(N).fill(0);
+    const interestExpensed = new Array<number>(N).fill(0);
+    const principalRepaid = new Array<number>(N).fill(0);
+    const opening = new Array<number>(N).fill(0);
+    const closing = new Array<number>(N).fill(0);
+    for (const s of debtScheduleByFacility.values()) {
+      for (let i = 0; i < N; i++) {
+        drawdown[i] += s.drawdown[i] ?? 0;
+        interestAccrued[i] += s.interestAccrued[i] ?? 0;
+        interestCapitalized[i] += s.interestCapitalized[i] ?? 0;
+        interestExpensed[i] += s.interestExpensed[i] ?? 0;
+        principalRepaid[i] += s.principalRepaid[i] ?? 0;
+        opening[i] += s.opening[i] ?? 0;
+        closing[i] += s.closing[i] ?? 0;
+      }
+    }
+    return { drawdown, interestAccrued, interestCapitalized, interestExpensed, principalRepaid, opening, closing };
+  }, [debtScheduleByFacility, funding]);
+
+  const debtIdcSummary = useMemo(() => {
+    const byFacility: Array<{ id: string; name: string; capitalized: number; expensed: number }> = [];
+    let totalCapitalized = 0;
+    let totalExpensed = 0;
+    for (const t of phaseTranches) {
+      const s = debtScheduleByFacility.get(t.id);
+      if (!s) continue;
+      const cap = s.interestCapitalized.reduce((sum, v) => sum + v, 0);
+      const exp = s.interestExpensed.reduce((sum, v) => sum + v, 0);
+      totalCapitalized += cap;
+      totalExpensed += exp;
+      byFacility.push({ id: t.id, name: t.name, capitalized: cap, expensed: exp });
+    }
+    return { byFacility, totalCapitalized, totalExpensed };
+  }, [phaseTranches, debtScheduleByFacility]);
 
   // P4-Fix 3 / Fix 10: Capital Structure Overview totals are derived
   // directly from funding + equity now (NOT computeCapitalStack which
@@ -2137,15 +2299,19 @@ export default function Module1Financing(): React.JSX.Element {
       )}
 
       {/* ── Schedules sub-tab ──────────────────────────────────────────
-          M2.0 Pass 22 (2026-05-13): Debt schedules wired DIRECTLY to
-          Funding Required. Filter pill bar removed (user request). Each
-          per-facility table renders against the same project-aligned
-          axis the Inputs sub-tab uses, sourcing drawdown from
-          `funding.debtEquitySplit.debt[c+1] × facility.facilitySharePct/100`
-          via cropProject. This guarantees Schedules debt cols match
-          Total Debt Required cols column-for-column instead of going
-          through the facility-local cropFacility path that broke when
-          activeCount exceeded the facility's array length. */}
+          M2.0 Pass 24 (2026-05-13): every debt table reads from the
+          single `debtScheduleByFacility` / `debtScheduleCombined`
+          memos so the chain reconciles by construction:
+            Inputs Total Debt Required
+              -> Debt Movement (per facility, Drawdown row matches
+                 col-for-col)
+              -> Combined Debt Service (sum across facilities)
+              -> Finance Cost (per facility, splits accrued into
+                 capitalized vs expensed)
+              -> IDC Summary (totals of the above splits)
+          All arrays are project-period indexed (length N = funding
+          debt array length) so cropProject lines them up with the
+          Inputs sub-tab's Dec NN labels. */}
       {subTab === 'schedules' && (() => {
         const labels = schedulesAxis.axis.labels;
         const { cropProject, activeCount } = schedulesAxis;
@@ -2159,21 +2325,13 @@ export default function Module1Financing(): React.JSX.Element {
           <>
             {/* Schedule 1: Debt Movement per facility */}
             {phaseTranches.map((t) => {
-              const r = resultsMap.get(t.id);
-              if (!r) return null;
-              const closing = cropProject(r.outstandingBalance);
+              const s = debtScheduleByFacility.get(t.id);
+              if (!s) return null;
+              const closing = cropProject(s.closing);
               const opening = buildOpening(closing);
-              // Drawdown rendered directly from funding × facility share
-              // so the row reconciles to Total Debt Required by
-              // construction. r.drawSchedule[c+1] for phase 1 = the same
-              // value (precomputedDraw path); reading funding here means
-              // the linkage holds even if a future migration changes
-              // computeFinancing's internal shape.
-              const sharePct = Math.max(0, t.facilitySharePct ?? 100) / 100;
-              const drawSource = funding.debtEquitySplit.debt.map((d) => d * sharePct);
-              const draw = cropProject(drawSource);
-              const intCap = cropProject(r.interestCapitalized);
-              const principal = cropProject(r.principalRepaid);
+              const draw = cropProject(s.drawdown);
+              const intCap = cropProject(s.interestCapitalized);
+              const principal = cropProject(s.principalRepaid);
               return (
                 <ScheduleTable
                   key={`debt-movement-${t.id}`}
@@ -2191,18 +2349,20 @@ export default function Module1Financing(): React.JSX.Element {
               );
             })}
 
-            {/* Schedule 2: Combined Debt Service. Total Drawdown +
-                Total Interest + Total Principal + Total Debt Service.
-                Drawdown row = funding.debtEquitySplit.debt (full
-                project debt, before facility split, no share rescaling
-                possible because shares sum to 100% across facilities).
-                Interest + Principal aggregate per-facility via
-                computeCombinedDebtService. */}
+            {/* Schedule 2: Combined Debt Service. Sum of per-facility
+                schedules from the same source. Total Drawdown reconciles
+                to funding.debtEquitySplit.debt by construction (when
+                facility shares sum to 100%). */}
             {(() => {
-              const totalDraw = cropProject(funding.debtEquitySplit.debt);
-              const totalInterest = cropProject(combined.totalInterest);
-              const totalPrincipal = cropProject(combined.totalPrincipal);
-              const totalDS = cropProject(combined.totalDebtService);
+              const totalDraw = cropProject(debtScheduleCombined.drawdown);
+              const totalInterest = cropProject(debtScheduleCombined.interestAccrued);
+              const totalCap = cropProject(debtScheduleCombined.interestCapitalized);
+              const totalExp = cropProject(debtScheduleCombined.interestExpensed);
+              const totalPrincipal = cropProject(debtScheduleCombined.principalRepaid);
+              // Cash debt service (P&L + Cash Flow view): interest
+              // expensed + principal repaid (excludes capitalized
+              // interest which is non-cash).
+              const totalDS = totalExp.map((v, i) => v + (totalPrincipal[i] ?? 0));
               return (
                 <ScheduleTable
                   title="2. Combined Debt Service"
@@ -2210,21 +2370,39 @@ export default function Module1Financing(): React.JSX.Element {
                   labels={labels}
                   rows={[
                     { label: 'Total Drawdown', values: totalDraw.map(fmt) as unknown as number[], total: sumActive(totalDraw) },
-                    { label: 'Total Interest', values: totalInterest.map(fmt) as unknown as number[], total: sumActive(totalInterest) },
+                    { label: 'Total Interest Accrued', values: totalInterest.map(fmt) as unknown as number[], total: sumActive(totalInterest) },
+                    { label: 'Total Interest Capitalized', values: totalCap.map(fmt) as unknown as number[], total: sumActive(totalCap) },
+                    { label: 'Total Interest Expensed', values: totalExp.map(fmt) as unknown as number[], total: sumActive(totalExp) },
                     { label: 'Total Principal', values: totalPrincipal.map(fmt) as unknown as number[], total: sumActive(totalPrincipal) },
-                    { label: 'Total Debt Service', values: totalDS.map(fmt) as unknown as number[], bold: true, total: sumActive(totalDS) },
+                    { label: 'Total Debt Service (Cash)', values: totalDS.map(fmt) as unknown as number[], bold: true, total: sumActive(totalDS) },
                   ]}
                 />
               );
             })()}
 
-            {/* Schedule 3: Finance Cost per facility */}
+            {/* Schedule 3: Finance Cost per facility.
+                P&L / BS / CF accounting view:
+                  Opening + Charge - Paid = Closing (interest payable)
+                  Charge = interest accrued for the period
+                  Paid   = capitalised (rolled into loan balance) +
+                           expensed (cash interest)
+                  P&L impact = expensed only (capitalised hits the
+                  asset's depreciation schedule via the Tab-3 auto IDC
+                  line)
+                Charge - Paid = 0 every period because every accrual
+                is either capitalised or expensed in the same period
+                (no deferred interest receivable in this model). The
+                Opening + Closing rows are kept at 0 so the table
+                reads as a strict period summary; they will populate
+                when PIK / payment-holiday deferrals re-enter the
+                schema. */}
             {phaseTranches.map((t) => {
-              const r = resultsMap.get(t.id);
-              if (!r) return null;
-              const accrued = cropProject(r.interestAccrued);
-              const cap = cropProject(r.interestCapitalized);
-              const expensed = accrued.map((a, i) => Math.max(0, a - (cap[i] ?? 0)));
+              const s = debtScheduleByFacility.get(t.id);
+              if (!s) return null;
+              const charge = cropProject(s.interestAccrued);
+              const capitalized = cropProject(s.interestCapitalized);
+              const expensed = cropProject(s.interestExpensed);
+              const paid = charge.map((c, i) => Math.max(0, c) === 0 ? 0 : (capitalized[i] ?? 0) + (expensed[i] ?? 0));
               return (
                 <ScheduleTable
                   key={`finance-cost-${t.id}`}
@@ -2232,15 +2410,17 @@ export default function Module1Financing(): React.JSX.Element {
                   dataTestid={`finance-cost-${t.id}`}
                   labels={labels}
                   rows={[
-                    { label: 'Interest Accrued', values: accrued.map(fmt) as unknown as number[], total: sumActive(accrued) },
-                    { label: 'Interest Capitalized', values: cap.map(fmt) as unknown as number[], total: sumActive(cap) },
-                    { label: 'Interest Expensed', values: expensed.map(fmt) as unknown as number[], bold: true, total: sumActive(expensed) },
+                    { label: 'Interest Charge (Accrued)', values: charge.map(fmt) as unknown as number[], total: sumActive(charge) },
+                    { label: 'Capitalized (to Balance)', values: capitalized.map(fmt) as unknown as number[], total: sumActive(capitalized) },
+                    { label: 'Expensed (to P&L)', values: expensed.map(fmt) as unknown as number[], total: sumActive(expensed) },
+                    { label: 'Paid (Capitalized + Expensed)', values: paid.map(fmt) as unknown as number[], bold: true, total: sumActive(paid) },
                   ]}
                 />
               );
             })}
 
-            {/* Schedule 4: IDC Summary */}
+            {/* Schedule 4: IDC Summary. Totals of the Capitalized vs
+                Expensed splits from Schedule 3 per facility. */}
             <div style={sectionCardStyle} data-testid="idc-summary">
               <strong style={TABLE_TITLE}>4. IDC Summary</strong>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
@@ -2259,7 +2439,7 @@ export default function Module1Financing(): React.JSX.Element {
                   </tr>
                 </thead>
                 <tbody>
-                  {idcSummary.byFacility.map((f) => (
+                  {debtIdcSummary.byFacility.map((f) => (
                     <tr key={f.id} data-testid={`idc-row-${f.id}`}>
                       <td style={{ padding: '4px 6px' }}>{f.name}</td>
                       <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.capitalized)}</td>
@@ -2269,9 +2449,9 @@ export default function Module1Financing(): React.JSX.Element {
                   ))}
                   <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                     <td style={{ padding: '4px 6px' }}>Total</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-capitalized">{fmt(idcSummary.totalCapitalized)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-expensed">{fmt(idcSummary.totalExpensed)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(idcSummary.totalCapitalized + idcSummary.totalExpensed)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-capitalized">{fmt(debtIdcSummary.totalCapitalized)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-expensed">{fmt(debtIdcSummary.totalExpensed)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(debtIdcSummary.totalCapitalized + debtIdcSummary.totalExpensed)}</td>
                   </tr>
                 </tbody>
               </table>
