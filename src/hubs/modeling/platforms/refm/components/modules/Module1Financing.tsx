@@ -1488,69 +1488,6 @@ export default function Module1Financing(): React.JSX.Element {
               viewMode + selectedAssetId stay for back-compat; migration
               flips single_asset -> combined. */}
 
-          {/* M2.0 Pass 13 (2026-05-13): Capex Breakdown table on top of
-              Inputs. Three rows (Capex excl Land / Land Cash Value /
-              Total Capex Incl Cash Land), driven by inputsSummary.
-              Row 3 = inputsSummary.totals (cash capex incl Land Cash,
-              excl Land In-Kind), row 2 = Land Cash slice, row 1 =
-              row 3 - row 2. Pass 14 (2026-05-13): annual-only basis. */}
-          {(() => {
-            const rowTotal = [...inputsSummary.totals];
-            const rowLandCash = [...inputsSummary.landCashPerPeriod];
-            const rowExclLand = rowTotal.map((v, i) => v - (rowLandCash[i] ?? 0));
-            const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
-            const capexAxis = inputsAxis.axis;
-            const capexNonLabelPct = nonLabelColumnPct(1 + capexAxis.count);
-            const cropTotal = inputsAxis.cropRow(rowTotal);
-            const cropLandCash = inputsAxis.cropRow(rowLandCash);
-            const cropExclLand = inputsAxis.cropRow(rowExclLand);
-            const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
-            return (
-              <div style={sectionCardStyle} data-testid="capex-breakdown">
-                <strong style={TABLE_TITLE}>Capex Breakdown</strong>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
-                    <colgroup>
-                      <col style={{ width: COLUMN_WIDTHS.label }} />
-                      <col style={{ width: capexNonLabelPct }} />
-                      {capexAxis.labels.map((_, i) => (<col key={i} style={{ width: capexNonLabelPct }} />))}
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th style={CELL_HEADER}>Description</th>
-                        <th style={CELL_HEADER}>Total</th>
-                        {capexAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr data-testid="capex-breakdown-excl-land">
-                        <td style={ROW_DATA.name}>Capex (excluding Land)</td>
-                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-total">{fmtCell(sum(rowExclLand))}</td>
-                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(0)}</td>
-                        {cropExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
-                      </tr>
-                      <tr data-testid="capex-breakdown-land-cash">
-                        <td style={ROW_DATA.name}>Land Cash Value</td>
-                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-total">{fmtCell(sum(rowLandCash))}</td>
-                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-prior">{fmtCell(0)}</td>
-                        {cropLandCash.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
-                      </tr>
-                      <tr data-testid="capex-breakdown-total">
-                        <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
-                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-amount">{fmtCell(sum(rowTotal))}</td>
-                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(0)}</td>
-                        {cropTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-                  Row 3 (Total Capex Incl Cash Land) reconciles to Tab 3 Costs Results Table 2 (Total Capex Including Land Value) minus the project's Land In-Kind value.
-                </div>
-              </div>
-            );
-          })()}
-
           {/* M2.0M: Funding Method radio */}
           <div style={sectionCardStyle} data-testid="financing-funding-method">
             <strong style={TABLE_TITLE}>Funding Method</strong>
@@ -1934,6 +1871,71 @@ export default function Module1Financing(): React.JSX.Element {
               Equity auto-computes from chosen funding method. See
               Equity Schedule in Schedules sub-tab for cash + in-kind
               over time. */}
+
+          {/* M2.0 Pass 13 (2026-05-13): Capex Breakdown table. Three
+              rows (Capex excl Land / Land Cash Value / Total Capex Incl
+              Cash Land), driven by inputsSummary. Row 3 =
+              inputsSummary.totals (cash capex incl Land Cash, excl Land
+              In-Kind), row 2 = Land Cash slice, row 1 = row 3 - row 2.
+              Pass 14 (2026-05-13): annual-only basis. Pass 15
+              (2026-05-13): moved below Debt Facilities so all input
+              controls live above the computed tables. */}
+          {(() => {
+            const rowTotal = [...inputsSummary.totals];
+            const rowLandCash = [...inputsSummary.landCashPerPeriod];
+            const rowExclLand = rowTotal.map((v, i) => v - (rowLandCash[i] ?? 0));
+            const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
+            const capexAxis = inputsAxis.axis;
+            const capexNonLabelPct = nonLabelColumnPct(1 + capexAxis.count);
+            const cropTotal = inputsAxis.cropRow(rowTotal);
+            const cropLandCash = inputsAxis.cropRow(rowLandCash);
+            const cropExclLand = inputsAxis.cropRow(rowExclLand);
+            const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
+            return (
+              <div style={sectionCardStyle} data-testid="capex-breakdown">
+                <strong style={TABLE_TITLE}>Capex Breakdown</strong>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: COLUMN_WIDTHS.label }} />
+                      <col style={{ width: capexNonLabelPct }} />
+                      {capexAxis.labels.map((_, i) => (<col key={i} style={{ width: capexNonLabelPct }} />))}
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={CELL_HEADER}>Description</th>
+                        <th style={CELL_HEADER}>Total</th>
+                        {capexAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr data-testid="capex-breakdown-excl-land">
+                        <td style={ROW_DATA.name}>Capex (excluding Land)</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-total">{fmtCell(sum(rowExclLand))}</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(0)}</td>
+                        {cropExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                      <tr data-testid="capex-breakdown-land-cash">
+                        <td style={ROW_DATA.name}>Land Cash Value</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-total">{fmtCell(sum(rowLandCash))}</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-prior">{fmtCell(0)}</td>
+                        {cropLandCash.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                      <tr data-testid="capex-breakdown-total">
+                        <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-amount">{fmtCell(sum(rowTotal))}</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(0)}</td>
+                        {cropTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                  Row 3 (Total Capex Incl Cash Land) reconciles to Tab 3 Costs Results Table 2 (Total Capex Including Land Value) minus the project's Land In-Kind value.
+                </div>
+              </div>
+            );
+          })()}
 
           {/* M2.0 Pass 13 (2026-05-13): Total Debt Required + Total
               Equity Required tables. Replaces the old 3 Inputs Summary
