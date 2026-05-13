@@ -238,48 +238,89 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </section>
 
-          <section style={sectionStyle}>
-            <div style={sectionTitle}>3. Funding Basis</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Debt %</label>
-                <PercentageInput
-                  value={financingConfig.fixedRatio?.debtPct ?? 70}
-                  onChange={(v) => setFinancingConfigPatch({
-                    fixedRatio: {
-                      debtPct: v,
-                      equityPct: Math.max(0, 100 - v),
-                    },
-                  })}
-                />
+          {financingConfig.fundingMethod === 1 && (
+            <section style={sectionStyle}>
+              <div style={sectionTitle}>2a. Method 1 Configuration</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Debt %</label>
+                  <PercentageInput
+                    value={financingConfig.fixedRatio?.debtPct ?? 70}
+                    onChange={(v) => setFinancingConfigPatch({
+                      fixedRatio: { debtPct: v, equityPct: Math.max(0, 100 - v) },
+                    })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Equity %</label>
+                  <PercentageInput
+                    value={financingConfig.fixedRatio?.equityPct ?? 30}
+                    onChange={(v) => setFinancingConfigPatch({
+                      fixedRatio: { equityPct: v, debtPct: Math.max(0, 100 - v) },
+                    })}
+                  />
+                </div>
+                <div
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: matchOk ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
+                    color: matchOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                    border: `1px solid ${matchOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    textAlign: 'center',
+                  }}
+                >
+                  {matchOk ? 'Match: 100%' : `Match: ${(((financingConfig.fixedRatio?.debtPct ?? 0) + (financingConfig.fixedRatio?.equityPct ?? 0))).toFixed(2)}%`}
+                </div>
               </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Equity %</label>
-                <PercentageInput
-                  value={financingConfig.fixedRatio?.equityPct ?? 30}
-                  onChange={(v) => setFinancingConfigPatch({
-                    fixedRatio: {
-                      equityPct: v,
-                      debtPct: Math.max(0, 100 - v),
-                    },
-                  })}
-                />
-              </div>
-              <div
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: matchOk ? 'var(--color-success-bg, #e6f7eb)' : 'var(--color-warning-bg, #fef3c7)',
-                  color: matchOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textAlign: 'center',
-                }}
-              >
-                {matchOk ? 'Match: 100%' : `Match: ${(((financingConfig.fixedRatio?.debtPct ?? 0) + (financingConfig.fixedRatio?.equityPct ?? 0))).toFixed(2)}%`}
-              </div>
-            </div>
-          </section>
+            </section>
+          )}
+
+          {(() => {
+            const totalCapex = result.capex.totals.exclLandInKind;
+            const fundingNeed = result.funding.selected;
+            const drawdownBasis = FUNDING_METHOD_DESCRIPTIONS[financingConfig.fundingMethod];
+            const totalDebt   = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
+            const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
+            const sources = totalDebt + totalEquity;
+            const sourcesUsesOk = Math.abs(sources - totalCapex) < 1;
+            return (
+              <section style={sectionStyle}>
+                <div style={sectionTitle}>3. Funding Basis</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
+                  <strong style={{ color: 'var(--color-heading)' }}>Drawdown Basis:</strong> {drawdownBasis}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Total Capex (excl Land In-Kind)</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(totalCapex)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Total Funding Need</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(fundingNeed)}</div>
+                  </div>
+                  <div
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: sourcesUsesOk ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
+                      color: sourcesUsesOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                      border: `1px solid ${sourcesUsesOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {sourcesUsesOk
+                      ? `Sources vs Uses: Match (${fmt(sources)})`
+                      : `Sources vs Uses: Gap ${fmt(sources - totalCapex)}`}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
 
           <section style={sectionStyle}>
             <div style={sectionTitle}>4. Land Funding (per parcel, project-wide)</div>
@@ -362,10 +403,13 @@ export default function Module1Financing(): React.JSX.Element {
 
           <FundingRequirementTable
             funding={result.funding}
+            capex={result.capex}
             currency={currency}
             scale={scale}
             decimals={decimals}
             fmt={fmt}
+            axis={axis}
+            cropProject={cropProject}
           />
 
           <DebtRequiredTable
@@ -373,10 +417,12 @@ export default function Module1Financing(): React.JSX.Element {
             facilities={result.facilities}
             tranches={financingTranches}
             shares={result.shares}
+            split={result.debtEquitySplit}
             fmt={fmt}
             currency={currency}
             scale={scale}
-            existingDebtOutstanding={result.existing.debtOutstandingTotal}
+            axis={axis}
+            cropProject={cropProject}
           />
 
           <EquityRequiredTable
@@ -385,6 +431,8 @@ export default function Module1Financing(): React.JSX.Element {
             fmt={fmt}
             currency={currency}
             scale={scale}
+            axis={axis}
+            cropProject={cropProject}
           />
 
           {!result.reconciliation.ok && (
@@ -662,122 +710,139 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
   );
 }
 
-// ── Funding Requirement ─────────────────────────────────────────────────
+// ── Funding Requirement (per period) ───────────────────────────────────
 
 interface FundingProps {
   funding: ReturnType<typeof computeFinancingResult>['funding'];
+  capex: ReturnType<typeof computeFinancingResult>['capex'];
   currency: string;
   scale: 'full' | 'thousands' | 'millions';
   decimals: number;
   fmt: (n: number) => string;
+  axis: ReturnType<typeof buildResultsPeriodAxis>;
+  cropProject: (arr: number[]) => number[];
 }
 
 function FundingRequirementTable(p: FundingProps): React.JSX.Element {
-  const rows: Array<{ label: string; value: number; muted?: boolean; isSelected?: boolean }> = [
-    { label: 'Method 1, Fixed Debt-to-Equity Ratio', value: p.funding.method1 },
-    { label: 'Method 2, Net Funding Requirement',    value: p.funding.method2, muted: true },
-    { label: 'Method 3, Cash Deficit Funding',        value: p.funding.method3, muted: true },
-    { label: 'Selected Funding Requirement',          value: p.funding.selected, isSelected: true },
-  ];
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
+  const m1PerPeriod = p.cropProject(p.capex.perPeriod.exclLandInKind);
+  const blanks = new Array<number>(N).fill(0);
+  const selectedMethodId = p.funding.selectedMethodId;
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>7. Funding Requirement ({currencyHeaderLine(p.currency, p.scale)})</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <colgroup><col style={{ width: '60%' }} /><col style={{ width: '40%' }} /></colgroup>
-        <thead>
-          <tr><th style={CELL_HEADER}>Method</th><th style={CELL_HEADER}>Value</th></tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.label}>
-              <td style={r.isSelected ? ROW_GRAND_TOTAL.name : ROW_DATA.name}>{r.label}</td>
-              <td style={r.isSelected ? ROW_GRAND_TOTAL.num : { ...ROW_DATA.num, color: r.muted ? 'var(--color-text-muted)' : undefined }}>
-                {r.muted ? '(pending M2 / M4)' : p.fmt(r.value)}
-              </td>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <colgroup>
+            <col style={{ width: COLUMN_WIDTHS.label }} />
+            <col style={{ width: nonLabelPct }} />
+            {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={CELL_HEADER}>Method</th>
+              <th style={CELL_HEADER}>Total</th>
+              {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={ROW_DATA.name}>Method 1, Fixed Debt-to-Equity Ratio</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.funding.method1)}</td>
+              {m1PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 2, Net Funding Requirement</td>
+              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>
+              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
+            </tr>
+            <tr>
+              <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 3, Cash Deficit Funding</td>
+              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>
+              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_GRAND_TOTAL.name}>Selected (Method {selectedMethodId})</td>
+              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.funding.selected)}</td>
+              {(selectedMethodId === 1 ? m1PerPeriod : blanks).map((v, i) => (
+                <td key={i} style={ROW_GRAND_TOTAL.num}>{selectedMethodId === 1 ? p.fmt(v) : ','}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 'var(--sp-1)' }}>
+        Methods 2 and 3 land once Module 2 Revenue and Module 4 Financial Statements ship.
+      </div>
     </section>
   );
 }
 
-// ── Total Debt Required ─────────────────────────────────────────────────
+// ── Total Debt Required (per period) ───────────────────────────────────
 
 interface DebtReqProps {
   funding: ReturnType<typeof computeFinancingResult>['funding'];
   facilities: ReturnType<typeof computeFinancingResult>['facilities'];
   tranches: FinancingTranche[];
   shares: Map<string, number>;
+  split: ReturnType<typeof computeFinancingResult>['debtEquitySplit'];
   fmt: (n: number) => string;
   currency: string;
   scale: 'full' | 'thousands' | 'millions';
+  axis: ReturnType<typeof buildResultsPeriodAxis>;
+  cropProject: (arr: number[]) => number[];
 }
 
-interface DebtReqExtra {
-  existingDebtOutstanding: number;
-}
-
-function DebtRequiredTable(p: DebtReqProps & DebtReqExtra): React.JSX.Element {
-  const totalNewDebt = p.funding.selected * (p.funding.debtPct / 100);
+function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
   const newTranches = p.tranches.filter((t) => t.origin !== 'existing');
-  const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
-  const grandTotal = totalNewDebt + p.existingDebtOutstanding;
+  const totalNewDebtByPeriod = p.cropProject(p.split.debt);
+  const totalNewDebt = totalNewDebtByPeriod.reduce((s, v) => s + v, 0);
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>8. Total Debt Required ({currencyHeaderLine(p.currency, p.scale)})</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <colgroup><col style={{ width: '55%' }} /><col style={{ width: '15%' }} /><col style={{ width: '30%' }} /></colgroup>
-        <thead>
-          <tr>
-            <th style={CELL_HEADER}>Facility</th>
-            <th style={CELL_HEADER}>Share %</th>
-            <th style={CELL_HEADER}>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {newTranches.map((t) => {
-            const share = p.shares.get(t.id) ?? 0;
-            const amt = totalNewDebt * (share / 100);
-            return (
-              <tr key={t.id}>
-                <td style={ROW_DATA.name}>{t.name}</td>
-                <td style={ROW_DATA.num}>{share.toFixed(2)}%</td>
-                <td style={ROW_DATA.num}>{p.fmt(amt)}</td>
-              </tr>
-            );
-          })}
-          <tr>
-            <td style={{ ...ROW_DATA.name, fontWeight: 700 }}>Subtotal, New Debt Required</td>
-            <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>100.00%</td>
-            <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>{p.fmt(totalNewDebt)}</td>
-          </tr>
-          {existingTranches.map((t) => (
-            <tr key={t.id}>
-              <td style={ROW_DATA.name}>{t.name} (existing)</td>
-              <td style={ROW_DATA.num}>,</td>
-              <td style={ROW_DATA.num}>{p.fmt(Math.max(0, t.openingBalance ?? 0))}</td>
-            </tr>
-          ))}
-          {existingTranches.length > 0 && (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <colgroup>
+            <col style={{ width: COLUMN_WIDTHS.label }} />
+            <col style={{ width: nonLabelPct }} />
+            {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+          </colgroup>
+          <thead>
             <tr>
-              <td style={{ ...ROW_DATA.name, fontWeight: 700 }}>Subtotal, Existing Debt</td>
-              <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>,</td>
-              <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>{p.fmt(p.existingDebtOutstanding)}</td>
+              <th style={CELL_HEADER}>Facility</th>
+              <th style={CELL_HEADER}>Total</th>
+              {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
-          )}
-          <tr>
-            <td style={ROW_GRAND_TOTAL.name}>Total Debt</td>
-            <td style={ROW_GRAND_TOTAL.num}>,</td>
-            <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {newTranches.map((t) => {
+              const r = p.facilities.get(t.id);
+              const series = p.cropProject(r?.drawSchedule ?? []);
+              const total = series.reduce((s, v) => s + v, 0);
+              return (
+                <tr key={t.id}>
+                  <td style={ROW_DATA.name}>{t.name}</td>
+                  <td style={ROW_DATA.num}>{p.fmt(total)}</td>
+                  {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                </tr>
+              );
+            })}
+            <tr>
+              <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
+              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(totalNewDebt)}</td>
+              {totalNewDebtByPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
 
-// ── Total Equity Required ───────────────────────────────────────────────
+// ── Total Equity Required (per period) ────────────────────────────────
 
 interface EquityReqProps {
   equity: ReturnType<typeof computeFinancingResult>['equity'];
@@ -785,38 +850,60 @@ interface EquityReqProps {
   fmt: (n: number) => string;
   currency: string;
   scale: 'full' | 'thousands' | 'millions';
+  axis: ReturnType<typeof buildResultsPeriodAxis>;
+  cropProject: (arr: number[]) => number[];
 }
 
 function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
+  const cash = p.cropProject(p.equity.cashPerPeriod);
+  const inKind = p.cropProject(p.equity.inKindPerPeriod);
+  const existing = p.cropProject(p.equity.existingEquityPerPeriod);
+  const total = p.cropProject(p.equity.totalPerPeriod);
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>9. Total Equity Required ({currencyHeaderLine(p.currency, p.scale)})</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <colgroup><col style={{ width: '60%' }} /><col style={{ width: '40%' }} /></colgroup>
-        <thead>
-          <tr><th style={CELL_HEADER}>Equity Source</th><th style={CELL_HEADER}>Amount</th></tr>
-        </thead>
-        <tbody>
-          {p.equity.totalExisting > 0 && (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <colgroup>
+            <col style={{ width: COLUMN_WIDTHS.label }} />
+            <col style={{ width: nonLabelPct }} />
+            {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+          </colgroup>
+          <thead>
             <tr>
-              <td style={ROW_DATA.name}>Existing Equity (operational phases)</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalExisting)}</td>
+              <th style={CELL_HEADER}>Source</th>
+              <th style={CELL_HEADER}>Total</th>
+              {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
-          )}
-          <tr>
-            <td style={ROW_DATA.name}>Cash Equity</td>
-            <td style={ROW_DATA.num}>{p.fmt(p.equity.totalCash)}</td>
-          </tr>
-          <tr>
-            <td style={ROW_DATA.name}>In-Kind Equity</td>
-            <td style={ROW_DATA.num}>{p.fmt(p.equity.totalInKind)}</td>
-          </tr>
-          <tr>
-            <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
-            <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.equity.grandTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {p.equity.totalExisting > 0 && (
+              <tr>
+                <td style={ROW_DATA.name}>Existing Equity (operational phases)</td>
+                <td style={ROW_DATA.num}>{p.fmt(p.equity.totalExisting)}</td>
+                {existing.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+              </tr>
+            )}
+            <tr>
+              <td style={ROW_DATA.name}>Cash Equity</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalCash)}</td>
+              {cash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_DATA.name}>In-Kind Equity</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalInKind)}</td>
+              {inKind.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
+              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.equity.grandTotal)}</td>
+              {total.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
