@@ -1496,19 +1496,74 @@ export default function Module1Financing(): React.JSX.Element {
   // negative -> parens, null/undef -> blank). K/M suffix stays in page
   // header only.
   const fmt = (n: number): string => formatAccounting(n, scale, decimals);
-  // M2.0 Pass 14 (2026-05-13): annual-only basis + data-driven axis,
-  // no hard cap. Period count = max(project duration, combined debt
-  // service horizon, 1) so the axis covers the full project (including
-  // operations tail) AND any long-running facility that outlasts the
-  // active construction window.
-  const periodCount = Math.max(inputsSummary.totalPeriods, combined.periods, 1);
-  const schedulesAxis = buildResultsPeriodAxis({
-    startIso: project.startDate,
-    numAnnualPeriods: periodCount,
-  });
-  // Identity transform on annual basis (placeholder for the M5
-  // granularity-aware version).
-  const transform = (annual: number[]): number[] => annual.slice(0, periodCount);
+  // M2.0 Pass 20 (2026-05-13): Schedules sub-tab axis. End column =
+  // project operation end (last operating period of the longest phase),
+  // optionally extended when a facility's data outruns that horizon.
+  // Off-by-one cropping matches Tab 4 Inputs (Pass 19): walk source
+  // arrays from index 1, map facility-local i to project col
+  // `phaseOffset + i - 1`, drop the Y0 lump from rendering.
+  const schedulesAxis = useMemo(() => {
+    const totals = inputsSummary.totals;
+    // Project operation end column (0-based inclusive). totalPeriods is
+    // (endYear - startYear) in annual terms (computeProjectTimeline);
+    // last operating col index = totalPeriods - 1.
+    const operationEndCol = Math.max(0, inputsSummary.totalPeriods - 1);
+    let lastCol = operationEndCol;
+    // Walk inputsSummary.totals[1..] (skip Y0 lump) to extend lastCol
+    // when capex spills past operation end (e.g. construction overlap).
+    for (let i = 1; i < totals.length; i++) {
+      if (Math.abs(totals[i] ?? 0) > 0.5) {
+        lastCol = Math.max(lastCol, i - 1);
+      }
+    }
+    // Walk per-facility schedules (facility-local, indexed from phase
+    // start). Map facility-local i (>= 1) to project col `offset + i - 1`.
+    // A long facility tenor that outlasts the active phase ops tail
+    // extends the axis here.
+    for (const t of phaseTranches) {
+      const r = resultsMap.get(t.id);
+      if (!r) continue;
+      const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
+      const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
+      const probe = (arr: number[]): void => {
+        for (let i = 1; i < arr.length; i++) {
+          if (Math.abs(arr[i] ?? 0) > 0.5) {
+            const col = phaseOffset + i - 1;
+            if (col > lastCol) lastCol = col;
+          }
+        }
+      };
+      probe(r.drawSchedule);
+      probe(r.outstandingBalance);
+      probe(r.interestAccrued);
+      probe(r.principalRepaid);
+    }
+    const activeCount = lastCol + 1;
+    const axis = buildResultsPeriodAxis({
+      startIso: project.startDate,
+      numAnnualPeriods: activeCount,
+    });
+    // Project-aligned cropper: source array indexed from project start
+    // with index 0 = Y0 lump. Map project col c -> arr[c + 1].
+    const cropProject = (arr: number[]): number[] => {
+      const out = new Array<number>(activeCount).fill(0);
+      for (let c = 0; c < activeCount; c++) out[c] = arr[c + 1] ?? 0;
+      return out;
+    };
+    // Facility-local cropper: source array indexed from phase start.
+    // Project col c -> facility-local index `c - phaseOffset + 1` (skip
+    // facility Y0 lump). Out-of-range -> 0.
+    const cropFacility = (arr: number[], phaseOffset: number): number[] => {
+      const out = new Array<number>(activeCount).fill(0);
+      for (let c = 0; c < activeCount; c++) {
+        const facLocal = c - phaseOffset + 1;
+        if (facLocal < 0 || facLocal >= arr.length) continue;
+        out[c] = arr[facLocal] ?? 0;
+      }
+      return out;
+    };
+    return { axis, cropProject, cropFacility, activeCount, operationEndCol };
+  }, [inputsSummary, phaseTranches, resultsMap, phases, phase, project]);
 
   const handleAddTranche = (): void => {
     const id = `tranche-${Date.now()}`;
@@ -2098,179 +2153,185 @@ export default function Module1Financing(): React.JSX.Element {
         </>
       )}
 
-      {/* ── Schedules sub-tab ───────────────────────────────────────── */}
-      {subTab === 'schedules' && (
-        <>
-          {/* Granularity + filter pill bar */}
-          <div
-            style={{
-              display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', alignItems: 'center',
-              padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
-              background: 'var(--color-grey-pale)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
-            }}
-            data-testid="financing-schedules-controls"
-          >
-            {/* M2.0 Pass 14 (2026-05-13): granularity radios removed.
-                Annual-only basis until M5 Financial Statements
-                introduces a granularity toggle scoped to FS output. */}
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Filter:</strong>
-            <button type="button" onClick={() => setScheduleFilter(null)} data-testid="financing-filter-combined" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: scheduleFilter === null ? 'none' : '1px solid var(--color-border)', background: scheduleFilter === null ? 'var(--color-navy)' : 'var(--color-surface)', color: scheduleFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>Combined</button>
-            {phaseTranches.map((t) => {
-              const active = scheduleFilter === t.id;
+      {/* ── Schedules sub-tab ──────────────────────────────────────────
+          M2.0 Pass 20 (2026-05-13): rebuilt from scratch. 5 tables in
+          order: Debt Movement (per facility) -> Combined Debt Service
+          -> Finance Cost (per facility) -> IDC Summary -> Equity
+          Movement. Axis ends at project operation end (cap), extended
+          when a facility's data outruns that horizon. Single axis
+          source via buildResultsPeriodAxis with off-by-one cropping
+          (matches Tab 4 Inputs). All tables share the universal
+          tableStyles tokens. The legacy Capital Stack Movement table
+          is gone, its data sits on the Inputs sub-tab. */}
+      {subTab === 'schedules' && (() => {
+        const labels = schedulesAxis.axis.labels;
+        const { cropProject, cropFacility } = schedulesAxis;
+        const filteredFacilities = phaseTranches.filter(
+          (t) => !scheduleFilter || t.id === scheduleFilter,
+        );
+        const sumActive = (arr: number[]): string => fmt(arr.reduce((s, v) => s + v, 0));
+        return (
+          <>
+            {/* Filter pill bar */}
+            <div
+              style={{
+                display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', alignItems: 'center',
+                padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
+                background: 'var(--color-grey-pale)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+              }}
+              data-testid="financing-schedules-controls"
+            >
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Filter:</strong>
+              <button type="button" onClick={() => setScheduleFilter(null)} data-testid="financing-filter-combined" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: scheduleFilter === null ? 'none' : '1px solid var(--color-border)', background: scheduleFilter === null ? 'var(--color-navy)' : 'var(--color-surface)', color: scheduleFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>Combined</button>
+              {phaseTranches.map((t) => {
+                const active = scheduleFilter === t.id;
+                return (
+                  <button key={t.id} type="button" onClick={() => setScheduleFilter(t.id)} data-testid={`financing-filter-${t.id}`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: active ? 'none' : '1px solid var(--color-border)', background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>{t.name}</button>
+                );
+              })}
+            </div>
+
+            {/* Schedule 1: Debt Movement per facility */}
+            {filteredFacilities.map((t) => {
+              const r = resultsMap.get(t.id);
+              if (!r) return null;
+              const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
+              const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
+              const closingActive = cropFacility(r.outstandingBalance, phaseOffset);
+              const openingActive = new Array<number>(closingActive.length).fill(0);
+              for (let i = 1; i < closingActive.length; i++) openingActive[i] = closingActive[i - 1] ?? 0;
+              const drawActive = cropFacility(r.drawSchedule, phaseOffset);
+              const interestCapActive = cropFacility(r.interestCapitalized, phaseOffset);
+              const principalActive = cropFacility(r.principalRepaid, phaseOffset);
               return (
-                <button key={t.id} type="button" onClick={() => setScheduleFilter(t.id)} data-testid={`financing-filter-${t.id}`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: active ? 'none' : '1px solid var(--color-border)', background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>{t.name}</button>
+                <ScheduleTable
+                  key={`debt-movement-${t.id}`}
+                  title={`1. Debt Movement, ${t.name}`}
+                  dataTestid={`debt-movement-${t.id}`}
+                  labels={labels}
+                  rows={[
+                    { label: 'Opening Balance', values: openingActive.map(fmt) as unknown as number[], total: '-' },
+                    { label: 'Drawdown', values: drawActive.map(fmt) as unknown as number[], total: sumActive(drawActive) },
+                    { label: 'Interest Capitalized', values: interestCapActive.map(fmt) as unknown as number[], total: sumActive(interestCapActive) },
+                    { label: 'Principal Repaid', values: principalActive.map(fmt) as unknown as number[], total: sumActive(principalActive) },
+                    { label: 'Closing Balance', values: closingActive.map(fmt) as unknown as number[], bold: true, total: '-' },
+                  ]}
+                />
               );
             })}
-          </div>
 
-          {/* M2.0 Pass 18 (2026-05-13): old "Capital Stack Summary"
-              schedule removed - same data is covered by the new
-              Funding Requirement + Debt Required + Equity Required
-              tables on the Inputs sub-tab + the per-facility breakdown
-              in Debt Movement below. Remaining schedules renumbered
-              1..5 (was 2..6). */}
+            {/* Schedule 2: Combined Debt Service.
+                combined.* arrays are facility-local (single-phase
+                projects align trivially; multi-phase is a known
+                pre-existing limitation). Use cropProject because every
+                phaseOffset for the active filter is 0 in the common
+                case; for multi-phase, prefer the per-facility tables. */}
+            {(() => {
+              const intActive = cropProject(combined.totalInterest);
+              const prnActive = cropProject(combined.totalPrincipal);
+              const dsActive = cropProject(combined.totalDebtService);
+              return (
+                <ScheduleTable
+                  title="2. Combined Debt Service"
+                  dataTestid="combined-debt-service"
+                  labels={labels}
+                  rows={[
+                    { label: 'Total Interest', values: intActive.map(fmt) as unknown as number[], total: sumActive(intActive) },
+                    { label: 'Total Principal', values: prnActive.map(fmt) as unknown as number[], total: sumActive(prnActive) },
+                    { label: 'Total Debt Service', values: dsActive.map(fmt) as unknown as number[], bold: true, total: sumActive(dsActive) },
+                  ]}
+                />
+              );
+            })()}
 
-          {/* Schedule 1: Debt Movement per facility (filtered) */}
-          {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
-            const r = resultsMap.get(t.id);
-            if (!r) return null;
-            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
-            // Opening balance = previous period's outstanding balance
-            // (period 0 opening = 0). Closing balance = outstandingBalance.
-            const opening: number[] = new Array(periodCount).fill(0);
-            const closing = r.outstandingBalance.slice(0, periodCount);
-            for (let i = 1; i < periodCount; i++) opening[i] = closing[i - 1] ?? 0;
-            return (
-              <ScheduleTable
-                key={`debt-movement-${t.id}`}
-                title={`1. Debt Movement, ${t.name}`}
-                dataTestid={`debt-movement-${t.id}`}
-                labels={schedulesAxis.labels}
-                rows={[
-                  { label: 'Opening Balance', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
-                  { label: 'Drawdown', values: transform(r.drawSchedule.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.drawSchedule) },
-                  { label: 'Interest Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
-                  { label: 'Principal Repaid', values: transform(r.principalRepaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.principalRepaid) },
-                  { label: 'Closing Balance', values: transform(closing).map(fmt) as unknown as number[], bold: true, total: '-' },
-                ]}
-              />
-            );
-          })}
+            {/* Schedule 3: Finance Cost per facility */}
+            {filteredFacilities.map((t) => {
+              const r = resultsMap.get(t.id);
+              if (!r) return null;
+              const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
+              const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
+              const accruedActive = cropFacility(r.interestAccrued, phaseOffset);
+              const capActive = cropFacility(r.interestCapitalized, phaseOffset);
+              const expensedActive = accruedActive.map((acc, i) => Math.max(0, acc - (capActive[i] ?? 0)));
+              return (
+                <ScheduleTable
+                  key={`finance-cost-${t.id}`}
+                  title={`3. Finance Cost, ${t.name}`}
+                  dataTestid={`finance-cost-${t.id}`}
+                  labels={labels}
+                  rows={[
+                    { label: 'Interest Accrued', values: accruedActive.map(fmt) as unknown as number[], total: sumActive(accruedActive) },
+                    { label: 'Interest Capitalized', values: capActive.map(fmt) as unknown as number[], total: sumActive(capActive) },
+                    { label: 'Interest Expensed', values: expensedActive.map(fmt) as unknown as number[], bold: true, total: sumActive(expensedActive) },
+                  ]}
+                />
+              );
+            })}
 
-          {/* Schedule 2: Combined Debt Service */}
-          <ScheduleTable
-            title="2. Combined Debt Service"
-            dataTestid="combined-debt-service"
-            labels={schedulesAxis.labels}
-            rows={[
-              { label: 'Total Interest', values: transform(combined.totalInterest.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalInterest.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
-              { label: 'Total Principal', values: transform(combined.totalPrincipal.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalPrincipal.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
-              { label: 'Total Debt Service', values: transform(combined.totalDebtService.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: fmt(combined.totalDebtService.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
-            ]}
-          />
-
-          {/* P4-Fix 7 (2026-05-12): Finance Cost per facility (filtered).
-              Dual tracking: Interest Accrued + Interest Paid + IDC
-              Capitalized + Expensed Interest. Separates the P&L finance
-              cost (accrued + expensed) from the cash service line
-              (paid + capitalized) - matches how M5 will consume these. */}
-          {phaseTranches.filter((t) => !scheduleFilter || t.id === scheduleFilter).map((t) => {
-            const r = resultsMap.get(t.id);
-            if (!r) return null;
-            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
-            const expensed = r.interestAccrued.slice(0, periodCount).map((acc, i) => Math.max(0, acc - (r.interestCapitalized[i] ?? 0)));
-            return (
-              <ScheduleTable
-                key={`finance-cost-${t.id}`}
-                title={`3. Finance Cost, ${t.name}`}
-                dataTestid={`finance-cost-${t.id}`}
-                labels={schedulesAxis.labels}
-                rows={[
-                  { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
-                  { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
-                  { label: 'IDC Capitalized', values: transform(r.interestCapitalized.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestCapitalized) },
-                  { label: 'Expensed Interest', values: transform(expensed).map(fmt) as unknown as number[], bold: true, total: fmt(expensed.reduce((s, v) => s + v, 0)) },
-                ]}
-              />
-            );
-          })}
-
-          {/* Schedule 4: IDC Summary */}
-          <div style={sectionCardStyle} data-testid="idc-summary">
-            <strong style={TABLE_TITLE}>4. IDC Summary</strong>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
-              <colgroup>
-                <col />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 110 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th style={CELL_HEADER}>Facility</th>
-                  <th style={CELL_HEADER}>Capitalised IDC</th>
-                  <th style={CELL_HEADER}>Expensed Interest</th>
-                  <th style={CELL_HEADER}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {idcSummary.byFacility.map((f) => (
-                  <tr key={f.id} data-testid={`idc-row-${f.id}`}>
-                    <td style={{ padding: '4px 6px' }}>{f.name}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.capitalized)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.expensed)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.capitalized + f.expensed)}</td>
+            {/* Schedule 4: IDC Summary */}
+            <div style={sectionCardStyle} data-testid="idc-summary">
+              <strong style={TABLE_TITLE}>4. IDC Summary</strong>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 110 }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={CELL_HEADER}>Facility</th>
+                    <th style={CELL_HEADER}>Capitalised IDC</th>
+                    <th style={CELL_HEADER}>Expensed Interest</th>
+                    <th style={CELL_HEADER}>Total</th>
                   </tr>
-                ))}
-                <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                  <td style={{ padding: '4px 6px' }}>Total</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-capitalized">{fmt(idcSummary.totalCapitalized)}</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-expensed">{fmt(idcSummary.totalExpensed)}</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(idcSummary.totalCapitalized + idcSummary.totalExpensed)}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-              Capitalised IDC flows to Tab 3 Costs as a read-only auto-generated line per asset (when "Auto cost line in Tab 3" is enabled on the facility). Expensed interest will appear as a Finance Cost in M5 P&L.
+                </thead>
+                <tbody>
+                  {idcSummary.byFacility.map((f) => (
+                    <tr key={f.id} data-testid={`idc-row-${f.id}`}>
+                      <td style={{ padding: '4px 6px' }}>{f.name}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.capitalized)}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.expensed)}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(f.capitalized + f.expensed)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                    <td style={{ padding: '4px 6px' }}>Total</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-capitalized">{fmt(idcSummary.totalCapitalized)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="idc-total-expensed">{fmt(idcSummary.totalExpensed)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(idcSummary.totalCapitalized + idcSummary.totalExpensed)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                Capitalised IDC flows to Tab 3 Costs as a read-only auto-generated line per asset (when "Auto cost line in Tab 3" is enabled on the facility). Expensed interest appears as a Finance Cost in M5 P&L.
+              </div>
             </div>
-          </div>
 
-          {/* P4-Fix 7 + Fix 8 (2026-05-12): Equity Movement (replaces
-              Equity Schedule). Ledger-style walk: Opening Equity +
-              Cash Contributions + In-Kind Contributions + Closing
-              Equity, matching the Debt Movement shape. */}
-          {(() => {
-            const closing = equity.closingPerPeriod.slice(0, periodCount);
-            const opening: number[] = new Array(periodCount).fill(0);
-            for (let i = 1; i < periodCount; i++) opening[i] = closing[i - 1] ?? 0;
-            const sumOf = (arr: number[]): string => fmt(arr.slice(0, periodCount).reduce((s, v) => s + v, 0));
-            return (
-              <ScheduleTable
-                title="5. Equity Movement"
-                dataTestid="equity-movement"
-                labels={schedulesAxis.labels}
-                rows={[
-                  { label: 'Opening Equity', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
-                  { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.cashPerPeriod) },
-                  { label: 'In-Kind Contributions', values: transform(equity.inKindPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.inKindPerPeriod) },
-                  { label: 'Closing Equity', values: transform(closing).map(fmt) as unknown as number[], bold: true, total: '-' },
-                ]}
-              />
-            );
-          })()}
-
-          {/* Schedule 7: Capital Stack Movement */}
-          <ScheduleTable
-            title="7. Capital Stack Movement (Outstanding Balance, Combined)"
-            dataTestid="stack-movement"
-            labels={schedulesAxis.labels}
-            rows={[
-              { label: 'Drawdown', values: transform(combined.totalDrawdown.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalDrawdown.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
-              { label: 'Outstanding Balance', values: transform(combined.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },
-            ]}
-          />
-        </>
-      )}
+            {/* Schedule 5: Equity Movement */}
+            {(() => {
+              const closingActive = cropProject(equity.closingPerPeriod);
+              const openingActive = new Array<number>(closingActive.length).fill(0);
+              for (let i = 1; i < closingActive.length; i++) openingActive[i] = closingActive[i - 1] ?? 0;
+              const cashActive = cropProject(equity.cashPerPeriod);
+              const inKindActive = cropProject(equity.inKindPerPeriod);
+              return (
+                <ScheduleTable
+                  title="5. Equity Movement"
+                  dataTestid="equity-movement"
+                  labels={labels}
+                  rows={[
+                    { label: 'Opening Equity', values: openingActive.map(fmt) as unknown as number[], total: '-' },
+                    { label: 'Cash Contributions', values: cashActive.map(fmt) as unknown as number[], total: sumActive(cashActive) },
+                    { label: 'In-Kind Contributions', values: inKindActive.map(fmt) as unknown as number[], total: sumActive(inKindActive) },
+                    { label: 'Closing Equity', values: closingActive.map(fmt) as unknown as number[], bold: true, total: '-' },
+                  ]}
+                />
+              );
+            })()}
+          </>
+        );
+      })()}
     </div>
   );
 }
