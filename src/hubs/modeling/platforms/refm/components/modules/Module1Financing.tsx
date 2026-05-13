@@ -93,6 +93,7 @@ import {
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
 import { CELL_HEADER } from './_shared/tableStyles';
 
@@ -171,21 +172,21 @@ function renderMethodInputs(
       <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-1-inputs">
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Debt %:
-          <input
-            type="number" min={0} max={100}
+          <PercentageInput
+            min={0} max={100}
             data-testid="m1-debt-pct"
             value={m.debtPct}
-            onChange={(e) => patch({ fixedRatio: { debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            onChange={(n) => patch({ fixedRatio: { debtPct: n, equityPct: 100 - n } })}
             style={numStyle}
           />
         </label>
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Equity %:
-          <input
-            type="number" min={0} max={100}
+          <PercentageInput
+            min={0} max={100}
             data-testid="m1-equity-pct"
             value={m.equityPct}
-            onChange={(e) => patch({ fixedRatio: { equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            onChange={(n) => patch({ fixedRatio: { equityPct: n, debtPct: 100 - n } })}
             style={numStyle}
           />
         </label>
@@ -248,10 +249,10 @@ function renderMethodInputs(
                 <tr key={baseId} data-testid={`m2-row-${baseId}`}>
                   <td style={{ padding: '4px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                    <input
-                      type="number" min={0} max={100}
+                    <PercentageInput
+                      min={0} max={100}
                       value={r.debtPct}
-                      onChange={(e) => setRatio(baseId, parseFloat(e.target.value) || 0)}
+                      onChange={(n) => setRatio(baseId, n)}
                       style={{ ...numStyle, width: 70 }}
                       data-testid={`m2-debt-${baseId}`}
                     />
@@ -289,21 +290,21 @@ function renderMethodInputs(
         </label>
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Debt %:
-          <input
-            type="number" min={0} max={100}
+          <PercentageInput
+            min={0} max={100}
             data-testid="m3-debt-pct"
             value={m.debtPct}
-            onChange={(e) => patch({ netFundingConfig: { ...m, debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            onChange={(n) => patch({ netFundingConfig: { ...m, debtPct: n, equityPct: 100 - n } })}
             style={numStyle}
           />
         </label>
         <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
           Equity %:
-          <input
-            type="number" min={0} max={100}
+          <PercentageInput
+            min={0} max={100}
             data-testid="m3-equity-pct"
             value={m.equityPct}
-            onChange={(e) => patch({ netFundingConfig: { ...m, equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+            onChange={(n) => patch({ netFundingConfig: { ...m, equityPct: n, debtPct: 100 - n } })}
             style={numStyle}
           />
         </label>
@@ -330,21 +331,21 @@ function renderMethodInputs(
           on the schema for legacy snapshots. */}
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
         Debt %:
-        <input
-          type="number" min={0} max={100}
+        <PercentageInput
+          min={0} max={100}
           data-testid="m4-debt-pct"
           value={m.debtPct}
-          onChange={(e) => patch({ cashDeficitConfig: { ...m, debtPct: parseFloat(e.target.value) || 0, equityPct: 100 - (parseFloat(e.target.value) || 0) } })}
+          onChange={(n) => patch({ cashDeficitConfig: { ...m, debtPct: n, equityPct: 100 - n } })}
           style={numStyle}
         />
       </label>
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
         Equity %:
-        <input
-          type="number" min={0} max={100}
+        <PercentageInput
+          min={0} max={100}
           data-testid="m4-equity-pct"
           value={m.equityPct}
-          onChange={(e) => patch({ cashDeficitConfig: { ...m, equityPct: parseFloat(e.target.value) || 0, debtPct: 100 - (parseFloat(e.target.value) || 0) } })}
+          onChange={(n) => patch({ cashDeficitConfig: { ...m, equityPct: n, debtPct: 100 - n } })}
           style={numStyle}
         />
       </label>
@@ -453,10 +454,9 @@ function TrancheCard({
       <div style={{ display: 'grid', gridTemplateColumns: facilityCount > 1 ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Interest %</label>
-          <input
-            type="number" step={0.1}
+          <PercentageInput
             value={tranche.interestRatePct}
-            onChange={(e) => onUpdate({ interestRatePct: parseFloat(e.target.value) || 0 })}
+            onChange={(n) => onUpdate({ interestRatePct: n })}
             style={inputStyle}
             data-testid={`tranche-${tranche.id}-rate`}
           />
@@ -476,10 +476,10 @@ function TrancheCard({
         {facilityCount > 1 && (
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Facility Share %</label>
-            <input
-              type="number" min={0} max={100}
+            <PercentageInput
+              min={0} max={100}
               value={tranche.facilitySharePct ?? Math.round(100 / facilityCount)}
-              onChange={(e) => onUpdate({ facilitySharePct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+              onChange={(n) => onUpdate({ facilitySharePct: Math.max(0, Math.min(100, n)) })}
               style={inputStyle}
               data-testid={`tranche-${tranche.id}-facility-share`}
               title="Share of total project debt this facility funds (sums to 100% across facilities)."
@@ -722,7 +722,7 @@ function TrancheCard({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
-              <input type="number" step={0.1} min={0} value={tranche.upfrontFeePct ?? 0} onChange={(e) => onUpdate({ upfrontFeePct: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
+              <PercentageInput min={0} value={tranche.upfrontFeePct ?? 0} onChange={(n) => onUpdate({ upfrontFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee Treatment</label>
@@ -732,18 +732,18 @@ function TrancheCard({
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
-              <input type="number" step={0.01} min={0} value={tranche.commitmentFeePct ?? 0} onChange={(e) => onUpdate({ commitmentFeePct: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
+              <PercentageInput min={0} value={tranche.commitmentFeePct ?? 0} onChange={(n) => onUpdate({ commitmentFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>DSCR Covenant</label>
-              <input type="number" step={0.05} min={0} value={tranche.dscrCovenant ?? 0} onChange={(e) => onUpdate({ dscrCovenant: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-dscr-cov`} />
+              <AccountingNumberInput min={0} value={tranche.dscrCovenant ?? 0} onChange={(n) => onUpdate({ dscrCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-dscr-cov`} />
               <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>Breach alerts in M5.</div>
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>LTV Covenant %</label>
-              <input type="number" step={0.5} min={0} max={100} value={tranche.ltvCovenant ?? 0} onChange={(e) => onUpdate({ ltvCovenant: parseFloat(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-ltv-cov`} />
+              <PercentageInput min={0} max={100} value={tranche.ltvCovenant ?? 0} onChange={(n) => onUpdate({ ltvCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-ltv-cov`} />
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
@@ -1413,21 +1413,21 @@ export default function Module1Financing(): React.JSX.Element {
                     <>
                       <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
                         Debt %:
-                        <input
-                          type="number" min={0} max={100}
+                        <PercentageInput
+                          min={0} max={100}
                           data-testid={`land-funding-${parcel.id}-debt-pct`}
                           value={cfg?.customDebtPct ?? 0}
-                          onChange={(e) => upsertParcelFunding(parcel.id, { customDebtPct: parseFloat(e.target.value) || 0 })}
+                          onChange={(n) => upsertParcelFunding(parcel.id, { customDebtPct: n })}
                           style={{ ...inputStyle, width: 80 }}
                         />
                       </label>
                       <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
                         Equity %:
-                        <input
-                          type="number" min={0} max={100}
+                        <PercentageInput
+                          min={0} max={100}
                           data-testid={`land-funding-${parcel.id}-equity-pct`}
                           value={cfg?.customEquityPct ?? 0}
-                          onChange={(e) => upsertParcelFunding(parcel.id, { customEquityPct: parseFloat(e.target.value) || 0 })}
+                          onChange={(n) => upsertParcelFunding(parcel.id, { customEquityPct: n })}
                           style={{ ...inputStyle, width: 80 }}
                         />
                       </label>

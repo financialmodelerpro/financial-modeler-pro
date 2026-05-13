@@ -32,6 +32,7 @@ import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } f
 import { currencyHeaderLine } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { PercentageInput } from '../ui/PercentageInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
@@ -594,7 +595,7 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
             </div>
             <div>
               <InputLabel label="Current Occupancy %" help="Current occupancy rate (hospitality / lease, optional)." inputId={`phase-${phase.id}-hist-occ`} />
-              <input id={`phase-${phase.id}-hist-occ`} data-testid={`phase-${phase.id}-hist-occ`} type="number" min={0} max={100} value={baseline.currentOccupancy ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentOccupancy: v > 0 ? Math.min(100, v) : undefined }); }} style={inputStyle} />
+              <PercentageInput id={`phase-${phase.id}-hist-occ`} data-testid={`phase-${phase.id}-hist-occ`} min={0} max={100} value={baseline.currentOccupancy ?? 0} onChange={(n) => setBaseline({ currentOccupancy: n > 0 ? Math.min(100, n) : undefined })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Current ADR" help="Average Daily Rate per key per night (hospitality, optional)." inputId={`phase-${phase.id}-hist-adr`} />

@@ -85,6 +85,7 @@ import {
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { PercentageInput } from '../ui/PercentageInput';
 import {
   CELL_HEADER,
   ROW_ASSET_HEADING,
@@ -994,13 +995,11 @@ function CostRow({
                 const periodIdx = effStartPeriod + i;
                 return (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                    <input
-                      type="number"
+                    <PercentageInput
                       min={0}
                       max={100}
-                      step={0.1}
                       value={effDistribution[i] ?? 0}
-                      onChange={(e) => updateDistAt(i, parseFloat(e.target.value) || 0)}
+                      onChange={(n) => updateDistAt(i, n)}
                       disabled={isLocked}
                       data-testid={`cost-${asset.id}-${line.id}-manual-${i}`}
                       style={{ ...inputStyle, width: 60, fontSize: 11 }}

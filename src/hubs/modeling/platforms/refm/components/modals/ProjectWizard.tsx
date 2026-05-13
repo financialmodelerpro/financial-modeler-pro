@@ -40,6 +40,7 @@ import {
   OUTPUT_GRANULARITY_LABELS,
 } from '../../lib/state/module1-types';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { PercentageInput } from '../ui/PercentageInput';
 
 export type { WizardDraft } from '../../lib/wizard/buildWizardSnapshot';
 
@@ -560,28 +561,26 @@ function Step2({
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <PercentageInput
                   min={0}
                   max={100}
                   data-testid={`wiz-parcel-${idx}-cashPct`}
                   value={p.cashPct}
-                  onChange={(e) => {
-                    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                  onChange={(n) => {
+                    const v = Math.max(0, Math.min(100, n));
                     updateParcel(idx, { cashPct: v, inKindPct: 100 - v });
                   }}
                   style={inputStyle}
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <PercentageInput
                   min={0}
                   max={100}
                   data-testid={`wiz-parcel-${idx}-inKindPct`}
                   value={p.inKindPct}
-                  onChange={(e) => {
-                    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                  onChange={(n) => {
+                    const v = Math.max(0, Math.min(100, n));
                     updateParcel(idx, { inKindPct: v, cashPct: 100 - v });
                   }}
                   style={inputStyle}

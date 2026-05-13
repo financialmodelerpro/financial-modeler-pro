@@ -74,6 +74,7 @@ import {
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER } from './_shared/tableStyles';
 
@@ -551,22 +552,22 @@ export default function Module1Assets(): React.JSX.Element {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 6 }}>
                     <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       Roads %:
-                      <input
-                        type="number" min={0} max={100} step={0.5}
+                      <PercentageInput
+                        min={0} max={100}
                         data-testid="parcels-nda-roads-pct"
                         value={roadsPct}
-                        onChange={(e) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                        onChange={(n) => setProject({ projectRoadsPct: Math.max(0, Math.min(100, n)) })}
                         disabled={!ndaEnabled}
                         style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
                       />
                     </label>
                     <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       Parks %:
-                      <input
-                        type="number" min={0} max={100} step={0.5}
+                      <PercentageInput
+                        min={0} max={100}
                         data-testid="parcels-nda-parks-pct"
                         value={parksPct}
-                        onChange={(e) => setProject({ projectParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                        onChange={(n) => setProject({ projectParksPct: Math.max(0, Math.min(100, n)) })}
                         disabled={!ndaEnabled}
                         style={{ ...inputStyle, width: 80, opacity: ndaEnabled ? 1 : 0.6 }}
                       />
@@ -851,22 +852,22 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
         )}
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number" min={0} max={100} value={parcel.cashPct}
+        <PercentageInput
+          min={0} max={100} value={parcel.cashPct}
           data-testid={`parcel-${parcel.id}-cashPct`}
-          onChange={(e) => {
-            const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+          onChange={(n) => {
+            const v = Math.max(0, Math.min(100, n));
             onUpdate({ cashPct: v, inKindPct: 100 - v });
           }}
           style={inputStyle}
         />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number" min={0} max={100} value={parcel.inKindPct}
+        <PercentageInput
+          min={0} max={100} value={parcel.inKindPct}
           data-testid={`parcel-${parcel.id}-inKindPct`}
-          onChange={(e) => {
-            const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+          onChange={(n) => {
+            const v = Math.max(0, Math.min(100, n));
             onUpdate({ inKindPct: v, cashPct: 100 - v });
           }}
           style={inputStyle}
@@ -1437,7 +1438,7 @@ function AssetCard({
                 {landAllocationMode === 'percent' && (
                   <div>
                     <InputLabel label="Land Allocation (%)" help="Share of total land value attributed to this asset." inputId={`asset-${asset.id}-landAreaPct`} />
-                    <input id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} type="number" min={0} max={100} value={allocation.pct ?? asset.landAreaPct ?? 0} onChange={(e) => setAllocation({ pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
+                    <PercentageInput id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} min={0} max={100} value={allocation.pct ?? asset.landAreaPct ?? 0} onChange={(n) => setAllocation({ pct: Math.max(0, Math.min(100, n)) })} style={inputStyle} />
                   </div>
                 )}
                 {landAllocationMode === 'autoByBua' && (
@@ -1548,24 +1549,24 @@ function AssetCard({
               </label>
               <div>
                 <InputLabel label="Roads %" help="Per-asset roads deduction. Applied to this asset's land allocation when Apply NDA is on." inputId={`asset-${asset.id}-roads-pct`} />
-                <input
+                <PercentageInput
                   id={`asset-${asset.id}-roads-pct`}
                   data-testid={`asset-${asset.id}-roads-pct`}
-                  type="number" min={0} max={100} step={0.5}
+                  min={0} max={100}
                   value={asset.assetRoadsPct ?? 0}
-                  onChange={(e) => onUpdate({ assetRoadsPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                  onChange={(n) => onUpdate({ assetRoadsPct: Math.max(0, Math.min(100, n)) })}
                   disabled={asset.assetNdaEnabled !== true}
                   style={{ ...inputStyle, opacity: asset.assetNdaEnabled !== true ? 0.6 : 1 }}
                 />
               </div>
               <div>
                 <InputLabel label="Parks %" help="Per-asset parks deduction." inputId={`asset-${asset.id}-parks-pct`} />
-                <input
+                <PercentageInput
                   id={`asset-${asset.id}-parks-pct`}
                   data-testid={`asset-${asset.id}-parks-pct`}
-                  type="number" min={0} max={100} step={0.5}
+                  min={0} max={100}
                   value={asset.assetParksPct ?? 0}
-                  onChange={(e) => onUpdate({ assetParksPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+                  onChange={(n) => onUpdate({ assetParksPct: Math.max(0, Math.min(100, n)) })}
                   disabled={asset.assetNdaEnabled !== true}
                   style={{ ...inputStyle, opacity: asset.assetNdaEnabled !== true ? 0.6 : 1 }}
                 />
@@ -2107,11 +2108,11 @@ function ManagementAgreementForm({ asset, onUpdate }: ManagementAgreementFormPro
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
         <div>
           <InputLabel label="Management Fee %" help="Share of operating revenue accruing to the developer post-handover." inputId={`asset-${asset.id}-mgmt-fee`} />
-          <input id={`asset-${asset.id}-mgmt-fee`} data-testid={`asset-${asset.id}-mgmt-fee`} type="number" min={0} max={100} value={ag.managementFeePct} onChange={(e) => { const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)); setAg({ managementFeePct: v, ownerRevenueSharePct: 100 - v }); }} style={inputStyle} />
+          <PercentageInput id={`asset-${asset.id}-mgmt-fee`} data-testid={`asset-${asset.id}-mgmt-fee`} min={0} max={100} value={ag.managementFeePct} onChange={(n) => { const v = Math.max(0, Math.min(100, n)); setAg({ managementFeePct: v, ownerRevenueSharePct: 100 - v }); }} style={inputStyle} />
         </div>
         <div>
           <InputLabel label="Owner Share %" help="Share to unit owners. Auto = 100 minus fee." inputId={`asset-${asset.id}-mgmt-owner-share`} />
-          <input id={`asset-${asset.id}-mgmt-owner-share`} data-testid={`asset-${asset.id}-mgmt-owner-share`} type="number" min={0} max={100} value={ag.ownerRevenueSharePct} onChange={(e) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
+          <PercentageInput id={`asset-${asset.id}-mgmt-owner-share`} data-testid={`asset-${asset.id}-mgmt-owner-share`} min={0} max={100} value={ag.ownerRevenueSharePct} onChange={(n) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, n)) })} style={inputStyle} />
         </div>
         <div>
           <InputLabel label="Start Period" help="Optional. Default = handover (sales schedule end)." inputId={`asset-${asset.id}-mgmt-start`} />

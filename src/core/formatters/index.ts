@@ -145,11 +145,17 @@ export function formatCurrency(num: number | null | undefined, currency: string)
   return `${currency} ${Math.round(num).toLocaleString('en-US')}`;
 }
 
-// M2.0j Fix 5 (2026-05-07): percentages always render with 2 decimals
-// regardless of project.displayDecimals. Default flipped from 1 to 2.
-export function formatPercent(num: number, decimals = 2): string {
+// Universal percent format (2026-05-13): 2 decimals + "%" suffix,
+// negatives wrapped in accounting parentheses, "0.00%" rendered
+// explicitly (percentages never collapse to a dash).
+//   null / undefined / NaN -> "0.00%"
+//   positive                -> "12.34%"
+//   negative                -> "(12.34%)"
+export function formatPercent(num: number | null | undefined, decimals = 2): string {
   if (num === null || num === undefined || isNaN(num as number)) return '0.00%';
-  return `${(num as number).toFixed(decimals)}%`;
+  const n = num as number;
+  if (n < 0) return `(${Math.abs(n).toFixed(decimals)}%)`;
+  return `${n.toFixed(decimals)}%`;
 }
 
 // M2.0j Fix 5 (2026-05-07): area formatter. Areas (sqm) are NEVER scaled
