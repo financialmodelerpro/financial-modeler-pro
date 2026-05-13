@@ -2047,18 +2047,23 @@ export default function Module1Financing(): React.JSX.Element {
               read directly off that. */}
           {(() => {
             // Pass 14 (2026-05-13): annual-only basis.
+            // M2.0 Pass 20 Fix (2026-05-13): cash equity is the funding
+            // split's equity slice DIRECTLY, never reduced by the
+            // in-kind lump. In-kind is additive memo (separate row,
+            // additive to the grand total). Pre-Pass-20 the subtraction
+            // zeroed Dec 26 cash equity whenever the in-kind lump
+            // exceeded that period's cash share.
             const debtRow = [...funding.debtEquitySplit.debt];
-            const equityAllRow = [...funding.debtEquitySplit.equity];
+            const cashEquityRow = [...funding.debtEquitySplit.equity];
             // M2.0 Pass 19 (2026-05-13): the in-kind lump lands at the
             // first ACTIVE column (= the first construction year), not
             // at totals-index 0 (which is the Y0 lump position that
             // Tab 3 + Tab 4 axis both drop). cropRow reads from
             // `first + 1 + i`, so placing the lump at `first + 1` makes
             // it render at active col 0.
-            const inKindRow = new Array<number>(equityAllRow.length).fill(0);
+            const inKindRow = new Array<number>(cashEquityRow.length).fill(0);
             const inKindIdx = inputsAxis.first + 1;
             if (inKindRow.length > inKindIdx) inKindRow[inKindIdx] = projectInKindLandValue;
-            const cashEquityRow = equityAllRow.map((v, i) => Math.max(0, v - (inKindRow[i] ?? 0)));
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
             const debtTotal = sum(debtRow);
             const inKindTotal = sum(inKindRow);

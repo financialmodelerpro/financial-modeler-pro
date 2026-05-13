@@ -2087,12 +2087,19 @@ export function computeFunding(ctx: ComputeFundingContext): FundingResult {
   return { method, totalNeed, periodArray, debtEquitySplit };
 }
 
-// ── P2-Fix 11 (2026-05-11): equity computation ───────────────────────────
-// Total equity need = funding totalNeed * equity ratio.
-// In-kind contribution = land-in-kind value (separate from cash equity).
-// Cash equity = max(0, totalEquityNeed - inKindContribution).
-// Cash distribution mirrors the debt drawdown timing (same period array,
-// rescaled to cash equity total).
+// ── Equity computation ───────────────────────────────────────────────────
+// M2.0 Pass 20 Fix (2026-05-13): in-kind is ADDITIVE, not offsetting.
+// Cash equity per period = funding.debtEquitySplit.equity[i] directly
+// (the funding split already excludes the Land In-Kind value from the
+// cash-flowing capex base). In-kind contribution is a separate memo
+// source representing the landowner's value-in-place at the first
+// period; it does NOT reduce the cash equity the project still needs
+// to raise. The closing-balance walk sums both flows for ledger view.
+//
+// Pre-Pass-20 behaviour (cashContribution = totalEquityNeed -
+// inKindContribution, then rescaling per-period weights) zeroed out
+// Dec 26 cash equity whenever the in-kind lump exceeded that period's
+// cash share, which is the bug the Pass-20 fix removes.
 export interface EquityResult {
   totalEquityNeed: number;
   inKindContribution: number;
@@ -2108,30 +2115,18 @@ export function computeEquity(
   funding: FundingResult,
   landInKindValue: number,
 ): EquityResult {
-  // M2.0 Pass 13 (2026-05-13): totalEquityNeed is read directly from
-  // the funding split (Method 1's two-rule routing of Land Cash vs
-  // non-land means the project-wide equityPct is no longer a clean
-  // multiplier of totalNeed). Pre-Pass-13 callers that did not
-  // populate the two-rule arrays still produce identical equity
-  // numbers because computeFunding's fallback path applies a uniform
-  // ratio (so the split sum still equals totalNeed * equityPct).
-  const totalEquityNeed = funding.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
-  const inKindContribution = Math.max(0, landInKindValue);
-  const cashContribution = Math.max(0, totalEquityNeed - inKindContribution);
   const n = funding.periodArray.length;
-  const periodWeights = funding.debtEquitySplit.equity;
-  const weightSum = periodWeights.reduce((s, v) => s + v, 0);
+  const equitySplit = funding.debtEquitySplit.equity;
   const cashPerPeriod: number[] = new Array(n).fill(0);
-  if (weightSum > 0) {
-    for (let i = 0; i < n; i++) {
-      cashPerPeriod[i] = cashContribution * (periodWeights[i] / weightSum);
-    }
-  } else if (n > 0) {
-    cashPerPeriod[0] = cashContribution;
+  for (let i = 0; i < n; i++) {
+    cashPerPeriod[i] = Math.max(0, equitySplit[i] ?? 0);
   }
+  const cashContribution = cashPerPeriod.reduce((s, v) => s + v, 0);
   // In-kind lump lands at period 0 by default (matches Land In-Kind cost line timing).
+  const inKindContribution = Math.max(0, landInKindValue);
   const inKindPerPeriod: number[] = new Array(n).fill(0);
   if (n > 0) inKindPerPeriod[0] = inKindContribution;
+  const totalEquityNeed = cashContribution + inKindContribution;
 
   const openingPerPeriod: number[] = new Array(n).fill(0);
   const closingPerPeriod: number[] = new Array(n).fill(0);
