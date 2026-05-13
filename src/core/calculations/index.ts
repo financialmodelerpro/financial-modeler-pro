@@ -1571,10 +1571,6 @@ export function computeFinancing(
       ? Math.max(0, tranche.interestRatePct) / 100 / 12
       : Math.max(0, tranche.interestRatePct) / 100;
 
-  const ltv = clamp(tranche.ltvPct, 0, 100) / 100;
-  const totalCapex = capexPerPeriod.reduce((s, v) => s + v, 0);
-  const totalPresales = presalesPerPeriod.reduce((s, v) => s + v, 0);
-
   // ── Existing Operations (2026-05-13) ─────────────────────────────────
   // When origin === 'existing', the facility carries an opening balance
   // at project Y0 and amortizes from there. No drawdown, no IDC, no
@@ -1586,114 +1582,19 @@ export function computeFinancing(
     ? Math.max(0, tranche.remainingRepaymentPeriods ?? 0)
     : tranche.repaymentPeriods;
 
-  // Drawdown schedule (length periods).
+  // M2.0 Pass 20 (2026-05-13): drawdown derives ONLY from
+  // precomputedDrawSchedule (project-level Method 1/2/3 debt allocation
+  // x facilitySharePct, supplied by the caller). The legacy per-tranche
+  // drawdownMethod switch and its dependencies (ltvPct, tranche.principal,
+  // availabilityPeriods, drawdownDistribution, etc.) are gone, the
+  // schema fields stay @deprecated for snapshot back-compat. Existing
+  // facilities (origin === 'existing') receive no precomputed series
+  // and simply amortise from openingBalance with drawSchedule = 0.
   const drawSchedule = new Array<number>(periods).fill(0);
-  const drawWindow = isExisting ? 0 : Math.min(constructionPeriods, periods);
-
-  // M2.0L (2026-05-11): resolved facility size (absolute principal
-  // takes precedence over ltv-based when set).
-  const resolvedPrincipal =
-    typeof tranche.principal === 'number' && tranche.principal > 0
-      ? tranche.principal
-      : totalCapex * ltv;
-  // M2.0L: availability window narrows when the user sets it
-  // explicitly; defaults to the construction window for back-compat.
-  const availWindow = Math.min(
-    drawWindow,
-    typeof tranche.availabilityPeriods === 'number' && tranche.availabilityPeriods > 0
-      ? tranche.availabilityPeriods
-      : drawWindow,
-  );
-
-  // M2.0 Pass 18 (2026-05-13): when the caller supplies a precomputed
-  // drawdown series, use it verbatim and skip the legacy drawdownMethod
-  // switch. Existing facilities (drawWindow=0) ignore both paths.
   if (precomputedDrawSchedule && !isExisting) {
     for (let i = 0; i < periods; i++) {
       drawSchedule[i] = Math.max(0, precomputedDrawSchedule[i] ?? 0);
     }
-  } else {
-  // Existing facilities skip the drawdown switch entirely (drawWindow=0).
-  switch (isExisting ? '__skip_existing__' as never : tranche.drawdownMethod) {
-    case 'capex_basis': {
-      // Tracks capex × ltv per period.
-      for (let i = 0; i < drawWindow; i++) {
-        drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ltv;
-      }
-      break;
-    }
-    case 'debt_equity_ratio': {
-      // % of capex per period.
-      for (let i = 0; i < drawWindow; i++) {
-        drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ltv;
-      }
-      break;
-    }
-    case 'capex_minus_presales':
-    case 'cash_available': {
-      // Net capex = capex - presales. If drawdownIncludeLand is false,
-      // exclude the period-0 land lump from the capex base.
-      // M2.0L: cash_available is the MAAD pattern alias.
-      const includeLand = tranche.drawdownIncludeLand !== false;
-      for (let i = 0; i < drawWindow; i++) {
-        const cx = capexPerPeriod[i] ?? 0;
-        const ps = presalesPerPeriod[i] ?? 0;
-        const adj = !includeLand && i === 0 ? 0 : cx;
-        const net = Math.max(0, adj - ps);
-        drawSchedule[i] = net * ltv;
-      }
-      break;
-    }
-    case 'manual': {
-      const dist = tranche.drawdownDistribution ?? [];
-      const sum = dist.reduce((s, v) => s + (v ?? 0), 0);
-      for (let i = 0; i < drawWindow; i++) {
-        const w = sum > 0 ? (dist[i] ?? 0) / sum : 1 / drawWindow;
-        drawSchedule[i] = resolvedPrincipal * w;
-      }
-      break;
-    }
-    case 'min_cash_floor': {
-      // Maintain running cash >= floor; draws when cash dips below.
-      // For now we approximate by drawing capex × ltv (same as capex_basis)
-      // and let the floor kick in via the equity injection in callers.
-      const floor = Math.max(0, tranche.drawdownMinCashFloor ?? 0);
-      let cash = floor;
-      for (let i = 0; i < drawWindow; i++) {
-        const cx = capexPerPeriod[i] ?? 0;
-        cash -= cx;
-        if (cash < floor) {
-          drawSchedule[i] = (floor - cash);
-          cash = floor;
-        }
-      }
-      break;
-    }
-    case 'front_loaded': {
-      // M2.0L: 100% drawn in the first availability period.
-      if (availWindow > 0) drawSchedule[0] = resolvedPrincipal;
-      break;
-    }
-    case 'equal_periodic': {
-      // M2.0L: equal slice across the availability window.
-      const slice = availWindow > 0 ? resolvedPrincipal / availWindow : 0;
-      for (let i = 0; i < availWindow; i++) drawSchedule[i] = slice;
-      break;
-    }
-    case 'custom_schedule': {
-      // M2.0L: per-period absolute amounts. Clipped to facility size.
-      const sched = tranche.drawdownCustomSchedule ?? [];
-      let drawn = 0;
-      for (let i = 0; i < drawWindow; i++) {
-        const want = Math.max(0, sched[i] ?? 0);
-        const room = Math.max(0, resolvedPrincipal - drawn);
-        const taken = Math.min(want, room);
-        drawSchedule[i] = taken;
-        drawn += taken;
-      }
-      break;
-    }
-  }
   }
 
   // Total principal that the repayment schedule must amortize: for new
