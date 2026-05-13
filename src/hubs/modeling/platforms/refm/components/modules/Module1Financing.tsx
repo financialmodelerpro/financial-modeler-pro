@@ -1800,67 +1800,56 @@ export default function Module1Financing(): React.JSX.Element {
                 </div>
               </div>
             </div>
-            {/* P2-Fix 11 (2026-05-11): Capital Stack Sources table.
-                Equity Cash + Equity In-Kind from computeEquity, then
-                per-facility debt rows. Adds % of Total + auto match row. */}
-            <div style={{ marginTop: 'var(--sp-2)', overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} data-testid="cap-stack-sources-table">
-                <thead>
-                  <tr>
-                    <th style={CELL_HEADER}>Source</th>
-                    <th style={CELL_HEADER}>Amount</th>
-                    <th style={CELL_HEADER}>% of Total</th>
-                    <th style={CELL_HEADER}>Category</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const totalAll = equity.cashContribution + equity.inKindContribution + phaseTranches.reduce((s, t) => s + (t.principal ?? (funding.totalNeed * (financingConfig.fixedRatio?.debtPct ?? 70) / 100 / Math.max(1, phaseTranches.length))), 0);
-                    const pct = (v: number): string => totalAll > 0 ? ((v / totalAll) * 100).toFixed(1) + '%' : '0.0%';
-                    return (
-                      <>
-                        <tr data-testid="cap-stack-source-equity-cash">
-                          <td style={{ padding: '4px 6px' }}>Equity (Cash)</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(equity.cashContribution)}</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(equity.cashContribution)}</td>
-                          <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>equity:cash</td>
-                        </tr>
-                        <tr data-testid="cap-stack-source-equity-inkind">
-                          <td style={{ padding: '4px 6px' }}>Equity (In-Kind)</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(equity.inKindContribution)}</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(equity.inKindContribution)}</td>
-                          <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>equity:in_kind</td>
-                        </tr>
-                        {phaseTranches.map((t) => {
-                          const principal = t.principal ?? (funding.totalNeed * (financingConfig.fixedRatio?.debtPct ?? 70) / 100 / Math.max(1, phaseTranches.length));
-                          return (
-                            <tr key={t.id} data-testid={`cap-stack-source-debt-${t.id}`}>
-                              <td style={{ padding: '4px 6px' }}>{t.name}</td>
-                              <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(principal)}</td>
-                              <td style={{ padding: '4px 6px', textAlign: 'right' }}>{pct(principal)}</td>
-                              <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>debt</td>
-                            </tr>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                    <td style={{ padding: '4px 6px' }}>Total Sources</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-sources-total">{fmt(stack.totalSources)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }}>100.0%</td>
-                    <td></td>
-                  </tr>
-                  <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                    <td style={{ padding: '4px 6px' }}>Total Uses (Capex)</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-uses-total">{fmt(stack.totalUses)}</td>
-                    <td colSpan={2} style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }}>{Math.abs(stack.gap) < 1 ? 'Sources match Uses' : `Gap ${fmt(stack.gap)}`}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            {/* Capital Stack Sources table (2026-05-13): wrapped in a
+                <details> element so the per-facility breakdown is
+                hidden by default. Cards above already cover the
+                headline numbers (Total Funding, Debt, Equity Cash,
+                Equity In-Kind, LTV, match chip); this table provides
+                the per-facility split when the user wants it.
+                Per-facility debt now uses stack.debtBreakdown (the
+                facilitySharePct-driven series, identical to the
+                Schedules Capital Stack Summary table) so the two
+                tables compute identical numbers. */}
+            <details style={{ marginTop: 'var(--sp-2)' }} data-testid="cap-stack-sources-details">
+              <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', padding: '4px 0' }}>
+                Per-facility breakdown
+              </summary>
+              <div style={{ marginTop: 'var(--sp-1)', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} data-testid="cap-stack-sources-table">
+                  <thead>
+                    <tr>
+                      <th style={CELL_HEADER}>Source</th>
+                      <th style={CELL_HEADER}>Amount</th>
+                      <th style={CELL_HEADER}>% of Total</th>
+                      <th style={CELL_HEADER}>Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...stack.equityBreakdown, ...stack.debtBreakdown].map((e) => (
+                      <tr key={e.id} data-testid={`cap-stack-source-${e.id}`}>
+                        <td style={{ padding: '4px 6px' }}>{e.name}</td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(e.amount)}</td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{e.pct.toFixed(1)}%</td>
+                        <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>{e.category}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                      <td style={{ padding: '4px 6px' }}>Total Sources</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-sources-total">{fmt(stack.totalSources)}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>100.0%</td>
+                      <td></td>
+                    </tr>
+                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                      <td style={{ padding: '4px 6px' }}>Total Uses (Capex)</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-uses-total">{fmt(stack.totalUses)}</td>
+                      <td colSpan={2} style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }}>{Math.abs(stack.gap) < 1 ? 'Sources match Uses' : `Gap ${fmt(stack.gap)}`}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </details>
           </div>
 
           {/* Debt Tranches */}
