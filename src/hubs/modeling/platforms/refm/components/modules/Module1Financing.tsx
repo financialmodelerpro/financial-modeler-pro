@@ -1642,15 +1642,43 @@ export default function Module1Financing(): React.JSX.Element {
                 m === 3 ? 'Net Funding (Capex - Pre-Sales - OCF - Existing Cash)' :
                 'Cash Deficit (period-by-period fill to minimum cash reserve)';
               const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
+              // M2.0 Pass 16 (2026-05-13): Sources vs Uses match chip
+              // moved here from the (removed) Capital Structure Overview.
+              // Green Match when totalSources ~= totalUses; amber Gap
+              // otherwise. Tooltip carries the exact diff.
+              const gap = stack.totalSources - stack.totalUses;
+              const matches = Math.abs(gap) < 1;
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11 }}>
                   <div data-testid="funding-basis-source">
                     <div style={{ color: 'var(--color-meta)' }}>Drawdown Basis</div>
                     <div style={{ fontWeight: 700 }}>{basisLabel}</div>
                   </div>
-                  <div data-testid="funding-basis-capex">
+                  <div data-testid="funding-basis-capex" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <div style={{ color: 'var(--color-meta)' }}>Total Capex (excl Land In-Kind)</div>
-                    <div style={{ fontWeight: 700 }}>{formatAccounting(totalCapex, scale, decimals)}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700 }}>{formatAccounting(totalCapex, scale, decimals)}</span>
+                      <span
+                        data-testid="funding-basis-match-chip"
+                        title={
+                          matches
+                            ? `Sources ${formatAccounting(stack.totalSources, scale, decimals)} match Uses ${formatAccounting(stack.totalUses, scale, decimals)}.`
+                            : `Sources ${formatAccounting(stack.totalSources, scale, decimals)} vs Uses ${formatAccounting(stack.totalUses, scale, decimals)}. Gap ${formatAccounting(gap, scale, decimals)}.`
+                        }
+                        style={{
+                          padding: '2px 6px',
+                          borderRadius: 3,
+                          fontWeight: 700,
+                          fontSize: 10,
+                          background: matches
+                            ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
+                            : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
+                          color: matches ? 'var(--color-success)' : 'var(--color-accent-warm)',
+                        }}
+                      >
+                        {matches ? '✓ Match' : `Gap: ${formatAccounting(gap, scale, decimals)}`}
+                      </span>
+                    </div>
                   </div>
                   <div data-testid="funding-basis-need">
                     <div style={{ color: 'var(--color-meta)' }}>Total Funding Need</div>
@@ -1717,111 +1745,12 @@ export default function Module1Financing(): React.JSX.Element {
             })}
           </div>
 
-          {/* P4-Fix 3 (2026-05-12): Capital Structure Overview restructured.
-              Pass 15 (2026-05-13): compressed from 1 headline + 2 rows of
-              3 cards (with Sources / Uses sub-headings) to 1 headline +
-              1 row of 6 compact cards. All values still present (Total
-              Funding, Total Debt, Equity Cash, Equity In-Kind, Total
-              Capex, Debt %, match chip); per-stack % shown as
-              sublabel on each Sources card; smaller padding + font. */}
-          <div style={sectionCardStyle} data-testid="financing-capital-stack">
-            <strong style={TABLE_TITLE}>Capital Structure Overview</strong>
-            <div style={{ ...calcOutputStyle, padding: 10, marginBottom: 'var(--sp-1)' }} data-testid="cap-stack-total-funding">
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Funding</div>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>{fmt(funding.totalNeed)}</div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginBottom: 'var(--sp-1)' }}>
-              <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-debt">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Debt</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(stack.totalDebt)}</div>
-                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((stack.totalDebt / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
-              </div>
-              <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-equity-cash">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Equity (Cash)</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(equity.cashContribution)}</div>
-                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((equity.cashContribution / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
-              </div>
-              <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-equity-inkind">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Equity (In-Kind)</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(equity.inKindContribution)}</div>
-                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{stack.totalSources > 0 ? ((equity.inKindContribution / stack.totalSources) * 100).toFixed(1) : '0.0'}% of stack</div>
-              </div>
-              <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-uses">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Capex</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(stack.totalUses)}</div>
-              </div>
-              <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-ltv">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Debt %</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{stack.ltvSenior.toFixed(1)}% / {stack.ltvTotal.toFixed(1)}%</div>
-                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Senior / Total</div>
-              </div>
-              <div
-                style={{
-                  ...calcOutputStyle, padding: 6,
-                  background: Math.abs(stack.gap) < 1
-                    ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
-                    : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
-                  color: Math.abs(stack.gap) < 1 ? 'var(--color-success)' : 'var(--color-accent-warm)',
-                }}
-                data-testid="cap-stack-match-chip"
-              >
-                <div style={{ fontSize: 9, textTransform: 'uppercase' }}>Sources vs Uses</div>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>
-                  {Math.abs(stack.gap) < 1 ? '✓ Match' : (stack.gap > 0 ? `+${fmt(stack.gap)} surplus` : `${fmt(-stack.gap)} gap`)}
-                </div>
-              </div>
-            </div>
-            {/* Capital Stack Sources table (2026-05-13): wrapped in a
-                <details> element so the per-facility breakdown is
-                hidden by default. Cards above already cover the
-                headline numbers (Total Funding, Debt, Equity Cash,
-                Equity In-Kind, Debt %, match chip); this table provides
-                the per-facility split when the user wants it.
-                Per-facility debt now uses stack.debtBreakdown (the
-                facilitySharePct-driven series, identical to the
-                Schedules Capital Stack Summary table) so the two
-                tables compute identical numbers. */}
-            <details style={{ marginTop: 'var(--sp-2)' }} data-testid="cap-stack-sources-details">
-              <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', padding: '4px 0' }}>
-                Per-facility breakdown
-              </summary>
-              <div style={{ marginTop: 'var(--sp-1)', overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} data-testid="cap-stack-sources-table">
-                  <thead>
-                    <tr>
-                      <th style={CELL_HEADER}>Source</th>
-                      <th style={CELL_HEADER}>Amount</th>
-                      <th style={CELL_HEADER}>% of Total</th>
-                      <th style={CELL_HEADER}>Category</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...stack.equityBreakdown, ...stack.debtBreakdown].map((e) => (
-                      <tr key={e.id} data-testid={`cap-stack-source-${e.id}`}>
-                        <td style={{ padding: '4px 6px' }}>{e.name}</td>
-                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(e.amount)}</td>
-                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{e.pct.toFixed(1)}%</td>
-                        <td style={{ padding: '4px 6px', color: 'var(--color-meta)', fontSize: 10 }}>{e.category}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                      <td style={{ padding: '4px 6px' }}>Total Sources</td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-sources-total">{fmt(stack.totalSources)}</td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>100.0%</td>
-                      <td></td>
-                    </tr>
-                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                      <td style={{ padding: '4px 6px' }}>Total Uses (Capex)</td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }} data-testid="cap-stack-uses-total">{fmt(stack.totalUses)}</td>
-                      <td colSpan={2} style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }}>{Math.abs(stack.gap) < 1 ? 'Sources match Uses' : `Gap ${fmt(stack.gap)}`}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </details>
-          </div>
+          {/* M2.0 Pass 16 (2026-05-13): Capital Structure Overview removed.
+              All previously surfaced values (Total Funding, Total Debt,
+              Equity Cash, Equity In-Kind, Total Capex, Debt %) live in
+              the downstream Funding Requirement + Debt Required + Equity
+              Required tables. The Sources vs Uses Match check now sits
+              inline on the Funding Basis row above (next to Total Capex). */}
 
           {/* Debt Tranches */}
           <div style={{ marginBottom: 'var(--sp-2)' }}>
