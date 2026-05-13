@@ -1,20 +1,19 @@
 /* eslint-disable no-console */
 /**
- * verify-financing-rebuild.ts (Tab 4 Rebuild, 2026-05-14)
+ * verify-financing-rebuild.ts (Tab 4 Rebuild + Existing Ops, 2026-05-14)
  *
- * Drives a synthetic project fixture through the new
- * `src/core/calculations/financing/` engine and asserts the 9
- * reconciliation identities by construction:
+ * Fixture A (new-only): three new facilities (straight-line + bullet +
+ * equal-periodic-amortization) over one construction phase. Asserts all
+ * 9 reconciliation identities + full amortisation to zero.
  *
- *   1. Capex perPeriod sums equal totals (each of 3 rows).
- *   2. Total debt + total cash equity = capex excl land in-kind.
- *   3. Sum of facility shares = 100.
- *   4. Sum of per-facility drawdown per period = split.debt[period].
- *   5. Sum of per-facility drawdown over all periods = total debt × share.
- *   6. EquityMovement.totalCash = sum(split.equity).
- *   7. EquityMovement.totalInKind = sum(split.inKind).
- *   8. Funding.selected = methodN matching selectedMethodId.
- *   9. Sole external invariant: result.reconciliation.ok === true.
+ * Fixture B (VOCO operational): one operational Phase 1 (pre-capex 3.6B,
+ * existing debt 2.4B, existing equity 1.2B) + one construction Phase 2
+ * + one existing facility (openingBalance 2.4B, 6% rate, equal-periodic
+ * 15 years, 0 grace) + one new facility on Phase 2. Asserts existing
+ * outstanding[0] = openingBalance, full amortisation by remaining
+ * period, no new drawdown on existing, existing aggregate populated
+ * correctly, no double-counting in capex perPeriod, validation chip
+ * math (pre-capex = debt + equity).
  *
  * Usage: npx tsx scripts/verify-financing-rebuild.ts
  */
@@ -47,190 +46,257 @@ const near = (a: number, b: number, eps = 1e-2): boolean => {
   return d / scale <= 1e-6;
 };
 
-// ── Fixture: one phase, one parcel, one asset, three facilities ─────────
+// ── Fixture A: new-only ─────────────────────────────────────────────────
 
-function buildFixture() {
+function buildFixtureA() {
   const project = makeDefaultProject('Verifier Project', 'SAR', 'annual');
   project.startDate = '2026-01-01';
   project.financing = {
     fundingMethod: 1,
     fixedRatio: { debtPct: 70, equityPct: 30 },
-    parcelFunding: [
-      { parcelId: 'parcel_1', debtPct: 50, equityPct: 50 },
-    ],
+    parcelFunding: [{ parcelId: 'parcel_1', debtPct: 50, equityPct: 50 }],
     viewMode: 'combined',
     minimumCashReserve: 0,
   } as ProjectFinancingConfig;
 
   const phase = makeDefaultPhase('phase_1', 'Phase 1', 4, 10, 0);
-  const parcel: Parcel = {
-    ...makeDefaultParcel('parcel_1', 'phase_1', 'Land 1', 100000, 500),
-    cashPct: 60,
-  };
-
+  const parcel: Parcel = { ...makeDefaultParcel('parcel_1', 'phase_1', 'Land 1', 100000, 500), cashPct: 60 };
   const asset: Asset = {
-    id: 'asset_1',
-    phaseId: 'phase_1',
-    name: 'Asset 1',
-    type: 'Residential',
-    strategy: 'Sell',
-    visible: true,
-    gfaSqm: 80000,
-    buaSqm: 60000,
-    sellableBuaSqm: 50000,
-    parkingBaysRequired: 0,
+    id: 'asset_1', phaseId: 'phase_1', name: 'Asset 1', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 80000, buaSqm: 60000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
   };
-
   const subUnits: SubUnit[] = [];
   const costLines: CostLine[] = makeDefaultCostLines('phase_1', 4);
 
-  const t1: FinancingTranche = {
-    ...makeDefaultFinancingTranche('fac_1', 'phase_1'),
-    name: 'Senior',
-    interestRatePct: 6,
-    facilitySharePct: 60,
-    drawdownStartPeriod: 0,
-    repaymentMethod: 'straight_line',
-    repaymentPeriods: 8,
-    gracePeriods: 1,
-  };
-  const t2: FinancingTranche = {
-    ...makeDefaultFinancingTranche('fac_2', 'phase_1'),
-    name: 'Mezz',
-    interestRatePct: 10,
-    facilitySharePct: 30,
-    drawdownStartPeriod: 0,
-    repaymentMethod: 'bullet',
-    repaymentPeriods: 10,
-  };
-  const t3: FinancingTranche = {
-    ...makeDefaultFinancingTranche('fac_3', 'phase_1'),
-    name: 'Bridge',
-    interestRatePct: 8,
-    facilitySharePct: 10,
-    drawdownStartPeriod: 0,
-    repaymentMethod: 'equal_periodic_amortization',
-    repaymentPeriods: 6,
-  };
-
-  const equityContributions: EquityContribution[] = [];
+  const t1: FinancingTranche = { ...makeDefaultFinancingTranche('fac_1', 'phase_1'), name: 'Senior', interestRatePct: 6, facilitySharePct: 60, drawdownStartPeriod: 0, repaymentMethod: 'straight_line', repaymentPeriods: 8, gracePeriods: 1 };
+  const t2: FinancingTranche = { ...makeDefaultFinancingTranche('fac_2', 'phase_1'), name: 'Mezz', interestRatePct: 10, facilitySharePct: 30, drawdownStartPeriod: 0, repaymentMethod: 'bullet', repaymentPeriods: 10 };
+  const t3: FinancingTranche = { ...makeDefaultFinancingTranche('fac_3', 'phase_1'), name: 'Bridge', interestRatePct: 8, facilitySharePct: 10, drawdownStartPeriod: 0, repaymentMethod: 'equal_periodic_amortization', repaymentPeriods: 6 };
 
   return {
-    project,
-    phases: [phase],
-    parcels: [parcel],
-    assets: [asset],
-    subUnits,
-    costLines,
-    costOverrides: [],
-    landAllocationMode: 'autoByBua' as const,
-    financingConfig: project.financing!,
-    tranches: [t1, t2, t3],
-    equityContributions,
+    project, phases: [phase], parcels: [parcel], assets: [asset], subUnits, costLines, costOverrides: [],
+    landAllocationMode: 'autoByBua' as const, financingConfig: project.financing!,
+    tranches: [t1, t2, t3], equityContributions: [] as EquityContribution[],
   };
 }
 
-// ── Run ────────────────────────────────────────────────────────────────
+console.log('\n========== Fixture A: new facilities only ==========');
+const rA = computeFinancingResult(buildFixtureA());
 
-const ctx = buildFixture();
-const r = computeFinancingResult(ctx);
-
-console.log('\n[1] Capex perPeriod sums match totals');
+console.log('\n[A1] Capex perPeriod sums match totals');
 {
-  const sumExcl   = r.capex.perPeriod.exclAllLand.reduce((s, v) => s + v, 0);
-  const sumExclIK = r.capex.perPeriod.exclLandInKind.reduce((s, v) => s + v, 0);
-  const sumIncl   = r.capex.perPeriod.inclAllLand.reduce((s, v) => s + v, 0);
-  if (near(sumExcl, r.capex.totals.exclAllLand)) pass('exclAllLand');
-  else fail('exclAllLand', `${sumExcl} vs ${r.capex.totals.exclAllLand}`);
-  if (near(sumExclIK, r.capex.totals.exclLandInKind)) pass('exclLandInKind');
-  else fail('exclLandInKind', `${sumExclIK} vs ${r.capex.totals.exclLandInKind}`);
-  if (near(sumIncl, r.capex.totals.inclAllLand)) pass('inclAllLand');
-  else fail('inclAllLand', `${sumIncl} vs ${r.capex.totals.inclAllLand}`);
+  const sumExcl = rA.capex.perPeriod.exclAllLand.reduce((s, v) => s + v, 0);
+  const sumExclIK = rA.capex.perPeriod.exclLandInKind.reduce((s, v) => s + v, 0);
+  const sumIncl = rA.capex.perPeriod.inclAllLand.reduce((s, v) => s + v, 0);
+  if (near(sumExcl, rA.capex.totals.exclAllLand)) pass('exclAllLand'); else fail('exclAllLand', `${sumExcl} vs ${rA.capex.totals.exclAllLand}`);
+  if (near(sumExclIK, rA.capex.totals.exclLandInKind)) pass('exclLandInKind'); else fail('exclLandInKind', `${sumExclIK} vs ${rA.capex.totals.exclLandInKind}`);
+  if (near(sumIncl, rA.capex.totals.inclAllLand)) pass('inclAllLand'); else fail('inclAllLand', `${sumIncl} vs ${rA.capex.totals.inclAllLand}`);
 }
 
-console.log('\n[2] Debt + Cash Equity = Capex (excl land in-kind)');
+console.log('\n[A2] Debt + Cash Equity = Capex (excl land in-kind)');
 {
-  const tDebt = r.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
-  const tEq   = r.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
-  if (near(tDebt + tEq, r.capex.totals.exclLandInKind)) pass('funding identity', `${(tDebt + tEq).toFixed(0)} = ${r.capex.totals.exclLandInKind.toFixed(0)}`);
-  else fail('funding identity', `${tDebt + tEq} vs ${r.capex.totals.exclLandInKind}`);
+  const tDebt = rA.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
+  const tEq = rA.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
+  if (near(tDebt + tEq, rA.capex.totals.exclLandInKind)) pass('funding identity', `${(tDebt + tEq).toFixed(0)} = ${rA.capex.totals.exclLandInKind.toFixed(0)}`);
+  else fail('funding identity', `${tDebt + tEq} vs ${rA.capex.totals.exclLandInKind}`);
 }
 
-console.log('\n[3] Sum of facility shares = 100');
-{
-  let s = 0;
-  for (const v of r.shares.values()) s += v;
-  if (near(s, 100)) pass(`shares sum`, `${s.toFixed(4)}`);
-  else fail('shares sum', `${s}`);
-}
+console.log('\n[A3] Sum of NEW facility shares = 100');
+{ let s = 0; for (const v of rA.shares.values()) s += v; if (near(s, 100)) pass('shares sum', `${s.toFixed(4)}`); else fail('shares sum', `${s}`); }
 
-console.log('\n[4] Sum of per-facility drawdown per period = split.debt[period]');
-{
-  let allOk = true;
-  for (let i = 0; i < r.axis.totalPeriods + 1; i++) {
-    let s = 0;
-    for (const f of r.facilities.values()) s += f.drawSchedule[i] ?? 0;
-    if (!near(s, r.debtEquitySplit.debt[i] ?? 0)) {
-      fail(`period ${i} drawdown sum`, `${s} vs ${r.debtEquitySplit.debt[i]}`);
-      allOk = false;
-      break;
-    }
-  }
-  if (allOk) pass('drawdown per-period sum');
-}
+console.log('\n[A4] Engine reconciliation.ok');
+if (rA.reconciliation.ok) pass('reconciliation.ok'); else { fail('reconciliation.ok', 'false'); for (const m of rA.reconciliation.issues) console.log(`     - ${m}`); }
 
-console.log('\n[5] Total drawdown per facility = totalDebt × share');
+console.log('\n[A5] Outstanding balance drops to zero (each fully-amortising facility)');
 {
-  const totalDebt = r.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
-  for (const f of r.facilities.values()) {
-    const expected = totalDebt * (f.sharePct / 100);
-    if (near(f.totalDrawn, expected)) pass(`facility ${f.trancheId} drawdown`, `${f.totalDrawn.toFixed(0)}`);
-    else fail(`facility ${f.trancheId} drawdown`, `${f.totalDrawn} vs ${expected}`);
-  }
-}
-
-console.log('\n[6] EquityMovement.totalCash = sum(split.equity)');
-{
-  const sumEquity = r.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
-  if (near(r.equity.totalCash, sumEquity)) pass('totalCash', `${r.equity.totalCash.toFixed(0)}`);
-  else fail('totalCash', `${r.equity.totalCash} vs ${sumEquity}`);
-}
-
-console.log('\n[7] EquityMovement.totalInKind = sum(split.inKind)');
-{
-  const sumIK = r.debtEquitySplit.inKind.reduce((s, v) => s + v, 0);
-  if (near(r.equity.totalInKind, sumIK)) pass('totalInKind', `${r.equity.totalInKind.toFixed(0)}`);
-  else fail('totalInKind', `${r.equity.totalInKind} vs ${sumIK}`);
-}
-
-console.log('\n[8] Funding.selected mirrors selectedMethodId');
-{
-  const expected =
-    r.funding.selectedMethodId === 1 ? r.funding.method1
-    : r.funding.selectedMethodId === 2 ? r.funding.method2
-    : r.funding.method3;
-  if (near(r.funding.selected, expected)) pass('selected matches', `m${r.funding.selectedMethodId} = ${r.funding.selected.toFixed(0)}`);
-  else fail('selected matches', `${r.funding.selected} vs ${expected}`);
-}
-
-console.log('\n[9] Engine reconciliation.ok');
-{
-  if (r.reconciliation.ok) pass('reconciliation.ok = true');
-  else {
-    fail('reconciliation.ok', 'false');
-    for (const msg of r.reconciliation.issues) console.log(`     - ${msg}`);
-  }
-}
-
-console.log('\n[10] Outstanding balance drops to zero (each fully-amortising facility)');
-{
-  const last = r.axis.totalPeriods;
-  for (const f of r.facilities.values()) {
+  const last = rA.axis.totalPeriods;
+  for (const f of rA.facilities.values()) {
     const remain = f.outstanding[last] ?? 0;
-    if (near(remain, 0)) pass(`facility ${f.trancheId} amortised`);
-    else fail(`facility ${f.trancheId} amortised`, `remain ${remain}`);
+    if (near(remain, 0)) pass(`facility ${f.trancheId} amortised`); else fail(`facility ${f.trancheId} amortised`, `remain ${remain}`);
   }
 }
+
+// ── Fixture B: VOCO operational ────────────────────────────────────────
+
+function buildFixtureB() {
+  const project = makeDefaultProject('VOCO Project', 'SAR', 'annual');
+  project.startDate = '2026-01-01';
+  project.financing = {
+    fundingMethod: 1,
+    fixedRatio: { debtPct: 70, equityPct: 30 },
+    parcelFunding: [{ parcelId: 'p2_parcel', debtPct: 50, equityPct: 50 }],
+    viewMode: 'combined',
+    minimumCashReserve: 0,
+  } as ProjectFinancingConfig;
+
+  // Phase 1 is operational (constructionStart=1, no future construction).
+  // For the project axis we need it to reserve its column slot. We give
+  // it 0 construction + 15 operations (= remaining life of VOCO).
+  const phase1 = makeDefaultPhase('phase_1', 'Phase 1 (VOCO, operational)', 0, 15, 0);
+  phase1.status = 'operational';
+  phase1.historicalBaseline = {
+    historicalCapexTotal: 3_600_000_000,
+    historicalEquityContributed: 1_200_000_000,
+    historicalDebtDrawn: 2_400_000_000,
+    currentDebtOutstanding: 2_400_000_000,
+    cumulativeDepreciationCharged: 0,
+    netBookValueFixedAssets: 3_600_000_000,
+    last12MonthsRevenue: 0,
+    last12MonthsOpex: 0,
+  };
+
+  // Phase 2 is a normal construction phase, offset by phase1's span so
+  // they don't collide. constructionStart=1 + constructionPeriods=4.
+  const phase2 = makeDefaultPhase('phase_2', 'Phase 2 (new construction)', 4, 10, 0);
+  phase2.constructionStart = 2;  // start 1 period after Phase 1's first col
+
+  const parcel: Parcel = { ...makeDefaultParcel('p2_parcel', 'phase_2', 'Phase 2 Land', 50000, 400), cashPct: 100 };
+
+  // Phase 1 asset is operational, no new capex.
+  const phase1Asset: Asset = {
+    id: 'asset_voco', phaseId: 'phase_1', name: 'VOCO Hotel', type: 'Hotel', strategy: 'Operate', visible: true,
+    gfaSqm: 40000, buaSqm: 30000, sellableBuaSqm: 25000, parkingBaysRequired: 0, status: 'operational',
+  };
+  // Phase 2 asset is a new development.
+  const phase2Asset: Asset = {
+    id: 'asset_p2', phaseId: 'phase_2', name: 'Tower A', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 60000, buaSqm: 50000, sellableBuaSqm: 40000, parkingBaysRequired: 0,
+  };
+
+  const subUnits: SubUnit[] = [];
+  const costLines: CostLine[] = makeDefaultCostLines('phase_2', 4);
+
+  // Existing facility for VOCO.
+  const exFac: FinancingTranche = {
+    ...makeDefaultFinancingTranche('fac_voco', 'phase_1'),
+    name: 'VOCO Senior Loan',
+    origin: 'existing',
+    openingBalance: 2_400_000_000,
+    interestRatePct: 6,
+    repaymentMethod: 'equal_periodic_amortization',
+    remainingRepaymentPeriods: 15,
+    gracePeriods: 0,
+  };
+
+  // New facility for Phase 2.
+  const newFac: FinancingTranche = {
+    ...makeDefaultFinancingTranche('fac_p2', 'phase_2'),
+    name: 'Phase 2 Senior',
+    interestRatePct: 7,
+    facilitySharePct: 100,
+    drawdownStartPeriod: 1,
+    repaymentMethod: 'equal_periodic_amortization',
+    repaymentPeriods: 10,
+  };
+
+  return {
+    project, phases: [phase1, phase2], parcels: [parcel],
+    assets: [phase1Asset, phase2Asset], subUnits, costLines, costOverrides: [],
+    landAllocationMode: 'autoByBua' as const, financingConfig: project.financing!,
+    tranches: [exFac, newFac], equityContributions: [] as EquityContribution[],
+  };
+}
+
+console.log('\n========== Fixture B: VOCO operational phase ==========');
+const rB = computeFinancingResult(buildFixtureB());
+
+console.log('\n[B1] Existing aggregate populated');
+{
+  const e = rB.existing;
+  if (near(e.preCapexTotal, 3_600_000_000)) pass('preCapexTotal = 3.6B'); else fail('preCapexTotal', `${e.preCapexTotal}`);
+  if (near(e.debtOutstandingTotal, 2_400_000_000)) pass('debtOutstandingTotal = 2.4B'); else fail('debtOutstandingTotal', `${e.debtOutstandingTotal}`);
+  if (near(e.equityTotal, 1_200_000_000)) pass('equityTotal = 1.2B'); else fail('equityTotal', `${e.equityTotal}`);
+}
+
+console.log('\n[B2] Tab 1 validation chip math (pre-capex = debt + equity)');
+{
+  const e = rB.existing;
+  if (near(e.preCapexTotal, e.debtOutstandingTotal + e.equityTotal)) pass('chip green', '3.6B = 2.4B + 1.2B');
+  else fail('chip', `${e.preCapexTotal} vs ${e.debtOutstandingTotal + e.equityTotal}`);
+}
+
+console.log('\n[B3] Operational phase pre-capex NOT in new perPeriod (no double count)');
+{
+  const sumIncl = rB.capex.perPeriod.inclAllLand.reduce((s, v) => s + v, 0);
+  if (sumIncl < 3_600_000_000) pass('new capex independent', `total ${sumIncl.toFixed(0)} < 3.6B (pre-capex excluded)`);
+  else fail('double count', `inclAllLand sum ${sumIncl} >= 3.6B suggests pre-capex leaked into new capex`);
+}
+
+console.log('\n[B4] Existing facility outstanding[0] = openingBalance');
+{
+  const f = rB.facilities.get('fac_voco');
+  if (!f) { fail('fac_voco', 'missing'); }
+  else {
+    const ob = f.outstanding[0] ?? 0;
+    if (near(ob, 2_400_000_000)) pass('outstanding[0] = 2.4B'); else fail('outstanding[0]', `${ob}`);
+    const totalDraw = f.drawSchedule.reduce((s, v) => s + v, 0);
+    if (near(totalDraw, 0)) pass('no new drawdown on existing'); else fail('drawdown', `${totalDraw}`);
+    if (near(f.totalDrawn, 2_400_000_000)) pass('totalDrawn = openingBalance');
+    else fail('totalDrawn', `${f.totalDrawn} vs 2.4B`);
+  }
+}
+
+console.log('\n[B5] Existing facility fully amortised by remaining period');
+{
+  const f = rB.facilities.get('fac_voco');
+  if (!f) { fail('fac_voco', 'missing'); }
+  else {
+    // Repayment runs from i=1..15 (15 periods).
+    const finalIdx = 15;
+    const remain = f.outstanding[finalIdx] ?? 0;
+    if (near(remain, 0, 1)) pass(`outstanding[${finalIdx}] = 0`);
+    else fail(`outstanding[${finalIdx}]`, `${remain}`);
+    const totalPrincipal = f.principalRepaid.reduce((s, v) => s + v, 0);
+    if (near(totalPrincipal, 2_400_000_000, 1)) pass('total principal = 2.4B');
+    else fail('total principal', `${totalPrincipal}`);
+  }
+}
+
+console.log('\n[B6] Existing facility i=0 has no interest accrual');
+{
+  const f = rB.facilities.get('fac_voco');
+  if (!f) { fail('fac_voco', 'missing'); }
+  else {
+    if ((f.interestAccrued[0] ?? 0) === 0) pass('interestAccrued[0] = 0');
+    else fail('interestAccrued[0]', `${f.interestAccrued[0]}`);
+    if ((f.principalRepaid[0] ?? 0) === 0) pass('principalRepaid[0] = 0');
+    else fail('principalRepaid[0]', `${f.principalRepaid[0]}`);
+  }
+}
+
+console.log('\n[B7] Existing facility interest expensed (never capitalised)');
+{
+  const f = rB.facilities.get('fac_voco');
+  if (!f) { fail('fac_voco', 'missing'); }
+  else {
+    const totalCap = f.interestCapitalized.reduce((s, v) => s + v, 0);
+    if (near(totalCap, 0)) pass('interest never capitalised on existing');
+    else fail('interestCapitalized', `${totalCap}`);
+  }
+}
+
+console.log('\n[B8] Existing equity lump at column 0');
+{
+  const eq0 = rB.equity.existingEquityPerPeriod[0] ?? 0;
+  if (near(eq0, 1_200_000_000)) pass('existingEquity[0] = 1.2B');
+  else fail('existingEquity[0]', `${eq0}`);
+  if (near(rB.equity.totalExisting, 1_200_000_000)) pass('totalExisting = 1.2B');
+  else fail('totalExisting', `${rB.equity.totalExisting}`);
+}
+
+console.log('\n[B9] New facility on Phase 2 still works');
+{
+  const f = rB.facilities.get('fac_p2');
+  if (!f) { fail('fac_p2', 'missing'); }
+  else {
+    const totalDraw = f.drawSchedule.reduce((s, v) => s + v, 0);
+    if (totalDraw > 0) pass('new facility draws debt', `${totalDraw.toFixed(0)}`);
+    else fail('new facility drawdown', '0');
+    if (near(f.sharePct, 100)) pass('new facility share = 100%'); else fail('share', `${f.sharePct}`);
+  }
+}
+
+console.log('\n[B10] Reconciliation still green with operational phase');
+if (rB.reconciliation.ok) pass('reconciliation.ok'); else { fail('reconciliation.ok', 'false'); for (const m of rB.reconciliation.issues) console.log(`     - ${m}`); }
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
