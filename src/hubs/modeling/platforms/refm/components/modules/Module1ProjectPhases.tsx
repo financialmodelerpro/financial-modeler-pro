@@ -16,6 +16,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
+  type Asset,
   type Phase,
   type PhaseHistoricalBaseline,
   type PhaseStatus,
@@ -66,14 +67,16 @@ const tableHeaderLabelStyle: React.CSSProperties = {
 const STATUS_OPTIONS: ProjectStatus[] = ['draft', 'active', 'archived'];
 
 export default function Module1ProjectPhases(): React.JSX.Element {
-  const { project, phases, setProject, addPhase, updatePhase, removePhase } = useModule1Store(
+  const { project, phases, assets, setProject, addPhase, updatePhase, removePhase, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      assets: s.assets,
       setProject: s.setProject,
       addPhase: s.addPhase,
       updatePhase: s.updatePhase,
       removePhase: s.removePhase,
+      updateAsset: s.updateAsset,
     })),
   );
 
@@ -375,7 +378,9 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 key={phase.id}
                 phase={phase}
                 project={project}
+                phaseAssets={assets.filter((a) => a.phaseId === phase.id && a.visible)}
                 onUpdate={(patch) => updatePhase(phase.id, patch)}
+                onUpdateAsset={updateAsset}
                 onRemove={() => removePhase(phase.id)}
                 canRemove={phases.length > 1}
               />
@@ -390,7 +395,9 @@ export default function Module1ProjectPhases(): React.JSX.Element {
 interface PhaseRowProps {
   phase: Phase;
   project: Project;
+  phaseAssets: Asset[];
   onUpdate: (patch: Partial<Phase>) => void;
+  onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemove: () => void;
   canRemove: boolean;
 }
@@ -406,7 +413,7 @@ const calcOutputStyle: React.CSSProperties = {
   minWidth: 92,
 };
 
-function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
+function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
   // M2.0f Fix 4: phase start date is the authoritative timing field.
   // Computed end dates derive via computePhaseTimeline so editing
   // start date here cascades to construction end / operations
@@ -606,6 +613,72 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
               <AccountingNumberInput id={`phase-${phase.id}-hist-rent`} data-testid={`phase-${phase.id}-hist-rent`} min={0} value={baseline.currentRentRate ?? 0} onChange={(n) => setBaseline({ currentRentRate: n > 0 ? n : undefined })} style={inputStyle} />
             </div>
           </div>
+          {/* M2.0 Pass 15 (2026-05-13): per-asset Historical Baseline.
+              For each operational-phase asset, capture Pre-Capex,
+              Existing Debt, Existing Equity with a validation chip.
+              Pre-Capex feeds Tab 4 Capex Breakdown prior column; Debt
+              feeds Total Debt Required prior; Equity feeds Equity
+              Required prior. */}
+          {phaseAssets.length > 0 && (
+            <div data-testid={`phase-${phase.id}-asset-baselines`} style={{ marginTop: 'var(--sp-3)', paddingTop: 'var(--sp-2)', borderTop: '1px dashed var(--color-border)' }}>
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', display: 'block', marginBottom: 'var(--sp-1)' }}>
+                Per-asset Historical Baseline
+              </strong>
+              <div style={{ display: 'grid', gap: 'var(--sp-1)' }}>
+                {phaseAssets.map((a) => {
+                  const pre = Math.max(0, a.historicalPreCapex ?? 0);
+                  const debt = Math.max(0, a.historicalDebtAmount ?? 0);
+                  const equity = Math.max(0, a.historicalEquityAmount ?? 0);
+                  const diff = pre - (debt + equity);
+                  const balances = Math.abs(diff) < 1;
+                  const equityNeededToBalance = Math.max(0, pre - debt);
+                  return (
+                    <div key={a.id} data-testid={`asset-${a.id}-baseline`} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr', gap: 'var(--sp-1)', alignItems: 'end', fontSize: 11, padding: 'var(--sp-1)', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
+                        <div style={{ fontWeight: 700 }}>{a.name}</div>
+                      </div>
+                      <div>
+                        <InputLabel label="Pre-Capex" help="Historical capex sunk into this asset before project start." inputId={`asset-${a.id}-pre-capex`} />
+                        <AccountingNumberInput id={`asset-${a.id}-pre-capex`} data-testid={`asset-${a.id}-pre-capex`} min={0} value={pre} onChange={(n) => onUpdateAsset(a.id, { historicalPreCapex: Math.max(0, n) })} style={inputStyle} />
+                      </div>
+                      <div>
+                        <InputLabel label="Existing Debt" help="Debt outstanding at project Y0 for this asset." inputId={`asset-${a.id}-hist-debt`} />
+                        <AccountingNumberInput id={`asset-${a.id}-hist-debt`} data-testid={`asset-${a.id}-hist-debt`} min={0} value={debt} onChange={(n) => onUpdateAsset(a.id, { historicalDebtAmount: Math.max(0, n) })} style={inputStyle} />
+                      </div>
+                      <div>
+                        <InputLabel label="Existing Equity" help="Equity contributed to date for this asset (cash + in-kind combined)." inputId={`asset-${a.id}-hist-equity`} />
+                        <AccountingNumberInput id={`asset-${a.id}-hist-equity`} data-testid={`asset-${a.id}-hist-equity`} min={0} value={equity} onChange={(n) => onUpdateAsset(a.id, { historicalEquityAmount: Math.max(0, n) })} style={inputStyle} />
+                      </div>
+                      <div
+                        data-testid={`asset-${a.id}-baseline-chip`}
+                        title={
+                          balances
+                            ? `Pre-Capex ${pre} = Debt ${debt} + Equity ${equity}.`
+                            : `Pre-Capex ${pre} should equal Debt ${debt} + Equity ${equity}. Difference: ${diff.toFixed(0)}. Equity should be ${equityNeededToBalance.toFixed(0)} to balance.`
+                        }
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontWeight: 700,
+                          textAlign: 'center',
+                          background: balances
+                            ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
+                            : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
+                          color: balances ? 'var(--color-success)' : 'var(--color-accent-warm)',
+                          fontSize: 11,
+                        }}
+                      >
+                        {balances
+                          ? 'Balances'
+                          : `Mismatch: equity should be ${equityNeededToBalance.toLocaleString()} to balance`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </td>
       </tr>
     )}

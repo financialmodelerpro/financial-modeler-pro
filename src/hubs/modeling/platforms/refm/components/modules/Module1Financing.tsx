@@ -1232,6 +1232,28 @@ export default function Module1Financing(): React.JSX.Element {
       parcelCashPerPeriod: Array.from(parcelCashPerPeriod.entries()).map(([parcelId, perPeriod]) => ({ parcelId, perPeriod })),
     };
   }, [project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode, financingConfig]);
+  // M2.0 Pass 15 (2026-05-13): per-asset historical baselines aggregate
+  // to project prior-column totals. Pre-capex flows into Tab 4 Capex
+  // Breakdown's prior cell; existing debt flows into Total Debt
+  // Required's prior cell; existing equity flows into Equity Required
+  // Cash row's prior cell. Operational-phase assets only (the brief
+  // scopes pre-capex to operational phases). Asset.visible respected.
+  const historicalPriorTotals = useMemo(() => {
+    let preCapex = 0;
+    let debt = 0;
+    let equity = 0;
+    for (const ph of phases) {
+      if ((ph.status ?? 'planning') !== 'operational') continue;
+      const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
+      for (const a of phaseAssetsLocal) {
+        preCapex += Math.max(0, a.historicalPreCapex ?? 0);
+        debt += Math.max(0, a.historicalDebtAmount ?? 0);
+        equity += Math.max(0, a.historicalEquityAmount ?? 0);
+      }
+    }
+    return { preCapex, debt, equity };
+  }, [phases, assets]);
+
   // Land In-Kind value project-wide (sum across all phases) drives the
   // Equity Total breakdown into Cash + In-Kind sub-rows.
   const projectInKindLandValue = useMemo(() => {
@@ -1986,7 +2008,7 @@ export default function Module1Financing(): React.JSX.Element {
                       <tr data-testid="capex-breakdown-excl-land">
                         <td style={ROW_DATA.name}>Capex (excluding Land)</td>
                         <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-total">{fmtCell(sum(rowExclLand))}</td>
-                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(0)}</td>
+                        <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(historicalPriorTotals.preCapex)}</td>
                         {cropExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                       </tr>
                       <tr data-testid="capex-breakdown-land-cash">
@@ -1998,7 +2020,7 @@ export default function Module1Financing(): React.JSX.Element {
                       <tr data-testid="capex-breakdown-total">
                         <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
                         <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-amount">{fmtCell(sum(rowTotal))}</td>
-                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(0)}</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(historicalPriorTotals.preCapex)}</td>
                         {cropTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
                       </tr>
                     </tbody>
@@ -2137,7 +2159,7 @@ export default function Module1Financing(): React.JSX.Element {
                         <tr data-testid="total-debt-required-row">
                           <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-total">{fmtCell(debtTotal)}</td>
-                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(0)}</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(historicalPriorTotals.debt)}</td>
                           {cropDebt.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
                         </tr>
                       </tbody>
@@ -2169,7 +2191,7 @@ export default function Module1Financing(): React.JSX.Element {
                         <tr data-testid="total-equity-required-cash">
                           <td style={ROW_DATA.name}>Equity (Cash)</td>
                           <td style={ROW_DATA.num} data-testid="total-equity-required-cash-total">{fmtCell(cashEquityTotal)}</td>
-                          <td style={ROW_DATA.num} data-testid="total-equity-required-cash-prior">{fmtCell(0)}</td>
+                          <td style={ROW_DATA.num} data-testid="total-equity-required-cash-prior">{fmtCell(historicalPriorTotals.equity)}</td>
                           {cropCashEquity.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                         </tr>
                         <tr data-testid="total-equity-required-inkind">
@@ -2181,7 +2203,7 @@ export default function Module1Financing(): React.JSX.Element {
                         <tr data-testid="total-equity-required-row">
                           <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-total">{fmtCell(equityTotal)}</td>
-                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-prior">{fmtCell(0)}</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-prior">{fmtCell(historicalPriorTotals.equity)}</td>
                           {cropCashEquity.map((_, i) => (
                             <td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell((cropCashEquity[i] ?? 0) + (cropInKind[i] ?? 0))}</td>
                           ))}

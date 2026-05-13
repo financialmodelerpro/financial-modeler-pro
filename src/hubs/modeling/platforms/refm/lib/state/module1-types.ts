@@ -585,6 +585,19 @@ export interface Asset {
   // phase (e.g. Phase 1 has Hotel operational + Apt-Tower-3 still in
   // construction, each carries its own baseline).
   historicalBaseline?: PhaseHistoricalBaseline;
+  // M2.0 Pass 15 (2026-05-13): per-asset pre-capex with explicit debt +
+  // equity entry. Only consumed when the asset belongs to an operational
+  // phase. The brief moves the historical-cost entry out of the
+  // phase-level baseline so each asset in a mixed phase can carry its
+  // own sunk-cost split. Validation chip in the Tab 1 UI shows
+  // green Balances when historicalPreCapex === historicalDebtAmount +
+  // historicalEquityAmount (within rounding), amber Mismatch otherwise.
+  // Engine wire: pre-capex feeds Tab 4 Capex Breakdown prior column;
+  // debt feeds Total Debt Required prior column; equity feeds Equity
+  // Required prior column.
+  historicalPreCapex?: number;
+  historicalDebtAmount?: number;
+  historicalEquityAmount?: number;
   // M2.0 Pass 8 (2026-05-12): per-asset NDA inputs (when
   // project.projectNdaScope === 'asset'). Each asset can carry its own
   // Roads %/Parks % deduction; Apply Roads/Parks toggle gates whether
