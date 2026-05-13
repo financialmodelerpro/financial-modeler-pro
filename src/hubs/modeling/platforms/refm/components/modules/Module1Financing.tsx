@@ -209,8 +209,13 @@ function renderMethodInputs(
       seenBase.add(baseId);
       rows.push({ baseId, label: line.name || baseId });
     }
+    // Fallback when a line has no master entry: use the project-wide
+    // fixedRatio (not hardcoded 70/30). Keeps Method 2 consistent with
+    // the engine's resolution path.
+    const fallbackDebt = cfg.fixedRatio?.debtPct ?? 70;
+    const fallbackEquity = cfg.fixedRatio?.equityPct ?? 30;
     const ratioOf = (baseId: string): FundingMethod2LineRatio =>
-      master.find((m) => m.lineId === baseId) ?? { lineId: baseId, debtPct: 70, equityPct: 30 };
+      master.find((m) => m.lineId === baseId) ?? { lineId: baseId, debtPct: fallbackDebt, equityPct: fallbackEquity };
     const setRatio = (baseId: string, debtPct: number): void => {
       const clamped = Math.max(0, Math.min(100, debtPct));
       const next: FundingMethod2LineRatio = { lineId: baseId, debtPct: clamped, equityPct: 100 - clamped };
@@ -1021,6 +1026,10 @@ export default function Module1Financing(): React.JSX.Element {
     const labels = generatePeriodLabels(project.startDate, totalPeriods, 'annual');
     const perAsset = new Map<string, { id: string; name: string; perPeriod: number[]; total: number }>();
     const totals = new Array<number>(totalPeriods).fill(0);
+    // Method 2: per-line per-asset capex breakdown on the project
+    // period axis. Built alongside the per-asset totals so callers
+    // that need either shape can read both from the same memo.
+    const perLineAssetCapex: Array<{ lineId: string; assetId: string; baseLineId: string; perPeriod: number[] }> = [];
     for (const ph of phases) {
       const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
       for (const a of phaseAssetsLocal) {
@@ -1039,6 +1048,29 @@ export default function Module1Financing(): React.JSX.Element {
         const merged = existing ? existing.perPeriod.map((v, i) => v + (series[i] ?? 0)) : series;
         const total = merged.reduce((s, v) => s + v, 0);
         perAsset.set(a.id, { id: a.id, name: a.name, perPeriod: merged, total });
+        // Per-line entries (Method 2 consumer). Exclude land in-kind
+        // lines (they contribute via in-kind equity, not the funding
+        // need axis the financing engine sizes against).
+        const perLine = breakdown.perLinePerPeriod ?? {};
+        for (const [lineId, localSeries] of Object.entries(perLine)) {
+          if (!Array.isArray(localSeries)) continue;
+          const line = costLines.find((c) => c.id === lineId);
+          if (line && line.method === 'percent_of_inkind_land') continue;
+          const projectSeries = new Array<number>(totalPeriods).fill(0);
+          for (let lp = 0; lp < localSeries.length; lp++) {
+            const pp = costLineProjectPeriodIndex(project, ph, lp);
+            if (pp < 0 || pp >= totalPeriods) continue;
+            projectSeries[pp] += localSeries[lp] ?? 0;
+          }
+          const lineTotal = projectSeries.reduce((s, v) => s + v, 0);
+          if (Math.abs(lineTotal) < 0.5) continue;
+          perLineAssetCapex.push({
+            lineId,
+            assetId: a.id,
+            baseLineId: deriveLineBaseId(lineId),
+            perPeriod: projectSeries,
+          });
+        }
       }
     }
     const ratio = (() => {
@@ -1050,7 +1082,7 @@ export default function Module1Financing(): React.JSX.Element {
     })();
     const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
     const equityPct = ratio.equity / (ratio.debt + ratio.equity || 1);
-    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods };
+    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods, perLineAssetCapex };
   }, [project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode, financingConfig]);
   // Land In-Kind value project-wide (sum across all phases) drives the
   // Equity Total breakdown into Cash + In-Kind sub-rows.
@@ -1071,14 +1103,26 @@ export default function Module1Financing(): React.JSX.Element {
   // see all phases' capex. Was single-phase pre-Pass-4 which rendered
   // zero whenever activePhaseId did not match the phase carrying the
   // cost lines.
-  const funding = useMemo(
-    () => computeFunding({
+  const funding = useMemo(() => {
+    const isMethod2 = financingConfig.fundingMethod === 2;
+    const perAssetRatioOverrides = isMethod2
+      ? costOverrides
+          .filter((o) => typeof o.debtPctOverride === 'number' || typeof o.equityPctOverride === 'number')
+          .map((o) => ({
+            lineId: o.lineId,
+            assetId: o.assetId,
+            debtPctOverride: o.debtPctOverride,
+            equityPctOverride: o.equityPctOverride,
+          }))
+      : undefined;
+    return computeFunding({
       method: financingConfig.fundingMethod,
       financing: financingConfig,
       capexPerPeriod: inputsSummary.totals,
-    }),
-    [financingConfig, inputsSummary.totals],
-  );
+      perLineAssetCapex: isMethod2 ? inputsSummary.perLineAssetCapex : undefined,
+      perAssetRatioOverrides,
+    });
+  }, [financingConfig, inputsSummary.totals, inputsSummary.perLineAssetCapex, costOverrides]);
   const equity = useMemo(
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],

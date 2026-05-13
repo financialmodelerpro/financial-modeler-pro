@@ -1760,6 +1760,30 @@ export interface FundingResult {
   debtEquitySplit: { debt: number[]; equity: number[] };
 }
 
+/**
+ * Per-line per-asset per-period capex entry. Method 2 consumes a list
+ * of these to apply per-line debt/equity ratios. baseLineId is the
+ * deduped line key (deriveLineBaseId) used to look up the master line
+ * ratio; assetId is needed to resolve per-asset CostOverride entries.
+ */
+export interface PerLineAssetCapex {
+  lineId: string;
+  assetId: string;
+  baseLineId: string;
+  perPeriod: number[];
+}
+
+/**
+ * Per-asset debt/equity override entry. Method 2 consults this map
+ * before falling back to the project-wide master ratio.
+ */
+export interface PerAssetLineRatioOverride {
+  lineId: string;
+  assetId: string;
+  debtPctOverride?: number;
+  equityPctOverride?: number;
+}
+
 export interface ComputeFundingContext {
   method: FundingMethodId;
   financing: ProjectFinancingConfig;
@@ -1769,14 +1793,48 @@ export interface ComputeFundingContext {
   preSalesPerPeriod?: number[];
   operatingCFPerPeriod?: number[];
   closingCashBefore?: (prevPeriod: number) => number;
+  /** Method 2 only. Per-line per-asset per-period capex breakdown. When omitted
+   *  Method 2 falls back to a uniform project-wide ratio (legacy behaviour). */
+  perLineAssetCapex?: PerLineAssetCapex[];
+  /** Method 2 only. Per-asset debt/equity overrides keyed by (lineId, assetId). */
+  perAssetRatioOverrides?: PerAssetLineRatioOverride[];
 }
 
 function pickRatio(method: FundingMethodId, f: ProjectFinancingConfig): { debt: number; equity: number } {
   if (method === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
   if (method === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
   if (method === 4) return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
-  // Method 2 falls back to project-wide ratio (line-item override hooks in next sub-pass).
+  // Method 2: project-wide fixedRatio is the fallback when the per-line
+  // table has no entry for a given baseLineId. The per-line override path
+  // is handled inside computeFunding directly (see method===2 branch).
   return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+}
+
+/**
+ * Method 2 line-ratio resolver. Precedence:
+ *   1. Per-asset CostOverride.debtPctOverride for (lineId, assetId).
+ *   2. Project-wide lineItemRatios.master[baseLineId].
+ *   3. fixedRatio (project-wide fallback - NOT hardcoded 70/30).
+ */
+function resolveMethod2Ratio(
+  entry: PerLineAssetCapex,
+  financing: ProjectFinancingConfig,
+  overrides: Map<string, PerAssetLineRatioOverride>,
+): { debt: number; equity: number } {
+  const overrideKey = `${entry.lineId}::${entry.assetId}`;
+  const ov = overrides.get(overrideKey);
+  if (ov && (typeof ov.debtPctOverride === 'number' || typeof ov.equityPctOverride === 'number')) {
+    const d = ov.debtPctOverride ?? (100 - (ov.equityPctOverride ?? 0));
+    const e = ov.equityPctOverride ?? (100 - (ov.debtPctOverride ?? 0));
+    return { debt: d, equity: e };
+  }
+  const master = financing.lineItemRatios?.master ?? [];
+  const m = master.find((r) => r.lineId === entry.baseLineId);
+  if (m) return { debt: m.debtPct, equity: m.equityPct };
+  return {
+    debt: financing.fixedRatio?.debtPct ?? 70,
+    equity: financing.fixedRatio?.equityPct ?? 30,
+  };
 }
 
 function splitByRatio(periodArray: number[], debtPct: number, equityPct: number): { debt: number[]; equity: number[] } {
@@ -1797,8 +1855,40 @@ export function computeFunding(ctx: ComputeFundingContext): FundingResult {
   let totalNeed = 0;
   let periodArray: number[] = [];
 
+  // Method 2 with per-line breakdown: walk every (line, asset) entry,
+  // resolve its debt/equity ratio via per-asset override -> master ->
+  // fixedRatio, and aggregate debt/equity per period. Returns the
+  // standard FundingResult shape so downstream consumers stay
+  // unchanged. Falls through to the uniform path below when no
+  // breakdown is provided (legacy callers).
+  if (method === 2 && ctx.perLineAssetCapex && ctx.perLineAssetCapex.length > 0) {
+    const totalPeriods = capexPerPeriod.length;
+    const debt = new Array<number>(totalPeriods).fill(0);
+    const equity = new Array<number>(totalPeriods).fill(0);
+    const overrideMap = new Map<string, PerAssetLineRatioOverride>();
+    for (const ov of ctx.perAssetRatioOverrides ?? []) {
+      overrideMap.set(`${ov.lineId}::${ov.assetId}`, ov);
+    }
+    for (const entry of ctx.perLineAssetCapex) {
+      const ratio = resolveMethod2Ratio(entry, financing, overrideMap);
+      const sum = ratio.debt + ratio.equity;
+      const dFrac = sum > 0 ? ratio.debt / sum : 0.7;
+      const eFrac = sum > 0 ? ratio.equity / sum : 0.3;
+      for (let t = 0; t < totalPeriods; t++) {
+        const v = entry.perPeriod[t] ?? 0;
+        debt[t] += v * dFrac;
+        equity[t] += v * eFrac;
+      }
+    }
+    periodArray = debt.map((d, i) => d + (equity[i] ?? 0));
+    totalNeed = periodArray.reduce((s, v) => s + v, 0);
+    return { method, totalNeed, periodArray, debtEquitySplit: { debt, equity } };
+  }
+
   if (method === 1 || method === 2) {
-    // Methods 1 + 2: total need = sum of capex; per-period = capex schedule.
+    // Methods 1 + 2 (uniform path): total need = sum of capex;
+    // per-period = capex schedule. Method 2 takes the uniform branch
+    // when no per-line breakdown is supplied (legacy callers).
     periodArray = [...capexPerPeriod];
     totalNeed = periodArray.reduce((s, v) => s + v, 0);
   } else if (method === 3) {
