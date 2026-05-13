@@ -2,11 +2,13 @@ import type {
   CapexAggregate,
   DebtEquitySplit,
   EquityMovement,
+  ExistingAggregate,
   FacilityResult,
   FundingRequirement,
   ProjectAxis,
   Reconciliation,
 } from './types';
+import type { FinancingTranche } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 const EPS_ABS = 1e-2;
 const EPS_REL = 1e-6;
@@ -25,7 +27,9 @@ export function reconcile(
   split: DebtEquitySplit,
   shares: Map<string, number>,
   facilities: Map<string, FacilityResult>,
+  tranches: FinancingTranche[],
   equity: EquityMovement,
+  existing: ExistingAggregate,
 ): Reconciliation {
   const issues: string[] = [];
 
@@ -49,25 +53,39 @@ export function reconcile(
   if (shares.size > 0 && !near(shareSum, 100))
     issues.push(`Facility shares sum ${shareSum} (expected 100)`);
 
+  const newTrancheIds = new Set(tranches.filter((t) => t.origin !== 'existing').map((t) => t.id));
   const N = axis.totalPeriods + 1;
-  for (let i = 0; i < N; i++) {
-    let s = 0;
-    for (const f of facilities.values()) s += f.drawSchedule[i] ?? 0;
-    const expected = split.debt[i] ?? 0;
-    let allExisting = true;
-    for (const f of facilities.values()) {
-      const d = (f.drawSchedule.reduce((a, v) => a + v, 0));
-      if (d > 0) { allExisting = false; break; }
+  if (newTrancheIds.size > 0) {
+    for (let i = 0; i < N; i++) {
+      let s = 0;
+      for (const f of facilities.values()) {
+        if (!newTrancheIds.has(f.trancheId)) continue;
+        s += f.drawSchedule[i] ?? 0;
+      }
+      const expected = split.debt[i] ?? 0;
+      if (!near(s, expected)) {
+        issues.push(`Period ${i} new-facility drawdown sum ${s} vs split.debt ${expected}`);
+        break;
+      }
     }
-    if (!allExisting && !near(s, expected))
-      issues.push(`Period ${i} facility drawdown sum ${s} vs split.debt ${expected}`);
-    if (allExisting) break;
   }
 
   for (const f of facilities.values()) {
+    if (!newTrancheIds.has(f.trancheId)) continue;
     const expected = totalDebt * (f.sharePct / 100);
-    if (f.totalDrawn > 0 && !near(f.totalDrawn, expected))
-      issues.push(`Facility ${f.trancheId} totalDrawn ${f.totalDrawn} vs share ${expected}`);
+    if (!near(f.totalDrawn, expected))
+      issues.push(`New facility ${f.trancheId} totalDrawn ${f.totalDrawn} vs share ${expected}`);
+  }
+
+  const existingTrancheIds = new Set(tranches.filter((t) => t.origin === 'existing').map((t) => t.id));
+  for (const f of facilities.values()) {
+    if (!existingTrancheIds.has(f.trancheId)) continue;
+    const t = tranches.find((x) => x.id === f.trancheId);
+    const expected = Math.max(0, t?.openingBalance ?? 0);
+    if (!near(f.totalDrawn, expected))
+      issues.push(`Existing facility ${f.trancheId} totalDrawn ${f.totalDrawn} vs openingBalance ${expected}`);
+    if (!near(f.outstanding[0] ?? 0, expected))
+      issues.push(`Existing facility ${f.trancheId} outstanding[0] ${f.outstanding[0]} vs openingBalance ${expected}`);
   }
 
   if (!near(equity.totalCash, totalEquity))
@@ -76,6 +94,9 @@ export function reconcile(
   const inKindSum = split.inKind.reduce((s, v) => s + v, 0);
   if (!near(equity.totalInKind, inKindSum))
     issues.push(`EquityMovement.totalInKind ${equity.totalInKind} vs split.inKind sum ${inKindSum}`);
+
+  if (!near(equity.totalExisting, existing.equityTotal))
+    issues.push(`EquityMovement.totalExisting ${equity.totalExisting} vs existing.equityTotal ${existing.equityTotal}`);
 
   const selectedExpected =
     funding.selectedMethodId === 1 ? funding.method1

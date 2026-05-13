@@ -1,14 +1,16 @@
 /**
  * Tab 4 Financing engine, orchestrator (rebuild 2026-05-14).
  *
- * Single entry point for the rebuilt Tab 4. Wraps the 7 modules
- * (axis, capex, funding, debtEquity, shares, schedule,
- * equityMovement) and runs reconcile() at the end so callers
- * surface any identity violation immediately.
+ * Single entry point for the rebuilt Tab 4. Wraps the 8 modules
+ * (axis, capex, funding, debtEquity, shares, schedule, equityMovement,
+ * existing) and runs reconcile() at the end so callers surface any
+ * identity violation immediately.
  *
  * One source of truth per number; downstream UI never derives the
  * same quantity twice. All per-period arrays are PROJECT-period
- * indexed and length `axis.totalPeriods + 1`.
+ * indexed and length `axis.totalPeriods + 1`. Index 0 is the prior
+ * column (Y0 lump for new-construction land, opening balance for
+ * existing facilities, operational pre-capex / existing equity).
  */
 
 import type {
@@ -32,6 +34,7 @@ import { computeDebtEquitySplit } from './debtEquity';
 import { normaliseFacilityShares } from './shares';
 import { computeFacilitySchedule, combineDebtService } from './schedule';
 import { computeEquityMovement } from './equityMovement';
+import { buildExistingAggregate } from './existing';
 import { reconcile } from './reconcile';
 import type { FacilityResult, FinancingComputation } from './types';
 
@@ -75,6 +78,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   );
 
   const shares = normaliseFacilityShares(ctx.tranches);
+  const existing = buildExistingAggregate(ctx.phases, ctx.tranches);
 
   const facilities = new Map<string, FacilityResult>();
   for (const t of ctx.tranches) {
@@ -86,10 +90,14 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   }
 
   const combined = combineDebtService(facilities, axis);
-  const equity = computeEquityMovement(split, axis);
-  const reconciliation = reconcile(axis, capex, funding, split, shares, facilities, equity);
+  const equity = computeEquityMovement(split, existing, axis);
+  const reconciliation = reconcile(axis, capex, funding, split, shares, facilities, ctx.tranches, equity, existing);
 
-  return { axis, capex, funding, debtEquitySplit: split, shares, facilities, combined, equity, reconciliation };
+  return {
+    axis, capex, funding, debtEquitySplit: split,
+    shares, facilities, combined, equity, existing,
+    reconciliation,
+  };
 }
 
 export type {
@@ -101,5 +109,6 @@ export type {
   FacilityResult,
   CombinedDebtService,
   EquityMovement,
+  ExistingAggregate,
   Reconciliation,
 } from './types';

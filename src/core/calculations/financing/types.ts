@@ -77,10 +77,21 @@ export interface CombinedDebtService {
 export interface EquityMovement {
   cashPerPeriod: number[];
   inKindPerPeriod: number[];
+  existingEquityPerPeriod: number[];
   totalPerPeriod: number[];
   totalCash: number;
   totalInKind: number;
+  totalExisting: number;
   grandTotal: number;
+}
+
+export interface ExistingAggregate {
+  preCapexTotal: number;
+  debtOutstandingTotal: number;
+  equityTotal: number;
+  preCapexByPhase: Map<string, number>;
+  debtByPhase: Map<string, number>;
+  equityByPhase: Map<string, number>;
 }
 
 export interface Reconciliation {
@@ -97,5 +108,6 @@ export interface FinancingComputation {
   facilities: Map<string, FacilityResult>;
   combined: CombinedDebtService;
   equity: EquityMovement;
+  existing: ExistingAggregate;
   reconciliation: Reconciliation;
 }

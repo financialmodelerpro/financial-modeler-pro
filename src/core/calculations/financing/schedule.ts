@@ -73,7 +73,10 @@ export function computeFacilitySchedule(
   const constructionEndProj = phaseOffset + Math.max(0, cp - overlap);
 
   const grace = Math.max(0, tranche.gracePeriods ?? 0);
-  const repayStartProj = isExisting ? 0 : constructionEndProj + grace;
+  // Existing facilities open at col 0 (= prior column, e.g. Dec 25) and
+  // start repaying at col 1 (first active period, Dec 26). New facilities
+  // repay after construction + grace.
+  const repayStartProj = isExisting ? 1 : constructionEndProj + grace;
 
   const graceInterestTreatment = tranche.graceInterestTreatment ?? 'capitalize';
   const graceWindowStart = constructionEndProj;
@@ -132,6 +135,10 @@ export function computeFacilitySchedule(
 
   let bal = openingBalance;
   for (let i = 0; i < N; i++) {
+    if (isExisting && i === 0) {
+      outstanding[0] = bal;
+      continue;
+    }
     bal += drawSchedule[i];
     const interest = bal * periodicRate;
     interestAccrued[i] = interest;

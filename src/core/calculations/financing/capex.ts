@@ -24,6 +24,17 @@ export interface CapexInputs {
   parcelFunding: ParcelFundingConfig[];
 }
 
+/**
+ * Project capex aggregation.
+ *
+ * NEW (planning / construction) phases contribute their per-period
+ * cost breakdown shifted by phaseOffset. OPERATIONAL phases skip
+ * computeAssetCost entirely and instead add `historicalCapexTotal`
+ * to the prior column (index 0) of the project axis, because their
+ * capex is sunk before the reporting start. This keeps Y0 lumps from
+ * new phases and operational pre-capex on the same column without
+ * double counting.
+ */
 export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): CapexAggregate {
   const N = axis.totalPeriods + 1;
   const inclAllLand   = new Array<number>(N).fill(0);
@@ -31,6 +42,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
   const landInKind    = new Array<number>(N).fill(0);
 
   for (const phase of inputs.phases) {
+    if (phase.status === 'operational') continue;
     const offset = axis.phaseOffsets.get(phase.id) ?? 0;
     const phaseAssets = inputs.assets.filter((a) => a.phaseId === phase.id && a.visible);
     for (const asset of phaseAssets) {
