@@ -43,6 +43,8 @@ import {
   DEFAULT_PROJECT_FINANCING_CONFIG,
   REPAYMENT_METHODS_USER,
   REPAYMENT_METHOD_LABELS,
+  BASE_RATES,
+  BASE_RATE_LABELS,
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
@@ -506,141 +508,394 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
           No facilities yet. Add one to begin.
         </div>
       )}
-      {tranches.map((t) => {
-        const normalisedShare = shares.get(t.id) ?? 0;
-        const isExisting = t.origin === 'existing';
-        return (
-          <div
-            key={t.id}
-            style={{
-              border: isExisting ? '1px solid var(--color-warning, #92400e)' : '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--sp-2)',
-              marginTop: 'var(--sp-1)',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(6, 1fr) auto',
-              gap: 8,
-              alignItems: 'end',
-              background: isExisting ? 'color-mix(in srgb, var(--color-warning, #92400e) 6%, transparent)' : undefined,
-            }}
-          >
-            <div style={{ gridColumn: 'span 2' }}>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Name</label>
-              <input
-                type="text"
-                value={t.name}
-                onChange={(e) => onUpdate(t.id, { name: e.target.value })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Origin</label>
-              <select
-                value={t.origin ?? 'new'}
-                onChange={(e) => onUpdate(t.id, { origin: e.target.value as 'new' | 'existing' })}
-                style={inputStyle}
-              >
-                <option value="new">New</option>
-                <option value="existing">Existing</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Phase</label>
-              <select
-                value={t.phaseId}
-                onChange={(e) => onUpdate(t.id, { phaseId: e.target.value })}
-                style={inputStyle}
-              >
-                {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Interest Rate %</label>
-              <PercentageInput
-                value={t.interestRatePct}
-                onChange={(v) => onUpdate(t.id, { interestRatePct: v })}
-              />
-            </div>
-            {isExisting ? (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Opening Balance</label>
-                <AccountingNumberInput
-                  value={t.openingBalance ?? 0}
-                  onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })}
-                />
-              </div>
-            ) : (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Share %</label>
-                <PercentageInput
-                  value={t.facilitySharePct ?? normalisedShare}
-                  onChange={(v) => handleShareChange(t.id, v)}
-                />
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                  Normalised: {normalisedShare.toFixed(2)}%
-                </div>
-              </div>
-            )}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Repayment</label>
-              <select
-                value={t.repaymentMethod}
-                onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
-                style={inputStyle}
-              >
-                {REPAYMENT_METHODS_USER.map((m) => (
-                  <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {!isExisting && (
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Grace</label>
-                  <input
-                    type="number"
-                    value={t.gracePeriods ?? 0}
-                    onChange={(e) => onUpdate(t.id, { gracePeriods: Math.max(0, Number(e.target.value) || 0) })}
-                    style={inputStyle}
-                  />
-                </div>
-              )}
-              <div style={{ gridColumn: isExisting ? 'span 2' : undefined }}>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                  {isExisting ? 'Remaining Repay Periods' : 'Repay Periods'}
-                </label>
-                <input
-                  type="number"
-                  value={isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)}
-                  onChange={(e) => {
-                    const n = Math.max(0, Number(e.target.value) || 0);
-                    onUpdate(t.id, isExisting ? { remainingRepaymentPeriods: n } : { repaymentPeriods: n });
-                  }}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onRemove(t.id)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-surface)',
-                color: 'var(--color-danger, #b91c1c)',
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: 'pointer',
-                height: 28,
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        );
-      })}
+      {tranches.map((t) => (
+        <TrancheCard
+          key={t.id}
+          tranche={t}
+          phases={phases}
+          normalisedShare={shares.get(t.id) ?? 0}
+          showShareField={tranches.filter((x) => x.origin !== 'existing').length > 1}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          onShareChange={(v) => handleShareChange(t.id, v)}
+        />
+      ))}
     </section>
+  );
+}
+
+// ── TrancheCard ─────────────────────────────────────────────────────────
+
+interface TrancheCardProps {
+  tranche: FinancingTranche;
+  phases: Array<{ id: string; name: string }>;
+  normalisedShare: number;
+  showShareField: boolean;
+  onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
+  onRemove: (id: string) => void;
+  onShareChange: (v: number) => void;
+}
+
+const GRACE_INTEREST_TREATMENTS = [
+  { value: 'capitalize',         label: 'Capitalize (default)' },
+  { value: 'raise_via_funding',  label: 'Raise via funding need' },
+  { value: 'raise_as_debt',      label: 'Raise as new debt' },
+  { value: 'pay_from_ocf',       label: 'Pay from operating cash flow' },
+] as const;
+
+function TrancheCard(p: TrancheCardProps): React.JSX.Element {
+  const { tranche: t, phases, normalisedShare, showShareField, onUpdate, onRemove, onShareChange } = p;
+  const isExisting = t.origin === 'existing';
+  const isFloating = (t.interestRateType ?? 'fixed') === 'floating';
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const FieldLabel = ({ children }: { children: React.ReactNode }) => (
+    <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4, color: 'var(--color-heading)' }}>
+      {children}
+    </label>
+  );
+
+  return (
+    <div
+      style={{
+        border: isExisting ? '1px solid var(--color-warning, #92400e)' : '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--sp-2)',
+        marginTop: 'var(--sp-1)',
+        background: isExisting ? 'color-mix(in srgb, var(--color-warning, #92400e) 6%, transparent)' : undefined,
+      }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 8, alignItems: 'end' }}>
+        <div>
+          <FieldLabel>Name</FieldLabel>
+          <input type="text" value={t.name} onChange={(e) => onUpdate(t.id, { name: e.target.value })} style={inputStyle} />
+        </div>
+        <div>
+          <FieldLabel>Lender</FieldLabel>
+          <input type="text" value={t.lender ?? ''} onChange={(e) => onUpdate(t.id, { lender: e.target.value })} style={inputStyle} placeholder="Bank / institution name" />
+        </div>
+        <button
+          type="button"
+          onClick={() => onRemove(t.id)}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface)',
+            color: 'var(--color-danger, #b91c1c)',
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: 28,
+          }}
+        >
+          Remove
+        </button>
+      </div>
+
+      <div style={{ marginTop: 'var(--sp-1)', display: 'flex', gap: 16, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>Facility Origination:</span>
+        {(['new', 'existing'] as const).map((o) => (
+          <label key={o} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`origin-${t.id}`}
+              checked={(t.origin ?? 'new') === o}
+              onChange={() => onUpdate(t.id, { origin: o })}
+            />
+            {o === 'new' ? 'New' : 'Existing'}
+          </label>
+        ))}
+      </div>
+
+      {isExisting && (
+        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          <div>
+            <FieldLabel>Opening Balance</FieldLabel>
+            <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} />
+          </div>
+          <div>
+            <FieldLabel>Remaining Tenor (periods)</FieldLabel>
+            <input
+              type="number"
+              value={t.remainingTenorPeriods ?? 0}
+              onChange={(e) => onUpdate(t.id, { remainingTenorPeriods: Math.max(0, Number(e.target.value) || 0) })}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <FieldLabel>Remaining Repayment Periods</FieldLabel>
+            <input
+              type="number"
+              value={t.remainingRepaymentPeriods ?? 0}
+              onChange={(e) => onUpdate(t.id, { remainingRepaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
+              style={inputStyle}
+            />
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        <div>
+          <FieldLabel>Interest Rate %</FieldLabel>
+          <PercentageInput value={t.interestRatePct} onChange={(v) => onUpdate(t.id, { interestRatePct: v })} />
+        </div>
+        <div>
+          <FieldLabel>Rate Type</FieldLabel>
+          <select
+            value={t.interestRateType ?? 'fixed'}
+            onChange={(e) => onUpdate(t.id, { interestRateType: e.target.value as 'fixed' | 'floating' })}
+            style={inputStyle}
+          >
+            <option value="fixed">Fixed</option>
+            <option value="floating">Floating</option>
+          </select>
+        </div>
+        {isFloating ? (
+          <>
+            <div>
+              <FieldLabel>Base Rate</FieldLabel>
+              <select
+                value={t.baseRate ?? 'saibor_3m'}
+                onChange={(e) => onUpdate(t.id, { baseRate: e.target.value as FinancingTranche['baseRate'] })}
+                style={inputStyle}
+              >
+                {BASE_RATES.map((b) => <option key={b} value={b}>{BASE_RATE_LABELS[b]}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Spread (bps)</FieldLabel>
+              <input
+                type="number"
+                value={t.spreadBps ?? 0}
+                onChange={(e) => onUpdate(t.id, { spreadBps: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+          </>
+        ) : (
+          showShareField && !isExisting ? (
+            <div style={{ gridColumn: 'span 2' }}>
+              <FieldLabel>Facility Share %</FieldLabel>
+              <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Normalised: {normalisedShare.toFixed(2)}%
+              </div>
+            </div>
+          ) : <div style={{ gridColumn: 'span 2' }} />
+        )}
+      </div>
+
+      {!isExisting && (
+        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          <div>
+            <FieldLabel>Drawdown Start Period</FieldLabel>
+            <input
+              type="number"
+              value={t.drawdownStartPeriod ?? 0}
+              onChange={(e) => onUpdate(t.id, { drawdownStartPeriod: Math.max(0, Number(e.target.value) || 0) })}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <FieldLabel>Grace Periods</FieldLabel>
+            <input
+              type="number"
+              value={t.gracePeriods ?? 0}
+              onChange={(e) => onUpdate(t.id, { gracePeriods: Math.max(0, Number(e.target.value) || 0) })}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <FieldLabel>Repayment Periods</FieldLabel>
+            <input
+              type="number"
+              value={t.repaymentPeriods ?? 0}
+              onChange={(e) => onUpdate(t.id, { repaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <FieldLabel>Grace Interest Treatment</FieldLabel>
+            <select
+              value={t.graceInterestTreatment ?? 'capitalize'}
+              onChange={(e) => onUpdate(t.id, { graceInterestTreatment: e.target.value as FinancingTranche['graceInterestTreatment'] })}
+              style={inputStyle}
+            >
+              {GRACE_INTEREST_TREATMENTS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        <div>
+          <FieldLabel>Repayment Method</FieldLabel>
+          <select
+            value={t.repaymentMethod}
+            onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
+            style={inputStyle}
+          >
+            {REPAYMENT_METHODS_USER.map((m) => (
+              <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <FieldLabel>Scope</FieldLabel>
+          <select
+            value={t.scope ?? 'phase'}
+            onChange={(e) => onUpdate(t.id, { scope: e.target.value as 'project' | 'phase' | 'asset' })}
+            style={inputStyle}
+          >
+            <option value="project">Project</option>
+            <option value="phase">Phase</option>
+            <option value="asset">Asset</option>
+          </select>
+        </div>
+        <div>
+          <FieldLabel>{(t.scope ?? 'phase') === 'project' ? 'Scope (project-wide)' : (t.scope ?? 'phase') === 'asset' ? 'Asset ID' : 'Phase'}</FieldLabel>
+          {(t.scope ?? 'phase') === 'project' ? (
+            <input type="text" value="(all phases)" disabled style={{ ...inputStyle, opacity: 0.6 }} />
+          ) : (t.scope ?? 'phase') === 'asset' ? (
+            <input
+              type="text"
+              value={t.scopeId ?? ''}
+              onChange={(e) => onUpdate(t.id, { scopeId: e.target.value })}
+              placeholder="asset_xxx"
+              style={inputStyle}
+            />
+          ) : (
+            <select
+              value={t.phaseId}
+              onChange={(e) => onUpdate(t.id, { phaseId: e.target.value })}
+              style={inputStyle}
+            >
+              {phases.map((ph) => <option key={ph.id} value={ph.id}>{ph.name}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {t.repaymentMethod === 'year_on_year_pct' && !isExisting && (
+        <YoYScheduleEditor
+          schedule={t.yearOnYearPctSchedule ?? []}
+          repayPeriods={t.repaymentPeriods ?? 0}
+          onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
+        />
+      )}
+
+      {(t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (
+        <CashSweepEditor
+          config={t.cashSweepConfig}
+          onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
+        />
+      )}
+
+      <button
+        type="button"
+        onClick={() => setAdvancedOpen((v) => !v)}
+        style={{
+          marginTop: 'var(--sp-1)',
+          padding: '2px 10px',
+          fontSize: 11,
+          fontWeight: 600,
+          background: 'transparent',
+          border: '1px dashed var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          cursor: 'pointer',
+          color: 'var(--color-text-muted)',
+        }}
+      >
+        {advancedOpen ? 'Hide' : 'Show'} Advanced (fees)
+      </button>
+
+      {advancedOpen && (
+        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+          <div>
+            <FieldLabel>Upfront Fee %</FieldLabel>
+            <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} />
+          </div>
+          <div>
+            <FieldLabel>Commitment Fee % p.a. (on undrawn)</FieldLabel>
+            <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── YoY % schedule editor ──────────────────────────────────────────────
+
+interface YoYScheduleEditorProps {
+  schedule: number[];
+  repayPeriods: number;
+  onChange: (arr: number[]) => void;
+}
+
+function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
+  const n = Math.max(1, p.repayPeriods);
+  const cells = new Array<number>(n).fill(0).map((_, i) => p.schedule[i] ?? 0);
+  const sum = cells.reduce((s, v) => s + v, 0);
+  const ok = Math.abs(sum - 100) < 0.01;
+  return (
+    <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 600 }}>Year-on-Year % Schedule (sum to 100)</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)' }}>
+          Sum: {sum.toFixed(2)}%
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(n, 8)}, 1fr)`, gap: 4 }}>
+        {cells.map((v, i) => (
+          <div key={i}>
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'center' }}>P{i + 1}</div>
+            <PercentageInput
+              value={v}
+              onChange={(nv) => {
+                const next = [...cells];
+                next[i] = nv;
+                p.onChange(next);
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Cash Sweep editor ──────────────────────────────────────────────────
+
+interface CashSweepEditorProps {
+  config: { startingYear: number; sweepRatio: number } | undefined;
+  onChange: (cfg: { startingYear: number; sweepRatio: number }) => void;
+}
+
+function CashSweepEditor(p: CashSweepEditorProps): React.JSX.Element {
+  const cfg = p.config ?? { startingYear: 1, sweepRatio: 75 };
+  return (
+    <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Starting Year</label>
+        <input
+          type="number"
+          value={cfg.startingYear}
+          onChange={(e) => p.onChange({ ...cfg, startingYear: Math.max(1, Number(e.target.value) || 1) })}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Ratio % (excess cash above min reserve)</label>
+        <PercentageInput
+          value={cfg.sweepRatio}
+          onChange={(v) => p.onChange({ ...cfg, sweepRatio: v })}
+        />
+      </div>
+    </div>
   );
 }
 
