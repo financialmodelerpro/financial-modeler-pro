@@ -1846,12 +1846,15 @@ export function migrateM20pass16LandFundingSimplify(snap: HydrateSnapshot): Hydr
     if ('debtPct' in p && p.debtPct != null) return p;
     const t = p.fundingType as string | undefined;
     let debtPct = 0;
-    let equityPct = 100;
-    if (t === '100pct_debt') { debtPct = 100; equityPct = 0; }
+    if (t === '100pct_debt') { debtPct = 100; }
     else if (t === 'custom_split') {
-      debtPct = Math.max(0, Number(p.customDebtPct ?? 0));
-      equityPct = Math.max(0, Number(p.customEquityPct ?? Math.max(0, 100 - debtPct)));
+      debtPct = Math.max(0, Math.min(100, Number(p.customDebtPct ?? 0)));
     }
+    // M2.0 Pass 18 (2026-05-13) Fix 8 audit: force equity = 100 - debt
+    // so migrated snapshots always reconcile to 100. Legacy custom_split
+    // pairs that didn't sum to 100 (e.g. debt 70 + equity 20) are
+    // normalised: equity becomes 100 - debt.
+    const equityPct = 100 - debtPct;
     touched = true;
     return { ...p, debtPct, equityPct };
   });

@@ -1725,8 +1725,13 @@ export default function Module1Financing(): React.JSX.Element {
             )}
             {parcels.filter((p) => p.phaseId === phase.id).map((parcel) => {
               const cfg = financingConfig.parcelFunding.find((pf) => pf.parcelId === parcel.id);
-              const debtPct = cfg?.debtPct ?? 0;
-              const equityPct = cfg?.equityPct ?? 100;
+              // M2.0 Pass 18 (2026-05-13) Fix 8 audit: render the
+              // paired equity as 100 - debt so the on-screen display
+              // always reconciles to 100, even if the stored snapshot
+              // ever drifts. setDebt / setEquity already write both
+              // sides; this is the belt-and-braces render guard.
+              const debtPct = Math.max(0, Math.min(100, cfg?.debtPct ?? 0));
+              const equityPct = 100 - debtPct;
               const setDebt = (n: number): void => {
                 const d = Math.max(0, Math.min(100, n));
                 upsertParcelFunding(parcel.id, { debtPct: d, equityPct: 100 - d });
