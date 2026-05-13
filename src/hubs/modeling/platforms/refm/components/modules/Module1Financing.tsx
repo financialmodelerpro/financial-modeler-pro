@@ -410,6 +410,14 @@ function TrancheCard({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const idcTreatment: IDCTreatment = tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense');
   const interestRateType: InterestRateType = tranche.interestRateType ?? 'fixed';
+  // Facility Origination (2026-05-13): 'new' = drawdown in model;
+  // 'existing' = pre-existing facility with an opening balance at
+  // project Y0. Existing facilities hide tenor / availability / grace /
+  // IDC / fees and reveal Opening Balance + Remaining Tenor +
+  // Remaining Repayment Periods. Legacy snapshots without `origin`
+  // default to 'new'.
+  const origin: 'new' | 'existing' = tranche.origin ?? 'new';
+  const isExistingFacility = origin === 'existing';
   // P2-Fix 3: facilityType retained on schema for back-compat but not
   // referenced in the rendered UI.
 
@@ -448,6 +456,75 @@ function TrancheCard({
           Remove
         </button>
       </div>
+
+      {/* Facility Origination (2026-05-13): new vs existing toggle.
+          Sits above all other facility inputs so the user picks the
+          model first, then sees the relevant fields. */}
+      <div style={{ marginBottom: 8 }} data-testid={`tranche-${tranche.id}-origination`}>
+        <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Facility Origination</label>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`tranche-${tranche.id}-origin`}
+              checked={origin === 'new'}
+              onChange={() => onUpdate({ origin: 'new' })}
+              data-testid={`tranche-${tranche.id}-origin-new`}
+            />
+            New (drawdown in model)
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`tranche-${tranche.id}-origin`}
+              checked={origin === 'existing'}
+              onChange={() => onUpdate({ origin: 'existing' })}
+              data-testid={`tranche-${tranche.id}-origin-existing`}
+            />
+            Existing (opening balance Y0)
+          </label>
+        </div>
+      </div>
+
+      {/* Existing facility inputs: Opening Balance + Remaining Tenor +
+          Remaining Repayment Periods. Replace the standard tenor /
+          availability / grace block below when origin === 'existing'. */}
+      {isExistingFacility && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }} data-testid={`tranche-${tranche.id}-existing-fields`}>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Opening Balance (Y0)</label>
+            <AccountingNumberInput
+              min={0}
+              value={tranche.openingBalance ?? 0}
+              onChange={(n) => onUpdate({ openingBalance: Math.max(0, n) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-opening-balance`}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Remaining Tenor (periods)</label>
+            <AccountingNumberInput
+              min={0}
+              decimals={0}
+              value={tranche.remainingTenorPeriods ?? 0}
+              onChange={(n) => onUpdate({ remainingTenorPeriods: Math.max(0, Math.round(n)) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-remaining-tenor`}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Remaining Repayment (periods)</label>
+            <AccountingNumberInput
+              min={0}
+              decimals={0}
+              value={tranche.remainingRepaymentPeriods ?? 0}
+              onChange={(n) => onUpdate({ remainingRepaymentPeriods: Math.max(0, Math.round(n)) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-remaining-repayment`}
+            />
+          </div>
+        </div>
+      )}
 
       {/* P3-Fix 3 (2026-05-12): per-facility Debt % + Principal inputs
           dropped. Facility principal auto-derives from chosen funding
@@ -520,34 +597,41 @@ function TrancheCard({
       )}
 
       {/* P4-Fix 4 (2026-05-12): compact field layout - 2 rows of 2 fields
-          instead of 1 row of 4, easier to scan on narrower screens. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Tenor (periods)</label>
-          <AccountingNumberInput min={0} decimals={0} value={tranche.tenorPeriods ?? 0} onChange={(n) => onUpdate({ tenorPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
-        </div>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Availability</label>
-          <AccountingNumberInput min={0} decimals={0} value={tranche.availabilityPeriods ?? 0} onChange={(n) => onUpdate({ availabilityPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
-          <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
-        </div>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
-          <AccountingNumberInput
-            min={0}
-            decimals={0}
-            value={tranche.repaymentPeriods}
-            onChange={(n) => onUpdate({ repaymentPeriods: Math.round(n) })}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-rep-periods`}
-          />
-        </div>
-      </div>
+          instead of 1 row of 4, easier to scan on narrower screens.
+          Existing facilities hide this block; Opening Balance +
+          Remaining Tenor + Remaining Repayment Periods above take its
+          place. */}
+      {!isExistingFacility && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Tenor (periods)</label>
+              <AccountingNumberInput min={0} decimals={0} value={tranche.tenorPeriods ?? 0} onChange={(n) => onUpdate({ tenorPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Availability</label>
+              <AccountingNumberInput min={0} decimals={0} value={tranche.availabilityPeriods ?? 0} onChange={(n) => onUpdate({ availabilityPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
+              <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
+              <AccountingNumberInput
+                min={0}
+                decimals={0}
+                value={tranche.repaymentPeriods}
+                onChange={(n) => onUpdate({ repaymentPeriods: Math.round(n) })}
+                style={inputStyle}
+                data-testid={`tranche-${tranche.id}-rep-periods`}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* P3-Fix 5 (2026-05-12): per-facility Drawdown Method dropdown
           dropped. Drawdown timing auto-derives from the chosen funding
@@ -673,37 +757,44 @@ function TrancheCard({
             </select>
           )}
         </div>
-        <div>
-          {/* P2-Fix 7 (2026-05-11): dropdown shows Capitalize / Expense
-              only. Mixed retained on schema for back-compat; migration
-              folded existing Mixed -> Capitalize. idcMixedSplitPeriod
-              input removed from UI (schema field stays). */}
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>IDC Treatment</label>
-          <select
-            value={idcTreatment === 'mixed' ? 'capitalize' : idcTreatment}
-            onChange={(e) => onUpdate({ idcTreatment: e.target.value as IDCTreatment, idcCapitalize: e.target.value === 'capitalize' })}
-            style={inputStyle}
-            data-testid={`tranche-${tranche.id}-idc-treatment`}
-          >
-            <option value="capitalize">{IDC_TREATMENT_LABELS.capitalize}</option>
-            <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
-            <input
-              type="checkbox"
-              checked={tranche.autoGenerateIdcCostLine !== false}
-              onChange={(e) => onUpdate({ autoGenerateIdcCostLine: e.target.checked })}
-              data-testid={`tranche-${tranche.id}-auto-idc`}
-              style={{ marginRight: 6 }}
-            />
-            Auto cost line in Tab 3
-          </label>
-          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-            Generates read-only IDC capex line per asset (Capitalize only).
+        {/* IDC + Auto IDC cells hidden for existing facilities (they
+            never accrue IDC; engine force-expenses regardless of stored
+            setting). */}
+        {!isExistingFacility && (
+          <div>
+            {/* P2-Fix 7 (2026-05-11): dropdown shows Capitalize / Expense
+                only. Mixed retained on schema for back-compat; migration
+                folded existing Mixed -> Capitalize. idcMixedSplitPeriod
+                input removed from UI (schema field stays). */}
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>IDC Treatment</label>
+            <select
+              value={idcTreatment === 'mixed' ? 'capitalize' : idcTreatment}
+              onChange={(e) => onUpdate({ idcTreatment: e.target.value as IDCTreatment, idcCapitalize: e.target.value === 'capitalize' })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-idc-treatment`}
+            >
+              <option value="capitalize">{IDC_TREATMENT_LABELS.capitalize}</option>
+              <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
+            </select>
           </div>
-        </div>
+        )}
+        {!isExistingFacility && (
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
+              <input
+                type="checkbox"
+                checked={tranche.autoGenerateIdcCostLine !== false}
+                onChange={(e) => onUpdate({ autoGenerateIdcCostLine: e.target.checked })}
+                data-testid={`tranche-${tranche.id}-auto-idc`}
+                style={{ marginRight: 6 }}
+              />
+              Auto cost line in Tab 3
+            </label>
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
+              Generates read-only IDC capex line per asset (Capitalize only).
+            </div>
+          </div>
+        )}
       </div>
 
       <button
@@ -723,23 +814,27 @@ function TrancheCard({
         <div style={{ background: 'var(--color-grey-pale)', padding: 8, borderRadius: 4, marginBottom: 8 }} data-testid={`tranche-${tranche.id}-advanced`}>
           {/* P3-Fix 6 (2026-05-12): legacy Sweep Ratio % input dropped
               from Advanced. Cash Sweep repayment defaults to 100% of
-              excess cash above project minimum cash reserve. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
-              <PercentageInput min={0} value={tranche.upfrontFeePct ?? 0} onChange={(n) => onUpdate({ upfrontFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
+              excess cash above project minimum cash reserve. Upfront +
+              Commitment fees hidden for existing facilities (they apply
+              to origination only). */}
+          {!isExistingFacility && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
+                <PercentageInput min={0} value={tranche.upfrontFeePct ?? 0} onChange={(n) => onUpdate({ upfrontFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee Treatment</label>
+                <select value={tranche.upfrontFeeTreatment ?? 'capitalize'} onChange={(e) => onUpdate({ upfrontFeeTreatment: e.target.value as FeeTreatment })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee-treatment`}>
+                  {FEE_TREATMENTS.map((t) => (<option key={t} value={t}>{FEE_TREATMENT_LABELS[t]}</option>))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
+                <PercentageInput min={0} value={tranche.commitmentFeePct ?? 0} onChange={(n) => onUpdate({ commitmentFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
+              </div>
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee Treatment</label>
-              <select value={tranche.upfrontFeeTreatment ?? 'capitalize'} onChange={(e) => onUpdate({ upfrontFeeTreatment: e.target.value as FeeTreatment })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee-treatment`}>
-                {FEE_TREATMENTS.map((t) => (<option key={t} value={t}>{FEE_TREATMENT_LABELS[t]}</option>))}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
-              <PercentageInput min={0} value={tranche.commitmentFeePct ?? 0} onChange={(n) => onUpdate({ commitmentFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
-            </div>
-          </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>DSCR Covenant</label>

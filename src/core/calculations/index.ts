@@ -1398,9 +1398,20 @@ export function computeFinancing(
   const totalCapex = capexPerPeriod.reduce((s, v) => s + v, 0);
   const totalPresales = presalesPerPeriod.reduce((s, v) => s + v, 0);
 
+  // ── Existing Operations (2026-05-13) ─────────────────────────────────
+  // When origin === 'existing', the facility carries an opening balance
+  // at project Y0 and amortizes from there. No drawdown, no IDC, no
+  // grace. remainingRepaymentPeriods replaces repaymentPeriods for
+  // sizing the per-period principal slice.
+  const isExisting = tranche.origin === 'existing';
+  const effOpeningBalance = isExisting ? Math.max(0, tranche.openingBalance ?? 0) : 0;
+  const effRepaymentPeriods = isExisting
+    ? Math.max(0, tranche.remainingRepaymentPeriods ?? 0)
+    : tranche.repaymentPeriods;
+
   // Drawdown schedule (length periods).
   const drawSchedule = new Array<number>(periods).fill(0);
-  const drawWindow = Math.min(constructionPeriods, periods);
+  const drawWindow = isExisting ? 0 : Math.min(constructionPeriods, periods);
 
   // M2.0L (2026-05-11): resolved facility size (absolute principal
   // takes precedence over ltv-based when set).
@@ -1417,7 +1428,8 @@ export function computeFinancing(
       : drawWindow,
   );
 
-  switch (tranche.drawdownMethod) {
+  // Existing facilities skip the drawdown switch entirely (drawWindow=0).
+  switch (isExisting ? '__skip_existing__' as never : tranche.drawdownMethod) {
     case 'capex_basis': {
       // Tracks capex × ltv per period.
       for (let i = 0; i < drawWindow; i++) {
@@ -1498,7 +1510,12 @@ export function computeFinancing(
     }
   }
 
-  const totalDebtFromDraws = drawSchedule.reduce((s, v) => s + v, 0);
+  // Total principal that the repayment schedule must amortize: for new
+  // facilities it's the sum of drawdowns; for existing it's the opening
+  // balance carried over from Y0.
+  const totalDebtFromDraws = isExisting
+    ? effOpeningBalance
+    : drawSchedule.reduce((s, v) => s + v, 0);
 
   // Walk balance + interest + repayment.
   const outstanding = new Array<number>(periods).fill(0);
@@ -1508,12 +1525,13 @@ export function computeFinancing(
   const principalRepaid = new Array<number>(periods).fill(0);
 
   // Pre-compute repayment baseline (where applicable). Index into the
-  // total period array, not the construction window.
-  const opsStartIdx = constructionPeriods - overlap;
+  // total period array, not the construction window. Existing facilities
+  // start amortizing at t=0 (no grace, no operations offset).
+  const opsStartIdx = isExisting ? 0 : constructionPeriods - overlap;
   // M2.0L: grace period defers principal repayment within the
   // operations window. Falls back to no grace (=opsStartIdx) when
-  // not set.
-  const graceEndIdx = opsStartIdx + Math.max(0, tranche.gracePeriods ?? 0);
+  // not set. Existing facilities have no grace.
+  const graceEndIdx = isExisting ? 0 : opsStartIdx + Math.max(0, tranche.gracePeriods ?? 0);
   const repBudget = new Array<number>(periods).fill(0);
   if (tranche.repaymentMethod === 'manual') {
     const dist = tranche.repaymentManualDistribution ?? [];
@@ -1522,33 +1540,33 @@ export function computeFinancing(
       const w = sum > 0 ? Math.max(0, dist[i] ?? 0) / sum : 0;
       repBudget[i] = totalDebtFromDraws * w;
     }
-  } else if (tranche.repaymentMethod === 'straight_line' && tranche.repaymentPeriods > 0) {
-    const principalPerPeriod = totalDebtFromDraws / tranche.repaymentPeriods;
-    for (let i = 0; i < tranche.repaymentPeriods && (graceEndIdx + i) < periods; i++) {
+  } else if (tranche.repaymentMethod === 'straight_line' && effRepaymentPeriods > 0) {
+    const principalPerPeriod = totalDebtFromDraws / effRepaymentPeriods;
+    for (let i = 0; i < effRepaymentPeriods && (graceEndIdx + i) < periods; i++) {
       repBudget[graceEndIdx + i] = principalPerPeriod;
     }
-  } else if (tranche.repaymentMethod === 'equal_periodic_amortization' && tranche.repaymentPeriods > 0) {
+  } else if (tranche.repaymentMethod === 'equal_periodic_amortization' && effRepaymentPeriods > 0) {
     // Annuity: PMT = P × [r(1+r)^n] / [(1+r)^n - 1].
-    const pmt = computeEqualPeriodicPayment(totalDebtFromDraws, periodicRate, tranche.repaymentPeriods);
+    const pmt = computeEqualPeriodicPayment(totalDebtFromDraws, periodicRate, effRepaymentPeriods);
     // Each repayment is the principal portion of PMT (PMT - interest on
     // running balance). We pre-fill repBudget with PMT here and let the
     // interest loop below subtract interest to derive principal share.
-    for (let i = 0; i < tranche.repaymentPeriods && (graceEndIdx + i) < periods; i++) {
+    for (let i = 0; i < effRepaymentPeriods && (graceEndIdx + i) < periods; i++) {
       repBudget[graceEndIdx + i] = pmt;
     }
   } else if (tranche.repaymentMethod === 'bullet') {
     // Bullet: principal due at last period of facility (or maturity).
-    const maturity = Math.min(periods - 1, graceEndIdx + Math.max(0, tranche.repaymentPeriods) - 1);
+    const maturity = Math.min(periods - 1, graceEndIdx + Math.max(0, effRepaymentPeriods) - 1);
     if (maturity >= 0) repBudget[maturity] = totalDebtFromDraws;
-  } else if (tranche.repaymentMethod === 'balloon' && tranche.repaymentPeriods > 0) {
+  } else if (tranche.repaymentMethod === 'balloon' && effRepaymentPeriods > 0) {
     // Balloon: small equal periodic + large balloon at maturity.
     const balloonShare = clamp(tranche.balloonPct ?? 30, 0, 100) / 100;
     const balloonAmt = totalDebtFromDraws * balloonShare;
-    const periodicAmt = (totalDebtFromDraws - balloonAmt) / Math.max(1, tranche.repaymentPeriods - 1);
-    for (let i = 0; i < tranche.repaymentPeriods - 1 && (graceEndIdx + i) < periods; i++) {
+    const periodicAmt = (totalDebtFromDraws - balloonAmt) / Math.max(1, effRepaymentPeriods - 1);
+    for (let i = 0; i < effRepaymentPeriods - 1 && (graceEndIdx + i) < periods; i++) {
       repBudget[graceEndIdx + i] = periodicAmt;
     }
-    const maturity = Math.min(periods - 1, graceEndIdx + tranche.repaymentPeriods - 1);
+    const maturity = Math.min(periods - 1, graceEndIdx + effRepaymentPeriods - 1);
     if (maturity >= 0) repBudget[maturity] = balloonAmt;
   } else if (tranche.repaymentMethod === 'custom_schedule') {
     const sched = tranche.repaymentCustomSchedule ?? [];
@@ -1556,13 +1574,19 @@ export function computeFinancing(
   }
 
   // M2.0L: resolve IDC treatment. New idcTreatment wins when set;
-  // legacy idcCapitalize boolean is the fallback.
-  const idcTreatment: 'capitalize' | 'expense' | 'mixed' =
-    tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense');
+  // legacy idcCapitalize boolean is the fallback. Existing facilities
+  // never accrue IDC (they amortize from project Y0 and pay interest
+  // in cash, never capitalising) - force-expense regardless of stored
+  // setting.
+  const idcTreatment: 'capitalize' | 'expense' | 'mixed' = isExisting
+    ? 'expense'
+    : (tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense'));
   const idcSplitPeriod = tranche.idcMixedSplitPeriod ?? constructionPeriods;
   const sweepRatio = clamp(tranche.sweepRatio ?? 75, 0, 100) / 100;
 
-  let balance = 0;
+  // Existing facilities seed their opening balance at t=0; new
+  // facilities start at 0 and grow via drawSchedule.
+  let balance = effOpeningBalance;
   for (let i = 0; i < periods; i++) {
     balance += drawSchedule[i] ?? 0;
     const interest = balance * periodicRate;

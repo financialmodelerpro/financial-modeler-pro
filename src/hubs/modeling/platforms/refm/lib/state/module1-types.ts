@@ -1248,6 +1248,15 @@ export interface FinancingTranche {
     startingYear: number;
     sweepRatio: number;  // 0..100, % of excess cash above project min reserve
   };
+  // ── Existing Operations (2026-05-13) ──────────────────────────────
+  /** Origin of the facility. 'new' = drawdown in model; 'existing' = pre-existing facility with opening balance. Default 'new'. */
+  origin?: 'new' | 'existing';
+  /** Opening principal balance at project Y0. Required when origin === 'existing'. */
+  openingBalance?: number;
+  /** Remaining tenor in periods at project Y0. Required when origin === 'existing'. Replaces tenorPeriods for existing facilities. */
+  remainingTenorPeriods?: number;
+  /** Remaining repayment periods at project Y0. Required when origin === 'existing'. Replaces repaymentPeriods for existing facilities. */
+  remainingRepaymentPeriods?: number;
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────
