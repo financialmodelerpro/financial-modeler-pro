@@ -590,7 +590,36 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
               <AccountingNumberInput id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} min={0} value={baseline.netBookValueFixedAssets} onChange={(n) => setBaseline({ netBookValueFixedAssets: Math.max(0, n) })} style={inputStyle} />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11 }}>
+          {(() => {
+            const pc = Math.max(0, baseline.historicalCapexTotal);
+            const od = Math.max(0, baseline.currentDebtOutstanding);
+            const eq = Math.max(0, baseline.historicalEquityContributed);
+            const diff = pc - (od + eq);
+            const balances = pc > 0 && Math.abs(diff) < 1;
+            const isEmpty = pc === 0 && od === 0 && eq === 0;
+            if (isEmpty) return null;
+            return (
+              <div
+                data-testid={`phase-${phase.id}-baseline-chip`}
+                style={{
+                  marginTop: 'var(--sp-1)',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  display: 'inline-block',
+                  background: balances ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
+                  color: balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                  border: `1px solid ${balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+                }}
+              >
+                {balances
+                  ? `Balances, Pre-Capex = Debt + Equity (${pc.toLocaleString()})`
+                  : `Mismatch, Pre-Capex - (Debt + Equity) = ${diff.toLocaleString()}`}
+              </div>
+            );
+          })()}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11, marginTop: 'var(--sp-2)' }}>
             <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current operating run-rate (last 12 months)</div>
             <div>
               <InputLabel label="Last 12 Months Revenue" help="Trailing 12-month revenue at reporting start." inputId={`phase-${phase.id}-hist-revenue`} />

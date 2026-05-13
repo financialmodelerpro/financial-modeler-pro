@@ -353,6 +353,7 @@ export default function Module1Financing(): React.JSX.Element {
             fmt={fmt}
             cropProject={cropProject}
             capex={result.capex}
+            existingPreCapex={result.existing.preCapexTotal}
           />
 
           <FundingRequirementTable
@@ -371,6 +372,7 @@ export default function Module1Financing(): React.JSX.Element {
             fmt={fmt}
             currency={currency}
             scale={scale}
+            existingDebtOutstanding={result.existing.debtOutstandingTotal}
           />
 
           <EquityRequiredTable
@@ -454,11 +456,12 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
       )}
       {tranches.map((t) => {
         const normalisedShare = shares.get(t.id) ?? 0;
+        const isExisting = t.origin === 'existing';
         return (
           <div
             key={t.id}
             style={{
-              border: '1px solid var(--color-border)',
+              border: isExisting ? '1px solid var(--color-warning, #92400e)' : '1px solid var(--color-border)',
               borderRadius: 'var(--radius-sm)',
               padding: 'var(--sp-2)',
               marginTop: 'var(--sp-1)',
@@ -466,6 +469,7 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
               gridTemplateColumns: 'repeat(6, 1fr) auto',
               gap: 8,
               alignItems: 'end',
+              background: isExisting ? 'color-mix(in srgb, var(--color-warning, #92400e) 6%, transparent)' : undefined,
             }}
           >
             <div style={{ gridColumn: 'span 2' }}>
@@ -476,6 +480,17 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
                 onChange={(e) => onUpdate(t.id, { name: e.target.value })}
                 style={inputStyle}
               />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Origin</label>
+              <select
+                value={t.origin ?? 'new'}
+                onChange={(e) => onUpdate(t.id, { origin: e.target.value as 'new' | 'existing' })}
+                style={inputStyle}
+              >
+                <option value="new">New</option>
+                <option value="existing">Existing</option>
+              </select>
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Phase</label>
@@ -494,16 +509,26 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
                 onChange={(v) => onUpdate(t.id, { interestRatePct: v })}
               />
             </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Share %</label>
-              <PercentageInput
-                value={t.facilitySharePct ?? normalisedShare}
-                onChange={(v) => handleShareChange(t.id, v)}
-              />
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Normalised: {normalisedShare.toFixed(2)}%
+            {isExisting ? (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Opening Balance</label>
+                <AccountingNumberInput
+                  value={t.openingBalance ?? 0}
+                  onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })}
+                />
               </div>
-            </div>
+            ) : (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Share %</label>
+                <PercentageInput
+                  value={t.facilitySharePct ?? normalisedShare}
+                  onChange={(v) => handleShareChange(t.id, v)}
+                />
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                  Normalised: {normalisedShare.toFixed(2)}%
+                </div>
+              </div>
+            )}
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Repayment</label>
               <select
@@ -517,21 +542,28 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Grace</label>
+              {!isExisting && (
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Grace</label>
+                  <input
+                    type="number"
+                    value={t.gracePeriods ?? 0}
+                    onChange={(e) => onUpdate(t.id, { gracePeriods: Math.max(0, Number(e.target.value) || 0) })}
+                    style={inputStyle}
+                  />
+                </div>
+              )}
+              <div style={{ gridColumn: isExisting ? 'span 2' : undefined }}>
+                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  {isExisting ? 'Remaining Repay Periods' : 'Repay Periods'}
+                </label>
                 <input
                   type="number"
-                  value={t.gracePeriods ?? 0}
-                  onChange={(e) => onUpdate(t.id, { gracePeriods: Math.max(0, Number(e.target.value) || 0) })}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Repay Periods</label>
-                <input
-                  type="number"
-                  value={t.repaymentPeriods ?? 0}
-                  onChange={(e) => onUpdate(t.id, { repaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  value={isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)}
+                  onChange={(e) => {
+                    const n = Math.max(0, Number(e.target.value) || 0);
+                    onUpdate(t.id, isExisting ? { remainingRepaymentPeriods: n } : { repaymentPeriods: n });
+                  }}
                   style={inputStyle}
                 />
               </div>
@@ -568,15 +600,24 @@ interface CapexProps {
   fmt: (n: number) => string;
   cropProject: (arr: number[]) => number[];
   capex: ReturnType<typeof computeFinancingResult>['capex'];
+  existingPreCapex: number;
 }
 
 function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
   const nonLabelPct = nonLabelColumnPct(1 + p.axis.count);
-  const rows: Array<{ label: string; data: number[]; total: number }> = [
-    { label: 'Capex (excl. all land)',    data: p.cropProject(p.capex.perPeriod.exclAllLand),    total: p.capex.totals.exclAllLand },
-    { label: 'Capex (excl. land in-kind)', data: p.cropProject(p.capex.perPeriod.exclLandInKind), total: p.capex.totals.exclLandInKind },
-    { label: 'Capex (incl. all land)',    data: p.cropProject(p.capex.perPeriod.inclAllLand),    total: p.capex.totals.inclAllLand },
+  const rows: Array<{ label: string; data: number[]; total: number; prior: number; bold?: boolean }> = [
+    { label: 'Capex (excl. all land)',    data: p.cropProject(p.capex.perPeriod.exclAllLand),    total: p.capex.totals.exclAllLand,    prior: p.capex.perPeriod.exclAllLand[0]    ?? 0 },
+    { label: 'Capex (excl. land in-kind)', data: p.cropProject(p.capex.perPeriod.exclLandInKind), total: p.capex.totals.exclLandInKind, prior: p.capex.perPeriod.exclLandInKind[0] ?? 0 },
+    { label: 'Capex (incl. all land)',    data: p.cropProject(p.capex.perPeriod.inclAllLand),    total: p.capex.totals.inclAllLand,    prior: p.capex.perPeriod.inclAllLand[0]    ?? 0 },
   ];
+  if (p.existingPreCapex > 0) {
+    rows.push({
+      label: 'Pre-Capex (existing operations)',
+      data: new Array(p.axis.activeLabels.length).fill(0),
+      total: p.existingPreCapex,
+      prior: p.existingPreCapex,
+    });
+  }
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>6. Capex Breakdown</div>
@@ -599,7 +640,7 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
               <tr key={r.label}>
                 <td style={ROW_DATA.name}>{r.label}</td>
                 <td style={ROW_DATA.num}>{p.fmt(r.total)}</td>
-                <td style={ROW_DATA.num}>{p.fmt(0)}</td>
+                <td style={ROW_DATA.num}>{p.fmt(r.prior)}</td>
                 {r.data.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
               </tr>
             ))}
@@ -662,8 +703,15 @@ interface DebtReqProps {
   scale: 'full' | 'thousands' | 'millions';
 }
 
-function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
-  const totalDebt = p.funding.selected * (p.funding.debtPct / 100);
+interface DebtReqExtra {
+  existingDebtOutstanding: number;
+}
+
+function DebtRequiredTable(p: DebtReqProps & DebtReqExtra): React.JSX.Element {
+  const totalNewDebt = p.funding.selected * (p.funding.debtPct / 100);
+  const newTranches = p.tranches.filter((t) => t.origin !== 'existing');
+  const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
+  const grandTotal = totalNewDebt + p.existingDebtOutstanding;
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>8. Total Debt Required ({currencyHeaderLine(p.currency, p.scale)})</div>
@@ -673,13 +721,13 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
           <tr>
             <th style={CELL_HEADER}>Facility</th>
             <th style={CELL_HEADER}>Share %</th>
-            <th style={CELL_HEADER}>Debt Required</th>
+            <th style={CELL_HEADER}>Amount</th>
           </tr>
         </thead>
         <tbody>
-          {p.tranches.map((t) => {
+          {newTranches.map((t) => {
             const share = p.shares.get(t.id) ?? 0;
-            const amt = totalDebt * (share / 100);
+            const amt = totalNewDebt * (share / 100);
             return (
               <tr key={t.id}>
                 <td style={ROW_DATA.name}>{t.name}</td>
@@ -689,9 +737,28 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
             );
           })}
           <tr>
-            <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
-            <td style={ROW_GRAND_TOTAL.num}>100.00%</td>
-            <td style={ROW_GRAND_TOTAL.num}>{p.fmt(totalDebt)}</td>
+            <td style={{ ...ROW_DATA.name, fontWeight: 700 }}>Subtotal, New Debt Required</td>
+            <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>100.00%</td>
+            <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>{p.fmt(totalNewDebt)}</td>
+          </tr>
+          {existingTranches.map((t) => (
+            <tr key={t.id}>
+              <td style={ROW_DATA.name}>{t.name} (existing)</td>
+              <td style={ROW_DATA.num}>,</td>
+              <td style={ROW_DATA.num}>{p.fmt(Math.max(0, t.openingBalance ?? 0))}</td>
+            </tr>
+          ))}
+          {existingTranches.length > 0 && (
+            <tr>
+              <td style={{ ...ROW_DATA.name, fontWeight: 700 }}>Subtotal, Existing Debt</td>
+              <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>,</td>
+              <td style={{ ...ROW_DATA.num, fontWeight: 700 }}>{p.fmt(p.existingDebtOutstanding)}</td>
+            </tr>
+          )}
+          <tr>
+            <td style={ROW_GRAND_TOTAL.name}>Total Debt</td>
+            <td style={ROW_GRAND_TOTAL.num}>,</td>
+            <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandTotal)}</td>
           </tr>
         </tbody>
       </table>
@@ -719,6 +786,12 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
           <tr><th style={CELL_HEADER}>Equity Source</th><th style={CELL_HEADER}>Amount</th></tr>
         </thead>
         <tbody>
+          {p.equity.totalExisting > 0 && (
+            <tr>
+              <td style={ROW_DATA.name}>Existing Equity (operational phases)</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalExisting)}</td>
+            </tr>
+          )}
           <tr>
             <td style={ROW_DATA.name}>Cash Equity</td>
             <td style={ROW_DATA.num}>{p.fmt(p.equity.totalCash)}</td>
@@ -767,29 +840,66 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     </thead>
   );
 
-  const renderSeriesRow = (label: string, arr: number[], opts?: { bold?: boolean }) => {
+  const renderSeriesRow = (label: string, arr: number[], opts?: { bold?: boolean; priorOverride?: number }) => {
     const cropped = p.cropProject(arr);
-    const total = cropped.reduce((s, v) => s + v, 0);
+    const total = cropped.reduce((s, v) => s + v, 0) + (opts?.priorOverride ?? 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={numStyle}>{p.fmt(total)}</td>
-        <td style={numStyle}>{p.fmt(0)}</td>
+        <td style={numStyle}>{p.fmt(opts?.priorOverride ?? (arr[0] ?? 0))}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
       </tr>
     );
   };
 
+  const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
+  const newTranches      = p.tranches.filter((t) => t.origin !== 'existing');
+
   return (
     <>
-      {p.tranches.map((t) => {
+      {existingTranches.length > 0 && (
+        <section style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
+          <div style={{ ...TABLE_TITLE, color: 'var(--color-warning, #92400e)' }}>
+            Existing Facilities ({existingTranches.length})
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
+            Opening balances carry forward from before project start; no new drawdown, ongoing interest expensed.
+          </div>
+        </section>
+      )}
+
+      {existingTranches.map((t) => {
+        const r = p.result.facilities.get(t.id);
+        if (!r) return null;
+        return (
+          <section key={`ex_${t.id}`} style={sectionStyle}>
+            <div style={TABLE_TITLE}>Existing Debt Movement, {t.name}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {renderSeriesRow('Opening Balance', [r.outstanding[0] ?? 0])}
+                  {renderSeriesRow('Drawdown', r.drawSchedule)}
+                  {renderSeriesRow('Interest Expensed', r.interestPaid)}
+                  {renderSeriesRow('Principal Repaid', r.principalRepaid)}
+                  {renderSeriesRow('Closing Balance', r.outstanding, { bold: true })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+
+      {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
         return (
           <section key={t.id} style={sectionStyle}>
-            <div style={TABLE_TITLE}>Debt Movement, {t.name}</div>
+            <div style={TABLE_TITLE}>New Debt Movement, {t.name}</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
@@ -827,9 +937,10 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {p.tranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
+        const isEx = t.origin === 'existing';
         return (
           <section key={`fc_${t.id}`} style={sectionStyle}>
-            <div style={TABLE_TITLE}>Finance Cost, {t.name}</div>
+            <div style={TABLE_TITLE}>Finance Cost, {t.name} ({isEx ? 'existing' : 'new'})</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
@@ -866,6 +977,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {colgroup}
             {headerRow}
             <tbody>
+              {renderSeriesRow('Existing Equity', p.result.equity.existingEquityPerPeriod)}
               {renderSeriesRow('Cash Equity', p.result.equity.cashPerPeriod)}
               {renderSeriesRow('In-Kind Equity', p.result.equity.inKindPerPeriod)}
               {renderSeriesRow('Total Equity', p.result.equity.totalPerPeriod, { bold: true })}
