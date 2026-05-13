@@ -39,6 +39,7 @@ import {
   OUTPUT_GRANULARITIES,
   OUTPUT_GRANULARITY_LABELS,
 } from '../../lib/state/module1-types';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 
 export type { WizardDraft } from '../../lib/wizard/buildWizardSnapshot';
 
@@ -462,32 +463,32 @@ function Step2({
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <AccountingNumberInput
                   min={0}
+                  decimals={0}
                   data-testid={`wiz-phase-${idx}-constructionPeriods`}
                   value={p.constructionPeriods}
-                  onChange={(e) => updatePhase(idx, { constructionPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  onChange={(n) => updatePhase(idx, { constructionPeriods: Math.max(0, Math.round(n)) })}
                   style={inputStyle}
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <AccountingNumberInput
                   min={0}
+                  decimals={0}
                   data-testid={`wiz-phase-${idx}-operationsPeriods`}
                   value={p.operationsPeriods}
-                  onChange={(e) => updatePhase(idx, { operationsPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  onChange={(n) => updatePhase(idx, { operationsPeriods: Math.max(0, Math.round(n)) })}
                   style={inputStyle}
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <AccountingNumberInput
                   min={0}
+                  decimals={0}
                   data-testid={`wiz-phase-${idx}-overlapPeriods`}
                   value={p.overlapPeriods}
-                  onChange={(e) => updatePhase(idx, { overlapPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  onChange={(n) => updatePhase(idx, { overlapPeriods: Math.max(0, Math.round(n)) })}
                   style={inputStyle}
                 />
               </td>
@@ -541,22 +542,20 @@ function Step2({
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <AccountingNumberInput
                   min={0}
                   data-testid={`wiz-parcel-${idx}-area`}
                   value={p.area}
-                  onChange={(e) => updateParcel(idx, { area: Math.max(0, Number(e.target.value) || 0) })}
+                  onChange={(n) => updateParcel(idx, { area: Math.max(0, n) })}
                   style={inputStyle}
                 />
               </td>
               <td style={{ padding: 'var(--sp-1)' }}>
-                <input
-                  type="number"
+                <AccountingNumberInput
                   min={0}
                   data-testid={`wiz-parcel-${idx}-rate`}
                   value={p.rate}
-                  onChange={(e) => updateParcel(idx, { rate: Math.max(0, Number(e.target.value) || 0) })}
+                  onChange={(n) => updateParcel(idx, { rate: Math.max(0, n) })}
                   style={inputStyle}
                 />
               </td>

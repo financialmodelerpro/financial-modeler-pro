@@ -31,6 +31,7 @@ import {
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import { currencyHeaderLine } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
@@ -462,37 +463,36 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         {/* M2.0j Fix 1: allow 0 construction years (operational phase). */}
-        <input
-          type="number"
-          min={0}
+        <AccountingNumberInput
           value={phase.constructionPeriods}
-          data-testid={`phase-${phase.id}-constructionPeriods`}
-          onChange={(e) => onUpdate({ constructionPeriods: Math.max(0, Number(e.target.value) || 0) })}
-          style={inputStyle}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number"
+          onChange={(n) => onUpdate({ constructionPeriods: Math.max(0, n) })}
           min={0}
-          value={phase.operationsPeriods}
-          data-testid={`phase-${phase.id}-operationsPeriods`}
-          onChange={(e) => onUpdate({ operationsPeriods: Math.max(0, Number(e.target.value) || 0) })}
+          scale="full"
+          decimals={0}
+          data-testid={`phase-${phase.id}-constructionPeriods`}
           style={inputStyle}
         />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number"
+        <AccountingNumberInput
+          value={phase.operationsPeriods}
+          onChange={(n) => onUpdate({ operationsPeriods: Math.max(0, n) })}
+          min={0}
+          scale="full"
+          decimals={0}
+          data-testid={`phase-${phase.id}-operationsPeriods`}
+          style={inputStyle}
+        />
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <AccountingNumberInput
+          value={phase.overlapPeriods}
+          onChange={(n) => onUpdate({ overlapPeriods: Math.max(0, Math.min(phase.constructionPeriods, n)) })}
           min={0}
           max={phase.constructionPeriods}
-          value={phase.overlapPeriods}
+          scale="full"
+          decimals={0}
           data-testid={`phase-${phase.id}-overlapPeriods`}
-          onChange={(e) =>
-            onUpdate({
-              overlapPeriods: Math.max(0, Math.min(phase.constructionPeriods, Number(e.target.value) || 0)),
-            })
-          }
           style={inputStyle}
         />
       </td>
@@ -559,38 +559,38 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
             <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sunk costs + prior cumulative</div>
             <div>
               <InputLabel label="Historical Capex Total" help="Total capex spent before reporting start (sunk cost)." inputId={`phase-${phase.id}-hist-capex`} />
-              <input id={`phase-${phase.id}-hist-capex`} data-testid={`phase-${phase.id}-hist-capex`} type="number" min={0} value={baseline.historicalCapexTotal} onChange={(e) => setBaseline({ historicalCapexTotal: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-capex`} data-testid={`phase-${phase.id}-hist-capex`} min={0} value={baseline.historicalCapexTotal} onChange={(n) => setBaseline({ historicalCapexTotal: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Historical Equity Contributed" help="Equity already invested before reporting start." inputId={`phase-${phase.id}-hist-equity`} />
-              <input id={`phase-${phase.id}-hist-equity`} data-testid={`phase-${phase.id}-hist-equity`} type="number" min={0} value={baseline.historicalEquityContributed} onChange={(e) => setBaseline({ historicalEquityContributed: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-equity`} data-testid={`phase-${phase.id}-hist-equity`} min={0} value={baseline.historicalEquityContributed} onChange={(n) => setBaseline({ historicalEquityContributed: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Historical Debt Drawn" help="Total debt drawn before reporting start." inputId={`phase-${phase.id}-hist-debt-drawn`} />
-              <input id={`phase-${phase.id}-hist-debt-drawn`} data-testid={`phase-${phase.id}-hist-debt-drawn`} type="number" min={0} value={baseline.historicalDebtDrawn} onChange={(e) => setBaseline({ historicalDebtDrawn: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-debt-drawn`} data-testid={`phase-${phase.id}-hist-debt-drawn`} min={0} value={baseline.historicalDebtDrawn} onChange={(n) => setBaseline({ historicalDebtDrawn: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Current Debt Outstanding" help="Outstanding balance after historical repayments." inputId={`phase-${phase.id}-hist-debt-out`} />
-              <input id={`phase-${phase.id}-hist-debt-out`} data-testid={`phase-${phase.id}-hist-debt-out`} type="number" min={0} value={baseline.currentDebtOutstanding} onChange={(e) => setBaseline({ currentDebtOutstanding: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-debt-out`} data-testid={`phase-${phase.id}-hist-debt-out`} min={0} value={baseline.currentDebtOutstanding} onChange={(n) => setBaseline({ currentDebtOutstanding: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets." inputId={`phase-${phase.id}-hist-depr`} />
-              <input id={`phase-${phase.id}-hist-depr`} data-testid={`phase-${phase.id}-hist-depr`} type="number" min={0} value={baseline.cumulativeDepreciationCharged} onChange={(e) => setBaseline({ cumulativeDepreciationCharged: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-depr`} data-testid={`phase-${phase.id}-hist-depr`} min={0} value={baseline.cumulativeDepreciationCharged} onChange={(n) => setBaseline({ cumulativeDepreciationCharged: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Net Book Value (Fixed Assets)" help="NBV of existing fixed assets at reporting start." inputId={`phase-${phase.id}-hist-nbv`} />
-              <input id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} type="number" min={0} value={baseline.netBookValueFixedAssets} onChange={(e) => setBaseline({ netBookValueFixedAssets: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} min={0} value={baseline.netBookValueFixedAssets} onChange={(n) => setBaseline({ netBookValueFixedAssets: Math.max(0, n) })} style={inputStyle} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11 }}>
             <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current operating run-rate (last 12 months)</div>
             <div>
               <InputLabel label="Last 12 Months Revenue" help="Trailing 12-month revenue at reporting start." inputId={`phase-${phase.id}-hist-revenue`} />
-              <input id={`phase-${phase.id}-hist-revenue`} data-testid={`phase-${phase.id}-hist-revenue`} type="number" min={0} value={baseline.last12MonthsRevenue} onChange={(e) => setBaseline({ last12MonthsRevenue: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-revenue`} data-testid={`phase-${phase.id}-hist-revenue`} min={0} value={baseline.last12MonthsRevenue} onChange={(n) => setBaseline({ last12MonthsRevenue: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Last 12 Months Opex" help="Trailing 12-month operating expenses at reporting start." inputId={`phase-${phase.id}-hist-opex`} />
-              <input id={`phase-${phase.id}-hist-opex`} data-testid={`phase-${phase.id}-hist-opex`} type="number" min={0} value={baseline.last12MonthsOpex} onChange={(e) => setBaseline({ last12MonthsOpex: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-opex`} data-testid={`phase-${phase.id}-hist-opex`} min={0} value={baseline.last12MonthsOpex} onChange={(n) => setBaseline({ last12MonthsOpex: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Current Occupancy %" help="Current occupancy rate (hospitality / lease, optional)." inputId={`phase-${phase.id}-hist-occ`} />
@@ -598,11 +598,11 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
             </div>
             <div>
               <InputLabel label="Current ADR" help="Average Daily Rate per key per night (hospitality, optional)." inputId={`phase-${phase.id}-hist-adr`} />
-              <input id={`phase-${phase.id}-hist-adr`} data-testid={`phase-${phase.id}-hist-adr`} type="number" min={0} value={baseline.currentAdr ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentAdr: v > 0 ? v : undefined }); }} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-adr`} data-testid={`phase-${phase.id}-hist-adr`} min={0} value={baseline.currentAdr ?? 0} onChange={(n) => setBaseline({ currentAdr: n > 0 ? n : undefined })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Current Rent Rate" help="Per sqm per year rent rate (lease, optional)." inputId={`phase-${phase.id}-hist-rent`} />
-              <input id={`phase-${phase.id}-hist-rent`} data-testid={`phase-${phase.id}-hist-rent`} type="number" min={0} value={baseline.currentRentRate ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentRentRate: v > 0 ? v : undefined }); }} style={inputStyle} />
+              <AccountingNumberInput id={`phase-${phase.id}-hist-rent`} data-testid={`phase-${phase.id}-hist-rent`} min={0} value={baseline.currentRentRate ?? 0} onChange={(n) => setBaseline({ currentRentRate: n > 0 ? n : undefined })} style={inputStyle} />
             </div>
           </div>
         </td>

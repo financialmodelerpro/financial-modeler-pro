@@ -1347,13 +1347,12 @@ function AssetCard({
                       </div>
                       <div>
                         <InputLabel label="Sqm" help="Land area drawn from this parcel." inputId={`asset-${asset.id}-split-${idx}-sqm`} />
-                        <input
+                        <AccountingNumberInput
                           id={`asset-${asset.id}-split-${idx}-sqm`}
                           data-testid={`asset-${asset.id}-split-${idx}-sqm`}
-                          type="number"
                           min={0}
                           value={sp.sqm}
-                          onChange={(e) => updateSplit(idx, { sqm: Math.max(0, Number(e.target.value) || 0) })}
+                          onChange={(n) => updateSplit(idx, { sqm: Math.max(0, n) })}
                           style={inputStyle}
                         />
                       </div>
@@ -2116,11 +2115,11 @@ function ManagementAgreementForm({ asset, onUpdate }: ManagementAgreementFormPro
         </div>
         <div>
           <InputLabel label="Start Period" help="Optional. Default = handover (sales schedule end)." inputId={`asset-${asset.id}-mgmt-start`} />
-          <input id={`asset-${asset.id}-mgmt-start`} data-testid={`asset-${asset.id}-mgmt-start`} type="number" min={0} value={ag.agreementStartPeriod ?? 0} onChange={(e) => { const v = Number(e.target.value); setAg({ agreementStartPeriod: v > 0 ? v : undefined }); }} style={inputStyle} />
+          <AccountingNumberInput id={`asset-${asset.id}-mgmt-start`} data-testid={`asset-${asset.id}-mgmt-start`} min={0} decimals={0} value={ag.agreementStartPeriod ?? 0} onChange={(n) => setAg({ agreementStartPeriod: n > 0 ? n : undefined })} style={inputStyle} />
         </div>
         <div>
           <InputLabel label="Duration (periods)" help="Optional. Blank = perpetual." inputId={`asset-${asset.id}-mgmt-duration`} />
-          <input id={`asset-${asset.id}-mgmt-duration`} data-testid={`asset-${asset.id}-mgmt-duration`} type="number" min={0} value={ag.agreementDurationPeriods ?? 0} onChange={(e) => { const v = Number(e.target.value); setAg({ agreementDurationPeriods: v > 0 ? v : undefined }); }} style={inputStyle} />
+          <AccountingNumberInput id={`asset-${asset.id}-mgmt-duration`} data-testid={`asset-${asset.id}-mgmt-duration`} min={0} decimals={0} value={ag.agreementDurationPeriods ?? 0} onChange={(n) => setAg({ agreementDurationPeriods: n > 0 ? n : undefined })} style={inputStyle} />
         </div>
       </div>
     </div>
@@ -2156,7 +2155,7 @@ function UsefulLifeForm({ asset, onUpdate }: UsefulLifeFormProps): React.JSX.Ele
     >
       <div>
         <InputLabel label="Useful Life (years)" help="Depreciation horizon. Blank = category default. Land never depreciates." inputId={`asset-${asset.id}-useful-life-input`} />
-        <input id={`asset-${asset.id}-useful-life-input`} data-testid={`asset-${asset.id}-useful-life-input`} type="number" min={0} value={asset.usefulLifeYears ?? 0} onChange={(e) => { const v = Number(e.target.value); onUpdate({ usefulLifeYears: v > 0 ? v : undefined }); }} placeholder={`default ${fallback}`} style={inputStyle} />
+        <AccountingNumberInput id={`asset-${asset.id}-useful-life-input`} data-testid={`asset-${asset.id}-useful-life-input`} min={0} decimals={0} value={asset.usefulLifeYears ?? 0} onChange={(n) => onUpdate({ usefulLifeYears: n > 0 ? n : undefined })} placeholder={`default ${fallback}`} style={inputStyle} />
       </div>
       <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
         <strong>Resolved:</strong> {resolved} years{!explicit && (<span style={{ display: 'block', marginTop: 2 }}>(category default)</span>)}

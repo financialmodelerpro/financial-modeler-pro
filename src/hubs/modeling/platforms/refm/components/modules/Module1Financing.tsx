@@ -316,11 +316,11 @@ function renderMethodInputs(
     <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }} data-testid="funding-method-4-inputs">
       <label style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
         Initial Cash:
-        <input
-          type="number" min={0}
+        <AccountingNumberInput
+          min={0}
           data-testid="m4-initial-cash"
           value={m.initialCash}
-          onChange={(e) => patch({ cashDeficitConfig: { ...m, initialCash: parseFloat(e.target.value) || 0 } })}
+          onChange={(n) => patch({ cashDeficitConfig: { ...m, initialCash: n } })}
           style={{ ...numStyle, width: 120 }}
         />
       </label>
@@ -503,10 +503,10 @@ function TrancheCard({
           </div>
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Spread (bps)</label>
-            <input
-              type="number" min={0}
+            <AccountingNumberInput
+              min={0}
               value={tranche.spreadBps ?? 0}
-              onChange={(e) => onUpdate({ spreadBps: parseFloat(e.target.value) || 0 })}
+              onChange={(n) => onUpdate({ spreadBps: n })}
               style={inputStyle}
               data-testid={`tranche-${tranche.id}-spread`}
             />
@@ -519,24 +519,25 @@ function TrancheCard({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Tenor (periods)</label>
-          <input type="number" min={0} value={tranche.tenorPeriods ?? 0} onChange={(e) => onUpdate({ tenorPeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
+          <AccountingNumberInput min={0} decimals={0} value={tranche.tenorPeriods ?? 0} onChange={(n) => onUpdate({ tenorPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
         </div>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Availability</label>
-          <input type="number" min={0} value={tranche.availabilityPeriods ?? 0} onChange={(e) => onUpdate({ availabilityPeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
+          <AccountingNumberInput min={0} decimals={0} value={tranche.availabilityPeriods ?? 0} onChange={(n) => onUpdate({ availabilityPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
-          <input type="number" min={0} value={tranche.gracePeriods ?? 0} onChange={(e) => onUpdate({ gracePeriods: parseInt(e.target.value) || 0 })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
+          <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
         </div>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
-          <input
-            type="number" min={0}
+          <AccountingNumberInput
+            min={0}
+            decimals={0}
             value={tranche.repaymentPeriods}
-            onChange={(e) => onUpdate({ repaymentPeriods: parseInt(e.target.value) || 0 })}
+            onChange={(n) => onUpdate({ repaymentPeriods: Math.round(n) })}
             style={inputStyle}
             data-testid={`tranche-${tranche.id}-rep-periods`}
           />
@@ -587,11 +588,12 @@ function TrancheCard({
           </select>
           {mapLegacyRepayment(tranche.repaymentMethod) === 'cash_sweep' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, marginTop: 4 }} data-testid={`tranche-${tranche.id}-cash-sweep-inputs`}>
-              <input
-                type="number" min={1}
+              <AccountingNumberInput
+                min={1}
+                decimals={0}
                 placeholder="Starting Year"
                 value={tranche.cashSweepConfig?.startingYear ?? 1}
-                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: Math.max(1, parseInt(e.target.value) || 1), sweepRatio: 100 } })}
+                onChange={(n) => onUpdate({ cashSweepConfig: { startingYear: Math.max(1, Math.round(n)), sweepRatio: 100 } })}
                 style={inputStyle}
                 data-testid={`tranche-${tranche.id}-sweep-start-year`}
               />

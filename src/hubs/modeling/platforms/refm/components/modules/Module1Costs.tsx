@@ -360,11 +360,10 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Value (rate or %)</label>
-            <input
-              type="number"
+            <AccountingNumberInput
               value={value}
+              onChange={(n) => setValue(n)}
               min={0}
-              onChange={(e) => setValue(parseFloat(e.target.value) || 0)}
               style={inputStyle}
               data-testid="custom-cost-value"
             />
@@ -796,14 +795,11 @@ function CostRow({
             asked to be able to phase costs after construction (e.g.
             commissioning, post-handover Operate fees). Only floor at
             zero. Out-of-range surfaces an informational chip below. */}
-        <input
-          type="number"
+        <AccountingNumberInput
           min={0}
+          decimals={0}
           value={effStartPeriod}
-          onChange={(e) => {
-            const next = parseInt(e.target.value) || 0;
-            writeStartPeriod(Math.max(0, next));
-          }}
+          onChange={(n) => writeStartPeriod(Math.max(0, Math.round(n)))}
           disabled={isStartEndLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-start`}
@@ -818,14 +814,11 @@ function CostRow({
         )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
-        <input
-          type="number"
+        <AccountingNumberInput
           min={0}
+          decimals={0}
           value={effEndPeriod}
-          onChange={(e) => {
-            const next = parseInt(e.target.value) || 0;
-            writeEndPeriod(Math.max(0, next));
-          }}
+          onChange={(n) => writeEndPeriod(Math.max(0, Math.round(n)))}
           disabled={isStartEndLocked}
           style={{
             ...inputStyle,
@@ -1183,12 +1176,10 @@ function CostRow({
                     <td style={{ padding: '4px 8px' }}>{r.label}</td>
                     <td style={{ padding: '4px 8px', textAlign: 'right' }}>{r.area.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td style={{ padding: '4px 8px', textAlign: 'right' }}>
-                      <input
-                        type="number"
+                      <AccountingNumberInput
                         min={0}
-                        step={1}
                         value={effPerSubUnitRates[r.key] ?? r.rate}
-                        onChange={(e) => updateSubUnitRate(r.key, parseFloat(e.target.value) || 0)}
+                        onChange={(n) => updateSubUnitRate(r.key, n)}
                         disabled={isLocked}
                         data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}-rate`}
                         style={{ ...inputStyle, width: 110, textAlign: 'right' }}
@@ -2539,11 +2530,10 @@ function SameModeCostTable({
                             </td>
                             <td style={{ padding: '4px', textAlign: 'right' }}>
                               {isOverridden ? (
-                                <input
-                                  type="number"
+                                <AccountingNumberInput
                                   min={0}
                                   value={effValue}
-                                  onChange={(e) => writeOverrideValue(parseFloat(e.target.value) || 0)}
+                                  onChange={(n) => writeOverrideValue(n)}
                                   style={{ ...inputStyle, fontSize: 11, textAlign: 'right' }}
                                   data-testid={`costs-same-replica-${a.id}-row-${line.id}-rate`}
                                 />
