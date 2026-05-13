@@ -35,7 +35,7 @@ export function computeFacilitySchedule(
   debtPerPeriod: number[],
   sharePct: number,
 ): FacilityResult {
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   const drawSchedule       = new Array<number>(N).fill(0);
   const outstanding        = new Array<number>(N).fill(0);
   const interestAccrued    = new Array<number>(N).fill(0);
@@ -70,13 +70,17 @@ export function computeFacilitySchedule(
   const phaseOffset = phase ? (axis.phaseOffsets.get(phase.id) ?? 0) : 0;
   const cp = phase?.constructionPeriods ?? 0;
   const overlap = phase?.overlapPeriods ?? 0;
+  // Construction window: [phaseOffset, phaseOffset + cp - overlap).
+  // No-prior-column convention (2026-05-14): arr[0] = first active year,
+  // construction spans cp columns starting at phaseOffset.
+  const constructionStartProj = phaseOffset;
   const constructionEndProj = phaseOffset + Math.max(0, cp - overlap);
 
   const grace = Math.max(0, tranche.gracePeriods ?? 0);
-  // Existing facilities open at col 0 (= prior column, e.g. Dec 25) and
-  // start repaying at col 1 (first active period, Dec 26). New facilities
-  // repay after construction + grace.
-  const repayStartProj = isExisting ? 1 : constructionEndProj + grace;
+  // Existing facilities open with bal=openingBalance at i=0 (= first
+  // active year) and start repaying immediately. New facilities repay
+  // after construction + grace.
+  const repayStartProj = isExisting ? 0 : constructionEndProj + grace;
 
   const graceInterestTreatment = tranche.graceInterestTreatment ?? 'capitalize';
   const graceWindowStart = constructionEndProj;
@@ -135,14 +139,10 @@ export function computeFacilitySchedule(
 
   let bal = openingBalance;
   for (let i = 0; i < N; i++) {
-    if (isExisting && i === 0) {
-      outstanding[0] = bal;
-      continue;
-    }
     bal += drawSchedule[i];
     const interest = bal * periodicRate;
     interestAccrued[i] = interest;
-    const inConstructionWindow = !isExisting && i < constructionEndProj;
+    const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
     const inGraceWindow = !isExisting && i >= graceWindowStart && i < graceWindowEnd;
     let capitalise = false;
     if (inConstructionWindow) {
@@ -182,7 +182,7 @@ export function combineDebtService(
   facilities: Map<string, FacilityResult>,
   axis: ProjectAxis,
 ): CombinedDebtService {
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   const totalDrawdown          = new Array<number>(N).fill(0);
   const totalInterestAccrued   = new Array<number>(N).fill(0);
   const totalInterestCapitalized = new Array<number>(N).fill(0);

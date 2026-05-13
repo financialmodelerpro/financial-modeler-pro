@@ -13,9 +13,9 @@ import type { FinancingTranche } from '@/src/hubs/modeling/platforms/refm/lib/st
 const EPS_ABS = 1e-2;
 const EPS_REL = 1e-6;
 
-function near(a: number, b: number): boolean {
+function near(a: number, b: number, epsAbs = EPS_ABS): boolean {
   const d = Math.abs(a - b);
-  if (d <= EPS_ABS) return true;
+  if (d <= epsAbs) return true;
   const scale = Math.max(Math.abs(a), Math.abs(b), 1);
   return d / scale <= EPS_REL;
 }
@@ -54,7 +54,7 @@ export function reconcile(
     issues.push(`Facility shares sum ${shareSum} (expected 100)`);
 
   const newTrancheIds = new Set(tranches.filter((t) => t.origin !== 'existing').map((t) => t.id));
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   if (newTrancheIds.size > 0) {
     for (let i = 0; i < N; i++) {
       let s = 0;
@@ -84,8 +84,23 @@ export function reconcile(
     const expected = Math.max(0, t?.openingBalance ?? 0);
     if (!near(f.totalDrawn, expected))
       issues.push(`Existing facility ${f.trancheId} totalDrawn ${f.totalDrawn} vs openingBalance ${expected}`);
-    if (!near(f.outstanding[0] ?? 0, expected))
-      issues.push(`Existing facility ${f.trancheId} outstanding[0] ${f.outstanding[0]} vs openingBalance ${expected}`);
+  }
+
+  for (const f of facilities.values()) {
+    const t = tranches.find((x) => x.id === f.trancheId);
+    const openingInitial = t?.origin === 'existing' ? Math.max(0, t.openingBalance ?? 0) : 0;
+    for (let i = 0; i < N; i++) {
+      const opening = i === 0 ? openingInitial : (f.outstanding[i - 1] ?? 0);
+      const expectedClosing = opening
+        + (f.drawSchedule[i] ?? 0)
+        + (f.interestCapitalized[i] ?? 0)
+        - (f.principalRepaid[i] ?? 0);
+      const actual = f.outstanding[i] ?? 0;
+      if (!near(expectedClosing, actual, 1)) {
+        issues.push(`Closing balance identity broken at facility ${f.trancheId} period ${i}: ${expectedClosing} vs ${actual}`);
+        break;
+      }
+    }
   }
 
   if (!near(equity.totalCash, totalEquity))

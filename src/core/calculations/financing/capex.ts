@@ -25,18 +25,19 @@ export interface CapexInputs {
 }
 
 /**
- * Project capex aggregation.
+ * Project capex aggregation (no-prior-column convention, 2026-05-14).
  *
- * NEW (planning / construction) phases contribute their per-period
- * cost breakdown shifted by phaseOffset. OPERATIONAL phases skip
- * computeAssetCost entirely and instead add `historicalCapexTotal`
- * to the prior column (index 0) of the project axis, because their
- * capex is sunk before the reporting start. This keeps Y0 lumps from
- * new phases and operational pre-capex on the same column without
- * double counting.
+ * Maps `distributeItemCost`'s local index 0 (Y0 lump) AND local index 1
+ * (first construction period) to `projIdx = phaseOffset`, so they
+ * sum at the phase's first active project column. Local i >= 2 maps
+ * to `projIdx = phaseOffset + i - 1`. This gives a phase with
+ * constructionPeriods = cp a contiguous block of cp project cols.
+ *
+ * Operational phases (status === 'operational') are skipped entirely;
+ * their historical capex flows through `existing.ts` instead.
  */
 export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): CapexAggregate {
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   const inclAllLand   = new Array<number>(N).fill(0);
   const landTotal     = new Array<number>(N).fill(0);
   const landInKind    = new Array<number>(N).fill(0);
@@ -63,7 +64,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
       const perInK  = breakdown.perPeriodLandInKind ?? [];
       const len = Math.max(perAll.length, perLand.length, perInK.length);
       for (let i = 0; i < len; i++) {
-        const projIdx = offset + i;
+        const projIdx = i === 0 ? offset : offset + i - 1;
         if (projIdx < 0 || projIdx >= N) continue;
         inclAllLand[projIdx] += perAll[i] ?? 0;
         landTotal[projIdx]   += perLand[i] ?? 0;

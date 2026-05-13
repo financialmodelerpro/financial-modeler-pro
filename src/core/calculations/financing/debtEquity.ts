@@ -60,7 +60,7 @@ export function computeDebtEquitySplit(
   parcelFunding: ParcelFundingConfig[],
   axis: ProjectAxis,
 ): DebtEquitySplit {
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   const debt        = new Array<number>(N).fill(0);
   const equity      = new Array<number>(N).fill(0);
   const inKind      = new Array<number>(N).fill(0);

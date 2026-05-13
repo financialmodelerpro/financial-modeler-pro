@@ -16,7 +16,7 @@ export function computeEquityMovement(
   existing: ExistingAggregate,
   axis: ProjectAxis,
 ): EquityMovement {
-  const N = axis.totalPeriods + 1;
+  const N = axis.totalPeriods;
   const cashPerPeriod          = new Array<number>(N).fill(0);
   const inKindPerPeriod        = new Array<number>(N).fill(0);
   const existingEquityPerPeriod = new Array<number>(N).fill(0);

@@ -108,11 +108,38 @@ if (rA.reconciliation.ok) pass('reconciliation.ok'); else { fail('reconciliation
 
 console.log('\n[A5] Outstanding balance drops to zero (each fully-amortising facility)');
 {
-  const last = rA.axis.totalPeriods;
+  const last = rA.axis.totalPeriods - 1;
   for (const f of rA.facilities.values()) {
     const remain = f.outstanding[last] ?? 0;
     if (near(remain, 0)) pass(`facility ${f.trancheId} amortised`); else fail(`facility ${f.trancheId} amortised`, `remain ${remain}`);
   }
+}
+
+console.log('\n[A6] IDC captured during construction (no-prior-column convention)');
+{
+  for (const f of rA.facilities.values()) {
+    const capSum = f.interestCapitalized.reduce((s, v) => s + v, 0);
+    if (capSum > 0) pass(`facility ${f.trancheId} IDC captured`, `${capSum.toFixed(0)}`);
+    else fail(`facility ${f.trancheId} IDC`, 'no interest capitalised during construction');
+  }
+}
+
+console.log('\n[A7] Closing balance identity per period per facility');
+{
+  let allOk = true;
+  for (const f of rA.facilities.values()) {
+    for (let i = 0; i < rA.axis.totalPeriods; i++) {
+      const opening = i === 0 ? 0 : (f.outstanding[i - 1] ?? 0);
+      const expectedClosing = opening + (f.drawSchedule[i] ?? 0) + (f.interestCapitalized[i] ?? 0) - (f.principalRepaid[i] ?? 0);
+      const actual = f.outstanding[i] ?? 0;
+      if (!near(expectedClosing, actual, 1)) {
+        fail(`closing[${i}] for ${f.trancheId}`, `${expectedClosing} vs ${actual}`);
+        allOk = false;
+        break;
+      }
+    }
+  }
+  if (allOk) pass('per-period closing identity');
 }
 
 // ── Fixture B: VOCO operational ────────────────────────────────────────
@@ -221,13 +248,17 @@ console.log('\n[B3] Operational phase pre-capex NOT in new perPeriod (no double 
   else fail('double count', `inclAllLand sum ${sumIncl} >= 3.6B suggests pre-capex leaked into new capex`);
 }
 
-console.log('\n[B4] Existing facility outstanding[0] = openingBalance');
+console.log('\n[B4] Existing facility opening = openingBalance (recovered from closing identity)');
 {
   const f = rB.facilities.get('fac_voco');
   if (!f) { fail('fac_voco', 'missing'); }
   else {
-    const ob = f.outstanding[0] ?? 0;
-    if (near(ob, 2_400_000_000)) pass('outstanding[0] = 2.4B'); else fail('outstanding[0]', `${ob}`);
+    // No-prior-column convention: bal starts at openingBalance, activity
+    // fires at i=0. Opening at i=0 is recoverable as outstanding[0] +
+    // principal[0] - drawdown[0] - capitalized[0].
+    const opening0 = (f.outstanding[0] ?? 0) + (f.principalRepaid[0] ?? 0)
+                   - (f.drawSchedule[0] ?? 0) - (f.interestCapitalized[0] ?? 0);
+    if (near(opening0, 2_400_000_000, 1)) pass('opening[0] = 2.4B'); else fail('opening[0]', `${opening0}`);
     const totalDraw = f.drawSchedule.reduce((s, v) => s + v, 0);
     if (near(totalDraw, 0)) pass('no new drawdown on existing'); else fail('drawdown', `${totalDraw}`);
     if (near(f.totalDrawn, 2_400_000_000)) pass('totalDrawn = openingBalance');
@@ -240,8 +271,8 @@ console.log('\n[B5] Existing facility fully amortised by remaining period');
   const f = rB.facilities.get('fac_voco');
   if (!f) { fail('fac_voco', 'missing'); }
   else {
-    // Repayment runs from i=1..15 (15 periods).
-    const finalIdx = 15;
+    // Repayment runs at i=0..14 (15 periods, new convention).
+    const finalIdx = rB.axis.totalPeriods - 1;
     const remain = f.outstanding[finalIdx] ?? 0;
     if (near(remain, 0, 1)) pass(`outstanding[${finalIdx}] = 0`);
     else fail(`outstanding[${finalIdx}]`, `${remain}`);
@@ -251,15 +282,15 @@ console.log('\n[B5] Existing facility fully amortised by remaining period');
   }
 }
 
-console.log('\n[B6] Existing facility i=0 has no interest accrual');
+console.log('\n[B6] Existing facility starts repaying at i=0');
 {
   const f = rB.facilities.get('fac_voco');
   if (!f) { fail('fac_voco', 'missing'); }
   else {
-    if ((f.interestAccrued[0] ?? 0) === 0) pass('interestAccrued[0] = 0');
-    else fail('interestAccrued[0]', `${f.interestAccrued[0]}`);
-    if ((f.principalRepaid[0] ?? 0) === 0) pass('principalRepaid[0] = 0');
-    else fail('principalRepaid[0]', `${f.principalRepaid[0]}`);
+    if ((f.interestAccrued[0] ?? 0) > 0) pass('interestAccrued[0] > 0', `${(f.interestAccrued[0] ?? 0).toFixed(0)}`);
+    else fail('interestAccrued[0]', 'expected positive (activity fires at first active year)');
+    if ((f.principalRepaid[0] ?? 0) > 0) pass('principalRepaid[0] > 0', `${(f.principalRepaid[0] ?? 0).toFixed(0)}`);
+    else fail('principalRepaid[0]', 'expected positive (repayment starts at first active year)');
   }
 }
 
