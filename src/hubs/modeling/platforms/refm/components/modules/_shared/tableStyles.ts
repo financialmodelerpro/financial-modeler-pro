@@ -1,10 +1,14 @@
 /**
  * tableStyles.ts
  *
- * Universal results-table row-style tokens. Applies to ALL platform module
+ * Universal results-table style tokens. Applies to ALL platform module
  * results tables (Tab 1 Project Phases, Tab 2 Land, Tab 3 Costs, Tab 4
  * Financing, and every future module). Row treatments:
  *
+ *   CELL_HEADER       - every <th> in a results table. Header-blue fill,
+ *                       white uppercase bold text, centered horizontally
+ *                       and vertically. Use for label and number columns
+ *                       alike (universal alignment standard).
  *   ROW_ASSET_HEADING - group label inside a table. No fill, bold, no border.
  *   ROW_DATA          - individual data line. No fill, regular weight, no
  *                       border (explicitly overrides the project-wide
@@ -20,6 +24,11 @@
  * Subtotal light fill == navy 12% mix in srgb (consistent with the
  *   pre-Pass-11-Fix-16 subtotal background used across Module 1).
  *
+ * Every cell token sets `verticalAlign: 'middle'` so labels + numbers
+ * stay vertically centered regardless of row height. Horizontal
+ * alignment is per-token: CELL_HEADER is centered; ROW_* `.name` is
+ * left-aligned (labels), `.num` is right-aligned (numerics).
+ *
  * Helpers return cell-level style objects since the table layer composes
  * styles per-<td> (a row-level style alone does not paint background on
  * individual cells reliably across all browsers / table modes).
@@ -33,14 +42,36 @@ export const ROW_SUBTOTAL_FILL = 'color-mix(in srgb, var(--color-navy) 12%, tran
 
 // Base cell padding + typography shared across all row types. Tables can
 // override (e.g. label cells get textAlign:left, number cells right).
-// `borderTop: 'none' / borderBottom: 'none'` overrides the project-wide
+// `verticalAlign: 'middle'` keeps cells vertically centered regardless
+// of row height (universal alignment standard). `borderTop: 'none' /
+// borderBottom: 'none'` overrides the project-wide
 // `td { border-bottom: 1px solid var(--color-border) }` in globals.css;
 // row tokens that want a border re-declare it below.
 const CELL_BASE: CSSProperties = {
   padding: '4px 6px',
   fontSize: 11,
+  verticalAlign: 'middle',
   borderTop: 'none',
   borderBottom: 'none',
+};
+
+// Universal table header cell. Every results-table <th> should use this
+// token so all platform tables share the same header treatment: navy
+// fill, white uppercase bold text, horizontally + vertically centered.
+// Applies to BOTH the first label column ("ASSET / COST LINE", "PARCEL
+// NAME", etc.) and the number columns ("TOTAL", period labels).
+export const CELL_HEADER: CSSProperties = {
+  background: TABLE_HEADER_BLUE,
+  color: TABLE_HEADER_TEXT,
+  padding: '6px',
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  borderTop: 'none',
+  borderBottom: `1px solid var(--color-navy-dark, ${TABLE_HEADER_BLUE})`,
 };
 
 export const ROW_DATA = {

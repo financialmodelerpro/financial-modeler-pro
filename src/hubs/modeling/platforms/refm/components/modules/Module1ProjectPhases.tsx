@@ -31,6 +31,7 @@ import {
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import { currencyHeaderLine } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
+import { CELL_HEADER } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -50,15 +51,10 @@ const sectionCardStyle: React.CSSProperties = {
   marginBottom: 'var(--sp-3)',
 };
 
-const tableHeaderStyle: React.CSSProperties = {
-  background: 'var(--color-navy)',
-  color: 'var(--color-on-primary-navy)',
-  textAlign: 'left',
-  padding: 'var(--sp-1)',
-  fontSize: 'var(--font-micro)',
-  fontWeight: 'var(--fw-bold)',
-  textTransform: 'uppercase',
-};
+// Universal table header alignment standard (2026-05-13): route Tab 1's
+// header through the shared CELL_HEADER token so headers stay centered
+// horizontally + vertically across every Module 1 results table.
+const tableHeaderStyle: React.CSSProperties = CELL_HEADER;
 
 const tableHeaderLabelStyle: React.CSSProperties = {
   color: 'var(--color-on-primary-navy)',

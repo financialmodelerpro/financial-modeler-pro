@@ -94,6 +94,7 @@ import {
 import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
+import { CELL_HEADER } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -804,23 +805,23 @@ function ScheduleTable({
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
-            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={{ padding: '4px 6px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</th>
-              <th style={{ padding: '4px 6px', textAlign: 'right', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</th>
-              {columns.map((c, i) => (<th key={i} style={{ padding: '4px 6px', textAlign: 'right', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c}</th>))}
+            <tr>
+              <th style={CELL_HEADER}>Description</th>
+              <th style={CELL_HEADER}>Total</th>
+              {columns.map((c, i) => (<th key={i} style={CELL_HEADER}>{c}</th>))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, ri) => (
               <tr key={ri} style={{ fontWeight: r.bold ? 700 : 400, background: r.bold ? 'var(--color-grey-pale)' : 'transparent' }}>
-                <td style={{ padding: '4px 6px' }}>{r.label}</td>
+                <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>{r.label}</td>
                 <td
-                  style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: r.total === '-' ? 'var(--color-meta)' : undefined }}
+                  style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle', fontWeight: 700, color: r.total === '-' ? 'var(--color-meta)' : undefined }}
                   data-testid={`${dataTestid}-row-${ri}-total`}
                 >
                   {r.total ?? '-'}
                 </td>
-                {r.values.map((v, vi) => (<td key={vi} style={{ padding: '4px 6px', textAlign: 'right' }}>{v}</td>))}
+                {r.values.map((v, vi) => (<td key={vi} style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle' }}>{v}</td>))}
               </tr>
             ))}
           </tbody>
@@ -1505,11 +1506,11 @@ export default function Module1Financing(): React.JSX.Element {
             <div style={{ marginTop: 'var(--sp-2)', overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} data-testid="cap-stack-sources-table">
                 <thead>
-                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                    <th style={{ padding: '6px', textAlign: 'left' }}>Source</th>
-                    <th style={{ padding: '6px', textAlign: 'right' }}>Amount</th>
-                    <th style={{ padding: '6px', textAlign: 'right' }}>% of Total</th>
-                    <th style={{ padding: '6px', textAlign: 'left' }}>Category</th>
+                  <tr>
+                    <th style={CELL_HEADER}>Source</th>
+                    <th style={CELL_HEADER}>Amount</th>
+                    <th style={CELL_HEADER}>% of Total</th>
+                    <th style={CELL_HEADER}>Category</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1640,11 +1641,11 @@ export default function Module1Financing(): React.JSX.Element {
                   <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>{title}</strong>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'auto' }}>
                     <thead>
-                      <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                        <th style={{ padding: '4px 6px', textAlign: 'left' }}>Description</th>
-                        <th style={{ padding: '4px 6px', textAlign: 'right' }}>Total</th>
+                      <tr>
+                        <th style={CELL_HEADER}>Description</th>
+                        <th style={CELL_HEADER}>Total</th>
                         {activePeriods.map((pi) => (
-                          <th key={pi} style={{ padding: '4px 6px', textAlign: 'right' }}>{inputsSummary.labels[pi]}</th>
+                          <th key={pi} style={CELL_HEADER}>{inputsSummary.labels[pi]}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1744,11 +1745,11 @@ export default function Module1Financing(): React.JSX.Element {
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>1. Capital Stack Summary</strong>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
-                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={{ padding: '4px 6px', textAlign: 'left' }}>Source</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'right' }}>Amount</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'right' }}>% of Total</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
+                <tr>
+                  <th style={CELL_HEADER}>Source</th>
+                  <th style={CELL_HEADER}>Amount</th>
+                  <th style={CELL_HEADER}>% of Total</th>
+                  <th style={CELL_HEADER}>Category</th>
                 </tr>
               </thead>
               <tbody>
@@ -1852,11 +1853,11 @@ export default function Module1Financing(): React.JSX.Element {
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>5. IDC Summary</strong>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
-                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={{ padding: '4px 6px', textAlign: 'left' }}>Facility</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'right' }}>Capitalised IDC</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'right' }}>Expensed Interest</th>
-                  <th style={{ padding: '4px 6px', textAlign: 'right' }}>Total</th>
+                <tr>
+                  <th style={CELL_HEADER}>Facility</th>
+                  <th style={CELL_HEADER}>Capitalised IDC</th>
+                  <th style={CELL_HEADER}>Expensed Interest</th>
+                  <th style={CELL_HEADER}>Total</th>
                 </tr>
               </thead>
               <tbody>

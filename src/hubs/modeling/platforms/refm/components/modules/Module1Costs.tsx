@@ -86,6 +86,7 @@ import {
 import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import {
+  CELL_HEADER,
   ROW_ASSET_HEADING,
   ROW_DATA,
   ROW_SUBTOTAL,
@@ -1789,8 +1790,13 @@ function SummaryTables({
 
   const cellNum: React.CSSProperties = { padding: '4px 6px', textAlign: 'right', fontSize: 11 };
   const cellName: React.CSSProperties = { padding: '4px 6px', textAlign: 'left', fontSize: 11, fontWeight: 600 };
-  const headStyle: React.CSSProperties = { background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', padding: '6px', textAlign: 'right', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' };
-  const headLeftStyle: React.CSSProperties = { ...headStyle, textAlign: 'left' };
+  // Header cells route through the shared CELL_HEADER token so every
+  // Results table gets the universal centered alignment (label + number
+  // columns alike). headStyle / headLeftStyle aliases retained for
+  // back-compat with existing call sites + below; both resolve to the
+  // same centered CELL_HEADER now.
+  const headStyle: React.CSSProperties = CELL_HEADER;
+  const headLeftStyle: React.CSSProperties = CELL_HEADER;
 
   // M2.0g Fix 7e: 4th summary table - Capex by Cost Type per Asset.
   // Rows = assets, cols = Land Cash / Land In-Kind / Hard / Soft /
