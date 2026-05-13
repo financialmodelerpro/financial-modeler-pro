@@ -1209,6 +1209,53 @@ export default function Module1Financing(): React.JSX.Element {
     return total;
   }, [phases, assets, project, parcels, subUnits, landAllocationMode]);
 
+  // M2.0 Pass 15 (2026-05-13): Tab 4 Inputs sub-tab period axis. Matches
+  // Tab 3 Costs Results data-extent crop (first / last column with
+  // non-zero capex) plus ONE trailing year so the Inputs tables show the
+  // capex window cleanly without padding to the full project horizon
+  // (operations tail).
+  //
+  // Anchoring: if the project has Land In-Kind at Y0 (cash capex starts
+  // later), the start is forced to project Y0 so the In-Kind lump still
+  // lands in the rendered range (mirrors Tab 3's inclusive-extent start).
+  //
+  // The axis is shared by the Capex Breakdown table AND the Total Debt /
+  // Total Equity Required tables, so both render the same columns.
+  // Schedules sub-tab axis is independent and still uses the full
+  // project + debt-service horizon.
+  const inputsAxis = useMemo(() => {
+    const totals = inputsSummary.totals;
+    let firstNonZero = -1;
+    let lastNonZero = -1;
+    for (let i = 0; i < totals.length; i++) {
+      if (Math.abs(totals[i] ?? 0) > 0.5) {
+        if (firstNonZero < 0) firstNonZero = i;
+        lastNonZero = i;
+      }
+    }
+    if (projectInKindLandValue > 0.5) {
+      firstNonZero = firstNonZero < 0 ? 0 : Math.min(firstNonZero, 0);
+      lastNonZero = Math.max(lastNonZero, 0);
+    }
+    const hasData = firstNonZero >= 0;
+    const first = hasData ? firstNonZero : 0;
+    const last = hasData ? lastNonZero : 0;
+    const activeCount = last - first + 1 + 1; // +1 trailing year
+    const axis = buildResultsPeriodAxis({
+      startIso: project.startDate,
+      numAnnualPeriods: activeCount,
+      cropAnnualOffset: first,
+    });
+    const cropRow = (arr: number[]): number[] => {
+      const out = new Array<number>(activeCount).fill(0);
+      for (let i = 0; i < activeCount; i++) {
+        out[i] = arr[first + i] ?? 0;
+      }
+      return out;
+    };
+    return { axis, cropRow, activeCount, first };
+  }, [inputsSummary, projectInKindLandValue, project.startDate]);
+
   // P4-Fix 10 (2026-05-12): funding routed off project-wide capex
   // (inputsSummary.totals) so Capital Structure Overview + schedules
   // see all phases' capex. Was single-phase pre-Pass-4 which rendered
@@ -1450,11 +1497,11 @@ export default function Module1Financing(): React.JSX.Element {
             const rowLandCash = [...inputsSummary.landCashPerPeriod];
             const rowExclLand = rowTotal.map((v, i) => v - (rowLandCash[i] ?? 0));
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
-            const capexAxis = buildResultsPeriodAxis({
-              startIso: project.startDate,
-              numAnnualPeriods: inputsSummary.totalPeriods,
-            });
+            const capexAxis = inputsAxis.axis;
             const capexNonLabelPct = nonLabelColumnPct(1 + capexAxis.count);
+            const cropTotal = inputsAxis.cropRow(rowTotal);
+            const cropLandCash = inputsAxis.cropRow(rowLandCash);
+            const cropExclLand = inputsAxis.cropRow(rowExclLand);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <div style={sectionCardStyle} data-testid="capex-breakdown">
@@ -1478,19 +1525,19 @@ export default function Module1Financing(): React.JSX.Element {
                         <td style={ROW_DATA.name}>Capex (excluding Land)</td>
                         <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-total">{fmtCell(sum(rowExclLand))}</td>
                         <td style={ROW_DATA.num} data-testid="capex-breakdown-excl-land-prior">{fmtCell(0)}</td>
-                        {rowExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                        {cropExclLand.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                       </tr>
                       <tr data-testid="capex-breakdown-land-cash">
                         <td style={ROW_DATA.name}>Land Cash Value</td>
                         <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-total">{fmtCell(sum(rowLandCash))}</td>
                         <td style={ROW_DATA.num} data-testid="capex-breakdown-land-cash-prior">{fmtCell(0)}</td>
-                        {rowLandCash.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                        {cropLandCash.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                       </tr>
                       <tr data-testid="capex-breakdown-total">
                         <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
                         <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-amount">{fmtCell(sum(rowTotal))}</td>
                         <td style={ROW_GRAND_TOTAL.num} data-testid="capex-breakdown-total-prior">{fmtCell(0)}</td>
-                        {rowTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
+                        {cropTotal.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
                       </tr>
                     </tbody>
                   </table>
@@ -1907,11 +1954,11 @@ export default function Module1Financing(): React.JSX.Element {
             const inKindTotal = sum(inKindRow);
             const cashEquityTotal = sum(cashEquityRow);
             const equityTotal = cashEquityTotal + inKindTotal;
-            const reqAxis = buildResultsPeriodAxis({
-              startIso: project.startDate,
-              numAnnualPeriods: inputsSummary.totalPeriods,
-            });
+            const reqAxis = inputsAxis.axis;
             const reqNonLabelPct = nonLabelColumnPct(1 + reqAxis.count);
+            const cropDebt = inputsAxis.cropRow(debtRow);
+            const cropCashEquity = inputsAxis.cropRow(cashEquityRow);
+            const cropInKind = inputsAxis.cropRow(inKindRow);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <>
@@ -1937,7 +1984,7 @@ export default function Module1Financing(): React.JSX.Element {
                           <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-total">{fmtCell(debtTotal)}</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(0)}</td>
-                          {debtRow.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
+                          {cropDebt.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
                         </tr>
                       </tbody>
                     </table>
@@ -1969,20 +2016,20 @@ export default function Module1Financing(): React.JSX.Element {
                           <td style={ROW_DATA.name}>Equity (Cash)</td>
                           <td style={ROW_DATA.num} data-testid="total-equity-required-cash-total">{fmtCell(cashEquityTotal)}</td>
                           <td style={ROW_DATA.num} data-testid="total-equity-required-cash-prior">{fmtCell(0)}</td>
-                          {cashEquityRow.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                          {cropCashEquity.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                         </tr>
                         <tr data-testid="total-equity-required-inkind">
                           <td style={ROW_DATA.name}>Equity (In-Kind)</td>
                           <td style={ROW_DATA.num} data-testid="total-equity-required-inkind-total">{fmtCell(inKindTotal)}</td>
                           <td style={ROW_DATA.num} data-testid="total-equity-required-inkind-prior">{fmtCell(0)}</td>
-                          {inKindRow.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                          {cropInKind.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
                         </tr>
                         <tr data-testid="total-equity-required-row">
                           <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-total">{fmtCell(equityTotal)}</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-prior">{fmtCell(0)}</td>
-                          {cashEquityRow.map((_, i) => (
-                            <td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell((cashEquityRow[i] ?? 0) + (inKindRow[i] ?? 0))}</td>
+                          {cropCashEquity.map((_, i) => (
+                            <td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell((cropCashEquity[i] ?? 0) + (cropInKind[i] ?? 0))}</td>
                           ))}
                         </tr>
                       </tbody>
