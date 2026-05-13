@@ -58,6 +58,7 @@ import {
   BASE_RATES,
   BASE_RATE_LABELS,
   // P2-Fix 7: IDC_TREATMENTS dropped (only Capitalize/Expense rendered).
+  IDC_TREATMENTS,
   IDC_TREATMENT_LABELS,
   FEE_TREATMENTS,
   FEE_TREATMENT_LABELS,
@@ -812,20 +813,44 @@ function TrancheCard({
             setting). */}
         {!isExistingFacility && (
           <div>
-            {/* P2-Fix 7 (2026-05-11): dropdown shows Capitalize / Expense
-                only. Mixed retained on schema for back-compat; migration
-                folded existing Mixed -> Capitalize. idcMixedSplitPeriod
-                input removed from UI (schema field stays). */}
+            {/* IDC Treatment selector (2026-05-13): Mixed option now
+                exposed alongside Capitalize / Expense. When Mixed is
+                selected, an inclusive split-period input appears below
+                writing to tranche.idcMixedSplitPeriod (engine reads
+                this; default = constructionPeriods). idcCapitalize
+                legacy boolean is set to true for capitalize, false
+                otherwise. */}
             <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>IDC Treatment</label>
             <select
-              value={idcTreatment === 'mixed' ? 'capitalize' : idcTreatment}
-              onChange={(e) => onUpdate({ idcTreatment: e.target.value as IDCTreatment, idcCapitalize: e.target.value === 'capitalize' })}
+              value={idcTreatment}
+              onChange={(e) => {
+                const next = e.target.value as IDCTreatment;
+                onUpdate({ idcTreatment: next, idcCapitalize: next === 'capitalize' });
+              }}
               style={inputStyle}
               data-testid={`tranche-${tranche.id}-idc-treatment`}
             >
-              <option value="capitalize">{IDC_TREATMENT_LABELS.capitalize}</option>
-              <option value="expense">{IDC_TREATMENT_LABELS.expense}</option>
+              {IDC_TREATMENTS.map((t) => (
+                <option key={t} value={t}>{IDC_TREATMENT_LABELS[t]}</option>
+              ))}
             </select>
+            {idcTreatment === 'mixed' && (
+              <div style={{ marginTop: 4 }} data-testid={`tranche-${tranche.id}-idc-mixed-split-wrap`}>
+                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Capitalize through period (inclusive)</label>
+                <AccountingNumberInput
+                  min={0}
+                  max={Math.max(0, phase.constructionPeriods + phase.operationsPeriods - 1)}
+                  decimals={0}
+                  value={tranche.idcMixedSplitPeriod ?? phase.constructionPeriods}
+                  onChange={(n) => onUpdate({ idcMixedSplitPeriod: Math.max(0, Math.round(n)) })}
+                  style={inputStyle}
+                  data-testid={`tranche-${tranche.id}-idc-mixed-split`}
+                />
+                <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
+                  Interest capitalised through period {tranche.idcMixedSplitPeriod ?? phase.constructionPeriods} inclusive; expensed afterwards.
+                </div>
+              </div>
+            )}
           </div>
         )}
         {!isExistingFacility && (
