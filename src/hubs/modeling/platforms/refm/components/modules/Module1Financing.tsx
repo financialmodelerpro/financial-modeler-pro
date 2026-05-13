@@ -41,9 +41,6 @@ import {
   type ParcelFundingType,
   type ParcelFundingConfig,
   type ProjectFinancingConfig,
-  type FundingMethod2LineRatio,
-  type CostLine,
-  deriveLineBaseId,
   DRAWDOWN_METHODS,
   DRAWDOWN_METHOD_LABELS,
   REPAYMENT_METHODS_USER,
@@ -155,17 +152,11 @@ const pillStyle = (active: boolean): React.CSSProperties => ({
 
 // M2.0M: per-method input panel. Renders the conditional inputs for the
 // currently-selected funding method directly below its radio entry.
-//
-// P4-Fix 1 (2026-05-12): Method 2 now renders a real editable table.
-// One row per unique cost-line baseId across the project (deduped by
-// stripping the __phaseId__assetId suffix from composed ids). Each row
-// holds debt% (editable) + equity% (auto = 100 - debt%). Stored in
-// cfg.lineItemRatios.master keyed by baseId.
+// Method 2 (Line-Item Based Financing) removed 2026-05-13.
 function renderMethodInputs(
   id: FundingMethodId,
   cfg: ProjectFinancingConfig,
   patch: (next: Partial<ProjectFinancingConfig>) => void,
-  costLines: CostLine[] = [],
 ): React.JSX.Element {
   const numStyle: React.CSSProperties = { ...inputStyle, width: 90 };
   if (id === 1) {
@@ -192,89 +183,6 @@ function renderMethodInputs(
             style={numStyle}
           />
         </label>
-      </div>
-    );
-  }
-  if (id === 2) {
-    // P4-Fix 1 (2026-05-12): editable per-cost-line debt/equity table.
-    // Build the row set by deduping composed line ids on baseId so the
-    // same standard line (e.g. 'construction') under multiple phases
-    // collapses to a single editable row. Custom lines (id starts with
-    // 'custom-') stay distinct via their unique id.
-    const master = cfg.lineItemRatios?.master ?? [];
-    const seenBase = new Set<string>();
-    const rows: Array<{ baseId: string; label: string }> = [];
-    for (const line of costLines) {
-      if (line.id.startsWith('auto-idc__')) continue;
-      const baseId = deriveLineBaseId(line.id);
-      if (seenBase.has(baseId)) continue;
-      seenBase.add(baseId);
-      rows.push({ baseId, label: line.name || baseId });
-    }
-    // Fallback when a line has no master entry: use the project-wide
-    // fixedRatio (not hardcoded 70/30). Keeps Method 2 consistent with
-    // the engine's resolution path.
-    const fallbackDebt = cfg.fixedRatio?.debtPct ?? 70;
-    const fallbackEquity = cfg.fixedRatio?.equityPct ?? 30;
-    const ratioOf = (baseId: string): FundingMethod2LineRatio =>
-      master.find((m) => m.lineId === baseId) ?? { lineId: baseId, debtPct: fallbackDebt, equityPct: fallbackEquity };
-    const setRatio = (baseId: string, debtPct: number): void => {
-      const clamped = Math.max(0, Math.min(100, debtPct));
-      const next: FundingMethod2LineRatio = { lineId: baseId, debtPct: clamped, equityPct: 100 - clamped };
-      const existing = master.find((m) => m.lineId === baseId);
-      const masterNext = existing
-        ? master.map((m) => m.lineId === baseId ? next : m)
-        : [...master, next];
-      patch({ lineItemRatios: { master: masterNext } });
-    };
-    if (rows.length === 0) {
-      return (
-        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 6 }} data-testid="funding-method-2-inputs">
-          No cost lines defined yet. Add cost lines in Tab 3 to configure per-line debt/equity ratios.
-        </div>
-      );
-    }
-    return (
-      <div style={{ marginTop: 6 }} data-testid="funding-method-2-inputs">
-        <table className="table-standard" style={{ width: '100%', fontSize: 11, tableLayout: 'fixed' }} data-testid="funding-method-2-table">
-          <colgroup>
-            <col style={{ width: '60%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '20%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: '4px 6px' }}>Cost Line</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Debt %</th>
-              <th style={{ textAlign: 'right', padding: '4px 6px' }}>Equity %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ baseId, label }) => {
-              const r = ratioOf(baseId);
-              return (
-                <tr key={baseId} data-testid={`m2-row-${baseId}`}>
-                  <td style={{ padding: '4px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                    <PercentageInput
-                      min={0} max={100}
-                      value={r.debtPct}
-                      onChange={(n) => setRatio(baseId, n)}
-                      style={{ ...numStyle, width: 70 }}
-                      data-testid={`m2-debt-${baseId}`}
-                    />
-                  </td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`m2-equity-${baseId}`}>
-                    {r.equityPct.toFixed(0)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-          Equity % auto-derives as 100% - Debt %. Per-asset override is available via the inheritance toggle in Tab 3.
-        </div>
       </div>
     );
   }
@@ -516,11 +424,11 @@ function TrancheCard({
 
       {/* P3-Fix 3 (2026-05-12): per-facility Debt % + Principal inputs
           dropped. Facility principal auto-derives from chosen funding
-          method (Method 1: total capex x debt%; Method 2: cost-line
-          ratios; Method 3: net funding x debt%; Method 4: cash deficit
-          x debt%). Multi-facility split uses the new Facility Share %
-          field below. ltvPct + principal stay on schema for back-compat;
-          calc engine ignores them when ProjectFinancingConfig is set. */}
+          method (Method 1: total capex x debt%; Method 3: net funding
+          x debt%; Method 4: cash deficit x debt%). Multi-facility split
+          uses the new Facility Share % field below. ltvPct + principal
+          stay on schema for back-compat; calc engine ignores them when
+          ProjectFinancingConfig is set. */}
       <div style={{ display: 'grid', gridTemplateColumns: facilityCount > 1 ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Interest %</label>
@@ -623,10 +531,9 @@ function TrancheCard({
 
       {/* P3-Fix 5 (2026-05-12): per-facility Drawdown Method dropdown
           dropped. Drawdown timing auto-derives from the chosen funding
-          method (Method 1: matches capex weighted by debt%; Method 2:
-          matches cost-line phasing x debt%; Method 3: matches net
-          funding requirement schedule; Method 4: drawdown when cash
-          deficit appears). Schema fields drawdownMethod /
+          method (Method 1: matches capex weighted by debt%; Method 3:
+          matches net funding requirement schedule; Method 4: drawdown
+          when cash deficit appears). Schema fields drawdownMethod /
           drawdownDistribution / drawdownIncludeLand /
           drawdownMinCashFloor / drawdownCustomSchedule stay for
           back-compat; calc engine ignores them when
@@ -1223,10 +1130,6 @@ export default function Module1Financing(): React.JSX.Element {
     const labels = generatePeriodLabels(project.startDate, totalPeriods, 'annual');
     const perAsset = new Map<string, { id: string; name: string; perPeriod: number[]; total: number }>();
     const totals = new Array<number>(totalPeriods).fill(0);
-    // Method 2: per-line per-asset capex breakdown on the project
-    // period axis. Built alongside the per-asset totals so callers
-    // that need either shape can read both from the same memo.
-    const perLineAssetCapex: Array<{ lineId: string; assetId: string; baseLineId: string; perPeriod: number[] }> = [];
     for (const ph of phases) {
       const phaseAssetsLocal = assets.filter((a) => a.phaseId === ph.id && a.visible);
       for (const a of phaseAssetsLocal) {
@@ -1245,41 +1148,17 @@ export default function Module1Financing(): React.JSX.Element {
         const merged = existing ? existing.perPeriod.map((v, i) => v + (series[i] ?? 0)) : series;
         const total = merged.reduce((s, v) => s + v, 0);
         perAsset.set(a.id, { id: a.id, name: a.name, perPeriod: merged, total });
-        // Per-line entries (Method 2 consumer). Exclude land in-kind
-        // lines (they contribute via in-kind equity, not the funding
-        // need axis the financing engine sizes against).
-        const perLine = breakdown.perLinePerPeriod ?? {};
-        for (const [lineId, localSeries] of Object.entries(perLine)) {
-          if (!Array.isArray(localSeries)) continue;
-          const line = costLines.find((c) => c.id === lineId);
-          if (line && line.method === 'percent_of_inkind_land') continue;
-          const projectSeries = new Array<number>(totalPeriods).fill(0);
-          for (let lp = 0; lp < localSeries.length; lp++) {
-            const pp = costLineProjectPeriodIndex(project, ph, lp);
-            if (pp < 0 || pp >= totalPeriods) continue;
-            projectSeries[pp] += localSeries[lp] ?? 0;
-          }
-          const lineTotal = projectSeries.reduce((s, v) => s + v, 0);
-          if (Math.abs(lineTotal) < 0.5) continue;
-          perLineAssetCapex.push({
-            lineId,
-            assetId: a.id,
-            baseLineId: deriveLineBaseId(lineId),
-            perPeriod: projectSeries,
-          });
-        }
       }
     }
     const ratio = (() => {
       const f = financingConfig;
       if (f.fundingMethod === 1) return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
       if (f.fundingMethod === 3) return { debt: f.netFundingConfig?.debtPct ?? 70, equity: f.netFundingConfig?.equityPct ?? 30 };
-      if (f.fundingMethod === 4) return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
-      return { debt: f.fixedRatio?.debtPct ?? 70, equity: f.fixedRatio?.equityPct ?? 30 };
+      return { debt: f.cashDeficitConfig?.debtPct ?? 70, equity: f.cashDeficitConfig?.equityPct ?? 30 };
     })();
     const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
     const equityPct = ratio.equity / (ratio.debt + ratio.equity || 1);
-    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods, perLineAssetCapex };
+    return { labels, perAsset: Array.from(perAsset.values()), totals, debtPct, equityPct, totalPeriods };
   }, [project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode, financingConfig]);
   // Land In-Kind value project-wide (sum across all phases) drives the
   // Equity Total breakdown into Cash + In-Kind sub-rows.
@@ -1301,25 +1180,12 @@ export default function Module1Financing(): React.JSX.Element {
   // zero whenever activePhaseId did not match the phase carrying the
   // cost lines.
   const funding = useMemo(() => {
-    const isMethod2 = financingConfig.fundingMethod === 2;
-    const perAssetRatioOverrides = isMethod2
-      ? costOverrides
-          .filter((o) => typeof o.debtPctOverride === 'number' || typeof o.equityPctOverride === 'number')
-          .map((o) => ({
-            lineId: o.lineId,
-            assetId: o.assetId,
-            debtPctOverride: o.debtPctOverride,
-            equityPctOverride: o.equityPctOverride,
-          }))
-      : undefined;
     return computeFunding({
       method: financingConfig.fundingMethod,
       financing: financingConfig,
       capexPerPeriod: inputsSummary.totals,
-      perLineAssetCapex: isMethod2 ? inputsSummary.perLineAssetCapex : undefined,
-      perAssetRatioOverrides,
     });
-  }, [financingConfig, inputsSummary.totals, inputsSummary.perLineAssetCapex, costOverrides]);
+  }, [financingConfig, inputsSummary.totals]);
   const equity = useMemo(
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],
@@ -1576,7 +1442,7 @@ export default function Module1Financing(): React.JSX.Element {
                       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
                         {FUNDING_METHOD_DESCRIPTIONS[id]}
                       </div>
-                      {isActive && renderMethodInputs(id, financingConfig, setFinancingConfig, costLines)}
+                      {isActive && renderMethodInputs(id, financingConfig, setFinancingConfig)}
                     </div>
                   </label>
                 );
@@ -1596,7 +1462,6 @@ export default function Module1Financing(): React.JSX.Element {
               const m = financingConfig.fundingMethod;
               const basisLabel =
                 m === 1 ? 'Total Capex (excl Land In-Kind)' :
-                m === 2 ? 'Total Capex (excl Land In-Kind), allocated per cost-line ratio' :
                 m === 3 ? 'Net Funding (Capex - Pre-Sales - OCF - Existing Cash)' :
                 'Cash Deficit (period-by-period fill to minimum cash reserve)';
               const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);

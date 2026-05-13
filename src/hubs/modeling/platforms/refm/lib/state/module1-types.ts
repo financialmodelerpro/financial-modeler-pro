@@ -899,13 +899,10 @@ export interface CostOverride {
   // this asset's contribution + per-period distribution.
   startPeriod?: number;
   endPeriod?: number;
-  // M2.0M (2026-05-11): per-asset debt/equity ratio override for Funding
-  // Method 2 (Line-Item Based Financing). When either is set AND
-  // overridden !== false, the financing engine substitutes these for
-  // the master line ratio when allocating this asset's slice of the
-  // cost line to debt vs equity. Unaffected for Methods 1/3/4.
-  debtPctOverride?: number;
-  equityPctOverride?: number;
+  // Method 2 removed 2026-05-13: the per-asset debt/equity override
+  // fields previously here (debtPctOverride, equityPctOverride) were
+  // only consumed by Method 2 Line-Item Based Financing. They are
+  // stripped from any loaded snapshot by migrateM20pass5DropMethod2.
 }
 
 // ── Financing tranche ──────────────────────────────────────────────────────
@@ -1316,20 +1313,20 @@ export interface EquityContribution {
 // `FinancingDataHooks` (capex / pre-sales / OCF / closing cash). When
 // upstream engines aren't ready yet, hooks return zeros, so the four
 // methods behave as documented in docs/m20M-financing-architecture.md.
-export type FundingMethodId = 1 | 2 | 3 | 4;
+// Method 2 (Line-Item Based Financing) removed 2026-05-13. Old snapshots
+// migrate fundingMethod 2 -> 1 via migrateM20pass5DropMethod2.
+export type FundingMethodId = 1 | 3 | 4;
 
-export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3, 4] as const;
+export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 3, 4] as const;
 
 export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
   1: 'Fixed Debt-to-Equity Ratio',
-  2: 'Line-Item Based Financing',
   3: 'Net Funding Requirement',
   4: 'Cash Deficit Funding',
 };
 
 export const FUNDING_METHOD_DESCRIPTIONS: Record<FundingMethodId, string> = {
   1: 'Single global debt% / equity% applied to total capex (excl. land in-kind).',
-  2: 'Each cost line carries its own debt% / equity%, with per-asset override.',
   3: 'Net funding = capex minus pre-sales minus operating CF minus existing cash, then split by ratio.',
   4: 'Period-by-period: draw debt+equity only when closing cash would fall below minimum reserve.',
 };
@@ -1337,19 +1334,6 @@ export const FUNDING_METHOD_DESCRIPTIONS: Record<FundingMethodId, string> = {
 export interface FundingMethod1Config {
   debtPct: number;     // 0..100
   equityPct: number;   // 0..100
-}
-
-// Method 2 master template: one ratio entry per cost line id.
-// Per-asset override lives on the existing CostOverride via
-// debtPctOverride + equityPctOverride (no separate map needed).
-export interface FundingMethod2LineRatio {
-  lineId: string;
-  debtPct: number;
-  equityPct: number;
-}
-
-export interface FundingMethod2Config {
-  master: FundingMethod2LineRatio[];
 }
 
 export interface FundingMethod3Config {
@@ -1422,7 +1406,6 @@ export const FUNDING_VIEW_MODES: readonly FundingViewMode[] = ['combined', 'sing
 export interface ProjectFinancingConfig {
   fundingMethod: FundingMethodId;
   fixedRatio?: FundingMethod1Config;
-  lineItemRatios?: FundingMethod2Config;
   netFundingConfig?: FundingMethod3Config;
   cashDeficitConfig?: FundingMethod4Config;
   parcelFunding: ParcelFundingConfig[];
@@ -1446,7 +1429,6 @@ export const ASSET_FILTER_COMBINED = '__combined__';
 export const PHASE_FILTER_ALL = '__all__';
 
 export const DEFAULT_FUNDING_METHOD_1_CONFIG: FundingMethod1Config = { debtPct: 70, equityPct: 30 };
-export const DEFAULT_FUNDING_METHOD_2_CONFIG: FundingMethod2Config = { master: [] };
 export const DEFAULT_FUNDING_METHOD_3_CONFIG: FundingMethod3Config = { existingCash: 0, debtPct: 70, equityPct: 30 };
 export const DEFAULT_FUNDING_METHOD_4_CONFIG: FundingMethod4Config = {
   initialCash: 0,

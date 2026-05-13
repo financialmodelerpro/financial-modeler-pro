@@ -23,7 +23,6 @@ import { resolve } from 'node:path';
 import {
   type FundingMethodId,
   type FundingMethod1Config,
-  type FundingMethod2Config,
   type FundingMethod3Config,
   type FundingMethod4Config,
   type ParcelFundingType,
@@ -41,7 +40,6 @@ import {
   PARCEL_FUNDING_TYPE_LABELS,
   FUNDING_VIEW_MODES,
   DEFAULT_FUNDING_METHOD_1_CONFIG,
-  DEFAULT_FUNDING_METHOD_2_CONFIG,
   DEFAULT_FUNDING_METHOD_3_CONFIG,
   DEFAULT_FUNDING_METHOD_4_CONFIG,
   DEFAULT_PROJECT_FINANCING_CONFIG,
@@ -120,9 +118,7 @@ console.log('\n[1/7] Schema + type surface');
     fail('DEFAULT_FUNDING_METHOD_1_CONFIG', JSON.stringify(DEFAULT_FUNDING_METHOD_1_CONFIG));
   }
 
-  if (Array.isArray(DEFAULT_FUNDING_METHOD_2_CONFIG.master) && DEFAULT_FUNDING_METHOD_2_CONFIG.master.length === 0) {
-    pass('DEFAULT_FUNDING_METHOD_2_CONFIG has empty master[]');
-  } else fail('DEFAULT_FUNDING_METHOD_2_CONFIG', 'master[] not empty');
+  // DEFAULT_FUNDING_METHOD_2_CONFIG removed with Method 2 (M2.0 Pass 13).
 
   if (
     DEFAULT_FUNDING_METHOD_3_CONFIG.existingCash === 0 &&
@@ -167,7 +163,9 @@ console.log('\n[1/7] Schema + type surface');
     pass('ParcelFundingConfig deferred_payment shape compiles');
   } else fail('ParcelFundingConfig deferred shape', 'unexpected');
 
-  // CostOverride extension: debtPctOverride + equityPctOverride.
+  // CostOverride.debtPctOverride / equityPctOverride were removed when
+  // Method 2 was dropped (M2.0 Pass 13). Presence check: the field
+  // names must no longer compile on CostOverride.
   const sampleOverride: CostOverride = {
     assetId: 'asset_1',
     lineId: 'construction-bua__phase_1',
@@ -175,12 +173,11 @@ console.log('\n[1/7] Schema + type surface');
     value: 1500,
     phasing: 'even',
     overridden: true,
-    debtPctOverride: 80,
-    equityPctOverride: 20,
   };
-  if (sampleOverride.debtPctOverride === 80 && sampleOverride.equityPctOverride === 20) {
-    pass('CostOverride.debtPctOverride + equityPctOverride accept values');
-  } else fail('CostOverride debt/equity override', 'shape mismatch');
+  const ovKeys = Object.keys(sampleOverride);
+  if (!ovKeys.includes('debtPctOverride') && !ovKeys.includes('equityPctOverride')) {
+    pass('CostOverride no longer carries debtPctOverride / equityPctOverride (Method 2 removed)');
+  } else fail('CostOverride Method 2 fields', 'still present');
 }
 
 // ── Section 2: Migration ──────────────────────────────────────────────────
@@ -294,8 +291,8 @@ console.log('\n[4/7] Design notes + hook contract on disk');
     } else {
       fail('architecture doc content', 'does not mention parameter-based hooks');
     }
-    if (txt.includes('Method 1') && txt.includes('Method 2') && txt.includes('Method 3') && txt.includes('Method 4')) {
-      pass('Architecture doc covers all 4 methods');
+    if (txt.includes('Method 1') && txt.includes('Method 3') && txt.includes('Method 4')) {
+      pass('Architecture doc covers Methods 1 / 3 / 4 (Method 2 removed 2026-05-13)');
     } else fail('architecture doc methods', 'missing method section');
     if (txt.includes('ParcelFundingConfig')) pass('Architecture doc names ParcelFundingConfig');
     else fail('architecture doc ParcelFundingConfig', 'missing');
@@ -500,7 +497,6 @@ console.log('\n[6/7] UI source markers in Module1Financing.tsx');
       ['Method radio entries templated', 'data-testid={`funding-method-${id}`}'],
       ['Method radio inputs templated', 'data-testid={`funding-method-${id}-radio`}'],
       ['Method 1 inputs panel', 'data-testid="funding-method-1-inputs"'],
-      ['Method 2 inputs panel', 'data-testid="funding-method-2-inputs"'],
       ['Method 3 inputs panel', 'data-testid="funding-method-3-inputs"'],
       ['Method 4 inputs panel', 'data-testid="funding-method-4-inputs"'],
       ['Method 1 debt input', 'data-testid="m1-debt-pct"'],

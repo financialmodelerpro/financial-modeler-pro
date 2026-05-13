@@ -193,7 +193,10 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // unset.
   // T2-Fix 5c (2026-05-12): reconcile companion sub-units against parent
   // Sellable list (preserve ADR, drop orphans, mirror new parent rows).
-  return migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost step
+  // so legacy fundingMethod=2 + lineItemRatios + debt/equityPctOverride
+  // are scrubbed after every earlier-pass financing migration).
+  return migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -211,7 +214,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))));
+  ))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -225,7 +228,9 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8,
   // then T2-Fix 5c companion sub-unit mirror.
-  return migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost so legacy
+  // fundingMethod=2 / lineItemRatios / debt-equityPctOverride scrub last).
+  return migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -243,7 +248,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))));
+  ))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1762,3 +1767,36 @@ export const isV5Snapshot = isV7Snapshot;
 export const isPreV5Snapshot = isPreV7Snapshot;
 export const isV6Snapshot = isV7Snapshot;
 export const isPreV6Snapshot = isPreV7Snapshot;
+
+// M2.0 Pass 13 (2026-05-13): Method 2 (Line-Item Based Financing) removed.
+// On load:
+//   - financing.fundingMethod === 2  ->  1 (Fixed Debt-to-Equity Ratio)
+//   - financing.lineItemRatios stripped
+//   - CostOverride.debtPctOverride / equityPctOverride stripped (every
+//     entry; these were Method-2 only and no longer exist in the schema)
+// Runs as the outermost migration step so the result is shaped post the
+// v7 -> v8 + every prior Pass migration.
+export function migrateM20pass13DropMethod2(snap: HydrateSnapshot): HydrateSnapshot {
+  const raw = snap as unknown as Record<string, unknown>;
+  const out = { ...raw };
+  const fcAny = out.financingConfig as Record<string, unknown> | undefined;
+  if (fcAny) {
+    const fc = { ...fcAny };
+    if (fc.fundingMethod === 2) fc.fundingMethod = 1;
+    if ('lineItemRatios' in fc) delete fc.lineItemRatios;
+    out.financingConfig = fc;
+  }
+  const ovs = out.costOverrides as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(ovs) && ovs.length > 0) {
+    out.costOverrides = ovs.map((ov) => {
+      if ('debtPctOverride' in ov || 'equityPctOverride' in ov) {
+        const copy = { ...ov };
+        delete copy.debtPctOverride;
+        delete copy.equityPctOverride;
+        return copy;
+      }
+      return ov;
+    });
+  }
+  return out as unknown as HydrateSnapshot;
+}

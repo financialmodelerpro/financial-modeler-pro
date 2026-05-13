@@ -245,24 +245,28 @@ console.log('\n[4/12] Fix 6: formatAccounting helper + UI adoption');
   else fail('Module1Costs adoption', 'no formatAccounting usage found');
 }
 
-// ── Section 5: Fix 1 Method 2 line-item table ─────────────────────────────
-console.log('\n[5/12] Fix 1: Method 2 line-item table');
+// ── Section 5: Method 2 removed (M2.0 Pass 13, 2026-05-13) ────────────────
+// Method 2 (Line-Item Based Financing) was dropped entirely. This section
+// now asserts that none of its UI, data-testids, or schema fields are
+// present in the source. Was: per-row line-item table assertions.
+console.log('\n[5/12] Method 2 removed presence checks');
 {
-  if (FINANCING_SRC.includes('data-testid="funding-method-2-table"')) pass('funding-method-2-table renders');
-  else fail('Method 2 table', 'data-testid missing');
+  if (!FINANCING_SRC.includes('funding-method-2')) pass('no funding-method-2 data-testid');
+  else fail('Method 2 UI', 'funding-method-2 data-testid still present');
 
-  if (FINANCING_SRC.includes('m2-debt-')) pass('per-row m2-debt- input test-id present');
-  else fail('Method 2 row inputs', 'missing');
+  if (!FINANCING_SRC.includes('m2-debt-') && !FINANCING_SRC.includes('m2-equity-')) {
+    pass('no m2-debt-/m2-equity- per-row inputs');
+  } else fail('Method 2 inputs', 'm2- testids still present');
 
-  if (FINANCING_SRC.includes('m2-equity-')) pass('per-row m2-equity- read-only test-id present');
-  else fail('Method 2 row equity', 'missing');
+  if (!FINANCING_SRC.includes('lineItemRatios')) pass('no lineItemRatios reference in Module1Financing');
+  else fail('Method 2 schema', 'lineItemRatios still referenced');
 
-  if (FINANCING_SRC.includes('deriveLineBaseId')) pass('Method 2 dedupes composed line ids via deriveLineBaseId');
-  else fail('Method 2 dedupe', 'deriveLineBaseId not used');
+  if (!FINANCING_SRC.includes('perLineAssetCapex')) pass('no perLineAssetCapex build');
+  else fail('Method 2 build', 'perLineAssetCapex still built');
 
-  // The placeholder string from Pass 3 must be gone.
-  if (!FINANCING_SRC.includes('next sub-pass)')) pass('Method 2 placeholder text removed');
-  else fail('Method 2 placeholder', 'still present');
+  if (!FINANCING_SRC.includes('debtPctOverride') && !FINANCING_SRC.includes('equityPctOverride')) {
+    pass('no debtPctOverride / equityPctOverride references');
+  } else fail('Method 2 overrides', 'override fields still referenced');
 }
 
 // ── Section 6: Fix 2 Funding Basis block ──────────────────────────────────

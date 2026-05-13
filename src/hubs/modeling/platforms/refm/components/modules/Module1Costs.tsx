@@ -3198,8 +3198,6 @@ export default function Module1Costs(): React.JSX.Element {
                               const effPerSubUnit   = sourceActive ? (sourceOv?.perSubUnitRates ?? line.perSubUnitRates) : line.perSubUnitRates;
                               const effStartPeriod  = sourceActive ? (sourceOv?.startPeriod ?? line.startPeriod) : line.startPeriod;
                               const effEndPeriod    = sourceActive ? (sourceOv?.endPeriod   ?? line.endPeriod)   : line.endPeriod;
-                              const effDebtPct      = sourceActive ? sourceOv?.debtPctOverride   : undefined;
-                              const effEquityPct    = sourceActive ? sourceOv?.equityPctOverride : undefined;
                               const makeOverride = (assetId: string, lineId: string): CostOverride => ({
                                 assetId,
                                 lineId,
@@ -3211,8 +3209,6 @@ export default function Module1Costs(): React.JSX.Element {
                                 perSubUnitRates: effPerSubUnit ? { ...effPerSubUnit } : undefined,
                                 startPeriod: effStartPeriod,
                                 endPeriod: effEndPeriod,
-                                debtPctOverride: effDebtPct,
-                                equityPctOverride: effEquityPct,
                                 overridden: true,
                               });
                               // Source first: isolates the source asset
