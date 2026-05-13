@@ -1377,6 +1377,60 @@ export interface FinancingResult {
 }
 
 /**
+ * Deferred Payment land schedule expander (2026-05-13).
+ *
+ * Returns an array of length `totalPeriods` representing the share of
+ * a parcel's cash value that lands in each project period (weights
+ * sum to 1.0 within the [startPeriod, endPeriod] window, zeros
+ * elsewhere). Consumers multiply this by the parcel's cash value to
+ * derive the per-period contribution.
+ *
+ *   type === 'even'        -> each period in [start, end] gets
+ *                              1 / (end - start + 1).
+ *   type === 'manual_pct'  -> distribution array is auto-normalised
+ *                              (negatives clamped, then rescaled so
+ *                              the sum equals 1.0). When the input
+ *                              sums to zero, falls back to even.
+ *
+ * Window is clamped to [0, totalPeriods - 1]; out-of-range entries
+ * are silently dropped.
+ *
+ * NOTE: the cost engine's land-cash cost line still produces a Y0
+ * lump today. Wiring this helper into the engine's per-period
+ * distribution (so a deferred parcel actually splits its cash value
+ * across the chosen periods) requires touching the cost line's
+ * phasing logic; that follow-up lands separately.
+ */
+export function expandDeferredSchedule(
+  schedule: { type: 'even' | 'manual_pct'; startPeriod: number; endPeriod: number; distribution?: number[] } | undefined,
+  totalPeriods: number,
+): number[] {
+  const out = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+  if (!schedule || totalPeriods <= 0) return out;
+  const start = Math.max(0, Math.min(totalPeriods - 1, Math.floor(schedule.startPeriod)));
+  const end = Math.max(start, Math.min(totalPeriods - 1, Math.floor(schedule.endPeriod)));
+  const span = end - start + 1;
+  if (span <= 0) return out;
+  if (schedule.type === 'even') {
+    const w = 1 / span;
+    for (let i = start; i <= end; i++) out[i] = w;
+    return out;
+  }
+  // manual_pct: clamp negatives, normalise to sum 1.0.
+  const dist = schedule.distribution ?? [];
+  const cleaned = new Array<number>(span).fill(0);
+  for (let i = 0; i < span; i++) cleaned[i] = Math.max(0, dist[i] ?? 0);
+  const sum = cleaned.reduce((s, v) => s + v, 0);
+  if (sum < 1e-9) {
+    const w = 1 / span;
+    for (let i = start; i <= end; i++) out[i] = w;
+    return out;
+  }
+  for (let i = 0; i < span; i++) out[start + i] = cleaned[i] / sum;
+  return out;
+}
+
+/**
  * Year-on-Year % schedule normaliser. Pads / truncates to length `n`
  * and rescales so the result sums to exactly 100. Empty / all-zero
  * input falls back to an even distribution.

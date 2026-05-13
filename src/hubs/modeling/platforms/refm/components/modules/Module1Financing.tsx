@@ -1631,11 +1631,111 @@ export default function Module1Financing(): React.JSX.Element {
                       </label>
                     </>
                   )}
-                  {fundingType === 'deferred_payment' && (
-                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--color-meta)' }}>
-                      Deferred schedule configured via {parcel.area > 0 ? 'periods 1..constructionEnd' : 'Tab 1 parcel setup'}; full editor in next sub-pass.
-                    </div>
-                  )}
+                  {fundingType === 'deferred_payment' && (() => {
+                    // Deferred Payment editor (2026-05-13). Writes to
+                    // cfg.deferredSchedule { type, startPeriod, endPeriod,
+                    // distribution }. The engine helper
+                    // expandDeferredSchedule normalises the distribution
+                    // when needed; this editor mirrors the same
+                    // semantics so the on-screen preview matches what
+                    // the engine consumes.
+                    const sched = cfg?.deferredSchedule ?? { type: 'even' as const, startPeriod: 0, endPeriod: Math.max(0, phase.constructionPeriods - 1) };
+                    const totalProjectPeriods = Math.max(1, phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods);
+                    const upperBound = Math.max(0, totalProjectPeriods - 1);
+                    const start = Math.min(upperBound, Math.max(0, sched.startPeriod));
+                    const end = Math.min(upperBound, Math.max(start, sched.endPeriod));
+                    const span = end - start + 1;
+                    const setSched = (patch: Partial<typeof sched>): void => {
+                      upsertParcelFunding(parcel.id, { deferredSchedule: { ...sched, ...patch } });
+                    };
+                    const distRaw = sched.distribution ?? [];
+                    const dist = new Array<number>(span).fill(0).map((_, i) => distRaw[i] ?? 0);
+                    const distSum = dist.reduce((s, v) => s + v, 0);
+                    const distOk = Math.abs(distSum - 100) < 0.01;
+                    const updateDistAt = (idx: number, n: number): void => {
+                      const next = [...dist];
+                      next[idx] = Math.max(0, n);
+                      setSched({ distribution: next });
+                    };
+                    return (
+                      <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }} data-testid={`land-funding-${parcel.id}-deferred-editor`}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            Schedule type:
+                            <select
+                              value={sched.type}
+                              onChange={(e) => setSched({ type: e.target.value as 'even' | 'manual_pct' })}
+                              style={{ ...inputStyle, width: 'auto' }}
+                              data-testid={`land-funding-${parcel.id}-deferred-type`}
+                            >
+                              <option value="even">Even distribution</option>
+                              <option value="manual_pct">Manual %</option>
+                            </select>
+                          </label>
+                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            Start period:
+                            <AccountingNumberInput
+                              min={0}
+                              max={upperBound}
+                              decimals={0}
+                              value={start}
+                              onChange={(n) => setSched({ startPeriod: Math.max(0, Math.min(upperBound, Math.round(n))) })}
+                              style={{ ...inputStyle, width: 70 }}
+                              data-testid={`land-funding-${parcel.id}-deferred-start`}
+                            />
+                          </label>
+                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            End period:
+                            <AccountingNumberInput
+                              min={start}
+                              max={upperBound}
+                              decimals={0}
+                              value={end}
+                              onChange={(n) => setSched({ endPeriod: Math.max(start, Math.min(upperBound, Math.round(n))) })}
+                              style={{ ...inputStyle, width: 70 }}
+                              data-testid={`land-funding-${parcel.id}-deferred-end`}
+                            />
+                          </label>
+                        </div>
+                        {sched.type === 'even' ? (
+                          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                            Each period: {span > 0 ? (100 / span).toFixed(2) : '0.00'}% across {span} period{span === 1 ? '' : 's'}.
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))', gap: 4 }}>
+                              {dist.map((v, i) => (
+                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                  <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>P{start + i}</span>
+                                  <PercentageInput
+                                    min={0}
+                                    value={v}
+                                    onChange={(n) => updateDistAt(i, n)}
+                                    style={{ ...inputStyle, fontSize: 11, width: '100%' }}
+                                    data-testid={`land-funding-${parcel.id}-deferred-dist-${i}`}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 11, fontWeight: 700, display: 'inline-block',
+                                padding: '2px 8px', borderRadius: 4,
+                                background: distOk ? 'color-mix(in srgb, var(--color-success) 16%, transparent)' : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
+                                color: distOk ? 'var(--color-success)' : 'var(--color-accent-warm)',
+                              }}
+                              data-testid={`land-funding-${parcel.id}-deferred-sum`}
+                            >
+                              {distOk ? `Sums to ${distSum.toFixed(2)}%` : `Sum: ${distSum.toFixed(2)}%, will auto-normalise to 100% on save`}
+                            </div>
+                          </>
+                        )}
+                        <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+                          Note: engine wire-up to split the parcel cash value across these periods lands in a follow-up. Schedule is captured on schema today.
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {fundingType === 'in_kind' && (
                     <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--color-meta)' }}>
                       Auto-detected from Tab 3 Land (In-Kind) cost line. Contributes as equity (no cash draw).
