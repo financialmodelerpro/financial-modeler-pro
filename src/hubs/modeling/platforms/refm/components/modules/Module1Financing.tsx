@@ -34,7 +34,6 @@ import {
   // Schema field stays via FinancingTranche['facilityType'] when read.
   type InterestRateType,
   type BaseRate,
-  type IDCTreatment,
   type FeeTreatment,
   type FundingMethodId,
   type ParcelFundingConfig,
@@ -53,8 +52,8 @@ import {
   BASE_RATES,
   BASE_RATE_LABELS,
   // P2-Fix 7: IDC_TREATMENTS dropped (only Capitalize/Expense rendered).
-  IDC_TREATMENTS,
-  IDC_TREATMENT_LABELS,
+  // M2.0 Pass 23 (2026-05-13): IDC dropdown removed entirely; engine
+  // hardcodes capitalize-during-construction. Imports cleaned.
   FEE_TREATMENTS,
   FEE_TREATMENT_LABELS,
   FUNDING_METHOD_IDS,
@@ -288,16 +287,13 @@ function TrancheCard({
   facilityCount, phaseAssets, allPhases,
   onUpdate, onRemove,
 }: TrancheCardProps): React.JSX.Element {
-  // P4-Fix 6 (2026-05-12): universal accounting format. zero -> "-",
-  // negative -> parens, positive -> "1,234,567", null/undef -> blank.
-  // No K/M suffix per cell; scale indicator stays in page header.
-  const fmt = (n: number): string => formatAccounting(n, scale, decimals);
-  const result = useMemo(
-    () => computeFinancing(tranche, phase, capexPerPeriod, presalesPerPeriod, project),
-    [tranche, phase, capexPerPeriod, presalesPerPeriod, project],
-  );
+  // M2.0 Pass 23 (2026-05-13): per-tranche bottom readout cards
+  // (Total Debt Drawn / Total Interest / Total Repayment / Periodic
+  // Rate) removed; the Schedules sub-tab covers per-facility totals.
+  // `scale` / `decimals` / `capexPerPeriod` / `presalesPerPeriod` are
+  // still accepted as props for back-compat with the call site, but
+  // the card no longer runs computeFinancing locally.
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const idcTreatment: IDCTreatment = tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense');
   const interestRateType: InterestRateType = tranche.interestRateType ?? 'fixed';
   // Facility Origination (2026-05-13): 'new' = drawdown in model;
   // 'existing' = pre-existing facility with an opening balance at
@@ -507,55 +503,57 @@ function TrancheCard({
         </div>
       )}
 
-      {/* P4-Fix 4 (2026-05-12): compact field layout - 2 rows of 2 fields
-          instead of 1 row of 4, easier to scan on narrower screens.
-          Existing facilities hide this block; Opening Balance +
-          Remaining Tenor + Remaining Repayment Periods above take its
-          place. */}
+      {/* M2.0 Pass 23 (2026-05-13): period fields simplified to 3 inputs.
+          Drawdown Start Period defaults to 0 (= project Y1, first
+          construction period). Availability is derived by the engine
+          from `drawdownStartPeriod` through the last non-zero capex
+          period. Tenor is derived from `gracePeriods + repaymentPeriods`.
+          Tenor + Availability inputs retired; the schema fields stay
+          @deprecated for snapshot back-compat. */}
       {!isExistingFacility && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Tenor (periods)</label>
-              <AccountingNumberInput min={0} decimals={0} value={tranche.tenorPeriods ?? 0} onChange={(n) => onUpdate({ tenorPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-tenor`} />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Availability</label>
-              <AccountingNumberInput min={0} decimals={0} value={tranche.availabilityPeriods ?? 0} onChange={(n) => onUpdate({ availabilityPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
-            </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Drawdown Start Period</label>
+            <AccountingNumberInput
+              min={0}
+              decimals={0}
+              value={tranche.drawdownStartPeriod ?? 0}
+              onChange={(n) => onUpdate({ drawdownStartPeriod: Math.max(0, Math.round(n)) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-drawdown-start`}
+              title="Period (0-indexed from project Y1) when this facility begins drawing. Defaults to 0 (drawdown starts immediately)."
+            />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
-              <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
-              <select
-                value={tranche.graceInterestTreatment ?? 'capitalize'}
-                onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf' })}
-                style={inputStyle}
-                data-testid={`tranche-${tranche.id}-grace-treatment`}
-              >
-                <option value="capitalize">Capitalize (add to balance)</option>
-                <option value="raise_via_funding">Raise via funding method</option>
-                <option value="raise_as_debt">Raise as new debt</option>
-                <option value="pay_from_ocf">Pay from operating cash flow</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
-              <AccountingNumberInput
-                min={0}
-                decimals={0}
-                value={tranche.repaymentPeriods}
-                onChange={(n) => onUpdate({ repaymentPeriods: Math.round(n) })}
-                style={inputStyle}
-                data-testid={`tranche-${tranche.id}-rep-periods`}
-              />
-            </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
+            <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
           </div>
-        </>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
+            <AccountingNumberInput
+              min={0}
+              decimals={0}
+              value={tranche.repaymentPeriods}
+              onChange={(n) => onUpdate({ repaymentPeriods: Math.round(n) })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-rep-periods`}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
+            <select
+              value={tranche.graceInterestTreatment ?? 'capitalize'}
+              onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf' })}
+              style={inputStyle}
+              data-testid={`tranche-${tranche.id}-grace-treatment`}
+            >
+              <option value="capitalize">Capitalize (add to balance)</option>
+              <option value="raise_via_funding">Raise via funding method</option>
+              <option value="raise_as_debt">Raise as new debt</option>
+              <option value="pay_from_ocf">Pay from operating cash flow</option>
+            </select>
+          </div>
+        </div>
       )}
 
       {/* P3-Fix 5 (2026-05-12): per-facility Drawdown Method dropdown
@@ -689,8 +687,11 @@ function TrancheCard({
       {/* P3-Fix 4 (2026-05-12): facility scope dropdown re-exposed with
           3 options (project / phase / asset). Asset-specific opens an
           asset picker. Phase-specific opens a phase picker so a user
-          can target a phase other than the page-header's active phase. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+          can target a phase other than the page-header's active phase.
+          M2.0 Pass 23 (2026-05-13): IDC Treatment column removed; row
+          becomes a 2-col Scope + Auto cost line grid (single col for
+          existing facilities since Auto IDC hides there). */}
+      <div style={{ display: 'grid', gridTemplateColumns: isExistingFacility ? 'repeat(1, 1fr)' : 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
         <div>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Scope</label>
           <select
@@ -739,51 +740,11 @@ function TrancheCard({
             </select>
           )}
         </div>
-        {/* IDC + Auto IDC cells hidden for existing facilities (they
-            never accrue IDC; engine force-expenses regardless of stored
-            setting). */}
-        {!isExistingFacility && (
-          <div>
-            {/* IDC Treatment selector (2026-05-13): Mixed option now
-                exposed alongside Capitalize / Expense. When Mixed is
-                selected, an inclusive split-period input appears below
-                writing to tranche.idcMixedSplitPeriod (engine reads
-                this; default = constructionPeriods). idcCapitalize
-                legacy boolean is set to true for capitalize, false
-                otherwise. */}
-            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>IDC Treatment</label>
-            <select
-              value={idcTreatment}
-              onChange={(e) => {
-                const next = e.target.value as IDCTreatment;
-                onUpdate({ idcTreatment: next, idcCapitalize: next === 'capitalize' });
-              }}
-              style={inputStyle}
-              data-testid={`tranche-${tranche.id}-idc-treatment`}
-            >
-              {IDC_TREATMENTS.map((t) => (
-                <option key={t} value={t}>{IDC_TREATMENT_LABELS[t]}</option>
-              ))}
-            </select>
-            {idcTreatment === 'mixed' && (
-              <div style={{ marginTop: 4 }} data-testid={`tranche-${tranche.id}-idc-mixed-split-wrap`}>
-                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Capitalize through period (inclusive)</label>
-                <AccountingNumberInput
-                  min={0}
-                  max={Math.max(0, phase.constructionPeriods + phase.operationsPeriods - 1)}
-                  decimals={0}
-                  value={tranche.idcMixedSplitPeriod ?? phase.constructionPeriods}
-                  onChange={(n) => onUpdate({ idcMixedSplitPeriod: Math.max(0, Math.round(n)) })}
-                  style={inputStyle}
-                  data-testid={`tranche-${tranche.id}-idc-mixed-split`}
-                />
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-                  Interest capitalised through period {tranche.idcMixedSplitPeriod ?? phase.constructionPeriods} inclusive; expensed afterwards.
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* M2.0 Pass 23 (2026-05-13): IDC Treatment dropdown + Mixed
+            split editor removed. New facilities always capitalize
+            interest during construction; existing facilities expense
+            interest from project Y0. Auto cost line in Tab 3 checkbox
+            stays so users can opt out of the generated capex line. */}
         {!isExistingFacility && (
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
@@ -797,98 +758,52 @@ function TrancheCard({
               Auto cost line in Tab 3
             </label>
             <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-              Generates read-only IDC capex line per asset (Capitalize only).
+              Generates a read-only IDC capex line per asset for the capitalized interest.
             </div>
           </div>
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setAdvancedOpen((v) => !v)}
-        data-testid={`tranche-${tranche.id}-advanced-toggle`}
-        style={{
-          fontSize: 11, padding: '4px 10px', background: 'transparent',
-          color: 'var(--color-navy)', border: '1px dashed var(--color-border)',
-          borderRadius: 4, cursor: 'pointer', marginBottom: 8,
-        }}
-      >
-        {advancedOpen ? '▼ Hide advanced' : '▶ Advanced (fees, covenants, prepayments, PIK)'}
-      </button>
-
-      {advancedOpen && (
-        <div style={{ background: 'var(--color-grey-pale)', padding: 8, borderRadius: 4, marginBottom: 8 }} data-testid={`tranche-${tranche.id}-advanced`}>
-          {/* P3-Fix 6 (2026-05-12): legacy Sweep Ratio % input dropped
-              from Advanced. Cash Sweep repayment defaults to 100% of
-              excess cash above project minimum cash reserve. Upfront +
-              Commitment fees hidden for existing facilities (they apply
-              to origination only). */}
-          {!isExistingFacility && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
-                <PercentageInput min={0} value={tranche.upfrontFeePct ?? 0} onChange={(n) => onUpdate({ upfrontFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee Treatment</label>
-                <select value={tranche.upfrontFeeTreatment ?? 'capitalize'} onChange={(e) => onUpdate({ upfrontFeeTreatment: e.target.value as FeeTreatment })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee-treatment`}>
-                  {FEE_TREATMENTS.map((t) => (<option key={t} value={t}>{FEE_TREATMENT_LABELS[t]}</option>))}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
-                <PercentageInput min={0} value={tranche.commitmentFeePct ?? 0} onChange={(n) => onUpdate({ commitmentFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
+      {/* M2.0 Pass 23 (2026-05-13): Advanced trimmed to Upfront Fee +
+          Commitment Fee. DSCR Covenant / Max Debt % / PIK toggle removed
+          (fields stay @deprecated on schema). Existing facilities hide
+          fees entirely (they apply to origination only). */}
+      {!isExistingFacility && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            data-testid={`tranche-${tranche.id}-advanced-toggle`}
+            style={{
+              fontSize: 11, padding: '4px 10px', background: 'transparent',
+              color: 'var(--color-navy)', border: '1px dashed var(--color-border)',
+              borderRadius: 4, cursor: 'pointer', marginBottom: 8,
+            }}
+          >
+            {advancedOpen ? '▼ Hide advanced' : '▶ Advanced (fees)'}
+          </button>
+          {advancedOpen && (
+            <div style={{ background: 'var(--color-grey-pale)', padding: 8, borderRadius: 4, marginBottom: 8 }} data-testid={`tranche-${tranche.id}-advanced`}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee %</label>
+                  <PercentageInput min={0} value={tranche.upfrontFeePct ?? 0} onChange={(n) => onUpdate({ upfrontFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee`} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Upfront Fee Treatment</label>
+                  <select value={tranche.upfrontFeeTreatment ?? 'capitalize'} onChange={(e) => onUpdate({ upfrontFeeTreatment: e.target.value as FeeTreatment })} style={inputStyle} data-testid={`tranche-${tranche.id}-upfront-fee-treatment`}>
+                    {FEE_TREATMENTS.map((t) => (<option key={t} value={t}>{FEE_TREATMENT_LABELS[t]}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Commitment Fee % p.a.</label>
+                  <PercentageInput min={0} value={tranche.commitmentFeePct ?? 0} onChange={(n) => onUpdate({ commitmentFeePct: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-commitment-fee`} />
+                </div>
               </div>
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>DSCR Covenant</label>
-              <AccountingNumberInput min={0} value={tranche.dscrCovenant ?? 0} onChange={(n) => onUpdate({ dscrCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-dscr-cov`} />
-              <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>Breach alerts in M5.</div>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Max Debt %</label>
-              <PercentageInput min={0} max={100} value={tranche.ltvCovenant ?? 0} onChange={(n) => onUpdate({ ltvCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-ltv-cov`} />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
-                <input type="checkbox" checked={tranche.pikEnabled === true} onChange={(e) => onUpdate({ pikEnabled: e.target.checked })} data-testid={`tranche-${tranche.id}-pik`} style={{ marginRight: 6 }} />
-                PIK enabled (mezz)
-              </label>
-              <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>Payment-in-kind capitalised interest.</div>
-            </div>
-          </div>
-        </div>
+        </>
       )}
-
-      {/* P4-Fix 4 (2026-05-12): compact output cards - 2x2 instead of 1x4. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
-        <div style={calcOutputStyle}>
-          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Debt Drawn</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }} data-testid={`tranche-${tranche.id}-total-debt`}>
-            {fmt(result.totalDebt)}
-          </div>
-        </div>
-        <div style={calcOutputStyle}>
-          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Interest</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {fmt(result.totalInterest)}
-          </div>
-        </div>
-        <div style={calcOutputStyle}>
-          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Repayment</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {fmt(result.totalRepayment)}
-          </div>
-        </div>
-        <div style={calcOutputStyle}>
-          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Periodic Rate</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {(result.periodicRate * 100).toFixed(4)}%
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1310,14 +1225,23 @@ export default function Module1Financing(): React.JSX.Element {
   // capexPerPeriod. Approximation:
   //   principal ~= tranche.principal ?? totalCapex × ltvPct × shareSharePct
   //   gracePerPeriodInterest = principal × interestRatePct / 100
-  //   distributed evenly across [availabilityPeriods .. +gracePeriods)
+  //   distributed evenly across [drawdownEnd .. +gracePeriods)
+  //
+  // M2.0 Pass 23 (2026-05-13): drawdownEnd derives from the last
+  // non-zero capex period of inputsSummary.totals (the project's capex
+  // window) rather than the deprecated tranche.availabilityPeriods.
   //
   // Routes through whichever funding method is active (Method 1/2/3);
   // the resulting debt/equity split picks it up via the funding memo.
   const graceFundingCapexAdd = useMemo(() => {
-    const out = new Array<number>(inputsSummary.totals.length).fill(0);
+    const totals = inputsSummary.totals;
+    const out = new Array<number>(totals.length).fill(0);
     if (!financingTranches || financingTranches.length === 0) return out;
-    const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
+    let capexEndIdx = 0;
+    for (let i = 0; i < totals.length; i++) {
+      if (Math.abs(totals[i] ?? 0) > 0.5) capexEndIdx = i + 1;
+    }
+    const totalCapex = totals.reduce((s, v) => s + v, 0);
     for (const t of financingTranches) {
       if (t.graceInterestTreatment !== 'raise_via_funding') continue;
       const grace = Math.max(0, t.gracePeriods ?? 0);
@@ -1329,9 +1253,8 @@ export default function Module1Financing(): React.JSX.Element {
       const principal = t.principal ?? totalCapex * ltvFrac * shareFrac;
       if (principal <= 0) continue;
       const interestPerPeriod = principal * rate;
-      const availEnd = Math.max(0, t.availabilityPeriods ?? 0);
       for (let i = 0; i < grace; i++) {
-        const idx = availEnd + i;
+        const idx = capexEndIdx + i;
         if (idx < 0 || idx >= out.length) continue;
         out[idx] += interestPerPeriod;
       }
@@ -1387,11 +1310,17 @@ export default function Module1Financing(): React.JSX.Element {
       let precomputedDraw: number[] | undefined;
       if (t.origin !== 'existing') {
         const sharePct = Math.max(0, t.facilitySharePct ?? 100) / 100;
+        // M2.0 Pass 23 (2026-05-13): drawdownStartPeriod gates draws.
+        // Project-aligned threshold: any project period before
+        // drawdownStartPeriod draws 0 from this facility. Default 0
+        // (= no gating) so legacy behaviour is preserved.
+        const drawStart = Math.max(0, t.drawdownStartPeriod ?? 0);
         precomputedDraw = new Array<number>(facilityCapex.length).fill(0);
         const offset = costLineProjectPeriodIndex(project, facilityPhase, 0);
         for (let i = 0; i < facilityCapex.length; i++) {
           const pp = offset + i;
           if (pp < 0 || pp >= projectDebt.length) continue;
+          if (pp < drawStart) continue;
           precomputedDraw[i] = (projectDebt[pp] ?? 0) * sharePct;
         }
       }
@@ -1585,11 +1514,9 @@ export default function Module1Financing(): React.JSX.Element {
     const t = makeDefaultFinancingTranche(id, phase.id);
     t.repaymentPeriods = Math.max(1, phase.operationsPeriods);
     t.facilityType = 'senior_construction';
-    t.idcTreatment = 'capitalize';
     t.autoGenerateIdcCostLine = true;
-    t.tenorPeriods = phase.constructionPeriods + phase.operationsPeriods;
-    t.availabilityPeriods = phase.constructionPeriods;
     t.gracePeriods = 0;
+    t.drawdownStartPeriod = 0;
     addFinancingTranche(t);
   };
 
@@ -2090,37 +2017,73 @@ export default function Module1Financing(): React.JSX.Element {
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <>
-                {/* Table A: Total Debt Required */}
-                <div style={sectionCardStyle} data-testid="total-debt-required">
-                  <strong style={TABLE_TITLE}>Total Debt Required</strong>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
-                      <colgroup>
-                        <col style={{ width: COLUMN_WIDTHS.label }} />
-                        <col style={{ width: reqNonLabelPct }} />
-                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: reqNonLabelPct }} />))}
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th style={CELL_HEADER}>Description</th>
-                          <th style={CELL_HEADER}>Total</th>
-                          {reqAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr data-testid="total-debt-required-row">
-                          <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
-                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-total">{fmtCell(debtTotal)}</td>
-                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(historicalPriorTotals.debt)}</td>
-                          {cropDebt.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-                    Capex excl Land x Method 1 debt %, plus Land Cash x parcel-derived debt share.
-                  </div>
-                </div>
+                {/* Table A: Total Debt Required.
+                    M2.0 Pass 23 (2026-05-13): now mirrors the Total
+                    Equity Required layout - one ROW_DATA row per
+                    facility (= funding.debtEquitySplit.debt ×
+                    facilitySharePct/100), then a ROW_GRAND_TOTAL row
+                    summing them. Renders the header + line + total
+                    structure even with a single facility so the table
+                    parses the same way at every scale. */}
+                {(() => {
+                  const facilities = phaseTranches;
+                  const facilityRows = facilities.map((t) => {
+                    const share = Math.max(0, t.facilitySharePct ?? (facilities.length > 0 ? 100 / facilities.length : 100)) / 100;
+                    const perPeriod = debtRow.map((v) => v * share);
+                    const cropped = inputsAxis.cropRow(perPeriod);
+                    const total = perPeriod.reduce((s, v) => s + v, 0);
+                    return { id: t.id, name: t.name, perPeriod, cropped, total };
+                  });
+                  return (
+                    <div style={sectionCardStyle} data-testid="total-debt-required">
+                      <strong style={TABLE_TITLE}>Total Debt Required</strong>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+                          <colgroup>
+                            <col style={{ width: COLUMN_WIDTHS.label }} />
+                            <col style={{ width: reqNonLabelPct }} />
+                            {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: reqNonLabelPct }} />))}
+                          </colgroup>
+                          <thead>
+                            <tr>
+                              <th style={CELL_HEADER}>Description</th>
+                              <th style={CELL_HEADER}>Total</th>
+                              {reqAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {facilityRows.length === 0 ? (
+                              <tr data-testid="total-debt-required-empty">
+                                <td style={ROW_DATA.name}>(No facilities defined)</td>
+                                <td style={ROW_DATA.num}>-</td>
+                                <td style={ROW_DATA.num}>-</td>
+                                {reqAxis.labels.map((_, i) => (<td key={i} style={ROW_DATA.num}>-</td>))}
+                              </tr>
+                            ) : (
+                              facilityRows.map((f) => (
+                                <tr key={f.id} data-testid={`total-debt-required-facility-${f.id}`}>
+                                  <td style={ROW_DATA.name}>{f.name}</td>
+                                  <td style={ROW_DATA.num} data-testid={`total-debt-required-facility-${f.id}-total`}>{fmtCell(f.total)}</td>
+                                  <td style={ROW_DATA.num}>-</td>
+                                  {f.cropped.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                                </tr>
+                              ))
+                            )}
+                            <tr data-testid="total-debt-required-row">
+                              <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
+                              <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-total">{fmtCell(debtTotal)}</td>
+                              <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(historicalPriorTotals.debt)}</td>
+                              {cropDebt.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                        Capex excl Land x Method 1 debt %, plus Land Cash x parcel-derived debt share, split across facilities by Facility Share %.
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Table B: Total Equity Required (3 rows) */}
                 <div style={sectionCardStyle} data-testid="total-equity-required">

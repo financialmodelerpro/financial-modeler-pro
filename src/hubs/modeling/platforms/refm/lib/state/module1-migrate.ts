@@ -198,7 +198,9 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // are scrubbed after every earlier-pass financing migration).
   // M2.0 Pass 20 (2026-05-13): rename grace 'add_to_funding_need' ->
   // 'raise_via_funding' (outermost so it sees the final tranche shape).
-  return migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 23 (2026-05-13): seed drawdownStartPeriod = 0 on legacy
+  // tranches (outermost so the field lands on the final tranche shape).
+  return migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -216,7 +218,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))));
+  )))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -234,7 +236,9 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // fundingMethod=2 / lineItemRatios / debt-equityPctOverride scrub last).
   // M2.0 Pass 20 (2026-05-13): rename grace 'add_to_funding_need' ->
   // 'raise_via_funding' (outermost so it sees the final tranche shape).
-  return migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 23 (2026-05-13): seed drawdownStartPeriod = 0 on legacy
+  // tranches (outermost so the field lands on the final tranche shape).
+  return migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -252,7 +256,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))));
+  )))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1903,6 +1907,30 @@ export function migrateM20pass20GraceRename(snap: HydrateSnapshot): HydrateSnaps
       return { ...t, graceInterestTreatment: 'raise_via_funding' };
     }
     return t;
+  });
+  if (!touched) return out as unknown as HydrateSnapshot;
+  out.financingConfig = { ...fcAny, tranches: next };
+  return out as unknown as HydrateSnapshot;
+}
+
+// M2.0 Pass 23 (2026-05-13): TrancheCard simplification. Adds
+// `drawdownStartPeriod` field (defaults to 0 = project Y1). The
+// deprecated `tenorPeriods`, `availabilityPeriods`, `idcTreatment`,
+// `idcMixedSplitPeriod`, `dscrCovenant`, `ltvCovenant`, `prepayments`,
+// `pikEnabled` stay on schema (engine no longer reads them; UI no
+// longer surfaces them). No data is destroyed.
+export function migrateM20pass23TrancheSimplify(snap: HydrateSnapshot): HydrateSnapshot {
+  const raw = snap as unknown as Record<string, unknown>;
+  const out = { ...raw };
+  const fcAny = out.financingConfig as Record<string, unknown> | undefined;
+  if (!fcAny) return out as unknown as HydrateSnapshot;
+  const tranchesAny = fcAny.tranches as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(tranchesAny) || tranchesAny.length === 0) return out as unknown as HydrateSnapshot;
+  let touched = false;
+  const next = tranchesAny.map((t) => {
+    if ('drawdownStartPeriod' in t && t.drawdownStartPeriod != null) return t;
+    touched = true;
+    return { ...t, drawdownStartPeriod: 0 };
   });
   if (!touched) return out as unknown as HydrateSnapshot;
   out.financingConfig = { ...fcAny, tranches: next };

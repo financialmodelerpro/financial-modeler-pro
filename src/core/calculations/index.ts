@@ -1670,15 +1670,12 @@ export function computeFinancing(
     }
   }
 
-  // M2.0L: resolve IDC treatment. New idcTreatment wins when set;
-  // legacy idcCapitalize boolean is the fallback. Existing facilities
-  // never accrue IDC (they amortize from project Y0 and pay interest
-  // in cash, never capitalising) - force-expense regardless of stored
-  // setting.
-  const idcTreatment: 'capitalize' | 'expense' | 'mixed' = isExisting
-    ? 'expense'
-    : (tranche.idcTreatment ?? (tranche.idcCapitalize ? 'capitalize' : 'expense'));
-  const idcSplitPeriod = tranche.idcMixedSplitPeriod ?? constructionPeriods;
+  // M2.0 Pass 23 (2026-05-13): IDC treatment hardcoded. New facilities
+  // capitalize interest during construction; existing facilities expense.
+  // The legacy tranche.idcTreatment / idcMixedSplitPeriod / pikEnabled
+  // / prepayments fields stay on schema (@deprecated) but the engine no
+  // longer reads them. Sweep variants still consult sweepRatio for the
+  // pre-Pass-21 cash-sweep methods kept for snapshot back-compat.
   const sweepRatio = clamp(tranche.sweepRatio ?? 75, 0, 100) / 100;
 
   // Existing facilities seed their opening balance at t=0; new
@@ -1688,13 +1685,10 @@ export function computeFinancing(
     balance += drawSchedule[i] ?? 0;
     const interest = balance * periodicRate;
     interestAccrued[i] = interest;
-    // M2.0L: 3-way IDC treatment. capitalize during construction (and
-    // through idcSplitPeriod for mixed); expense otherwise.
+    // Capitalize during construction for new facilities; existing
+    // facilities expense interest from t=0 (no IDC accrual).
     const inConstruction = i < constructionPeriods;
-    let capitalize = false;
-    if (idcTreatment === 'capitalize' && inConstruction) capitalize = true;
-    else if (idcTreatment === 'mixed' && i <= idcSplitPeriod) capitalize = true;
-    if (capitalize) {
+    if (!isExisting && inConstruction) {
       interestCapitalized[i] = interest;
       balance += interest;
     } else {
@@ -1722,9 +1716,6 @@ export function computeFinancing(
       const remaining = Math.max(1, periods - i);
       repay = (balance / remaining) * sweepRatio;
     }
-    // M2.0L: apply discrete prepayments before clamping.
-    const prepay = (tranche.prepayments ?? []).filter((p) => p.period === i).reduce((s, p) => s + Math.max(0, p.amount), 0);
-    repay += prepay;
     repay = Math.min(repay, balance);
     balance -= repay;
     principalRepaid[i] = repay;
@@ -2211,8 +2202,12 @@ export function applyIdcToCapex(
 ): AutoIdcCostLineSeed[] {
   const seeds: AutoIdcCostLineSeed[] = [];
   for (const t of tranches) {
-    const treatment = t.idcTreatment ?? (t.idcCapitalize ? 'capitalize' : 'expense');
-    if (treatment === 'expense') continue;
+    // M2.0 Pass 23 (2026-05-13): IDC treatment is hardcoded to
+    // capitalize during construction (UI dropdown removed). Existing
+    // facilities are skipped because computeFinancing force-expenses
+    // their interest, yielding capitalizedTotal = 0 below. The Auto
+    // cost line in Tab 3 checkbox still gates per-facility opt-out.
+    if (t.origin === 'existing') continue;
     if (t.autoGenerateIdcCostLine === false) continue;
     const r = results.get(t.id);
     if (!r) continue;

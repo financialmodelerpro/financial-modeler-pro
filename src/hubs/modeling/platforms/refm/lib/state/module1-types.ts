@@ -1224,9 +1224,12 @@ export interface FinancingTranche {
   baseRate?: BaseRate;
   /** Spread over base rate, in basis points (250 = 2.50%). */
   spreadBps?: number;
-  /** Total facility life in periods (>= availabilityPeriods + gracePeriods). */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Engine derives tenor from
+   *  `gracePeriods + repaymentPeriods`. Field stays for snapshot back-compat. */
   tenorPeriods?: number;
-  /** Window during which drawdowns can occur (within tenor). */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Engine derives availability
+   *  from the project capex window starting at `drawdownStartPeriod`.
+   *  Field stays for snapshot back-compat. */
   availabilityPeriods?: number;
   /** Periods during which no principal repayment is due. */
   gracePeriods?: number;
@@ -1235,20 +1238,28 @@ export interface FinancingTranche {
   upfrontFeeTreatment?: FeeTreatment;
   /** Commitment fee % per annum on undrawn balance. */
   commitmentFeePct?: number;
-  /** Informational covenant; future M5 will surface breaches. */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Informational covenant
+   *  retired from UI pending M5 breach surfacing. */
   dscrCovenant?: number;
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Retired from UI pending
+   *  M5 breach surfacing. */
   ltvCovenant?: number;
-  /** Replaces idcCapitalize when set. Mixed treatment uses idcMixedSplitPeriod. */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). New facilities always
+   *  capitalize during construction; engine hardcodes the behavior.
+   *  Field stays for snapshot back-compat. */
   idcTreatment?: IDCTreatment;
-  /** For idcTreatment='mixed': last period of capitalization (inclusive). */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Mixed IDC dropped along
+   *  with the IDC Treatment dropdown. */
   idcMixedSplitPeriod?: number;
   /** For repaymentMethod='balloon': % of principal due at maturity. */
   balloonPct?: number;
   /** For cash-sweep repayments: % of available CF directed to principal (default 75). */
   sweepRatio?: number;
-  /** Discrete prepayments scheduled at specific periods. */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). Prepayments editor retired
+   *  from UI pending the M5 prepayment workflow. */
   prepayments?: Array<{ period: number; amount: number }>;
-  /** Payment-in-kind (capitalised interest deferral). */
+  /** @deprecated M2.0 Pass 23 (2026-05-13). PIK toggle retired from UI;
+   *  capitalize-during-grace is now controlled by graceInterestTreatment. */
   pikEnabled?: boolean;
   /** When true (default for capitalize/mixed treatments), auto-generate
    *  a read-only cost line in Tab 3 for the capitalized IDC. */
@@ -1308,6 +1319,16 @@ export interface FinancingTranche {
    *                          capitalize until M2 Revenue + M4 FS wire.
    */
   graceInterestTreatment?: 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf';
+
+  // ── M2.0 Pass 23 (2026-05-13) ────────────────────────────────────
+  /**
+   * Project-period index where the facility starts drawing. Defaults
+   * to 0 (= project's first construction period). Engine derives the
+   * drawdown window from `drawdownStartPeriod` through the last
+   * non-zero capex period of the project. Replaces the deprecated
+   * `availabilityPeriods` input.
+   */
+  drawdownStartPeriod?: number;
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────
@@ -2044,5 +2065,9 @@ export function makeDefaultFinancingTranche(
     // (rolls grace interest into the facility balance, same mechanic
     // as construction IDC). Other 3 options are user-selectable.
     graceInterestTreatment: 'capitalize',
+    // M2.0 Pass 23 (2026-05-13): facility starts drawing at project Y1
+    // (first construction period) by default. User can shift it later
+    // if the facility funds a later phase.
+    drawdownStartPeriod: 0,
   };
 }
