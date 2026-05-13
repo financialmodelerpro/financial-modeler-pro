@@ -424,14 +424,15 @@ function TrancheCard({
         <div style={{ marginBottom: 8 }}>
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
           <select
-            value={tranche.graceInterestTreatment ?? 'pay_from_ocf'}
-            onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'pay_from_ocf' | 'add_to_funding_need' | 'capitalize' })}
+            value={tranche.graceInterestTreatment ?? 'capitalize'}
+            onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf' })}
             style={inputStyle}
             data-testid={`tranche-${tranche.id}-grace-treatment`}
           >
-            <option value="pay_from_ocf">Pay from operating cash flow</option>
-            <option value="add_to_funding_need">Add to funding need (Method 3)</option>
             <option value="capitalize">Capitalize (add to balance)</option>
+            <option value="raise_via_funding">Raise via funding method</option>
+            <option value="raise_as_debt">Raise as new debt</option>
+            <option value="pay_from_ocf">Pay from operating cash flow</option>
           </select>
         </div>
       )}
@@ -531,14 +532,15 @@ function TrancheCard({
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
               <select
-                value={tranche.graceInterestTreatment ?? 'pay_from_ocf'}
-                onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'pay_from_ocf' | 'add_to_funding_need' | 'capitalize' })}
+                value={tranche.graceInterestTreatment ?? 'capitalize'}
+                onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf' })}
                 style={inputStyle}
                 data-testid={`tranche-${tranche.id}-grace-treatment`}
               >
-                <option value="pay_from_ocf">Pay from operating cash flow</option>
-                <option value="add_to_funding_need">Add to funding need (Method 3)</option>
                 <option value="capitalize">Capitalize (add to balance)</option>
+                <option value="raise_via_funding">Raise via funding method</option>
+                <option value="raise_as_debt">Raise as new debt</option>
+                <option value="pay_from_ocf">Pay from operating cash flow</option>
               </select>
             </div>
             <div>
@@ -1302,25 +1304,24 @@ export default function Module1Financing(): React.JSX.Element {
     return { axis, cropRow, activeCount, first };
   }, [inputsSummary, project.startDate]);
 
-  // M2.0 Pass 15 (2026-05-13): per-period grace interest add-on for the
-  // Method 3 "add_to_funding_need" treatment. For each tranche flagged
-  // graceInterestTreatment === 'add_to_funding_need', compute its
+  // M2.0 Pass 20 (2026-05-13): per-period grace interest add-on for the
+  // 'raise_via_funding' treatment (Pass 15 'add_to_funding_need'
+  // renamed). For each tranche flagged
+  // graceInterestTreatment === 'raise_via_funding', compute its
   // estimated grace-period interest accrual and add it to a copy of
   // capexPerPeriod. Approximation:
   //   principal ~= tranche.principal ?? totalCapex × ltvPct × shareSharePct
   //   gracePerPeriodInterest = principal × interestRatePct / 100
   //   distributed evenly across [availabilityPeriods .. +gracePeriods)
   //
-  // Used by the funding memo (when method=3) AND the Funding Requirement
-  // table's Method 3 row so the two stay in lockstep. Method 1 + 4 use
-  // raw capex (no grace adjustment), matching the brief: grace add only
-  // routes under Method 3.
-  const m3GraceCapexAdd = useMemo(() => {
+  // Routes through whichever funding method is active (Method 1/2/3);
+  // the resulting debt/equity split picks it up via the funding memo.
+  const graceFundingCapexAdd = useMemo(() => {
     const out = new Array<number>(inputsSummary.totals.length).fill(0);
     if (!financingTranches || financingTranches.length === 0) return out;
     const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
     for (const t of financingTranches) {
-      if (t.graceInterestTreatment !== 'add_to_funding_need') continue;
+      if (t.graceInterestTreatment !== 'raise_via_funding') continue;
       const grace = Math.max(0, t.gracePeriods ?? 0);
       if (grace <= 0) continue;
       const rate = Math.max(0, t.interestRatePct ?? 0) / 100;
@@ -1346,10 +1347,11 @@ export default function Module1Financing(): React.JSX.Element {
   // zero whenever activePhaseId did not match the phase carrying the
   // cost lines.
   const funding = useMemo(() => {
-    // Pass 15 (2026-05-13): under Method 3 ONLY, the capex basis
-    // includes any tranche's "add_to_funding_need" grace interest.
-    const capex = financingConfig.fundingMethod === 2
-      ? inputsSummary.totals.map((v, i) => v + (m3GraceCapexAdd[i] ?? 0))
+    // Pass 20 (2026-05-13): grace funding add applies regardless of
+    // the active funding method (Method 1/2/3 all consume the boosted
+    // capex when at least one tranche selects 'raise_via_funding').
+    const capex = graceFundingCapexAdd.some((v) => v > 0)
+      ? inputsSummary.totals.map((v, i) => v + (graceFundingCapexAdd[i] ?? 0))
       : inputsSummary.totals;
     return computeFunding({
       method: financingConfig.fundingMethod,
@@ -1361,7 +1363,7 @@ export default function Module1Financing(): React.JSX.Element {
       landCashPerPeriod: inputsSummary.landCashPerPeriod,
       parcelCashPerPeriod: inputsSummary.parcelCashPerPeriod,
     });
-  }, [financingConfig, inputsSummary.totals, inputsSummary.landCashPerPeriod, inputsSummary.parcelCashPerPeriod, m3GraceCapexAdd]);
+  }, [financingConfig, inputsSummary.totals, inputsSummary.landCashPerPeriod, inputsSummary.parcelCashPerPeriod, graceFundingCapexAdd]);
   const equity = useMemo(
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],
@@ -1958,7 +1960,7 @@ export default function Module1Financing(): React.JSX.Element {
             // M2.0 Pass 15 (2026-05-13): Method 3 row consumes the same
             // grace-adjusted capex as the main funding memo, so the
             // Selected row mirrors funding.periodArray when method=3.
-            const m3Capex = inputsSummary.totals.map((v, i) => v + (m3GraceCapexAdd[i] ?? 0));
+            const m3Capex = inputsSummary.totals.map((v, i) => v + (graceFundingCapexAdd[i] ?? 0));
             const baseCtx = {
               financing: financingConfig,
               capexPerPeriod: inputsSummary.totals,
