@@ -1498,30 +1498,30 @@ export default function Module1Financing(): React.JSX.Element {
   // negative -> parens, null/undef -> blank). K/M suffix stays in page
   // header only.
   const fmt = (n: number): string => formatAccounting(n, scale, decimals);
-  // M2.0 Pass 20 (2026-05-13): Schedules sub-tab axis. End column =
-  // project operation end (last operating period of the longest phase),
-  // optionally extended when a facility's data outruns that horizon.
-  // Off-by-one cropping matches Tab 4 Inputs (Pass 19): walk source
-  // arrays from index 1, map facility-local i to project col
-  // `phaseOffset + i - 1`, drop the Y0 lump from rendering.
+  // M2.0 Pass 21 (2026-05-13): Schedules sub-tab axis. Rebuilt to match
+  // inputsAxis column-for-column (so Inputs + Schedules sub-tabs render
+  // the same Dec 26..Dec NN cols), with last extended to project
+  // operation end + facility data extent. Cropping mirrors Pass 19's
+  // inputsAxis pattern: source arrays are walked from index 1 (Y0 lump
+  // at index 0 is dropped); active col c reads `arr[first + 1 + c]`.
+  // Out-of-range reads return 0 so the operation-end floor never
+  // crashes on shorter facility arrays.
   const schedulesAxis = useMemo(() => {
     const totals = inputsSummary.totals;
-    // Project operation end column (0-based inclusive). totalPeriods is
-    // (endYear - startYear) in annual terms (computeProjectTimeline);
-    // last operating col index = totalPeriods - 1.
-    const operationEndCol = Math.max(0, inputsSummary.totalPeriods - 1);
-    let lastCol = operationEndCol;
-    // Walk inputsSummary.totals[1..] (skip Y0 lump) to extend lastCol
-    // when capex spills past operation end (e.g. construction overlap).
+    let firstCol = -1;
+    let dataLastCol = -1;
+    // First/last non-zero col from project-aligned totals (skip Y0 lump).
     for (let i = 1; i < totals.length; i++) {
       if (Math.abs(totals[i] ?? 0) > 0.5) {
-        lastCol = Math.max(lastCol, i - 1);
+        const col = i - 1;
+        if (firstCol < 0) firstCol = col;
+        dataLastCol = col;
       }
     }
-    // Walk per-facility schedules (facility-local, indexed from phase
-    // start). Map facility-local i (>= 1) to project col `offset + i - 1`.
-    // A long facility tenor that outlasts the active phase ops tail
-    // extends the axis here.
+    // Extend dataLastCol from per-facility schedules. Facility-local
+    // index i maps to project col `phaseOffset + i - 1` (same off-by-one
+    // as Tab 3 + Tab 4 Inputs: drop facility-local index 0 = Y0 lump
+    // position).
     for (const t of phaseTranches) {
       const r = resultsMap.get(t.id);
       if (!r) continue;
@@ -1531,40 +1531,55 @@ export default function Module1Financing(): React.JSX.Element {
         for (let i = 1; i < arr.length; i++) {
           if (Math.abs(arr[i] ?? 0) > 0.5) {
             const col = phaseOffset + i - 1;
-            if (col > lastCol) lastCol = col;
+            if (firstCol < 0 || col < firstCol) firstCol = col;
+            if (col > dataLastCol) dataLastCol = col;
           }
         }
       };
       probe(r.drawSchedule);
       probe(r.outstandingBalance);
-      probe(r.interestAccrued);
       probe(r.principalRepaid);
+      probe(r.interestAccrued);
     }
-    const activeCount = lastCol + 1;
+    const hasData = firstCol >= 0;
+    const first = hasData ? Math.max(0, firstCol) : 0;
+    // last = max(data extent, project operation end). Operation end is
+    // (totalPeriods - 1) because totalPeriods = endYear - startYear,
+    // and project col 0 = first construction year.
+    const operationEndCol = Math.max(0, inputsSummary.totalPeriods - 1);
+    const last = Math.max(hasData ? dataLastCol : 0, operationEndCol);
+    const activeCount = Math.max(1, last - first + 1);
     const axis = buildResultsPeriodAxis({
       startIso: project.startDate,
       numAnnualPeriods: activeCount,
+      cropAnnualOffset: first,
     });
-    // Project-aligned cropper: source array indexed from project start
-    // with index 0 = Y0 lump. Map project col c -> arr[c + 1].
+    // Project-aligned series (funding.*, equity.*, combined.* for
+    // single-phase projects) have Y0 lump at array index 0. Active col c
+    // reads `arr[first + 1 + c]`. Out-of-range returns 0.
     const cropProject = (arr: number[]): number[] => {
       const out = new Array<number>(activeCount).fill(0);
-      for (let c = 0; c < activeCount; c++) out[c] = arr[c + 1] ?? 0;
+      for (let c = 0; c < activeCount; c++) {
+        const idx = first + 1 + c;
+        out[c] = (idx >= 0 && idx < arr.length) ? (arr[idx] ?? 0) : 0;
+      }
       return out;
     };
-    // Facility-local cropper: source array indexed from phase start.
-    // Project col c -> facility-local index `c - phaseOffset + 1` (skip
-    // facility Y0 lump). Out-of-range -> 0.
+    // Facility-local series (r.drawSchedule etc.) are indexed from the
+    // facility's phase start, with index 0 = phase Y0 lump position.
+    // Facility-local i maps to project-totals-index `phaseOffset + i`,
+    // so active col c (= project-totals-index `first + 1 + c`) reads
+    // facility-local i = `first + 1 + c - phaseOffset`.
     const cropFacility = (arr: number[], phaseOffset: number): number[] => {
       const out = new Array<number>(activeCount).fill(0);
       for (let c = 0; c < activeCount; c++) {
-        const facLocal = c - phaseOffset + 1;
+        const facLocal = first + 1 + c - phaseOffset;
         if (facLocal < 0 || facLocal >= arr.length) continue;
         out[c] = arr[facLocal] ?? 0;
       }
       return out;
     };
-    return { axis, cropProject, cropFacility, activeCount, operationEndCol };
+    return { axis, cropProject, cropFacility, activeCount, first, last, operationEndCol };
   }, [inputsSummary, phaseTranches, resultsMap, phases, phase, project]);
 
   const handleAddTranche = (): void => {
@@ -2161,22 +2176,26 @@ export default function Module1Financing(): React.JSX.Element {
       )}
 
       {/* ── Schedules sub-tab ──────────────────────────────────────────
-          M2.0 Pass 20 (2026-05-13): rebuilt from scratch. 5 tables in
-          order: Debt Movement (per facility) -> Combined Debt Service
-          -> Finance Cost (per facility) -> IDC Summary -> Equity
-          Movement. Axis ends at project operation end (cap), extended
-          when a facility's data outruns that horizon. Single axis
-          source via buildResultsPeriodAxis with off-by-one cropping
-          (matches Tab 4 Inputs). All tables share the universal
-          tableStyles tokens. The legacy Capital Stack Movement table
-          is gone, its data sits on the Inputs sub-tab. */}
+          M2.0 Pass 21 (2026-05-13): wiped + rebuilt clean. 5 tables in
+          fixed order with the universal tableStyles tokens. Axis
+          aligned column-for-column with Tab 4 Inputs (same off-by-one
+          cropping; same Dec NN labels), extended to project operation
+          end and to facility data extent. Equity Movement places the
+          Land In-Kind lump at the first active col directly (so the
+          lump renders on screen instead of being cropped out with the
+          engine's Y0-anchored inKindPerPeriod[0]). */}
       {subTab === 'schedules' && (() => {
         const labels = schedulesAxis.axis.labels;
-        const { cropProject, cropFacility } = schedulesAxis;
+        const { cropProject, cropFacility, activeCount } = schedulesAxis;
         const filteredFacilities = phaseTranches.filter(
           (t) => !scheduleFilter || t.id === scheduleFilter,
         );
         const sumActive = (arr: number[]): string => fmt(arr.reduce((s, v) => s + v, 0));
+        const buildOpening = (closing: number[]): number[] => {
+          const out = new Array<number>(closing.length).fill(0);
+          for (let i = 1; i < closing.length; i++) out[i] = closing[i - 1] ?? 0;
+          return out;
+        };
         return (
           <>
             {/* Filter pill bar */}
@@ -2204,12 +2223,11 @@ export default function Module1Financing(): React.JSX.Element {
               if (!r) return null;
               const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
               const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
-              const closingActive = cropFacility(r.outstandingBalance, phaseOffset);
-              const openingActive = new Array<number>(closingActive.length).fill(0);
-              for (let i = 1; i < closingActive.length; i++) openingActive[i] = closingActive[i - 1] ?? 0;
-              const drawActive = cropFacility(r.drawSchedule, phaseOffset);
-              const interestCapActive = cropFacility(r.interestCapitalized, phaseOffset);
-              const principalActive = cropFacility(r.principalRepaid, phaseOffset);
+              const closing = cropFacility(r.outstandingBalance, phaseOffset);
+              const opening = buildOpening(closing);
+              const draw = cropFacility(r.drawSchedule, phaseOffset);
+              const intCap = cropFacility(r.interestCapitalized, phaseOffset);
+              const principal = cropFacility(r.principalRepaid, phaseOffset);
               return (
                 <ScheduleTable
                   key={`debt-movement-${t.id}`}
@@ -2217,35 +2235,36 @@ export default function Module1Financing(): React.JSX.Element {
                   dataTestid={`debt-movement-${t.id}`}
                   labels={labels}
                   rows={[
-                    { label: 'Opening Balance', values: openingActive.map(fmt) as unknown as number[], total: '-' },
-                    { label: 'Drawdown', values: drawActive.map(fmt) as unknown as number[], total: sumActive(drawActive) },
-                    { label: 'Interest Capitalized', values: interestCapActive.map(fmt) as unknown as number[], total: sumActive(interestCapActive) },
-                    { label: 'Principal Repaid', values: principalActive.map(fmt) as unknown as number[], total: sumActive(principalActive) },
-                    { label: 'Closing Balance', values: closingActive.map(fmt) as unknown as number[], bold: true, total: '-' },
+                    { label: 'Opening Balance', values: opening.map(fmt) as unknown as number[], total: '-' },
+                    { label: 'Drawdown', values: draw.map(fmt) as unknown as number[], total: sumActive(draw) },
+                    { label: 'Interest Capitalized', values: intCap.map(fmt) as unknown as number[], total: sumActive(intCap) },
+                    { label: 'Principal Repaid', values: principal.map(fmt) as unknown as number[], total: sumActive(principal) },
+                    { label: 'Closing Balance', values: closing.map(fmt) as unknown as number[], bold: true, total: '-' },
                   ]}
                 />
               );
             })}
 
             {/* Schedule 2: Combined Debt Service.
-                combined.* arrays are facility-local (single-phase
-                projects align trivially; multi-phase is a known
-                pre-existing limitation). Use cropProject because every
-                phaseOffset for the active filter is 0 in the common
-                case; for multi-phase, prefer the per-facility tables. */}
+                combined.* arrays sum facility-local series at the same
+                indices, so for single-phase projects they share the
+                Y0-lump-at-0 shape; cropProject lines them up with the
+                same Dec NN columns Inputs uses. Multi-phase combined
+                is a known pre-existing limitation; prefer the per-
+                facility tables above for multi-phase reads. */}
             {(() => {
-              const intActive = cropProject(combined.totalInterest);
-              const prnActive = cropProject(combined.totalPrincipal);
-              const dsActive = cropProject(combined.totalDebtService);
+              const totalInterest = cropProject(combined.totalInterest);
+              const totalPrincipal = cropProject(combined.totalPrincipal);
+              const totalDS = cropProject(combined.totalDebtService);
               return (
                 <ScheduleTable
                   title="2. Combined Debt Service"
                   dataTestid="combined-debt-service"
                   labels={labels}
                   rows={[
-                    { label: 'Total Interest', values: intActive.map(fmt) as unknown as number[], total: sumActive(intActive) },
-                    { label: 'Total Principal', values: prnActive.map(fmt) as unknown as number[], total: sumActive(prnActive) },
-                    { label: 'Total Debt Service', values: dsActive.map(fmt) as unknown as number[], bold: true, total: sumActive(dsActive) },
+                    { label: 'Total Interest', values: totalInterest.map(fmt) as unknown as number[], total: sumActive(totalInterest) },
+                    { label: 'Total Principal', values: totalPrincipal.map(fmt) as unknown as number[], total: sumActive(totalPrincipal) },
+                    { label: 'Total Debt Service', values: totalDS.map(fmt) as unknown as number[], bold: true, total: sumActive(totalDS) },
                   ]}
                 />
               );
@@ -2257,9 +2276,9 @@ export default function Module1Financing(): React.JSX.Element {
               if (!r) return null;
               const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
               const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
-              const accruedActive = cropFacility(r.interestAccrued, phaseOffset);
-              const capActive = cropFacility(r.interestCapitalized, phaseOffset);
-              const expensedActive = accruedActive.map((acc, i) => Math.max(0, acc - (capActive[i] ?? 0)));
+              const accrued = cropFacility(r.interestAccrued, phaseOffset);
+              const cap = cropFacility(r.interestCapitalized, phaseOffset);
+              const expensed = accrued.map((a, i) => Math.max(0, a - (cap[i] ?? 0)));
               return (
                 <ScheduleTable
                   key={`finance-cost-${t.id}`}
@@ -2267,9 +2286,9 @@ export default function Module1Financing(): React.JSX.Element {
                   dataTestid={`finance-cost-${t.id}`}
                   labels={labels}
                   rows={[
-                    { label: 'Interest Accrued', values: accruedActive.map(fmt) as unknown as number[], total: sumActive(accruedActive) },
-                    { label: 'Interest Capitalized', values: capActive.map(fmt) as unknown as number[], total: sumActive(capActive) },
-                    { label: 'Interest Expensed', values: expensedActive.map(fmt) as unknown as number[], bold: true, total: sumActive(expensedActive) },
+                    { label: 'Interest Accrued', values: accrued.map(fmt) as unknown as number[], total: sumActive(accrued) },
+                    { label: 'Interest Capitalized', values: cap.map(fmt) as unknown as number[], total: sumActive(cap) },
+                    { label: 'Interest Expensed', values: expensed.map(fmt) as unknown as number[], bold: true, total: sumActive(expensed) },
                   ]}
                 />
               );
@@ -2315,23 +2334,33 @@ export default function Module1Financing(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Schedule 5: Equity Movement */}
+            {/* Schedule 5: Equity Movement.
+                Pass 21: in-kind lump rendered at active col 0 directly
+                (the engine's inKindPerPeriod[0] is the Y0-anchor that
+                cropProject drops). Closing walk is computed locally
+                from cropped cash + the placed in-kind lump so it
+                matches what the user sees. */}
             {(() => {
-              const closingActive = cropProject(equity.closingPerPeriod);
-              const openingActive = new Array<number>(closingActive.length).fill(0);
-              for (let i = 1; i < closingActive.length; i++) openingActive[i] = closingActive[i - 1] ?? 0;
-              const cashActive = cropProject(equity.cashPerPeriod);
-              const inKindActive = cropProject(equity.inKindPerPeriod);
+              const cash = cropProject(equity.cashPerPeriod);
+              const inKind = new Array<number>(activeCount).fill(0);
+              if (activeCount > 0) inKind[0] = projectInKindLandValue;
+              const closing = new Array<number>(activeCount).fill(0);
+              let running = 0;
+              for (let i = 0; i < activeCount; i++) {
+                running += (cash[i] ?? 0) + (inKind[i] ?? 0);
+                closing[i] = running;
+              }
+              const opening = buildOpening(closing);
               return (
                 <ScheduleTable
                   title="5. Equity Movement"
                   dataTestid="equity-movement"
                   labels={labels}
                   rows={[
-                    { label: 'Opening Equity', values: openingActive.map(fmt) as unknown as number[], total: '-' },
-                    { label: 'Cash Contributions', values: cashActive.map(fmt) as unknown as number[], total: sumActive(cashActive) },
-                    { label: 'In-Kind Contributions', values: inKindActive.map(fmt) as unknown as number[], total: sumActive(inKindActive) },
-                    { label: 'Closing Equity', values: closingActive.map(fmt) as unknown as number[], bold: true, total: '-' },
+                    { label: 'Opening Equity', values: opening.map(fmt) as unknown as number[], total: '-' },
+                    { label: 'Cash Contributions', values: cash.map(fmt) as unknown as number[], total: sumActive(cash) },
+                    { label: 'In-Kind Contributions', values: inKind.map(fmt) as unknown as number[], total: sumActive(inKind) },
+                    { label: 'Closing Equity', values: closing.map(fmt) as unknown as number[], bold: true, total: '-' },
                   ]}
                 />
               );
