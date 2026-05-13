@@ -1961,3 +1961,109 @@ Pass 12 closure) -> `3e41344` (Fix 1 Method 2 removal) ->
 `3038e34` (Fix 2 Capex Breakdown) -> `c944df8` (Fix 3 Debt/Equity
 Required + two-rule engine). Type-check + build clean on every
 commit.
+
+### M2.0 Pass 14 (2026-05-13, Universal Annual Basis + Column Width Balance, 3 commits)
+
+- **Annual-only basis until M5 FS (commit `5701b19`).** Granularity
+  toggle removed across Tab 3 Results, Tab 4 Inputs, ProjectWizard.
+  Shared `_shared/GranularityRadioBar.tsx` deleted. Tab 3 Costs Results
+  `transformAnnualSeries` reduced to identity (quarterly + monthly
+  distribution branches deleted). M5 Financial Statements will
+  reintroduce granularity scoped to FS output only. `project.outputGranularity`
+  marked @deprecated.
+- **Data-driven period axis (commit `db8596e`).** 60-year hard cap
+  removed everywhere. `buildResultsPeriodAxis` no longer takes a
+  `granularity` arg or applies a cap; caller picks `numAnnualPeriods`
+  from project duration + active-data extent. Tab 3 Results computes
+  `annualPeriodCount = max(totalConstructionPeriods, activeLastAnnual + 1, 1)`.
+- **Column widths re-balance to 22% / equal-others (commit `18084dd`).**
+  `COLUMN_WIDTHS = { label: '22%' }` + `nonLabelColumnPct(count)` helper.
+  Every results table renders `<table style={{ width: '100%', tableLayout: 'fixed' }}>`
+  with `<colgroup>` of label@22% + N × equal-pct cols.
+
+### M2.0 Pass 15 (2026-05-13, Tab 4 Final Redesign Pass, 9 commits incl. 5b polish)
+
+- **Period axis matches Tab 3 + 1 trailing year (commits `d732cb6`, `3a5b767`).**
+  New `inputsAxis` memo derives first/last non-zero indices from
+  `inputsSummary.totals` (with Y0 anchor when projectInKindLandValue > 0
+  to match Tab 3's inclusive-extent start), then `numAnnualPeriods = last - first + 1 + 1`
+  (the +1 trailing year). Capex Breakdown + Debt/Equity Required +
+  Funding Requirement tables consume `inputsAxis.axis` and crop their
+  row data via `inputsAxis.cropRow(...)`. Schedules untouched.
+- **Tab 4 Inputs layout reordered (commit `c2c488d`).** Capex Breakdown
+  moved from position 2 to position 7. New order: Project Financing
+  Settings → Funding Method → Funding Basis → Land Funding → Capital
+  Structure Overview → Debt Facilities → Capex Breakdown → Funding
+  Requirement → Total Debt Required → Total Equity Required.
+- **Input sections compressed (commit `441e189`).** Project Financing
+  Settings tightened (single flex row). Funding Method changed to
+  horizontal 3-card grid (repeat(3, 1fr)). Funding Basis dropped
+  redundant Method field. Capital Structure Overview compressed from
+  7 cards to 1 headline + 6 compact cards (later removed entirely in
+  Pass 18).
+- **LTV wording removed across Tab 4 (commits `b6a7a30`, `0faf40b`).**
+  Tranche covenant → "Max Debt %"; Capital Structure card → "Debt %"
+  (later removed). DRAWDOWN_METHOD_LABELS.capex_basis + types comments
+  updated.
+- **Funding Requirement table (commit `e4d15c5`).** New IIFE block.
+  Calls `computeFunding` 3 times per render (one per method); 4 rows
+  rendered: Method 1 / Method 2 / Method 3 / Selected (mirrors active
+  method via ROW_GRAND_TOTAL styling).
+- **Per-facility Grace Interest Treatment (commit `74143d5`).** New
+  `FinancingTranche.graceInterestTreatment` field (additive). Migration
+  `migrateM20pass15GraceTreatment` backfills 'capitalize' on legacy
+  tranches; new tranches default to 'pay_from_ocf'. UI dropdown next
+  to Grace Period. Engine wire: when method = 2 (Net Funding) and
+  treatment = 'add_to_funding_need', accrued grace interest =
+  `principal × rate × graceYears` added to capexPerPeriod.
+- **Tab 1 per-asset pre-capex with debt/equity validation chip (commit `839e066`).**
+  New `Asset.historicalPreCapex / historicalDebtAmount / historicalEquityAmount`
+  fields (additive). Operational-phase reveal in Module1ProjectPhases adds
+  "Per-asset Historical Baseline" sub-panel with 5-col grid per asset +
+  validation chip (green Balances / amber Mismatch). New `historicalPriorTotals`
+  memo on Tab 4 sums per-asset values; Capex Breakdown prior cell gets
+  preCapex, Total Debt Required prior gets debt, Total Equity Required
+  prior gets equity.
+
+### M2.0 Passes 16-18 (2026-05-13, Tab 4 Verification Fixes, 9 commits)
+
+- **Pass 16 — Land Funding Debt%/Equity% inputs (commit `996f1b1`).**
+  Per-parcel dropdown (5 options) + custom-split + deferred editor
+  collapsed to single auto-paired Debt%/Equity% pair. New
+  `ParcelFundingConfig.debtPct/equityPct` (additive); fundingType +
+  customDebtPct + customEquityPct + deferredSchedule marked @deprecated.
+  Migration `migrateM20pass16LandFundingSimplify` maps legacy enums to
+  direct fields. `parcelDebtEquityFractions` prefers new fields.
+- **Pass 16 — Capital Structure Overview removed (commit `d7f07fe`).**
+  Entire 7-card block + per-facility breakdown `<details>` deleted.
+  Sources vs Uses match check inlined as small chip next to Total Capex
+  on Funding Basis row.
+- **Pass 17 — Funding methods renumbered to 1/2/3 (commit `9674bb1`).**
+  `FundingMethodId: 1|3|4 → 1|2|3`. Migration `migrateM20pass17MethodRenumber`
+  flips legacy `fundingMethod` values.
+- **Pass 18 — Engine: Methods 2 and 3 affect non-land capex only
+  (commit `dd52bd8`).** `computeFunding` land/non-land split applies to
+  ALL three methods (was Method 1 only). Land cash always routed via
+  parcel ratios uniformly across methods.
+- **Pass 18 — Capital Stack Summary block dropped from Schedules
+  (commit `2199cdd`).** Renumbered remaining 5 blocks (Debt Movement 1,
+  Combined Debt Service 2, Finance Cost 3, IDC Summary 4, Equity
+  Movement 5).
+- **Pass 18 — Schedules drawdown wired from Funding Requirement
+  (commit `d729c02`).** `computeFinancing` gains optional
+  `precomputedDrawSchedule?: number[]` arg. `resultsMap` moved below
+  `funding` memo; per-facility drawdown = `funding.debtEquitySplit.debt[offset+i] × facilitySharePct/100`
+  (only allocation rule; no waterfall). Existing facilities skip the
+  arg (drawWindow=0). `tranche.ltvPct` + `drawdownMethod` marked
+  @deprecated.
+- **Pass 18 — YoY% editor uses repayment periods (commit `e2594b8`).**
+  Editor falls back to phase.constructionPeriods when repaymentPeriods
+  is 0. makeDefaultFinancingTranche.repaymentPeriods lowered from 60 to 0.
+- **Pass 18 — Percentage reconciliation audit (commit `e2a6cb4`).**
+  Land Funding render normalises equity to 100 - debt; Pass 16 migration
+  normalises legacy custom_split pairs to sum 100.
+- **Pass 18 — Methods 2 + 3 blank until M2/M4 ship (commit `3e918ef`).**
+  Funding Requirement table renders dashes for stubbed methods via
+  `isMethodStubbed(m)` guard. Selected row also renders dashes when
+  active method is 2 or 3. Engine still computes; only display blanked.
+  Flip the guard to false when M2 Revenue + M4 FS engines wire.
