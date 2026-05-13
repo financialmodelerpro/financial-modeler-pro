@@ -417,6 +417,27 @@ function TrancheCard({
           </div>
         </div>
       )}
+      {/* M2.0 Pass 15 (2026-05-13): Grace Interest Treatment also
+          rendered for existing facilities. Existing facilities have no
+          construction grace today (engine forces graceEndIdx=0 when
+          origin==='existing'), but the dropdown is visible per spec so
+          the schema choice carries through to M2.1 when interest-only /
+          payment-holiday periods on existing facilities ship. */}
+      {isExistingFacility && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
+          <select
+            value={tranche.graceInterestTreatment ?? 'pay_from_ocf'}
+            onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'pay_from_ocf' | 'add_to_funding_need' | 'capitalize' })}
+            style={inputStyle}
+            data-testid={`tranche-${tranche.id}-grace-treatment`}
+          >
+            <option value="pay_from_ocf">Pay from operating cash flow</option>
+            <option value="add_to_funding_need">Add to funding need (Method 3)</option>
+            <option value="capitalize">Capitalize (add to balance)</option>
+          </select>
+        </div>
+      )}
 
       {/* P3-Fix 3 (2026-05-12): per-facility Debt % + Principal inputs
           dropped. Facility principal auto-derives from chosen funding
@@ -505,10 +526,23 @@ function TrancheCard({
               <AccountingNumberInput min={0} decimals={0} value={tranche.availabilityPeriods ?? 0} onChange={(n) => onUpdate({ availabilityPeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-availability`} />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace</label>
               <AccountingNumberInput min={0} decimals={0} value={tranche.gracePeriods ?? 0} onChange={(n) => onUpdate({ gracePeriods: Math.round(n) })} style={inputStyle} data-testid={`tranche-${tranche.id}-grace`} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Grace Interest Treatment</label>
+              <select
+                value={tranche.graceInterestTreatment ?? 'pay_from_ocf'}
+                onChange={(e) => onUpdate({ graceInterestTreatment: e.target.value as 'pay_from_ocf' | 'add_to_funding_need' | 'capitalize' })}
+                style={inputStyle}
+                data-testid={`tranche-${tranche.id}-grace-treatment`}
+              >
+                <option value="pay_from_ocf">Pay from operating cash flow</option>
+                <option value="add_to_funding_need">Add to funding need (Method 3)</option>
+                <option value="capitalize">Capitalize (add to balance)</option>
+              </select>
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Periods</label>
@@ -1259,23 +1293,66 @@ export default function Module1Financing(): React.JSX.Element {
     return { axis, cropRow, activeCount, first };
   }, [inputsSummary, projectInKindLandValue, project.startDate]);
 
+  // M2.0 Pass 15 (2026-05-13): per-period grace interest add-on for the
+  // Method 3 "add_to_funding_need" treatment. For each tranche flagged
+  // graceInterestTreatment === 'add_to_funding_need', compute its
+  // estimated grace-period interest accrual and add it to a copy of
+  // capexPerPeriod. Approximation:
+  //   principal ~= tranche.principal ?? totalCapex × ltvPct × shareSharePct
+  //   gracePerPeriodInterest = principal × interestRatePct / 100
+  //   distributed evenly across [availabilityPeriods .. +gracePeriods)
+  //
+  // Used by the funding memo (when method=3) AND the Funding Requirement
+  // table's Method 3 row so the two stay in lockstep. Method 1 + 4 use
+  // raw capex (no grace adjustment), matching the brief: grace add only
+  // routes under Method 3.
+  const m3GraceCapexAdd = useMemo(() => {
+    const out = new Array<number>(inputsSummary.totals.length).fill(0);
+    if (!financingTranches || financingTranches.length === 0) return out;
+    const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
+    for (const t of financingTranches) {
+      if (t.graceInterestTreatment !== 'add_to_funding_need') continue;
+      const grace = Math.max(0, t.gracePeriods ?? 0);
+      if (grace <= 0) continue;
+      const rate = Math.max(0, t.interestRatePct ?? 0) / 100;
+      if (rate <= 0) continue;
+      const ltvFrac = Math.max(0, t.ltvPct ?? 0) / 100;
+      const shareFrac = Math.max(0, t.facilitySharePct ?? 100) / 100;
+      const principal = t.principal ?? totalCapex * ltvFrac * shareFrac;
+      if (principal <= 0) continue;
+      const interestPerPeriod = principal * rate;
+      const availEnd = Math.max(0, t.availabilityPeriods ?? 0);
+      for (let i = 0; i < grace; i++) {
+        const idx = availEnd + i;
+        if (idx < 0 || idx >= out.length) continue;
+        out[idx] += interestPerPeriod;
+      }
+    }
+    return out;
+  }, [financingTranches, inputsSummary.totals]);
+
   // P4-Fix 10 (2026-05-12): funding routed off project-wide capex
   // (inputsSummary.totals) so Capital Structure Overview + schedules
   // see all phases' capex. Was single-phase pre-Pass-4 which rendered
   // zero whenever activePhaseId did not match the phase carrying the
   // cost lines.
   const funding = useMemo(() => {
+    // Pass 15 (2026-05-13): under Method 3 ONLY, the capex basis
+    // includes any tranche's "add_to_funding_need" grace interest.
+    const capex = financingConfig.fundingMethod === 3
+      ? inputsSummary.totals.map((v, i) => v + (m3GraceCapexAdd[i] ?? 0))
+      : inputsSummary.totals;
     return computeFunding({
       method: financingConfig.fundingMethod,
       financing: financingConfig,
-      capexPerPeriod: inputsSummary.totals,
+      capexPerPeriod: capex,
       // M2.0 Pass 13 (2026-05-13): Method 1 two-rule split inputs.
       // Land Cash routes via parcel funding type; non-land via Method
       // 1 ratio. Other methods ignore these arrays.
       landCashPerPeriod: inputsSummary.landCashPerPeriod,
       parcelCashPerPeriod: inputsSummary.parcelCashPerPeriod,
     });
-  }, [financingConfig, inputsSummary.totals, inputsSummary.landCashPerPeriod, inputsSummary.parcelCashPerPeriod]);
+  }, [financingConfig, inputsSummary.totals, inputsSummary.landCashPerPeriod, inputsSummary.parcelCashPerPeriod, m3GraceCapexAdd]);
   const equity = useMemo(
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],
@@ -1942,6 +2019,10 @@ export default function Module1Financing(): React.JSX.Element {
               same active method). Method 3 + 4 today consume stubbed
               presales / OCF (zeros) until M2 Revenue + M4 FS land. */}
           {(() => {
+            // M2.0 Pass 15 (2026-05-13): Method 3 row consumes the same
+            // grace-adjusted capex as the main funding memo, so the
+            // Selected row mirrors funding.periodArray when method=3.
+            const m3Capex = inputsSummary.totals.map((v, i) => v + (m3GraceCapexAdd[i] ?? 0));
             const baseCtx = {
               financing: financingConfig,
               capexPerPeriod: inputsSummary.totals,
@@ -1950,7 +2031,7 @@ export default function Module1Financing(): React.JSX.Element {
             };
             const results: Record<FundingMethodId, FundingResult> = {
               1: computeFunding({ ...baseCtx, method: 1 }),
-              3: computeFunding({ ...baseCtx, method: 3 }),
+              3: computeFunding({ ...baseCtx, method: 3, capexPerPeriod: m3Capex }),
               4: computeFunding({ ...baseCtx, method: 4 }),
             };
             const activeMethod = financingConfig.fundingMethod;

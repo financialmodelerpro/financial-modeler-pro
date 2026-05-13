@@ -196,7 +196,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost step
   // so legacy fundingMethod=2 + lineItemRatios + debt/equityPctOverride
   // are scrubbed after every earlier-pass financing migration).
-  return migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -214,7 +214,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))));
+  )))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -230,7 +230,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // then T2-Fix 5c companion sub-unit mirror.
   // M2.0 Pass 13 (2026-05-13): drop Method 2 entirely (outermost so legacy
   // fundingMethod=2 / lineItemRatios / debt-equityPctOverride scrub last).
-  return migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -248,7 +248,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))));
+  )))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1798,5 +1798,29 @@ export function migrateM20pass13DropMethod2(snap: HydrateSnapshot): HydrateSnaps
       return ov;
     });
   }
+  return out as unknown as HydrateSnapshot;
+}
+
+// M2.0 Pass 15 (2026-05-13): default graceInterestTreatment for legacy
+// tranches. Snapshots saved before Pass 15 don't carry the field; legacy
+// behaviour during construction grace is "capitalize" (IDC capitalises
+// interest), so the migration backfills 'capitalize' on every tranche
+// missing the field. New tranches created post-Pass-15 use
+// makeDefaultFinancingTranche which seeds 'pay_from_ocf'.
+export function migrateM20pass15GraceTreatment(snap: HydrateSnapshot): HydrateSnapshot {
+  const raw = snap as unknown as Record<string, unknown>;
+  const out = { ...raw };
+  const fcAny = out.financingConfig as Record<string, unknown> | undefined;
+  if (!fcAny) return out as unknown as HydrateSnapshot;
+  const tranchesAny = fcAny.tranches as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(tranchesAny) || tranchesAny.length === 0) return out as unknown as HydrateSnapshot;
+  let touched = false;
+  const next = tranchesAny.map((t) => {
+    if ('graceInterestTreatment' in t && t.graceInterestTreatment != null) return t;
+    touched = true;
+    return { ...t, graceInterestTreatment: 'capitalize' };
+  });
+  if (!touched) return out as unknown as HydrateSnapshot;
+  out.financingConfig = { ...fcAny, tranches: next };
   return out as unknown as HydrateSnapshot;
 }

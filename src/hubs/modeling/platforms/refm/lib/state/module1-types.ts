@@ -1257,6 +1257,25 @@ export interface FinancingTranche {
   remainingTenorPeriods?: number;
   /** Remaining repayment periods at project Y0. Required when origin === 'existing'. Replaces repaymentPeriods for existing facilities. */
   remainingRepaymentPeriods?: number;
+
+  // ── M2.0 Pass 15 (2026-05-13) ────────────────────────────────────
+  /**
+   * Treatment for interest accrued during the facility's grace period.
+   *
+   *   'pay_from_ocf'        - default for new facilities; interest is
+   *                           expensed and paid from operating cash flow.
+   *                           Zero impact today since OCF is stubbed; the
+   *                           M2 Revenue + M4 FS wires will pick it up.
+   *   'add_to_funding_need' - accrued grace interest adds to the project
+   *                           funding requirement. Wired through Method 3
+   *                           net funding logic when Method 3 is active;
+   *                           otherwise behaves as pay_from_ocf.
+   *   'capitalize'          - interest rolls into facility balance (same
+   *                           mechanic as IDC during construction). Legacy
+   *                           snapshots default here via migration so
+   *                           existing models keep their original behaviour.
+   */
+  graceInterestTreatment?: 'pay_from_ocf' | 'add_to_funding_need' | 'capitalize';
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────
@@ -1959,5 +1978,8 @@ export function makeDefaultFinancingTranche(
     repaymentMethod: 'straight_line',
     repaymentPeriods: 60,
     idcCapitalize: true,
+    // M2.0 Pass 15 (2026-05-13): new tranches default to OCF treatment
+    // (zero impact today; wires when M2+M4 land).
+    graceInterestTreatment: 'pay_from_ocf',
   };
 }
