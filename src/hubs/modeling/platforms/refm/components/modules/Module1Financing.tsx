@@ -806,7 +806,7 @@ function TrancheCard({
               <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>Breach alerts in M5.</div>
             </div>
             <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Debt Covenant %</label>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Max Debt %</label>
               <PercentageInput min={0} max={100} value={tranche.ltvCovenant ?? 0} onChange={(n) => onUpdate({ ltvCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-ltv-cov`} />
             </div>
             <div>
@@ -1759,8 +1759,9 @@ export default function Module1Financing(): React.JSX.Element {
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(stack.totalUses)}</div>
               </div>
               <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-ltv">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Debt % (Senior / Total)</div>
+                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Debt %</div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{stack.ltvSenior.toFixed(1)}% / {stack.ltvTotal.toFixed(1)}%</div>
+                <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Senior / Total</div>
               </div>
               <div
                 style={{
