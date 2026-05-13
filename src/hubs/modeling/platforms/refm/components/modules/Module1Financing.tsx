@@ -992,8 +992,6 @@ export default function Module1Financing(): React.JSX.Element {
 
   // M2.0L: sub-tab state (Inputs / Schedules).
   const [subTab, setSubTab] = useState<'inputs' | 'schedules'>('inputs');
-  // M2.0L: filter pill (Schedules sub-tab). null = Combined.
-  const [scheduleFilter, setScheduleFilter] = useState<string | null>(null);
 
   // P10-Fix 6 (2026-05-12): Inputs Summary Tables default-collapsed was
   // removed in M2.0 Pass 13 (2026-05-13) when the 3 Funding / Debt /
@@ -2176,20 +2174,18 @@ export default function Module1Financing(): React.JSX.Element {
       )}
 
       {/* ── Schedules sub-tab ──────────────────────────────────────────
-          M2.0 Pass 21 (2026-05-13): wiped + rebuilt clean. 5 tables in
-          fixed order with the universal tableStyles tokens. Axis
-          aligned column-for-column with Tab 4 Inputs (same off-by-one
-          cropping; same Dec NN labels), extended to project operation
-          end and to facility data extent. Equity Movement places the
-          Land In-Kind lump at the first active col directly (so the
-          lump renders on screen instead of being cropped out with the
-          engine's Y0-anchored inKindPerPeriod[0]). */}
+          M2.0 Pass 22 (2026-05-13): Debt schedules wired DIRECTLY to
+          Funding Required. Filter pill bar removed (user request). Each
+          per-facility table renders against the same project-aligned
+          axis the Inputs sub-tab uses, sourcing drawdown from
+          `funding.debtEquitySplit.debt[c+1] × facility.facilitySharePct/100`
+          via cropProject. This guarantees Schedules debt cols match
+          Total Debt Required cols column-for-column instead of going
+          through the facility-local cropFacility path that broke when
+          activeCount exceeded the facility's array length. */}
       {subTab === 'schedules' && (() => {
         const labels = schedulesAxis.axis.labels;
-        const { cropProject, cropFacility, activeCount } = schedulesAxis;
-        const filteredFacilities = phaseTranches.filter(
-          (t) => !scheduleFilter || t.id === scheduleFilter,
-        );
+        const { cropProject, activeCount } = schedulesAxis;
         const sumActive = (arr: number[]): string => fmt(arr.reduce((s, v) => s + v, 0));
         const buildOpening = (closing: number[]): number[] => {
           const out = new Array<number>(closing.length).fill(0);
@@ -2198,36 +2194,23 @@ export default function Module1Financing(): React.JSX.Element {
         };
         return (
           <>
-            {/* Filter pill bar */}
-            <div
-              style={{
-                display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', alignItems: 'center',
-                padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
-                background: 'var(--color-grey-pale)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
-              }}
-              data-testid="financing-schedules-controls"
-            >
-              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Filter:</strong>
-              <button type="button" onClick={() => setScheduleFilter(null)} data-testid="financing-filter-combined" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: scheduleFilter === null ? 'none' : '1px solid var(--color-border)', background: scheduleFilter === null ? 'var(--color-navy)' : 'var(--color-surface)', color: scheduleFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>Combined</button>
-              {phaseTranches.map((t) => {
-                const active = scheduleFilter === t.id;
-                return (
-                  <button key={t.id} type="button" onClick={() => setScheduleFilter(t.id)} data-testid={`financing-filter-${t.id}`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: active ? 'none' : '1px solid var(--color-border)', background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>{t.name}</button>
-                );
-              })}
-            </div>
-
             {/* Schedule 1: Debt Movement per facility */}
-            {filteredFacilities.map((t) => {
+            {phaseTranches.map((t) => {
               const r = resultsMap.get(t.id);
               if (!r) return null;
-              const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
-              const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
-              const closing = cropFacility(r.outstandingBalance, phaseOffset);
+              const closing = cropProject(r.outstandingBalance);
               const opening = buildOpening(closing);
-              const draw = cropFacility(r.drawSchedule, phaseOffset);
-              const intCap = cropFacility(r.interestCapitalized, phaseOffset);
-              const principal = cropFacility(r.principalRepaid, phaseOffset);
+              // Drawdown rendered directly from funding × facility share
+              // so the row reconciles to Total Debt Required by
+              // construction. r.drawSchedule[c+1] for phase 1 = the same
+              // value (precomputedDraw path); reading funding here means
+              // the linkage holds even if a future migration changes
+              // computeFinancing's internal shape.
+              const sharePct = Math.max(0, t.facilitySharePct ?? 100) / 100;
+              const drawSource = funding.debtEquitySplit.debt.map((d) => d * sharePct);
+              const draw = cropProject(drawSource);
+              const intCap = cropProject(r.interestCapitalized);
+              const principal = cropProject(r.principalRepaid);
               return (
                 <ScheduleTable
                   key={`debt-movement-${t.id}`}
@@ -2245,14 +2228,15 @@ export default function Module1Financing(): React.JSX.Element {
               );
             })}
 
-            {/* Schedule 2: Combined Debt Service.
-                combined.* arrays sum facility-local series at the same
-                indices, so for single-phase projects they share the
-                Y0-lump-at-0 shape; cropProject lines them up with the
-                same Dec NN columns Inputs uses. Multi-phase combined
-                is a known pre-existing limitation; prefer the per-
-                facility tables above for multi-phase reads. */}
+            {/* Schedule 2: Combined Debt Service. Total Drawdown +
+                Total Interest + Total Principal + Total Debt Service.
+                Drawdown row = funding.debtEquitySplit.debt (full
+                project debt, before facility split, no share rescaling
+                possible because shares sum to 100% across facilities).
+                Interest + Principal aggregate per-facility via
+                computeCombinedDebtService. */}
             {(() => {
+              const totalDraw = cropProject(funding.debtEquitySplit.debt);
               const totalInterest = cropProject(combined.totalInterest);
               const totalPrincipal = cropProject(combined.totalPrincipal);
               const totalDS = cropProject(combined.totalDebtService);
@@ -2262,6 +2246,7 @@ export default function Module1Financing(): React.JSX.Element {
                   dataTestid="combined-debt-service"
                   labels={labels}
                   rows={[
+                    { label: 'Total Drawdown', values: totalDraw.map(fmt) as unknown as number[], total: sumActive(totalDraw) },
                     { label: 'Total Interest', values: totalInterest.map(fmt) as unknown as number[], total: sumActive(totalInterest) },
                     { label: 'Total Principal', values: totalPrincipal.map(fmt) as unknown as number[], total: sumActive(totalPrincipal) },
                     { label: 'Total Debt Service', values: totalDS.map(fmt) as unknown as number[], bold: true, total: sumActive(totalDS) },
@@ -2271,13 +2256,11 @@ export default function Module1Financing(): React.JSX.Element {
             })()}
 
             {/* Schedule 3: Finance Cost per facility */}
-            {filteredFacilities.map((t) => {
+            {phaseTranches.map((t) => {
               const r = resultsMap.get(t.id);
               if (!r) return null;
-              const facilityPhase = phases.find((p) => p.id === t.phaseId) ?? phase;
-              const phaseOffset = costLineProjectPeriodIndex(project, facilityPhase, 0);
-              const accrued = cropFacility(r.interestAccrued, phaseOffset);
-              const cap = cropFacility(r.interestCapitalized, phaseOffset);
+              const accrued = cropProject(r.interestAccrued);
+              const cap = cropProject(r.interestCapitalized);
               const expensed = accrued.map((a, i) => Math.max(0, a - (cap[i] ?? 0)));
               return (
                 <ScheduleTable
