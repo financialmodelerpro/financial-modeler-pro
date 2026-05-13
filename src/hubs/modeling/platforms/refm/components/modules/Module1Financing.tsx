@@ -82,7 +82,6 @@ import {
   computeAssetCost,
   computeProjectTimeline,
   costLineProjectPeriodIndex,
-  generatePeriodLabels,
   type FinancingResult,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounting, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
@@ -1110,7 +1109,11 @@ export default function Module1Financing(): React.JSX.Element {
   const inputsSummary = useMemo(() => {
     const timeline = computeProjectTimeline(project, phases);
     const totalPeriods = Math.max(0, timeline.totalPeriods);
-    const labels = generatePeriodLabels(project.startDate, totalPeriods, 'annual');
+    // M2.0 Pass 15 (2026-05-13): the project-duration `labels` array
+    // that this memo used to expose is gone. Tab 4 Inputs tables now
+    // route through `inputsAxis` which crops to the actual capex extent
+    // plus one trailing year, so a full-duration label list would only
+    // re-introduce the empty trailing columns Fix 2 removed.
     const perAsset = new Map<string, { id: string; name: string; perPeriod: number[]; total: number }>();
     const totals = new Array<number>(totalPeriods).fill(0);
     // M2.0 Pass 13 (2026-05-13): land cash schedule per project period,
@@ -1185,7 +1188,6 @@ export default function Module1Financing(): React.JSX.Element {
     const debtPct = ratio.debt / (ratio.debt + ratio.equity || 1);
     const equityPct = ratio.equity / (ratio.debt + ratio.equity || 1);
     return {
-      labels,
       perAsset: Array.from(perAsset.values()),
       totals,
       debtPct,
