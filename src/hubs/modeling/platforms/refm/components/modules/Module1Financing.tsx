@@ -1220,26 +1220,10 @@ export default function Module1Financing(): React.JSX.Element {
             {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
           </div>
         </div>
-        {/* P4-Fix 9 (2026-05-12): Asset Filter replaces Phase Filter.
-            'Combined' aggregates all assets; specific asset id narrows
-            the Inputs Summary tables + Schedules to that asset's
-            portion (allocated by capex share within scoped facilities).
-            phaseFilter retained on schema; migration converts to
-            assetFilter='__combined__'. */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Asset Filter</label>
-          <select
-            value={financingConfig.assetFilter ?? '__combined__'}
-            onChange={(e) => setFinancingConfig({ assetFilter: e.target.value })}
-            style={inputStyle}
-            data-testid="financing-asset-filter"
-          >
-            <option value="__combined__" data-testid="financing-asset-filter-combined">Combined</option>
-            {assets.filter((a) => a.visible).map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
-        </div>
+        {/* Asset Filter dropdown removed (2026-05-13): Tab 4 is
+            project-wide only. The schema fields (assetFilter,
+            selectedAssetId, viewMode) remain on ProjectFinancingConfig
+            for snapshot back-compat but are no longer consumed. */}
       </div>
 
       {/* Sub-tab switcher */}

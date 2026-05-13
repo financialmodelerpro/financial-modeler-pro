@@ -1417,23 +1417,18 @@ export interface ProjectFinancingConfig {
   netFundingConfig?: FundingMethod3Config;
   cashDeficitConfig?: FundingMethod4Config;
   parcelFunding: ParcelFundingConfig[];
+  /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   viewMode: FundingViewMode;
-  /** Required when viewMode='single_asset'. */
+  /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   selectedAssetId?: string;
   // P2-Fix 6 (2026-05-11): project-level cash floor applied across ALL
   // funding methods and cash-sweep repayments. Defaults to 0 on fresh
   // projects; migrateM20mPass2Financing lifts any legacy
   // cashDeficitConfig.minimumCashReserve into this field.
   minimumCashReserve?: number;
-  // P2-Fix 10 (2026-05-11): phase filter for schedules. '__all__' = aggregate
-  // across phases. Specific phase id narrows the views. Defaults to '__all__'.
-  // P4-Fix 9 (2026-05-12): superseded by assetFilter below. Retained on
-  // schema for back-compat; migration converts to assetFilter='__combined__'.
+  /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   phaseFilter?: string;
-  // P4-Fix 9 (2026-05-12): asset filter replaces phase filter on Tab 4
-  // Schedules. '__combined__' aggregates across all assets;
-  // specific asset id narrows every table (Inputs Summary + Schedules)
-  // to that asset's portion.
+  /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   assetFilter?: string;
 }
 
