@@ -306,10 +306,13 @@ export interface Project {
   // pickable options.
   displayDecimals?: DisplayDecimals;
   // M2.0g v8 Addendum 3 (2026-05-06): output granularity for reporting
-  // / display. Inputs always entered annually (modelType always
-  // 'annual' on new projects); outputGranularity tells the display
-  // layer how to split annual schedules into quarters / months for
-  // viewing. Optional so v7 snapshots stay valid (default 'annual').
+  // / display.
+  // **@deprecated M2.0 Pass 14 (2026-05-13).** Annual-only basis until
+  // M5 Financial Statements introduces a granularity toggle scoped to
+  // FS output. Every read site collapses to 'annual'; every write site
+  // stamps 'annual'. Field retained on schema for snapshot back-compat
+  // (legacy v7/v8 snapshots may carry 'quarterly' / 'monthly'); migration
+  // does not coerce, but consumers ignore the stored value.
   outputGranularity?: OutputGranularity;
   // M2.0L Fix 2 (2026-05-11): Tab 3 cost input mode.
   // M2.0L Pass 4 (2026-05-11): **DEPRECATED.** The Same vs Individual

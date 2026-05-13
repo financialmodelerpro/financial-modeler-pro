@@ -28,7 +28,6 @@ import {
 } from '../../lib/wizard/buildWizardSnapshot';
 import {
   type LandAllocationMode,
-  type OutputGranularity,
   type ProjectType,
   type DisplayScale,
   PROJECT_TYPES,
@@ -36,8 +35,6 @@ import {
   LAND_ALLOCATION_MODES,
   DISPLAY_SCALES,
   DISPLAY_SCALE_LABELS,
-  OUTPUT_GRANULARITIES,
-  OUTPUT_GRANULARITY_LABELS,
 } from '../../lib/state/module1-types';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -310,23 +307,10 @@ function Step1({
             style={inputStyle}
           />
         </div>
-        <div>
-          <label style={labelStyle} htmlFor="wiz-outputGranularity">Reporting Granularity</label>
-          <select
-            id="wiz-outputGranularity"
-            data-testid="wiz-outputGranularity"
-            value={draft.outputGranularity}
-            onChange={(e) => onUpdate({ outputGranularity: e.target.value as OutputGranularity })}
-            style={inputStyle}
-          >
-            {OUTPUT_GRANULARITIES.map((g) => (
-              <option key={g} value={g}>{OUTPUT_GRANULARITY_LABELS[g]}</option>
-            ))}
-          </select>
-          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 4 }}>
-            All inputs are entered annually. Choose how you want results displayed.
-          </div>
-        </div>
+        {/* M2.0 Pass 14 (2026-05-13): Reporting Granularity select
+            removed. Annual-only basis until M5 Financial Statements
+            introduces a granularity toggle scoped to FS output.
+            buildWizardSnapshot stamps outputGranularity='annual'. */}
         <div>
           <label style={labelStyle} htmlFor="wiz-startDate">Project Start Date</label>
           <input

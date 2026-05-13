@@ -86,7 +86,10 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     currency: draft.currency,
     // M2.0g v8: inputs are always entered annually.
     modelType: 'annual',
-    outputGranularity: draft.outputGranularity,
+    // M2.0 Pass 14 (2026-05-13): outputGranularity force-stamped 'annual'
+    // until M5 Financial Statements reintroduces a granularity toggle
+    // scoped to FS output. Wizard select removed.
+    outputGranularity: 'annual',
     startDate: draft.startDate,
     status: 'draft',
     location: draft.location,

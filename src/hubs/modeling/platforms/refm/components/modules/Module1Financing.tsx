@@ -36,7 +36,6 @@ import {
   type BaseRate,
   type IDCTreatment,
   type FeeTreatment,
-  type OutputGranularity,
   type FundingMethodId,
   type ParcelFundingType,
   type ParcelFundingConfig,
@@ -59,8 +58,6 @@ import {
   IDC_TREATMENT_LABELS,
   FEE_TREATMENTS,
   FEE_TREATMENT_LABELS,
-  OUTPUT_GRANULARITIES,
-  OUTPUT_GRANULARITY_LABELS,
   FUNDING_METHOD_IDS,
   FUNDING_METHOD_LABELS,
   FUNDING_METHOD_DESCRIPTIONS,
@@ -80,7 +77,6 @@ import {
   computeIdcSummary,
   computeCombinedDebtService,
   applyIdcToCapex,
-  distributeAnnualToPeriods,
   computeFunding,
   computeEquity,
   computeAssetCost,
@@ -94,7 +90,6 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
 import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, tableMinWidth, ROW_DATA, ROW_GRAND_TOTAL } from './_shared/tableStyles';
-import { GranularityRadioBar } from './_shared/GranularityRadioBar';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -1324,28 +1319,19 @@ export default function Module1Financing(): React.JSX.Element {
   // negative -> parens, null/undef -> blank). K/M suffix stays in page
   // header only.
   const fmt = (n: number): string => formatAccounting(n, scale, decimals);
-  const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
-
-  // Universal 60-year horizon (2026-05-13): match Tab 3 Costs Results
-  // so the same project axis renders on both pages. Prior cap was 24
-  // which clipped long-horizon projects + made the axis inconsistent
-  // across modules.
-  const periodCount = Math.min(combined.periods, 60);
-  const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
-  const expandedPeriodCount = periodCount * subPerYear;
-  // Universal prior-period column (2026-05-13): every period-axis
-  // results table prepends one prior calendar period via
-  // buildResultsPeriodAxis. ScheduleTable consumes axis.labels (which
-  // already includes the prior at index 0) and prepends a zero cell to
-  // each row internally.
+  // M2.0 Pass 14 (2026-05-13): annual-only basis until M5 Financial
+  // Statements introduces a granularity toggle scoped to FS output.
+  // project.outputGranularity is @deprecated; everything renders annual.
+  const periodCount = combined.periods;
   const schedulesAxis = buildResultsPeriodAxis({
     startIso: project.startDate,
-    granularity,
+    granularity: 'annual',
     numAnnualPeriods: periodCount,
   });
   const schedulesMinWidth = tableMinWidth(schedulesAxis.count);
-  const transform = (annual: number[]): number[] =>
-    granularity === 'annual' ? annual.slice(0, periodCount) : distributeAnnualToPeriods(annual.slice(0, periodCount), granularity, 'even');
+  // Identity transform on annual basis (placeholder for the M5
+  // granularity-aware version).
+  const transform = (annual: number[]): number[] => annual.slice(0, periodCount);
 
   const handleAddTranche = (): void => {
     const id = `tranche-${Date.now()}`;
@@ -1457,40 +1443,25 @@ export default function Module1Financing(): React.JSX.Element {
 
           {/* M2.0 Pass 13 (2026-05-13): Capex Breakdown table on top of
               Inputs. Three rows (Capex excl Land / Land Cash Value /
-              Total Capex Incl Cash Land), driven by inputsSummary +
-              the granularity toggle. Row 3 = inputsSummary.totals (cash
-              capex incl Land Cash, excl Land In-Kind), row 2 = Land
-              Cash slice, row 1 = row 3 - row 2. */}
+              Total Capex Incl Cash Land), driven by inputsSummary.
+              Row 3 = inputsSummary.totals (cash capex incl Land Cash,
+              excl Land In-Kind), row 2 = Land Cash slice, row 1 =
+              row 3 - row 2. Pass 14 (2026-05-13): annual-only basis. */}
           {(() => {
-            const annualTotals = inputsSummary.totals;
-            const annualLandCash = inputsSummary.landCashPerPeriod;
-            const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
-            const rowTotal = granularity === 'annual'
-              ? [...annualTotals]
-              : distributeAnnualToPeriods(annualTotals, granularity, 'even');
-            const rowLandCash = granularity === 'annual'
-              ? [...annualLandCash]
-              : distributeAnnualToPeriods(annualLandCash, granularity, 'even');
+            const rowTotal = [...inputsSummary.totals];
+            const rowLandCash = [...inputsSummary.landCashPerPeriod];
             const rowExclLand = rowTotal.map((v, i) => v - (rowLandCash[i] ?? 0));
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
             const capexAxis = buildResultsPeriodAxis({
               startIso: project.startDate,
-              granularity,
+              granularity: 'annual',
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
             const capexMinWidth = tableMinWidth(capexAxis.count);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <div style={sectionCardStyle} data-testid="capex-breakdown">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
-                  <strong style={TABLE_TITLE}>Capex Breakdown</strong>
-                  <GranularityRadioBar
-                    granularity={granularity}
-                    onChange={(g) => setProject({ outputGranularity: g })}
-                    radioName="capex-breakdown-granularity"
-                    dataTestid="capex-breakdown-granularity-toggle"
-                  />
-                </div>
+                <strong style={TABLE_TITLE}>Capex Breakdown</strong>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: capexMinWidth }}>
                     <colgroup>
@@ -1532,8 +1503,6 @@ export default function Module1Financing(): React.JSX.Element {
                 </div>
               </div>
             );
-            // subPerYear is computed for future per-period weighting; not consumed yet.
-            void subPerYear;
           })()}
 
           {/* M2.0M: Funding Method radio */}
@@ -1932,14 +1901,9 @@ export default function Module1Financing(): React.JSX.Element {
               is already baked into funding.debtEquitySplit; the tables
               read directly off that. */}
           {(() => {
-            const annualDebt = funding.debtEquitySplit.debt;
-            const annualEquityAll = funding.debtEquitySplit.equity;
-            const debtRow = granularity === 'annual'
-              ? [...annualDebt]
-              : distributeAnnualToPeriods(annualDebt, granularity, 'even');
-            const equityAllRow = granularity === 'annual'
-              ? [...annualEquityAll]
-              : distributeAnnualToPeriods(annualEquityAll, granularity, 'even');
+            // Pass 14 (2026-05-13): annual-only basis.
+            const debtRow = [...funding.debtEquitySplit.debt];
+            const equityAllRow = [...funding.debtEquitySplit.equity];
             // In-Kind equity: lump at index 0, value = projectInKindLandValue.
             const inKindRow = new Array<number>(equityAllRow.length).fill(0);
             if (inKindRow.length > 0) inKindRow[0] = projectInKindLandValue;
@@ -1951,7 +1915,7 @@ export default function Module1Financing(): React.JSX.Element {
             const equityTotal = cashEquityTotal + inKindTotal;
             const reqAxis = buildResultsPeriodAxis({
               startIso: project.startDate,
-              granularity,
+              granularity: 'annual',
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
             const reqMinWidth = tableMinWidth(reqAxis.count);
@@ -2053,14 +2017,10 @@ export default function Module1Financing(): React.JSX.Element {
             }}
             data-testid="financing-schedules-controls"
           >
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>View:</strong>
-            {OUTPUT_GRANULARITIES.map((g) => (
-              <label key={g} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11 }} data-testid={`financing-granularity-${g}`}>
-                <input type="radio" name="financing-granularity" value={g} checked={granularity === g} onChange={() => setProject({ outputGranularity: g })} />
-                {OUTPUT_GRANULARITY_LABELS[g]}
-              </label>
-            ))}
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginLeft: 'var(--sp-1)' }}>Filter:</strong>
+            {/* M2.0 Pass 14 (2026-05-13): granularity radios removed.
+                Annual-only basis until M5 Financial Statements
+                introduces a granularity toggle scoped to FS output. */}
+            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Filter:</strong>
             <button type="button" onClick={() => setScheduleFilter(null)} data-testid="financing-filter-combined" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: scheduleFilter === null ? 'none' : '1px solid var(--color-border)', background: scheduleFilter === null ? 'var(--color-navy)' : 'var(--color-surface)', color: scheduleFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)', cursor: 'pointer' }}>Combined</button>
             {phaseTranches.map((t) => {
               const active = scheduleFilter === t.id;

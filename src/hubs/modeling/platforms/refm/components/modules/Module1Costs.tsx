@@ -97,7 +97,6 @@ import {
   tableMinWidth,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
-import { GranularityRadioBar } from './_shared/GranularityRadioBar';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1603,7 +1602,10 @@ function SummaryTables({
   // Results sub-tab header-line "All figures in SAR '000" via
   // currencyHeaderLine; cells stay clean and tabular.
   const fmt = (v: number): string => formatAccounting(v, scale, decimals);
-  const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
+  // M2.0 Pass 14 (2026-05-13): annual-only basis until M5 Financial
+  // Statements. subPerYear collapses to 1; granularity prop kept on
+  // SummaryTablesProps for forward compatibility but always 'annual'.
+  const subPerYear = 1;
   // P11 Fix 13 (2026-05-13): universal period range rule. Scan every
   // in-scope asset's bd.perPeriod across every phase WITHOUT an upper
   // bound, applying the phase offset = phaseStartYear - projectStart
@@ -1704,18 +1706,10 @@ function SummaryTables({
   const PRIOR_ZERO = 0;
   const minTableWidthPx = tableMinWidth(periodAxis.count);
 
-  // M2.0h Fix 6: per-asset per-period at chosen granularity. Annual
-  // values from the calc engine (one per year) get distributed to
-  // sub-periods using even phasing within each year; the cost-line-
-  // level phasing across years is preserved by the calc engine. The
-  // upfront perPeriod[0] is a Y0 lump that we keep at year 0 first
-  // sub-period.
-  const transformAnnualSeries = (annual: number[]): number[] => {
-    if (granularity === 'annual') return [...annual];
-    // Even-spread within year for now (manual % per-period within year
-    // is deferred to advanced).
-    return distributeAnnualToPeriods(annual, granularity, 'even');
-  };
+  // M2.0 Pass 14 (2026-05-13): annual-only basis. transformAnnualSeries
+  // is now identity; quarterly + monthly distribution branches deleted
+  // until M5 Financial Statements reintroduces them scoped to FS.
+  const transformAnnualSeries = (annual: number[]): number[] => [...annual];
   // P11 Fix 16 (2026-05-13): periodTable + periodTotals builders
   // removed - they fed only the now-deleted Project Total footer.
   // Per-asset rows + closing subtotal still compute inline below.
@@ -2714,14 +2708,10 @@ export default function Module1Costs(): React.JSX.Element {
   // P8-Fix 8 (2026-05-12): Results filter state replaced by
   // project.resultsViewMode + resultsSelectedAssetId (persisted on
   // the project so the choice survives reload).
-  // M2.0h Fix 6: runtime view granularity for Results sub-tab.
-  // Defaults to project.outputGranularity ('annual' on new projects).
-  // User toggles persist via setProject so the next session opens the
-  // same view.
-  const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
-  const setGranularity = (g: OutputGranularity): void => {
-    setProject({ outputGranularity: g });
-  };
+  // M2.0 Pass 14 (2026-05-13): annual-only basis until M5 Financial
+  // Statements introduces a granularity toggle scoped to FS output.
+  // project.outputGranularity is @deprecated; everything renders annual.
+  const granularity: OutputGranularity = 'annual';
   // M2.0g: project-wide display scale + M2.0i decimals.
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
@@ -3463,17 +3453,9 @@ export default function Module1Costs(): React.JSX.Element {
 
       {subTab === 'results' && allVisibleAssets.length > 0 && (
         <>
-          {/* M2.0h Fix 6 (2026-05-07): runtime view granularity. Annual
-              data on disk, view toggle only. Shared GranularityRadioBar
-              (2026-05-13) keeps the same pill look across Tab 3 Results,
-              Tab 4 Schedules + Tab 4 Inputs Capex Breakdown. */}
-          <GranularityRadioBar
-            granularity={granularity}
-            onChange={(g) => setGranularity(g)}
-            radioName="costs-granularity"
-            helper="Inputs are entered annually; sub-period view distributes via cost line phasing."
-            dataTestid="costs-results-granularity-toggle"
-          />
+          {/* M2.0 Pass 14 (2026-05-13): granularity toggle removed.
+              Annual-only basis until M5 Financial Statements introduces
+              a granularity toggle scoped to FS output. */}
           {/* P8-Fix 8 (2026-05-12): Combined / Single Asset toggle.
               Replaces the M2.0L filter pill bar with an explicit radio
               toggle per brief. Combined view shows all visible assets;
