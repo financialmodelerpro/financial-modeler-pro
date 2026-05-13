@@ -55,6 +55,21 @@ const CELL_BASE: CSSProperties = {
   borderBottom: 'none',
 };
 
+// Universal table title (caption rendered above a table). Every
+// caption above a results table - "Table 1 - Construction Cost Schedule
+// by Period", "1. Capital Stack Summary", "Land Funding (per parcel)",
+// etc. - should route through this token so the bold treatment is
+// explicit (does not rely on <strong>/<h3> default browser semantics)
+// and stays consistent across modules. Renders as a block element with
+// a small bottom margin so the table sits flush below.
+export const TABLE_TITLE: CSSProperties = {
+  display: 'block',
+  fontSize: 13,
+  fontWeight: 700,
+  marginBottom: 'var(--sp-1)',
+  color: 'var(--color-heading)',
+};
+
 // Universal table header cell. Every results-table <th> should use this
 // token so all platform tables share the same header treatment: navy
 // fill, white uppercase bold text, horizontally + vertically centered.

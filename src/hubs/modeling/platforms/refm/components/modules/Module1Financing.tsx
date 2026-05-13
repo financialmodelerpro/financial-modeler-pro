@@ -96,7 +96,7 @@ import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounti
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
-import { CELL_HEADER } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -978,7 +978,7 @@ function ScheduleTable({
 }): React.JSX.Element {
   return (
     <div style={sectionCardStyle} data-testid={dataTestid}>
-      <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>{title}</strong>
+      <strong style={TABLE_TITLE}>{title}</strong>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
@@ -1493,7 +1493,7 @@ export default function Module1Financing(): React.JSX.Element {
               every other Inputs section. Applies across all 4 funding
               methods and the cash-sweep repayment. */}
           <div style={sectionCardStyle} data-testid="financing-min-cash-section">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>
+            <strong style={TABLE_TITLE}>
               Project Financing Settings
             </strong>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--sp-2)', alignItems: 'center' }}>
@@ -1523,7 +1523,7 @@ export default function Module1Financing(): React.JSX.Element {
 
           {/* M2.0M: Funding Method radio */}
           <div style={sectionCardStyle} data-testid="financing-funding-method">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Funding Method</strong>
+            <strong style={TABLE_TITLE}>Funding Method</strong>
             <div style={{ display: 'grid', gap: 6 }}>
               {FUNDING_METHOD_IDS.map((id) => {
                 const isActive = financingConfig.fundingMethod === id;
@@ -1570,7 +1570,7 @@ export default function Module1Financing(): React.JSX.Element {
               period cash deficit. Lets the user verify the basis number
               matches Tab 3 Inputs Summary before sizing facilities. */}
           <div style={sectionCardStyle} data-testid="financing-funding-basis">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Funding Basis</strong>
+            <strong style={TABLE_TITLE}>Funding Basis</strong>
             {(() => {
               const m = financingConfig.fundingMethod;
               const basisLabel =
@@ -1604,7 +1604,7 @@ export default function Module1Financing(): React.JSX.Element {
 
           {/* M2.0M: Land Funding (per parcel) */}
           <div style={sectionCardStyle} data-testid="financing-land-funding">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Land Funding (per parcel)</strong>
+            <strong style={TABLE_TITLE}>Land Funding (per parcel)</strong>
             {parcels.filter((p) => p.phaseId === phase.id).length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>No parcels in this phase. Configure in Tab 1.</div>
             )}
@@ -1771,7 +1771,7 @@ export default function Module1Financing(): React.JSX.Element {
               into Total Debt + Equity Cash + Equity In-Kind sub-cards.
               Uses block shows Total Capex. LTV + match/gap chip in own row. */}
           <div style={sectionCardStyle} data-testid="financing-capital-stack">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Capital Structure Overview</strong>
+            <strong style={TABLE_TITLE}>Capital Structure Overview</strong>
             <div style={{ ...calcOutputStyle, padding: 12, marginBottom: 'var(--sp-1)' }} data-testid="cap-stack-total-funding">
               <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Funding</div>
               <div style={{ fontSize: 20, fontWeight: 800 }}>{fmt(funding.totalNeed)}</div>
@@ -2051,7 +2051,7 @@ export default function Module1Financing(): React.JSX.Element {
 
           {/* Schedule 1: Capital Stack Summary */}
           <div style={sectionCardStyle} data-testid="capital-stack-summary">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>1. Capital Stack Summary</strong>
+            <strong style={TABLE_TITLE}>1. Capital Stack Summary</strong>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr>
@@ -2159,7 +2159,7 @@ export default function Module1Financing(): React.JSX.Element {
 
           {/* Schedule 5: IDC Summary */}
           <div style={sectionCardStyle} data-testid="idc-summary">
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>5. IDC Summary</strong>
+            <strong style={TABLE_TITLE}>5. IDC Summary</strong>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr>

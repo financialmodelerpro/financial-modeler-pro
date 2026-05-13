@@ -76,7 +76,7 @@ import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency, for
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
-import { CELL_HEADER } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -506,7 +506,7 @@ export default function Module1Assets(): React.JSX.Element {
               }}
               data-testid="parcels-nda-summary"
             >
-              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <strong style={{ ...TABLE_TITLE, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Net Developable Area (NDA)
               </strong>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 6 }}>

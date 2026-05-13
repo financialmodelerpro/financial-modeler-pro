@@ -88,6 +88,7 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import {
   CELL_HEADER,
+  TABLE_TITLE,
   ROW_ASSET_HEADING,
   ROW_DATA,
   ROW_SUBTOTAL,
@@ -1806,7 +1807,7 @@ function SummaryTables({
           rows so the user can audit each line's per-period spend. Total
           column is in the 2nd position. */}
       <div style={sectionCardStyle} data-testid="capex-by-period">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
+        <strong style={TABLE_TITLE} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -2092,7 +2093,7 @@ function SummaryTables({
           }
           return (
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
-              <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 14 }}>{title}</h3>
+              <h3 style={{ ...TABLE_TITLE, margin: 0 }}>{title}</h3>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
