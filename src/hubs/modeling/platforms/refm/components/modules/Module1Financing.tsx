@@ -150,9 +150,13 @@ export default function Module1Financing(): React.JSX.Element {
     });
   }, [project.startDate, result.axis.totalPeriods]);
 
+  // No-prior-column convention (2026-05-14): arr[0] = first active
+  // period (e.g., Dec 25 when startDate is 2025-01-01). UI uses
+  // axis.activeLabels exclusively; axis.priorLabel/.labels are not
+  // rendered by Tab 4.
   const cropProject = (arr: number[]): number[] => {
     const out = new Array<number>(axis.activeLabels.length).fill(0);
-    for (let i = 0; i < axis.activeLabels.length; i++) out[i] = arr[i + 1] ?? 0;
+    for (let i = 0; i < axis.activeLabels.length; i++) out[i] = arr[i] ?? 0;
     return out;
   };
 
@@ -604,20 +608,11 @@ interface CapexProps {
 }
 
 function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
-  const nonLabelPct = nonLabelColumnPct(1 + p.axis.count);
-  const rows: Array<{ label: string; data: number[]; total: number; prior: number; bold?: boolean }> = [
-    { label: 'Capex (excl. all land)',    data: p.cropProject(p.capex.perPeriod.exclAllLand),    total: p.capex.totals.exclAllLand,    prior: p.capex.perPeriod.exclAllLand[0]    ?? 0 },
-    { label: 'Capex (excl. land in-kind)', data: p.cropProject(p.capex.perPeriod.exclLandInKind), total: p.capex.totals.exclLandInKind, prior: p.capex.perPeriod.exclLandInKind[0] ?? 0 },
-    { label: 'Capex (incl. all land)',    data: p.cropProject(p.capex.perPeriod.inclAllLand),    total: p.capex.totals.inclAllLand,    prior: p.capex.perPeriod.inclAllLand[0]    ?? 0 },
-  ];
-  if (p.existingPreCapex > 0) {
-    rows.push({
-      label: 'Pre-Capex (existing operations)',
-      data: new Array(p.axis.activeLabels.length).fill(0),
-      total: p.existingPreCapex,
-      prior: p.existingPreCapex,
-    });
-  }
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
+  const exclLand    = p.cropProject(p.capex.perPeriod.exclAllLand);
+  const landCash    = p.cropProject(p.capex.perPeriod.landCash);
+  const totalIncl   = p.cropProject(p.capex.perPeriod.exclLandInKind);
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>6. Capex Breakdown</div>
@@ -626,24 +621,40 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
-            {p.axis.labels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+            {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
               <th style={CELL_HEADER}>Total</th>
-              {p.axis.labels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
+              {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.label}>
-                <td style={ROW_DATA.name}>{r.label}</td>
-                <td style={ROW_DATA.num}>{p.fmt(r.total)}</td>
-                <td style={ROW_DATA.num}>{p.fmt(r.prior)}</td>
-                {r.data.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            <tr>
+              <td style={ROW_DATA.name}>Capex (excluding Land)</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.capex.totals.exclAllLand)}</td>
+              {exclLand.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_DATA.name}>Land Cash Value</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.capex.totals.exclLandInKind - p.capex.totals.exclAllLand)}</td>
+              {landCash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
+              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.capex.totals.exclLandInKind)}</td>
+              {totalIncl.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+            </tr>
+            {p.existingPreCapex > 0 && (
+              <tr>
+                <td style={ROW_DATA.name}>Pre-Capex (existing operations)</td>
+                <td style={ROW_DATA.num}>{p.fmt(p.existingPreCapex)}</td>
+                {p.axis.activeLabels.map((_, i) => (
+                  <td key={i} style={ROW_DATA.num}>{p.fmt(i === 0 ? p.existingPreCapex : 0)}</td>
+                ))}
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -822,12 +833,13 @@ interface SchedulesProps {
 }
 
 function SchedulesView(p: SchedulesProps): React.JSX.Element {
-  const nonLabelPct = nonLabelColumnPct(1 + p.axis.count);
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
   const colgroup = (
     <colgroup>
       <col style={{ width: COLUMN_WIDTHS.label }} />
       <col style={{ width: nonLabelPct }} />
-      {p.axis.labels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+      {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
     </colgroup>
   );
   const headerRow = (
@@ -835,24 +847,45 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       <tr>
         <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
         <th style={CELL_HEADER}>Total</th>
-        {p.axis.labels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
+        {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
       </tr>
     </thead>
   );
 
-  const renderSeriesRow = (label: string, arr: number[], opts?: { bold?: boolean; priorOverride?: number }) => {
+  // Flow row (additive, total = sum of all periods).
+  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean }) => {
     const cropped = p.cropProject(arr);
-    const total = cropped.reduce((s, v) => s + v, 0) + (opts?.priorOverride ?? 0);
+    const total = cropped.reduce((s, v) => s + v, 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={numStyle}>{p.fmt(total)}</td>
-        <td style={numStyle}>{p.fmt(opts?.priorOverride ?? (arr[0] ?? 0))}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
       </tr>
     );
+  };
+
+  // State row (point-in-time, no Total).
+  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean }) => {
+    const cropped = p.cropProject(arr);
+    const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
+    const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
+    return (
+      <tr>
+        <td style={nameStyle}>{label}</td>
+        <td style={numStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
+        {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
+      </tr>
+    );
+  };
+
+  const openingSeries = (closing: number[], initial: number): number[] => {
+    const out = new Array<number>(closing.length).fill(0);
+    out[0] = initial;
+    for (let i = 1; i < closing.length; i++) out[i] = closing[i - 1] ?? 0;
+    return out;
   };
 
   const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
@@ -860,33 +893,23 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 
   return (
     <>
-      {existingTranches.length > 0 && (
-        <section style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
-          <div style={{ ...TABLE_TITLE, color: 'var(--color-warning, #92400e)' }}>
-            Existing Facilities ({existingTranches.length})
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
-            Opening balances carry forward from before project start; no new drawdown, ongoing interest expensed.
-          </div>
-        </section>
-      )}
-
       {existingTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
+        const opening = openingSeries(r.outstanding, Math.max(0, t.openingBalance ?? 0));
         return (
-          <section key={`ex_${t.id}`} style={sectionStyle}>
+          <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
             <div style={TABLE_TITLE}>Existing Debt Movement, {t.name}</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderSeriesRow('Opening Balance', [r.outstanding[0] ?? 0])}
-                  {renderSeriesRow('Drawdown', r.drawSchedule)}
-                  {renderSeriesRow('Interest Expensed', r.interestPaid)}
-                  {renderSeriesRow('Principal Repaid', r.principalRepaid)}
-                  {renderSeriesRow('Closing Balance', r.outstanding, { bold: true })}
+                  {renderStateRow('Opening', opening)}
+                  {renderFlowRow('Drawdown', r.drawSchedule)}
+                  {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
+                  {renderFlowRow('Principal Repaid', r.principalRepaid)}
+                  {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
               </table>
             </div>
@@ -897,6 +920,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
+        const opening = openingSeries(r.outstanding, 0);
         return (
           <section key={t.id} style={sectionStyle}>
             <div style={TABLE_TITLE}>New Debt Movement, {t.name}</div>
@@ -905,10 +929,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderSeriesRow('Drawdown', r.drawSchedule)}
-                  {renderSeriesRow('Interest Capitalized', r.interestCapitalized)}
-                  {renderSeriesRow('Principal Repaid', r.principalRepaid)}
-                  {renderSeriesRow('Outstanding Balance', r.outstanding, { bold: true })}
+                  {renderStateRow('Opening', opening)}
+                  {renderFlowRow('Drawdown', r.drawSchedule)}
+                  {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
+                  {renderFlowRow('Principal Repaid', r.principalRepaid)}
+                  {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
               </table>
             </div>
@@ -923,12 +948,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {colgroup}
             {headerRow}
             <tbody>
-              {renderSeriesRow('Total Drawdown', p.result.combined.totalDrawdown)}
-              {renderSeriesRow('Interest Accrued', p.result.combined.totalInterestAccrued)}
-              {renderSeriesRow('Interest Capitalized', p.result.combined.totalInterestCapitalized)}
-              {renderSeriesRow('Interest Expensed', p.result.combined.totalInterestExpensed)}
-              {renderSeriesRow('Principal Repaid', p.result.combined.totalPrincipalRepaid)}
-              {renderSeriesRow('Debt Service Cash', p.result.combined.debtServiceCash, { bold: true })}
+              {renderFlowRow('Total Drawdown', p.result.combined.totalDrawdown)}
+              {renderFlowRow('Total Interest Accrued', p.result.combined.totalInterestAccrued)}
+              {renderFlowRow('Total Interest Capitalized', p.result.combined.totalInterestCapitalized)}
+              {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed)}
+              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid)}
+              {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true })}
             </tbody>
           </table>
         </div>
@@ -938,6 +963,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
         const isEx = t.origin === 'existing';
+        const paidArr = r.interestPaid.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={`fc_${t.id}`} style={sectionStyle}>
             <div style={TABLE_TITLE}>Finance Cost, {t.name} ({isEx ? 'existing' : 'new'})</div>
@@ -946,10 +972,10 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderSeriesRow('Charge', r.interestAccrued)}
-                  {renderSeriesRow('Capitalized', r.interestCapitalized)}
-                  {renderSeriesRow('Expensed', r.interestPaid)}
-                  {renderSeriesRow('Paid (cash)', r.interestPaid, { bold: true })}
+                  {renderFlowRow('Charge (Accrued)', r.interestAccrued)}
+                  {renderFlowRow('Capitalized', r.interestCapitalized)}
+                  {renderFlowRow('Expensed', r.interestPaid)}
+                  {renderFlowRow('Paid (Capitalized + Expensed)', paidArr, { bold: true })}
                 </tbody>
               </table>
             </div>
@@ -959,15 +985,54 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>IDC Summary</div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-            {colgroup}
-            {headerRow}
-            <tbody>
-              {renderSeriesRow('IDC Capitalized', p.result.combined.totalInterestCapitalized, { bold: true })}
-            </tbody>
-          </table>
-        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <colgroup>
+            <col style={{ width: '40%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '20%' }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={CELL_HEADER}>Facility</th>
+              <th style={CELL_HEADER}>Capitalised</th>
+              <th style={CELL_HEADER}>Expensed</th>
+              <th style={CELL_HEADER}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              let grandCap = 0, grandExp = 0;
+              const rows = p.tranches.map((t) => {
+                const r = p.result.facilities.get(t.id);
+                if (!r) return null;
+                const cap = r.interestCapitalized.reduce((s, v) => s + v, 0);
+                const exp = r.interestPaid.reduce((s, v) => s + v, 0);
+                grandCap += cap;
+                grandExp += exp;
+                return (
+                  <tr key={`idc_${t.id}`}>
+                    <td style={ROW_DATA.name}>{t.name} ({t.origin === 'existing' ? 'existing' : 'new'})</td>
+                    <td style={ROW_DATA.num}>{p.fmt(cap)}</td>
+                    <td style={ROW_DATA.num}>{p.fmt(exp)}</td>
+                    <td style={ROW_DATA.num}>{p.fmt(cap + exp)}</td>
+                  </tr>
+                );
+              });
+              return (
+                <>
+                  {rows}
+                  <tr>
+                    <td style={ROW_GRAND_TOTAL.name}>Grand Total</td>
+                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandCap)}</td>
+                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandExp)}</td>
+                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandCap + grandExp)}</td>
+                  </tr>
+                </>
+              );
+            })()}
+          </tbody>
+        </table>
       </section>
 
       <section style={sectionStyle}>
@@ -977,10 +1042,29 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {colgroup}
             {headerRow}
             <tbody>
-              {renderSeriesRow('Existing Equity', p.result.equity.existingEquityPerPeriod)}
-              {renderSeriesRow('Cash Equity', p.result.equity.cashPerPeriod)}
-              {renderSeriesRow('In-Kind Equity', p.result.equity.inKindPerPeriod)}
-              {renderSeriesRow('Total Equity', p.result.equity.totalPerPeriod, { bold: true })}
+              {(() => {
+                const cash   = p.result.equity.cashPerPeriod;
+                const inKind = p.result.equity.inKindPerPeriod;
+                const existing = p.result.equity.existingEquityPerPeriod;
+                const cumulative = new Array<number>(cash.length).fill(0);
+                let running = 0;
+                for (let i = 0; i < cash.length; i++) {
+                  running += (cash[i] ?? 0) + (inKind[i] ?? 0) + (existing[i] ?? 0);
+                  cumulative[i] = running;
+                }
+                const opening = openingSeries(cumulative, 0);
+                return (
+                  <>
+                    {renderStateRow('Opening', opening)}
+                    {renderFlowRow('Cash Contribution', cash)}
+                    {renderFlowRow('In-Kind Contribution', inKind)}
+                    {p.result.equity.totalExisting > 0
+                      ? renderFlowRow('Existing Equity (carry-forward)', existing)
+                      : null}
+                    {renderStateRow('Closing (cumulative equity)', cumulative, { bold: true })}
+                  </>
+                );
+              })()}
             </tbody>
           </table>
         </div>
