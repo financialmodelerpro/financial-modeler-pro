@@ -961,22 +961,11 @@ export default function Module1Financing(): React.JSX.Element {
   // M2.0L: filter pill (Schedules sub-tab). null = Combined.
   const [scheduleFilter, setScheduleFilter] = useState<string | null>(null);
 
-  // P10-Fix 6 (2026-05-12): Inputs Summary Tables default-collapsed
-  // with localStorage persistence + bulk event listener. Reduces
-  // visual noise on first Tab 4 load; user expands when reviewing
-  // the funding / debt / equity split.
-  const inputsSummaryKey = 'm20-financing-summary-collapsed';
-  const readInputsSummaryCollapsed = (): boolean => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = window.localStorage.getItem(inputsSummaryKey);
-      return stored === null ? true : stored === 'true';
-    } catch { return true; }
-  };
-  const [inputsSummaryCollapsed, setInputsSummaryCollapsed] = useState<boolean>(readInputsSummaryCollapsed);
-  useEffect(() => {
-    try { window.localStorage.setItem(inputsSummaryKey, String(inputsSummaryCollapsed)); } catch { /* noop */ }
-  }, [inputsSummaryCollapsed]);
+  // P10-Fix 6 (2026-05-12): Inputs Summary Tables default-collapsed was
+  // removed in M2.0 Pass 13 (2026-05-13) when the 3 Funding / Debt /
+  // Equity Summary tables were replaced with the always-visible Total
+  // Debt Required + Total Equity Required tables. localStorage key
+  // 'm20-financing-summary-collapsed' is no longer read or written.
 
   const phase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
   const phaseAssets = useMemo(
@@ -1237,8 +1226,13 @@ export default function Module1Financing(): React.JSX.Element {
       method: financingConfig.fundingMethod,
       financing: financingConfig,
       capexPerPeriod: inputsSummary.totals,
+      // M2.0 Pass 13 (2026-05-13): Method 1 two-rule split inputs.
+      // Land Cash routes via parcel funding type; non-land via Method
+      // 1 ratio. Other methods ignore these arrays.
+      landCashPerPeriod: inputsSummary.landCashPerPeriod,
+      parcelCashPerPeriod: inputsSummary.parcelCashPerPeriod,
     });
-  }, [financingConfig, inputsSummary.totals]);
+  }, [financingConfig, inputsSummary.totals, inputsSummary.landCashPerPeriod, inputsSummary.parcelCashPerPeriod]);
   const equity = useMemo(
     () => computeEquity(financingConfig, funding, projectInKindLandValue),
     [financingConfig, funding, projectInKindLandValue],
@@ -1929,128 +1923,121 @@ export default function Module1Financing(): React.JSX.Element {
               Equity Schedule in Schedules sub-tab for cash + in-kind
               over time. */}
 
-          {/* P3-Fix 8 (2026-05-12): 3 Inputs Summary Tables. Rows are
-              project-wide assets (combined view); columns are project
-              periods with Total in 2nd position. Funding = capex (excl
-              Land In-Kind). Debt = Funding x debt%. Equity = Funding x
-              equity%, with Cash + In-Kind sub-rows in the Total row. */}
-          <div style={sectionCardStyle} data-testid="inputs-summary-tables">
-            {/* P10-Fix 6 (2026-05-12): collapsible header. Default
-                collapsed; click chevron to expand the 3 stacked tables
-                (Funding / Debt / Equity). localStorage persisted via
-                inputsSummaryKey. */}
-            <div
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: inputsSummaryCollapsed ? 0 : 'var(--sp-1)' }}
-              onClick={() => setInputsSummaryCollapsed(!inputsSummaryCollapsed)}
-              data-testid="inputs-summary-tables-header"
-            >
-              <strong style={{ fontSize: 13 }}>Inputs Summary (Auto-computed)</strong>
-              <span style={{ fontSize: 14, color: 'var(--color-meta)' }} data-testid="inputs-summary-tables-chevron">{inputsSummaryCollapsed ? '▶' : '▼'}</span>
-            </div>
-            {!inputsSummaryCollapsed && (() => {
-              const totalsRow = inputsSummary.totals;
-              const debtRow = totalsRow.map((v) => v * inputsSummary.debtPct);
-              const equityRow = totalsRow.map((v) => v * inputsSummary.equityPct);
-              const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
-              // Universal period axis (2026-05-13): drop the prior
-              // drawdown-zero filter so every project period renders
-              // (with a zero where the funding total is 0). One prior
-              // calendar period is prepended via buildResultsPeriodAxis
-              // so the table matches Tab 3 Results' axis.
-              const inputsAxis = buildResultsPeriodAxis({
-                startIso: project.startDate,
-                granularity: 'annual',
-                numAnnualPeriods: inputsSummary.totalPeriods,
-              });
-              const inputsMinWidth = tableMinWidth(inputsAxis.count);
-              const renderTable = (
-                id: 'funding' | 'debt' | 'equity',
-                title: string,
-                multiplier: number,
-                rowsTotal: number[],
-              ): React.JSX.Element => (
-                <div style={{ marginBottom: 'var(--sp-2)' }} data-testid={`inputs-summary-${id}`}>
-                  <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>{title}</strong>
+          {/* M2.0 Pass 13 (2026-05-13): Total Debt Required + Total
+              Equity Required tables. Replaces the old 3 Inputs Summary
+              tables (Funding / Debt / Equity). Always visible (not
+              collapsible) since these ARE the funding view now.
+              Engine's two-rule Method 1 split (Land Cash routed per
+              parcel funding type, non-land routed via Method 1 ratio)
+              is already baked into funding.debtEquitySplit; the tables
+              read directly off that. */}
+          {(() => {
+            const annualDebt = funding.debtEquitySplit.debt;
+            const annualEquityAll = funding.debtEquitySplit.equity;
+            const debtRow = granularity === 'annual'
+              ? [...annualDebt]
+              : distributeAnnualToPeriods(annualDebt, granularity, 'even');
+            const equityAllRow = granularity === 'annual'
+              ? [...annualEquityAll]
+              : distributeAnnualToPeriods(annualEquityAll, granularity, 'even');
+            // In-Kind equity: lump at index 0, value = projectInKindLandValue.
+            const inKindRow = new Array<number>(equityAllRow.length).fill(0);
+            if (inKindRow.length > 0) inKindRow[0] = projectInKindLandValue;
+            const cashEquityRow = equityAllRow.map((v, i) => Math.max(0, v - (inKindRow[i] ?? 0)));
+            const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
+            const debtTotal = sum(debtRow);
+            const inKindTotal = sum(inKindRow);
+            const cashEquityTotal = sum(cashEquityRow);
+            const equityTotal = cashEquityTotal + inKindTotal;
+            const reqAxis = buildResultsPeriodAxis({
+              startIso: project.startDate,
+              granularity,
+              numAnnualPeriods: inputsSummary.totalPeriods,
+            });
+            const reqMinWidth = tableMinWidth(reqAxis.count);
+            const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
+            return (
+              <>
+                {/* Table A: Total Debt Required */}
+                <div style={sectionCardStyle} data-testid="total-debt-required">
+                  <strong style={TABLE_TITLE}>Total Debt Required</strong>
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: inputsMinWidth }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: reqMinWidth }}>
                       <colgroup>
                         <col />
                         <col style={{ width: COLUMN_WIDTHS.total }} />
-                        {inputsAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
                       </colgroup>
                       <thead>
                         <tr>
                           <th style={CELL_HEADER}>Description</th>
                           <th style={CELL_HEADER}>Total</th>
-                          {inputsAxis.labels.map((label, i) => (
-                            <th key={i} style={CELL_HEADER}>{label}</th>
-                          ))}
+                          {reqAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
                         </tr>
                       </thead>
                       <tbody>
-                        {inputsSummary.perAsset.map((a) => {
-                          const total = a.total * multiplier;
-                          if (total <= 0.5) return null;
-                          return (
-                            <tr key={a.id} data-testid={`inputs-summary-${id}-row-${a.id}`}>
-                              <td style={{ padding: '4px 6px' }}>{a.name}</td>
-                              <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(total)}</td>
-                              <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`inputs-summary-${id}-row-${a.id}-prior`}>{fmtCell(0)}</td>
-                              {inputsAxis.activeLabels.map((_, pi) => (
-                                <td key={pi} style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell((a.perPeriod[pi] ?? 0) * multiplier)}</td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                        {/* P4-Fix 5 (2026-05-12): row label is just "Total"
-                            (the column header is already "Total"); was
-                            "TOTAL Total Funding Required" which read as
-                            duplicated TOTAL Total in the rendered table.
-                            Total row styling: bold + grey-pale row fill. */}
-                        <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }} data-testid={`inputs-summary-${id}-totals`}>
-                          <td style={{ padding: '4px 6px' }}>Total</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(rowsTotal.reduce((s, v) => s + v, 0))}</td>
-                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`inputs-summary-${id}-totals-prior`}>{fmtCell(0)}</td>
-                          {inputsAxis.activeLabels.map((_, pi) => (
-                            <td key={pi} style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(rowsTotal[pi] ?? 0)}</td>
-                          ))}
+                        <tr data-testid="total-debt-required-row">
+                          <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-total">{fmtCell(debtTotal)}</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-debt-required-prior">{fmtCell(0)}</td>
+                          {debtRow.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell(v)}</td>))}
                         </tr>
-                        {id === 'equity' && (
-                          <>
-                            <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-cash">
-                              <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>Cash Equity</td>
-                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(Math.max(0, rowsTotal.reduce((s, v) => s + v, 0) - projectInKindLandValue))}</td>
-                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid="inputs-summary-equity-cash-prior">{fmtCell(0)}</td>
-                              {inputsAxis.activeLabels.map((_, pi) => {
-                                const inKindShare = pi === 0 ? projectInKindLandValue : 0;
-                                const cash = Math.max(0, (rowsTotal[pi] ?? 0) - inKindShare);
-                                return <td key={pi} style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(cash)}</td>;
-                              })}
-                            </tr>
-                            <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-inkind">
-                              <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>In-Kind Equity</td>
-                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(projectInKindLandValue)}</td>
-                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid="inputs-summary-equity-inkind-prior">{fmtCell(0)}</td>
-                              {inputsAxis.activeLabels.map((_, pi) => (
-                                <td key={pi} style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{pi === 0 ? fmtCell(projectInKindLandValue) : fmtCell(0)}</td>
-                              ))}
-                            </tr>
-                          </>
-                        )}
                       </tbody>
                     </table>
                   </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                    Capex excl Land x Method 1 debt %, plus Land Cash x parcel-derived debt share.
+                  </div>
                 </div>
-              );
-              return (
-                <>
-                  {renderTable('funding', 'Total Funding Required', 1, totalsRow)}
-                  {renderTable('debt', 'Total Debt Required', inputsSummary.debtPct, debtRow)}
-                  {renderTable('equity', 'Total Equity Required', inputsSummary.equityPct, equityRow)}
-                </>
-              );
-            })()}
-          </div>
+
+                {/* Table B: Total Equity Required (3 rows) */}
+                <div style={sectionCardStyle} data-testid="total-equity-required">
+                  <strong style={TABLE_TITLE}>Total Equity Required</strong>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: reqMinWidth }}>
+                      <colgroup>
+                        <col />
+                        <col style={{ width: COLUMN_WIDTHS.total }} />
+                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th style={CELL_HEADER}>Description</th>
+                          <th style={CELL_HEADER}>Total</th>
+                          {reqAxis.labels.map((label, i) => (<th key={i} style={CELL_HEADER}>{label}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr data-testid="total-equity-required-cash">
+                          <td style={ROW_DATA.name}>Equity (Cash)</td>
+                          <td style={ROW_DATA.num} data-testid="total-equity-required-cash-total">{fmtCell(cashEquityTotal)}</td>
+                          <td style={ROW_DATA.num} data-testid="total-equity-required-cash-prior">{fmtCell(0)}</td>
+                          {cashEquityRow.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                        </tr>
+                        <tr data-testid="total-equity-required-inkind">
+                          <td style={ROW_DATA.name}>Equity (In-Kind)</td>
+                          <td style={ROW_DATA.num} data-testid="total-equity-required-inkind-total">{fmtCell(inKindTotal)}</td>
+                          <td style={ROW_DATA.num} data-testid="total-equity-required-inkind-prior">{fmtCell(0)}</td>
+                          {inKindRow.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmtCell(v)}</td>))}
+                        </tr>
+                        <tr data-testid="total-equity-required-row">
+                          <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-total">{fmtCell(equityTotal)}</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid="total-equity-required-prior">{fmtCell(0)}</td>
+                          {cashEquityRow.map((_, i) => (
+                            <td key={i} style={ROW_GRAND_TOTAL.num}>{fmtCell((cashEquityRow[i] ?? 0) + (inKindRow[i] ?? 0))}</td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                    Equity (Cash) = Capex excl Land x Method 1 equity %, plus Land Cash x parcel-derived equity share. Equity (In-Kind) = Land In-Kind value (lump at first period).
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </>
       )}
 

@@ -1876,6 +1876,26 @@ export interface ComputeFundingContext {
   preSalesPerPeriod?: number[];
   operatingCFPerPeriod?: number[];
   closingCashBefore?: (prevPeriod: number) => number;
+  /**
+   * M2.0 Pass 13 (2026-05-13): two-rule split for Method 1.
+   *
+   * Method 1 splits capex into two streams:
+   *   non-land     = capexPerPeriod - landCashPerPeriod (routed via fixedRatio)
+   *   land cash    = landCashPerPeriod                  (routed per parcel funding type)
+   *
+   * When the caller omits these arrays, Method 1 falls back to the pre-
+   * Pass-13 uniform behaviour (entire capexPerPeriod routed via
+   * fixedRatio) so consumers that have not been updated still produce
+   * the same numbers they used to.
+   *
+   * parcelCashPerPeriod splits landCashPerPeriod by parcel so per-
+   * parcel ParcelFundingConfig (100pct_equity / 100pct_debt /
+   * custom_split / in_kind / deferred_payment) can be applied
+   * independently. Parcels with no ParcelFundingConfig entry default
+   * to 100pct_equity (the schema default).
+   */
+  landCashPerPeriod?: number[];
+  parcelCashPerPeriod?: Array<{ parcelId: string; perPeriod: number[] }>;
 }
 
 function pickRatio(method: FundingMethodId, f: ProjectFinancingConfig): { debt: number; equity: number } {
@@ -1894,6 +1914,42 @@ function splitByRatio(periodArray: number[], debtPct: number, equityPct: number)
   };
 }
 
+/**
+ * M2.0 Pass 13 (2026-05-13): per-parcel debt/equity split for Method 1.
+ * Defaults to 100pct_equity when the parcel has no config entry (the
+ * schema default). Deferred payment is treated as 100pct_equity for
+ * now (engine wire pending); the rest follow ParcelFundingConfig.
+ */
+function parcelDebtEquityFractions(
+  cfg: ProjectFinancingConfig['parcelFunding'][number] | undefined,
+): { debt: number; equity: number } {
+  if (!cfg) return { debt: 0, equity: 1 };
+  switch (cfg.fundingType) {
+    case '100pct_debt':
+      return { debt: 1, equity: 0 };
+    case '100pct_equity':
+      return { debt: 0, equity: 1 };
+    case 'custom_split': {
+      const d = Math.max(0, cfg.customDebtPct ?? 0);
+      const e = Math.max(0, cfg.customEquityPct ?? Math.max(0, 100 - d));
+      const sum = d + e;
+      if (sum <= 0) return { debt: 0, equity: 1 };
+      return { debt: d / sum, equity: e / sum };
+    }
+    case 'in_kind':
+      // In-kind land flows through Land In-Kind (non-cash equity), not
+      // through Land Cash. If it shows up here it means the cost line
+      // wiring is unusual; route to equity for safety.
+      return { debt: 0, equity: 1 };
+    case 'deferred_payment':
+      // Engine wire deferred (per Fix 3 spec, 2026-05-13): treat as
+      // 100pct_equity until the deferred-payment routing lands.
+      return { debt: 0, equity: 1 };
+    default:
+      return { debt: 0, equity: 1 };
+  }
+}
+
 export function computeFunding(ctx: ComputeFundingContext): FundingResult {
   const { method, financing, capexPerPeriod } = ctx;
   const preSales = ctx.preSalesPerPeriod ?? capexPerPeriod.map(() => 0);
@@ -1902,8 +1958,44 @@ export function computeFunding(ctx: ComputeFundingContext): FundingResult {
   let totalNeed = 0;
   let periodArray: number[] = [];
 
+  // M2.0 Pass 13 (2026-05-13): Method 1 two-rule split. When the caller
+  // supplies landCashPerPeriod + parcelCashPerPeriod, Land Cash is
+  // routed per parcel funding type and non-land is routed via Method 1
+  // ratio. Without those arrays the engine falls back to the pre-
+  // Pass-13 uniform behaviour so any consumer that did not update
+  // produces the same numbers as before.
+  if (method === 1 && ctx.landCashPerPeriod && ctx.parcelCashPerPeriod) {
+    const totalPeriods = capexPerPeriod.length;
+    const landCash = ctx.landCashPerPeriod;
+    const parcelCash = ctx.parcelCashPerPeriod;
+    const parcelFundingById = new Map(financing.parcelFunding.map((p) => [p.parcelId, p]));
+    const r = pickRatio(1, financing);
+    const sumR = r.debt + r.equity;
+    const nonLandDebt = sumR > 0 ? r.debt / sumR : 0.7;
+    const nonLandEquity = sumR > 0 ? r.equity / sumR : 0.3;
+    const debt = new Array<number>(totalPeriods).fill(0);
+    const equity = new Array<number>(totalPeriods).fill(0);
+    for (let t = 0; t < totalPeriods; t++) {
+      const cap = capexPerPeriod[t] ?? 0;
+      const land = Math.max(0, landCash[t] ?? 0);
+      const nonLand = Math.max(0, cap - land);
+      debt[t] = nonLand * nonLandDebt;
+      equity[t] = nonLand * nonLandEquity;
+      for (const pc of parcelCash) {
+        const v = pc.perPeriod[t] ?? 0;
+        if (v === 0) continue;
+        const f = parcelDebtEquityFractions(parcelFundingById.get(pc.parcelId));
+        debt[t] += v * f.debt;
+        equity[t] += v * f.equity;
+      }
+    }
+    periodArray = debt.map((d, i) => d + (equity[i] ?? 0));
+    totalNeed = periodArray.reduce((s, v) => s + v, 0);
+    return { method, totalNeed, periodArray, debtEquitySplit: { debt, equity } };
+  }
+
   if (method === 1) {
-    // Method 1: total need = sum of capex; per-period = capex schedule.
+    // Pre-Pass-13 uniform Method 1: per-period = capex schedule.
     periodArray = [...capexPerPeriod];
     totalNeed = periodArray.reduce((s, v) => s + v, 0);
   } else if (method === 3) {
@@ -1954,10 +2046,14 @@ export function computeEquity(
   funding: FundingResult,
   landInKindValue: number,
 ): EquityResult {
-  const ratio = pickRatio(funding.method, financing);
-  const sum = ratio.debt + ratio.equity;
-  const equityPct = sum > 0 ? ratio.equity / sum : 0.3;
-  const totalEquityNeed = funding.totalNeed * equityPct;
+  // M2.0 Pass 13 (2026-05-13): totalEquityNeed is read directly from
+  // the funding split (Method 1's two-rule routing of Land Cash vs
+  // non-land means the project-wide equityPct is no longer a clean
+  // multiplier of totalNeed). Pre-Pass-13 callers that did not
+  // populate the two-rule arrays still produce identical equity
+  // numbers because computeFunding's fallback path applies a uniform
+  // ratio (so the split sum still equals totalNeed * equityPct).
+  const totalEquityNeed = funding.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
   const inKindContribution = Math.max(0, landInKindValue);
   const cashContribution = Math.max(0, totalEquityNeed - inKindContribution);
   const n = funding.periodArray.length;
