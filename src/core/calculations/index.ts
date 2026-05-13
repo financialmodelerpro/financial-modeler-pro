@@ -2049,54 +2049,100 @@ export function computeFunding(ctx: ComputeFundingContext): FundingResult {
   let totalNeed = 0;
   let periodArray: number[] = [];
 
-  // M2.0 Pass 13 (2026-05-13): Method 1 two-rule split. When the caller
-  // supplies landCashPerPeriod + parcelCashPerPeriod, Land Cash is
-  // routed per parcel funding type and non-land is routed via Method 1
-  // ratio. Without those arrays the engine falls back to the pre-
-  // Pass-13 uniform behaviour so any consumer that did not update
-  // produces the same numbers as before.
-  if (method === 1 && ctx.landCashPerPeriod && ctx.parcelCashPerPeriod) {
+  // M2.0 Pass 18 (2026-05-13): land/non-land split unified across all
+  // three methods. When the caller supplies landCashPerPeriod +
+  // parcelCashPerPeriod, the engine splits capex into a non-land slice
+  // (sized per method's own logic) plus a land-cash slice routed
+  // uniformly by per-parcel debt/equity ratios. The land contribution
+  // is identical across all three methods because parcel routing has
+  // nothing to do with how the rest of capex is sized.
+  //
+  // For Methods 2 + 3 the prior implementation applied method-specific
+  // logic to the entire capex (including Land Cash), then routed the
+  // whole thing through the project-wide ratio. That produced the wrong
+  // Land Cash routing when parcels overrode the project ratio.
+  //
+  // Fallback path (when landCashPerPeriod is omitted) preserves the
+  // pre-Pass-18 behaviour bit-for-bit so any consumer that has not
+  // updated its call site produces the same numbers as before.
+  if (ctx.landCashPerPeriod && ctx.parcelCashPerPeriod) {
     const totalPeriods = capexPerPeriod.length;
     const landCash = ctx.landCashPerPeriod;
     const parcelCash = ctx.parcelCashPerPeriod;
     const parcelFundingById = new Map(financing.parcelFunding.map((p) => [p.parcelId, p]));
-    const r = pickRatio(1, financing);
-    const sumR = r.debt + r.equity;
-    const nonLandDebt = sumR > 0 ? r.debt / sumR : 0.7;
-    const nonLandEquity = sumR > 0 ? r.equity / sumR : 0.3;
-    const debt = new Array<number>(totalPeriods).fill(0);
-    const equity = new Array<number>(totalPeriods).fill(0);
+    const nonLandCapex = capexPerPeriod.map((c, i) => Math.max(0, (c ?? 0) - Math.max(0, landCash[i] ?? 0)));
+
+    // Land debt/equity per parcel ratio, period-by-period.
+    const landDebt = new Array<number>(totalPeriods).fill(0);
+    const landEquity = new Array<number>(totalPeriods).fill(0);
     for (let t = 0; t < totalPeriods; t++) {
-      const cap = capexPerPeriod[t] ?? 0;
-      const land = Math.max(0, landCash[t] ?? 0);
-      const nonLand = Math.max(0, cap - land);
-      debt[t] = nonLand * nonLandDebt;
-      equity[t] = nonLand * nonLandEquity;
       for (const pc of parcelCash) {
         const v = pc.perPeriod[t] ?? 0;
         if (v === 0) continue;
         const f = parcelDebtEquityFractions(parcelFundingById.get(pc.parcelId));
-        debt[t] += v * f.debt;
-        equity[t] += v * f.equity;
+        landDebt[t] += v * f.debt;
+        landEquity[t] += v * f.equity;
       }
     }
-    periodArray = debt.map((d, i) => d + (equity[i] ?? 0));
-    totalNeed = periodArray.reduce((s, v) => s + v, 0);
-    return { method, totalNeed, periodArray, debtEquitySplit: { debt, equity } };
+
+    // Non-land sized by method-specific logic, then split by method ratio.
+    let nonLandPeriodArray: number[];
+    let nonLandTotalNeed: number;
+    if (method === 1) {
+      nonLandPeriodArray = [...nonLandCapex];
+      nonLandTotalNeed = nonLandPeriodArray.reduce((s, v) => s + v, 0);
+    } else if (method === 2) {
+      const existing = financing.netFundingConfig?.existingCash ?? 0;
+      nonLandPeriodArray = nonLandCapex.map((c, i) => Math.max(0, c - (preSales[i] ?? 0) - (ocf[i] ?? 0)));
+      nonLandTotalNeed = Math.max(0, nonLandPeriodArray.reduce((s, v) => s + v, 0) - existing + minCash);
+    } else {
+      const initial = financing.cashDeficitConfig?.initialCash ?? 0;
+      nonLandPeriodArray = new Array<number>(totalPeriods).fill(0);
+      let cash = initial;
+      for (let t = 0; t < totalPeriods; t++) {
+        const inflow = (preSales[t] ?? 0) + (ocf[t] ?? 0);
+        const outflow = nonLandCapex[t] ?? 0;
+        const projected = cash + inflow - outflow;
+        const required = projected < minCash ? (minCash - projected) : 0;
+        nonLandPeriodArray[t] = required;
+        cash = projected + required;
+      }
+      nonLandTotalNeed = nonLandPeriodArray.reduce((s, v) => s + v, 0);
+    }
+
+    const r = pickRatio(method, financing);
+    const sumR = r.debt + r.equity;
+    const dF = sumR > 0 ? r.debt / sumR : 0.7;
+    const eF = sumR > 0 ? r.equity / sumR : 0.3;
+
+    const debt = new Array<number>(totalPeriods).fill(0);
+    const equity = new Array<number>(totalPeriods).fill(0);
+    for (let t = 0; t < totalPeriods; t++) {
+      const nl = nonLandPeriodArray[t] ?? 0;
+      debt[t] = nl * dF + (landDebt[t] ?? 0);
+      equity[t] = nl * eF + (landEquity[t] ?? 0);
+    }
+    const combinedPeriod = debt.map((d, i) => d + (equity[i] ?? 0));
+    const totalLand = landCash.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    return {
+      method,
+      totalNeed: nonLandTotalNeed + totalLand,
+      periodArray: combinedPeriod,
+      debtEquitySplit: { debt, equity },
+    };
   }
 
+  // Pre-Pass-18 fallback (no land split data supplied): apply method
+  // logic uniformly across the entire capex array.
   if (method === 1) {
-    // Pre-Pass-13 uniform Method 1: per-period = capex schedule.
     periodArray = [...capexPerPeriod];
     totalNeed = periodArray.reduce((s, v) => s + v, 0);
   } else if (method === 2) {
-    // Method 2 (was Method 3 pre-Pass-17): net of pre-sales + OCF - existing cash + min reserve top-up.
     const existing = financing.netFundingConfig?.existingCash ?? 0;
     periodArray = capexPerPeriod.map((c, i) => Math.max(0, c - (preSales[i] ?? 0) - (ocf[i] ?? 0)));
     totalNeed = periodArray.reduce((s, v) => s + v, 0) - existing + minCash;
     totalNeed = Math.max(0, totalNeed);
   } else {
-    // Method 3 (was Method 4 pre-Pass-17): walk period-by-period; draw to maintain minCash floor.
     const initial = financing.cashDeficitConfig?.initialCash ?? 0;
     periodArray = new Array(capexPerPeriod.length).fill(0);
     let cash = initial;
