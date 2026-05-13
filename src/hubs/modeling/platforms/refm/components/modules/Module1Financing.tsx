@@ -6,7 +6,7 @@
  * Two sub-tabs: Inputs + Schedules.
  *
  *   Inputs:
- *     - Capital Structure Overview cards (sources / uses / LTV / match)
+ *     - Capital Structure Overview cards (sources / uses / debt% / match)
  *     - Equity Tranches section (cash / in-kind / JV + IRR hurdle +
  *       preferred return + auto-detect-from-Land-In-Kind)
  *     - Debt Facilities section (multi-facility, 9 drawdown methods, 9
@@ -806,7 +806,7 @@ function TrancheCard({
               <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>Breach alerts in M5.</div>
             </div>
             <div>
-              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>LTV Covenant %</label>
+              <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Debt Covenant %</label>
               <PercentageInput min={0} max={100} value={tranche.ltvCovenant ?? 0} onChange={(n) => onUpdate({ ltvCovenant: n })} style={inputStyle} data-testid={`tranche-${tranche.id}-ltv-cov`} />
             </div>
             <div>
@@ -1730,7 +1730,7 @@ export default function Module1Financing(): React.JSX.Element {
               3 cards (with Sources / Uses sub-headings) to 1 headline +
               1 row of 6 compact cards. All values still present (Total
               Funding, Total Debt, Equity Cash, Equity In-Kind, Total
-              Capex, debt-to-capex, match chip); per-stack % shown as
+              Capex, Debt %, match chip); per-stack % shown as
               sublabel on each Sources card; smaller padding + font. */}
           <div style={sectionCardStyle} data-testid="financing-capital-stack">
             <strong style={TABLE_TITLE}>Capital Structure Overview</strong>
@@ -1759,7 +1759,7 @@ export default function Module1Financing(): React.JSX.Element {
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{fmt(stack.totalUses)}</div>
               </div>
               <div style={{ ...calcOutputStyle, padding: 6 }} data-testid="cap-stack-ltv">
-                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>LTV (Senior / Total)</div>
+                <div style={{ fontSize: 9, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Debt % (Senior / Total)</div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{stack.ltvSenior.toFixed(1)}% / {stack.ltvTotal.toFixed(1)}%</div>
               </div>
               <div
@@ -1782,7 +1782,7 @@ export default function Module1Financing(): React.JSX.Element {
                 <details> element so the per-facility breakdown is
                 hidden by default. Cards above already cover the
                 headline numbers (Total Funding, Debt, Equity Cash,
-                Equity In-Kind, LTV, match chip); this table provides
+                Equity In-Kind, Debt %, match chip); this table provides
                 the per-facility split when the user wants it.
                 Per-facility debt now uses stack.debtBreakdown (the
                 facilitySharePct-driven series, identical to the

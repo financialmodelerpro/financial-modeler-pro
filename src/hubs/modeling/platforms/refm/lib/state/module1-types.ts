@@ -976,7 +976,7 @@ export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
 ] as const;
 
 export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
-  capex_basis:          'Matched to CapEx (LTV × CapEx)',
+  capex_basis:          'Matched to CapEx (Debt % × CapEx)',
   manual:               'Manual % per Period',
   debt_equity_ratio:    'Debt/Equity Ratio % of CapEx',
   capex_minus_presales: 'CapEx minus Pre-sales',
@@ -1071,7 +1071,7 @@ export const EQUAL_REPAYMENT_SUB_METHOD_LABELS: Record<EqualRepaymentSubMethod, 
 // the calc engine; new fields enable multi-facility (senior_construction
 // / senior_term / mezzanine / bridge / bullet), IDC treatment matrix
 // (capitalize / expense / mixed), fees (upfront + commitment), covenants
-// (DSCR + LTV, informational), prepayments, PIK toggle, principal as
+// (DSCR + Debt %, informational), prepayments, PIK toggle, principal as
 // absolute amount alternative to ltvPct.
 export type FacilityType =
   | 'senior_construction'
