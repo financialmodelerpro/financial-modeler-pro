@@ -691,11 +691,61 @@ function TrancheCard({
               </div>
             </div>
           )}
-          {mapLegacyRepayment(tranche.repaymentMethod) === 'year_on_year_pct' && (
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-              Configure per-period % via Advanced section (sums to 100).
-            </div>
-          )}
+          {mapLegacyRepayment(tranche.repaymentMethod) === 'year_on_year_pct' && (() => {
+            // Year-on-Year % per-period editor (2026-05-13). Pattern
+            // matches the Prepayments mini-table below. Period count =
+            // remainingRepaymentPeriods (existing) or repaymentPeriods
+            // (new). Sum chip recomputes live; engine auto-normalises
+            // to 100 on the calc side so the model always reconciles.
+            const totalPeriods = isExistingFacility
+              ? (tranche.remainingRepaymentPeriods ?? 0)
+              : (tranche.repaymentPeriods ?? 0);
+            const raw = tranche.yearOnYearPctSchedule ?? [];
+            const sched: number[] = new Array(totalPeriods).fill(0).map((_, i) => raw[i] ?? 0);
+            const sum = sched.reduce((s, v) => s + v, 0);
+            const sumOk = Math.abs(sum - 100) < 0.01;
+            const updateAt = (idx: number, n: number): void => {
+              const next = [...sched];
+              next[idx] = Math.max(0, n);
+              onUpdate({ yearOnYearPctSchedule: next });
+            };
+            if (totalPeriods <= 0) {
+              return (
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+                  Set Repayment Periods above to configure the Year-on-Year % schedule.
+                </div>
+              );
+            }
+            return (
+              <div style={{ marginTop: 6 }} data-testid={`tranche-${tranche.id}-yoy-editor`}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))', gap: 4 }}>
+                  {sched.map((v, i) => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>P{i + 1}</span>
+                      <PercentageInput
+                        min={0}
+                        value={v}
+                        onChange={(n) => updateAt(i, n)}
+                        style={{ ...inputStyle, fontSize: 11, width: '100%' }}
+                        data-testid={`tranche-${tranche.id}-yoy-${i}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div
+                  style={{
+                    marginTop: 6, fontSize: 11, fontWeight: 700, display: 'inline-block',
+                    padding: '2px 8px', borderRadius: 4,
+                    background: sumOk ? 'color-mix(in srgb, var(--color-success) 16%, transparent)' : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
+                    color: sumOk ? 'var(--color-success)' : 'var(--color-accent-warm)',
+                  }}
+                  data-testid={`tranche-${tranche.id}-yoy-sum`}
+                >
+                  {sumOk ? `Sums to ${sum.toFixed(2)}%` : `Sum: ${sum.toFixed(2)}%, will auto-normalise to 100% on save`}
+                </div>
+              </div>
+            );
+          })()}
           {mapLegacyRepayment(tranche.repaymentMethod) === 'equal_repayment' && (
             <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 4, fontStyle: 'italic' }}>
               Defaults to equal-principal (declining balance) over the tenor.

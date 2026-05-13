@@ -1376,6 +1376,25 @@ export interface FinancingResult {
   totalRepayment: number;
 }
 
+/**
+ * Year-on-Year % schedule normaliser. Pads / truncates to length `n`
+ * and rescales so the result sums to exactly 100. Empty / all-zero
+ * input falls back to an even distribution.
+ */
+export function normalizeYoYSchedule(raw: number[], n: number): number[] {
+  if (n <= 0) return [];
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return new Array(n).fill(100 / n);
+  }
+  // Pad short, truncate long, clamp negatives.
+  const padded = new Array<number>(n).fill(0);
+  for (let i = 0; i < n; i++) padded[i] = Math.max(0, raw[i] ?? 0);
+  const sum = padded.reduce((s, v) => s + v, 0);
+  if (sum < 1e-9) return new Array(n).fill(100 / n);
+  const scale = 100 / sum;
+  return padded.map((v) => v * scale);
+}
+
 export function computeFinancing(
   tranche: FinancingTranche,
   phase: Phase,
@@ -1571,6 +1590,16 @@ export function computeFinancing(
   } else if (tranche.repaymentMethod === 'custom_schedule') {
     const sched = tranche.repaymentCustomSchedule ?? [];
     for (let i = 0; i < periods; i++) repBudget[i] = Math.max(0, sched[i] ?? 0);
+  } else if (tranche.repaymentMethod === 'year_on_year_pct' && effRepaymentPeriods > 0) {
+    // Year-on-Year % (2026-05-13): yearOnYearPctSchedule supplies per-
+    // period % weights (sum = 100). normalizeYoYSchedule pads short
+    // arrays with zeros, truncates long ones, and scales to 100 when
+    // the user-entered sum doesn't reach it. Empty array -> even
+    // distribution across effRepaymentPeriods.
+    const schedule = normalizeYoYSchedule(tranche.yearOnYearPctSchedule ?? [], effRepaymentPeriods);
+    for (let i = 0; i < effRepaymentPeriods && (graceEndIdx + i) < periods; i++) {
+      repBudget[graceEndIdx + i] = totalDebtFromDraws * ((schedule[i] ?? 0) / 100);
+    }
   }
 
   // M2.0L: resolve IDC treatment. New idcTreatment wins when set;
