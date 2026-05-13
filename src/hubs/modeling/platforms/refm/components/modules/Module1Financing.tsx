@@ -1246,49 +1246,61 @@ export default function Module1Financing(): React.JSX.Element {
   // M2.0 Pass 15 (2026-05-13): Tab 4 Inputs sub-tab period axis. Matches
   // Tab 3 Costs Results data-extent crop (first / last column with
   // non-zero capex) plus ONE trailing year so the Inputs tables show the
-  // capex window cleanly without padding to the full project horizon
-  // (operations tail).
+  // capex window cleanly without padding to the full project horizon.
   //
-  // Anchoring: if the project has Land In-Kind at Y0 (cash capex starts
-  // later), the start is forced to project Y0 so the In-Kind lump still
-  // lands in the rendered range (mirrors Tab 3's inclusive-extent start).
+  // M2.0 Pass 19 (2026-05-13): aligned column-for-column with Tab 3.
+  // The bug fixed here: Tab 4 used to walk `inputsSummary.totals[i]` for
+  // i >= 0 and treat each totals-index as a column index, but
+  // `totals[0]` is the Y0 lump (= `phase.perPeriod[0]` for Phase 1) that
+  // Tab 3 explicitly drops (Module1Costs.tsx:1652 walks `bd.perPeriod[i]`
+  // for `i >= 1` and maps to `col = offset + i - 1`). The off-by-one
+  // pushed every data value one column to the right on Tab 4 (e.g.
+  // 1,031,493 showed at "Dec 27" instead of "Dec 26"). The Y0 in-kind
+  // anchor compounded the shift on the left (priorLabel = "Dec 24"
+  // instead of "Dec 25").
   //
-  // The axis is shared by the Capex Breakdown table AND the Total Debt /
-  // Total Equity Required tables, so both render the same columns.
-  // Schedules sub-tab axis is independent and still uses the full
-  // project + debt-service horizon.
+  // Fix: walk `totals[i]` for `i >= 1` and map `col = i - 1`, mirroring
+  // Tab 3's logic. cropRow now offsets the array read by `+1` so the
+  // Y0 lump never enters the rendered grid. The Y0 in-kind anchor is
+  // dropped; Total Equity Required's In-Kind row places its lump at the
+  // first active column (= `inputsAxis.first + 1` in totals indexing).
+  //
+  // The axis is shared by Capex Breakdown + Funding Requirement +
+  // Total Debt Required + Total Equity Required tables. Schedules
+  // sub-tab axis is independent and still uses the full project +
+  // debt-service horizon.
   const inputsAxis = useMemo(() => {
     const totals = inputsSummary.totals;
-    let firstNonZero = -1;
-    let lastNonZero = -1;
-    for (let i = 0; i < totals.length; i++) {
+    let firstCol = -1;
+    let lastCol = -1;
+    // Walk totals[1..] (skip Y0 lump). col = i - 1 to match Tab 3.
+    for (let i = 1; i < totals.length; i++) {
       if (Math.abs(totals[i] ?? 0) > 0.5) {
-        if (firstNonZero < 0) firstNonZero = i;
-        lastNonZero = i;
+        const col = i - 1;
+        if (firstCol < 0) firstCol = col;
+        lastCol = col;
       }
     }
-    if (projectInKindLandValue > 0.5) {
-      firstNonZero = firstNonZero < 0 ? 0 : Math.min(firstNonZero, 0);
-      lastNonZero = Math.max(lastNonZero, 0);
-    }
-    const hasData = firstNonZero >= 0;
-    const first = hasData ? firstNonZero : 0;
-    const last = hasData ? lastNonZero : 0;
+    const hasData = firstCol >= 0;
+    const first = hasData ? firstCol : 0;
+    const last = hasData ? lastCol : 0;
     const activeCount = last - first + 1 + 1; // +1 trailing year
     const axis = buildResultsPeriodAxis({
       startIso: project.startDate,
       numAnnualPeriods: activeCount,
       cropAnnualOffset: first,
     });
+    // cropRow maps active column i to totals-index `first + 1 + i`
+    // (the +1 skips the Y0 lump, matching Tab 3's i-1 col mapping).
     const cropRow = (arr: number[]): number[] => {
       const out = new Array<number>(activeCount).fill(0);
       for (let i = 0; i < activeCount; i++) {
-        out[i] = arr[first + i] ?? 0;
+        out[i] = arr[first + 1 + i] ?? 0;
       }
       return out;
     };
     return { axis, cropRow, activeCount, first };
-  }, [inputsSummary, projectInKindLandValue, project.startDate]);
+  }, [inputsSummary, project.startDate]);
 
   // M2.0 Pass 15 (2026-05-13): per-period grace interest add-on for the
   // Method 3 "add_to_funding_need" treatment. For each tranche flagged
@@ -1980,9 +1992,15 @@ export default function Module1Financing(): React.JSX.Element {
             // Pass 14 (2026-05-13): annual-only basis.
             const debtRow = [...funding.debtEquitySplit.debt];
             const equityAllRow = [...funding.debtEquitySplit.equity];
-            // In-Kind equity: lump at index 0, value = projectInKindLandValue.
+            // M2.0 Pass 19 (2026-05-13): the in-kind lump lands at the
+            // first ACTIVE column (= the first construction year), not
+            // at totals-index 0 (which is the Y0 lump position that
+            // Tab 3 + Tab 4 axis both drop). cropRow reads from
+            // `first + 1 + i`, so placing the lump at `first + 1` makes
+            // it render at active col 0.
             const inKindRow = new Array<number>(equityAllRow.length).fill(0);
-            if (inKindRow.length > 0) inKindRow[0] = projectInKindLandValue;
+            const inKindIdx = inputsAxis.first + 1;
+            if (inKindRow.length > inKindIdx) inKindRow[inKindIdx] = projectInKindLandValue;
             const cashEquityRow = equityAllRow.map((v, i) => Math.max(0, v - (inKindRow[i] ?? 0)));
             const sum = (arr: number[]): number => arr.reduce((s, v) => s + v, 0);
             const debtTotal = sum(debtRow);
