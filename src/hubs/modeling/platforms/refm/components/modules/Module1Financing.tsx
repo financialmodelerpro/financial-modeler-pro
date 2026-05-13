@@ -89,7 +89,7 @@ import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounti
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
-import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, tableMinWidth, ROW_DATA, ROW_GRAND_TOTAL } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -859,7 +859,7 @@ function TrancheCard({
 // (running balances / outstanding balances) pass `total: '-'` so the
 // slot shows a dash instead of a misleading sum-of-balances.
 function ScheduleTable({
-  title, labels, rows, dataTestid, minWidth,
+  title, labels, rows, dataTestid,
 }: {
   title: string;
   /** Full period axis including the prior calendar period at index 0
@@ -867,20 +867,18 @@ function ScheduleTable({
   labels: string[];
   rows: Array<{ label: string; values: number[] | string[]; bold?: boolean; total?: number | string }>;
   dataTestid: string;
-  /** Shared min-width across all stacked tables on the page so column
-   *  widths stay uniform top-to-bottom when granularity changes the
-   *  period count. */
-  minWidth: number;
 }): React.JSX.Element {
+  // 1 Total + N period columns -> equal-width percentage applied to all.
+  const nonLabelPct = nonLabelColumnPct(1 + labels.length);
   return (
     <div style={sectionCardStyle} data-testid={dataTestid}>
       <strong style={TABLE_TITLE}>{title}</strong>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
           <colgroup>
-            <col />
-            <col style={{ width: COLUMN_WIDTHS.total }} />
-            {labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+            <col style={{ width: COLUMN_WIDTHS.label }} />
+            <col style={{ width: nonLabelPct }} />
+            {labels.map((_, i) => (<col key={i} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
             <tr>
@@ -1329,7 +1327,6 @@ export default function Module1Financing(): React.JSX.Element {
     startIso: project.startDate,
     numAnnualPeriods: periodCount,
   });
-  const schedulesMinWidth = tableMinWidth(schedulesAxis.count);
   // Identity transform on annual basis (placeholder for the M5
   // granularity-aware version).
   const transform = (annual: number[]): number[] => annual.slice(0, periodCount);
@@ -1457,17 +1454,17 @@ export default function Module1Financing(): React.JSX.Element {
               startIso: project.startDate,
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
-            const capexMinWidth = tableMinWidth(capexAxis.count);
+            const capexNonLabelPct = nonLabelColumnPct(1 + capexAxis.count);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <div style={sectionCardStyle} data-testid="capex-breakdown">
                 <strong style={TABLE_TITLE}>Capex Breakdown</strong>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: capexMinWidth }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
                     <colgroup>
-                      <col />
-                      <col style={{ width: COLUMN_WIDTHS.total }} />
-                      {capexAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                      <col style={{ width: COLUMN_WIDTHS.label }} />
+                      <col style={{ width: capexNonLabelPct }} />
+                      {capexAxis.labels.map((_, i) => (<col key={i} style={{ width: capexNonLabelPct }} />))}
                     </colgroup>
                     <thead>
                       <tr>
@@ -1917,7 +1914,7 @@ export default function Module1Financing(): React.JSX.Element {
               startIso: project.startDate,
               numAnnualPeriods: inputsSummary.totalPeriods,
             });
-            const reqMinWidth = tableMinWidth(reqAxis.count);
+            const reqNonLabelPct = nonLabelColumnPct(1 + reqAxis.count);
             const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
             return (
               <>
@@ -1925,11 +1922,11 @@ export default function Module1Financing(): React.JSX.Element {
                 <div style={sectionCardStyle} data-testid="total-debt-required">
                   <strong style={TABLE_TITLE}>Total Debt Required</strong>
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: reqMinWidth }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
                       <colgroup>
-                        <col />
-                        <col style={{ width: COLUMN_WIDTHS.total }} />
-                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                        <col style={{ width: COLUMN_WIDTHS.label }} />
+                        <col style={{ width: reqNonLabelPct }} />
+                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: reqNonLabelPct }} />))}
                       </colgroup>
                       <thead>
                         <tr>
@@ -1957,11 +1954,11 @@ export default function Module1Financing(): React.JSX.Element {
                 <div style={sectionCardStyle} data-testid="total-equity-required">
                   <strong style={TABLE_TITLE}>Total Equity Required</strong>
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: reqMinWidth }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
                       <colgroup>
-                        <col />
-                        <col style={{ width: COLUMN_WIDTHS.total }} />
-                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                        <col style={{ width: COLUMN_WIDTHS.label }} />
+                        <col style={{ width: reqNonLabelPct }} />
+                        {reqAxis.labels.map((_, i) => (<col key={i} style={{ width: reqNonLabelPct }} />))}
                       </colgroup>
                       <thead>
                         <tr>
@@ -2035,7 +2032,7 @@ export default function Module1Financing(): React.JSX.Element {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
               <colgroup>
                 <col />
-                <col style={{ width: COLUMN_WIDTHS.total }} />
+                <col style={{ width: 110 }} />
                 <col style={{ width: 90 }} />
                 <col style={{ width: 140 }} />
               </colgroup>
@@ -2094,7 +2091,6 @@ export default function Module1Financing(): React.JSX.Element {
                 title={`2. Debt Movement, ${t.name}`}
                 dataTestid={`debt-movement-${t.id}`}
                 labels={schedulesAxis.labels}
-                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Opening Balance', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
                   { label: 'Drawdown', values: transform(r.drawSchedule.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.drawSchedule) },
@@ -2111,7 +2107,6 @@ export default function Module1Financing(): React.JSX.Element {
             title="3. Combined Debt Service"
             dataTestid="combined-debt-service"
             labels={schedulesAxis.labels}
-            minWidth={schedulesMinWidth}
             rows={[
               { label: 'Total Interest', values: transform(combined.totalInterest.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalInterest.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
               { label: 'Total Principal', values: transform(combined.totalPrincipal.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalPrincipal.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
@@ -2135,7 +2130,6 @@ export default function Module1Financing(): React.JSX.Element {
                 title={`4. Finance Cost, ${t.name}`}
                 dataTestid={`finance-cost-${t.id}`}
                 labels={schedulesAxis.labels}
-                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
                   { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
@@ -2152,9 +2146,9 @@ export default function Module1Financing(): React.JSX.Element {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
               <colgroup>
                 <col />
-                <col style={{ width: COLUMN_WIDTHS.total }} />
-                <col style={{ width: COLUMN_WIDTHS.total }} />
-                <col style={{ width: COLUMN_WIDTHS.total }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 110 }} />
               </colgroup>
               <thead>
                 <tr>
@@ -2200,7 +2194,6 @@ export default function Module1Financing(): React.JSX.Element {
                 title="6. Equity Movement"
                 dataTestid="equity-movement"
                 labels={schedulesAxis.labels}
-                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Opening Equity', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
                   { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.cashPerPeriod) },
@@ -2216,7 +2209,6 @@ export default function Module1Financing(): React.JSX.Element {
             title="7. Capital Stack Movement (Outstanding Balance, Combined)"
             dataTestid="stack-movement"
             labels={schedulesAxis.labels}
-            minWidth={schedulesMinWidth}
             rows={[
               { label: 'Drawdown', values: transform(combined.totalDrawdown.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalDrawdown.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
               { label: 'Outstanding Balance', values: transform(combined.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },

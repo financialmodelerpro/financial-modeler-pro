@@ -149,49 +149,49 @@ export const ROW_GRAND_TOTAL = {
 
 // Universal column widths for every period-axis results table.
 //
-// Label column is flexible (no width on its <col />): with
-// `tableLayout: 'fixed'` it receives whatever space is left after Total
-// + N periods. Total + Period are pinned in pixels so every stacked
-// table on the page sizes its number columns identically and they
-// align pixel-to-pixel.
+// M2.0 Pass 14 (2026-05-13) rule: percentage-based widths that
+// re-balance automatically when the period count changes. Label
+// column is fixed at 22% of table width; the remaining 78% is split
+// EQUALLY across the Total column + every period column. So a table
+// with 1 Total + N period cols gives each non-label column
+// `78 / (1 + N) %`, and all non-label columns are the same width.
 //
-// When period count grows (e.g. monthly granularity = 60yr * 12 = 720
-// cols), the table width naturally exceeds the parent. Pair the
-// <table> with `minWidth: tableMinWidth(count)` so all stacked tables
-// share the same min width, the parent `overflowX: auto` wrapper
-// scrolls all tables together, and column widths stay uniform from top
-// to bottom of the page (no per-table content-driven drift).
+// Why this shape:
+//   - Tables on the same page share column widths column-for-column
+//     because every consumer derives the same percentage from the
+//     same axis count.
+//   - Extend a phase's operating periods, every non-label column
+//     shrinks proportionally and the label stays at 22%.
+//   - No horizontal scroll needed at typical project durations
+//     (10-25 years). On extreme projects (40+ years) columns get
+//     narrow, which is expected and acceptable since annual projects
+//     rarely run that long.
 //
 // Render pattern:
+//   const nonLabelPct = nonLabelColumnPct(axis.count);
 //   <div style={{ overflowX: 'auto' }}>
 //     <table style={{ width: '100%', tableLayout: 'fixed',
-//                     minWidth: tableMinWidth(axis.count),
 //                     borderCollapse: 'collapse' }}>
 //       <colgroup>
-//         <col />                                          // label
-//         <col style={{ width: COLUMN_WIDTHS.total }} />   // total
-//         {axis.labels.map(() => <col style={{ width: COLUMN_WIDTHS.period }} />)}
+//         <col style={{ width: COLUMN_WIDTHS.label }} />   // label
+//         <col style={{ width: nonLabelPct }} />            // total
+//         {axis.labels.map(() => <col style={{ width: nonLabelPct }} />)}
 //       </colgroup>
 //       ...
 //     </table>
 //   </div>
 export const COLUMN_WIDTHS = {
-  /** Total column: ~7 chars at 11px + padding. */
-  total: 110,
-  /** Each period column: fits "Dec 25" + 5-digit scaled number with comma. */
-  period: 75,
-  /** Label column minimum (used in tableMinWidth so wide tables keep a
-   *  readable label area before the period scroll kicks in). */
-  labelMin: 200,
+  /** Label column: 22% of table width. */
+  label: '22%',
 } as const;
 
 /**
- * Minimum table width used by every period-axis results table. The
- * shared <table style={{ minWidth: tableMinWidth(count) }}> + parent
- * overflowX:auto wrapper means: all stacked tables exceed the parent
- * by the same amount when there are too many periods, so they scroll
- * together and stay aligned column-for-column.
+ * Equal-width percentage applied to the Total column AND every period
+ * column. `nonLabelColumnCount` = 1 (Total) + axis.count (prior +
+ * active period columns). Splits the remaining 78% evenly so all
+ * non-label cells render at the same width.
  */
-export function tableMinWidth(periodCount: number): number {
-  return COLUMN_WIDTHS.labelMin + COLUMN_WIDTHS.total + COLUMN_WIDTHS.period * Math.max(0, periodCount);
+export function nonLabelColumnPct(nonLabelColumnCount: number): string {
+  const denom = Math.max(1, nonLabelColumnCount);
+  return `${(78 / denom).toFixed(4)}%`;
 }

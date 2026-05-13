@@ -94,7 +94,7 @@ import {
   ROW_SUBTOTAL,
   ROW_GRAND_TOTAL,
   COLUMN_WIDTHS,
-  tableMinWidth,
+  nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
@@ -1700,7 +1700,8 @@ function SummaryTables({
   // renders as accounting dash). Prepend to every cropRow-derived value
   // array before mapping to <td>s.
   const PRIOR_ZERO = 0;
-  const minTableWidthPx = tableMinWidth(periodAxis.count);
+  // 1 Total + N period columns -> equal-width percentage applied to all.
+  const nonLabelPct = nonLabelColumnPct(1 + periodAxis.count);
 
   // M2.0 Pass 14 (2026-05-13): annual-only basis. transformAnnualSeries
   // is now identity; quarterly + monthly distribution branches deleted
@@ -1819,11 +1820,11 @@ function SummaryTables({
       <div style={sectionCardStyle} data-testid="capex-by-period">
         <strong style={TABLE_TITLE} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', minWidth: minTableWidthPx, borderCollapse: 'collapse' }}>
+          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
             <colgroup>
-              <col />
-              <col style={{ width: COLUMN_WIDTHS.total }} />
-              {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+              <col style={{ width: COLUMN_WIDTHS.label }} />
+              <col style={{ width: nonLabelPct }} />
+              {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: nonLabelPct }} />))}
             </colgroup>
             <thead>
               <tr>
@@ -2114,11 +2115,11 @@ function SummaryTables({
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
               <h3 style={{ ...TABLE_TITLE, margin: 0 }}>{title}</h3>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', tableLayout: 'fixed', minWidth: minTableWidthPx, borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
                   <colgroup>
-                    <col />
-                    <col style={{ width: COLUMN_WIDTHS.total }} />
-                    {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                    <col style={{ width: COLUMN_WIDTHS.label }} />
+                    <col style={{ width: nonLabelPct }} />
+                    {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: nonLabelPct }} />))}
                   </colgroup>
                   <thead>
                     <tr>
