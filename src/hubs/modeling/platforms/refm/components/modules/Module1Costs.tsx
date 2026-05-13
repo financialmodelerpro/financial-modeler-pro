@@ -85,6 +85,12 @@ import {
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import {
+  ROW_ASSET_HEADING,
+  ROW_DATA,
+  ROW_SUBTOTAL,
+  ROW_GRAND_TOTAL,
+} from './_shared/tableStyles';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1865,27 +1871,20 @@ function SummaryTables({
                   c.phaseId === a.phaseId &&
                   (c.targetAssetId === undefined || c.targetAssetId === a.id)
                 );
-                // P11 Fix 9 (2026-05-13) + Fix 11 (2026-05-13) +
-                // Fix 14 (2026-05-13): Combined view splits each asset
-                // into header row (asset name, colSpan, no values) ->
-                // per-line nested rows -> closing subtotal row carrying
-                // total + per-period values. Single Asset view drops
-                // both the top header row AND the Project Total footer
-                // - one asset, one subtotal at the bottom is enough.
-                // Subtotal label = "Subtotal - {asset name}" in both
-                // views (project no-em-dash rule -> hyphen). Subtotal
-                // row applies the navy 12% mix on every <td> directly
-                // (not just the <tr>) so the label cell fills along
-                // with the number cells.
-                const groupBg = 'color-mix(in srgb, var(--color-navy) 12%, transparent)';
-                const subtotalCellName: React.CSSProperties = { ...cellName, background: groupBg };
-                const subtotalCellNum: React.CSSProperties = { ...cellNum, background: groupBg };
+                // Universal formatting (Tab 3 Costs Results, 2026-05-13).
+                // Combined view: Asset Heading row (no fill, bold) ->
+                // per-line nested data rows (no fill, regular) -> closing
+                // Subtotal row (no fill, bold, top-border in header blue).
+                // A final Project Total grand-total row is appended OUTSIDE
+                // this map (header-blue fill, white bold). Single Asset
+                // view: per-line rows + a single closing Grand Total row
+                // labelled "Total" (no asset heading, no subtotal label).
                 return (
                   <React.Fragment key={a.id}>
                     {resultsView === 'combined' && (
                       <tr data-testid={`capex-period-asset-${a.id}`}>
                         <td
-                          style={{ ...cellName, background: groupBg, fontWeight: 700, fontSize: 12, padding: '6px 6px' }}
+                          style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px' }}
                           colSpan={2 + croppedPeriodCount}
                           data-testid={`capex-period-asset-${a.id}-header`}
                         >
@@ -1937,32 +1936,82 @@ function SummaryTables({
                       const linePerPeriod = transformAnnualSeries(linePerPeriodAnnual);
                       return (
                         <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
-                          <td style={{ ...cellName, paddingLeft: 24, fontWeight: 400, color: 'var(--color-meta)' }}>{line.name}</td>
-                          <td style={cellNum}>{fmt(lineTotal)}</td>
-                          {cropRow(linePerPeriod).map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                          <td style={{ ...ROW_DATA.name, paddingLeft: 24, color: 'var(--color-meta)' }}>{line.name}</td>
+                          <td style={ROW_DATA.num}>{fmt(lineTotal)}</td>
+                          {cropRow(linePerPeriod).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
                         </tr>
                       );
                     })}
-                    <tr
-                      style={{ fontWeight: 700 }}
-                      data-testid={`capex-period-asset-${a.id}-subtotal`}
-                    >
-                      <td style={{ ...subtotalCellName, fontWeight: 700 }}>
-                        Subtotal - {a.name}
-                      </td>
-                      <td style={{ ...subtotalCellNum, fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
-                      {cropRow(assetRow).map((v, i) => (<td key={i} style={{ ...subtotalCellNum, fontWeight: 700 }} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
-                    </tr>
+                    {resultsView === 'combined' ? (
+                      <tr data-testid={`capex-period-asset-${a.id}-subtotal`}>
+                        <td style={ROW_SUBTOTAL.name}>
+                          Subtotal - {a.name}
+                        </td>
+                        <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        {cropRow(assetRow).map((v, i) => (<td key={i} style={ROW_SUBTOTAL.num} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      </tr>
+                    ) : (
+                      <tr data-testid={`capex-period-asset-${a.id}-subtotal`}>
+                        <td style={ROW_GRAND_TOTAL.name}>
+                          Total
+                        </td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        {cropRow(assetRow).map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}
+              {resultsView === 'combined' && (() => {
+                // Project Total grand-total row: sum every visible asset's
+                // assetTotal + annual row using the SAME phase-offset
+                // alignment as the per-asset builder above. Re-run the
+                // accumulation here so we don't have to thread state out
+                // of the per-asset map.
+                const projectStartYear = new Date(project.startDate).getUTCFullYear();
+                const grandAnnual = new Array<number>(annualPeriodCount).fill(0);
+                let grandTotal = 0;
+                for (const a of phaseAssets) {
+                  for (const pb of perPhaseBreakdowns) {
+                    const bd = pb.assetTotals[a.id];
+                    if (!bd) continue;
+                    grandTotal += bd.total;
+                    const phaseObj = phases.find((p) => p.id === pb.phaseId);
+                    const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10
+                      ? phaseObj.startDate
+                      : project.startDate;
+                    const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+                    const offset = Number.isFinite(phaseStartYear - projectStartYear)
+                      ? Math.max(0, phaseStartYear - projectStartYear)
+                      : 0;
+                    for (let i = 1; i < bd.perPeriod.length; i++) {
+                      const v = bd.perPeriod[i] ?? 0;
+                      if (v === 0) continue;
+                      const dest = offset + i - 1;
+                      if (dest >= 0 && dest < annualPeriodCount) {
+                        grandAnnual[dest] += v;
+                      }
+                    }
+                    if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
+                      grandAnnual[offset - 1] += bd.perPeriod[0] ?? 0;
+                    }
+                  }
+                }
+                if (grandTotal === 0) return null;
+                const grandRow = transformAnnualSeries(grandAnnual);
+                return (
+                  <tr data-testid="capex-period-project-total">
+                    <td style={ROW_GRAND_TOTAL.name}>Project Total</td>
+                    <td style={ROW_GRAND_TOTAL.num} data-testid="capex-period-project-total-amount">{fmt(grandTotal)}</td>
+                    {cropRow(grandRow).map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-project-total-${i + 1}`}>{fmt(v)}</td>))}
+                  </tr>
+                );
+              })()}
             </tbody>
-            {/* P11 Fix 16 (2026-05-13): Project Total footer removed
-                from Table 1. Each asset's closing "Subtotal - {name}"
-                row already carries the asset total + per-period
-                values; the project-wide rollup is available in the
-                top stage tile bar + the per-table tfoot was reading
-                as redundant single-amount noise. */}
+            {/* Tab 3 Costs Results formatting (2026-05-13): the in-tbody
+                Project Total grand-total row above replaces the older
+                <tfoot> Project Total. Combined view shows it; Single
+                Asset view drops it (one asset's "Total" row stands in). */}
           </table>
         </div>
       </div>
@@ -2029,9 +2078,17 @@ function SummaryTables({
             .map((a) => ({ asset: a, ...buildAssetRow(a, mode) }))
             // Hide zero rows (brief: hide rows with total = 0).
             .filter((r) => Math.abs(r.total) > 0.5);
-          // P11 Fix 16 (2026-05-13): projTotal + periodTotalsLocal
-          // were only consumed by the removed Project Total footer; no
-          // remaining consumers in this helper.
+          // Universal formatting (2026-05-13): asset rows render as plain
+          // data (no "Subtotal - " prefix, no fill, regular weight) and a
+          // closing Grand Total row sums every visible asset.
+          const grandTotalAmount = rows.reduce((s, r) => s + r.total, 0);
+          const grandTotalRow = new Array<number>(croppedPeriodCount).fill(0);
+          for (const r of rows) {
+            const cropped = cropRow(r.row);
+            for (let i = 0; i < croppedPeriodCount; i++) {
+              grandTotalRow[i] += cropped[i] ?? 0;
+            }
+          }
           return (
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
               <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 14 }}>{title}</h3>
@@ -2046,32 +2103,24 @@ function SummaryTables({
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
-                      <tr><td style={cellName} colSpan={2 + croppedPeriodCount}>No non-zero values for this view.</td></tr>
-                    ) : rows.map((r) => {
-                      // P11 Fix 14 (2026-05-13): every per-asset row in
-                      // Tables 2/3/4 reads as a subtotal: bold, navy 12%
-                      // fill applied directly on each <td> so the label
-                      // cell fills alongside the number cells, label =
-                      // "Subtotal - {asset name}". Pattern matches
-                      // Table 1's closing subtotal row in both Combined
-                      // and Single Asset views.
-                      const summaryBg = 'color-mix(in srgb, var(--color-navy) 12%, transparent)';
-                      const subName: React.CSSProperties = { ...cellName, background: summaryBg, fontWeight: 700 };
-                      const subNum: React.CSSProperties = { ...cellNum, background: summaryBg, fontWeight: 700 };
-                      return (
-                        <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
-                          <td style={subName}>Subtotal - {r.asset.name}</td>
-                          <td style={subNum} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
-                          {cropRow(r.row).map((v, i) => (<td key={i} style={subNum}>{fmt(v)}</td>))}
+                      <tr><td style={ROW_DATA.name} colSpan={2 + croppedPeriodCount}>No non-zero values for this view.</td></tr>
+                    ) : (
+                      <>
+                        {rows.map((r) => (
+                          <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
+                            <td style={ROW_DATA.name}>{r.asset.name}</td>
+                            <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
+                            {cropRow(r.row).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
+                          </tr>
+                        ))}
+                        <tr data-testid={`capex-summary-${testidKey}-grand-total`}>
+                          <td style={ROW_GRAND_TOTAL.name}>Total</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-summary-${testidKey}-grand-total-amount`}>{fmt(grandTotalAmount)}</td>
+                          {grandTotalRow.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmt(v)}</td>))}
                         </tr>
-                      );
-                    })}
+                      </>
+                    )}
                   </tbody>
-                  {/* P11 Fix 16 (2026-05-13): Project Total footer
-                      removed from Tables 2/3/4 to match Table 1. The
-                      per-asset "Subtotal - {name}" rows already carry
-                      every value the user needs at the row level; the
-                      project-wide rollup is in the top stage tile bar. */}
                 </table>
               </div>
             </div>
@@ -2683,7 +2732,9 @@ export default function Module1Costs(): React.JSX.Element {
     return acc;
   }, [perPhaseBreakdowns]);
 
-  const projectTotal = stageTotals.land + stageTotals.hard + stageTotals.soft + stageTotals.operating;
+  // projectTotal (sum of stage totals) was consumed by the now-removed
+  // standalone Project Total bar; the in-table Grand Total rows on Tables
+  // 1-4 own this rollup now.
 
   // Per-asset metrics map (for treatment table + Fix 8 caption + Fix 16 cards).
   // M2.0j: store the full AssetAreaMetrics shape so CostRow can render
@@ -3487,22 +3538,9 @@ export default function Module1Costs(): React.JSX.Element {
         </div>
       )}
 
-      {/* Project total footer */}
-      <div
-        style={{
-          ...sectionCardStyle,
-          background: 'var(--color-navy)',
-          color: 'var(--color-on-primary-navy)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: 'var(--sp-2) var(--sp-3)',
-        }}
-        data-testid="costs-project-total"
-      >
-        <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project Total</strong>
-        <strong style={{ fontSize: 18 }}>{formatAccounting(projectTotal, scale, decimals)}</strong>
-      </div>
+      {/* Standalone Project Total bar removed (Tab 3 results formatting,
+          2026-05-13): the in-table Grand Total rows on Tables 1-4 now
+          serve this role across both Combined and Single Asset views. */}
 
       {popupAssetId && (
         <CustomCostPopup
