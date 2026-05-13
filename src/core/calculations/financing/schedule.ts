@@ -120,6 +120,16 @@ export function computeFacilitySchedule(
     }
   }
 
+  const finalRepayIdx = effRepay > 0
+    ? Math.min(N - 1, repayStartProj + effRepay - 1)
+    : N - 1;
+  const sweepsAtMaturity =
+    method === 'straight_line'
+    || method === 'equal_periodic_amortization'
+    || method === 'year_on_year_pct'
+    || method === 'balloon'
+    || method === 'bullet';
+
   let bal = openingBalance;
   for (let i = 0; i < N; i++) {
     bal += drawSchedule[i];
@@ -140,7 +150,7 @@ export function computeFacilitySchedule(
       interestPaid[i] = interest;
     }
     let pay = Math.min(bal, Math.max(0, repBudget[i] ?? 0));
-    if (i === N - 1 && pay < bal && method === 'bullet') pay = bal;
+    if (sweepsAtMaturity && i === finalRepayIdx && pay < bal) pay = bal;
     principalRepaid[i] = pay;
     bal -= pay;
     outstanding[i] = bal;
