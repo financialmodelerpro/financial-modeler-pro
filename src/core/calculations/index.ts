@@ -2005,14 +2005,23 @@ function splitByRatio(periodArray: number[], debtPct: number, equityPct: number)
 
 /**
  * M2.0 Pass 13 (2026-05-13): per-parcel debt/equity split for Method 1.
- * Defaults to 100pct_equity when the parcel has no config entry (the
- * schema default). Deferred payment is treated as 100pct_equity for
- * now (engine wire pending); the rest follow ParcelFundingConfig.
+ * M2.0 Pass 16 (2026-05-13): the Land Funding UI now writes direct
+ * `debtPct` / `equityPct` fields. This resolver prefers them when set;
+ * legacy snapshots still resolve via the `fundingType` enum until the
+ * migration backfills the new fields. Default: 100% equity.
  */
 function parcelDebtEquityFractions(
   cfg: ProjectFinancingConfig['parcelFunding'][number] | undefined,
 ): { debt: number; equity: number } {
   if (!cfg) return { debt: 0, equity: 1 };
+  if (cfg.debtPct != null || cfg.equityPct != null) {
+    const d = Math.max(0, cfg.debtPct ?? 0);
+    const e = Math.max(0, cfg.equityPct ?? Math.max(0, 100 - d));
+    const sum = d + e;
+    if (sum <= 0) return { debt: 0, equity: 1 };
+    return { debt: d / sum, equity: e / sum };
+  }
+  // Legacy fundingType resolution for pre-Pass-16 snapshots.
   switch (cfg.fundingType) {
     case '100pct_debt':
       return { debt: 1, equity: 0 };
@@ -2026,19 +2035,7 @@ function parcelDebtEquityFractions(
       return { debt: d / sum, equity: e / sum };
     }
     case 'in_kind':
-      // In-kind land flows through Land In-Kind (non-cash equity), not
-      // through Land Cash. If it shows up here it means the cost line
-      // wiring is unusual; route to equity for safety.
-      return { debt: 0, equity: 1 };
     case 'deferred_payment':
-      // M2.0 Pass 14 (2026-05-13): per-period distribution is now wired
-      // via expandDeferredSchedule in computeAssetCost (Land Cash spreads
-      // across the configured periods). Debt/equity split for deferred
-      // parcels stays 100% equity for now - schema does not carry a
-      // separate customDebtPct/customEquityPct on deferred type. If
-      // future user feedback wants debt-routed deferred, extend the
-      // schema and route here.
-      return { debt: 0, equity: 1 };
     default:
       return { debt: 0, equity: 1 };
   }

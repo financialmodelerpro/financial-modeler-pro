@@ -1417,12 +1417,32 @@ export const PARCEL_FUNDING_TYPE_LABELS: Record<ParcelFundingType, string> = {
 
 export interface ParcelFundingConfig {
   parcelId: string;
-  fundingType: ParcelFundingType;
-  /** custom_split only. 0..100. */
+  /**
+   * @deprecated M2.0 Pass 16 (2026-05-13). UI replaced with direct
+   * `debtPct` / `equityPct` inputs. Field retained for snapshot
+   * back-compat; the engine's `parcelDebtEquityFractions` resolver
+   * falls back to the legacy enum only when `debtPct` is missing.
+   */
+  fundingType?: ParcelFundingType;
+  /** Debt % for Land Cash funding. Auto-paired with equityPct (sum = 100). */
+  debtPct?: number;
+  /** Equity % for Land Cash funding. Auto-paired with debtPct (sum = 100). */
+  equityPct?: number;
+  /**
+   * @deprecated M2.0 Pass 16 (2026-05-13). Custom-split inputs collapsed
+   * into the universal `debtPct` / `equityPct` pair. Kept for snapshot
+   * back-compat via migration.
+   */
   customDebtPct?: number;
-  /** custom_split only. 0..100. */
+  /** @deprecated M2.0 Pass 16 (2026-05-13). See `customDebtPct`. */
   customEquityPct?: number;
-  /** deferred_payment only. */
+  /**
+   * @deprecated M2.0 Pass 16 (2026-05-13). Deferred Payment dropped from
+   * the UI; schedule is no longer reachable from the Land Funding card.
+   * Field retained for snapshot back-compat. The helper
+   * `expandDeferredSchedule` still exists but is no longer wired to a
+   * user-facing flow.
+   */
   deferredSchedule?: {
     type: 'even' | 'manual_pct';
     startPeriod: number;

@@ -37,7 +37,6 @@ import {
   type IDCTreatment,
   type FeeTreatment,
   type FundingMethodId,
-  type ParcelFundingType,
   type ParcelFundingConfig,
   type ProjectFinancingConfig,
   DRAWDOWN_METHODS,
@@ -61,8 +60,6 @@ import {
   FUNDING_METHOD_IDS,
   FUNDING_METHOD_LABELS,
   FUNDING_METHOD_DESCRIPTIONS,
-  PARCEL_FUNDING_TYPES,
-  PARCEL_FUNDING_TYPE_LABELS,
   DEFAULT_PROJECT_FINANCING_CONFIG,
   PHASE_FILTER_ALL,
   makeDefaultFinancingTranche,
@@ -1012,7 +1009,7 @@ export default function Module1Financing(): React.JSX.Element {
     const existing = financingConfig.parcelFunding.find((p) => p.parcelId === parcelId);
     const next: ParcelFundingConfig[] = existing
       ? financingConfig.parcelFunding.map((p) => p.parcelId === parcelId ? { ...p, ...patch } : p)
-      : [...financingConfig.parcelFunding, { parcelId, fundingType: '100pct_equity', ...patch }];
+      : [...financingConfig.parcelFunding, { parcelId, debtPct: 0, equityPct: 100, ...patch }];
     setFinancingConfig({ parcelFunding: next });
   };
 
@@ -1664,7 +1661,14 @@ export default function Module1Financing(): React.JSX.Element {
             })()}
           </div>
 
-          {/* M2.0M: Land Funding (per parcel) */}
+          {/* M2.0M: Land Funding (per parcel). M2.0 Pass 16 (2026-05-13):
+              dropdown + custom-split + deferred editor collapsed to a
+              single direct Debt% / Equity% pair per parcel. The two
+              inputs auto-pair (sum = 100) so editing one updates the
+              other. In-Kind is auto-detected from Tab 2 parcel inKindPct
+              (still flows via Land In-Kind cost line; no UI here).
+              Deferred Payment dropped from UI (helper retained for
+              snapshot back-compat; treated as 100% equity). */}
           <div style={sectionCardStyle} data-testid="financing-land-funding">
             <strong style={TABLE_TITLE}>Land Funding (per parcel)</strong>
             {parcels.filter((p) => p.phaseId === phase.id).length === 0 && (
@@ -1672,154 +1676,42 @@ export default function Module1Financing(): React.JSX.Element {
             )}
             {parcels.filter((p) => p.phaseId === phase.id).map((parcel) => {
               const cfg = financingConfig.parcelFunding.find((pf) => pf.parcelId === parcel.id);
-              const fundingType: ParcelFundingType = cfg?.fundingType ?? '100pct_equity';
+              const debtPct = cfg?.debtPct ?? 0;
+              const equityPct = cfg?.equityPct ?? 100;
+              const setDebt = (n: number): void => {
+                const d = Math.max(0, Math.min(100, n));
+                upsertParcelFunding(parcel.id, { debtPct: d, equityPct: 100 - d });
+              };
+              const setEquity = (n: number): void => {
+                const e = Math.max(0, Math.min(100, n));
+                upsertParcelFunding(parcel.id, { equityPct: e, debtPct: 100 - e });
+              };
               return (
-                <div key={parcel.id} data-testid={`land-funding-${parcel.id}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-1)', marginBottom: 8, padding: 8, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                <div key={parcel.id} data-testid={`land-funding-${parcel.id}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-1)', marginBottom: 8, padding: 8, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <strong style={{ fontSize: 12 }}>{parcel.name}</strong>
                     <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>{parcel.area.toLocaleString()} sqm</span>
                   </div>
-                  <select
-                    data-testid={`land-funding-${parcel.id}-type`}
-                    value={fundingType}
-                    onChange={(e) => upsertParcelFunding(parcel.id, { fundingType: e.target.value as ParcelFundingType })}
-                    style={inputStyle}
-                  >
-                    {PARCEL_FUNDING_TYPES.map((t) => (
-                      <option key={t} value={t}>{PARCEL_FUNDING_TYPE_LABELS[t]}</option>
-                    ))}
-                  </select>
-                  {fundingType === 'custom_split' && (
-                    <>
-                      <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Debt %:
-                        <PercentageInput
-                          min={0} max={100}
-                          data-testid={`land-funding-${parcel.id}-debt-pct`}
-                          value={cfg?.customDebtPct ?? 0}
-                          onChange={(n) => upsertParcelFunding(parcel.id, { customDebtPct: n })}
-                          style={{ ...inputStyle, width: 80 }}
-                        />
-                      </label>
-                      <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Equity %:
-                        <PercentageInput
-                          min={0} max={100}
-                          data-testid={`land-funding-${parcel.id}-equity-pct`}
-                          value={cfg?.customEquityPct ?? 0}
-                          onChange={(n) => upsertParcelFunding(parcel.id, { customEquityPct: n })}
-                          style={{ ...inputStyle, width: 80 }}
-                        />
-                      </label>
-                    </>
-                  )}
-                  {fundingType === 'deferred_payment' && (() => {
-                    // Deferred Payment editor (2026-05-13). Writes to
-                    // cfg.deferredSchedule { type, startPeriod, endPeriod,
-                    // distribution }. The engine helper
-                    // expandDeferredSchedule normalises the distribution
-                    // when needed; this editor mirrors the same
-                    // semantics so the on-screen preview matches what
-                    // the engine consumes.
-                    const sched = cfg?.deferredSchedule ?? { type: 'even' as const, startPeriod: 0, endPeriod: Math.max(0, phase.constructionPeriods - 1) };
-                    const totalProjectPeriods = Math.max(1, phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods);
-                    const upperBound = Math.max(0, totalProjectPeriods - 1);
-                    const start = Math.min(upperBound, Math.max(0, sched.startPeriod));
-                    const end = Math.min(upperBound, Math.max(start, sched.endPeriod));
-                    const span = end - start + 1;
-                    const setSched = (patch: Partial<typeof sched>): void => {
-                      upsertParcelFunding(parcel.id, { deferredSchedule: { ...sched, ...patch } });
-                    };
-                    const distRaw = sched.distribution ?? [];
-                    const dist = new Array<number>(span).fill(0).map((_, i) => distRaw[i] ?? 0);
-                    const distSum = dist.reduce((s, v) => s + v, 0);
-                    const distOk = Math.abs(distSum - 100) < 0.01;
-                    const updateDistAt = (idx: number, n: number): void => {
-                      const next = [...dist];
-                      next[idx] = Math.max(0, n);
-                      setSched({ distribution: next });
-                    };
-                    return (
-                      <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }} data-testid={`land-funding-${parcel.id}-deferred-editor`}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            Schedule type:
-                            <select
-                              value={sched.type}
-                              onChange={(e) => setSched({ type: e.target.value as 'even' | 'manual_pct' })}
-                              style={{ ...inputStyle, width: 'auto' }}
-                              data-testid={`land-funding-${parcel.id}-deferred-type`}
-                            >
-                              <option value="even">Even distribution</option>
-                              <option value="manual_pct">Manual %</option>
-                            </select>
-                          </label>
-                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            Start period:
-                            <AccountingNumberInput
-                              min={0}
-                              max={upperBound}
-                              decimals={0}
-                              value={start}
-                              onChange={(n) => setSched({ startPeriod: Math.max(0, Math.min(upperBound, Math.round(n))) })}
-                              style={{ ...inputStyle, width: 70 }}
-                              data-testid={`land-funding-${parcel.id}-deferred-start`}
-                            />
-                          </label>
-                          <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            End period:
-                            <AccountingNumberInput
-                              min={start}
-                              max={upperBound}
-                              decimals={0}
-                              value={end}
-                              onChange={(n) => setSched({ endPeriod: Math.max(start, Math.min(upperBound, Math.round(n))) })}
-                              style={{ ...inputStyle, width: 70 }}
-                              data-testid={`land-funding-${parcel.id}-deferred-end`}
-                            />
-                          </label>
-                        </div>
-                        {sched.type === 'even' ? (
-                          <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                            Each period: {span > 0 ? (100 / span).toFixed(2) : '0.00'}% across {span} period{span === 1 ? '' : 's'}.
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))', gap: 4 }}>
-                              {dist.map((v, i) => (
-                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                  <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>P{start + i}</span>
-                                  <PercentageInput
-                                    min={0}
-                                    value={v}
-                                    onChange={(n) => updateDistAt(i, n)}
-                                    style={{ ...inputStyle, fontSize: 11, width: '100%' }}
-                                    data-testid={`land-funding-${parcel.id}-deferred-dist-${i}`}
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 11, fontWeight: 700, display: 'inline-block',
-                                padding: '2px 8px', borderRadius: 4,
-                                background: distOk ? 'color-mix(in srgb, var(--color-success) 16%, transparent)' : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
-                                color: distOk ? 'var(--color-success)' : 'var(--color-accent-warm)',
-                              }}
-                              data-testid={`land-funding-${parcel.id}-deferred-sum`}
-                            >
-                              {distOk ? `Sums to ${distSum.toFixed(2)}%` : `Sum: ${distSum.toFixed(2)}%, will auto-normalise to 100% on save`}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {fundingType === 'in_kind' && (
-                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--color-meta)' }}>
-                      Auto-detected from Tab 3 Land (In-Kind) cost line. Contributes as equity (no cash draw).
-                    </div>
-                  )}
+                  <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Debt %:
+                    <PercentageInput
+                      min={0} max={100}
+                      data-testid={`land-funding-${parcel.id}-debt-pct`}
+                      value={debtPct}
+                      onChange={setDebt}
+                      style={{ ...inputStyle, width: 80 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Equity %:
+                    <PercentageInput
+                      min={0} max={100}
+                      data-testid={`land-funding-${parcel.id}-equity-pct`}
+                      value={equityPct}
+                      onChange={setEquity}
+                      style={{ ...inputStyle, width: 80 }}
+                    />
+                  </label>
                 </div>
               );
             })}
