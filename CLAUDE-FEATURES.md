@@ -2067,3 +2067,66 @@ commit.
   `isMethodStubbed(m)` guard. Selected row also renders dashes when
   active method is 2 or 3. Engine still computes; only display blanked.
   Flip the guard to false when M2 Revenue + M4 FS engines wire.
+
+### M2.0 Pass 19 (2026-05-13, Tab 4 Inputs Axis Off-By-One Fix, 1 commit)
+
+- **`inputsAxis` aligned column-for-column with Tab 3 (commit `ae7eb5a`).**
+  Pre-Pass-19 the memo walked `inputsSummary.totals[i]` for `i >= 0`
+  and treated each totals-index as a column index, but `totals[0]` is
+  the Y0 lump (= `phase.perPeriod[0]` for Phase 1) that Tab 3 drops
+  (`Module1Costs.tsx:1652` walks `bd.perPeriod[i]` for `i >= 1` with
+  `col = offset + i - 1`). The off-by-one pushed every data value one
+  column to the right (1,031,493 at "Dec 27" instead of "Dec 26") and
+  shifted the prior label to "Dec 24" instead of "Dec 25". Fix: walk
+  `totals[1..]` mapping `col = i - 1`; `cropRow` offsets array reads
+  by `+1`; in-kind lump placed at `inputsAxis.first + 1` instead of
+  totals-index 0. Shared across Capex Breakdown / Funding Requirement
+  / Total Debt Required / Total Equity Required tables.
+
+### M2.0 Pass 20 (2026-05-13, Tab 4 Schedules Rebuild + Engine Cleanup + Equity Fix, 4 commits)
+
+- **Schedules sub-tab rebuilt from scratch (commit `0322515`).** Old 6-block
+  Schedules deleted. New layout: filter pill bar (Combined default +
+  per-facility) followed by 5 tables in order: Debt Movement (per
+  facility) → Combined Debt Service → Finance Cost (per facility) →
+  IDC Summary → Equity Movement. New `schedulesAxis` memo with
+  project-operation-end cap (`inputsSummary.totalPeriods - 1`),
+  extended when any facility's data outruns that horizon. Off-by-one
+  cropping helpers (`cropProject` for project-aligned arrays,
+  `cropFacility(arr, phaseOffset)` for facility-local arrays) mirror
+  Pass 19's pattern: skip Y0 lump, map facility-local i to project col
+  `phaseOffset + i - 1`. Orphan "Capital Stack Movement" table removed.
+
+- **`computeFinancing` legacy drawdown switch deleted (commit `b15f58b`).**
+  The 80-line `switch (tranche.drawdownMethod)` block + dependencies
+  (`ltvPct`, `tranche.principal`, `availabilityPeriods`,
+  `drawdownDistribution`, `drawdownMinCashFloor`, `drawdownIncludeLand`,
+  `drawdownCustomSchedule`) removed. Drawdown now derives exclusively
+  from `precomputedDrawSchedule`. Schema fields stay `@deprecated` for
+  snapshot back-compat. Existing facilities keep `drawSchedule = 0`
+  and amortise from `openingBalance`.
+
+- **Grace Interest Treatment reshuffled to 4 options (commit `c032f37`).**
+  Enum changed from `'pay_from_ocf' | 'add_to_funding_need' |
+  'capitalize'` to `'capitalize' | 'raise_via_funding' | 'raise_as_debt'
+  | 'pay_from_ocf'`. New tranches default to `'capitalize'` (was
+  `'pay_from_ocf'`). Both TrancheCard dropdowns updated. Migration
+  `migrateM20pass20GraceRename` renames legacy `'add_to_funding_need'`
+  → `'raise_via_funding'`. `m3GraceCapexAdd` memo renamed
+  `graceFundingCapexAdd`; funding memo consumes the add regardless of
+  active method (was Method-2-only gate). `'raise_as_debt'` +
+  `'pay_from_ocf'` user-selectable but stub to capitalize behaviour
+  pending new-debt synthesis + M2/M4 OCF wires.
+
+- **Equity Cash is additive to In-Kind (commit `ce2f210`).** Two
+  coordinated bug fixes for the Dec 26 zero-equity bug: (engine)
+  `computeEquity` was `cashContribution = totalEquityNeed -
+  inKindContribution` then rescaling per-period weights, which
+  downscaled every period in the Equity Movement schedule by `(1 -
+  inKind/totalCash)`. (UI) `Module1Financing.tsx:2061` had
+  `cashEquityRow = equityAllRow.map((v, i) => max(0, v - inKindRow[i]))`,
+  which clamped Dec 26's 106,846 cash equity to 0 when the 675,341
+  in-kind lump landed at the same column. Both subtractions dropped.
+  `funding.debtEquitySplit.equity` already represents pure cash equity
+  per period; in-kind is a separate additive memo source. Funding
+  identity: `total_debt + total_cash_equity = capex_excl_in-kind`.
