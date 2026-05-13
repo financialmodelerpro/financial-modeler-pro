@@ -96,7 +96,8 @@ import { currencyHeaderLine, formatScaled, formatScaledForExport, formatAccounti
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import type { DisplayScale } from '../../lib/state/module1-types';
-import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, tableMinWidth } from './_shared/tableStyles';
+import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -357,20 +358,6 @@ function renderMethodInputs(
       </label>
     </div>
   );
-}
-
-function getPeriodLabel(idx: number, projectStart: string, modelType: 'monthly' | 'annual'): string {
-  if (idx === 0) return 'Y0';
-  const d = new Date(projectStart);
-  if (Number.isNaN(d.getTime())) return modelType === 'annual' ? `Y${idx}` : `M${idx}`;
-  if (modelType === 'annual') {
-    const year = d.getUTCFullYear() + idx - 1;
-    return `Dec ${String(year).slice(-2)}`;
-  }
-  const startMonthIdx = d.getUTCFullYear() * 12 + d.getUTCMonth();
-  const targetMonthIdx = startMonthIdx + (idx - 1);
-  const targetDate = new Date(Date.UTC(Math.floor(targetMonthIdx / 12), targetMonthIdx % 12, 1));
-  return targetDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
 // ── Tranche editor (Inputs sub-tab) ───────────────────────────────────────
@@ -969,23 +956,34 @@ function TrancheCard({
 // (running balances / outstanding balances) pass `total: '-'` so the
 // slot shows a dash instead of a misleading sum-of-balances.
 function ScheduleTable({
-  title, columns, rows, dataTestid,
+  title, labels, rows, dataTestid, minWidth,
 }: {
   title: string;
-  columns: string[];
+  /** Full period axis including the prior calendar period at index 0
+   *  (built via buildResultsPeriodAxis). */
+  labels: string[];
   rows: Array<{ label: string; values: number[] | string[]; bold?: boolean; total?: number | string }>;
   dataTestid: string;
+  /** Shared min-width across all stacked tables on the page so column
+   *  widths stay uniform top-to-bottom when granularity changes the
+   *  period count. */
+  minWidth: number;
 }): React.JSX.Element {
   return (
     <div style={sectionCardStyle} data-testid={dataTestid}>
       <strong style={TABLE_TITLE}>{title}</strong>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth }}>
+          <colgroup>
+            <col />
+            <col style={{ width: COLUMN_WIDTHS.total }} />
+            {labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+          </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Description</th>
               <th style={CELL_HEADER}>Total</th>
-              {columns.map((c, i) => (<th key={i} style={CELL_HEADER}>{c}</th>))}
+              {labels.map((c, i) => (<th key={i} style={CELL_HEADER}>{c}</th>))}
             </tr>
           </thead>
           <tbody>
@@ -993,12 +991,21 @@ function ScheduleTable({
               <tr key={ri} style={{ fontWeight: r.bold ? 700 : 400, background: r.bold ? 'var(--color-grey-pale)' : 'transparent' }}>
                 <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>{r.label}</td>
                 <td
-                  style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle', fontWeight: 700, color: r.total === '-' ? 'var(--color-meta)' : undefined }}
+                  style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle', fontWeight: 700, whiteSpace: 'nowrap', color: r.total === '-' ? 'var(--color-meta)' : undefined }}
                   data-testid={`${dataTestid}-row-${ri}-total`}
                 >
                   {r.total ?? '-'}
                 </td>
-                {r.values.map((v, vi) => (<td key={vi} style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle' }}>{v}</td>))}
+                {/* Universal prior-period column: zero for flow rows
+                    (matches accounting dash via formatter), dash for
+                    balance rows. */}
+                <td
+                  style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap', color: 'var(--color-meta)' }}
+                  data-testid={`${dataTestid}-row-${ri}-prior`}
+                >
+                  -
+                </td>
+                {r.values.map((v, vi) => (<td key={vi} style={{ padding: '4px 6px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{v}</td>))}
               </tr>
             ))}
           </tbody>
@@ -1406,10 +1413,24 @@ export default function Module1Financing(): React.JSX.Element {
   const fmt = (n: number): string => formatAccounting(n, scale, decimals);
   const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
 
-  const periodCount = Math.min(combined.periods, 24);
+  // Universal 60-year horizon (2026-05-13): match Tab 3 Costs Results
+  // so the same project axis renders on both pages. Prior cap was 24
+  // which clipped long-horizon projects + made the axis inconsistent
+  // across modules.
+  const periodCount = Math.min(combined.periods, 60);
   const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
-  const expandedPeriodCount = Math.min(periodCount * subPerYear, 96);
-  const periodLabels = Array.from({ length: expandedPeriodCount }, (_, i) => getPeriodLabel(i + 1, project.startDate, granularity === 'monthly' ? 'monthly' : 'annual'));
+  const expandedPeriodCount = periodCount * subPerYear;
+  // Universal prior-period column (2026-05-13): every period-axis
+  // results table prepends one prior calendar period via
+  // buildResultsPeriodAxis. ScheduleTable consumes axis.labels (which
+  // already includes the prior at index 0) and prepends a zero cell to
+  // each row internally.
+  const schedulesAxis = buildResultsPeriodAxis({
+    startIso: project.startDate,
+    granularity,
+    numAnnualPeriods: periodCount,
+  });
+  const schedulesMinWidth = tableMinWidth(schedulesAxis.count);
   const transform = (annual: number[]): number[] =>
     granularity === 'annual' ? annual.slice(0, periodCount) : distributeAnnualToPeriods(annual.slice(0, periodCount), granularity, 'even');
 
@@ -1932,14 +1953,17 @@ export default function Module1Financing(): React.JSX.Element {
               const debtRow = totalsRow.map((v) => v * inputsSummary.debtPct);
               const equityRow = totalsRow.map((v) => v * inputsSummary.equityPct);
               const fmtCell = (v: number): string => formatAccounting(v, scale, decimals);
-              // P4-Fix 5 (2026-05-12): drawdown periods only - drop period
-              // columns where the funding total is 0 (no draw). Computed
-              // once off totalsRow so all 3 sub-tables (Funding/Debt/Equity)
-              // share the same active column set.
-              const activePeriods: number[] = [];
-              for (let i = 0; i < totalsRow.length; i++) {
-                if (Math.abs(totalsRow[i]) > 0.5) activePeriods.push(i);
-              }
+              // Universal period axis (2026-05-13): drop the prior
+              // drawdown-zero filter so every project period renders
+              // (with a zero where the funding total is 0). One prior
+              // calendar period is prepended via buildResultsPeriodAxis
+              // so the table matches Tab 3 Results' axis.
+              const inputsAxis = buildResultsPeriodAxis({
+                startIso: project.startDate,
+                granularity: 'annual',
+                numAnnualPeriods: inputsSummary.totalPeriods,
+              });
+              const inputsMinWidth = tableMinWidth(inputsAxis.count);
               const renderTable = (
                 id: 'funding' | 'debt' | 'equity',
                 title: string,
@@ -1948,64 +1972,75 @@ export default function Module1Financing(): React.JSX.Element {
               ): React.JSX.Element => (
                 <div style={{ marginBottom: 'var(--sp-2)' }} data-testid={`inputs-summary-${id}`}>
                   <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>{title}</strong>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'auto' }}>
-                    <thead>
-                      <tr>
-                        <th style={CELL_HEADER}>Description</th>
-                        <th style={CELL_HEADER}>Total</th>
-                        {activePeriods.map((pi) => (
-                          <th key={pi} style={CELL_HEADER}>{inputsSummary.labels[pi]}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inputsSummary.perAsset.map((a) => {
-                        const total = a.total * multiplier;
-                        if (total <= 0.5) return null;
-                        return (
-                          <tr key={a.id} data-testid={`inputs-summary-${id}-row-${a.id}`}>
-                            <td style={{ padding: '4px 6px' }}>{a.name}</td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(total)}</td>
-                            {activePeriods.map((pi) => (
-                              <td key={pi} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell((a.perPeriod[pi] ?? 0) * multiplier)}</td>
-                            ))}
-                          </tr>
-                        );
-                      })}
-                      {/* P4-Fix 5 (2026-05-12): row label is just "Total"
-                          (the column header is already "Total"); was
-                          "TOTAL Total Funding Required" which read as
-                          duplicated TOTAL Total in the rendered table.
-                          Total row styling: bold + grey-pale row fill. */}
-                      <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }} data-testid={`inputs-summary-${id}-totals`}>
-                        <td style={{ padding: '4px 6px' }}>Total</td>
-                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(rowsTotal.reduce((s, v) => s + v, 0))}</td>
-                        {activePeriods.map((pi) => (
-                          <td key={pi} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmtCell(rowsTotal[pi])}</td>
-                        ))}
-                      </tr>
-                      {id === 'equity' && (
-                        <>
-                          <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-cash">
-                            <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>Cash Equity</td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(Math.max(0, rowsTotal.reduce((s, v) => s + v, 0) - projectInKindLandValue))}</td>
-                            {activePeriods.map((pi) => {
-                              const inKindShare = pi === 0 ? projectInKindLandValue : 0;
-                              const cash = Math.max(0, rowsTotal[pi] - inKindShare);
-                              return <td key={pi} style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(cash)}</td>;
-                            })}
-                          </tr>
-                          <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-inkind">
-                            <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>In-Kind Equity</td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtCell(projectInKindLandValue)}</td>
-                            {activePeriods.map((pi) => (
-                              <td key={pi} style={{ padding: '2px 6px', textAlign: 'right' }}>{pi === 0 ? fmtCell(projectInKindLandValue) : fmtCell(0)}</td>
-                            ))}
-                          </tr>
-                        </>
-                      )}
-                    </tbody>
-                  </table>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: inputsMinWidth }}>
+                      <colgroup>
+                        <col />
+                        <col style={{ width: COLUMN_WIDTHS.total }} />
+                        {inputsAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th style={CELL_HEADER}>Description</th>
+                          <th style={CELL_HEADER}>Total</th>
+                          {inputsAxis.labels.map((label, i) => (
+                            <th key={i} style={CELL_HEADER}>{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inputsSummary.perAsset.map((a) => {
+                          const total = a.total * multiplier;
+                          if (total <= 0.5) return null;
+                          return (
+                            <tr key={a.id} data-testid={`inputs-summary-${id}-row-${a.id}`}>
+                              <td style={{ padding: '4px 6px' }}>{a.name}</td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(total)}</td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`inputs-summary-${id}-row-${a.id}-prior`}>{fmtCell(0)}</td>
+                              {inputsAxis.activeLabels.map((_, pi) => (
+                                <td key={pi} style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell((a.perPeriod[pi] ?? 0) * multiplier)}</td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                        {/* P4-Fix 5 (2026-05-12): row label is just "Total"
+                            (the column header is already "Total"); was
+                            "TOTAL Total Funding Required" which read as
+                            duplicated TOTAL Total in the rendered table.
+                            Total row styling: bold + grey-pale row fill. */}
+                        <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }} data-testid={`inputs-summary-${id}-totals`}>
+                          <td style={{ padding: '4px 6px' }}>Total</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(rowsTotal.reduce((s, v) => s + v, 0))}</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`inputs-summary-${id}-totals-prior`}>{fmtCell(0)}</td>
+                          {inputsAxis.activeLabels.map((_, pi) => (
+                            <td key={pi} style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(rowsTotal[pi] ?? 0)}</td>
+                          ))}
+                        </tr>
+                        {id === 'equity' && (
+                          <>
+                            <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-cash">
+                              <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>Cash Equity</td>
+                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(Math.max(0, rowsTotal.reduce((s, v) => s + v, 0) - projectInKindLandValue))}</td>
+                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid="inputs-summary-equity-cash-prior">{fmtCell(0)}</td>
+                              {inputsAxis.activeLabels.map((_, pi) => {
+                                const inKindShare = pi === 0 ? projectInKindLandValue : 0;
+                                const cash = Math.max(0, (rowsTotal[pi] ?? 0) - inKindShare);
+                                return <td key={pi} style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(cash)}</td>;
+                              })}
+                            </tr>
+                            <tr style={{ background: 'var(--color-grey-pale)' }} data-testid="inputs-summary-equity-inkind">
+                              <td style={{ padding: '2px 6px 2px 24px', fontStyle: 'italic' }}>In-Kind Equity</td>
+                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtCell(projectInKindLandValue)}</td>
+                              <td style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid="inputs-summary-equity-inkind-prior">{fmtCell(0)}</td>
+                              {inputsAxis.activeLabels.map((_, pi) => (
+                                <td key={pi} style={{ padding: '2px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>{pi === 0 ? fmtCell(projectInKindLandValue) : fmtCell(0)}</td>
+                              ))}
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               );
               return (
@@ -2052,7 +2087,13 @@ export default function Module1Financing(): React.JSX.Element {
           {/* Schedule 1: Capital Stack Summary */}
           <div style={sectionCardStyle} data-testid="capital-stack-summary">
             <strong style={TABLE_TITLE}>1. Capital Stack Summary</strong>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+              <colgroup>
+                <col />
+                <col style={{ width: COLUMN_WIDTHS.total }} />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 140 }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={CELL_HEADER}>Source</th>
@@ -2107,7 +2148,8 @@ export default function Module1Financing(): React.JSX.Element {
                 key={`debt-movement-${t.id}`}
                 title={`2. Debt Movement, ${t.name}`}
                 dataTestid={`debt-movement-${t.id}`}
-                columns={periodLabels.slice(0, expandedPeriodCount)}
+                labels={schedulesAxis.labels}
+                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Opening Balance', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
                   { label: 'Drawdown', values: transform(r.drawSchedule.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.drawSchedule) },
@@ -2123,7 +2165,8 @@ export default function Module1Financing(): React.JSX.Element {
           <ScheduleTable
             title="3. Combined Debt Service"
             dataTestid="combined-debt-service"
-            columns={periodLabels.slice(0, expandedPeriodCount)}
+            labels={schedulesAxis.labels}
+            minWidth={schedulesMinWidth}
             rows={[
               { label: 'Total Interest', values: transform(combined.totalInterest.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalInterest.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
               { label: 'Total Principal', values: transform(combined.totalPrincipal.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalPrincipal.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
@@ -2146,7 +2189,8 @@ export default function Module1Financing(): React.JSX.Element {
                 key={`finance-cost-${t.id}`}
                 title={`4. Finance Cost, ${t.name}`}
                 dataTestid={`finance-cost-${t.id}`}
-                columns={periodLabels.slice(0, expandedPeriodCount)}
+                labels={schedulesAxis.labels}
+                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Interest Accrued', values: transform(r.interestAccrued.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestAccrued) },
                   { label: 'Interest Paid', values: transform(r.interestPaid.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(r.interestPaid) },
@@ -2160,7 +2204,13 @@ export default function Module1Financing(): React.JSX.Element {
           {/* Schedule 5: IDC Summary */}
           <div style={sectionCardStyle} data-testid="idc-summary">
             <strong style={TABLE_TITLE}>5. IDC Summary</strong>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+              <colgroup>
+                <col />
+                <col style={{ width: COLUMN_WIDTHS.total }} />
+                <col style={{ width: COLUMN_WIDTHS.total }} />
+                <col style={{ width: COLUMN_WIDTHS.total }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={CELL_HEADER}>Facility</th>
@@ -2204,7 +2254,8 @@ export default function Module1Financing(): React.JSX.Element {
               <ScheduleTable
                 title="6. Equity Movement"
                 dataTestid="equity-movement"
-                columns={periodLabels.slice(0, expandedPeriodCount)}
+                labels={schedulesAxis.labels}
+                minWidth={schedulesMinWidth}
                 rows={[
                   { label: 'Opening Equity', values: transform(opening).map(fmt) as unknown as number[], total: '-' },
                   { label: 'Cash Contributions', values: transform(equity.cashPerPeriod.slice(0, periodCount)).map(fmt) as unknown as number[], total: sumOf(equity.cashPerPeriod) },
@@ -2219,7 +2270,8 @@ export default function Module1Financing(): React.JSX.Element {
           <ScheduleTable
             title="7. Capital Stack Movement (Outstanding Balance, Combined)"
             dataTestid="stack-movement"
-            columns={periodLabels.slice(0, expandedPeriodCount)}
+            labels={schedulesAxis.labels}
+            minWidth={schedulesMinWidth}
             rows={[
               { label: 'Drawdown', values: transform(combined.totalDrawdown.slice(0, periodCount)).map(fmt) as unknown as number[], total: fmt(combined.totalDrawdown.slice(0, periodCount).reduce((s, v) => s + v, 0)) },
               { label: 'Outstanding Balance', values: transform(combined.outstandingBalance.slice(0, periodCount)).map(fmt) as unknown as number[], bold: true, total: '-' },

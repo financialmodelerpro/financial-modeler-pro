@@ -93,7 +93,10 @@ import {
   ROW_DATA,
   ROW_SUBTOTAL,
   ROW_GRAND_TOTAL,
+  COLUMN_WIDTHS,
+  tableMinWidth,
 } from './_shared/tableStyles';
+import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1684,6 +1687,22 @@ function SummaryTables({
   const croppedPeriodLabels = cropRow(periodLabels);
   const croppedPeriodCount = cropSubCount;
 
+  // Universal prior-period column (2026-05-13): every period-axis
+  // results table renders one prior calendar period at index 0, then
+  // the active columns. Pure layout, no engine / number change. See
+  // _shared/periodAxis.ts for the helper that prepends the prior label.
+  const periodAxis = buildResultsPeriodAxis({
+    startIso: project.startDate,
+    granularity,
+    numAnnualPeriods: activeLastAnnual - activeFirstAnnual + 1,
+    cropAnnualOffset: activeFirstAnnual,
+  });
+  // Per-row "prior" value: always zero (formatted by `fmt`, typically
+  // renders as accounting dash). Prepend to every cropRow-derived value
+  // array before mapping to <td>s.
+  const PRIOR_ZERO = 0;
+  const minTableWidthPx = tableMinWidth(periodAxis.count);
+
   // M2.0h Fix 6: per-asset per-period at chosen granularity. Annual
   // values from the calc engine (one per year) get distributed to
   // sub-periods using even phasing within each year; the cost-line-
@@ -1809,12 +1828,17 @@ function SummaryTables({
       <div style={sectionCardStyle} data-testid="capex-by-period">
         <strong style={TABLE_TITLE} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table style={{ width: '100%', tableLayout: 'fixed', minWidth: minTableWidthPx, borderCollapse: 'collapse' }}>
+            <colgroup>
+              <col />
+              <col style={{ width: COLUMN_WIDTHS.total }} />
+              {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+            </colgroup>
             <thead>
               <tr>
                 <th style={headLeftStyle}>Asset / Cost Line</th>
                 <th style={headStyle}>Total</th>
-                {croppedPeriodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                {periodAxis.labels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
               </tr>
             </thead>
             <tbody>
@@ -1887,7 +1911,7 @@ function SummaryTables({
                       <tr data-testid={`capex-period-asset-${a.id}`}>
                         <td
                           style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px' }}
-                          colSpan={2 + croppedPeriodCount}
+                          colSpan={2 + periodAxis.count}
                           data-testid={`capex-period-asset-${a.id}-header`}
                         >
                           {a.name}
@@ -1940,6 +1964,7 @@ function SummaryTables({
                         <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
                           <td style={{ ...ROW_DATA.name, paddingLeft: 24, color: 'var(--color-meta)' }}>{line.name}</td>
                           <td style={ROW_DATA.num}>{fmt(lineTotal)}</td>
+                          <td style={ROW_DATA.num} data-testid={`capex-period-line-${a.id}-${line.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
                           {cropRow(linePerPeriod).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
                         </tr>
                       );
@@ -1950,6 +1975,7 @@ function SummaryTables({
                           Subtotal - {a.name}
                         </td>
                         <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-${a.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
                         {cropRow(assetRow).map((v, i) => (<td key={i} style={ROW_SUBTOTAL.num} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
                       </tr>
                     ) : (
@@ -1958,6 +1984,7 @@ function SummaryTables({
                           Total
                         </td>
                         <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                        <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-${a.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
                         {cropRow(assetRow).map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
                       </tr>
                     )}
@@ -2005,6 +2032,7 @@ function SummaryTables({
                   <tr data-testid="capex-period-project-total">
                     <td style={ROW_GRAND_TOTAL.name}>Project Total</td>
                     <td style={ROW_GRAND_TOTAL.num} data-testid="capex-period-project-total-amount">{fmt(grandTotal)}</td>
+                    <td style={ROW_GRAND_TOTAL.num} data-testid="capex-period-project-total-prior">{fmt(PRIOR_ZERO)}</td>
                     {cropRow(grandRow).map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num} data-testid={`capex-period-project-total-${i + 1}`}>{fmt(v)}</td>))}
                   </tr>
                 );
@@ -2095,29 +2123,36 @@ function SummaryTables({
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
               <h3 style={{ ...TABLE_TITLE, margin: 0 }}>{title}</h3>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', minWidth: minTableWidthPx, borderCollapse: 'collapse', fontSize: 11 }}>
+                  <colgroup>
+                    <col />
+                    <col style={{ width: COLUMN_WIDTHS.total }} />
+                    {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: COLUMN_WIDTHS.period }} />))}
+                  </colgroup>
                   <thead>
                     <tr>
                       <th style={headLeftStyle}>Asset</th>
                       <th style={headStyle}>Total</th>
-                      {croppedPeriodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                      {periodAxis.labels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
-                      <tr><td style={ROW_DATA.name} colSpan={2 + croppedPeriodCount}>No non-zero values for this view.</td></tr>
+                      <tr><td style={ROW_DATA.name} colSpan={2 + periodAxis.count}>No non-zero values for this view.</td></tr>
                     ) : (
                       <>
                         {rows.map((r) => (
                           <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
                             <td style={ROW_DATA.name}>{r.asset.name}</td>
                             <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
+                            <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.asset.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
                             {cropRow(r.row).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
                           </tr>
                         ))}
                         <tr data-testid={`capex-summary-${testidKey}-grand-total`}>
                           <td style={ROW_GRAND_TOTAL.name}>Total</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-summary-${testidKey}-grand-total-amount`}>{fmt(grandTotalAmount)}</td>
+                          <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-summary-${testidKey}-grand-total-prior`}>{fmt(PRIOR_ZERO)}</td>
                           {grandTotalRow.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmt(v)}</td>))}
                         </tr>
                       </>

@@ -85,18 +85,24 @@ export const CELL_HEADER: CSSProperties = {
   fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
+  whiteSpace: 'nowrap',
   borderTop: 'none',
   borderBottom: `1px solid var(--color-navy-dark, ${TABLE_HEADER_BLUE})`,
 };
 
+// Numeric cells set `whiteSpace: 'nowrap'` so fixed-layout result tables
+// (see COLUMN_WIDTHS + colgroup pattern below) keep numbers on a single
+// line even when the column is sized to a smaller width than the value
+// would naturally take. Label cells stay wrappable so long row labels
+// don't blow out the layout.
 export const ROW_DATA = {
   name: { ...CELL_BASE, textAlign: 'left' as const, fontWeight: 400 },
-  num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 400 },
+  num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 400, whiteSpace: 'nowrap' as const },
 };
 
 export const ROW_ASSET_HEADING = {
   name: { ...CELL_BASE, textAlign: 'left' as const, fontWeight: 700, fontSize: 12 },
-  num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 700, fontSize: 12 },
+  num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' as const },
 };
 
 export const ROW_SUBTOTAL = {
@@ -112,6 +118,7 @@ export const ROW_SUBTOTAL = {
     ...CELL_BASE,
     textAlign: 'right' as const,
     fontWeight: 700,
+    whiteSpace: 'nowrap' as const,
     background: ROW_SUBTOTAL_FILL,
     borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
     borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
@@ -132,9 +139,59 @@ export const ROW_GRAND_TOTAL = {
     ...CELL_BASE,
     textAlign: 'right' as const,
     fontWeight: 700,
+    whiteSpace: 'nowrap' as const,
     background: TABLE_HEADER_BLUE,
     color: TABLE_HEADER_TEXT,
     borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
     borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
   },
 };
+
+// Universal column widths for every period-axis results table.
+//
+// Label column is flexible (no width on its <col />): with
+// `tableLayout: 'fixed'` it receives whatever space is left after Total
+// + N periods. Total + Period are pinned in pixels so every stacked
+// table on the page sizes its number columns identically and they
+// align pixel-to-pixel.
+//
+// When period count grows (e.g. monthly granularity = 60yr * 12 = 720
+// cols), the table width naturally exceeds the parent. Pair the
+// <table> with `minWidth: tableMinWidth(count)` so all stacked tables
+// share the same min width, the parent `overflowX: auto` wrapper
+// scrolls all tables together, and column widths stay uniform from top
+// to bottom of the page (no per-table content-driven drift).
+//
+// Render pattern:
+//   <div style={{ overflowX: 'auto' }}>
+//     <table style={{ width: '100%', tableLayout: 'fixed',
+//                     minWidth: tableMinWidth(axis.count),
+//                     borderCollapse: 'collapse' }}>
+//       <colgroup>
+//         <col />                                          // label
+//         <col style={{ width: COLUMN_WIDTHS.total }} />   // total
+//         {axis.labels.map(() => <col style={{ width: COLUMN_WIDTHS.period }} />)}
+//       </colgroup>
+//       ...
+//     </table>
+//   </div>
+export const COLUMN_WIDTHS = {
+  /** Total column: ~7 chars at 11px + padding. */
+  total: 110,
+  /** Each period column: fits "Dec 25" + 5-digit scaled number with comma. */
+  period: 75,
+  /** Label column minimum (used in tableMinWidth so wide tables keep a
+   *  readable label area before the period scroll kicks in). */
+  labelMin: 200,
+} as const;
+
+/**
+ * Minimum table width used by every period-axis results table. The
+ * shared <table style={{ minWidth: tableMinWidth(count) }}> + parent
+ * overflowX:auto wrapper means: all stacked tables exceed the parent
+ * by the same amount when there are too many periods, so they scroll
+ * together and stay aligned column-for-column.
+ */
+export function tableMinWidth(periodCount: number): number {
+  return COLUMN_WIDTHS.labelMin + COLUMN_WIDTHS.total + COLUMN_WIDTHS.period * Math.max(0, periodCount);
+}
