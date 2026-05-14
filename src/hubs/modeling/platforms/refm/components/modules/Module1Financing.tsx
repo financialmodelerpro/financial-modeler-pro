@@ -1079,13 +1079,13 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 2, Net Funding Requirement</td>
-              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>
-              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
+              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>
+              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 3, Cash Deficit Funding</td>
-              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>
-              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
+              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>
+              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Method 4, Specified Debt + Equity (manual)</td>
@@ -1098,7 +1098,7 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
               <td style={ROW_SUBTOTAL.num}>{p.fmt(p.funding.selected)}</td>
               {(selectedMethodId === 1 || selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
-                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : ','}</td>
+                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
               ))}
             </tr>
             {showMinCashRows && (
