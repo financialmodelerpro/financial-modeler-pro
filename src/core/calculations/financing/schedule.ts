@@ -43,10 +43,17 @@ export function computeFacilitySchedule(
   const interestPaid       = new Array<number>(N).fill(0);
   const principalRepaid    = new Array<number>(N).fill(0);
 
+  // Pass 27 (2026-05-14): effective interest rate = Interbank Rate +
+  // Credit Spread when both are present; otherwise fall back to the
+  // legacy single interestRatePct field for back-compat.
+  const hasComponents = tranche.interbankRatePct !== undefined || tranche.creditSpreadPct !== undefined;
+  const annualRatePct = hasComponents
+    ? Math.max(0, (tranche.interbankRatePct ?? 0) + (tranche.creditSpreadPct ?? 0))
+    : Math.max(0, tranche.interestRatePct);
   const periodicRate =
     project.modelType === 'monthly'
-      ? Math.max(0, tranche.interestRatePct) / 100 / 12
-      : Math.max(0, tranche.interestRatePct) / 100;
+      ? annualRatePct / 100 / 12
+      : annualRatePct / 100;
 
   const isExisting = tranche.origin === 'existing';
   const openingBalance = isExisting ? Math.max(0, tranche.openingBalance ?? 0) : 0;
@@ -78,10 +85,13 @@ export function computeFacilitySchedule(
   const constructionStartProj = phaseOffset;
   const constructionEndProj = phaseOffset + Math.max(0, cp - overlap);
 
-  const grace = Math.max(0, tranche.gracePeriods ?? 0);
+  // Pass 27 (2026-05-14): grace period concept retired; engine treats
+  // gracePeriods as 0 unconditionally. Field stays on the schema for
+  // legacy snapshot compatibility but no longer affects the schedule.
+  const grace = 0;
   // Pass 24 (2026-05-14): explicit Repayment Start Year (calendar)
   // from the tranche, translated to project axis index. Falls back to
-  // `constructionEnd + grace` when unset (legacy snapshots).
+  // constructionEnd when unset (legacy snapshots).
   const projectStartYear = new Date(project.startDate).getUTCFullYear();
   const repayStartProj = isExisting
     ? 0
@@ -101,9 +111,8 @@ export function computeFacilitySchedule(
       ? Math.max(0, N - repayStartProj)
       : rawRepay;
 
-  const graceInterestTreatment = tranche.graceInterestTreatment ?? 'capitalize';
-  const graceWindowStart = constructionEndProj;
-  const graceWindowEnd = constructionEndProj + grace;
+  // Pass 27 (2026-05-14): grace interest treatment retired. With
+  // grace = 0 the grace window is empty, so this block is a no-op.
 
   const method = tranche.repaymentMethod;
   const repBudget = new Array<number>(N).fill(0);
@@ -174,13 +183,7 @@ export function computeFacilitySchedule(
     const interest = bal * periodicRate;
     interestAccrued[i] = interest;
     const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
-    const inGraceWindow = !isExisting && i >= graceWindowStart && i < graceWindowEnd;
-    let capitalise = false;
-    if (inConstructionWindow) {
-      capitalise = true;
-    } else if (inGraceWindow) {
-      capitalise = graceInterestTreatment === 'capitalize' || graceInterestTreatment === 'raise_as_debt';
-    }
+    const capitalise = inConstructionWindow;
     if (capitalise) {
       interestCapitalized[i] = interest;
       bal += interest;

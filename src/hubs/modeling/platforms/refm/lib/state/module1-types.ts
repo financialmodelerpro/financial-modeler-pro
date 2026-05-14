@@ -1220,10 +1220,21 @@ export interface FinancingTranche {
   lender?: string;
   /** Absolute principal. When set, overrides ltvPct calculation. */
   principal?: number;
+  /** @deprecated 2026-05-14: floating-rate plumbing removed (no auto
+   *  source for live base rates). UI surfaces a single Interest Rate %
+   *  composed of Interbank Rate % + Credit Spread %. */
   interestRateType?: InterestRateType;
+  /** @deprecated 2026-05-14: see interestRateType. */
   baseRate?: BaseRate;
-  /** Spread over base rate, in basis points (250 = 2.50%). */
+  /** @deprecated 2026-05-14: see interestRateType. */
   spreadBps?: number;
+  /** Pass 27 (2026-05-14): Interbank rate component (e.g., SAIBOR).
+   *  Stored as percentage (e.g., 5.50 for 5.50%). When set together
+   *  with creditSpreadPct, the engine uses their sum as the effective
+   *  rate; legacy snapshots fall back to interestRatePct directly. */
+  interbankRatePct?: number;
+  /** Pass 27 (2026-05-14): Bank credit spread (in % points). */
+  creditSpreadPct?: number;
   /** @deprecated M2.0 Pass 23 (2026-05-13). Engine derives tenor from
    *  `gracePeriods + repaymentPeriods`. Field stays for snapshot back-compat. */
   tenorPeriods?: number;
@@ -1231,7 +1242,9 @@ export interface FinancingTranche {
    *  from the project capex window starting at `drawdownStartPeriod`.
    *  Field stays for snapshot back-compat. */
   availabilityPeriods?: number;
-  /** Periods during which no principal repayment is due. */
+  /** @deprecated 2026-05-14: grace period concept retired across the
+   *  platform. Engine always treats this as 0. Field kept for legacy
+   *  snapshot back-compat. */
   gracePeriods?: number;
   /** Upfront fee % of principal. */
   upfrontFeePct?: number;
@@ -1297,27 +1310,8 @@ export interface FinancingTranche {
   remainingRepaymentPeriods?: number;
 
   // ── M2.0 Pass 20 (2026-05-13) ────────────────────────────────────
-  /**
-   * Treatment for interest accrued during the facility's grace period.
-   *
-   *   'capitalize'         - default. Interest rolls into facility
-   *                          balance (same mechanic as IDC during
-   *                          construction). Legacy snapshots default
-   *                          here via migration.
-   *   'raise_via_funding'  - accrued grace interest adds to the project
-   *                          funding requirement, financed via the
-   *                          active funding method's debt/equity split.
-   *                          Pass 15 'add_to_funding_need' migrated to
-   *                          this name.
-   *   'raise_as_debt'      - accrued grace interest synthesises new
-   *                          debt on the facility's own balance (stub
-   *                          today; falls back to capitalize until the
-   *                          synthesis engine lands).
-   *   'pay_from_ocf'       - interest is expensed and paid from
-   *                          operating cash flow. Zero impact today
-   *                          since OCF is stubbed; falls back to
-   *                          capitalize until M2 Revenue + M4 FS wire.
-   */
+  /** @deprecated 2026-05-14: retired alongside Grace Periods. Field
+   *  kept for legacy snapshot back-compat; engine ignores it. */
   graceInterestTreatment?: 'capitalize' | 'raise_via_funding' | 'raise_as_debt' | 'pay_from_ocf';
 
   // ── M2.0 Pass 23 (2026-05-13) ────────────────────────────────────
@@ -2063,6 +2057,8 @@ export function makeDefaultFinancingTranche(
     name: 'Senior debt',
     ltvPct: 60,
     interestRatePct: 7.5,
+    interbankRatePct: 5.5,
+    creditSpreadPct: 2.0,
     drawdownMethod: 'capex_basis',
     repaymentMethod: 'straight_line',
     // M2.0 Pass 18 (2026-05-13): drop the 60-period default so the YoY %

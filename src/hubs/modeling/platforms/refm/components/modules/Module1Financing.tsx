@@ -43,8 +43,6 @@ import {
   DEFAULT_PROJECT_FINANCING_CONFIG,
   REPAYMENT_METHODS_USER,
   REPAYMENT_METHOD_LABELS,
-  BASE_RATES,
-  BASE_RATE_LABELS,
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
@@ -566,13 +564,6 @@ interface TrancheCardProps {
   onShareChange: (v: number) => void;
 }
 
-const GRACE_INTEREST_TREATMENTS = [
-  { value: 'capitalize',         label: 'Capitalize (default)' },
-  { value: 'raise_via_funding',  label: 'Raise via funding need' },
-  { value: 'raise_as_debt',      label: 'Raise as new debt' },
-  { value: 'pay_from_ocf',       label: 'Pay from operating cash flow' },
-] as const;
-
 function TrancheCard(p: TrancheCardProps): React.JSX.Element {
   const {
     tranche: t,
@@ -581,8 +572,17 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
     onUpdate, onRemove, onShareChange,
   } = p;
   const isExisting = t.origin === 'existing';
-  const isFloating = (t.interestRateType ?? 'fixed') === 'floating';
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Pass 27 (2026-05-14): effective Interest Rate = Interbank + Credit
+  // Spread, computed live and surfaced in a read-only field. Legacy
+  // snapshots without the components fall back to interestRatePct
+  // displayed as the legacy single value (still editable via the
+  // component fields below).
+  const interbankPct = t.interbankRatePct ?? 0;
+  const creditSpreadPct = t.creditSpreadPct ?? 0;
+  const hasComponents = t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined;
+  const effectiveRatePct = hasComponents ? interbankPct + creditSpreadPct : (t.interestRatePct ?? 0);
 
   const FieldLabel = ({ children }: { children: React.ReactNode }) => (
     <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4, color: 'var(--color-heading)' }}>
@@ -672,53 +672,42 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
 
       <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
         <div>
-          <FieldLabel>Interest Rate %</FieldLabel>
-          <PercentageInput value={t.interestRatePct} onChange={(v) => onUpdate(t.id, { interestRatePct: v })} />
+          <FieldLabel>Interbank Rate %</FieldLabel>
+          <PercentageInput
+            value={interbankPct}
+            onChange={(v) => onUpdate(t.id, {
+              interbankRatePct: v,
+              interestRatePct: v + creditSpreadPct,
+            })}
+          />
         </div>
         <div>
-          <FieldLabel>Rate Type</FieldLabel>
-          <select
-            value={t.interestRateType ?? 'fixed'}
-            onChange={(e) => onUpdate(t.id, { interestRateType: e.target.value as 'fixed' | 'floating' })}
-            style={inputStyle}
-          >
-            <option value="fixed">Fixed</option>
-            <option value="floating">Floating</option>
-          </select>
+          <FieldLabel>Credit Spread %</FieldLabel>
+          <PercentageInput
+            value={creditSpreadPct}
+            onChange={(v) => onUpdate(t.id, {
+              creditSpreadPct: v,
+              interestRatePct: interbankPct + v,
+            })}
+          />
         </div>
-        {isFloating ? (
-          <>
-            <div>
-              <FieldLabel>Base Rate</FieldLabel>
-              <select
-                value={t.baseRate ?? 'saibor_3m'}
-                onChange={(e) => onUpdate(t.id, { baseRate: e.target.value as FinancingTranche['baseRate'] })}
-                style={inputStyle}
-              >
-                {BASE_RATES.map((b) => <option key={b} value={b}>{BASE_RATE_LABELS[b]}</option>)}
-              </select>
+        <div>
+          <FieldLabel>Interest Rate %</FieldLabel>
+          <PercentageInput
+            value={effectiveRatePct}
+            onChange={() => { /* read-only: derived from Interbank + Credit Spread */ }}
+            disabled
+          />
+        </div>
+        {showShareField && !isExisting ? (
+          <div>
+            <FieldLabel>Facility Share %</FieldLabel>
+            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Normalised: {normalisedShare.toFixed(2)}%
             </div>
-            <div>
-              <FieldLabel>Spread (bps)</FieldLabel>
-              <input
-                type="number"
-                value={t.spreadBps ?? 0}
-                onChange={(e) => onUpdate(t.id, { spreadBps: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-          </>
-        ) : (
-          showShareField && !isExisting ? (
-            <div style={{ gridColumn: 'span 2' }}>
-              <FieldLabel>Facility Share %</FieldLabel>
-              <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Normalised: {normalisedShare.toFixed(2)}%
-              </div>
-            </div>
-          ) : <div style={{ gridColumn: 'span 2' }} />
-        )}
+          </div>
+        ) : <div />}
       </div>
 
       {!isExisting && (
@@ -739,16 +728,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               style={inputStyle}
             />
           </div>
-          <div>
-            <FieldLabel>Grace Periods</FieldLabel>
-            <input
-              type="number"
-              value={t.gracePeriods ?? 0}
-              onChange={(e) => onUpdate(t.id, { gracePeriods: Math.max(0, Number(e.target.value) || 0) })}
-              style={inputStyle}
-            />
-          </div>
-          {t.repaymentMethod !== 'year_on_year_pct' ? (
+          {t.repaymentMethod !== 'year_on_year_pct' && (
             <div>
               <FieldLabel>Repayment Periods</FieldLabel>
               <input
@@ -758,21 +738,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                 style={inputStyle}
               />
             </div>
-          ) : (
-            <div />
           )}
-          <div>
-            <FieldLabel>Grace Interest Treatment</FieldLabel>
-            <select
-              value={t.graceInterestTreatment ?? 'capitalize'}
-              onChange={(e) => onUpdate(t.id, { graceInterestTreatment: e.target.value as FinancingTranche['graceInterestTreatment'] })}
-              style={inputStyle}
-            >
-              {GRACE_INTEREST_TREATMENTS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
       )}
 
