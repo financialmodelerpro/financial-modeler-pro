@@ -374,11 +374,15 @@ export default function Dashboard({
   const totalEquitySized = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
   const totalFunding = totalDebtSized + totalEquitySized;
 
-  // Existing-operations exposure (Pass 44 surface)
-  const existingTotal =
-    result.existing.preCapexTotal +
-    result.existing.debtOutstandingTotal +
-    result.existing.equityTotal;
+  // Existing-operations exposure.
+  // Pass 51 (2026-05-14): the headline figure is Pre-Capex - the
+  // historical capex sunk into existing assets. Funding identity says
+  // Pre-Capex = Existing Debt + Existing Equity, so summing all three
+  // double-counts. Show Pre-Capex as the tile value; the Debt + Equity
+  // breakdown belongs in the sublabel.
+  const existingTotal = result.existing.preCapexTotal;
+  const existingDebtTotal = result.existing.debtOutstandingTotal;
+  const existingEquityTotal = result.existing.equityTotal;
 
   // Project duration (years from project.startDate to operations end)
   const timeline = computeProjectTimeline(project, phases);
@@ -795,7 +799,7 @@ export default function Dashboard({
             tile(
               'Existing Operations',
               fmt(existingTotal),
-              `Pre-Capex + Existing Debt + Existing Equity`,
+              `Pre-Capex (= ${fmt(existingDebtTotal)} debt + ${fmt(existingEquityTotal)} equity)`,
               'var(--color-warning, #92400e)',
             )}
           {tile(
