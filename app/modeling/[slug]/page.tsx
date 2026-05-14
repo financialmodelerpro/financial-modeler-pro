@@ -6,6 +6,7 @@ import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/hubs/modeling/config/platforms';
 import type { PlatformModule } from '@/src/hubs/modeling/config/platforms';
 import { getModules, getAllPageSections } from '@/src/shared/cms';
+import { getPlatformModules } from '@/src/shared/cms/platform-modules';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 
 // Per-field width + alignment style from admin VF keys.
@@ -111,6 +112,31 @@ export default async function PlatformDetailPage({
   const displayName = dbEntry.name || platform.name;
   const displayDesc = dbEntry.description || platform.description;
   const isLive = (dbEntry.status as string) === 'live';
+
+  // Pass 34 (2026-05-14): per-module list comes from the
+  // platform_modules DB table when available, so admin edits in
+  // /admin/platform-modules flow straight to the public marketing
+  // page. Static `platform.modules` (from src/hubs/modeling/config/
+  // platforms.ts) stays as the fallback when the DB is empty (e.g.,
+  // before the p_sync seed migration runs).
+  const dbPlatformModules = await getPlatformModules(slug);
+  const moduleStatusFromDb = (s: string): PlatformModule['status'] =>
+    s === 'live' ? 'complete'
+    : s === 'coming_soon' ? 'planned'
+    : s === 'pro' || s === 'enterprise' ? 'planned'
+    : 'planned';
+  const platformModulesView: PlatformModule[] = dbPlatformModules.length > 0
+    ? dbPlatformModules
+        .filter((m) => m.status !== 'hidden')
+        .sort((a, b) => (a.display_order ?? a.number) - (b.display_order ?? b.number))
+        .map((m) => ({
+          number: m.number,
+          name: m.name,
+          description: m.description,
+          status: moduleStatusFromDb(m.status as string),
+          tabs: m.features.slice(0, 6),
+        }))
+    : platform.modules;
 
   // ── CMS sections for this platform ─────────────────────────────────────
   const cmsSections = await getAllPageSections(`modeling-${slug}`);
@@ -393,7 +419,7 @@ export default async function PlatformDetailPage({
         )}
 
         {/* ── Modules Roadmap (from config) ────────────────────────────────── */}
-        {!hidden(moduleRaw) && platform.modules.length > 0 && (
+        {!hidden(moduleRaw) && platformModulesView.length > 0 && (
           <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
             <div style={{ maxWidth: 1000, margin: '0 auto' }}>
               <div style={{ marginBottom: 40 }}>
@@ -411,7 +437,7 @@ export default async function PlatformDetailPage({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {platform.modules.map((mod) => (
+                {platformModulesView.map((mod) => (
                   <div key={mod.number} style={{
                     background: '#fff', borderRadius: 12,
                     border: '1px solid #E5E7EB',

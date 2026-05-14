@@ -215,9 +215,14 @@ export default function Module1Financing(): React.JSX.Element {
             const totalDebt = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
             const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
             const totalFunding = totalDebt + totalEquity;
+            // Pass 33b (2026-05-14): label clarification - IDC is the
+            // interest capitalized DURING CONSTRUCTION (rolled into
+            // loan principal), Operating Finance Cost is the cash
+            // interest paid AFTER construction (P&L expense). Calling
+            // them out explicitly so they don't read as net values.
             const totalIdc = result.combined.totalInterestCapitalized.reduce((s, v) => s + v, 0);
             const totalFinanceCost = result.combined.totalInterestExpensed.reduce((s, v) => s + v, 0);
-            const tile = (label: string, value: number, accent?: string): React.JSX.Element => (
+            const tile = (label: string, sublabel: string, value: number, accent?: string): React.JSX.Element => (
               <div
                 key={label}
                 style={{
@@ -228,18 +233,19 @@ export default function Module1Financing(): React.JSX.Element {
                   borderLeft: `3px solid ${accent ?? 'var(--color-navy)'}`,
                 }}
               >
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-heading)' }}>{fmt(value)}</div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{sublabel}</div>
               </div>
             );
             return (
               <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                  {tile('Total Funding', totalFunding, 'var(--color-navy)')}
-                  {tile('Total Debt', totalDebt, 'var(--color-warning, #92400e)')}
-                  {tile('Total Equity', totalEquity, 'var(--color-success, #166534)')}
-                  {tile('Total IDC', totalIdc, 'var(--color-meta, #6b7280)')}
-                  {tile('Total Finance Cost', totalFinanceCost, 'var(--color-danger, #b91c1c)')}
+                  {tile('Total Funding', 'Debt + Equity', totalFunding, 'var(--color-navy)')}
+                  {tile('Total Debt', 'Capex + IDC funded', totalDebt, 'var(--color-warning, #92400e)')}
+                  {tile('Total Equity', 'Cash + In-kind', totalEquity, 'var(--color-success, #166534)')}
+                  {tile('IDC (Construction)', 'Interest capitalized', totalIdc, 'var(--color-meta, #6b7280)')}
+                  {tile('Finance Cost (Operating)', 'Interest expensed (cash)', totalFinanceCost, 'var(--color-danger, #b91c1c)')}
                 </div>
               </section>
             );
