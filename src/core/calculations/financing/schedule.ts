@@ -75,15 +75,24 @@ export function computeFacilitySchedule(
     ? openingBalance
     : drawSchedule.reduce((s, v) => s + v, 0);
 
-  const phase = phases.find((p) => p.id === tranche.phaseId) ?? phases[0];
-  const phaseOffset = phase ? (axis.phaseOffsets.get(phase.id) ?? 0) : 0;
-  const cp = phase?.constructionPeriods ?? 0;
-  const overlap = phase?.overlapPeriods ?? 0;
-  // Construction window: [phaseOffset, phaseOffset + cp - overlap).
-  // No-prior-column convention (2026-05-14): arr[0] = first active year,
-  // construction spans cp columns starting at phaseOffset.
-  const constructionStartProj = phaseOffset;
-  const constructionEndProj = phaseOffset + Math.max(0, cp - overlap);
+  // Pass 28 (2026-05-14): Tab 4 is project-wide, so the IDC window
+  // must be project-wide too. Derive [start, end) as the union of
+  // every non-operational phase's construction span. Using a single
+  // phase (tranche.phaseId) caused IDC to miss capex happening in
+  // other phases - the bank still funded those drawdowns, so their
+  // interest is also IDC.
+  let constructionStartProj = Number.POSITIVE_INFINITY;
+  let constructionEndProj = 0;
+  for (const ph of phases) {
+    if (ph.status === 'operational') continue;
+    const phOffset = axis.phaseOffsets.get(ph.id) ?? 0;
+    const phCp = ph.constructionPeriods ?? 0;
+    const phOverlap = ph.overlapPeriods ?? 0;
+    const phEnd = phOffset + Math.max(0, phCp - phOverlap);
+    if (phOffset < constructionStartProj) constructionStartProj = phOffset;
+    if (phEnd > constructionEndProj) constructionEndProj = phEnd;
+  }
+  if (!Number.isFinite(constructionStartProj)) constructionStartProj = 0;
 
   // Pass 27 (2026-05-14): grace period concept retired; engine treats
   // gracePeriods as 0 unconditionally. Field stays on the schema for
