@@ -869,7 +869,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               <FieldLabel>Opening Balance</FieldLabel>
               <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
               <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Outstanding loan balance at project Y0.
+                Outstanding loan balance at project Y0. <strong>This is the figure that flows into the schedules.</strong>
               </div>
             </div>
             <div>
@@ -1057,11 +1057,38 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                       <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Debt (assets)</div>
                       <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotDebt)}</div>
                     </div>
-                    <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: `1px solid ${debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}`, borderRadius: 'var(--radius-sm)' }}>
+                    {/* Pass 52 (2026-05-14): clickable cross-check tile.
+                        When the facility Opening Balance doesn't match
+                        the per-asset Existing Debt total for the phase,
+                        clicking the tile copies the asset total into
+                        Opening Balance (the field the engine actually
+                        reads). When already in sync, it's just a
+                        status pill. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (debtMatchAtFacility) return;
+                        onUpdate(t.id, { openingBalance: phaseAssetsTotDebt });
+                      }}
+                      disabled={debtMatchAtFacility}
+                      title={debtMatchAtFacility
+                        ? 'Opening Balance matches the assets-debt total for this phase.'
+                        : `Click to set Opening Balance = ${fmt(phaseAssetsTotDebt)} (the assets-debt total for this phase). This is the value that flows into the schedules.`}
+                      style={{
+                        padding: '4px 8px',
+                        background: 'var(--color-surface)',
+                        border: `1px solid ${debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}`,
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: debtMatchAtFacility ? 'default' : 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
                       <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Facility Opening Bal</div>
                       <div style={{ fontWeight: 700, color: debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)' }}>{fmt(facilityDebtForPhase)}</div>
-                      <div style={{ fontSize: 9, fontStyle: 'italic', color: 'var(--color-text-muted)' }}>{debtMatchAtFacility ? 'matches assets' : 'mismatch vs assets'}</div>
-                    </div>
+                      <div style={{ fontSize: 9, fontStyle: 'italic', color: debtMatchAtFacility ? 'var(--color-text-muted)' : 'var(--color-danger, #b91c1c)', fontWeight: debtMatchAtFacility ? 400 : 700 }}>
+                        {debtMatchAtFacility ? 'matches assets' : `click to set ${fmt(phaseAssetsTotDebt)}`}
+                      </div>
+                    </button>
                     <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Equity (assets)</div>
                       <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotEq)}</div>
