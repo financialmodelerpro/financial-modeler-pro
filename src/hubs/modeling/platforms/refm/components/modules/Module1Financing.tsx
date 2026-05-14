@@ -51,7 +51,7 @@ import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
-import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_GRAND_TOTAL } from './_shared/tableStyles';
+import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -435,6 +435,7 @@ export default function Module1Financing(): React.JSX.Element {
             tranches={financingTranches}
             shares={result.shares}
             split={result.debtEquitySplit}
+            combined={result.combined}
             fmt={fmt}
             currency={currency}
             scale={scale}
@@ -1079,6 +1080,7 @@ interface DebtReqProps {
   tranches: FinancingTranche[];
   shares: Map<string, number>;
   split: ReturnType<typeof computeFinancingResult>['debtEquitySplit'];
+  combined: ReturnType<typeof computeFinancingResult>['combined'];
   fmt: (n: number) => string;
   currency: string;
   scale: 'full' | 'thousands' | 'millions';
@@ -1090,8 +1092,28 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
   const nonLabelPct = nonLabelColumnPct(1 + N);
   const newTranches = p.tranches.filter((t) => t.origin !== 'existing');
-  const totalNewDebtByPeriod = p.cropProject(p.split.debt);
-  const totalNewDebt = totalNewDebtByPeriod.reduce((s, v) => s + v, 0);
+
+  // Pass 25 (2026-05-14): per-facility rows show capex-driven drawdown
+  // (the project-axis split allocated to this facility). IDC during
+  // construction + grace-capitalize windows is funded by the same
+  // facilities but tracked as `interestCapitalized`; we sum it across
+  // new tranches to expose a separate IDC Drawdown line so the bank's
+  // total advance = Capex Drawdown + IDC Drawdown.
+  const totalCapexDrawByPeriod = p.cropProject(p.split.debt);
+  const totalCapexDraw = totalCapexDrawByPeriod.reduce((s, v) => s + v, 0);
+  const newIdcByPeriodFull = new Array<number>(p.split.debt.length).fill(0);
+  for (const t of newTranches) {
+    const r = p.facilities.get(t.id);
+    if (!r) continue;
+    for (let i = 0; i < newIdcByPeriodFull.length; i++) {
+      newIdcByPeriodFull[i] += r.interestCapitalized[i] ?? 0;
+    }
+  }
+  const idcDrawByPeriod = p.cropProject(newIdcByPeriodFull);
+  const totalIdcDraw = idcDrawByPeriod.reduce((s, v) => s + v, 0);
+  const totalDebtByPeriod = totalCapexDrawByPeriod.map((v, i) => v + (idcDrawByPeriod[i] ?? 0));
+  const totalDebtRequired = totalCapexDraw + totalIdcDraw;
+
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>8. Total Debt Required ({currencyHeaderLine(p.currency, p.scale)})</div>
@@ -1123,9 +1145,19 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
               );
             })}
             <tr>
+              <td style={ROW_SUBTOTAL.name}>Capex Drawdown Subtotal</td>
+              <td style={ROW_SUBTOTAL.num}>{p.fmt(totalCapexDraw)}</td>
+              {totalCapexDrawByPeriod.map((v, i) => <td key={i} style={ROW_SUBTOTAL.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
+              <td style={ROW_DATA.name}>IDC Drawdown (capitalized interest)</td>
+              <td style={ROW_DATA.num}>{p.fmt(totalIdcDraw)}</td>
+              {idcDrawByPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+            </tr>
+            <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
-              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(totalNewDebt)}</td>
-              {totalNewDebtByPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(totalDebtRequired)}</td>
+              {totalDebtByPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
           </tbody>
         </table>
@@ -1287,6 +1319,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
         const opening = openingSeries(r.outstanding, Math.max(0, t.openingBalance ?? 0));
+        const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
             <div style={TABLE_TITLE}>Existing Debt Movement, {t.name}</div>
@@ -1296,8 +1329,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {renderStateRow('Opening', opening)}
-                  {renderFlowRow('Drawdown', r.drawSchedule)}
-                  {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
+                  {renderFlowRow('Capex Drawdown', r.drawSchedule)}
+                  {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized)}
+                  {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true })}
                   {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
                   {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
@@ -1311,6 +1345,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
         const opening = openingSeries(r.outstanding, 0);
+        const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={t.id} style={sectionStyle}>
             <div style={TABLE_TITLE}>New Debt Movement, {t.name}</div>
@@ -1320,8 +1355,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {renderStateRow('Opening', opening)}
-                  {renderFlowRow('Drawdown', r.drawSchedule)}
-                  {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
+                  {renderFlowRow('Capex Drawdown', r.drawSchedule)}
+                  {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized)}
+                  {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true })}
                   {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
                   {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
@@ -1338,9 +1374,14 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {colgroup}
             {headerRow}
             <tbody>
-              {renderFlowRow('Total Drawdown', p.result.combined.totalDrawdown)}
+              {renderFlowRow('Total Capex Drawdown', p.result.combined.totalDrawdown)}
+              {renderFlowRow('Total IDC Drawdown', p.result.combined.totalInterestCapitalized)}
+              {renderFlowRow(
+                'Total Drawdown (Capex + IDC)',
+                p.result.combined.totalDrawdown.map((v, i) => v + (p.result.combined.totalInterestCapitalized[i] ?? 0)),
+                { bold: true },
+              )}
               {renderFlowRow('Total Interest Accrued', p.result.combined.totalInterestAccrued)}
-              {renderFlowRow('Total Interest Capitalized', p.result.combined.totalInterestCapitalized)}
               {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { negative: true })}
               {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { negative: true })}
               {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
