@@ -20,13 +20,25 @@
 -- ON CONFLICT DO NOTHING.
 -- ============================================================================
 
+-- ── Cleanup: re-key any prior 'refm' rows to 'real-estate' ─────────────────
+-- A pre-fix run of this migration seeded with platform_slug='refm', which
+-- doesn't match the legacy modules.slug='real-estate'. Any such rows are
+-- orphans for the admin UI; re-key them in place so the seed below uses
+-- ON CONFLICT cleanly.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='platform_modules') THEN
+        UPDATE public.platform_modules SET platform_slug = 'real-estate' WHERE platform_slug = 'refm';
+    END IF;
+END $$;
+
 -- ── platform_modules ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.platform_modules (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    platform_slug   text NOT NULL,                     -- 'refm', 'bvm', etc. (FK by slug to modules.slug)
+    platform_slug   text NOT NULL,                     -- 'real-estate', 'business-valuation', etc. (FK by slug to modules.slug)
     slug            text NOT NULL,                     -- 'project-setup', 'revenue', etc.
     number          integer NOT NULL,                  -- 1..N display number
-    name            text NOT NULL,                     -- 'Module 1, Project Setup'
+    name            text NOT NULL,                     -- 'Module 1: Project Setup'
     short_name      text NOT NULL,                     -- 'Setup' (sidebar)
     description     text NOT NULL DEFAULT '',
     icon_url        text,
@@ -111,7 +123,7 @@ CREATE POLICY platform_module_pages_public_read
 INSERT INTO public.platform_modules
     (platform_slug, slug, number, name, short_name, description, icon_emoji, status, gating_tier, display_order, features)
 VALUES
-    ('refm', 'project-setup', 1, 'Module 1, Project Setup', 'Setup',
+    ('real-estate', 'project-setup', 1, 'Module 1: Project Setup', 'Setup',
      'Define project structure, land allocation, costs, and financing on a foundation built for institutional real estate financial modeling.',
      '🧱', 'live', 'free', 1,
      '[
@@ -127,7 +139,7 @@ VALUES
         "Land in-kind equity contribution treatment"
      ]'::jsonb),
 
-    ('refm', 'revenue', 2, 'Module 2, Revenue', 'Revenue',
+    ('real-estate', 'revenue', 2, 'Module 2: Revenue', 'Revenue',
      'Cohort-based sales collection, hospitality USAH revenue, retail NOI, and Sell + Manage management fees layered on Module 1 asset structure.',
      '💰', 'coming_soon', 'free', 2,
      '[
@@ -138,7 +150,7 @@ VALUES
         "Annual revenue inputs with flexible output granularity"
      ]'::jsonb),
 
-    ('refm', 'opex', 3, 'Module 3, OpEx', 'OpEx',
+    ('real-estate', 'opex', 3, 'Module 3: OpEx', 'OpEx',
      'Operating expenses, payroll, marketing, and fixed-cost schedules driving cash flow over the operations window.',
      '📉', 'coming_soon', 'free', 3,
      '[
@@ -148,19 +160,9 @@ VALUES
         "Net Operating Income (NOI) computation"
      ]'::jsonb),
 
-    ('refm', 'returns', 4, 'Module 4, Returns', 'Returns',
-     'IRR, NPV, MoIC, DSCR, equity multiples, and stabilised yield analysis.',
-     '📈', 'coming_soon', 'free', 4,
-     '[
-        "Levered and unlevered IRR / NPV",
-        "MoIC and equity multiple",
-        "DSCR sensitivity",
-        "Stabilised yield on cost"
-     ]'::jsonb),
-
-    ('refm', 'financials', 5, 'Module 5, Financials', 'Financials',
+    ('real-estate', 'financials', 4, 'Module 4: Financials', 'Financials',
      'Three-statement model: P&L, cash flow, and balance sheet with capitalization respecting Module 1 accounting rules.',
-     '📊', 'coming_soon', 'free', 5,
+     '📑', 'coming_soon', 'free', 4,
      '[
         "GAAP / IFRS three-statement model",
         "Capex flowing to COGS or Fixed Assets per asset strategy",
@@ -168,7 +170,17 @@ VALUES
         "Operational phase opening balances from historical baseline"
      ]'::jsonb),
 
-    ('refm', 'reports', 6, 'Module 6, Reports', 'Reports',
+    ('real-estate', 'returns', 5, 'Module 5: Returns', 'Returns',
+     'IRR, NPV, MoIC, DSCR, equity multiples, and stabilised yield analysis.',
+     '📈', 'coming_soon', 'free', 5,
+     '[
+        "Levered and unlevered IRR / NPV",
+        "MoIC and equity multiple",
+        "DSCR sensitivity",
+        "Stabilised yield on cost"
+     ]'::jsonb),
+
+    ('real-estate', 'reports', 6, 'Module 6: Reports', 'Reports',
      'Investment committee deck, lender package, and portfolio one-pager with PDF export.',
      '📑', 'coming_soon', 'free', 6,
      '[
@@ -178,7 +190,7 @@ VALUES
         "Custom report builder"
      ]'::jsonb),
 
-    ('refm', 'scenarios', 7, 'Module 7, Scenarios', 'Scenarios',
+    ('real-estate', 'scenarios', 7, 'Module 7: Scenarios', 'Scenarios',
      'Side-by-side scenario comparison with toggle assumptions and sensitivity tables.',
      '🔀', 'coming_soon', 'free', 7,
      '[
@@ -187,7 +199,7 @@ VALUES
         "Tornado charts on key drivers"
      ]'::jsonb),
 
-    ('refm', 'portfolio', 8, 'Module 8, Portfolio', 'Portfolio',
+    ('real-estate', 'portfolio', 8, 'Module 8: Portfolio', 'Portfolio',
      'Roll-up across multiple projects with consolidated returns and waterfall.',
      '🗂', 'coming_soon', 'free', 8,
      '[
@@ -196,7 +208,7 @@ VALUES
         "Sponsor / LP waterfall"
      ]'::jsonb),
 
-    ('refm', 'market-data', 9, 'Module 9, Market Data', 'Market Data',
+    ('real-estate', 'market-data', 9, 'Module 9: Market Data', 'Market Data',
      'Live market comps, Saudi-specific data layer, and AI-driven assumption suggestions.',
      '🧭', 'coming_soon', 'free', 9,
      '[
@@ -205,7 +217,7 @@ VALUES
         "Cap rate library"
      ]'::jsonb),
 
-    ('refm', 'collaborate', 10, 'Module 10, Collaborate', 'Collaborate',
+    ('real-estate', 'collaborate', 10, 'Module 10: Collaborate', 'Collaborate',
      'Multi-user editing, comments, and approval workflows for IC and lender review.',
      '👥', 'pro', 'pro', 10,
      '[
@@ -215,7 +227,7 @@ VALUES
         "Version compare across users"
      ]'::jsonb),
 
-    ('refm', 'api-access', 11, 'Module 11, API Access', 'API Access',
+    ('real-estate', 'api-access', 11, 'Module 11: API Access', 'API Access',
      'Programmatic access to your models for portfolio dashboards and downstream BI integration.',
      '🔌', 'enterprise', 'enterprise', 11,
      '[
@@ -232,7 +244,7 @@ DECLARE
     m1_id uuid;
 BEGIN
     SELECT id INTO m1_id FROM public.platform_modules
-        WHERE platform_slug = 'refm' AND slug = 'project-setup' LIMIT 1;
+        WHERE platform_slug = 'real-estate' AND slug = 'project-setup' LIMIT 1;
     IF m1_id IS NULL THEN RETURN; END IF;
 
     INSERT INTO public.platform_module_pages (module_id, page_section, display_order, content_blocks, visible)

@@ -1302,12 +1302,27 @@ export interface FinancingTranche {
   // ── Existing Operations (2026-05-13) ──────────────────────────────
   /** Origin of the facility. 'new' = drawdown in model; 'existing' = pre-existing facility with opening balance. Default 'new'. */
   origin?: 'new' | 'existing';
-  /** Opening principal balance at project Y0. Required when origin === 'existing'. */
+  /** Opening principal balance at project Y0. Required when origin === 'existing'.
+   *  Auto-prefilled from sum of operational-phase historicalBaseline.currentDebtOutstanding
+   *  when the user clicks "+ Add Existing Facility"; editable thereafter. */
   openingBalance?: number;
-  /** Remaining tenor in periods at project Y0. Required when origin === 'existing'. Replaces tenorPeriods for existing facilities. */
+  /** @deprecated Pass 36 (2026-05-14): Remaining Tenor field removed
+   *  from UI; engine derives the runway from repaymentStartYear +
+   *  remainingRepaymentPeriods directly. Field kept on schema for
+   *  legacy snapshot back-compat. */
   remainingTenorPeriods?: number;
   /** Remaining repayment periods at project Y0. Required when origin === 'existing'. Replaces repaymentPeriods for existing facilities. */
   remainingRepaymentPeriods?: number;
+  /** Pass 36 (2026-05-14): Calendar year the existing loan was
+   *  originated (raised). When origYear >= projectStartYear, the
+   *  Opening Balance draws as a cash inflow at that year. When
+   *  origYear < projectStartYear (or unset), the Opening Balance
+   *  carries forward at project Y0 as a pre-existing balance. */
+  originationYear?: number;
+  /** Pass 36 (2026-05-14): Calendar year interest starts accruing
+   *  on the existing loan. Periods before interestStartYear accrue
+   *  zero interest. Defaults to projectStartYear when unset. */
+  interestStartYear?: number;
 
   // ── M2.0 Pass 20 (2026-05-13) ────────────────────────────────────
   /** @deprecated 2026-05-14: retired alongside Grace Periods. Field

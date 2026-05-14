@@ -56,10 +56,22 @@ export function computeFacilitySchedule(
       : annualRatePct / 100;
 
   const isExisting = tranche.origin === 'existing';
-  const openingBalance = isExisting ? Math.max(0, tranche.openingBalance ?? 0) : 0;
+  const projectStartYear = new Date(project.startDate).getUTCFullYear();
+  const openingBalanceRaw = isExisting ? Math.max(0, tranche.openingBalance ?? 0) : 0;
   const rawRepay = isExisting
     ? Math.max(0, tranche.remainingRepaymentPeriods ?? 0)
     : Math.max(0, tranche.repaymentPeriods ?? 0);
+
+  // Pass 36 (2026-05-14): existing facilities can be raised inside
+  // the project axis. When originationYear >= projectStartYear, the
+  // Opening Balance is drawn as a cash inflow at that period instead
+  // of carrying as a pre-existing opening balance at i=0.
+  const origYear = tranche.originationYear;
+  const origIdxRaw = (isExisting && origYear && Number.isFinite(origYear))
+    ? origYear - projectStartYear
+    : -1;
+  const drawAsInflow = isExisting && origIdxRaw >= 0 && origIdxRaw < N;
+  const openingBalance = drawAsInflow ? 0 : openingBalanceRaw;
 
   // Pass 24 (2026-05-14): drawdown auto-starts at project Y1 (capex
   // start). The user-facing Drawdown Start Period field is removed;
@@ -69,10 +81,13 @@ export function computeFacilitySchedule(
     for (let i = 0; i < N; i++) {
       drawSchedule[i] = Math.max(0, debtPerPeriod[i] ?? 0) * frac;
     }
+  } else if (drawAsInflow) {
+    // Existing loan raised inside the project axis = cash inflow.
+    drawSchedule[origIdxRaw] = openingBalanceRaw;
   }
 
   const totalDrawn = isExisting
-    ? openingBalance
+    ? openingBalanceRaw
     : drawSchedule.reduce((s, v) => s + v, 0);
 
   // Pass 28 (2026-05-14): Tab 4 is project-wide, so the IDC window
@@ -101,12 +116,23 @@ export function computeFacilitySchedule(
   // Pass 24 (2026-05-14): explicit Repayment Start Year (calendar)
   // from the tranche, translated to project axis index. Falls back to
   // constructionEnd when unset (legacy snapshots).
-  const projectStartYear = new Date(project.startDate).getUTCFullYear();
+  // Pass 36 (2026-05-14): existing facilities now use the same
+  // repaymentStartYear field as new debt (was hard-coded to 0).
+  // Falls back to project Y0 for legacy existing snapshots.
   const repayStartProj = isExisting
-    ? 0
+    ? (tranche.repaymentStartYear && Number.isFinite(tranche.repaymentStartYear)
+        ? Math.max(0, Math.min(N, tranche.repaymentStartYear - projectStartYear))
+        : 0)
     : tranche.repaymentStartYear && Number.isFinite(tranche.repaymentStartYear)
       ? Math.max(0, Math.min(N, tranche.repaymentStartYear - projectStartYear))
       : constructionEndProj + grace;
+
+  // Pass 36 (2026-05-14): existing facility's interestStartYear gates
+  // interest accrual. Periods before interestStartYear accrue zero
+  // interest. Defaults to projectStartYear when unset.
+  const interestStartProj = (isExisting && tranche.interestStartYear && Number.isFinite(tranche.interestStartYear))
+    ? Math.max(0, tranche.interestStartYear - projectStartYear)
+    : 0;
 
   // Pass 24b (2026-05-14): for fixed-count methods, fall back to the
   // remaining axis tail when the user leaves Repayment Periods at 0.
@@ -215,7 +241,10 @@ export function computeFacilitySchedule(
   let bal = openingBalance;
   for (let i = 0; i < N; i++) {
     bal += drawSchedule[i];
-    const interest = bal * periodicRate;
+    // Pass 36 (2026-05-14): for existing facilities, only accrue
+    // interest from interestStartYear onward (defaults to project Y0).
+    const accrueInterest = !isExisting || i >= interestStartProj;
+    const interest = accrueInterest ? bal * periodicRate : 0;
     interestAccrued[i] = interest;
     const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
     const capitalise = inConstructionWindow;
