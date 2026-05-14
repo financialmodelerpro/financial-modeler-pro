@@ -1489,8 +1489,26 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     return out;
   };
 
-  const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
+  // Pass 41b (2026-05-14): "active" gate for existing-facility UI.
+  // An existing tranche only contributes to the schedules when it has
+  // an opening balance > 0 OR any non-zero series in the engine output.
+  // Empty stub existing tranches (origin = 'existing' but no data yet)
+  // are filtered out so Debt Movement / Combined Debt Service split-by-
+  // origin / Finance Cost group headers don't render zero-only rows.
+  const sumArr = (a: number[] | undefined): number => (a ?? []).reduce((s, v) => s + Math.abs(v), 0);
+  const isActiveExisting = (t: FinancingTranche): boolean => {
+    if (t.origin !== 'existing') return false;
+    if ((t.openingBalance ?? 0) > 0) return true;
+    const r = p.result.facilities.get(t.id);
+    if (!r) return false;
+    return sumArr(r.drawSchedule) > 0
+      || sumArr(r.interestPaid) > 0
+      || sumArr(r.interestCapitalized) > 0
+      || sumArr(r.principalRepaid) > 0;
+  };
+  const existingTranches = p.tranches.filter(isActiveExisting);
   const newTranches      = p.tranches.filter((t) => t.origin !== 'existing');
+  const hasActiveExisting = existingTranches.length > 0;
 
   // Pass 31 (2026-05-14): group-header style for the Existing / New
   // section dividers used across Debt Movement + Finance Cost.
@@ -1506,7 +1524,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 
   return (
     <>
-      {existingTranches.length > 0 && (
+      {hasActiveExisting && (
         <div style={groupHeaderStyle}>Debt Movement - Existing Facilities</div>
       )}
       {existingTranches.map((t) => {
@@ -1581,13 +1599,13 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               {/* Pass 31 (2026-05-14): split each cash-impact row into
                   Existing + New lines so the user sees how much of the
                   total comes from legacy facilities vs. new draws. */}
-              {existingTranches.length > 0 && renderFlowRow('Interest Expensed - Existing', p.result.combined.existingInterestExpensed, { negative: true })}
+              {hasActiveExisting && renderFlowRow('Interest Expensed - Existing', p.result.combined.existingInterestExpensed, { negative: true })}
               {newTranches.length > 0 && renderFlowRow('Interest Expensed - New', p.result.combined.newInterestExpensed, { negative: true })}
               {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { bold: true, negative: true })}
-              {existingTranches.length > 0 && renderFlowRow('Principal Repaid - Existing', p.result.combined.existingPrincipalRepaid, { negative: true })}
+              {hasActiveExisting && renderFlowRow('Principal Repaid - Existing', p.result.combined.existingPrincipalRepaid, { negative: true })}
               {newTranches.length > 0 && renderFlowRow('Principal Repaid - New', p.result.combined.newPrincipalRepaid, { negative: true })}
               {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { bold: true, negative: true })}
-              {existingTranches.length > 0 && renderFlowRow('Debt Service - Existing', p.result.combined.existingDebtServiceCash, { negative: true })}
+              {hasActiveExisting && renderFlowRow('Debt Service - Existing', p.result.combined.existingDebtServiceCash, { negative: true })}
               {newTranches.length > 0 && renderFlowRow('Debt Service - New', p.result.combined.newDebtServiceCash, { negative: true })}
               {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
             </tbody>
@@ -1642,7 +1660,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const { opening: combOpen, closing: combClose } = buildFinanceCostBalances(c.totalInterestAccrued, c.totalInterestCapitalized, c.totalInterestExpensed);
         return (
           <>
-            {existingTranches.length > 0 && (
+            {hasActiveExisting && (
               <>
                 <div style={groupHeaderStyle}>Finance Cost - Existing Facilities</div>
                 {existingTranches.map(renderFinanceCostTable)}
