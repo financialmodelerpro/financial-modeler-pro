@@ -3,9 +3,51 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
-import type { Platform } from '@/src/hubs/modeling/config/platforms';
+import type { Platform, PlatformStatus } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
+
+// DB row shape returned by GET /api/admin/modules. Only fields we map to
+// `Platform` are listed; unused columns are tolerated as `unknown`.
+interface ModuleRow {
+  slug: string;
+  name: string;
+  short_name: string | null;
+  icon: string | null;
+  color: string | null;
+  bg_color: string | null;
+  status: 'live' | 'coming_soon' | 'hidden';
+  tagline: string | null;
+  description: string | null;
+  long_description: string | null;
+  who_is_it_for: string[] | null;
+  what_you_get: string[] | null;
+  display_order: number | null;
+}
+
+function rowToPlatform(r: ModuleRow): Platform {
+  const fallbackShort = r.name
+    .split(' ')
+    .map((w) => w[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase();
+  return {
+    slug: r.slug,
+    name: r.name,
+    shortName: r.short_name ?? fallbackShort,
+    icon: r.icon ?? '',
+    color: r.color ?? '#1B4F8A',
+    bgColor: r.bg_color ?? '#E8F0FB',
+    // Hidden rows are filtered out before this point, so the cast is safe.
+    status: r.status as PlatformStatus,
+    tagline: r.tagline ?? '',
+    description: r.description ?? '',
+    longDescription: r.long_description ?? '',
+    whoIsItFor: r.who_is_it_for ?? [],
+    whatYouGet: r.what_you_get ?? [],
+    modules: [],
+  };
+}
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 const APP_URL  = process.env.NEXT_PUBLIC_APP_URL  ?? 'https://app.financialmodelerpro.com';
@@ -171,6 +213,8 @@ export default function ModelingDashboardPage() {
   const [profileDropdown, setProfileDropdown] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [platformsLoading, setPlatformsLoading] = useState(true);
   // Defaults match NavbarServer / Navbar on the main site so header chrome is
   // consistent across all three subdomains. CMS keys override at runtime.
   const [logoHeight, setLogoHeight] = useState<number>(36);
@@ -220,6 +264,27 @@ export default function ModelingDashboardPage() {
     }
   }, [status, router]);
 
+  // Fetch platform catalog from DB. Replaces the previous static
+  // `PLATFORMS` import so admin edits via /admin/platform-modules are
+  // reflected on the dashboard immediately.
+  useEffect(() => {
+    let cancelled = false;
+    setPlatformsLoading(true);
+    fetch('/api/admin/modules')
+      .then((r) => r.json())
+      .then((j: { modules?: ModuleRow[] }) => {
+        if (cancelled) return;
+        const rows = (j.modules ?? [])
+          .filter((m) => m.status !== 'hidden')
+          .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+          .map(rowToPlatform);
+        setPlatforms(rows);
+        setPlatformsLoading(false);
+      })
+      .catch(() => { if (!cancelled) setPlatformsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
@@ -259,8 +324,8 @@ export default function ModelingDashboardPage() {
   const initials = userName.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
   const isAdmin = (user as { role?: string }).role === 'admin';
   const sidebarW = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
-  const livePlatforms   = PLATFORMS.filter(p => p.status === 'live');
-  const comingPlatforms = PLATFORMS.filter(p => p.status === 'coming_soon');
+  const livePlatforms   = platforms.filter(p => p.status === 'live');
+  const comingPlatforms = platforms.filter(p => p.status === 'coming_soon');
 
   const navItems: NavItem[] = [
     ...NAV_ITEMS,
@@ -517,7 +582,30 @@ export default function ModelingDashboardPage() {
             </p>
           </div>
 
-          {livePlatforms.length > 0 && (
+          {platformsLoading && (
+            <section style={{ marginBottom: 40 }}>
+              <div
+                className="mh-grid"
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
+              >
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: theme.surface,
+                      border: `1.5px solid ${theme.border}`,
+                      borderRadius: 14,
+                      padding: '24px 22px',
+                      height: 200,
+                      opacity: 0.5,
+                    }}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!platformsLoading && livePlatforms.length > 0 && (
             <section style={{ marginBottom: 40 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -534,7 +622,7 @@ export default function ModelingDashboardPage() {
             </section>
           )}
 
-          {comingPlatforms.length > 0 && (
+          {!platformsLoading && comingPlatforms.length > 0 && (
             <section>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>

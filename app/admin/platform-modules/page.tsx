@@ -28,7 +28,46 @@ interface Platform {
   icon: string;
   status: 'live' | 'coming_soon' | 'hidden';
   display_order: number;
+  short_name?: string | null;
+  color?: string | null;
+  bg_color?: string | null;
+  tagline?: string | null;
+  long_description?: string | null;
+  who_is_it_for?: string[] | null;
+  what_you_get?: string[] | null;
 }
+
+interface PlatformDraft {
+  name: string;
+  description: string;
+  icon: string;
+  short_name: string;
+  color: string;
+  bg_color: string;
+  tagline: string;
+  long_description: string;
+  who_is_it_for: string;   // newline-separated in the form
+  what_you_get: string;    // newline-separated in the form
+}
+
+interface NewPlatformDraft {
+  slug: string;
+  name: string;
+  description: string;
+  icon: string;
+  status: 'live' | 'coming_soon' | 'hidden';
+}
+
+const blankPlatformDraft: PlatformDraft = {
+  name: '', description: '', icon: '',
+  short_name: '', color: '', bg_color: '',
+  tagline: '', long_description: '',
+  who_is_it_for: '', what_you_get: '',
+};
+
+const blankNewPlatformDraft: NewPlatformDraft = {
+  slug: '', name: '', description: '', icon: '', status: 'coming_soon',
+};
 
 interface AssetType {
   id: string;
@@ -116,11 +155,15 @@ export default function AdminPlatformModulesPage() {
 
   // Platform-level inline edit (consolidated from /admin/modules)
   const [editingPlatform, setEditingPlatform] = useState(false);
-  const [platformDraft, setPlatformDraft] = useState<{ name: string; description: string; icon: string }>({
-    name: '', description: '', icon: '',
-  });
+  const [platformDraft, setPlatformDraft] = useState<PlatformDraft>(blankPlatformDraft);
   const [savingPlatform, setSavingPlatform] = useState(false);
   const [cyclingPlatform, setCyclingPlatform] = useState(false);
+
+  // Create-platform inline form (toggled by + New Platform button)
+  const [creatingPlatform, setCreatingPlatform] = useState(false);
+  const [newPlatformDraft, setNewPlatformDraft] = useState<NewPlatformDraft>(blankNewPlatformDraft);
+  const [savingNewPlatform, setSavingNewPlatform] = useState(false);
+  const [deletingPlatform, setDeletingPlatform] = useState(false);
 
   // Real Estate Asset Classes (only renders when active platform = real-estate)
   const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
@@ -219,7 +262,18 @@ export default function AdminPlatformModulesPage() {
   function startEditPlatform() {
     const p = platforms.find((x) => x.slug === activePlatformSlug);
     if (!p) return;
-    setPlatformDraft({ name: p.name, description: p.description, icon: p.icon });
+    setPlatformDraft({
+      name: p.name,
+      description: p.description,
+      icon: p.icon,
+      short_name: p.short_name ?? '',
+      color: p.color ?? '',
+      bg_color: p.bg_color ?? '',
+      tagline: p.tagline ?? '',
+      long_description: p.long_description ?? '',
+      who_is_it_for: (p.who_is_it_for ?? []).join('\n'),
+      what_you_get: (p.what_you_get ?? []).join('\n'),
+    });
     setEditingPlatform(true);
   }
 
@@ -232,22 +286,126 @@ export default function AdminPlatformModulesPage() {
     if (!p) return;
     setSavingPlatform(true);
     try {
+      const whoArr = platformDraft.who_is_it_for.split('\n').map((s) => s.trim()).filter(Boolean);
+      const whatArr = platformDraft.what_you_get.split('\n').map((s) => s.trim()).filter(Boolean);
       const res = await fetch('/api/admin/modules', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: p.id, name: platformDraft.name, description: platformDraft.description, icon: platformDraft.icon }),
+        body: JSON.stringify({
+          id: p.id,
+          name: platformDraft.name,
+          description: platformDraft.description,
+          icon: platformDraft.icon,
+          short_name: platformDraft.short_name || null,
+          color: platformDraft.color || null,
+          bg_color: platformDraft.bg_color || null,
+          tagline: platformDraft.tagline || null,
+          long_description: platformDraft.long_description || null,
+          who_is_it_for: whoArr,
+          what_you_get: whatArr,
+        }),
       });
       if (res.ok) {
-        setPlatforms((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...platformDraft } : x)));
+        setPlatforms((prev) => prev.map((x) => (x.id === p.id ? {
+          ...x,
+          name: platformDraft.name,
+          description: platformDraft.description,
+          icon: platformDraft.icon,
+          short_name: platformDraft.short_name || null,
+          color: platformDraft.color || null,
+          bg_color: platformDraft.bg_color || null,
+          tagline: platformDraft.tagline || null,
+          long_description: platformDraft.long_description || null,
+          who_is_it_for: whoArr,
+          what_you_get: whatArr,
+        } : x)));
         setEditingPlatform(false);
         showToast('Platform updated');
       } else {
-        showToast('Update failed', 'error');
+        const j = await res.json().catch(() => ({}));
+        showToast(j.error ?? 'Update failed', 'error');
       }
     } catch {
       showToast('Update failed', 'error');
     } finally {
       setSavingPlatform(false);
+    }
+  }
+
+  // ── Create new platform ────────────────────────────────────────────────
+  function startCreatePlatform() {
+    setNewPlatformDraft(blankNewPlatformDraft);
+    setCreatingPlatform(true);
+  }
+
+  function cancelCreatePlatform() {
+    setCreatingPlatform(false);
+  }
+
+  async function saveNewPlatform() {
+    const d = newPlatformDraft;
+    if (!d.slug.trim() || !d.name.trim() || !d.icon.trim()) {
+      showToast('Slug, name, and icon are required', 'error');
+      return;
+    }
+    setSavingNewPlatform(true);
+    try {
+      const res = await fetch('/api/admin/modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: d.slug.trim(),
+          name: d.name.trim(),
+          description: d.description,
+          icon: d.icon.trim(),
+          status: d.status,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        showToast(j.error ?? 'Create failed', 'error');
+        return;
+      }
+      const created = j.module as Platform;
+      setPlatforms((prev) => [...prev, created].sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)));
+      setActivePlatformSlug(created.slug);
+      setCreatingPlatform(false);
+      showToast('Platform created');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Create failed', 'error');
+    } finally {
+      setSavingNewPlatform(false);
+    }
+  }
+
+  // ── Delete platform (cascade sub-modules + page sections) ──────────────
+  async function deletePlatform() {
+    const p = platforms.find((x) => x.slug === activePlatformSlug);
+    if (!p) return;
+    const subCount = modules.length;
+    const ok = confirm(
+      `Delete platform ${p.name}? This also removes its ${subCount} sub-module${subCount === 1 ? '' : 's'} and all marketing page content. This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeletingPlatform(true);
+    try {
+      const res = await fetch(`/api/admin/modules?id=${encodeURIComponent(p.id)}`, {
+        method: 'DELETE',
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(j.error ?? 'Delete failed', 'error');
+        return;
+      }
+      const remaining = platforms.filter((x) => x.id !== p.id);
+      setPlatforms(remaining);
+      setActivePlatformSlug(remaining.length > 0 ? remaining[0].slug : null);
+      setEditingPlatform(false);
+      showToast('Platform deleted');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Delete failed', 'error');
+    } finally {
+      setDeletingPlatform(false);
     }
   }
 
@@ -502,8 +660,21 @@ export default function AdminPlatformModulesPage() {
         ) : (
           <div
             data-testid="platform-tabs"
-            style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}
+            style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}
           >
+            <button
+              onClick={startCreatePlatform}
+              disabled={creatingPlatform}
+              data-testid="create-platform-btn"
+              style={{
+                fontSize: 13, fontWeight: 700, padding: '10px 16px', borderRadius: 8,
+                border: '1px dashed #1B4F8A', background: '#fff', color: '#1B4F8A',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                opacity: creatingPlatform ? 0.5 : 1,
+              }}
+            >
+              + New Platform
+            </button>
             {platforms.map((p) => {
               const isActive = p.slug === activePlatformSlug;
               return (
@@ -524,6 +695,88 @@ export default function AdminPlatformModulesPage() {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* ── Inline: Create new platform form ── */}
+        {creatingPlatform && (
+          <div
+            data-testid="new-platform-form"
+            style={{
+              background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12,
+              padding: '18px 22px', marginBottom: 24,
+            }}
+          >
+            <h3 style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', margin: '0 0 12px' }}>
+              Create new platform
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 160px', gap: 12, alignItems: 'end', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>ICON *</div>
+                <input
+                  value={newPlatformDraft.icon}
+                  onChange={(e) => setNewPlatformDraft((d) => ({ ...d, icon: e.target.value }))}
+                  style={{ ...inputStyle, textAlign: 'center', fontSize: 22 }}
+                  placeholder="🚀"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>NAME *</div>
+                <input
+                  value={newPlatformDraft.name}
+                  onChange={(e) => setNewPlatformDraft((d) => ({ ...d, name: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="My New Platform"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>SLUG *</div>
+                <input
+                  value={newPlatformDraft.slug}
+                  onChange={(e) => setNewPlatformDraft((d) => ({ ...d, slug: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="my-new-platform"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>STATUS</div>
+                <select
+                  value={newPlatformDraft.status}
+                  onChange={(e) => setNewPlatformDraft((d) => ({ ...d, status: e.target.value as Platform['status'] }))}
+                  style={inputStyle}
+                >
+                  <option value="live">Live</option>
+                  <option value="coming_soon">Coming Soon</option>
+                  <option value="hidden">Hidden</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>DESCRIPTION</div>
+              <input
+                value={newPlatformDraft.description}
+                onChange={(e) => setNewPlatformDraft((d) => ({ ...d, description: e.target.value }))}
+                style={inputStyle}
+                placeholder="Short description shown on the dashboard card"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <button
+                onClick={cancelCreatePlatform}
+                disabled={savingNewPlatform}
+                style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveNewPlatform}
+                disabled={savingNewPlatform}
+                data-testid="save-new-platform-btn"
+                style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: savingNewPlatform ? 0.6 : 1 }}
+              >
+                {savingNewPlatform ? '…' : 'Create Platform'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -567,11 +820,19 @@ export default function AdminPlatformModulesPage() {
                     >
                       {cyclingPlatform ? 'Saving…' : 'Cycle Status'}
                     </button>
+                    <button
+                      onClick={deletePlatform}
+                      disabled={deletingPlatform}
+                      data-testid="delete-platform-btn"
+                      style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #DC2626', background: '#fff', cursor: 'pointer', color: '#DC2626', opacity: deletingPlatform ? 0.5 : 1 }}
+                    >
+                      {deletingPlatform ? 'Deleting…' : 'Delete Platform'}
+                    </button>
                   </div>
                 </div>
               ) : (
-                <div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 2fr auto', gap: 12, alignItems: 'end' }}>
+                <div data-testid="platform-edit-form">
+                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 2fr', gap: 12, alignItems: 'end', marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>ICON</div>
                       <input
@@ -590,29 +851,102 @@ export default function AdminPlatformModulesPage() {
                       />
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>DESCRIPTION</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>DESCRIPTION (short, dashboard card)</div>
                       <input
                         value={platformDraft.description}
                         onChange={(e) => setPlatformDraft((d) => ({ ...d, description: e.target.value }))}
                         style={inputStyle}
                       />
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={savePlatformEdit}
-                        disabled={savingPlatform}
-                        style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: savingPlatform ? 0.6 : 1, whiteSpace: 'nowrap' }}
-                      >
-                        {savingPlatform ? '…' : 'Save'}
-                      </button>
-                      <button
-                        onClick={cancelEditPlatform}
-                        disabled={savingPlatform}
-                        style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151' }}
-                      >
-                        Cancel
-                      </button>
+                  </div>
+
+                  {/* Extended marketing fields */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>SHORT NAME (e.g. REFM)</div>
+                      <input
+                        value={platformDraft.short_name}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, short_name: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="REFM"
+                      />
                     </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>TAGLINE</div>
+                      <input
+                        value={platformDraft.tagline}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, tagline: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="One-line value prop shown on dashboard card"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>COLOR (hex)</div>
+                      <input
+                        value={platformDraft.color}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, color: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="#1B4F8A"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>BG COLOR (hex)</div>
+                      <input
+                        value={platformDraft.bg_color}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, bg_color: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="#E8F0FB"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>LONG DESCRIPTION (marketing page hero body)</div>
+                    <textarea
+                      value={platformDraft.long_description}
+                      onChange={(e) => setPlatformDraft((d) => ({ ...d, long_description: e.target.value }))}
+                      style={{ ...inputStyle, minHeight: 90, fontFamily: 'inherit' }}
+                      placeholder="Multi-sentence description shown on the platform marketing page."
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>WHO IS IT FOR (one per line)</div>
+                      <textarea
+                        value={platformDraft.who_is_it_for}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, who_is_it_for: e.target.value }))}
+                        style={{ ...inputStyle, minHeight: 110, fontFamily: 'inherit' }}
+                        placeholder={'Real Estate Developers\nInvestment Managers\n...'}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>WHAT YOU GET (one per line)</div>
+                      <textarea
+                        value={platformDraft.what_you_get}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, what_you_get: e.target.value }))}
+                        style={{ ...inputStyle, minHeight: 110, fontFamily: 'inherit' }}
+                        placeholder={'Multi-asset project structure\nFull development cost schedule\n...'}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={cancelEditPlatform}
+                      disabled={savingPlatform}
+                      style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={savePlatformEdit}
+                      disabled={savingPlatform}
+                      data-testid="save-platform-btn"
+                      style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: savingPlatform ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                    >
+                      {savingPlatform ? '…' : 'Save'}
+                    </button>
                   </div>
                 </div>
               )}
