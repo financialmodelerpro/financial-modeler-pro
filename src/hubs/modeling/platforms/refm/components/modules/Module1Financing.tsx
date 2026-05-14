@@ -162,16 +162,10 @@ export default function Module1Financing(): React.JSX.Element {
     return Math.min(operationsEndYear, projectStartYear + Math.max(1, maxCp));
   }, [phases, projectStartYear, operationsEndYear]);
 
-  // Pass 36 (2026-05-14): mirrored baseline debt = sum of every
-  // operational phase's historicalBaseline.currentDebtOutstanding.
-  // Existing-facility tranches prefill Opening Balance from this on
-  // Add, and the field UI shows it as a hint so the user can confirm
-  // / override the auto-pulled value.
-  const baselineDebtFromPhases = useMemo(() => {
-    return phases
-      .filter((ph) => ph.status === 'operational')
-      .reduce((s, ph) => s + Math.max(0, ph.historicalBaseline?.currentDebtOutstanding ?? 0), 0);
-  }, [phases]);
+  // Pass 41 (2026-05-14): baselineDebtFromPhases removed. Phase-level
+  // currentDebtOutstanding was dropped from Tab 1 to make Existing
+  // Facility -> Opening Balance the single source of truth for opening
+  // debt.
 
   // No-prior-column convention (2026-05-14): arr[0] = first active
   // period (e.g., Dec 25 when startDate is 2025-01-01). UI uses
@@ -245,7 +239,13 @@ export default function Module1Financing(): React.JSX.Element {
               if (t.origin === 'existing') financeCostExisting += sum;
               else financeCostNew += sum;
             }
-            const hasExisting = financingTranches.some((t) => t.origin === 'existing');
+            // Pass 41 (2026-05-14): only show Finance Cost (Existing)
+            // when there's actual activity on an existing facility -
+            // either an opening balance > 0 or interest already paid.
+            // An empty stub existing tranche should not add a "-" tile.
+            const hasExisting = financingTranches.some(
+              (t) => t.origin === 'existing' && ((t.openingBalance ?? 0) > 0 || financeCostExisting > 0),
+            );
             const tile = (label: string, sublabel: string, value: number, accent?: string): React.JSX.Element => (
               <div
                 key={label}
@@ -521,7 +521,6 @@ export default function Module1Financing(): React.JSX.Element {
             projectStartYear={projectStartYear}
             operationsEndYear={operationsEndYear}
             defaultRepayStartYear={defaultRepayStartYear}
-            baselineDebtFromPhases={baselineDebtFromPhases}
             onAdd={() => {
               const id = `fin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
               const newT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
@@ -533,10 +532,9 @@ export default function Module1Financing(): React.JSX.Element {
               const exT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
               exT.origin = 'existing';
               exT.name = 'Existing facility';
-              // Pass 36 (2026-05-14): auto-prefill from operational
-              // phase historical baseline so the user starts with the
-              // same number they already typed in Tab 1 setup.
-              exT.openingBalance = baselineDebtFromPhases;
+              // Pass 41 (2026-05-14): no prefill - opening balance is
+              // entered directly on this form, single source of truth.
+              exT.openingBalance = 0;
               exT.originationYear = projectStartYear - 1; // pre-project default
               exT.interestStartYear = projectStartYear;
               exT.repaymentStartYear = projectStartYear;
@@ -627,7 +625,6 @@ interface FacilitiesSectionProps {
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
-  baselineDebtFromPhases: number;
   onAdd: () => void;
   onAddExisting: () => void;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
@@ -638,7 +635,7 @@ interface FacilitiesSectionProps {
 function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
   const {
     tranches, shares,
-    projectStartYear, operationsEndYear, defaultRepayStartYear, baselineDebtFromPhases,
+    projectStartYear, operationsEndYear, defaultRepayStartYear,
     onAdd, onAddExisting, onUpdate, onRemove, onSet,
   } = props;
   const handleShareChange = (id: string, raw: number) => {
@@ -699,7 +696,6 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
           projectStartYear={projectStartYear}
           operationsEndYear={operationsEndYear}
           defaultRepayStartYear={defaultRepayStartYear}
-          baselineDebtFromPhases={baselineDebtFromPhases}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onShareChange={(v) => handleShareChange(t.id, v)}
@@ -718,7 +714,6 @@ interface TrancheCardProps {
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
-  baselineDebtFromPhases: number;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
   onShareChange: (v: number) => void;
@@ -728,7 +723,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
   const {
     tranche: t,
     normalisedShare, showShareField,
-    projectStartYear, operationsEndYear, defaultRepayStartYear, baselineDebtFromPhases,
+    projectStartYear, operationsEndYear, defaultRepayStartYear,
     onUpdate, onRemove, onShareChange,
   } = p;
   const isExisting = t.origin === 'existing';
@@ -816,11 +811,9 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
           <div>
             <FieldLabel>Opening Balance</FieldLabel>
             <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} />
-            {baselineDebtFromPhases > 0 && (
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                From operational phase baseline: {baselineDebtFromPhases.toLocaleString('en-US')}
-              </div>
-            )}
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Outstanding loan balance at project Y0 (sole entry point).
+            </div>
           </div>
           <div>
             <FieldLabel>Origination Year</FieldLabel>

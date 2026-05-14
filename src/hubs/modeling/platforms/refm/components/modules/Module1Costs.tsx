@@ -2854,14 +2854,25 @@ export default function Module1Costs(): React.JSX.Element {
             data-testid="costs-stage-filter"
           >
             <option value="all">All Stages</option>
-            {COST_STAGES.map((s) => (<option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>))}
+            {/* Pass 41 (2026-05-14): Operating stage hidden from filter
+                + tile bar. Engine still buckets to it for any cost line
+                that resolves to operating, but it's surfaced via the
+                Total Capex Excl. Land tile rather than its own pill. */}
+            {COST_STAGES.filter((s) => s !== 'operating').map((s) => (
+              <option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>
+            ))}
           </select>
         </div>
       </div>
 
-      {/* Stage summary tile bar */}
+      {/* Stage summary tile bar.
+          Pass 41 (2026-05-14): four tiles - Land / Hard / Soft / Total
+          Capex Excl. Land. Operating dropped per user feedback (rarely
+          used and adds visual noise); Total Excl. Land = Hard + Soft +
+          Operating, the figure most decks want for "construction-cost
+          investment net of land". */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }} data-testid="costs-summary-tiles">
-        {COST_STAGES.map((s) => (
+        {(['land', 'hard', 'soft'] as const).map((s) => (
           <div key={s} style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid={`costs-stage-${s}-card`}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
               {COST_STAGE_LABELS[s]}
@@ -2871,6 +2882,22 @@ export default function Module1Costs(): React.JSX.Element {
             </div>
           </div>
         ))}
+        <div
+          style={{
+            ...sectionCardStyle,
+            marginBottom: 0,
+            padding: 12,
+            borderLeft: '3px solid var(--color-navy)',
+          }}
+          data-testid="costs-stage-total-excl-land-card"
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
+            Total Capex Excl. Land
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
+            {formatAccounting(stageTotals.hard + stageTotals.soft + stageTotals.operating, scale, decimals)}
+          </div>
+        </div>
       </div>
 
       {/* M2.0g Fix 7: Inputs / Results sub-tab toggle. */}

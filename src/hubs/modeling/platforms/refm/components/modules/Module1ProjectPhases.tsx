@@ -574,11 +574,17 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
               Sunk-cost roll-ups + run-rate metrics will move to a
               dedicated Historical Financials panel under the Financials
               module. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11 }}>
-            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Opening balance sheet at project Y0</div>
-            <div>
-              <InputLabel label="Current Debt Outstanding" help="Outstanding loan balance at reporting start. Auto-pulled into the Existing Facility Opening Balance on Tab 4." inputId={`phase-${phase.id}-hist-debt-out`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-debt-out`} data-testid={`phase-${phase.id}-hist-debt-out`} min={0} value={baseline.currentDebtOutstanding} onChange={(n) => setBaseline({ currentDebtOutstanding: Math.max(0, n) })} style={inputStyle} />
+          {/* Pass 41 (2026-05-14): Current Debt Outstanding removed
+              from Phase Setup. Opening debt is captured directly on the
+              Existing Facility form (Tab 4) as Opening Balance, so the
+              user enters it in one place. Cumulative Depreciation + NBV
+              stay here since they have no equivalent input elsewhere. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11 }}>
+            <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Opening balance sheet at project Y0
+              <span style={{ marginLeft: 6, fontStyle: 'italic', textTransform: 'none', letterSpacing: 0 }}>
+                (Opening Debt is entered on Tab 4 -&gt; Existing Facility -&gt; Opening Balance)
+              </span>
             </div>
             <div>
               <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets. Seeds the BS accumulated depreciation balance at Y0." inputId={`phase-${phase.id}-hist-depr`} />
