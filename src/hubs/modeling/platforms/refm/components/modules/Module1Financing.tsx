@@ -1300,7 +1300,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     const total = cropped.reduce((s, v) => s + v, 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const baseNumStyle = opts?.bold ? ROW_GRAND_TOTAL.num : ROW_DATA.num;
-    const numStyle: React.CSSProperties = opts?.negative
+    // Pass 30b (2026-05-14): grand-total rows render white-on-navy;
+    // recolouring to red would be invisible. Keep the parentheses for
+    // the accounting-negative semantic but skip the red on bold rows.
+    const applyRed = opts?.negative && !opts?.bold;
+    const numStyle: React.CSSProperties = applyRed
       ? { ...baseNumStyle, color: 'var(--color-danger, #b91c1c)' }
       : baseNumStyle;
     const renderVal = (v: number): string => {
