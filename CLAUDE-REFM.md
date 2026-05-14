@@ -1,5 +1,14 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-14. Current phase: M2.0 Passes 37-47 (Tab 4 polish + Module 1 audit + Dashboard redesign + admin DB-driven), 14 commits.**
+**Last updated: 2026-05-14 (EoD). Current phase: M2.0 Passes 37-55 (23 commits in one session). Closed for the day; tomorrow = Module 1 fine-tuning + lock.**
+
+**M2.0 Passes 49-55 themes (2026-05-14, late-session refinement):**
+- **Pass 49 (commit `f7fd059`)**: docs sync (CLAUDE.md / CLAUDE-FEATURES.md / CLAUDE-ROUTES.md / memory entries for project_m20_pass48_decisions + feedback_visual_not_tooltip).
+- **Pass 50 (commit `5a02880`)**: collapsed the standalone "1b. Existing Operations" card at the top of Financing inputs INTO each Existing Facility's TrancheCard. Phase picker added to the facility row; an inline dashed-amber panel renders below when the selected phase is Operational, carrying per-phase BS + per-asset baseline + totals. Removes the cross-tab "where do I enter this?" friction.
+- **Pass 51 (commit `3649595`)**: Dashboard Existing Operations KPI - fixed accounting double-count. Headline was `preCapex + debt + equity` (2x the funding identity); now headline = Pre-Capex with `(= X debt + Y equity)` sublabel.
+- **Pass 52 (commit `6389be4`)**: click-to-sync Facility Opening Bal tile (superseded by Pass 54).
+- **Pass 53 (commit `3ea0280`)**: relocated the Existing Operations panel BELOW rate + repayment rows inside the facility card so users complete facility identity + terms first, then enter per-phase / per-asset baseline context.
+- **Pass 54 (commit `442b53e`)**: single source of truth for existing debt. Per-asset Existing Debt is the SOLE input; tranche.openingBalance is read-only and auto-synced via `useEffect` (writes when the asset total drifts from current openingBalance by >= 1, rounded). Removes the Pass 52 click-to-sync tile (mismatch structurally impossible). Falls back to editable Opening Balance when the phase has no assets yet so users can sketch a facility size first.
+- **Pass 55 (commit `2b0c217`)**: existing-facility YoY % editor now spans full operations horizon when Repayment Periods is unset (was single-period grid because `max(0, 0 - 1) = 0`). When periods > 0, narrows to `start + periods - 1` capped at operationsEndYear.
 
 **M2.0 Passes 37-47 themes (2026-05-14):**
 - **Pass 37**: Finance Cost (Existing) KPI tile split from Finance Cost (New). Existing tile renders only when at least one existing tranche has `openingBalance > 0` OR `financeCostExisting > 0` (otherwise the 5-tile grid stays compact). Module1Financing.tsx tile section.

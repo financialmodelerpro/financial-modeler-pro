@@ -2230,3 +2230,73 @@ sub-modules); now `/admin/platform-modules` is the single Module
 Manager (platform-level edit + sub-module CRUD + Asset Classes
 section under the REFM tab). `/admin/modules` rebadged "Launch
 Settings" (Coming Soon toggles + early-access whitelist only).
+
+### M2.0 Passes 49-55 (2026-05-14 late session, Existing Facility form polish + Dashboard fix, 7 commits)
+
+- **Pass 49 (`f7fd059`)**: docs sync after Pass 48 — CLAUDE.md root
+  status line tightened, CLAUDE-FEATURES Pass 37-48 archive section
+  added, CLAUDE-ROUTES OverviewScreen.tsx deletion noted, memory
+  entries for project_m20_pass48_decisions + feedback_visual_not_tooltip.
+
+- **Pass 50 (`5a02880`)**: collapsed the Pass 44/48 standalone "1b.
+  Existing Operations" card at the top of Financing inputs INTO each
+  Existing Facility's TrancheCard. Phase picker dropdown added to the
+  facility row (was implicit). Inline dashed-amber panel renders
+  beneath when the selected phase is `status === 'operational'`,
+  containing per-phase opening BS (Cum Dep / NBV / Retained Earnings)
+  + per-asset baseline rows (Pre-Capex / Existing Debt / Existing
+  Equity + balances chip) + phase-level totals. Hint message when
+  phase is not Operational. Eliminates the cross-tab confusion the
+  Pass 48 standalone card created.
+
+- **Pass 51 (`3649595`)**: Dashboard Existing Operations KPI tile -
+  fixed accounting double-count. Headline was `preCapexTotal +
+  debtOutstandingTotal + equityTotal`, which violates the funding
+  identity `Pre-Capex = Debt + Equity` and inflates the figure to
+  approximately 2x Pre-Capex. Headline now = Pre-Capex alone;
+  sublabel reads "Pre-Capex (= X debt + Y equity)" so the breakdown
+  stays visible.
+
+- **Pass 52 (`6389be4`)**: click-to-sync "Facility Opening Bal"
+  cross-check tile. Clicking the red mismatch tile copied the
+  per-asset Existing Debt total into tranche.openingBalance.
+  Superseded by Pass 54 (auto-sync removes the need for the click).
+
+- **Pass 53 (`3ea0280`)**: relocated the Existing Operations panel
+  BELOW the rate + repayment rows inside the facility card. New
+  field order: facility identity row -> rate row -> repayment row ->
+  per-phase BS + per-asset baseline panel. Matches the natural
+  read order (identity -> terms -> historical context). Implemented
+  by closing the top `{isExisting && (<>...</>)}` fragment after the
+  basic row and opening a second one after the CashSweepEditor.
+
+- **Pass 54 (`442b53e`)**: single source of truth for existing
+  debt. Per-asset `historicalDebtAmount` is now the SOLE input;
+  tranche.openingBalance is read-only and auto-synced via a useEffect
+  that writes `Math.round(phaseAssetsTotDebt)` whenever it drifts
+  from the rounded openingBalance by >= 1. Removes the Pass 52
+  click-to-sync tile (mismatch is structurally impossible). Phase-
+  totals row drops from 4 tiles to 3 (Pre-Capex / Existing Debt with
+  "flows into Opening Balance" sublabel / Existing Equity). Fallback:
+  Opening Balance becomes editable when the phase has no assets yet
+  so users can sketch a facility size before detailing the asset
+  breakdown. Multi-facility-per-phase caveat documented in commit
+  body (second facility would clobber the first; acceptable for now
+  since no user flow requires it).
+
+- **Pass 55 (`2b0c217`)**: existing-facility YoY % editor now spans
+  the full operations horizon when Repayment Periods is unset.
+  Previous expression `Math.max(0, (t.remainingRepaymentPeriods ?? 0)
+  - 1)` collapsed to 0 when periods = 0 (the default), so
+  endYear === startYear and the editor rendered a single 2026-2026
+  grid. Fix branches: new facility -> operationsEndYear; existing
+  with periods > 0 -> `start + periods - 1` capped at operationsEnd;
+  existing with periods <= 0 -> operationsEndYear (matches new-
+  facility behavior so the editor is immediately usable).
+
+**Session close 2026-05-14 EoD.** Status: 23 commits across Passes
+37-55. User confirmed: tomorrow's work = Module 1 fine-tuning then
+final lock. Outstanding low-priority items (deferred): schema
+deprecation cleanup on `PhaseHistoricalBaseline` (8 `@deprecated`
+fields kept for legacy parse), multi-existing-facility-per-phase
+edge case in Pass 54 auto-sync.
