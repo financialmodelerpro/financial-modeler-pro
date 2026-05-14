@@ -208,6 +208,40 @@ export default function Dashboard({
     // refresh when the active version id flips (after a new save)
   }, [activeProjectId, activeVersionId]);
 
+  // Pass 47b (2026-05-14): hoisted above the no-project early return to
+  // keep hook call order consistent across renders (Rules of Hooks).
+  // The values are only consumed in the project-loaded branch below.
+  const financingConfig = useMemo(() => ensureConfig(project.financing), [project.financing]);
+  const result = useMemo(
+    () =>
+      computeFinancingResult({
+        project,
+        phases,
+        parcels,
+        assets,
+        subUnits,
+        costLines,
+        costOverrides,
+        landAllocationMode,
+        financingConfig,
+        tranches: financingTranches,
+        equityContributions,
+      }),
+    [
+      project,
+      phases,
+      parcels,
+      assets,
+      subUnits,
+      costLines,
+      costOverrides,
+      landAllocationMode,
+      financingConfig,
+      financingTranches,
+      equityContributions,
+    ],
+  );
+
   // ── Empty state when no project is selected ────────────────────────────
   if (!proj || !activeProjectId) {
     return (
@@ -333,38 +367,9 @@ export default function Dashboard({
     0,
   );
 
-  // Financing engine + funding/debt-equity rollups (Pass 44 totals)
-  const financingConfig = useMemo(() => ensureConfig(project.financing), [project.financing]);
-  const result = useMemo(
-    () =>
-      computeFinancingResult({
-        project,
-        phases,
-        parcels,
-        assets,
-        subUnits,
-        costLines,
-        costOverrides,
-        landAllocationMode,
-        financingConfig,
-        tranches: financingTranches,
-        equityContributions,
-      }),
-    [
-      project,
-      phases,
-      parcels,
-      assets,
-      subUnits,
-      costLines,
-      costOverrides,
-      landAllocationMode,
-      financingConfig,
-      financingTranches,
-      equityContributions,
-    ],
-  );
-
+  // Financing engine + funding/debt-equity rollups (Pass 44 totals).
+  // The `result` + `financingConfig` useMemo calls are hoisted above
+  // the no-project early return (see Pass 47b).
   const totalDebtSized = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
   const totalEquitySized = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
   const totalFunding = totalDebtSized + totalEquitySized;
