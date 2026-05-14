@@ -383,7 +383,6 @@ export default function Module1Financing(): React.JSX.Element {
           <FacilitiesSection
             tranches={financingTranches}
             shares={result.shares}
-            phases={phases}
             onAdd={() => {
               const id = `fin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
               const newT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
@@ -469,7 +468,6 @@ export default function Module1Financing(): React.JSX.Element {
 interface FacilitiesSectionProps {
   tranches: FinancingTranche[];
   shares: Map<string, number>;
-  phases: Array<{ id: string; name: string }>;
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
@@ -477,7 +475,7 @@ interface FacilitiesSectionProps {
 }
 
 function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
-  const { tranches, shares, phases, onAdd, onUpdate, onRemove, onSet } = props;
+  const { tranches, shares, onAdd, onUpdate, onRemove, onSet } = props;
   const handleShareChange = (id: string, raw: number) => {
     const next = tranches.map((t) => (t.id === id ? { ...t, facilitySharePct: raw } : t));
     onSet(next);
@@ -512,7 +510,6 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
         <TrancheCard
           key={t.id}
           tranche={t}
-          phases={phases}
           normalisedShare={shares.get(t.id) ?? 0}
           showShareField={tranches.filter((x) => x.origin !== 'existing').length > 1}
           onUpdate={onUpdate}
@@ -528,7 +525,6 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
 
 interface TrancheCardProps {
   tranche: FinancingTranche;
-  phases: Array<{ id: string; name: string }>;
   normalisedShare: number;
   showShareField: boolean;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
@@ -544,7 +540,7 @@ const GRACE_INTEREST_TREATMENTS = [
 ] as const;
 
 function TrancheCard(p: TrancheCardProps): React.JSX.Element {
-  const { tranche: t, phases, normalisedShare, showShareField, onUpdate, onRemove, onShareChange } = p;
+  const { tranche: t, normalisedShare, showShareField, onUpdate, onRemove, onShareChange } = p;
   const isExisting = t.origin === 'existing';
   const isFloating = (t.interestRateType ?? 'fixed') === 'floating';
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -742,40 +738,6 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
             ))}
           </select>
-        </div>
-        <div>
-          <FieldLabel>Scope</FieldLabel>
-          <select
-            value={t.scope ?? 'phase'}
-            onChange={(e) => onUpdate(t.id, { scope: e.target.value as 'project' | 'phase' | 'asset' })}
-            style={inputStyle}
-          >
-            <option value="project">Project</option>
-            <option value="phase">Phase</option>
-            <option value="asset">Asset</option>
-          </select>
-        </div>
-        <div>
-          <FieldLabel>{(t.scope ?? 'phase') === 'project' ? 'Scope (project-wide)' : (t.scope ?? 'phase') === 'asset' ? 'Asset ID' : 'Phase'}</FieldLabel>
-          {(t.scope ?? 'phase') === 'project' ? (
-            <input type="text" value="(all phases)" disabled style={{ ...inputStyle, opacity: 0.6 }} />
-          ) : (t.scope ?? 'phase') === 'asset' ? (
-            <input
-              type="text"
-              value={t.scopeId ?? ''}
-              onChange={(e) => onUpdate(t.id, { scopeId: e.target.value })}
-              placeholder="asset_xxx"
-              style={inputStyle}
-            />
-          ) : (
-            <select
-              value={t.phaseId}
-              onChange={(e) => onUpdate(t.id, { phaseId: e.target.value })}
-              style={inputStyle}
-            >
-              {phases.map((ph) => <option key={ph.id} value={ph.id}>{ph.name}</option>)}
-            </select>
-          )}
         </div>
       </div>
 

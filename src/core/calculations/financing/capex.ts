@@ -25,13 +25,18 @@ export interface CapexInputs {
 }
 
 /**
- * Project capex aggregation (no-prior-column convention, 2026-05-14).
+ * Project capex aggregation (mirrors Costs tab Table 3 mapping, 2026-05-14).
  *
- * Maps `distributeItemCost`'s local index 0 (Y0 lump) AND local index 1
- * (first construction period) to `projIdx = phaseOffset`, so they
- * sum at the phase's first active project column. Local i >= 2 maps
- * to `projIdx = phaseOffset + i - 1`. This gives a phase with
- * constructionPeriods = cp a contiguous block of cp project cols.
+ * Maps `distributeItemCost`'s local indices onto the project axis using
+ * the same offset rule as Module1Costs Table 3 (Capex Excl Land In-Kind):
+ *   - Local i = 0 (Y0 upfront lump): only included when offset > 0,
+ *     placed at projIdx = offset - 1 (the year before the phase starts).
+ *     Phase 1 (offset = 0) drops its Y0 lump entirely.
+ *   - Local i >= 1: projIdx = offset + i - 1, so the phase's first
+ *     construction year (i = 1) lands at projIdx = offset.
+ *
+ * This guarantees the Financing Tab's Capex Breakdown table shows the
+ * exact same per-year values as the Costs Tab's Capex schedule.
  *
  * Operational phases (status === 'operational') are skipped entirely;
  * their historical capex flows through `existing.ts` instead.
@@ -64,7 +69,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
       const perInK  = breakdown.perPeriodLandInKind ?? [];
       const len = Math.max(perAll.length, perLand.length, perInK.length);
       for (let i = 0; i < len; i++) {
-        const projIdx = i === 0 ? offset : offset + i - 1;
+        const projIdx = i === 0 ? offset - 1 : offset + i - 1;
         if (projIdx < 0 || projIdx >= N) continue;
         inclAllLand[projIdx] += perAll[i] ?? 0;
         landTotal[projIdx]   += perLand[i] ?? 0;

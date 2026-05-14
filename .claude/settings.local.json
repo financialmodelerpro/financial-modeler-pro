@@ -186,7 +186,10 @@
       "Bash(taskkill /PID 26984 /F)",
       "PowerShell(Stop-Process *)",
       "PowerShell(Get-Process *)",
-      "PowerShell(Get-NetTCPConnection *)"
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(dir *)",
+      "Bash(awk NR==1514 || NR==1515 || NR==1516 || NR==1517 || NR==1518 {print NR\": \"$0} *)",
+      "Bash(awk 'NR<1514 || NR>=2300' \"D:/FMP/financial-modeler-pro/src/core/calculations/index.ts\")"
     ]
   }
 }
