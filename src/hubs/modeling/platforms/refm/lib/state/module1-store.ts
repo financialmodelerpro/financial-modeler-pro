@@ -64,6 +64,12 @@ export interface Module1Store {
   financingTranches: FinancingTranche[];
   equityContributions: EquityContribution[];
 
+  // Pass 43 (2026-05-14): keys of one-shot migrations already applied
+  // to this snapshot. resolveBanner() short-circuits any banner whose
+  // key is in this list, so a migration notice fires exactly once
+  // per project across reloads (assuming user saves at least once).
+  migrationsApplied: string[];
+
   // UI-only active selectors (not persisted)
   activePhaseId: string;
   activeAssetId: string | null;
@@ -128,6 +134,7 @@ export type HydrateSnapshot = Pick<Module1Store,
   | 'costOverrides'
   | 'financingTranches'
   | 'equityContributions'
+  | 'migrationsApplied'
 >;
 
 // P10-Fix 4 (2026-05-12): sub-unit -> companion bookkeeper. Recomputes
@@ -232,6 +239,7 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   costOverrides: [],
   financingTranches: [defaultTranche],
   equityContributions: [],
+  migrationsApplied: [],
 };
 
 // ── Store factory ──────────────────────────────────────────────────────────
@@ -459,6 +467,9 @@ export function createModule1Store() {
 
     hydrate: (snapshot) => set({
       ...snapshot,
+      // Pass 43 (2026-05-14): coerce to array so legacy snapshots
+      // without the marker field still satisfy the store contract.
+      migrationsApplied: snapshot.migrationsApplied ?? [],
       activePhaseId: snapshot.phases[0]?.id ?? DEFAULT_PHASE_ID,
       activeAssetId: null,
     }),

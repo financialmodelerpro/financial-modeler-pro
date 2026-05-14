@@ -279,7 +279,10 @@ function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
   const hasOverrides = overrides.length > 0;
   const assetIdSet = new Set(assets.map((a) => a.id));
   const hasOrphan = lines.some((c) => c.targetAssetId && !assetIdSet.has(c.targetAssetId));
-  if (!hasMaster && !hasOverrides && !hasOrphan) return snap;
+  // Pass 43 (2026-05-14): mark applied even on the no-op path so
+  // snapshots that are already Pass-7-shaped (but were saved before
+  // the marker existed) stop re-firing the banner.
+  if (!hasMaster && !hasOverrides && !hasOrphan) return markApplied(snap, MIGRATION_KEY_PASS7);
 
   // Build asset-by-phase index for replication.
   const assetsByPhase = new Map<string, Asset[]>();
@@ -350,15 +353,41 @@ function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
     return { ...c, selectedLineIds: next };
   });
 
-  return {
-    ...snap,
-    costLines: finalLines,
-    costOverrides: [],
-  };
+  return markApplied(
+    {
+      ...snap,
+      costLines: finalLines,
+      costOverrides: [],
+    },
+    MIGRATION_KEY_PASS7,
+  );
 }
 
 export const M20COSTS_PASS7_NOTICE =
   "Costs UI simplified to per-asset inputs. Existing cost lines flattened so each asset owns its values. Review in Tab 3.";
+
+// Pass 43 (2026-05-14): one-shot migration markers. Each migrate
+// helper appends its key on output; alreadyApplied() short-circuits
+// the matching snapshotNeedsXxx check on subsequent loads. Banner
+// fires exactly once per project (after the user saves at least
+// once so the marker persists).
+export const MIGRATION_KEY_PASS7 = 'm20costs-pass7';
+
+function getApplied(snap: unknown): string[] {
+  if (!snap || typeof snap !== 'object') return [];
+  const arr = (snap as { migrationsApplied?: unknown }).migrationsApplied;
+  return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+}
+
+function alreadyApplied(snap: unknown, key: string): boolean {
+  return getApplied(snap).includes(key);
+}
+
+function markApplied<T extends object>(snap: T, key: string): T {
+  const prev = getApplied(snap);
+  if (prev.includes(key)) return snap;
+  return { ...snap, migrationsApplied: [...prev, key] };
+}
 
 // M2.0M Pass 3 (2026-05-12): Financing simplification.
 //   Fix 1: viewMode='single_asset' -> 'combined' + clear selectedAssetId.
@@ -1616,6 +1645,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
     costOverrides,
     financingTranches,
     equityContributions,
+    migrationsApplied: getApplied(o),
   };
 
   // Run the full migration chain so the loose result is identical to
@@ -1681,6 +1711,9 @@ function snapshotNeedsPass5Migration(s: unknown): boolean {
 // Triggers M20COSTS_PASS7_NOTICE once on first hydrate.
 function snapshotNeedsPass7Migration(s: unknown): boolean {
   if (!s || typeof s !== 'object') return false;
+  // Pass 43 (2026-05-14): once the marker is on the snapshot the
+  // banner stops firing on subsequent reloads.
+  if (alreadyApplied(s, MIGRATION_KEY_PASS7)) return false;
   const o = s as { costLines?: unknown[]; costOverrides?: unknown[] };
   if (Array.isArray(o.costLines)) {
     for (const c of o.costLines) {

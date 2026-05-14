@@ -179,6 +179,10 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     costOverrides: [],
     financingTranches,
     equityContributions: [],
+    // Pass 43 (2026-05-14): brand-new wizard snapshots are already in
+    // every current schema, so pre-mark all known migrations as applied
+    // to prevent legacy banners from firing on freshly-created projects.
+    migrationsApplied: ['m20costs-pass7'],
   };
 }
 
