@@ -16,9 +16,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
-  type Asset,
   type Phase,
-  type PhaseHistoricalBaseline,
   type PhaseStatus,
   type Project,
   type ProjectStatus,
@@ -66,16 +64,14 @@ const tableHeaderLabelStyle: React.CSSProperties = {
 const STATUS_OPTIONS: ProjectStatus[] = ['draft', 'active', 'archived'];
 
 export default function Module1ProjectPhases(): React.JSX.Element {
-  const { project, phases, assets, setProject, addPhase, updatePhase, removePhase, updateAsset } = useModule1Store(
+  const { project, phases, setProject, addPhase, updatePhase, removePhase } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
-      assets: s.assets,
       setProject: s.setProject,
       addPhase: s.addPhase,
       updatePhase: s.updatePhase,
       removePhase: s.removePhase,
-      updateAsset: s.updateAsset,
     })),
   );
 
@@ -366,7 +362,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 <InputLabel label="Operations End" help="Auto-derived = Operations Start + Operations Periods. Also the phase's contribution to Project End." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Status" help="Planning / Construction / Operational. When Operational, a Historical Baseline section appears beneath the row for sunk costs + opening balances." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label="Status" help="Planning / Construction / Operational. Marking a phase Operational reveals its row in Tab 4 -> 1b. Existing Operations card for opening BS items + per-asset historical Pre-Capex / Debt / Equity entry." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}></th>
             </tr>
@@ -377,9 +373,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 key={phase.id}
                 phase={phase}
                 project={project}
-                phaseAssets={assets.filter((a) => a.phaseId === phase.id && a.visible)}
                 onUpdate={(patch) => updatePhase(phase.id, patch)}
-                onUpdateAsset={updateAsset}
                 onRemove={() => removePhase(phase.id)}
                 canRemove={phases.length > 1}
               />
@@ -394,9 +388,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
 interface PhaseRowProps {
   phase: Phase;
   project: Project;
-  phaseAssets: Asset[];
   onUpdate: (patch: Partial<Phase>) => void;
-  onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemove: () => void;
   canRemove: boolean;
 }
@@ -412,7 +404,7 @@ const calcOutputStyle: React.CSSProperties = {
   minWidth: 92,
 };
 
-function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
+function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
   // M2.0f Fix 4: phase start date is the authoritative timing field.
   // Computed end dates derive via computePhaseTimeline so editing
   // start date here cascades to construction end / operations
@@ -425,33 +417,12 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
     ? phase.startDate
     : project.startDate;
 
-  // M2.0i Fix 10: phase status drives the Historical Baseline reveal.
+  // Pass 48 (2026-05-14): Historical Baseline UI fully removed from
+  // Tab 1; status field stays as a row dropdown but the inline reveal
+  // is gone. All baseline editing now lives on Tab 4 -> 1b. Existing
+  // Operations card. Schema fields preserved on `phase.historicalBaseline`
+  // for legacy snapshot parse / engine read.
   const status: PhaseStatus = phase.status ?? 'planning';
-  const isOperational = status === 'operational';
-
-  // Default historical baseline when user toggles to Operational and
-  // hasn't filled the form yet. All zeros so nothing accidentally
-  // affects downstream calcs until the user enters real numbers.
-  // Pass 38 (2026-05-14): trimmed to opening-BS items only. Per-asset
-  // Pre-Capex / Existing Debt / Existing Equity feed the engine; sunk-
-  // cost roll-ups + run-rate metrics moved to a future Historical
-  // Financials panel under the Financials module. Old fields are kept
-  // optional in the schema so legacy snapshots still parse but are not
-  // rendered or read.
-  const baseline: PhaseHistoricalBaseline = phase.historicalBaseline ?? {
-    historicalCapexTotal: 0,
-    historicalEquityContributed: 0,
-    historicalDebtDrawn: 0,
-    currentDebtOutstanding: 0,
-    cumulativeDepreciationCharged: 0,
-    netBookValueFixedAssets: 0,
-    last12MonthsRevenue: 0,
-    last12MonthsOpex: 0,
-  };
-
-  const setBaseline = (patch: Partial<PhaseHistoricalBaseline>): void => {
-    onUpdate({ historicalBaseline: { ...baseline, ...patch } });
-  };
 
   return (
     <React.Fragment>
@@ -558,112 +529,10 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
         )}
       </td>
     </tr>
-    {/* M2.0i Fix 10: Historical Baseline section. Only renders when
-        phase.status === 'operational'. Spans the table width as a
-        nested grid; data preserved in the schema even when status
-        toggles back to non-operational, in case user re-toggles. */}
-    {isOperational && (
-      <tr data-testid={`phase-${phase.id}-historical-baseline`}>
-        <td colSpan={10} style={{ padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)', borderBottom: '1px solid var(--color-border)' }}>
-          <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', display: 'block', marginBottom: 'var(--sp-1)' }}>
-            Historical Baseline (operational phase)
-          </strong>
-          {/* Pass 38 (2026-05-14): opening balance sheet items only.
-              Per-asset Pre-Capex / Existing Debt / Existing Equity (below)
-              feed the engine for sunk-cost / equity-contributed totals.
-              Sunk-cost roll-ups + run-rate metrics will move to a
-              dedicated Historical Financials panel under the Financials
-              module. */}
-          {/* Pass 41 (2026-05-14): Current Debt Outstanding removed
-              from Phase Setup. Opening debt is captured directly on the
-              Existing Facility form (Tab 4) as Opening Balance, so the
-              user enters it in one place. Cumulative Depreciation + NBV
-              stay here since they have no equivalent input elsewhere. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11 }}>
-            <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Opening balance sheet at project Y0
-              <span style={{ marginLeft: 6, fontStyle: 'italic', textTransform: 'none', letterSpacing: 0 }}>
-                (Opening Debt is entered on Tab 4 -&gt; Existing Facility -&gt; Opening Balance)
-              </span>
-            </div>
-            <div>
-              <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets. Seeds the BS accumulated depreciation balance at Y0." inputId={`phase-${phase.id}-hist-depr`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-depr`} data-testid={`phase-${phase.id}-hist-depr`} min={0} value={baseline.cumulativeDepreciationCharged} onChange={(n) => setBaseline({ cumulativeDepreciationCharged: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Net Book Value (Fixed Assets)" help="NBV of existing fixed assets at reporting start. Seeds the BS Property/Plant/Equipment balance at Y0." inputId={`phase-${phase.id}-hist-nbv`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} min={0} value={baseline.netBookValueFixedAssets} onChange={(n) => setBaseline({ netBookValueFixedAssets: Math.max(0, n) })} style={inputStyle} />
-            </div>
-          </div>
-          {/* M2.0 Pass 15 (2026-05-13): per-asset Historical Baseline.
-              For each operational-phase asset, capture Pre-Capex,
-              Existing Debt, Existing Equity with a validation chip.
-              Pre-Capex feeds Tab 4 Capex Breakdown prior column; Debt
-              feeds Total Debt Required prior; Equity feeds Equity
-              Required prior. */}
-          {phaseAssets.length > 0 && (
-            <div data-testid={`phase-${phase.id}-asset-baselines`} style={{ marginTop: 'var(--sp-3)', paddingTop: 'var(--sp-2)', borderTop: '1px dashed var(--color-border)' }}>
-              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', display: 'block', marginBottom: 'var(--sp-1)' }}>
-                Per-asset Historical Baseline
-              </strong>
-              <div style={{ display: 'grid', gap: 'var(--sp-1)' }}>
-                {phaseAssets.map((a) => {
-                  const pre = Math.max(0, a.historicalPreCapex ?? 0);
-                  const debt = Math.max(0, a.historicalDebtAmount ?? 0);
-                  const equity = Math.max(0, a.historicalEquityAmount ?? 0);
-                  const diff = pre - (debt + equity);
-                  const balances = Math.abs(diff) < 1;
-                  const equityNeededToBalance = Math.max(0, pre - debt);
-                  return (
-                    <div key={a.id} data-testid={`asset-${a.id}-baseline`} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr', gap: 'var(--sp-1)', alignItems: 'end', fontSize: 11, padding: 'var(--sp-1)', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
-                        <div style={{ fontWeight: 700 }}>{a.name}</div>
-                      </div>
-                      <div>
-                        <InputLabel label="Pre-Capex" help="Historical capex sunk into this asset before project start." inputId={`asset-${a.id}-pre-capex`} />
-                        <AccountingNumberInput id={`asset-${a.id}-pre-capex`} data-testid={`asset-${a.id}-pre-capex`} min={0} value={pre} onChange={(n) => onUpdateAsset(a.id, { historicalPreCapex: Math.max(0, n) })} style={inputStyle} />
-                      </div>
-                      <div>
-                        <InputLabel label="Existing Debt" help="Debt outstanding at project Y0 for this asset." inputId={`asset-${a.id}-hist-debt`} />
-                        <AccountingNumberInput id={`asset-${a.id}-hist-debt`} data-testid={`asset-${a.id}-hist-debt`} min={0} value={debt} onChange={(n) => onUpdateAsset(a.id, { historicalDebtAmount: Math.max(0, n) })} style={inputStyle} />
-                      </div>
-                      <div>
-                        <InputLabel label="Existing Equity" help="Equity contributed to date for this asset (cash + in-kind combined)." inputId={`asset-${a.id}-hist-equity`} />
-                        <AccountingNumberInput id={`asset-${a.id}-hist-equity`} data-testid={`asset-${a.id}-hist-equity`} min={0} value={equity} onChange={(n) => onUpdateAsset(a.id, { historicalEquityAmount: Math.max(0, n) })} style={inputStyle} />
-                      </div>
-                      <div
-                        data-testid={`asset-${a.id}-baseline-chip`}
-                        title={
-                          balances
-                            ? `Pre-Capex ${pre} = Debt ${debt} + Equity ${equity}.`
-                            : `Pre-Capex ${pre} should equal Debt ${debt} + Equity ${equity}. Difference: ${diff.toFixed(0)}. Equity should be ${equityNeededToBalance.toFixed(0)} to balance.`
-                        }
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: 'var(--radius-sm)',
-                          fontWeight: 700,
-                          textAlign: 'center',
-                          background: balances
-                            ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
-                            : 'color-mix(in srgb, var(--color-accent-warm) 16%, transparent)',
-                          color: balances ? 'var(--color-success)' : 'var(--color-accent-warm)',
-                          fontSize: 11,
-                        }}
-                      >
-                        {balances
-                          ? 'Balances'
-                          : `Mismatch: equity should be ${equityNeededToBalance.toLocaleString()} to balance`}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </td>
-      </tr>
-    )}
+    {/* Pass 48 (2026-05-14): Historical Baseline block fully removed
+        from Tab 1. All operational-phase opening BS + per-asset
+        Pre-Capex / Existing Debt / Existing Equity inputs moved to
+        Tab 4 -> 1b. Existing Operations card (sole entry point). */}
     </React.Fragment>
   );
 }

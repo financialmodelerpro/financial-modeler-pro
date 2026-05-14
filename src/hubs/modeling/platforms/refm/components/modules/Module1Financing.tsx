@@ -294,13 +294,13 @@ export default function Module1Financing(): React.JSX.Element {
           </section>
 
           {/* Pass 44 (2026-05-14): Existing Operations Summary card.
-              Surfaces every "existing" input the user has captured across
-              Tabs 1, 2 and 4 in a single read-only view, so they can
-              confirm the data is flowing into the model. The only
-              editable fields here are Cumulative Depreciation, NBV and
-              Existing Retained Earnings (mirrored from / written back to
-              phase.historicalBaseline). Renders only when at least one
-              operational phase exists. */}
+              Pass 48 (2026-05-14): per-asset Pre-Capex / Existing Debt /
+              Existing Equity now EDITABLE here (moved from Tab 1) - this
+              is the sole entry point. Tab 1 Historical Baseline block
+              fully removed. Per-operational-phase opening BS row +
+              Existing Retained Earnings still here, single source of
+              truth. Renders only when at least one operational phase
+              exists. */}
           {(() => {
             const opPhases = phases.filter((ph) => ph.status === 'operational');
             if (opPhases.length === 0) return null;
@@ -315,42 +315,129 @@ export default function Module1Financing(): React.JSX.Element {
             const totalNbv = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.netBookValueFixedAssets ?? 0), 0);
             const totalRetEarn = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.existingRetainedEarnings ?? 0), 0);
 
-            const tile = (label: string, value: number, source: string, accent?: string): React.JSX.Element => (
-              <div
-                key={label}
-                style={{
-                  background: 'var(--color-surface)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--sp-1) var(--sp-2)',
-                  borderLeft: `3px solid ${accent ?? 'var(--color-warning, #92400e)'}`,
-                }}
-              >
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(value)}</div>
-                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{source}</div>
-              </div>
-            );
-
             const debtMatch = Math.abs(totalAssetDebt - totalExistingFacilityDebt) < 1;
             const balancesOk = Math.abs(totalPreCapex - (totalAssetDebt + totalAssetEquity)) < 1;
 
             return (
               <section style={sectionStyle}>
-                <div style={sectionTitle}>1b. Existing Operations Summary</div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
-                  Read-only view of every existing-operation input across the project. Edit Pre-Capex / Existing Debt / Existing Equity per asset on Tab 1 -&gt; per-asset Historical Baseline. Edit opening BS items below (mirrors Tab 1 phase form).
+                <div style={sectionTitle}>1b. Existing Operations</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-2)' }}>
+                  All inputs for assets that already exist at project Y0. Sole entry point - Tab 1 no longer carries these fields.
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 'var(--sp-2)' }}>
-                  {tile('Pre-Capex (assets)', totalPreCapex, `${opAssets.length} asset${opAssets.length === 1 ? '' : 's'} -> Tab 1`, 'var(--color-navy)')}
-                  {tile('Existing Debt (assets)', totalAssetDebt, 'per-asset entry -> Tab 1', 'var(--color-warning, #92400e)')}
-                  {tile('Existing Debt (facility)', totalExistingFacilityDebt, debtMatch ? 'matches assets' : 'mismatch vs assets', debtMatch ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)')}
-                  {tile('Existing Equity (assets)', totalAssetEquity, 'per-asset entry -> Tab 1', 'var(--color-success, #166534)')}
+
+                {/* Per-asset baseline rows (editable) */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--sp-1)' }}>
+                  Per-asset Historical Baseline
                 </div>
-                {!balancesOk && (
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--sp-1)' }}>
-                    Pre-Capex {fmt(totalPreCapex)} != Debt {fmt(totalAssetDebt)} + Equity {fmt(totalAssetEquity)}. Per-asset balances on Tab 1 do not reconcile.
-                  </div>
+                <div style={{ display: 'grid', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
+                  {opAssets.length === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', padding: 'var(--sp-1)' }}>
+                      No assets in operational phases yet. Add assets on Tab 2 to capture their historical Pre-Capex / Debt / Equity here.
+                    </div>
+                  )}
+                  {opAssets.map((a) => {
+                    const pre = Math.max(0, a.historicalPreCapex ?? 0);
+                    const dbt = Math.max(0, a.historicalDebtAmount ?? 0);
+                    const eq  = Math.max(0, a.historicalEquityAmount ?? 0);
+                    const diff = pre - (dbt + eq);
+                    const balances = Math.abs(diff) < 1;
+                    const equityNeeded = Math.max(0, pre - dbt);
+                    return (
+                      <div
+                        key={a.id}
+                        data-testid={`asset-${a.id}-baseline-tab4`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr',
+                          gap: 8,
+                          alignItems: 'end',
+                          padding: 'var(--sp-1)',
+                          background: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: 11,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
+                          <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{a.name}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Pre-Capex</div>
+                          <AccountingNumberInput
+                            value={pre}
+                            onChange={(v) => updateAsset(a.id, { historicalPreCapex: Math.max(0, v) })}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Debt</div>
+                          <AccountingNumberInput
+                            value={dbt}
+                            onChange={(v) => updateAsset(a.id, { historicalDebtAmount: Math.max(0, v) })}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Equity</div>
+                          <AccountingNumberInput
+                            value={eq}
+                            onChange={(v) => updateAsset(a.id, { historicalEquityAmount: Math.max(0, v) })}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div
+                          title={
+                            balances
+                              ? `Pre-Capex ${fmt(pre)} = Debt ${fmt(dbt)} + Equity ${fmt(eq)}.`
+                              : `Pre-Capex ${fmt(pre)} should equal Debt ${fmt(dbt)} + Equity ${fmt(eq)}. Equity should be ${fmt(equityNeeded)} to balance.`
+                          }
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            background: balances
+                              ? 'color-mix(in srgb, var(--color-success, #166534) 16%, transparent)'
+                              : 'color-mix(in srgb, var(--color-warning, #92400e) 16%, transparent)',
+                            color: balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                          }}
+                        >
+                          {balances ? 'Balances' : `Off by ${fmt(Math.abs(diff))}`}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Project-wide totals + facility cross-check */}
+                {opAssets.length > 0 && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 'var(--sp-1)' }}>
+                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-navy)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Pre-Capex</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalPreCapex)}</div>
+                      </div>
+                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-warning, #92400e)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Existing Debt (assets)</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalAssetDebt)}</div>
+                      </div>
+                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: `3px solid ${debtMatch ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}` }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Debt (facility)</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalExistingFacilityDebt)}</div>
+                        <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{debtMatch ? 'matches assets' : 'mismatch vs assets'}</div>
+                      </div>
+                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-success, #166534)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Existing Equity (assets)</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalAssetEquity)}</div>
+                      </div>
+                    </div>
+                    {!balancesOk && (
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--sp-1)' }}>
+                        Pre-Capex {fmt(totalPreCapex)} != Debt {fmt(totalAssetDebt)} + Equity {fmt(totalAssetEquity)}. Per-asset balances do not reconcile.
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Editable opening BS items per operational phase */}
