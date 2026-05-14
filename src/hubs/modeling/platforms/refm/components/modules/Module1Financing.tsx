@@ -37,6 +37,9 @@ import {
   type ProjectFinancingConfig,
   type FundingMethodId,
   type ParcelFundingConfig,
+  type Phase,
+  type Asset,
+  type PhaseHistoricalBaseline,
   FUNDING_METHOD_IDS,
   FUNDING_METHOD_LABELS,
   FUNDING_METHOD_DESCRIPTIONS,
@@ -293,257 +296,6 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </section>
 
-          {/* Pass 44 (2026-05-14): Existing Operations Summary card.
-              Pass 48 (2026-05-14): per-asset Pre-Capex / Existing Debt /
-              Existing Equity now EDITABLE here (moved from Tab 1) - this
-              is the sole entry point. Tab 1 Historical Baseline block
-              fully removed. Per-operational-phase opening BS row +
-              Existing Retained Earnings still here, single source of
-              truth. Renders only when at least one operational phase
-              exists. */}
-          {(() => {
-            const opPhases = phases.filter((ph) => ph.status === 'operational');
-            if (opPhases.length === 0) return null;
-            const opAssets = assets.filter((a) => opPhases.some((p) => p.id === a.phaseId));
-            const totalPreCapex = opAssets.reduce((s, a) => s + Math.max(0, a.historicalPreCapex ?? 0), 0);
-            const totalAssetDebt = opAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
-            const totalAssetEquity = opAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
-            const totalExistingFacilityDebt = financingTranches
-              .filter((t) => t.origin === 'existing')
-              .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
-            const totalCumDep = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.cumulativeDepreciationCharged ?? 0), 0);
-            const totalNbv = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.netBookValueFixedAssets ?? 0), 0);
-            const totalRetEarn = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.existingRetainedEarnings ?? 0), 0);
-
-            const debtMatch = Math.abs(totalAssetDebt - totalExistingFacilityDebt) < 1;
-            const balancesOk = Math.abs(totalPreCapex - (totalAssetDebt + totalAssetEquity)) < 1;
-
-            return (
-              <section style={sectionStyle}>
-                <div style={sectionTitle}>1b. Existing Operations</div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-2)' }}>
-                  All inputs for assets that already exist at project Y0. Sole entry point - Tab 1 no longer carries these fields.
-                </div>
-
-                {/* Per-asset baseline rows (editable) */}
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--sp-1)' }}>
-                  Per-asset Historical Baseline
-                </div>
-                <div style={{ display: 'grid', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
-                  {opAssets.length === 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', padding: 'var(--sp-1)' }}>
-                      No assets in operational phases yet. Add assets on Tab 2 to capture their historical Pre-Capex / Debt / Equity here.
-                    </div>
-                  )}
-                  {opAssets.map((a) => {
-                    const pre = Math.max(0, a.historicalPreCapex ?? 0);
-                    const dbt = Math.max(0, a.historicalDebtAmount ?? 0);
-                    const eq  = Math.max(0, a.historicalEquityAmount ?? 0);
-                    const diff = pre - (dbt + eq);
-                    const balances = Math.abs(diff) < 1;
-                    const equityNeeded = Math.max(0, pre - dbt);
-                    return (
-                      <div
-                        key={a.id}
-                        data-testid={`asset-${a.id}-baseline-tab4`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr',
-                          gap: 8,
-                          alignItems: 'end',
-                          padding: 'var(--sp-1)',
-                          background: 'var(--color-surface)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: 11,
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
-                          <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{a.name}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Pre-Capex</div>
-                          <AccountingNumberInput
-                            value={pre}
-                            onChange={(v) => updateAsset(a.id, { historicalPreCapex: Math.max(0, v) })}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Debt</div>
-                          <AccountingNumberInput
-                            value={dbt}
-                            onChange={(v) => updateAsset(a.id, { historicalDebtAmount: Math.max(0, v) })}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Equity</div>
-                          <AccountingNumberInput
-                            value={eq}
-                            onChange={(v) => updateAsset(a.id, { historicalEquityAmount: Math.max(0, v) })}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div
-                          title={
-                            balances
-                              ? `Pre-Capex ${fmt(pre)} = Debt ${fmt(dbt)} + Equity ${fmt(eq)}.`
-                              : `Pre-Capex ${fmt(pre)} should equal Debt ${fmt(dbt)} + Equity ${fmt(eq)}. Equity should be ${fmt(equityNeeded)} to balance.`
-                          }
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontWeight: 700,
-                            textAlign: 'center',
-                            background: balances
-                              ? 'color-mix(in srgb, var(--color-success, #166534) 16%, transparent)'
-                              : 'color-mix(in srgb, var(--color-warning, #92400e) 16%, transparent)',
-                            color: balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
-                          }}
-                        >
-                          {balances ? 'Balances' : `Off by ${fmt(Math.abs(diff))}`}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Project-wide totals + facility cross-check */}
-                {opAssets.length > 0 && (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 'var(--sp-1)' }}>
-                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-navy)' }}>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Pre-Capex</div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalPreCapex)}</div>
-                      </div>
-                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-warning, #92400e)' }}>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Existing Debt (assets)</div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalAssetDebt)}</div>
-                      </div>
-                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: `3px solid ${debtMatch ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}` }}>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Debt (facility)</div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalExistingFacilityDebt)}</div>
-                        <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{debtMatch ? 'matches assets' : 'mismatch vs assets'}</div>
-                      </div>
-                      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', borderLeft: '3px solid var(--color-success, #166534)' }}>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total Existing Equity (assets)</div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(totalAssetEquity)}</div>
-                      </div>
-                    </div>
-                    {!balancesOk && (
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--sp-1)' }}>
-                        Pre-Capex {fmt(totalPreCapex)} != Debt {fmt(totalAssetDebt)} + Equity {fmt(totalAssetEquity)}. Per-asset balances do not reconcile.
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Editable opening BS items per operational phase */}
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
-                  Opening Balance Sheet (per operational phase)
-                </div>
-                <div style={{ display: 'grid', gap: 'var(--sp-1)' }}>
-                  {opPhases.map((ph) => {
-                    const b = ph.historicalBaseline;
-                    return (
-                      <div
-                        key={ph.id}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr 1fr 1fr',
-                          gap: 8,
-                          alignItems: 'end',
-                          padding: 'var(--sp-1)',
-                          background: 'var(--color-surface)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-sm)',
-                        }}
-                      >
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>
-                          {ph.name}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Cumulative Depreciation</div>
-                          <AccountingNumberInput
-                            value={b?.cumulativeDepreciationCharged ?? 0}
-                            onChange={(v) => updatePhase(ph.id, {
-                              historicalBaseline: {
-                                ...(b ?? {
-                                  historicalCapexTotal: 0,
-                                  historicalEquityContributed: 0,
-                                  historicalDebtDrawn: 0,
-                                  currentDebtOutstanding: 0,
-                                  cumulativeDepreciationCharged: 0,
-                                  netBookValueFixedAssets: 0,
-                                  last12MonthsRevenue: 0,
-                                  last12MonthsOpex: 0,
-                                }),
-                                cumulativeDepreciationCharged: Math.max(0, v),
-                              },
-                            })}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Net Book Value (Fixed Assets)</div>
-                          <AccountingNumberInput
-                            value={b?.netBookValueFixedAssets ?? 0}
-                            onChange={(v) => updatePhase(ph.id, {
-                              historicalBaseline: {
-                                ...(b ?? {
-                                  historicalCapexTotal: 0,
-                                  historicalEquityContributed: 0,
-                                  historicalDebtDrawn: 0,
-                                  currentDebtOutstanding: 0,
-                                  cumulativeDepreciationCharged: 0,
-                                  netBookValueFixedAssets: 0,
-                                  last12MonthsRevenue: 0,
-                                  last12MonthsOpex: 0,
-                                }),
-                                netBookValueFixedAssets: Math.max(0, v),
-                              },
-                            })}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Retained Earnings</div>
-                          <AccountingNumberInput
-                            value={b?.existingRetainedEarnings ?? 0}
-                            onChange={(v) => updatePhase(ph.id, {
-                              historicalBaseline: {
-                                ...(b ?? {
-                                  historicalCapexTotal: 0,
-                                  historicalEquityContributed: 0,
-                                  historicalDebtDrawn: 0,
-                                  currentDebtOutstanding: 0,
-                                  cumulativeDepreciationCharged: 0,
-                                  netBookValueFixedAssets: 0,
-                                  last12MonthsRevenue: 0,
-                                  last12MonthsOpex: 0,
-                                }),
-                                existingRetainedEarnings: Math.max(0, v),
-                              },
-                            })}
-                            style={inputStyle}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {opPhases.length > 1 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 'var(--sp-1)', fontSize: 11, color: 'var(--color-text-muted)' }}>
-                    <div>Total Cumulative Depreciation: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalCumDep)}</strong></div>
-                    <div>Total NBV: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalNbv)}</strong></div>
-                    <div>Total Retained Earnings: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalRetEarn)}</strong></div>
-                  </div>
-                )}
-              </section>
-            );
-          })()}
 
           <section style={sectionStyle}>
             <div style={sectionTitle}>2. Funding Method</div>
@@ -777,6 +529,11 @@ export default function Module1Financing(): React.JSX.Element {
           <FacilitiesSection
             tranches={financingTranches}
             shares={result.shares}
+            phases={phases}
+            assets={assets}
+            updatePhase={updatePhase}
+            updateAsset={updateAsset}
+            fmt={fmt}
             projectStartYear={projectStartYear}
             operationsEndYear={operationsEndYear}
             defaultRepayStartYear={defaultRepayStartYear}
@@ -881,6 +638,11 @@ export default function Module1Financing(): React.JSX.Element {
 interface FacilitiesSectionProps {
   tranches: FinancingTranche[];
   shares: Map<string, number>;
+  phases: Phase[];
+  assets: Asset[];
+  updatePhase: (id: string, patch: Partial<Phase>) => void;
+  updateAsset: (id: string, patch: Partial<Asset>) => void;
+  fmt: (n: number) => string;
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
@@ -894,6 +656,7 @@ interface FacilitiesSectionProps {
 function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
   const {
     tranches, shares,
+    phases, assets, updatePhase, updateAsset, fmt,
     projectStartYear, operationsEndYear, defaultRepayStartYear,
     onAdd, onAddExisting, onUpdate, onRemove, onSet,
   } = props;
@@ -952,6 +715,11 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
           tranche={t}
           normalisedShare={shares.get(t.id) ?? 0}
           showShareField={tranches.filter((x) => x.origin !== 'existing').length > 1}
+          phases={phases}
+          assets={assets}
+          updatePhase={updatePhase}
+          updateAsset={updateAsset}
+          fmt={fmt}
           projectStartYear={projectStartYear}
           operationsEndYear={operationsEndYear}
           defaultRepayStartYear={defaultRepayStartYear}
@@ -970,6 +738,11 @@ interface TrancheCardProps {
   tranche: FinancingTranche;
   normalisedShare: number;
   showShareField: boolean;
+  phases: Phase[];
+  assets: Asset[];
+  updatePhase: (id: string, patch: Partial<Phase>) => void;
+  updateAsset: (id: string, patch: Partial<Asset>) => void;
+  fmt: (n: number) => string;
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
@@ -982,10 +755,17 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
   const {
     tranche: t,
     normalisedShare, showShareField,
+    phases, assets, updatePhase, updateAsset, fmt,
     projectStartYear, operationsEndYear, defaultRepayStartYear,
     onUpdate, onRemove, onShareChange,
   } = p;
   const isExisting = t.origin === 'existing';
+  // Pass 50 (2026-05-14): when this card is an existing facility,
+  // resolve its phase + per-phase assets so we can render inline
+  // baseline editors below the basic facility row.
+  const trancheePhase = isExisting ? phases.find((ph) => ph.id === t.phaseId) : undefined;
+  const trancheIsOperational = trancheePhase?.status === 'operational';
+  const trancheePhaseAssets = isExisting && trancheePhase ? assets.filter((a) => a.phaseId === trancheePhase.id) : [];
 
   // Pass 27 (2026-05-14): effective Interest Rate = Interbank + Credit
   // Spread, computed live and surfaced in a read-only field. Legacy
@@ -1065,49 +845,252 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
           repaymentStartYear + Repayment Periods directly. The
           method/start-year/periods row below is shared with new debt. */}
       {isExisting && (
-        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          <div>
-            <FieldLabel>Opening Balance</FieldLabel>
-            <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Outstanding loan balance at project Y0 (sole entry point).
+        <>
+          {/* Phase picker + basic facility fields */}
+          <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            <div>
+              <FieldLabel>Phase</FieldLabel>
+              <select
+                value={t.phaseId}
+                onChange={(e) => onUpdate(t.id, { phaseId: e.target.value })}
+                style={inputStyle}
+              >
+                {phases.map((ph) => (
+                  <option key={ph.id} value={ph.id}>
+                    {ph.name}{ph.status === 'operational' ? '' : ` (${ph.status ?? 'planning'})`}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Mark phase Operational on Tab 1 to enable BS + asset entry below.
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Opening Balance</FieldLabel>
+              <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Outstanding loan balance at project Y0.
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Origination Year</FieldLabel>
+              <input
+                type="number"
+                value={t.originationYear ?? (projectStartYear - 1)}
+                onChange={(e) => {
+                  const yr = Number(e.target.value);
+                  if (!Number.isFinite(yr)) return;
+                  onUpdate(t.id, { originationYear: Math.floor(yr) });
+                }}
+                style={inputStyle}
+              />
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                {(t.originationYear ?? (projectStartYear - 1)) >= projectStartYear
+                  ? 'Draws as cash inflow that year'
+                  : 'Pre-project balance carries at Y0'}
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Interest Start Year</FieldLabel>
+              <input
+                type="number"
+                min={projectStartYear}
+                max={operationsEndYear}
+                value={t.interestStartYear ?? projectStartYear}
+                onChange={(e) => {
+                  const yr = Number(e.target.value);
+                  if (!Number.isFinite(yr)) return;
+                  const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
+                  onUpdate(t.id, { interestStartYear: clamped });
+                }}
+                style={inputStyle}
+              />
             </div>
           </div>
-          <div>
-            <FieldLabel>Origination Year</FieldLabel>
-            <input
-              type="number"
-              value={t.originationYear ?? (projectStartYear - 1)}
-              onChange={(e) => {
-                const yr = Number(e.target.value);
-                if (!Number.isFinite(yr)) return;
-                onUpdate(t.id, { originationYear: Math.floor(yr) });
-              }}
-              style={inputStyle}
-            />
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              {(t.originationYear ?? (projectStartYear - 1)) >= projectStartYear
-                ? 'Draws as cash inflow that year'
-                : 'Pre-project balance carries at Y0'}
+
+          {/* Pass 50 (2026-05-14): inline Existing Operations editor.
+              Replaces the Pass 44/48 standalone card at the top of the
+              page. The per-phase opening BS items + per-asset baseline
+              entries live INSIDE the existing-facility card so the user
+              captures everything related to "this existing facility"
+              in one place. Renders only when the selected phase is
+              operational. */}
+          {trancheIsOperational && trancheePhase && (() => {
+            const ph = trancheePhase;
+            const b = ph.historicalBaseline;
+            const seedBaseline = (): PhaseHistoricalBaseline => b ?? {
+              historicalCapexTotal: 0,
+              historicalEquityContributed: 0,
+              historicalDebtDrawn: 0,
+              currentDebtOutstanding: 0,
+              cumulativeDepreciationCharged: 0,
+              netBookValueFixedAssets: 0,
+              last12MonthsRevenue: 0,
+              last12MonthsOpex: 0,
+            };
+            const phaseAssetsTotPre = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalPreCapex ?? 0), 0);
+            const phaseAssetsTotDebt = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
+            const phaseAssetsTotEq = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
+            const facilityDebtForPhase = Math.max(0, t.openingBalance ?? 0);
+            const debtMatchAtFacility = Math.abs(phaseAssetsTotDebt - facilityDebtForPhase) < 1;
+            const balancesOk = Math.abs(phaseAssetsTotPre - (phaseAssetsTotDebt + phaseAssetsTotEq)) < 1;
+            return (
+              <div style={{
+                marginTop: 'var(--sp-2)',
+                padding: 'var(--sp-2)',
+                border: '1px dashed var(--color-warning, #92400e)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'color-mix(in srgb, var(--color-warning, #92400e) 4%, transparent)',
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-warning, #92400e)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--sp-1)' }}>
+                  Existing Operations for {ph.name}
+                </div>
+
+                {/* Per-phase opening BS row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 'var(--sp-2)' }}>
+                  <div>
+                    <FieldLabel>Cumulative Depreciation</FieldLabel>
+                    <AccountingNumberInput
+                      value={b?.cumulativeDepreciationCharged ?? 0}
+                      onChange={(v) => updatePhase(ph.id, { historicalBaseline: { ...seedBaseline(), cumulativeDepreciationCharged: Math.max(0, v) } })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Net Book Value (Fixed Assets)</FieldLabel>
+                    <AccountingNumberInput
+                      value={b?.netBookValueFixedAssets ?? 0}
+                      onChange={(v) => updatePhase(ph.id, { historicalBaseline: { ...seedBaseline(), netBookValueFixedAssets: Math.max(0, v) } })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Existing Retained Earnings</FieldLabel>
+                    <AccountingNumberInput
+                      value={b?.existingRetainedEarnings ?? 0}
+                      onChange={(v) => updatePhase(ph.id, { historicalBaseline: { ...seedBaseline(), existingRetainedEarnings: Math.max(0, v) } })}
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                {/* Per-asset baseline rows */}
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                  Per-asset Historical Baseline ({trancheePhaseAssets.length} asset{trancheePhaseAssets.length === 1 ? '' : 's'})
+                </div>
+                {trancheePhaseAssets.length === 0 ? (
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', padding: 'var(--sp-1)', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                    No assets in {ph.name} yet. Add assets on Tab 2.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 6, marginBottom: 'var(--sp-1)' }}>
+                    {trancheePhaseAssets.map((a) => {
+                      const pre = Math.max(0, a.historicalPreCapex ?? 0);
+                      const dbt = Math.max(0, a.historicalDebtAmount ?? 0);
+                      const eq = Math.max(0, a.historicalEquityAmount ?? 0);
+                      const diff = pre - (dbt + eq);
+                      const aBalances = Math.abs(diff) < 1;
+                      const equityNeeded = Math.max(0, pre - dbt);
+                      return (
+                        <div
+                          key={a.id}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr',
+                            gap: 8,
+                            alignItems: 'end',
+                            padding: 'var(--sp-1)',
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 11,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset</div>
+                            <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{a.name}</div>
+                          </div>
+                          <div>
+                            <FieldLabel>Pre-Capex</FieldLabel>
+                            <AccountingNumberInput value={pre} onChange={(v) => updateAsset(a.id, { historicalPreCapex: Math.max(0, v) })} style={inputStyle} />
+                          </div>
+                          <div>
+                            <FieldLabel>Existing Debt</FieldLabel>
+                            <AccountingNumberInput value={dbt} onChange={(v) => updateAsset(a.id, { historicalDebtAmount: Math.max(0, v) })} style={inputStyle} />
+                          </div>
+                          <div>
+                            <FieldLabel>Existing Equity</FieldLabel>
+                            <AccountingNumberInput value={eq} onChange={(v) => updateAsset(a.id, { historicalEquityAmount: Math.max(0, v) })} style={inputStyle} />
+                          </div>
+                          <div
+                            title={
+                              aBalances
+                                ? `Pre-Capex ${fmt(pre)} = Debt ${fmt(dbt)} + Equity ${fmt(eq)}.`
+                                : `Pre-Capex ${fmt(pre)} should equal Debt ${fmt(dbt)} + Equity ${fmt(eq)}. Equity should be ${fmt(equityNeeded)} to balance.`
+                            }
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              fontWeight: 700,
+                              textAlign: 'center',
+                              fontSize: 11,
+                              background: aBalances ? 'color-mix(in srgb, var(--color-success, #166534) 16%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 16%, transparent)',
+                              color: aBalances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                            }}
+                          >
+                            {aBalances ? 'Balances' : `Off ${fmt(Math.abs(diff))}`}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Phase-level totals + cross-checks */}
+                {trancheePhaseAssets.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 'var(--sp-1)', fontSize: 11 }}>
+                    <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Pre-Capex</div>
+                      <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotPre)}</div>
+                    </div>
+                    <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Debt (assets)</div>
+                      <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotDebt)}</div>
+                    </div>
+                    <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: `1px solid ${debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}`, borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Facility Opening Bal</div>
+                      <div style={{ fontWeight: 700, color: debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)' }}>{fmt(facilityDebtForPhase)}</div>
+                      <div style={{ fontSize: 9, fontStyle: 'italic', color: 'var(--color-text-muted)' }}>{debtMatchAtFacility ? 'matches assets' : 'mismatch vs assets'}</div>
+                    </div>
+                    <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Equity (assets)</div>
+                      <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotEq)}</div>
+                    </div>
+                  </div>
+                )}
+                {!balancesOk && trancheePhaseAssets.length > 0 && (
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginTop: 6 }}>
+                    Pre-Capex {fmt(phaseAssetsTotPre)} != Debt {fmt(phaseAssetsTotDebt)} + Equity {fmt(phaseAssetsTotEq)}. Per-asset balances do not reconcile.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {!trancheIsOperational && (
+            <div style={{
+              marginTop: 'var(--sp-1)',
+              padding: '6px 10px',
+              border: '1px dashed var(--color-text-muted)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 11,
+              color: 'var(--color-text-muted)',
+              fontStyle: 'italic',
+            }}>
+              Mark this phase as Operational on Tab 1 to capture per-asset Pre-Capex / Debt / Equity + opening BS items here.
             </div>
-          </div>
-          <div>
-            <FieldLabel>Interest Start Year</FieldLabel>
-            <input
-              type="number"
-              min={projectStartYear}
-              max={operationsEndYear}
-              value={t.interestStartYear ?? projectStartYear}
-              onChange={(e) => {
-                const yr = Number(e.target.value);
-                if (!Number.isFinite(yr)) return;
-                const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
-                onUpdate(t.id, { interestStartYear: clamped });
-              }}
-              style={inputStyle}
-            />
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* Pass 29 (2026-05-14): rate + fee fields collapse into a single
