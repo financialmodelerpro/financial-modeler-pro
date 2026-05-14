@@ -210,44 +210,59 @@ export default function Topbar({
         </span>
       </button>
 
+      {/* Pass 39 (2026-05-14): every topbar control now carries a
+          multi-line title tooltip explaining what it does.
+          Pass 40 (2026-05-14): visual differentiation - Version goes
+          amber when on Unsaved draft, Save glows + pulses when dirty
+          and shows a check when clean, and the right-edge cluster
+          (Settings / Dark / Hub / Sign Out) is now compact icon
+          buttons with descriptive hover tooltips, freeing horizontal
+          space and reducing visual noise. */}
+
       <button
         className="pm-btn ctx"
         onClick={onOpenVersions}
         title={'VERSION\n\nA named snapshot of the project at a moment in time. Switching versions reloads the model from that snapshot - useful for comparing scenarios or recovering an older state.\n\n"Unsaved draft" means you are editing on top of the active version but have not saved a new snapshot yet. Hit Save to create one.'}
         data-testid="topbar-open-version"
+        style={{
+          background: !activeVersionData
+            ? 'color-mix(in srgb, var(--color-warning, #92400e) 28%, transparent)'
+            : undefined,
+          borderColor: !activeVersionData
+            ? 'color-mix(in srgb, var(--color-warning, #92400e) 65%, transparent)'
+            : undefined,
+        }}
       >
-        <span className="ctx-eyebrow">Version</span>
+        <span className="ctx-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          {!activeVersionData && <span style={{ fontSize: 10 }}>⚠</span>}
+          Version
+        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
           <span className="ctx-name">{activeVersionData?.name ?? 'Unsaved draft'}</span>
           <span className="ctx-arrow">▼</span>
         </span>
       </button>
 
-      {hasUnsaved && (
-        <span
-          style={{
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: 'var(--color-input-border)',
-            flexShrink: 0,
-            boxShadow: '0 0 6px color-mix(in srgb, var(--color-input-border) 70%, transparent)',
-          }}
-          title={'Unsaved changes\n\nThere are edits in this draft that have not been written to a saved version. Hit Save to capture a snapshot.'}
-          data-testid="topbar-unsaved-dot"
-        />
-      )}
       {lastSavedAt && !hasUnsaved && (
         <span
           style={{
             fontSize: '10px',
-            color: 'color-mix(in srgb, var(--color-on-primary-navy) 40%, transparent)',
+            fontWeight: 600,
+            color: 'color-mix(in srgb, var(--color-success, #166534) 90%, white)',
+            background: 'color-mix(in srgb, var(--color-success, #166534) 22%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-success, #166534) 45%, transparent)',
+            padding: '2px 8px',
+            borderRadius: 12,
             flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            lineHeight: 1,
           }}
           title={`Last saved at ${lastSavedAt}. The current draft matches the active version on the server.`}
           data-testid="topbar-saved-stamp"
         >
-          Saved {lastSavedAt}
+          <span>✓</span> Saved {lastSavedAt}
         </span>
       )}
 
@@ -259,19 +274,39 @@ export default function Topbar({
           onClick={onSave}
           title={'SAVE\n\nCreates a new version snapshot of the current state, named with the current time (e.g. "Save 14:32:08"). Use the Version dropdown to view, name, or jump back between snapshots.\n\nTip: Save often. Snapshots are cheap and let you compare scenarios.'}
           data-testid="topbar-save"
+          style={{
+            position: 'relative',
+            boxShadow: hasUnsaved
+              ? '0 0 0 2px color-mix(in srgb, var(--color-success, #166534) 35%, transparent), 0 2px 8px color-mix(in srgb, var(--color-success, #166534) 50%, transparent)'
+              : undefined,
+            animation: hasUnsaved ? 'topbar-save-pulse 2s ease-in-out infinite' : undefined,
+            opacity: hasUnsaved ? 1 : 0.85,
+            paddingRight: hasUnsaved ? 16 : undefined,
+          }}
         >
-          Save
-          {hasUnsaved && (
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: 'var(--color-input-border)',
-                marginLeft: '4px',
-                display: 'inline-block',
-              }}
-            />
+          {hasUnsaved ? (
+            <>
+              Save
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -3,
+                  right: -3,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#fbbf24',
+                  border: '1.5px solid var(--color-primary-deep)',
+                  boxShadow: '0 0 6px rgba(251,191,36,0.7)',
+                }}
+                aria-label="unsaved changes"
+              />
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 11, marginRight: 2 }}>✓</span>
+              Saved
+            </>
           )}
         </button>
       )}
@@ -326,48 +361,52 @@ export default function Topbar({
 
       <div className="pm-divider" />
 
+      {/* Compact icon cluster: Settings, Dark, Hub, Sign Out */}
       <Link
         href="/settings"
-        className="portal-back-btn"
+        className="topbar-icon-btn"
         title={'SETTINGS\n\nAccount preferences (display name, currency defaults, notification settings). Opens the user settings page in the same tab.'}
         data-testid="topbar-settings"
+        aria-label="Settings"
       >
-        Settings
+        ⚙
       </Link>
 
       <button
         type="button"
         onClick={onToggleDark}
-        className="portal-back-btn"
+        className="topbar-icon-btn"
         title={darkMode
           ? 'Switch to LIGHT mode\n\nUI theme. Stored locally in your browser; does not affect other users.'
           : 'Switch to DARK mode\n\nUI theme. Stored locally in your browser; does not affect other users.'}
         aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
         data-testid="topbar-toggle-dark"
       >
-        {darkMode ? 'Light' : 'Dark'}
+        {darkMode ? '☀' : '🌙'}
       </button>
 
       <Link
         href="/modeling/dashboard"
-        className="portal-back-btn"
+        className="topbar-icon-btn"
         title={'HUB\n\nReturn to the Modeling Hub home page where you can pick a different platform (Real Estate, Business Valuation, etc.). Your current draft stays loaded - you can come back via the project list.'}
         data-testid="topbar-hub"
+        aria-label="Modeling Hub"
       >
-        Hub
+        ⌂
       </Link>
 
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="portal-back-btn"
+        className="topbar-icon-btn"
         title={'SIGN OUT\n\nEnd your session and return to the public site. Unsaved draft changes are kept on the server so you can resume after signing back in.'}
         style={{
-          border: '1px solid color-mix(in srgb, var(--color-negative) 40%, transparent)',
-          color: 'var(--color-negative)',
+          color: 'var(--color-negative, #b91c1c)',
+          borderColor: 'color-mix(in srgb, var(--color-negative, #b91c1c) 50%, transparent)',
         }}
         data-testid="topbar-signout"
+        aria-label="Sign out"
       >
-        Sign Out
+        ⏻
       </button>
     </div>
   );

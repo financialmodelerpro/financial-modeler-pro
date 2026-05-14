@@ -1143,6 +1143,36 @@ thead th:first-child { border-radius: 0; }
 .portal-launch-btn.upgrade:hover { background: var(--color-navy-pale); }
 .portal-back-btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: var(--radius-sm); font-size: var(--font-meta); font-weight: var(--fw-semibold); cursor: pointer; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); transition: var(--transition); white-space: nowrap; flex-shrink: 0; }
 .portal-back-btn:hover { background: rgba(255,255,255,0.16); color: white; border-color: rgba(255,255,255,0.35); }
+
+/* Pass 40 (2026-05-14): compact icon-only buttons used by the platform
+   topbar's right-side cluster (Settings / Dark / Hub / Sign Out). Same
+   size as a context button but only shows an icon; the descriptive
+   tooltip lives on `title`. Keeps the toolbar tight on narrow screens
+   without dropping discoverability. */
+.topbar-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.78);
+    font-size: 14px; line-height: 1;
+    cursor: pointer; transition: var(--transition);
+    text-decoration: none; flex-shrink: 0;
+}
+.topbar-icon-btn:hover {
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    border-color: rgba(255,255,255,0.4);
+    transform: translateY(-1px);
+}
+
+/* Pass 40 (2026-05-14): subtle pulse on the Save button when the draft
+   has unsaved changes. Draws the eye without being distracting. */
+@keyframes topbar-save-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success, #166534) 35%, transparent), 0 2px 8px color-mix(in srgb, var(--color-success, #166534) 50%, transparent); }
+    50%      { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success, #166534) 50%, transparent), 0 4px 14px color-mix(in srgb, var(--color-success, #166534) 70%, transparent); }
+}
 .portal-footer { text-align: center; padding: var(--sp-4) var(--sp-3); color: var(--color-muted); font-size: var(--font-micro); border-top: 1px solid var(--color-border); margin-top: var(--sp-5); background: var(--color-surface); }
 
 /* ── Toast animation ── */
