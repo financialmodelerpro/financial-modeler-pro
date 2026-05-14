@@ -208,7 +208,7 @@ export default function AdminPlatformModulesPage() {
 
   // Load Real Estate asset classes once (only used when active = real-estate)
   useEffect(() => {
-    fetch('/api/admin/asset-types')
+    fetch('/api/admin/asset-types?includeHidden=1')
       .then((r) => r.json())
       .then((j) => {
         setAssetTypes((j.assetTypes ?? []) as AssetType[]);

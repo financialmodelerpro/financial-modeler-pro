@@ -8,11 +8,17 @@ async function checkAdmin() {
   return (session?.user as { role?: string } | undefined)?.role === 'admin';
 }
 
-export async function GET() {
-  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+// Pass 46 (2026-05-14): GET is now PUBLIC. By default returns only
+// `visible = true` rows so the marketing site can render the REFM
+// asset class grid. Admins pass `?includeHidden=1` to get the full
+// list (with the visibility flag) for the toggle UI.
+export async function GET(req: NextRequest) {
   try {
+    const includeHidden = new URL(req.url).searchParams.get('includeHidden') === '1';
+    const isAdmin = includeHidden ? await checkAdmin() : false;
     const sb = getServerClient();
-    const { data } = await sb.from('asset_types').select('*').order('display_order');
+    const query = sb.from('asset_types').select('*').order('display_order');
+    const { data } = includeHidden && isAdmin ? await query : await query.eq('visible', true);
     return NextResponse.json({ assetTypes: data ?? [] });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch asset types' }, { status: 500 });

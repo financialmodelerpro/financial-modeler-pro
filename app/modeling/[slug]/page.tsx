@@ -138,6 +138,32 @@ export default async function PlatformDetailPage({
         }))
     : platform.modules;
 
+  // Pass 46 (2026-05-14): REFM-only asset class catalog, fetched
+  // server-side from the public asset_types endpoint. Admin toggles
+  // visibility on /admin/platform-modules under the REFM tab; only
+  // `visible = true` rows make it here.
+  interface AssetTypeRow {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    visible: boolean;
+    display_order: number;
+  }
+  let assetClasses: AssetTypeRow[] = [];
+  if (slug === 'real-estate') {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
+      const res = await fetch(`${baseUrl}/api/admin/asset-types`, { next: { revalidate: 60 } });
+      if (res.ok) {
+        const j = await res.json() as { assetTypes?: AssetTypeRow[] };
+        assetClasses = (j.assetTypes ?? []).filter((a) => a.visible);
+      }
+    } catch {
+      // Silent: marketing page falls back to hiding the section.
+    }
+  }
+
   // ── CMS sections for this platform ─────────────────────────────────────
   const cmsSections = await getAllPageSections(`modeling-${slug}`);
 
@@ -488,6 +514,74 @@ export default async function PlatformDetailPage({
                       <div style={{ fontSize: 12, fontWeight: 700, color: moduleCircleColor(mod.status) }}>
                         {moduleStatusLabel(mod.status)}
                       </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Asset Classes (REFM only) ─────────────────────────────────────
+            Pass 46 (2026-05-14): catalog of supported asset class
+            templates, sourced from the asset_types DB table. Admins
+            toggle visibility on /admin/platform-modules under the
+            REFM tab; this section hides automatically when no rows are
+            visible. */}
+        {slug === 'real-estate' && assetClasses.length > 0 && (
+          <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+            <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+              <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                <div style={{
+                  display: 'inline-block',
+                  background: platform.bgColor,
+                  color: platform.color,
+                  fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                  padding: '5px 14px', borderRadius: 20, marginBottom: 12,
+                  textTransform: 'uppercase',
+                }}>
+                  Asset Class Coverage
+                </div>
+                <h2 style={{ fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800, color: '#0A2248', marginBottom: 12, lineHeight: 1.2 }}>
+                  Supported Real Estate Asset Classes
+                </h2>
+                <p style={{ fontSize: 15, color: '#6B7280', maxWidth: 640, margin: '0 auto', lineHeight: 1.6 }}>
+                  Each asset class ships with its own input templates, KPIs and benchmarks. Mix multiple classes within a single project for mixed-use developments.
+                </p>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: 18,
+              }}>
+                {assetClasses.map((a) => (
+                  <div
+                    key={a.id}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid #E5E7EB',
+                      borderRadius: 12,
+                      padding: '22px 20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      transition: 'border-color 0.18s, box-shadow 0.18s, transform 0.18s',
+                    }}
+                  >
+                    <div style={{
+                      width: 48, height: 48, borderRadius: 10,
+                      background: platform.bgColor,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 26, lineHeight: 1,
+                    }}>
+                      {a.icon}
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0A2248', lineHeight: 1.3 }}>
+                      {a.name}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.55 }}>
+                      {a.description}
                     </div>
                   </div>
                 ))}
