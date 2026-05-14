@@ -22,7 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Media Library',     href: '/admin/media',                          icon: '🖼️' },
   { type: 'divider',            label: 'Modeling Hub' },
   { label: 'Modules',           href: '/admin/platform-modules',               icon: '📚' },
-  { label: 'Launch & Assets',   href: '/admin/modules',                        icon: '🧩' },
+  { label: 'Launch Settings',   href: '/admin/modules',                        icon: '🚀' },
   { label: 'Access Whitelist',  href: '/admin/modeling-access',                icon: '🔑' },
   { label: 'Users',             href: '/admin/users',                          icon: '👥' },
   { label: 'Pricing',           href: '/admin/pricing',                        icon: '💰' },

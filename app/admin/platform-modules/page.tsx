@@ -30,6 +30,15 @@ interface Platform {
   display_order: number;
 }
 
+interface AssetType {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  visible: boolean;
+  display_order: number;
+}
+
 const PLATFORM_STATUS_CFG: Record<Platform['status'], { label: string; bg: string; color: string }> = {
   live:        { label: '✓ Live',      bg: '#E8F7EC', color: '#1A7A30' },
   coming_soon: { label: 'Coming Soon', bg: '#FEF3C7', color: '#92400E' },
@@ -113,6 +122,11 @@ export default function AdminPlatformModulesPage() {
   const [savingPlatform, setSavingPlatform] = useState(false);
   const [cyclingPlatform, setCyclingPlatform] = useState(false);
 
+  // Real Estate Asset Classes (only renders when active platform = real-estate)
+  const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
+  const [togglingAsset, setTogglingAsset] = useState<string | null>(null);
+
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
@@ -148,6 +162,38 @@ export default function AdminPlatformModulesPage() {
   useEffect(() => {
     if (activePlatformSlug) loadModules(activePlatformSlug);
   }, [activePlatformSlug, loadModules]);
+
+  // Load Real Estate asset classes once (only used when active = real-estate)
+  useEffect(() => {
+    fetch('/api/admin/asset-types')
+      .then((r) => r.json())
+      .then((j) => {
+        setAssetTypes((j.assetTypes ?? []) as AssetType[]);
+        setLoadingAssets(false);
+      })
+      .catch(() => setLoadingAssets(false));
+  }, []);
+
+  async function toggleAssetVisible(a: AssetType) {
+    setTogglingAsset(a.id);
+    try {
+      const res = await fetch('/api/admin/asset-types', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: a.id, visible: !a.visible }),
+      });
+      if (res.ok) {
+        setAssetTypes((prev) => prev.map((t) => (t.id === a.id ? { ...t, visible: !t.visible } : t)));
+        showToast('Asset class visibility updated');
+      } else {
+        showToast('Update failed', 'error');
+      }
+    } catch {
+      showToast('Update failed', 'error');
+    } finally {
+      setTogglingAsset(null);
+    }
+  }
 
   // ── Module CRUD ────────────────────────────────────────────────────────
   function startEdit(m: PlatformModule) {
@@ -685,6 +731,54 @@ export default function AdminPlatformModulesPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── REFM-only: Real Estate Asset Classes ── */}
+        {activePlatformSlug === 'real-estate' && (
+          <section data-testid="real-estate-asset-classes" style={{ marginTop: 12 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Real Estate Asset Classes</h2>
+            <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+              Toggle which REFM asset class cards are visible to visitors. Hidden items show a lock badge in admin only.
+            </p>
+
+            {loadingAssets ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading asset classes…</div>
+            ) : (
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <THead cols={['#', 'Icon', 'Asset Class', 'Visibility', 'Toggle']} />
+                  <tbody>
+                    {assetTypes.map((a, i) => (
+                      <tr key={a.id} style={{ borderTop: '1px solid #E8F0FB', background: i % 2 === 1 ? '#F9FAFB' : '#fff' }}>
+                        <td style={{ padding: '12px 16px', fontSize: 13, color: '#9CA3AF', width: 40 }}>{a.display_order}</td>
+                        <td style={{ padding: '12px 16px', fontSize: 24 }}>{a.icon}</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{a.name}</div>
+                          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                            {a.description.substring(0, 70)}{a.description.length > 70 ? '…' : ''}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>
+                          {a.visible
+                            ? <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: '#E8F7EC', color: '#1A7A30' }}>✓ Visible</span>
+                            : <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: '#F3F4F6', color: '#6B7280' }}>🔒 Hidden</span>}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <button
+                            onClick={() => toggleAssetVisible(a)}
+                            disabled={togglingAsset === a.id}
+                            style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: a.visible ? '#fff' : '#1B4F8A', cursor: 'pointer', color: a.visible ? '#374151' : '#fff', opacity: togglingAsset === a.id ? 0.5 : 1 }}
+                          >
+                            {togglingAsset === a.id ? 'Saving…' : a.visible ? 'Hide' : 'Make Visible'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         )}
       </main>
 
