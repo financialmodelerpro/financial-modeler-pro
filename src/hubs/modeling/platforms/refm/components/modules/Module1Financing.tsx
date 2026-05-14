@@ -425,12 +425,14 @@ export default function Module1Financing(): React.JSX.Element {
                         <td style={ROW_DATA.num}>
                           <PercentageInput
                             value={debtPct}
+                            style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
                             onChange={(v) => setParcelFundingPatch(p.id, { debtPct: v, equityPct: Math.max(0, 100 - v) })}
                           />
                         </td>
                         <td style={ROW_DATA.num}>
                           <PercentageInput
                             value={equityPct}
+                            style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
                             onChange={(v) => setParcelFundingPatch(p.id, { equityPct: v, debtPct: Math.max(0, 100 - v) })}
                           />
                         </td>

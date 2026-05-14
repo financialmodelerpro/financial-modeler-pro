@@ -141,7 +141,7 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   ...MODULES.map((m): SidebarNavItem => ({
     key: m.key,
     icon: m.icon,
-    label: `Module ${m.num}, ${m.shortLabel}`,
+    label: `Module ${m.num}: ${m.shortLabel}`,
     featureKey: m.featureKey,
     requiredPlan: m.requiredPlan,
     badge: m.status === 'done' ? '✓' : m.status === 'soon' ? 'SOON' : null,
@@ -494,7 +494,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
     // Combined with `.app-shell { overflow: hidden }` and `<main
     // overflow: auto >`, the sidebar stays put while only the
     // workspace content scrolls. Standard SaaS pattern.
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    // Pass 32 (2026-05-14): default platform zoom 80% so the dense
+    // financial tables breathe at typical 1080p+ widths. CSS `zoom`
+    // is widely supported in evergreen browsers and composes with
+    // the user's own browser zoom (Ctrl+/-).
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh / 0.8)', width: 'calc(100vw / 0.8)', overflow: 'hidden', zoom: 0.8 }}>
       <Topbar
         projectName={activeProjectData?.name ?? ''}
         activeProjectData={activeProjectData}

@@ -50,7 +50,7 @@ function staticModuleToNav(m: ModuleConfig): SidebarNavItem {
   return {
     key: m.key,
     icon: m.icon,
-    label: `Module ${m.num}, ${m.shortLabel}`,
+    label: `Module ${m.num}: ${m.shortLabel}`,
     featureKey: m.featureKey,
     requiredPlan: m.requiredPlan,
     badge: m.status === 'done' ? '✓' : m.status === 'soon' ? 'SOON' : null,

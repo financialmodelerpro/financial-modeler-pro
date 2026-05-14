@@ -106,7 +106,10 @@
     --sp-5: 48px;
 
     /* ── Layout ── */
-    --sidebar-width:           240px;
+    /* Pass 32 (2026-05-14): sidebar widened ~10% (240 -> 264) so the
+       longer module labels ("Module N: <Name>") have room without
+       truncating. */
+    --sidebar-width:           264px;
     --sidebar-width-collapsed: 52px;
     --topbar-height:           40px;
 
