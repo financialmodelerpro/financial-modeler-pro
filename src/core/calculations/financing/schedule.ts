@@ -108,12 +108,19 @@ export function computeFacilitySchedule(
       ? Math.max(0, Math.min(N, tranche.repaymentStartYear - projectStartYear))
       : constructionEndProj + grace;
 
-  // Pass 24b (2026-05-14): for fixed-count methods (straight_line,
-  // equal_periodic_amortization, balloon, bullet), fall back to the
+  // Pass 24b (2026-05-14): for fixed-count methods, fall back to the
   // remaining axis tail when the user leaves Repayment Periods at 0.
   // Without this, new tranches produced no principal repayment at all
   // (effRepay === 0 short-circuited every fixed-count branch below).
-  const fixedCountMethods = ['straight_line', 'equal_periodic_amortization', 'balloon', 'bullet'];
+  // Pass 28b (2026-05-14): added the user-facing 'equal_repayment'
+  // method (with sub-mode equal_total / equal_principal) to the list.
+  const fixedCountMethods = [
+    'equal_repayment',
+    'straight_line',
+    'equal_periodic_amortization',
+    'balloon',
+    'bullet',
+  ];
   const effRepay = rawRepay > 0
     ? rawRepay
     : (!isExisting && fixedCountMethods.includes(tranche.repaymentMethod))
@@ -132,6 +139,24 @@ export function computeFacilitySchedule(
       for (let i = 0; i < N; i++) {
         const w = Math.max(0, dist[i] ?? 0) / dsum;
         repBudget[i] = totalDrawn * w;
+      }
+    }
+  } else if (method === 'equal_repayment' && effRepay > 0) {
+    // Pass 28b (2026-05-14): user-facing Equal Repayment method.
+    //   equal_total     = annuity (PMT) - same maths as legacy
+    //                     equal_periodic_amortization
+    //   equal_principal = straight-line - same as legacy straight_line
+    // Default sub-mode is equal_total when unset.
+    const subMethod = tranche.equalRepaymentSubMethod ?? 'equal_total';
+    if (subMethod === 'equal_principal') {
+      const slice = totalDrawn / effRepay;
+      for (let i = 0; i < effRepay && (repayStartProj + i) < N; i++) {
+        repBudget[repayStartProj + i] = slice;
+      }
+    } else {
+      const pmt = equalPeriodicPayment(totalDrawn, periodicRate, effRepay);
+      for (let i = 0; i < effRepay && (repayStartProj + i) < N; i++) {
+        repBudget[repayStartProj + i] = pmt;
       }
     }
   } else if (method === 'straight_line' && effRepay > 0) {
@@ -180,7 +205,8 @@ export function computeFacilitySchedule(
       ? Math.min(N - 1, repayStartProj + effRepay - 1)
       : N - 1;
   const sweepsAtMaturity =
-    method === 'straight_line'
+    method === 'equal_repayment'
+    || method === 'straight_line'
     || method === 'equal_periodic_amortization'
     || method === 'year_on_year_pct'
     || method === 'balloon'
@@ -203,6 +229,12 @@ export function computeFacilitySchedule(
     if (sweepsAtMaturity && i === finalRepayIdx && pay < bal) pay = bal;
     principalRepaid[i] = pay;
     bal -= pay;
+    // Pass 28b (2026-05-14): snap rounding remainder to zero so the
+    // closing balance UI doesn't show stray ±100s left over from
+    // PMT / annuity arithmetic. Threshold ±1000 (raw currency units)
+    // per user request - tight enough to catch rounding, loose enough
+    // to not mask a real residual.
+    if (Math.abs(bal) < 1000) bal = 0;
     outstanding[i] = bal;
   }
 
