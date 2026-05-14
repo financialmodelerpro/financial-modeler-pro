@@ -908,6 +908,138 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             </div>
           </div>
 
+        </>
+      )}
+
+      {/* Pass 29 (2026-05-14): rate + fee fields collapse into a single
+          5-column row for compact entry. */}
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+        <div>
+          <FieldLabel>Interbank Rate %</FieldLabel>
+          <PercentageInput
+            value={interbankPct}
+            onChange={(v) => onUpdate(t.id, {
+              interbankRatePct: v,
+              interestRatePct: v + creditSpreadPct,
+            })}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <FieldLabel>Credit Spread %</FieldLabel>
+          <PercentageInput
+            value={creditSpreadPct}
+            onChange={(v) => onUpdate(t.id, {
+              creditSpreadPct: v,
+              interestRatePct: interbankPct + v,
+            })}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <FieldLabel>Interest Rate %</FieldLabel>
+          <PercentageInput
+            value={effectiveRatePct}
+            onChange={() => { /* read-only: derived from Interbank + Credit Spread */ }}
+            disabled
+            style={{ ...inputStyle, background: 'var(--color-surface-muted, #f3f4f6)', color: 'var(--color-text-muted, #6b7280)' }}
+          />
+        </div>
+        <div>
+          <FieldLabel>Upfront Fee %</FieldLabel>
+          <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} style={inputStyle} />
+        </div>
+        <div>
+          <FieldLabel>Commitment Fee %</FieldLabel>
+          <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} style={inputStyle} />
+        </div>
+      </div>
+
+      {/* Pass 36 (2026-05-14): single shared repayment row for both
+          new and existing tranches. Existing maps the Repayment
+          Periods field to `remainingRepaymentPeriods` (legacy schema
+          field) for back-compat; new uses `repaymentPeriods`. */}
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        <div>
+          <FieldLabel>Repayment Method</FieldLabel>
+          <select
+            value={t.repaymentMethod}
+            onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
+            style={inputStyle}
+          >
+            {REPAYMENT_METHODS_USER.map((m) => (
+              <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <FieldLabel>Repayment Start Year</FieldLabel>
+          <input
+            type="number"
+            min={projectStartYear}
+            max={operationsEndYear}
+            value={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
+            onChange={(e) => {
+              const yr = Number(e.target.value);
+              if (!Number.isFinite(yr)) return;
+              const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
+              onUpdate(t.id, { repaymentStartYear: clamped });
+            }}
+            style={inputStyle}
+          />
+        </div>
+        {t.repaymentMethod !== 'year_on_year_pct' ? (
+          <div>
+            <FieldLabel>Repayment Periods</FieldLabel>
+            <input
+              type="number"
+              value={isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)}
+              onChange={(e) => {
+                const n = Math.max(0, Number(e.target.value) || 0);
+                onUpdate(t.id, isExisting ? { remainingRepaymentPeriods: n } : { repaymentPeriods: n });
+              }}
+              style={inputStyle}
+            />
+          </div>
+        ) : (
+          <div />
+        )}
+        {showShareField && !isExisting ? (
+          <div>
+            <FieldLabel>Facility Share %</FieldLabel>
+            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} style={inputStyle} />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Normalised: {normalisedShare.toFixed(2)}%
+            </div>
+          </div>
+        ) : <div />}
+      </div>
+
+      {t.repaymentMethod === 'year_on_year_pct' && (
+        <YoYScheduleEditor
+          schedule={t.yearOnYearPctSchedule ?? []}
+          startYear={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
+          endYear={isExisting
+            ? Math.min(operationsEndYear, (t.repaymentStartYear ?? projectStartYear) + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
+            : operationsEndYear}
+          onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
+        />
+      )}
+
+      {(t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (
+        <CashSweepEditor
+          config={t.cashSweepConfig}
+          onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
+        />
+      )}
+
+      {/* Pass 53 (2026-05-14): Existing Operations panel
+          relocated BELOW the rate + repayment rows so the user
+          completes facility-specific fields first, then enters
+          per-phase + per-asset baseline data. Same logic as
+          Pass 50, just re-anchored. */}
+      {isExisting && (
+        <>
           {/* Pass 50 (2026-05-14): inline Existing Operations editor.
               Replaces the Pass 44/48 standalone card at the top of the
               page. The per-phase opening BS items + per-asset baseline
@@ -1118,128 +1250,6 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             </div>
           )}
         </>
-      )}
-
-      {/* Pass 29 (2026-05-14): rate + fee fields collapse into a single
-          5-column row for compact entry. */}
-      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-        <div>
-          <FieldLabel>Interbank Rate %</FieldLabel>
-          <PercentageInput
-            value={interbankPct}
-            onChange={(v) => onUpdate(t.id, {
-              interbankRatePct: v,
-              interestRatePct: v + creditSpreadPct,
-            })}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <FieldLabel>Credit Spread %</FieldLabel>
-          <PercentageInput
-            value={creditSpreadPct}
-            onChange={(v) => onUpdate(t.id, {
-              creditSpreadPct: v,
-              interestRatePct: interbankPct + v,
-            })}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <FieldLabel>Interest Rate %</FieldLabel>
-          <PercentageInput
-            value={effectiveRatePct}
-            onChange={() => { /* read-only: derived from Interbank + Credit Spread */ }}
-            disabled
-            style={{ ...inputStyle, background: 'var(--color-surface-muted, #f3f4f6)', color: 'var(--color-text-muted, #6b7280)' }}
-          />
-        </div>
-        <div>
-          <FieldLabel>Upfront Fee %</FieldLabel>
-          <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} style={inputStyle} />
-        </div>
-        <div>
-          <FieldLabel>Commitment Fee %</FieldLabel>
-          <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} style={inputStyle} />
-        </div>
-      </div>
-
-      {/* Pass 36 (2026-05-14): single shared repayment row for both
-          new and existing tranches. Existing maps the Repayment
-          Periods field to `remainingRepaymentPeriods` (legacy schema
-          field) for back-compat; new uses `repaymentPeriods`. */}
-      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-        <div>
-          <FieldLabel>Repayment Method</FieldLabel>
-          <select
-            value={t.repaymentMethod}
-            onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
-            style={inputStyle}
-          >
-            {REPAYMENT_METHODS_USER.map((m) => (
-              <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <FieldLabel>Repayment Start Year</FieldLabel>
-          <input
-            type="number"
-            min={projectStartYear}
-            max={operationsEndYear}
-            value={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
-            onChange={(e) => {
-              const yr = Number(e.target.value);
-              if (!Number.isFinite(yr)) return;
-              const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
-              onUpdate(t.id, { repaymentStartYear: clamped });
-            }}
-            style={inputStyle}
-          />
-        </div>
-        {t.repaymentMethod !== 'year_on_year_pct' ? (
-          <div>
-            <FieldLabel>Repayment Periods</FieldLabel>
-            <input
-              type="number"
-              value={isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)}
-              onChange={(e) => {
-                const n = Math.max(0, Number(e.target.value) || 0);
-                onUpdate(t.id, isExisting ? { remainingRepaymentPeriods: n } : { repaymentPeriods: n });
-              }}
-              style={inputStyle}
-            />
-          </div>
-        ) : (
-          <div />
-        )}
-        {showShareField && !isExisting ? (
-          <div>
-            <FieldLabel>Facility Share %</FieldLabel>
-            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} style={inputStyle} />
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Normalised: {normalisedShare.toFixed(2)}%
-            </div>
-          </div>
-        ) : <div />}
-      </div>
-
-      {t.repaymentMethod === 'year_on_year_pct' && (
-        <YoYScheduleEditor
-          schedule={t.yearOnYearPctSchedule ?? []}
-          startYear={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
-          endYear={isExisting
-            ? Math.min(operationsEndYear, (t.repaymentStartYear ?? projectStartYear) + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
-            : operationsEndYear}
-          onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
-        />
-      )}
-
-      {(t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (
-        <CashSweepEditor
-          config={t.cashSweepConfig}
-          onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
-        />
       )}
     </div>
   );
