@@ -767,6 +767,27 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
   const trancheIsOperational = trancheePhase?.status === 'operational';
   const trancheePhaseAssets = isExisting && trancheePhase ? assets.filter((a) => a.phaseId === trancheePhase.id) : [];
 
+  // Pass 54 (2026-05-14): single source of truth for opening debt.
+  // Per-asset Existing Debt is the sole input; tranche.openingBalance
+  // is auto-synced to the sum so the user doesn't enter the same
+  // number twice. Engine reads `t.openingBalance` so we keep that
+  // field on the schema, but the UI surfaces it as a read-only mirror
+  // when the facility is the sole existing facility in its phase.
+  const phaseExistingDebtTotal = isExisting && trancheePhase
+    ? trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0)
+    : 0;
+  React.useEffect(() => {
+    if (!isExisting || !trancheIsOperational) return;
+    const target = Math.round(phaseExistingDebtTotal);
+    const current = Math.round(t.openingBalance ?? 0);
+    if (target !== current) {
+      onUpdate(t.id, { openingBalance: target });
+    }
+    // intentionally not depending on onUpdate / t.id to avoid loops -
+    // those are stable enough that the per-render diff catches drift.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phaseExistingDebtTotal, isExisting, trancheIsOperational]);
+
   // Pass 27 (2026-05-14): effective Interest Rate = Interbank + Credit
   // Spread, computed live and surfaced in a read-only field. Legacy
   // snapshots without the components fall back to interestRatePct
@@ -867,10 +888,35 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             </div>
             <div>
               <FieldLabel>Opening Balance</FieldLabel>
-              <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Outstanding loan balance at project Y0. <strong>This is the figure that flows into the schedules.</strong>
-              </div>
+              {/* Pass 54 (2026-05-14): read-only when phase is operational -
+                  auto-synced from sum of per-asset Existing Debt below.
+                  Editable only as a fallback when the phase has no assets
+                  yet (so the user can sketch out a facility size before
+                  detailing per-asset breakdown). */}
+              {trancheIsOperational && trancheePhaseAssets.length > 0 ? (
+                <>
+                  <div style={{
+                    ...inputStyle,
+                    background: 'var(--color-surface-muted, #f3f4f6)',
+                    color: 'var(--color-heading)',
+                    cursor: 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}>
+                    {fmt(t.openingBalance ?? 0)}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                    Auto-synced from per-asset Existing Debt below. Edit assets to change.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                    Outstanding loan balance at project Y0. Will auto-sync once you add assets to this phase.
+                  </div>
+                </>
+              )}
             </div>
             <div>
               <FieldLabel>Origination Year</FieldLabel>
@@ -1063,8 +1109,6 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             const phaseAssetsTotPre = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalPreCapex ?? 0), 0);
             const phaseAssetsTotDebt = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
             const phaseAssetsTotEq = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
-            const facilityDebtForPhase = Math.max(0, t.openingBalance ?? 0);
-            const debtMatchAtFacility = Math.abs(phaseAssetsTotDebt - facilityDebtForPhase) < 1;
             const balancesOk = Math.abs(phaseAssetsTotPre - (phaseAssetsTotDebt + phaseAssetsTotEq)) < 1;
             return (
               <div style={{
@@ -1178,51 +1222,24 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                   </div>
                 )}
 
-                {/* Phase-level totals + cross-checks */}
+                {/* Phase-level totals.
+                    Pass 54 (2026-05-14): Facility Opening Bal cross-check
+                    tile removed - Opening Balance is now auto-synced
+                    from the per-asset Existing Debt total, so a
+                    mismatch is structurally impossible. */}
                 {trancheePhaseAssets.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 'var(--sp-1)', fontSize: 11 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 'var(--sp-1)', fontSize: 11 }}>
                     <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Pre-Capex</div>
                       <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotPre)}</div>
                     </div>
                     <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Debt (assets)</div>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Existing Debt</div>
                       <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotDebt)}</div>
+                      <div style={{ fontSize: 9, fontStyle: 'italic', color: 'var(--color-text-muted)' }}>flows into Opening Balance</div>
                     </div>
-                    {/* Pass 52 (2026-05-14): clickable cross-check tile.
-                        When the facility Opening Balance doesn't match
-                        the per-asset Existing Debt total for the phase,
-                        clicking the tile copies the asset total into
-                        Opening Balance (the field the engine actually
-                        reads). When already in sync, it's just a
-                        status pill. */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (debtMatchAtFacility) return;
-                        onUpdate(t.id, { openingBalance: phaseAssetsTotDebt });
-                      }}
-                      disabled={debtMatchAtFacility}
-                      title={debtMatchAtFacility
-                        ? 'Opening Balance matches the assets-debt total for this phase.'
-                        : `Click to set Opening Balance = ${fmt(phaseAssetsTotDebt)} (the assets-debt total for this phase). This is the value that flows into the schedules.`}
-                      style={{
-                        padding: '4px 8px',
-                        background: 'var(--color-surface)',
-                        border: `1px solid ${debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)'}`,
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: debtMatchAtFacility ? 'default' : 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Facility Opening Bal</div>
-                      <div style={{ fontWeight: 700, color: debtMatchAtFacility ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)' }}>{fmt(facilityDebtForPhase)}</div>
-                      <div style={{ fontSize: 9, fontStyle: 'italic', color: debtMatchAtFacility ? 'var(--color-text-muted)' : 'var(--color-danger, #b91c1c)', fontWeight: debtMatchAtFacility ? 400 : 700 }}>
-                        {debtMatchAtFacility ? 'matches assets' : `click to set ${fmt(phaseAssetsTotDebt)}`}
-                      </div>
-                    </button>
                     <div style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Equity (assets)</div>
+                      <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Existing Equity</div>
                       <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmt(phaseAssetsTotEq)}</div>
                     </div>
                   </div>
