@@ -54,10 +54,12 @@ export function computeFacilitySchedule(
     ? Math.max(0, tranche.remainingRepaymentPeriods ?? 0)
     : Math.max(0, tranche.repaymentPeriods ?? 0);
 
-  const drawStart = Math.max(0, Math.floor(tranche.drawdownStartPeriod ?? 0));
+  // Pass 24 (2026-05-14): drawdown auto-starts at project Y1 (capex
+  // start). The user-facing Drawdown Start Period field is removed;
+  // engine always begins draws at index 0.
   if (!isExisting) {
     const frac = sharePct / 100;
-    for (let i = drawStart; i < N; i++) {
+    for (let i = 0; i < N; i++) {
       drawSchedule[i] = Math.max(0, debtPerPeriod[i] ?? 0) * frac;
     }
   }
@@ -77,10 +79,15 @@ export function computeFacilitySchedule(
   const constructionEndProj = phaseOffset + Math.max(0, cp - overlap);
 
   const grace = Math.max(0, tranche.gracePeriods ?? 0);
-  // Existing facilities open with bal=openingBalance at i=0 (= first
-  // active year) and start repaying immediately. New facilities repay
-  // after construction + grace.
-  const repayStartProj = isExisting ? 0 : constructionEndProj + grace;
+  // Pass 24 (2026-05-14): explicit Repayment Start Year (calendar)
+  // from the tranche, translated to project axis index. Falls back to
+  // `constructionEnd + grace` when unset (legacy snapshots).
+  const projectStartYear = new Date(project.startDate).getUTCFullYear();
+  const repayStartProj = isExisting
+    ? 0
+    : tranche.repaymentStartYear && Number.isFinite(tranche.repaymentStartYear)
+      ? Math.max(0, Math.min(N, tranche.repaymentStartYear - projectStartYear))
+      : constructionEndProj + grace;
 
   const graceInterestTreatment = tranche.graceInterestTreatment ?? 'capitalize';
   const graceWindowStart = constructionEndProj;
@@ -120,16 +127,28 @@ export function computeFacilitySchedule(
     }
     const maturity = Math.min(N - 1, repayStartProj + effRepay - 1);
     if (maturity >= 0) repBudget[maturity] += balloonAmt;
-  } else if (method === 'year_on_year_pct' && effRepay > 0) {
-    const schedule = normaliseYoY(tranche.yearOnYearPctSchedule ?? [], effRepay);
-    for (let i = 0; i < effRepay && (repayStartProj + i) < N; i++) {
-      repBudget[repayStartProj + i] = totalDrawn * (schedule[i] / 100);
+  } else if (method === 'year_on_year_pct') {
+    // Pass 24 (2026-05-14): YoY span = repaymentStart through operations
+    // end (project axis tail). Repayment Periods field no longer
+    // constrains the span for this method; the schedule fills every
+    // year from repayStart to N - 1.
+    const yoyLen = Math.max(0, N - repayStartProj);
+    if (yoyLen > 0) {
+      const schedule = normaliseYoY(tranche.yearOnYearPctSchedule ?? [], yoyLen);
+      for (let i = 0; i < yoyLen; i++) {
+        repBudget[repayStartProj + i] = totalDrawn * (schedule[i] / 100);
+      }
     }
   }
 
-  const finalRepayIdx = effRepay > 0
-    ? Math.min(N - 1, repayStartProj + effRepay - 1)
-    : N - 1;
+  // Pass 24 (2026-05-14): YoY span runs through operations end so its
+  // final index is N - 1 regardless of repaymentPeriods. Other methods
+  // continue to honour effRepay.
+  const finalRepayIdx = method === 'year_on_year_pct'
+    ? N - 1
+    : effRepay > 0
+      ? Math.min(N - 1, repayStartProj + effRepay - 1)
+      : N - 1;
   const sweepsAtMaturity =
     method === 'straight_line'
     || method === 'equal_periodic_amortization'

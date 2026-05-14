@@ -1322,13 +1322,24 @@ export interface FinancingTranche {
 
   // ── M2.0 Pass 23 (2026-05-13) ────────────────────────────────────
   /**
-   * Project-period index where the facility starts drawing. Defaults
-   * to 0 (= project's first construction period). Engine derives the
-   * drawdown window from `drawdownStartPeriod` through the last
-   * non-zero capex period of the project. Replaces the deprecated
-   * `availabilityPeriods` input.
+   * @deprecated 2026-05-14: drawdown auto-starts at the first capex
+   * period (project Y1). UI no longer surfaces this field; engine
+   * always treats it as 0. Retained on the type for back-compat with
+   * legacy snapshots.
    */
   drawdownStartPeriod?: number;
+
+  // ── M2.0 Pass 24 (2026-05-14) ────────────────────────────────────
+  /**
+   * Calendar year (e.g., 2030) when principal repayment begins.
+   * Replaces the implicit `constructionEnd + grace` rule. When unset,
+   * engine falls back to `projectStartYear + constructionPeriods`
+   * (end of construction). For `year_on_year_pct` the YoY schedule
+   * spans `[repaymentStartYear .. operationsEndYear]`; for fixed-count
+   * methods (straight-line, equal-periodic, balloon, bullet) the
+   * `repaymentPeriods` field still controls the count.
+   */
+  repaymentStartYear?: number;
 }
 
 // ── Equity contribution ────────────────────────────────────────────────────

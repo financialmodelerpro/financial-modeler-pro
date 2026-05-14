@@ -152,6 +152,18 @@ export default function Module1Financing(): React.JSX.Element {
     });
   }, [project.startDate, result.axis.totalPeriods]);
 
+  // Pass 24 (2026-05-14): year-domain helpers for the Repayment Start
+  // Year picker + YoY editor calendar labels.
+  const projectStartYear = useMemo(
+    () => new Date(project.startDate).getUTCFullYear(),
+    [project.startDate],
+  );
+  const operationsEndYear = projectStartYear + Math.max(0, result.axis.totalPeriods - 1);
+  const defaultRepayStartYear = useMemo(() => {
+    const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods ?? 0), 0);
+    return Math.min(operationsEndYear, projectStartYear + Math.max(1, maxCp));
+  }, [phases, projectStartYear, operationsEndYear]);
+
   // No-prior-column convention (2026-05-14): arr[0] = first active
   // period (e.g., Dec 25 when startDate is 2025-01-01). UI uses
   // axis.activeLabels exclusively; axis.priorLabel/.labels are not
@@ -383,9 +395,13 @@ export default function Module1Financing(): React.JSX.Element {
           <FacilitiesSection
             tranches={financingTranches}
             shares={result.shares}
+            projectStartYear={projectStartYear}
+            operationsEndYear={operationsEndYear}
+            defaultRepayStartYear={defaultRepayStartYear}
             onAdd={() => {
               const id = `fin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
               const newT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
+              newT.repaymentStartYear = defaultRepayStartYear;
               addFinancingTranche(newT);
             }}
             onUpdate={updateFinancingTranche}
@@ -468,6 +484,9 @@ export default function Module1Financing(): React.JSX.Element {
 interface FacilitiesSectionProps {
   tranches: FinancingTranche[];
   shares: Map<string, number>;
+  projectStartYear: number;
+  operationsEndYear: number;
+  defaultRepayStartYear: number;
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
@@ -475,7 +494,11 @@ interface FacilitiesSectionProps {
 }
 
 function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
-  const { tranches, shares, onAdd, onUpdate, onRemove, onSet } = props;
+  const {
+    tranches, shares,
+    projectStartYear, operationsEndYear, defaultRepayStartYear,
+    onAdd, onUpdate, onRemove, onSet,
+  } = props;
   const handleShareChange = (id: string, raw: number) => {
     const next = tranches.map((t) => (t.id === id ? { ...t, facilitySharePct: raw } : t));
     onSet(next);
@@ -512,6 +535,9 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
           tranche={t}
           normalisedShare={shares.get(t.id) ?? 0}
           showShareField={tranches.filter((x) => x.origin !== 'existing').length > 1}
+          projectStartYear={projectStartYear}
+          operationsEndYear={operationsEndYear}
+          defaultRepayStartYear={defaultRepayStartYear}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onShareChange={(v) => handleShareChange(t.id, v)}
@@ -527,6 +553,9 @@ interface TrancheCardProps {
   tranche: FinancingTranche;
   normalisedShare: number;
   showShareField: boolean;
+  projectStartYear: number;
+  operationsEndYear: number;
+  defaultRepayStartYear: number;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
   onShareChange: (v: number) => void;
@@ -540,7 +569,12 @@ const GRACE_INTEREST_TREATMENTS = [
 ] as const;
 
 function TrancheCard(p: TrancheCardProps): React.JSX.Element {
-  const { tranche: t, normalisedShare, showShareField, onUpdate, onRemove, onShareChange } = p;
+  const {
+    tranche: t,
+    normalisedShare, showShareField,
+    projectStartYear, operationsEndYear, defaultRepayStartYear,
+    onUpdate, onRemove, onShareChange,
+  } = p;
   const isExisting = t.origin === 'existing';
   const isFloating = (t.interestRateType ?? 'fixed') === 'floating';
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -685,11 +719,18 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
       {!isExisting && (
         <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
           <div>
-            <FieldLabel>Drawdown Start Period</FieldLabel>
+            <FieldLabel>Repayment Start Year</FieldLabel>
             <input
               type="number"
-              value={t.drawdownStartPeriod ?? 0}
-              onChange={(e) => onUpdate(t.id, { drawdownStartPeriod: Math.max(0, Number(e.target.value) || 0) })}
+              min={projectStartYear}
+              max={operationsEndYear}
+              value={t.repaymentStartYear ?? defaultRepayStartYear}
+              onChange={(e) => {
+                const yr = Number(e.target.value);
+                if (!Number.isFinite(yr)) return;
+                const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
+                onUpdate(t.id, { repaymentStartYear: clamped });
+              }}
               style={inputStyle}
             />
           </div>
@@ -702,15 +743,19 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               style={inputStyle}
             />
           </div>
-          <div>
-            <FieldLabel>Repayment Periods</FieldLabel>
-            <input
-              type="number"
-              value={t.repaymentPeriods ?? 0}
-              onChange={(e) => onUpdate(t.id, { repaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
-              style={inputStyle}
-            />
-          </div>
+          {t.repaymentMethod !== 'year_on_year_pct' ? (
+            <div>
+              <FieldLabel>Repayment Periods</FieldLabel>
+              <input
+                type="number"
+                value={t.repaymentPeriods ?? 0}
+                onChange={(e) => onUpdate(t.id, { repaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+          ) : (
+            <div />
+          )}
           <div>
             <FieldLabel>Grace Interest Treatment</FieldLabel>
             <select
@@ -744,7 +789,8 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
       {t.repaymentMethod === 'year_on_year_pct' && !isExisting && (
         <YoYScheduleEditor
           schedule={t.yearOnYearPctSchedule ?? []}
-          repayPeriods={t.repaymentPeriods ?? 0}
+          startYear={t.repaymentStartYear ?? defaultRepayStartYear}
+          endYear={operationsEndYear}
           onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
         />
       )}
@@ -794,38 +840,55 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
 
 interface YoYScheduleEditorProps {
   schedule: number[];
-  repayPeriods: number;
+  startYear: number;
+  endYear: number;
   onChange: (arr: number[]) => void;
 }
 
 function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
-  const n = Math.max(1, p.repayPeriods);
-  const cells = new Array<number>(n).fill(0).map((_, i) => p.schedule[i] ?? 0);
+  // Pass 24 (2026-05-14): cells span [startYear..endYear] (calendar
+  // years from Repayment Start Year through Operations End). Labels
+  // show the actual year. Width uses a horizontal scroll once the
+  // cell count exceeds what fits the panel, so the editor never
+  // overflows the page.
+  const n = Math.max(0, p.endYear - p.startYear + 1);
+  const cells = new Array<number>(Math.max(1, n)).fill(0).map((_, i) => p.schedule[i] ?? 0);
   const sum = cells.reduce((s, v) => s + v, 0);
   const ok = Math.abs(sum - 100) < 0.01;
+  const CELL_WIDTH = 64;
   return (
     <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 600 }}>Year-on-Year % Schedule (sum to 100)</span>
+        <span style={{ fontSize: 11, fontWeight: 600 }}>
+          Year-on-Year % Schedule ({p.startYear}-{p.endYear}, sum to 100)
+        </span>
         <span style={{ fontSize: 11, fontWeight: 700, color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)' }}>
           Sum: {sum.toFixed(2)}%
         </span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(n, 8)}, 1fr)`, gap: 4 }}>
-        {cells.map((v, i) => (
-          <div key={i}>
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'center' }}>P{i + 1}</div>
-            <PercentageInput
-              value={v}
-              onChange={(nv) => {
-                const next = [...cells];
-                next[i] = nv;
-                p.onChange(next);
-              }}
-            />
+      {n === 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+          Set Repayment Start Year before editing the schedule.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cells.length}, ${CELL_WIDTH}px)`, gap: 4 }}>
+            {cells.map((v, i) => (
+              <div key={i}>
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'center' }}>{p.startYear + i}</div>
+                <PercentageInput
+                  value={v}
+                  onChange={(nv) => {
+                    const next = [...cells];
+                    next[i] = nv;
+                    p.onChange(next);
+                  }}
+                />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
