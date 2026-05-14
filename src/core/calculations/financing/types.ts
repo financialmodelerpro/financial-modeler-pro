@@ -93,6 +93,19 @@ export interface CombinedDebtService {
   totalInterestExpensed: number[];
   totalPrincipalRepaid: number[];
   debtServiceCash: number[];
+  // Pass 31 (2026-05-14): existing-vs-new breakdowns so the Combined
+  // Debt Service table can render a separate line for each origin
+  // alongside the totals. Existing facilities never produce capex
+  // drawdown (their debt is already on the books) so their drawdown
+  // arrays are intentionally absent.
+  existingInterestAccrued: number[];
+  existingInterestExpensed: number[];
+  existingPrincipalRepaid: number[];
+  existingDebtServiceCash: number[];
+  newInterestAccrued: number[];
+  newInterestExpensed: number[];
+  newPrincipalRepaid: number[];
+  newDebtServiceCash: number[];
 }
 
 export interface EquityMovement {

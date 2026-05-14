@@ -256,6 +256,7 @@ export function computeFacilitySchedule(
 export function combineDebtService(
   facilities: Map<string, FacilityResult>,
   axis: ProjectAxis,
+  tranches: FinancingTranche[],
 ): CombinedDebtService {
   const N = axis.totalPeriods;
   const totalDrawdown          = new Array<number>(N).fill(0);
@@ -263,13 +264,43 @@ export function combineDebtService(
   const totalInterestCapitalized = new Array<number>(N).fill(0);
   const totalInterestExpensed  = new Array<number>(N).fill(0);
   const totalPrincipalRepaid   = new Array<number>(N).fill(0);
+  // Pass 31 (2026-05-14): existing vs new origin breakdowns.
+  const existingInterestAccrued  = new Array<number>(N).fill(0);
+  const existingInterestExpensed = new Array<number>(N).fill(0);
+  const existingPrincipalRepaid  = new Array<number>(N).fill(0);
+  const existingDebtServiceCash  = new Array<number>(N).fill(0);
+  const newInterestAccrued       = new Array<number>(N).fill(0);
+  const newInterestExpensed      = new Array<number>(N).fill(0);
+  const newPrincipalRepaid       = new Array<number>(N).fill(0);
+  const newDebtServiceCash       = new Array<number>(N).fill(0);
+  const originById = new Map<string, 'existing' | 'new'>();
+  for (const t of tranches) {
+    originById.set(t.id, t.origin === 'existing' ? 'existing' : 'new');
+  }
   for (const r of facilities.values()) {
+    const isEx = originById.get(r.trancheId) === 'existing';
     for (let i = 0; i < N; i++) {
-      totalDrawdown[i]            += r.drawSchedule[i] ?? 0;
-      totalInterestAccrued[i]     += r.interestAccrued[i] ?? 0;
-      totalInterestCapitalized[i] += r.interestCapitalized[i] ?? 0;
-      totalInterestExpensed[i]    += r.interestPaid[i] ?? 0;
-      totalPrincipalRepaid[i]     += r.principalRepaid[i] ?? 0;
+      const draw = r.drawSchedule[i] ?? 0;
+      const acc  = r.interestAccrued[i] ?? 0;
+      const cap  = r.interestCapitalized[i] ?? 0;
+      const exp  = r.interestPaid[i] ?? 0;
+      const prin = r.principalRepaid[i] ?? 0;
+      totalDrawdown[i]            += draw;
+      totalInterestAccrued[i]     += acc;
+      totalInterestCapitalized[i] += cap;
+      totalInterestExpensed[i]    += exp;
+      totalPrincipalRepaid[i]     += prin;
+      if (isEx) {
+        existingInterestAccrued[i]  += acc;
+        existingInterestExpensed[i] += exp;
+        existingPrincipalRepaid[i]  += prin;
+        existingDebtServiceCash[i]  += exp + prin;
+      } else {
+        newInterestAccrued[i]  += acc;
+        newInterestExpensed[i] += exp;
+        newPrincipalRepaid[i]  += prin;
+        newDebtServiceCash[i]  += exp + prin;
+      }
     }
   }
   const debtServiceCash = new Array<number>(N).fill(0);
@@ -283,6 +314,14 @@ export function combineDebtService(
     totalInterestExpensed,
     totalPrincipalRepaid,
     debtServiceCash,
+    existingInterestAccrued,
+    existingInterestExpensed,
+    existingPrincipalRepaid,
+    existingDebtServiceCash,
+    newInterestAccrued,
+    newInterestExpensed,
+    newPrincipalRepaid,
+    newDebtServiceCash,
   };
 }
 

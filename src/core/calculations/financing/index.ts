@@ -89,7 +89,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     );
   }
 
-  const combined = combineDebtService(facilities, axis);
+  const combined = combineDebtService(facilities, axis, ctx.tranches);
   const equity = computeEquityMovement(split, existing, axis);
   const reconciliation = reconcile(axis, capex, funding, split, shares, facilities, ctx.tranches, equity, existing);
 

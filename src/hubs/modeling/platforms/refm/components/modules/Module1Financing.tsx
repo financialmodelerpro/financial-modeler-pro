@@ -815,11 +815,37 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         </div>
       )}
 
-      {t.repaymentMethod === 'year_on_year_pct' && !isExisting && (
+      {/* Pass 31 (2026-05-14): existing facilities also pick a repayment
+          method (same 3 options as new). They start repaying at project
+          period 0 and the count comes from Remaining Repayment Periods,
+          so we show only the method dropdown here. */}
+      {isExisting && (
+        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          <div>
+            <FieldLabel>Repayment Method</FieldLabel>
+            <select
+              value={t.repaymentMethod}
+              onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
+              style={inputStyle}
+            >
+              {REPAYMENT_METHODS_USER.map((m) => (
+                <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
+              ))}
+            </select>
+          </div>
+          <div /><div /><div />
+        </div>
+      )}
+
+      {t.repaymentMethod === 'year_on_year_pct' && (
         <YoYScheduleEditor
           schedule={t.yearOnYearPctSchedule ?? []}
-          startYear={t.repaymentStartYear ?? defaultRepayStartYear}
-          endYear={operationsEndYear}
+          startYear={isExisting
+            ? projectStartYear
+            : (t.repaymentStartYear ?? defaultRepayStartYear)}
+          endYear={isExisting
+            ? Math.min(operationsEndYear, projectStartYear + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
+            : operationsEndYear}
           onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
         />
       )}
@@ -1345,8 +1371,23 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
   const existingTranches = p.tranches.filter((t) => t.origin === 'existing');
   const newTranches      = p.tranches.filter((t) => t.origin !== 'existing');
 
+  // Pass 31 (2026-05-14): group-header style for the Existing / New
+  // section dividers used across Debt Movement + Finance Cost.
+  const groupHeaderStyle: React.CSSProperties = {
+    fontSize: 13,
+    fontWeight: 700,
+    color: 'var(--color-heading)',
+    marginTop: 'var(--sp-2)',
+    marginBottom: 'var(--sp-1)',
+    paddingBottom: 4,
+    borderBottom: '1px solid var(--color-border)',
+  };
+
   return (
     <>
+      {existingTranches.length > 0 && (
+        <div style={groupHeaderStyle}>Debt Movement - Existing Facilities</div>
+      )}
       {existingTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
@@ -1354,7 +1395,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
-            <div style={TABLE_TITLE}>Existing Debt Movement, {t.name}</div>
+            <div style={TABLE_TITLE}>{t.name}</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
@@ -1373,6 +1414,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         );
       })}
 
+      {newTranches.length > 0 && (
+        <div style={groupHeaderStyle}>Debt Movement - New Facilities</div>
+      )}
       {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
@@ -1380,7 +1424,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={t.id} style={sectionStyle}>
-            <div style={TABLE_TITLE}>New Debt Movement, {t.name}</div>
+            <div style={TABLE_TITLE}>{t.name}</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
@@ -1413,38 +1457,66 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 p.result.combined.totalDrawdown.map((v, i) => v + (p.result.combined.totalInterestCapitalized[i] ?? 0)),
                 { bold: true },
               )}
-              {renderFlowRow('Total Interest Accrued', p.result.combined.totalInterestAccrued)}
-              {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { negative: true })}
-              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { negative: true })}
+              {/* Pass 31 (2026-05-14): split each cash-impact row into
+                  Existing + New lines so the user sees how much of the
+                  total comes from legacy facilities vs. new draws. */}
+              {existingTranches.length > 0 && renderFlowRow('Interest Expensed - Existing', p.result.combined.existingInterestExpensed, { negative: true })}
+              {newTranches.length > 0 && renderFlowRow('Interest Expensed - New', p.result.combined.newInterestExpensed, { negative: true })}
+              {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { bold: true, negative: true })}
+              {existingTranches.length > 0 && renderFlowRow('Principal Repaid - Existing', p.result.combined.existingPrincipalRepaid, { negative: true })}
+              {newTranches.length > 0 && renderFlowRow('Principal Repaid - New', p.result.combined.newPrincipalRepaid, { negative: true })}
+              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { bold: true, negative: true })}
+              {existingTranches.length > 0 && renderFlowRow('Debt Service - Existing', p.result.combined.existingDebtServiceCash, { negative: true })}
+              {newTranches.length > 0 && renderFlowRow('Debt Service - New', p.result.combined.newDebtServiceCash, { negative: true })}
               {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
             </tbody>
           </table>
         </div>
       </section>
 
-      {p.tranches.map((t) => {
-        const r = p.result.facilities.get(t.id);
-        if (!r) return null;
-        const isEx = t.origin === 'existing';
-        const paidArr = r.interestPaid.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
+      {/* Pass 31 (2026-05-14): group per-facility Finance Cost tables
+          by origin. Existing facilities first under their own header,
+          then new facilities. */}
+      {(() => {
+        const renderFinanceCostTable = (t: FinancingTranche) => {
+          const r = p.result.facilities.get(t.id);
+          if (!r) return null;
+          const paidArr = r.interestPaid.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
+          return (
+            <section key={`fc_${t.id}`} style={sectionStyle}>
+              <div style={TABLE_TITLE}>Finance Cost, {t.name}</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  {colgroup}
+                  {headerRow}
+                  <tbody>
+                    {renderFlowRow('Charge (Accrued)', r.interestAccrued)}
+                    {renderFlowRow('Capitalized', r.interestCapitalized)}
+                    {renderFlowRow('Expensed', r.interestPaid, { negative: true })}
+                    {renderFlowRow('Paid (Capitalized + Expensed)', paidArr, { bold: true })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        };
         return (
-          <section key={`fc_${t.id}`} style={sectionStyle}>
-            <div style={TABLE_TITLE}>Finance Cost, {t.name} ({isEx ? 'existing' : 'new'})</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                {colgroup}
-                {headerRow}
-                <tbody>
-                  {renderFlowRow('Charge (Accrued)', r.interestAccrued)}
-                  {renderFlowRow('Capitalized', r.interestCapitalized)}
-                  {renderFlowRow('Expensed', r.interestPaid)}
-                  {renderFlowRow('Paid (Capitalized + Expensed)', paidArr, { bold: true })}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <>
+            {existingTranches.length > 0 && (
+              <>
+                <div style={groupHeaderStyle}>Finance Cost - Existing Facilities</div>
+                {existingTranches.map(renderFinanceCostTable)}
+              </>
+            )}
+            {newTranches.length > 0 && (
+              <>
+                <div style={groupHeaderStyle}>Finance Cost - New Facilities</div>
+                {newTranches.map(renderFinanceCostTable)}
+              </>
+            )}
+          </>
         );
-      })}
+      })()}
 
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>IDC Summary</div>
