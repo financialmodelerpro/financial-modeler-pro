@@ -33,7 +33,6 @@ import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } f
 import { currencyHeaderLine } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
-import { PercentageInput } from '../ui/PercentageInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 
 const inputStyle: React.CSSProperties = {
@@ -433,6 +432,12 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
   // Default historical baseline when user toggles to Operational and
   // hasn't filled the form yet. All zeros so nothing accidentally
   // affects downstream calcs until the user enters real numbers.
+  // Pass 38 (2026-05-14): trimmed to opening-BS items only. Per-asset
+  // Pre-Capex / Existing Debt / Existing Equity feed the engine; sunk-
+  // cost roll-ups + run-rate metrics moved to a future Historical
+  // Financials panel under the Financials module. Old fields are kept
+  // optional in the schema so legacy snapshots still parse but are not
+  // rendered or read.
   const baseline: PhaseHistoricalBaseline = phase.historicalBaseline ?? {
     historicalCapexTotal: 0,
     historicalEquityContributed: 0,
@@ -563,83 +568,25 @@ function PhaseRow({ phase, project, phaseAssets, onUpdate, onUpdateAsset, onRemo
           <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', display: 'block', marginBottom: 'var(--sp-1)' }}>
             Historical Baseline (operational phase)
           </strong>
+          {/* Pass 38 (2026-05-14): opening balance sheet items only.
+              Per-asset Pre-Capex / Existing Debt / Existing Equity (below)
+              feed the engine for sunk-cost / equity-contributed totals.
+              Sunk-cost roll-ups + run-rate metrics will move to a
+              dedicated Historical Financials panel under the Financials
+              module. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11 }}>
-            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sunk costs + prior cumulative</div>
+            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Opening balance sheet at project Y0</div>
             <div>
-              <InputLabel label="Historical Capex Total" help="Total capex spent before reporting start (sunk cost)." inputId={`phase-${phase.id}-hist-capex`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-capex`} data-testid={`phase-${phase.id}-hist-capex`} min={0} value={baseline.historicalCapexTotal} onChange={(n) => setBaseline({ historicalCapexTotal: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Historical Equity Contributed" help="Equity already invested before reporting start." inputId={`phase-${phase.id}-hist-equity`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-equity`} data-testid={`phase-${phase.id}-hist-equity`} min={0} value={baseline.historicalEquityContributed} onChange={(n) => setBaseline({ historicalEquityContributed: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Historical Debt Drawn" help="Total debt drawn before reporting start." inputId={`phase-${phase.id}-hist-debt-drawn`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-debt-drawn`} data-testid={`phase-${phase.id}-hist-debt-drawn`} min={0} value={baseline.historicalDebtDrawn} onChange={(n) => setBaseline({ historicalDebtDrawn: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Current Debt Outstanding" help="Outstanding balance after historical repayments." inputId={`phase-${phase.id}-hist-debt-out`} />
+              <InputLabel label="Current Debt Outstanding" help="Outstanding loan balance at reporting start. Auto-pulled into the Existing Facility Opening Balance on Tab 4." inputId={`phase-${phase.id}-hist-debt-out`} />
               <AccountingNumberInput id={`phase-${phase.id}-hist-debt-out`} data-testid={`phase-${phase.id}-hist-debt-out`} min={0} value={baseline.currentDebtOutstanding} onChange={(n) => setBaseline({ currentDebtOutstanding: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
-              <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets." inputId={`phase-${phase.id}-hist-depr`} />
+              <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets. Seeds the BS accumulated depreciation balance at Y0." inputId={`phase-${phase.id}-hist-depr`} />
               <AccountingNumberInput id={`phase-${phase.id}-hist-depr`} data-testid={`phase-${phase.id}-hist-depr`} min={0} value={baseline.cumulativeDepreciationCharged} onChange={(n) => setBaseline({ cumulativeDepreciationCharged: Math.max(0, n) })} style={inputStyle} />
             </div>
             <div>
-              <InputLabel label="Net Book Value (Fixed Assets)" help="NBV of existing fixed assets at reporting start." inputId={`phase-${phase.id}-hist-nbv`} />
+              <InputLabel label="Net Book Value (Fixed Assets)" help="NBV of existing fixed assets at reporting start. Seeds the BS Property/Plant/Equipment balance at Y0." inputId={`phase-${phase.id}-hist-nbv`} />
               <AccountingNumberInput id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} min={0} value={baseline.netBookValueFixedAssets} onChange={(n) => setBaseline({ netBookValueFixedAssets: Math.max(0, n) })} style={inputStyle} />
-            </div>
-          </div>
-          {(() => {
-            const pc = Math.max(0, baseline.historicalCapexTotal);
-            const od = Math.max(0, baseline.currentDebtOutstanding);
-            const eq = Math.max(0, baseline.historicalEquityContributed);
-            const diff = pc - (od + eq);
-            const balances = pc > 0 && Math.abs(diff) < 1;
-            const isEmpty = pc === 0 && od === 0 && eq === 0;
-            if (isEmpty) return null;
-            return (
-              <div
-                data-testid={`phase-${phase.id}-baseline-chip`}
-                style={{
-                  marginTop: 'var(--sp-1)',
-                  padding: '4px 10px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  display: 'inline-block',
-                  background: balances ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
-                  color: balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
-                  border: `1px solid ${balances ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
-                }}
-              >
-                {balances
-                  ? `Balances, Pre-Capex = Debt + Equity (${pc.toLocaleString()})`
-                  : `Mismatch, Pre-Capex - (Debt + Equity) = ${diff.toLocaleString()}`}
-              </div>
-            );
-          })()}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11, marginTop: 'var(--sp-2)' }}>
-            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current operating run-rate (last 12 months)</div>
-            <div>
-              <InputLabel label="Last 12 Months Revenue" help="Trailing 12-month revenue at reporting start." inputId={`phase-${phase.id}-hist-revenue`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-revenue`} data-testid={`phase-${phase.id}-hist-revenue`} min={0} value={baseline.last12MonthsRevenue} onChange={(n) => setBaseline({ last12MonthsRevenue: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Last 12 Months Opex" help="Trailing 12-month operating expenses at reporting start." inputId={`phase-${phase.id}-hist-opex`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-opex`} data-testid={`phase-${phase.id}-hist-opex`} min={0} value={baseline.last12MonthsOpex} onChange={(n) => setBaseline({ last12MonthsOpex: Math.max(0, n) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Current Occupancy %" help="Current occupancy rate (hospitality / lease, optional)." inputId={`phase-${phase.id}-hist-occ`} />
-              <PercentageInput id={`phase-${phase.id}-hist-occ`} data-testid={`phase-${phase.id}-hist-occ`} min={0} max={100} value={baseline.currentOccupancy ?? 0} onChange={(n) => setBaseline({ currentOccupancy: n > 0 ? Math.min(100, n) : undefined })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Current ADR" help="Average Daily Rate per key per night (hospitality, optional)." inputId={`phase-${phase.id}-hist-adr`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-adr`} data-testid={`phase-${phase.id}-hist-adr`} min={0} value={baseline.currentAdr ?? 0} onChange={(n) => setBaseline({ currentAdr: n > 0 ? n : undefined })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Current Rent Rate" help="Per sqm per year rent rate (lease, optional)." inputId={`phase-${phase.id}-hist-rent`} />
-              <AccountingNumberInput id={`phase-${phase.id}-hist-rent`} data-testid={`phase-${phase.id}-hist-rent`} min={0} value={baseline.currentRentRate ?? 0} onChange={(n) => setBaseline({ currentRentRate: n > 0 ? n : undefined })} style={inputStyle} />
             </div>
           </div>
           {/* M2.0 Pass 15 (2026-05-13): per-asset Historical Baseline.

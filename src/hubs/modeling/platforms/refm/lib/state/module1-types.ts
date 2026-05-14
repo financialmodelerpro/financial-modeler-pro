@@ -356,20 +356,32 @@ export const PHASE_STATUS_LABELS: Record<PhaseStatus, string> = {
 // start (period 0 / Y0). Module 5 Statements (when it ships) will read
 // these to seed opening balances on the cash flow + balance sheet.
 export interface PhaseHistoricalBaseline {
-  // Sunk costs and prior cumulative
+  // Pass 38 (2026-05-14): the form was trimmed to opening-BS items only.
+  // Sunk-cost roll-ups + run-rate metrics moved to a future Historical
+  // Financials panel under the Financials module. Engine no longer reads
+  // the deprecated fields; per-asset Pre-Capex / Existing Equity feed
+  // existing.ts directly. Fields kept on the type so legacy snapshots
+  // still parse.
+  /** @deprecated since Pass 38. Use Asset.historicalPreCapex per-asset. */
   historicalCapexTotal: number;
+  /** @deprecated since Pass 38. Use Asset.historicalEquityAmount per-asset. */
   historicalEquityContributed: number;
+  /** @deprecated since Pass 38. Use FinancingTranche.openingBalance for existing facilities. */
   historicalDebtDrawn: number;
+  // Active opening BS items (consumed by FS module when it ships).
   currentDebtOutstanding: number;
   cumulativeDepreciationCharged: number;
   netBookValueFixedAssets: number;
-  // Run-rate operating baseline
+  /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
   last12MonthsRevenue: number;
+  /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
   last12MonthsOpex: number;
-  // Optional category-specific run-rate inputs.
-  currentOccupancy?: number;       // % (hospitality / lease)
-  currentAdr?: number;             // SAR per key per night (hospitality)
-  currentRentRate?: number;        // SAR per sqm per year (lease)
+  /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
+  currentOccupancy?: number;
+  /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
+  currentAdr?: number;
+  /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
+  currentRentRate?: number;
 }
 
 export interface Phase {
