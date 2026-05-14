@@ -572,7 +572,6 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
     onUpdate, onRemove, onShareChange,
   } = p;
   const isExisting = t.origin === 'existing';
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Pass 27 (2026-05-14): effective Interest Rate = Interbank + Credit
   // Spread, computed live and surfaced in a read-only field. Legacy
@@ -670,7 +669,9 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         </div>
       )}
 
-      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      {/* Pass 29 (2026-05-14): rate + fee fields collapse into a single
+          5-column row for compact entry. */}
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         <div>
           <FieldLabel>Interbank Rate %</FieldLabel>
           <PercentageInput
@@ -699,19 +700,32 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             disabled
           />
         </div>
-        {showShareField && !isExisting ? (
-          <div>
-            <FieldLabel>Facility Share %</FieldLabel>
-            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Normalised: {normalisedShare.toFixed(2)}%
-            </div>
-          </div>
-        ) : <div />}
+        <div>
+          <FieldLabel>Upfront Fee %</FieldLabel>
+          <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} />
+        </div>
+        <div>
+          <FieldLabel>Commitment Fee %</FieldLabel>
+          <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} />
+        </div>
       </div>
 
+      {/* Pass 29 (2026-05-14): repayment method + start year + periods
+          on a single row (+ Facility Share when applicable). */}
       {!isExisting && (
         <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          <div>
+            <FieldLabel>Repayment Method</FieldLabel>
+            <select
+              value={t.repaymentMethod}
+              onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
+              style={inputStyle}
+            >
+              {REPAYMENT_METHODS_USER.map((m) => (
+                <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <FieldLabel>Repayment Start Year</FieldLabel>
             <input
@@ -728,7 +742,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               style={inputStyle}
             />
           </div>
-          {t.repaymentMethod !== 'year_on_year_pct' && (
+          {t.repaymentMethod !== 'year_on_year_pct' ? (
             <div>
               <FieldLabel>Repayment Periods</FieldLabel>
               <input
@@ -738,24 +752,20 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                 style={inputStyle}
               />
             </div>
+          ) : (
+            <div />
           )}
+          {showShareField ? (
+            <div>
+              <FieldLabel>Facility Share %</FieldLabel>
+              <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Normalised: {normalisedShare.toFixed(2)}%
+              </div>
+            </div>
+          ) : <div />}
         </div>
       )}
-
-      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-        <div>
-          <FieldLabel>Repayment Method</FieldLabel>
-          <select
-            value={t.repaymentMethod}
-            onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
-            style={inputStyle}
-          >
-            {REPAYMENT_METHODS_USER.map((m) => (
-              <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
-            ))}
-          </select>
-        </div>
-      </div>
 
       {t.repaymentMethod === 'year_on_year_pct' && !isExisting && (
         <YoYScheduleEditor
@@ -771,37 +781,6 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
           config={t.cashSweepConfig}
           onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
         />
-      )}
-
-      <button
-        type="button"
-        onClick={() => setAdvancedOpen((v) => !v)}
-        style={{
-          marginTop: 'var(--sp-1)',
-          padding: '2px 10px',
-          fontSize: 11,
-          fontWeight: 600,
-          background: 'transparent',
-          border: '1px dashed var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          cursor: 'pointer',
-          color: 'var(--color-text-muted)',
-        }}
-      >
-        {advancedOpen ? 'Hide' : 'Show'} Advanced (fees)
-      </button>
-
-      {advancedOpen && (
-        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-          <div>
-            <FieldLabel>Upfront Fee %</FieldLabel>
-            <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} />
-          </div>
-          <div>
-            <FieldLabel>Commitment Fee % p.a. (on undrawn)</FieldLabel>
-            <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} />
-          </div>
-        </div>
       )}
     </div>
   );
