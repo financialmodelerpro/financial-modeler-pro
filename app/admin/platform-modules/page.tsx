@@ -30,6 +30,15 @@ interface Platform {
   display_order: number;
 }
 
+const PLATFORM_STATUS_CFG: Record<Platform['status'], { label: string; bg: string; color: string }> = {
+  live:        { label: '✓ Live',      bg: '#E8F7EC', color: '#1A7A30' },
+  coming_soon: { label: 'Coming Soon', bg: '#FEF3C7', color: '#92400E' },
+  hidden:      { label: 'Hidden',      bg: '#F3F4F6', color: '#6B7280' },
+};
+const PLATFORM_NEXT_STATUS: Record<Platform['status'], Platform['status']> = {
+  live: 'coming_soon', coming_soon: 'hidden', hidden: 'live',
+};
+
 type ModuleStatus = 'live' | 'coming_soon' | 'hidden' | 'pro' | 'enterprise';
 type GatingTier = 'free' | 'pro' | 'enterprise';
 
@@ -96,6 +105,14 @@ export default function AdminPlatformModulesPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  // Platform-level inline edit (consolidated from /admin/modules)
+  const [editingPlatform, setEditingPlatform] = useState(false);
+  const [platformDraft, setPlatformDraft] = useState<{ name: string; description: string; icon: string }>({
+    name: '', description: '', icon: '',
+  });
+  const [savingPlatform, setSavingPlatform] = useState(false);
+  const [cyclingPlatform, setCyclingPlatform] = useState(false);
+
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
@@ -150,6 +167,66 @@ export default function AdminPlatformModulesPage() {
   function cancelEdit() {
     setEditingId(null);
     setCreating(false);
+  }
+
+  // ── Platform-level CRUD (name / description / icon / status) ──────────
+  function startEditPlatform() {
+    const p = platforms.find((x) => x.slug === activePlatformSlug);
+    if (!p) return;
+    setPlatformDraft({ name: p.name, description: p.description, icon: p.icon });
+    setEditingPlatform(true);
+  }
+
+  function cancelEditPlatform() {
+    setEditingPlatform(false);
+  }
+
+  async function savePlatformEdit() {
+    const p = platforms.find((x) => x.slug === activePlatformSlug);
+    if (!p) return;
+    setSavingPlatform(true);
+    try {
+      const res = await fetch('/api/admin/modules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: p.id, name: platformDraft.name, description: platformDraft.description, icon: platformDraft.icon }),
+      });
+      if (res.ok) {
+        setPlatforms((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...platformDraft } : x)));
+        setEditingPlatform(false);
+        showToast('Platform updated');
+      } else {
+        showToast('Update failed', 'error');
+      }
+    } catch {
+      showToast('Update failed', 'error');
+    } finally {
+      setSavingPlatform(false);
+    }
+  }
+
+  async function cyclePlatformStatus() {
+    const p = platforms.find((x) => x.slug === activePlatformSlug);
+    if (!p) return;
+    const newStatus = PLATFORM_NEXT_STATUS[p.status];
+    setCyclingPlatform(true);
+    try {
+      const res = await fetch('/api/admin/modules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: p.id, status: newStatus }),
+      });
+      if (res.ok) {
+        setPlatforms((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: newStatus } : x)));
+        showToast(`Platform status set to ${newStatus.replace('_', ' ')}`);
+      } else {
+        showToast('Status update failed', 'error');
+      }
+    } catch {
+      showToast('Status update failed', 'error');
+    } finally {
+      setCyclingPlatform(false);
+    }
   }
 
   async function saveDraft() {
@@ -368,9 +445,9 @@ export default function AdminPlatformModulesPage() {
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav active="/admin/platform-modules" />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Platform Module Manager</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Module Manager</h1>
         <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 24 }}>
-          Manage per-platform sub-modules. Changes flow to the workspace sidebar and the public marketing pages.
+          Manage platforms (REFM, BVM, FPA…) and their sub-modules. Pick a platform tab below to edit the platform card and its sub-modules. Changes flow to the workspace sidebar and the public marketing pages.
         </p>
 
         {/* ── Level 1: Platform tabs ── */}
@@ -404,12 +481,105 @@ export default function AdminPlatformModulesPage() {
           </div>
         )}
 
+        {/* ── Level 1.5: Active platform card (edit name / description / icon / status) ── */}
+        {activePlatformSlug && (() => {
+          const ap = platforms.find((p) => p.slug === activePlatformSlug);
+          if (!ap) return null;
+          const cfg = PLATFORM_STATUS_CFG[ap.status];
+          return (
+            <div
+              data-testid="platform-card"
+              style={{
+                background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12,
+                padding: '18px 22px', marginBottom: 24,
+              }}
+            >
+              {!editingPlatform ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+                  <div style={{ fontSize: 36 }}>{ap.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', margin: 0 }}>{ap.name}</h2>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: cfg.bg, color: cfg.color }}>
+                        {cfg.label}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' }}>/{ap.slug}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6B7280' }}>{ap.description || '(no description)'}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={startEditPlatform}
+                      style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #1B4F8A', background: '#fff', cursor: 'pointer', color: '#1B4F8A' }}
+                    >
+                      Edit Platform
+                    </button>
+                    <button
+                      onClick={cyclePlatformStatus}
+                      disabled={cyclingPlatform}
+                      style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151', opacity: cyclingPlatform ? 0.5 : 1 }}
+                    >
+                      {cyclingPlatform ? 'Saving…' : 'Cycle Status'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 2fr auto', gap: 12, alignItems: 'end' }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>ICON</div>
+                      <input
+                        value={platformDraft.icon}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, icon: e.target.value }))}
+                        style={{ ...inputStyle, textAlign: 'center', fontSize: 22 }}
+                        placeholder="🏗️"
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>PLATFORM NAME</div>
+                      <input
+                        value={platformDraft.name}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, name: e.target.value }))}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>DESCRIPTION</div>
+                      <input
+                        value={platformDraft.description}
+                        onChange={(e) => setPlatformDraft((d) => ({ ...d, description: e.target.value }))}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={savePlatformEdit}
+                        disabled={savingPlatform}
+                        style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: savingPlatform ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                      >
+                        {savingPlatform ? '…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={cancelEditPlatform}
+                        disabled={savingPlatform}
+                        style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ── Level 2: Modules table for the active platform ── */}
         {activePlatformSlug && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', margin: 0 }}>
-                Modules in {platforms.find((p) => p.slug === activePlatformSlug)?.name ?? activePlatformSlug}
+                Sub-modules in {platforms.find((p) => p.slug === activePlatformSlug)?.name ?? activePlatformSlug}
               </h2>
               <button
                 onClick={startCreate}
