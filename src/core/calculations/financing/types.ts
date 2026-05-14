@@ -39,6 +39,21 @@ export interface FundingRequirement {
   selectedMethodId: FundingMethodId;
   debtPct: number;
   equityPct: number;
+  // Pass 26 (2026-05-14): Minimum Cash Reserve buffer.
+  //   minCashReserve         = project-level setting (lump value)
+  //   minCashByPeriod        = lump placed at the first non-zero
+  //                            capex period (axis-indexed)
+  //   selectedByPeriod       = capex-only funding need per period
+  //                            (mirrors selected method curve)
+  //   totalFundingNeedByPeriod = selectedByPeriod + minCashByPeriod
+  //   selectedWithMinCash    = sum of totalFundingNeedByPeriod
+  // Methods 1 + 2 add the buffer on top of the selected curve. Method
+  // 3 (Cash Deficit) absorbs it implicitly via the deficit calc.
+  minCashReserve: number;
+  minCashByPeriod: number[];
+  selectedByPeriod: number[];
+  totalFundingNeedByPeriod: number[];
+  selectedWithMinCash: number;
 }
 
 export interface DebtEquitySplit {

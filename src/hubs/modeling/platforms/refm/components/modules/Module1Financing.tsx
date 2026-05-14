@@ -294,12 +294,16 @@ export default function Module1Financing(): React.JSX.Element {
 
           {(() => {
             const totalCapex = result.capex.totals.exclLandInKind;
-            const fundingNeed = result.funding.selected;
+            // Pass 26 (2026-05-14): include Min Cash Reserve in the
+            // Sources vs Uses identity since debt + equity now size
+            // for capex + min-cash buffer together.
+            const fundingNeed = result.funding.selectedWithMinCash;
             const drawdownBasis = FUNDING_METHOD_DESCRIPTIONS[financingConfig.fundingMethod];
             const totalDebt   = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
             const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
             const sources = totalDebt + totalEquity;
-            const sourcesUsesOk = Math.abs(sources - totalCapex) < 1;
+            const usesTarget = totalCapex + (result.funding.minCashReserve ?? 0);
+            const sourcesUsesOk = Math.abs(sources - usesTarget) < 1;
             return (
               <section style={sectionStyle}>
                 <div style={sectionTitle}>3. Funding Basis</div>
@@ -329,7 +333,7 @@ export default function Module1Financing(): React.JSX.Element {
                   >
                     {sourcesUsesOk
                       ? `Sources vs Uses: Match (${fmt(sources)})`
-                      : `Sources vs Uses: Gap ${fmt(sources - totalCapex)}`}
+                      : `Sources vs Uses: Gap ${fmt(sources - usesTarget)}`}
                   </div>
                 </div>
               </section>
@@ -1022,6 +1026,15 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
   const m1PerPeriod = p.cropProject(p.capex.perPeriod.exclLandInKind);
   const blanks = new Array<number>(N).fill(0);
   const selectedMethodId = p.funding.selectedMethodId;
+
+  // Pass 26 (2026-05-14): Min Cash Reserve is added on top of Methods
+  // 1 + 2; Method 3 (Cash Deficit) absorbs it implicitly. The lump
+  // lands at the first non-zero capex period (engine-side).
+  const selectedPerPeriod = p.cropProject(p.funding.selectedByPeriod);
+  const minCashPerPeriod = p.cropProject(p.funding.minCashByPeriod);
+  const totalFundingPerPeriod = p.cropProject(p.funding.totalFundingNeedByPeriod);
+  const showMinCashRows = p.funding.minCashReserve > 0 && selectedMethodId !== 3;
+
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>7. Funding Requirement ({currencyHeaderLine(p.currency, p.scale)})</div>
@@ -1056,17 +1069,32 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
             </tr>
             <tr>
-              <td style={ROW_GRAND_TOTAL.name}>Selected (Method {selectedMethodId})</td>
-              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.funding.selected)}</td>
-              {(selectedMethodId === 1 ? m1PerPeriod : blanks).map((v, i) => (
-                <td key={i} style={ROW_GRAND_TOTAL.num}>{selectedMethodId === 1 ? p.fmt(v) : ','}</td>
+              <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
+              <td style={ROW_SUBTOTAL.num}>{p.fmt(p.funding.selected)}</td>
+              {(selectedMethodId === 1 ? selectedPerPeriod : blanks).map((v, i) => (
+                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 ? p.fmt(v) : ','}</td>
               ))}
             </tr>
+            {showMinCashRows && (
+              <>
+                <tr>
+                  <td style={ROW_DATA.name}>+ Minimum Cash Reserve</td>
+                  <td style={ROW_DATA.num}>{p.fmt(p.funding.minCashReserve)}</td>
+                  {minCashPerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                </tr>
+                <tr>
+                  <td style={ROW_GRAND_TOTAL.name}>Total Funding Need</td>
+                  <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.funding.selectedWithMinCash)}</td>
+                  {totalFundingPerPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 'var(--sp-1)' }}>
         Methods 2 and 3 land once Module 2 Revenue and Module 4 Financial Statements ship.
+        {p.funding.minCashReserve > 0 && selectedMethodId === 3 && ' Method 3 absorbs the Minimum Cash Reserve implicitly via the deficit calc.'}
       </div>
     </section>
   );

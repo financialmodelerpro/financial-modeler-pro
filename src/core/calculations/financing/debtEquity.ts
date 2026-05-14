@@ -92,8 +92,13 @@ export function computeDebtEquitySplit(
   }
 
   for (let i = 0; i < N; i++) {
-    nonLandDebt[i]   = capex.perPeriod.nonLand[i] * debtFrac;
-    nonLandEquity[i] = capex.perPeriod.nonLand[i] * equityFrac;
+    // Pass 26 (2026-05-14): Min Cash Reserve lump (per-period, axis-
+    // indexed) is treated as additional non-land funding, split at
+    // the project ratio so the bank's drawdown sizing covers it.
+    const minCashAt = funding.minCashByPeriod[i] ?? 0;
+    const nonLandFundingAt = (capex.perPeriod.nonLand[i] ?? 0) + minCashAt;
+    nonLandDebt[i]   = nonLandFundingAt * debtFrac;
+    nonLandEquity[i] = nonLandFundingAt * equityFrac;
     landDebt[i]      = capex.perPeriod.landCash[i] * landDebtFrac;
     landEquity[i]    = capex.perPeriod.landCash[i] * landEquityFrac;
     debt[i]   = nonLandDebt[i] + landDebt[i];

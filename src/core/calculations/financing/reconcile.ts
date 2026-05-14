@@ -45,8 +45,11 @@ export function reconcile(
 
   const totalDebt = split.debt.reduce((s, v) => s + v, 0);
   const totalEquity = split.equity.reduce((s, v) => s + v, 0);
-  if (!near(totalDebt + totalEquity, capex.totals.exclLandInKind))
-    issues.push(`Debt+CashEquity ${totalDebt + totalEquity} vs CapexExclInKind ${capex.totals.exclLandInKind}`);
+  // Pass 26 (2026-05-14): Min Cash Reserve is funded from the same
+  // debt/equity split, so the identity expands to include it.
+  const expectedFunding = capex.totals.exclLandInKind + (funding.minCashReserve ?? 0);
+  if (!near(totalDebt + totalEquity, expectedFunding))
+    issues.push(`Debt+CashEquity ${totalDebt + totalEquity} vs Capex+MinCash ${expectedFunding}`);
 
   let shareSum = 0;
   for (const v of shares.values()) shareSum += v;
