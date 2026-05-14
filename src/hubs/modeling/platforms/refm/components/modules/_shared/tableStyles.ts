@@ -95,14 +95,44 @@ export const CELL_HEADER: CSSProperties = {
 // line even when the column is sized to a smaller width than the value
 // would naturally take. Label cells stay wrappable so long row labels
 // don't blow out the layout.
+//
+// Pass 35 (2026-05-14): every row token now exposes a `numTotal`
+// variant that's identical to `num` but adds a 1px right border in
+// `--color-border-strong` (or border fallback). Used for the Total
+// column (the second cell of every results row) so it visually
+// separates from the period columns. Header cells get the same
+// treatment via CELL_HEADER_TOTAL.
+const TOTAL_COL_BORDER = `1px dashed var(--color-border-strong, var(--color-border))`;
+const TOTAL_COL_BORDER_ON_NAVY = `1px dashed color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)`;
+
+export const CELL_HEADER_TOTAL: CSSProperties = {
+  ...CELL_HEADER,
+  borderRight: TOTAL_COL_BORDER_ON_NAVY,
+};
+
 export const ROW_DATA = {
   name: { ...CELL_BASE, textAlign: 'left' as const, fontWeight: 400 },
   num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 400, whiteSpace: 'nowrap' as const },
+  numTotal: {
+    ...CELL_BASE,
+    textAlign: 'right' as const,
+    fontWeight: 400,
+    whiteSpace: 'nowrap' as const,
+    borderRight: TOTAL_COL_BORDER,
+  },
 };
 
 export const ROW_ASSET_HEADING = {
   name: { ...CELL_BASE, textAlign: 'left' as const, fontWeight: 700, fontSize: 12 },
   num: { ...CELL_BASE, textAlign: 'right' as const, fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' as const },
+  numTotal: {
+    ...CELL_BASE,
+    textAlign: 'right' as const,
+    fontWeight: 700,
+    fontSize: 12,
+    whiteSpace: 'nowrap' as const,
+    borderRight: TOTAL_COL_BORDER,
+  },
 };
 
 export const ROW_SUBTOTAL = {
@@ -122,6 +152,16 @@ export const ROW_SUBTOTAL = {
     background: ROW_SUBTOTAL_FILL,
     borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
     borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
+  },
+  numTotal: {
+    ...CELL_BASE,
+    textAlign: 'right' as const,
+    fontWeight: 700,
+    whiteSpace: 'nowrap' as const,
+    background: ROW_SUBTOTAL_FILL,
+    borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
+    borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
+    borderRight: TOTAL_COL_BORDER,
   },
 };
 
@@ -144,6 +184,17 @@ export const ROW_GRAND_TOTAL = {
     color: TABLE_HEADER_TEXT,
     borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
     borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
+  },
+  numTotal: {
+    ...CELL_BASE,
+    textAlign: 'right' as const,
+    fontWeight: 700,
+    whiteSpace: 'nowrap' as const,
+    background: TABLE_HEADER_BLUE,
+    color: TABLE_HEADER_TEXT,
+    borderTop: `1px solid ${TABLE_HEADER_BLUE}`,
+    borderBottom: `1px solid ${TABLE_HEADER_BLUE}`,
+    borderRight: TOTAL_COL_BORDER_ON_NAVY,
   },
 };
 

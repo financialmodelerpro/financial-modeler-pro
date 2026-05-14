@@ -49,7 +49,7 @@ import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
-import { CELL_HEADER, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
+import { CELL_HEADER, CELL_HEADER_TOTAL, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -1067,30 +1067,30 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
-              <th style={CELL_HEADER}>Total</th>
+              <th style={CELL_HEADER_TOTAL}>Total</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
             <tr>
               <td style={ROW_DATA.name}>Capex (excluding Land)</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.capex.totals.exclAllLand)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.capex.totals.exclAllLand)}</td>
               {exclLand.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Land Cash Value</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.capex.totals.exclLandInKind - p.capex.totals.exclAllLand)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.capex.totals.exclLandInKind - p.capex.totals.exclAllLand)}</td>
               {landCash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
-              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.capex.totals.exclLandInKind)}</td>
+              <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.capex.totals.exclLandInKind)}</td>
               {totalIncl.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
             {p.existingPreCapex > 0 && (
               <tr>
                 <td style={ROW_DATA.name}>Pre-Capex (existing operations)</td>
-                <td style={ROW_DATA.num}>{p.fmt(p.existingPreCapex)}</td>
+                <td style={ROW_DATA.numTotal}>{p.fmt(p.existingPreCapex)}</td>
                 {p.axis.activeLabels.map((_, i) => (
                   <td key={i} style={ROW_DATA.num}>{p.fmt(i === 0 ? p.existingPreCapex : 0)}</td>
                 ))}
@@ -1144,36 +1144,36 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
           <thead>
             <tr>
               <th style={CELL_HEADER}>Method</th>
-              <th style={CELL_HEADER}>Total</th>
+              <th style={CELL_HEADER_TOTAL}>Total</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
             <tr>
               <td style={ROW_DATA.name}>Method 1, Fixed Debt-to-Equity Ratio</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.funding.method1)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.method1)}</td>
               {m1PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 2, Net Funding Requirement</td>
-              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 3, Cash Deficit Funding</td>
-              <td style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Method 4, Specified Debt + Equity (manual)</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.funding.method4)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.method4)}</td>
               {(selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
                 <td key={i} style={ROW_DATA.num}>{selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
               ))}
             </tr>
             <tr>
               <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
-              <td style={ROW_SUBTOTAL.num}>{p.fmt(p.funding.selected)}</td>
+              <td style={ROW_SUBTOTAL.numTotal}>{p.fmt(p.funding.selected)}</td>
               {(selectedMethodId === 1 || selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
                 <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
               ))}
@@ -1182,12 +1182,12 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               <>
                 <tr>
                   <td style={ROW_DATA.name}>+ Minimum Cash Reserve</td>
-                  <td style={ROW_DATA.num}>{p.fmt(p.funding.minCashReserve)}</td>
+                  <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.minCashReserve)}</td>
                   {minCashPerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                 </tr>
                 <tr>
                   <td style={ROW_GRAND_TOTAL.name}>Total Funding Need</td>
-                  <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.funding.selectedWithMinCash)}</td>
+                  <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.funding.selectedWithMinCash)}</td>
                   {totalFundingPerPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
                 </tr>
               </>
@@ -1258,7 +1258,7 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
           <thead>
             <tr>
               <th style={CELL_HEADER}>Facility</th>
-              <th style={CELL_HEADER}>Total</th>
+              <th style={CELL_HEADER_TOTAL}>Total</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
@@ -1270,24 +1270,24 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
               return (
                 <tr key={t.id}>
                   <td style={ROW_DATA.name}>{t.name}</td>
-                  <td style={ROW_DATA.num}>{p.fmt(total)}</td>
+                  <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
                   {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                 </tr>
               );
             })}
             <tr>
               <td style={ROW_SUBTOTAL.name}>Capex Drawdown Subtotal</td>
-              <td style={ROW_SUBTOTAL.num}>{p.fmt(totalCapexDraw)}</td>
+              <td style={ROW_SUBTOTAL.numTotal}>{p.fmt(totalCapexDraw)}</td>
               {totalCapexDrawByPeriod.map((v, i) => <td key={i} style={ROW_SUBTOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>IDC Drawdown (capitalized interest)</td>
-              <td style={ROW_DATA.num}>{p.fmt(totalIdcDraw)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(totalIdcDraw)}</td>
               {idcDrawByPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
-              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(totalDebtRequired)}</td>
+              <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(totalDebtRequired)}</td>
               {totalDebtByPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
           </tbody>
@@ -1329,7 +1329,7 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
           <thead>
             <tr>
               <th style={CELL_HEADER}>Source</th>
-              <th style={CELL_HEADER}>Total</th>
+              <th style={CELL_HEADER_TOTAL}>Total</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
@@ -1337,23 +1337,23 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
             {p.equity.totalExisting > 0 && (
               <tr>
                 <td style={ROW_DATA.name}>Existing Equity (operational phases)</td>
-                <td style={ROW_DATA.num}>{p.fmt(p.equity.totalExisting)}</td>
+                <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalExisting)}</td>
                 {existing.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
               </tr>
             )}
             <tr>
               <td style={ROW_DATA.name}>Cash Equity</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalCash)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalCash)}</td>
               {cash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>In-Kind Equity</td>
-              <td style={ROW_DATA.num}>{p.fmt(p.equity.totalInKind)}</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalInKind)}</td>
               {inKind.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
-              <td style={ROW_GRAND_TOTAL.num}>{p.fmt(p.equity.grandTotal)}</td>
+              <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.equity.grandTotal)}</td>
               {total.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
           </tbody>
@@ -1388,7 +1388,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     <thead>
       <tr>
         <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
-        <th style={CELL_HEADER}>Total</th>
+        <th style={CELL_HEADER_TOTAL}>Total</th>
         {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
       </tr>
     </thead>
@@ -1398,11 +1398,14 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
   // Pass 24b (2026-05-14): `negative` opt renders the row as accounting-
   // negative (parentheses + red colour) for cash-outflow lines like
   // principal repaid + total debt service.
+  // Pass 35 (2026-05-14): Total cell uses the dotted-right-border
+  // numTotal variant so it visually separates from the period columns.
   const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean }) => {
     const cropped = p.cropProject(arr);
     const total = cropped.reduce((s, v) => s + v, 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const baseNumStyle = opts?.bold ? ROW_GRAND_TOTAL.num : ROW_DATA.num;
+    const baseTotalStyle = opts?.bold ? ROW_GRAND_TOTAL.numTotal : ROW_DATA.numTotal;
     // Pass 30b (2026-05-14): grand-total rows render white-on-navy;
     // recolouring to red would be invisible. Keep the parentheses for
     // the accounting-negative semantic but skip the red on bold rows.
@@ -1410,6 +1413,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     const numStyle: React.CSSProperties = applyRed
       ? { ...baseNumStyle, color: 'var(--color-danger, #b91c1c)' }
       : baseNumStyle;
+    const totalStyle: React.CSSProperties = applyRed
+      ? { ...baseTotalStyle, color: 'var(--color-danger, #b91c1c)' }
+      : baseTotalStyle;
     const renderVal = (v: number): string => {
       if (!opts?.negative) return p.fmt(v);
       const signed = v > 0 ? -v : v;
@@ -1418,7 +1424,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
-        <td style={numStyle}>{renderVal(total)}</td>
+        <td style={totalStyle}>{renderVal(total)}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{renderVal(v)}</td>)}
       </tr>
     );
@@ -1429,10 +1435,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     const cropped = p.cropProject(arr);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
+    const totalStyle = opts?.bold ? ROW_GRAND_TOTAL.numTotal : ROW_DATA.numTotal;
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
-        <td style={numStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
+        <td style={totalStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
       </tr>
     );
