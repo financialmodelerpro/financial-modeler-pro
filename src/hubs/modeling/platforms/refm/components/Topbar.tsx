@@ -295,9 +295,9 @@ export default function Topbar({
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background: '#fbbf24',
+                  background: 'var(--color-warning, #f59e0b)',
                   border: '1.5px solid var(--color-primary-deep)',
-                  boxShadow: '0 0 6px rgba(251,191,36,0.7)',
+                  boxShadow: '0 0 6px color-mix(in srgb, var(--color-warning, #f59e0b) 70%, transparent)',
                 }}
                 aria-label="unsaved changes"
               />

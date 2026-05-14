@@ -285,6 +285,7 @@ export default function Module1Financing(): React.JSX.Element {
                 <AccountingNumberInput
                   value={financingConfig.minimumCashReserve ?? 0}
                   onChange={(v) => setFinancingConfigPatch({ minimumCashReserve: v })}
+                  style={inputStyle}
                 />
               </div>
             </div>
@@ -332,6 +333,7 @@ export default function Module1Financing(): React.JSX.Element {
                     onChange={(v) => setFinancingConfigPatch({
                       fixedRatio: { debtPct: v, equityPct: Math.max(0, 100 - v) },
                     })}
+                    style={inputStyle}
                   />
                 </div>
                 <div>
@@ -341,6 +343,7 @@ export default function Module1Financing(): React.JSX.Element {
                     onChange={(v) => setFinancingConfigPatch({
                       fixedRatio: { equityPct: v, debtPct: Math.max(0, 100 - v) },
                     })}
+                    style={inputStyle}
                   />
                 </div>
                 <div
@@ -376,6 +379,7 @@ export default function Module1Financing(): React.JSX.Element {
                         yoySchedule: financingConfig.fixedAmountConfig?.yoySchedule ?? [],
                       },
                     })}
+                    style={inputStyle}
                   />
                 </div>
                 <div>
@@ -389,6 +393,7 @@ export default function Module1Financing(): React.JSX.Element {
                         yoySchedule: financingConfig.fixedAmountConfig?.yoySchedule ?? [],
                       },
                     })}
+                    style={inputStyle}
                   />
                 </div>
               </div>
@@ -810,7 +815,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           <div>
             <FieldLabel>Opening Balance</FieldLabel>
-            <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} />
+            <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} style={inputStyle} />
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
               Outstanding loan balance at project Y0 (sole entry point).
             </div>
@@ -863,6 +868,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               interbankRatePct: v,
               interestRatePct: v + creditSpreadPct,
             })}
+            style={inputStyle}
           />
         </div>
         <div>
@@ -873,6 +879,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               creditSpreadPct: v,
               interestRatePct: interbankPct + v,
             })}
+            style={inputStyle}
           />
         </div>
         <div>
@@ -881,15 +888,16 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             value={effectiveRatePct}
             onChange={() => { /* read-only: derived from Interbank + Credit Spread */ }}
             disabled
+            style={{ ...inputStyle, background: 'var(--color-surface-muted, #f3f4f6)', color: 'var(--color-text-muted, #6b7280)' }}
           />
         </div>
         <div>
           <FieldLabel>Upfront Fee %</FieldLabel>
-          <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} />
+          <PercentageInput value={t.upfrontFeePct ?? 0} onChange={(v) => onUpdate(t.id, { upfrontFeePct: v })} style={inputStyle} />
         </div>
         <div>
           <FieldLabel>Commitment Fee %</FieldLabel>
-          <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} />
+          <PercentageInput value={t.commitmentFeePct ?? 0} onChange={(v) => onUpdate(t.id, { commitmentFeePct: v })} style={inputStyle} />
         </div>
       </div>
 
@@ -945,7 +953,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         {showShareField && !isExisting ? (
           <div>
             <FieldLabel>Facility Share %</FieldLabel>
-            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
+            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} style={inputStyle} />
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
               Normalised: {normalisedShare.toFixed(2)}%
             </div>
@@ -1068,6 +1076,7 @@ function CashSweepEditor(p: CashSweepEditorProps): React.JSX.Element {
         <PercentageInput
           value={cfg.sweepRatio}
           onChange={(v) => p.onChange({ ...cfg, sweepRatio: v })}
+          style={inputStyle}
         />
       </div>
     </div>
@@ -1713,8 +1722,15 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           </thead>
           <tbody>
             {(() => {
+              // Pass 41c (2026-05-14): same isActiveExisting gate as
+              // Debt Movement / Combined Debt Service / Finance Cost.
+              // Empty existing-facility stubs no longer add a zero-only
+              // row to IDC Summary.
+              const idcTranches = p.tranches.filter((t) =>
+                t.origin !== 'existing' || isActiveExisting(t),
+              );
               let grandCap = 0, grandExp = 0;
-              const rows = p.tranches.map((t) => {
+              const rows = idcTranches.map((t) => {
                 const r = p.result.facilities.get(t.id);
                 if (!r) return null;
                 const cap = r.interestCapitalized.reduce((s, v) => s + v, 0);
