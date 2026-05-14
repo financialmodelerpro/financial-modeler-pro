@@ -162,6 +162,17 @@ export default function Module1Financing(): React.JSX.Element {
     return Math.min(operationsEndYear, projectStartYear + Math.max(1, maxCp));
   }, [phases, projectStartYear, operationsEndYear]);
 
+  // Pass 36 (2026-05-14): mirrored baseline debt = sum of every
+  // operational phase's historicalBaseline.currentDebtOutstanding.
+  // Existing-facility tranches prefill Opening Balance from this on
+  // Add, and the field UI shows it as a hint so the user can confirm
+  // / override the auto-pulled value.
+  const baselineDebtFromPhases = useMemo(() => {
+    return phases
+      .filter((ph) => ph.status === 'operational')
+      .reduce((s, ph) => s + Math.max(0, ph.historicalBaseline?.currentDebtOutstanding ?? 0), 0);
+  }, [phases]);
+
   // No-prior-column convention (2026-05-14): arr[0] = first active
   // period (e.g., Dec 25 when startDate is 2025-01-01). UI uses
   // axis.activeLabels exclusively; axis.priorLabel/.labels are not
@@ -495,6 +506,7 @@ export default function Module1Financing(): React.JSX.Element {
             projectStartYear={projectStartYear}
             operationsEndYear={operationsEndYear}
             defaultRepayStartYear={defaultRepayStartYear}
+            baselineDebtFromPhases={baselineDebtFromPhases}
             onAdd={() => {
               const id = `fin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
               const newT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
@@ -506,8 +518,13 @@ export default function Module1Financing(): React.JSX.Element {
               const exT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
               exT.origin = 'existing';
               exT.name = 'Existing facility';
-              exT.openingBalance = 0;
-              exT.remainingTenorPeriods = 0;
+              // Pass 36 (2026-05-14): auto-prefill from operational
+              // phase historical baseline so the user starts with the
+              // same number they already typed in Tab 1 setup.
+              exT.openingBalance = baselineDebtFromPhases;
+              exT.originationYear = projectStartYear - 1; // pre-project default
+              exT.interestStartYear = projectStartYear;
+              exT.repaymentStartYear = projectStartYear;
               exT.remainingRepaymentPeriods = 0;
               addFinancingTranche(exT);
             }}
@@ -595,6 +612,7 @@ interface FacilitiesSectionProps {
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
+  baselineDebtFromPhases: number;
   onAdd: () => void;
   onAddExisting: () => void;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
@@ -605,7 +623,7 @@ interface FacilitiesSectionProps {
 function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
   const {
     tranches, shares,
-    projectStartYear, operationsEndYear, defaultRepayStartYear,
+    projectStartYear, operationsEndYear, defaultRepayStartYear, baselineDebtFromPhases,
     onAdd, onAddExisting, onUpdate, onRemove, onSet,
   } = props;
   const handleShareChange = (id: string, raw: number) => {
@@ -666,6 +684,7 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
           projectStartYear={projectStartYear}
           operationsEndYear={operationsEndYear}
           defaultRepayStartYear={defaultRepayStartYear}
+          baselineDebtFromPhases={baselineDebtFromPhases}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onShareChange={(v) => handleShareChange(t.id, v)}
@@ -684,6 +703,7 @@ interface TrancheCardProps {
   projectStartYear: number;
   operationsEndYear: number;
   defaultRepayStartYear: number;
+  baselineDebtFromPhases: number;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
   onShareChange: (v: number) => void;
@@ -693,7 +713,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
   const {
     tranche: t,
     normalisedShare, showShareField,
-    projectStartYear, operationsEndYear, defaultRepayStartYear,
+    projectStartYear, operationsEndYear, defaultRepayStartYear, baselineDebtFromPhases,
     onUpdate, onRemove, onShareChange,
   } = p;
   const isExisting = t.origin === 'existing';
@@ -767,27 +787,57 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         ))}
       </div>
 
+      {/* Pass 36 (2026-05-14): existing facility row mirrors the
+          new-tranche structure. Three fields: Opening Balance (auto-
+          prefilled from operational phase historicalBaseline.current-
+          DebtOutstanding on Add; editable), Origination Year (when
+          loan was raised; if >= projectStartYear it draws as a cash
+          inflow that period), Interest Start Year (gates accrual).
+          Remaining Tenor field removed - the engine derives runway
+          from repaymentStartYear + Repayment Periods directly. The
+          method/start-year/periods row below is shared with new debt. */}
       {isExisting && (
         <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           <div>
             <FieldLabel>Opening Balance</FieldLabel>
             <AccountingNumberInput value={t.openingBalance ?? 0} onChange={(v) => onUpdate(t.id, { openingBalance: Math.max(0, v) })} />
+            {baselineDebtFromPhases > 0 && (
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                From operational phase baseline: {baselineDebtFromPhases.toLocaleString('en-US')}
+              </div>
+            )}
           </div>
           <div>
-            <FieldLabel>Remaining Tenor (periods)</FieldLabel>
+            <FieldLabel>Origination Year</FieldLabel>
             <input
               type="number"
-              value={t.remainingTenorPeriods ?? 0}
-              onChange={(e) => onUpdate(t.id, { remainingTenorPeriods: Math.max(0, Number(e.target.value) || 0) })}
+              value={t.originationYear ?? (projectStartYear - 1)}
+              onChange={(e) => {
+                const yr = Number(e.target.value);
+                if (!Number.isFinite(yr)) return;
+                onUpdate(t.id, { originationYear: Math.floor(yr) });
+              }}
               style={inputStyle}
             />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+              {(t.originationYear ?? (projectStartYear - 1)) >= projectStartYear
+                ? 'Draws as cash inflow that year'
+                : 'Pre-project balance carries at Y0'}
+            </div>
           </div>
           <div>
-            <FieldLabel>Remaining Repayment Periods</FieldLabel>
+            <FieldLabel>Interest Start Year</FieldLabel>
             <input
               type="number"
-              value={t.remainingRepaymentPeriods ?? 0}
-              onChange={(e) => onUpdate(t.id, { remainingRepaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
+              min={projectStartYear}
+              max={operationsEndYear}
+              value={t.interestStartYear ?? projectStartYear}
+              onChange={(e) => {
+                const yr = Number(e.target.value);
+                if (!Number.isFinite(yr)) return;
+                const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
+                onUpdate(t.id, { interestStartYear: clamped });
+              }}
               style={inputStyle}
             />
           </div>
@@ -835,93 +885,72 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         </div>
       </div>
 
-      {/* Pass 29 (2026-05-14): repayment method + start year + periods
-          on a single row (+ Facility Share when applicable). */}
-      {!isExisting && (
-        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      {/* Pass 36 (2026-05-14): single shared repayment row for both
+          new and existing tranches. Existing maps the Repayment
+          Periods field to `remainingRepaymentPeriods` (legacy schema
+          field) for back-compat; new uses `repaymentPeriods`. */}
+      <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        <div>
+          <FieldLabel>Repayment Method</FieldLabel>
+          <select
+            value={t.repaymentMethod}
+            onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
+            style={inputStyle}
+          >
+            {REPAYMENT_METHODS_USER.map((m) => (
+              <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <FieldLabel>Repayment Start Year</FieldLabel>
+          <input
+            type="number"
+            min={projectStartYear}
+            max={operationsEndYear}
+            value={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
+            onChange={(e) => {
+              const yr = Number(e.target.value);
+              if (!Number.isFinite(yr)) return;
+              const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
+              onUpdate(t.id, { repaymentStartYear: clamped });
+            }}
+            style={inputStyle}
+          />
+        </div>
+        {t.repaymentMethod !== 'year_on_year_pct' ? (
           <div>
-            <FieldLabel>Repayment Method</FieldLabel>
-            <select
-              value={t.repaymentMethod}
-              onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
-              style={inputStyle}
-            >
-              {REPAYMENT_METHODS_USER.map((m) => (
-                <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <FieldLabel>Repayment Start Year</FieldLabel>
+            <FieldLabel>Repayment Periods</FieldLabel>
             <input
               type="number"
-              min={projectStartYear}
-              max={operationsEndYear}
-              value={t.repaymentStartYear ?? defaultRepayStartYear}
+              value={isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)}
               onChange={(e) => {
-                const yr = Number(e.target.value);
-                if (!Number.isFinite(yr)) return;
-                const clamped = Math.max(projectStartYear, Math.min(operationsEndYear, Math.floor(yr)));
-                onUpdate(t.id, { repaymentStartYear: clamped });
+                const n = Math.max(0, Number(e.target.value) || 0);
+                onUpdate(t.id, isExisting ? { remainingRepaymentPeriods: n } : { repaymentPeriods: n });
               }}
               style={inputStyle}
             />
           </div>
-          {t.repaymentMethod !== 'year_on_year_pct' ? (
-            <div>
-              <FieldLabel>Repayment Periods</FieldLabel>
-              <input
-                type="number"
-                value={t.repaymentPeriods ?? 0}
-                onChange={(e) => onUpdate(t.id, { repaymentPeriods: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-          ) : (
-            <div />
-          )}
-          {showShareField ? (
-            <div>
-              <FieldLabel>Facility Share %</FieldLabel>
-              <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                Normalised: {normalisedShare.toFixed(2)}%
-              </div>
-            </div>
-          ) : <div />}
-        </div>
-      )}
-
-      {/* Pass 31 (2026-05-14): existing facilities also pick a repayment
-          method (same 3 options as new). They start repaying at project
-          period 0 and the count comes from Remaining Repayment Periods,
-          so we show only the method dropdown here. */}
-      {isExisting && (
-        <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        ) : (
+          <div />
+        )}
+        {showShareField && !isExisting ? (
           <div>
-            <FieldLabel>Repayment Method</FieldLabel>
-            <select
-              value={t.repaymentMethod}
-              onChange={(e) => onUpdate(t.id, { repaymentMethod: e.target.value as FinancingTranche['repaymentMethod'] })}
-              style={inputStyle}
-            >
-              {REPAYMENT_METHODS_USER.map((m) => (
-                <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
-              ))}
-            </select>
+            <FieldLabel>Facility Share %</FieldLabel>
+            <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Normalised: {normalisedShare.toFixed(2)}%
+            </div>
           </div>
-          <div /><div /><div />
-        </div>
-      )}
+        ) : <div />}
+      </div>
 
       {t.repaymentMethod === 'year_on_year_pct' && (
         <YoYScheduleEditor
           schedule={t.yearOnYearPctSchedule ?? []}
-          startYear={isExisting
-            ? projectStartYear
-            : (t.repaymentStartYear ?? defaultRepayStartYear)}
+          startYear={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
           endYear={isExisting
-            ? Math.min(operationsEndYear, projectStartYear + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
+            ? Math.min(operationsEndYear, (t.repaymentStartYear ?? projectStartYear) + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
             : operationsEndYear}
           onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
         />
