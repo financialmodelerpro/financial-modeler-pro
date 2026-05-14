@@ -206,6 +206,45 @@ export default function Module1Financing(): React.JSX.Element {
 
       {subTab === 'inputs' && (
         <>
+          {/* Pass 33 (2026-05-14): KPI tiles at top of Financing inputs.
+              Total Funding (= debt + equity sized), Debt, Equity, IDC,
+              Finance Cost (cumulative cash interest expensed). Quick
+              read on the project's overall capital stack and lifetime
+              interest cost without diving into the schedules. */}
+          {(() => {
+            const totalDebt = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
+            const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
+            const totalFunding = totalDebt + totalEquity;
+            const totalIdc = result.combined.totalInterestCapitalized.reduce((s, v) => s + v, 0);
+            const totalFinanceCost = result.combined.totalInterestExpensed.reduce((s, v) => s + v, 0);
+            const tile = (label: string, value: number, accent?: string): React.JSX.Element => (
+              <div
+                key={label}
+                style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  borderLeft: `3px solid ${accent ?? 'var(--color-navy)'}`,
+                }}
+              >
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-heading)' }}>{fmt(value)}</div>
+              </div>
+            );
+            return (
+              <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                  {tile('Total Funding', totalFunding, 'var(--color-navy)')}
+                  {tile('Total Debt', totalDebt, 'var(--color-warning, #92400e)')}
+                  {tile('Total Equity', totalEquity, 'var(--color-success, #166534)')}
+                  {tile('Total IDC', totalIdc, 'var(--color-meta, #6b7280)')}
+                  {tile('Total Finance Cost', totalFinanceCost, 'var(--color-danger, #b91c1c)')}
+                </div>
+              </section>
+            );
+          })()}
+
           <section style={sectionStyle}>
             <div style={sectionTitle}>1. Project Financing Settings</div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -456,6 +495,16 @@ export default function Module1Financing(): React.JSX.Element {
               newT.repaymentStartYear = defaultRepayStartYear;
               addFinancingTranche(newT);
             }}
+            onAddExisting={() => {
+              const id = `fin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+              const exT = makeDefaultFinancingTranche(id, phases[0]?.id ?? '');
+              exT.origin = 'existing';
+              exT.name = 'Existing facility';
+              exT.openingBalance = 0;
+              exT.remainingTenorPeriods = 0;
+              exT.remainingRepaymentPeriods = 0;
+              addFinancingTranche(exT);
+            }}
             onUpdate={updateFinancingTranche}
             onRemove={removeFinancingTranche}
             onSet={setFinancingTranches}
@@ -541,6 +590,7 @@ interface FacilitiesSectionProps {
   operationsEndYear: number;
   defaultRepayStartYear: number;
   onAdd: () => void;
+  onAddExisting: () => void;
   onUpdate: (id: string, patch: Partial<FinancingTranche>) => void;
   onRemove: (id: string) => void;
   onSet: (tranches: FinancingTranche[]) => void;
@@ -550,32 +600,51 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
   const {
     tranches, shares,
     projectStartYear, operationsEndYear, defaultRepayStartYear,
-    onAdd, onUpdate, onRemove, onSet,
+    onAdd, onAddExisting, onUpdate, onRemove, onSet,
   } = props;
   const handleShareChange = (id: string, raw: number) => {
     const next = tranches.map((t) => (t.id === id ? { ...t, facilitySharePct: raw } : t));
     onSet(next);
   };
+  const buttonStyle: React.CSSProperties = {
+    padding: '4px 12px',
+    borderRadius: 'var(--radius-sm)',
+    border: 'none',
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: 'pointer',
+  };
   return (
     <section style={sectionStyle}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={sectionTitle}>5. Debt Facilities</div>
-        <button
-          type="button"
-          onClick={onAdd}
-          style={{
-            padding: '4px 12px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--color-navy)',
-            color: 'var(--color-on-primary-navy)',
-            border: 'none',
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          + Add Facility
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Pass 33 (2026-05-14): explicit button for adding an
+              existing facility so users don't have to add a New
+              tranche then toggle Origin radio. */}
+          <button
+            type="button"
+            onClick={onAddExisting}
+            style={{
+              ...buttonStyle,
+              background: 'var(--color-warning, #92400e)',
+              color: 'var(--color-on-primary-navy)',
+            }}
+          >
+            + Add Existing Facility
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            style={{
+              ...buttonStyle,
+              background: 'var(--color-navy)',
+              color: 'var(--color-on-primary-navy)',
+            }}
+          >
+            + Add New Facility
+          </button>
+        </div>
       </div>
       {tranches.length === 0 && (
         <div style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 8 }}>
@@ -1479,11 +1548,27 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {/* Pass 31 (2026-05-14): group per-facility Finance Cost tables
           by origin. Existing facilities first under their own header,
           then new facilities. */}
+      {/* Pass 33 (2026-05-14): Finance Cost schedule rebuilt as a
+          standard movement ledger - Opening / Charge (Accrued) /
+          Capitalized / Paid / Closing. The Closing balance tracks
+          accrued interest payable: in our engine accrual = capitalized
+          + paid each period so closings are structurally zero, but the
+          movement reads like a textbook accrual schedule. */}
       {(() => {
+        const buildFinanceCostBalances = (accrued: number[], capitalized: number[], paid: number[]) => {
+          const N = Math.max(accrued.length, capitalized.length, paid.length);
+          const opening = new Array<number>(N).fill(0);
+          const closing = new Array<number>(N).fill(0);
+          for (let i = 0; i < N; i++) {
+            opening[i] = i === 0 ? 0 : (closing[i - 1] ?? 0);
+            closing[i] = opening[i] + (accrued[i] ?? 0) - (capitalized[i] ?? 0) - (paid[i] ?? 0);
+          }
+          return { opening, closing };
+        };
         const renderFinanceCostTable = (t: FinancingTranche) => {
           const r = p.result.facilities.get(t.id);
           if (!r) return null;
-          const paidArr = r.interestPaid.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
+          const { opening, closing } = buildFinanceCostBalances(r.interestAccrued, r.interestCapitalized, r.interestPaid);
           return (
             <section key={`fc_${t.id}`} style={sectionStyle}>
               <div style={TABLE_TITLE}>Finance Cost, {t.name}</div>
@@ -1492,16 +1577,19 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {colgroup}
                   {headerRow}
                   <tbody>
+                    {renderStateRow('Opening', opening)}
                     {renderFlowRow('Charge (Accrued)', r.interestAccrued)}
-                    {renderFlowRow('Capitalized', r.interestCapitalized)}
-                    {renderFlowRow('Expensed', r.interestPaid, { negative: true })}
-                    {renderFlowRow('Paid (Capitalized + Expensed)', paidArr, { bold: true })}
+                    {renderFlowRow('Capitalized', r.interestCapitalized, { negative: true })}
+                    {renderFlowRow('Paid', r.interestPaid, { negative: true })}
+                    {renderStateRow('Closing', closing, { bold: true })}
                   </tbody>
                 </table>
               </div>
             </section>
           );
         };
+        const c = p.result.combined;
+        const { opening: combOpen, closing: combClose } = buildFinanceCostBalances(c.totalInterestAccrued, c.totalInterestCapitalized, c.totalInterestExpensed);
         return (
           <>
             {existingTranches.length > 0 && (
@@ -1515,6 +1603,24 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 <div style={groupHeaderStyle}>Finance Cost - New Facilities</div>
                 {newTranches.map(renderFinanceCostTable)}
               </>
+            )}
+            {(existingTranches.length + newTranches.length) > 1 && (
+              <section style={sectionStyle}>
+                <div style={TABLE_TITLE}>Combined Finance Cost (all facilities)</div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                    {colgroup}
+                    {headerRow}
+                    <tbody>
+                      {renderStateRow('Opening', combOpen)}
+                      {renderFlowRow('Charge (Accrued, all debts)', c.totalInterestAccrued)}
+                      {renderFlowRow('Capitalized', c.totalInterestCapitalized, { negative: true })}
+                      {renderFlowRow('Paid', c.totalInterestExpensed, { negative: true })}
+                      {renderStateRow('Closing', combClose, { bold: true })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             )}
           </>
         );
