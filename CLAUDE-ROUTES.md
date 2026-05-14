@@ -518,7 +518,7 @@ src/hubs/modeling/
 └── platforms/
     ├── refm/                         # Real Estate Financial Modeling, only live platform
     │   ├── components/
-    │   │   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
+    │   │   ├── Dashboard.tsx  PlanBadge.tsx     # OverviewScreen.tsx DELETED Pass 47/48 2026-05-14: redundant after Pass 45 Dashboard rewrite covers both portfolio + project overview; activeModule==='overview' now aliases to Dashboard for legacy deep links
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
     │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03, replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type; M1.11/1 2026-05-05 wraps return JSX in createPortal(jsx, document.body) with SSR guard so the modal renders centered in the viewport even when ancestor containing-blocks would otherwise swallow position:fixed], PlotSetupWizard [NEW M1.10/6 9f48b76 2026-05-05, 4-step modal wizard for per-plot Envelope -> Floors -> Parking -> Assets, mounted from each PlotEditor card via "Setup wizard" button, M1.10b/1 57a8fc0 portals to document.body], ParcelSetupWizard [NEW M1.10/7 89667ab 2026-05-05, 2-step modal wizard for Land Parcels build + review, mounted from the Land Parcels card via "Setup wizard" button, M1.10b/1 57a8fc0 portals to document.body], Rbac, Version)
     │   │   ├── modules/ (Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)   # Module1Area DISSOLVED M1.12 2026-05-06 (Land tab eliminated, parcel CRUD lifted into ProjectWizard Step 2 + Build Program Land Parcels block)

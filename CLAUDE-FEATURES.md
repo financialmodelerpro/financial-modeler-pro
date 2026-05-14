@@ -2130,3 +2130,103 @@ commit.
   `funding.debtEquitySplit.equity` already represents pure cash equity
   per period; in-kind is a separate additive memo source. Funding
   identity: `total_debt + total_cash_equity = capex_excl_in-kind`.
+
+### M2.0 Passes 37-48 (2026-05-14, Tab 4 polish + Module 1 audit + Dashboard redesign + admin DB-driven, 14 commits)
+
+- **Pass 37 (commit `167e5eb`).** Finance Cost (Existing) KPI tile split
+  off from Finance Cost (New). Existing tile renders only when at
+  least one existing tranche has `openingBalance > 0` OR
+  `financeCostExisting > 0` (otherwise the 5-tile grid stays compact).
+
+- **Pass 38 (commit `d209a86`).** Tab 1 Historical Baseline trimmed to
+  opening BS items only. Removed UI fields: `historicalCapexTotal`,
+  `historicalEquityContributed`, `historicalDebtDrawn`,
+  `last12MonthsRevenue`, `last12MonthsOpex`, `currentOccupancy`,
+  `currentAdr`, `currentRentRate`. Engine `existing.ts` rewired to
+  derive `preCapexTotal` + `equityTotal` from per-asset
+  `Asset.historicalPreCapex` + `Asset.historicalEquityAmount`. Schema
+  fields kept `@deprecated` for legacy snapshot parse.
+
+- **Pass 41 + 41b (commits `1f555a4` + `5ddfd9d`).**
+  `currentDebtOutstanding` removed from Tab 1 entirely; Tab 4 Existing
+  Facility -> Opening Balance is the sole entry point. Tab 3 Costs
+  tile bar dropped Operating from filter + tile bar; "Total Capex
+  Excl. Land" tile (= Hard + Soft + Operating) added with navy left-
+  bar. `isActiveExisting()` filter applied to every existing-only
+  block on Schedules sub-tab (Debt Movement, Combined Debt Service "-
+  Existing" rows, Finance Cost group header, IDC Summary in Pass 42).
+
+- **Pass 42 (commit `7ff3e12`).** Module 1 audit fixes. 13
+  `PercentageInput` / `AccountingNumberInput` calls on Tab 4 lacked
+  `style` prop and rendered as raw browser default; added
+  `style={inputStyle}` to all of them (Min Cash Reserve, Method 1
+  ratios, Method 4 amounts, Existing Opening Balance, 5 rate-row
+  fields with muted variant on the read-only Interest Rate, Facility
+  Share %, Cash Sweep Ratio). Topbar amber dot switched from
+  hardcoded `#fbbf24` to `var(--color-warning, #f59e0b)` + color-mix
+  shadow for design-token consistency.
+
+- **Pass 43 (commit `430fa33`).** `migrationsApplied: string[]` field
+  added to `Module1Store` + `HydrateSnapshot`. Each migration helper
+  appends a stable key (e.g. `MIGRATION_KEY_PASS7 =
+  'm20costs-pass7'`) on output; `snapshotNeedsXxx` checks short-
+  circuit when the marker is present. Banner fires once per project,
+  not every reload. `buildWizardSnapshot` pre-marks Pass 7 applied on
+  brand-new projects.
+
+- **Pass 44 (commit `b207beb`).** Tab 4 "Existing Operations Summary"
+  card added between Min Cash Reserve and Funding Method. New
+  optional `existingRetainedEarnings: number` field on
+  `PhaseHistoricalBaseline`. Section renders only when at least one
+  operational phase exists.
+
+- **Pass 45 (commit `2460b95`).** Dashboard fully redesigned. Hero
+  strip (project name + status pill + meta line + Save/Edit
+  buttons), 6 KPI tiles (Land / GFA / CapEx / Funding / Existing
+  Ops / Duration), 4-card module deck with completion hints, Phase
+  Summary table with inline share-of-capex bar + operational-phase
+  tooltip exposing all 6 existing-ops fields, reconciliation chip
+  strip (asset balances / funding ratio / equity / project-end),
+  Version History panel.
+
+- **Pass 46 (commit `8c63eef`).** Asset Classes section on REFM
+  marketing page. `/api/admin/asset-types` GET opened to public
+  (filters to `visible = true` by default; admin gets full list via
+  `?includeHidden=1`). `/app/modeling/[slug]/page.tsx` fetches
+  server-side when `slug === 'real-estate'`, renders an "Asset Class
+  Coverage" section between Modules and CTA with auto-fit card grid.
+
+- **Pass 47 + 47b (commits `b55fa50` + `e047892`).** Legacy Overview
+  sidebar entry removed (Pass 45 Dashboard subsumed it);
+  `activeModule === 'overview'` aliased to Dashboard so existing
+  routes keep working. **Pass 47b fixed a Rules-of-Hooks violation in
+  Dashboard.tsx** (two `useMemo` calls were below the no-project
+  early return — crashed `/refm` on transition between empty + project
+  states). Both `useMemo` blocks hoisted above the early return.
+
+- **Pass 48 (commits `537c397` + `7441d85`).** Full move of
+  Historical Baseline from Tab 1 to Tab 4. Tab 1 Historical Baseline
+  block deleted (Cumulative Depreciation, NBV, per-asset
+  Pre-Capex/Debt/Equity rows, validation chips, operational-phase
+  reveal block, all related local state). Tab 4 1b. Existing
+  Operations card extended: per-asset Pre-Capex / Existing Debt /
+  Existing Equity now editable here as the sole entry point, project-
+  wide totals tile bar moved below the per-asset rows with green/red
+  Existing Debt facility cross-check. Plus dead code sweep (~593
+  lines: `CostInputModeModal`, `ManagementAgreementForm`,
+  `UsefulLifeForm`, `OverviewScreen.tsx` deleted, multiple unused
+  imports).
+
+**Migrations applied 2026-05-14:** `150_p_sync_platform_modules.sql`
+(renumbered, slug seeds corrected to `real-estate`),
+`151_p_extend_modules_marketing.sql` (7 marketing columns on
+`modules` + `delete_platform_cascade(uuid)` function). Modeling
+Dashboard now reads platforms from DB; admin Add/Remove platform
+flows on `/admin/platform-modules`.
+
+**Admin consolidation:** previously two Module Manager pages
+(`/admin/modules` for platforms, `/admin/platform-modules` for
+sub-modules); now `/admin/platform-modules` is the single Module
+Manager (platform-level edit + sub-module CRUD + Asset Classes
+section under the REFM tab). `/admin/modules` rebadged "Launch
+Settings" (Coming Soon toggles + early-access whitelist only).
