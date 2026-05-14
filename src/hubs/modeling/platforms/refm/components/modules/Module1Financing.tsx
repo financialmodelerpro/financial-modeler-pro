@@ -232,7 +232,20 @@ export default function Module1Financing(): React.JSX.Element {
             // interest paid AFTER construction (P&L expense). Calling
             // them out explicitly so they don't read as net values.
             const totalIdc = result.combined.totalInterestCapitalized.reduce((s, v) => s + v, 0);
-            const totalFinanceCost = result.combined.totalInterestExpensed.reduce((s, v) => s + v, 0);
+            // Pass 37 (2026-05-14): split Finance Cost (Operating) into
+            // Existing vs New cards. Existing facility interest is on
+            // pre-existing debt, new facility interest is on debt raised
+            // for this project, conflating them hides materiality.
+            let financeCostExisting = 0;
+            let financeCostNew = 0;
+            for (const t of financingTranches) {
+              const fr = result.facilities.get(t.id);
+              if (!fr) continue;
+              const sum = fr.interestPaid.reduce((s, v) => s + v, 0);
+              if (t.origin === 'existing') financeCostExisting += sum;
+              else financeCostNew += sum;
+            }
+            const hasExisting = financingTranches.some((t) => t.origin === 'existing');
             const tile = (label: string, sublabel: string, value: number, accent?: string): React.JSX.Element => (
               <div
                 key={label}
@@ -249,14 +262,16 @@ export default function Module1Financing(): React.JSX.Element {
                 <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{sublabel}</div>
               </div>
             );
+            const cols = hasExisting ? 6 : 5;
             return (
               <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 8 }}>
                   {tile('Total Funding', 'Debt + Equity', totalFunding, 'var(--color-navy)')}
                   {tile('Total Debt', 'Capex + IDC funded', totalDebt, 'var(--color-warning, #92400e)')}
                   {tile('Total Equity', 'Cash + In-kind', totalEquity, 'var(--color-success, #166534)')}
                   {tile('IDC (Construction)', 'Interest capitalized', totalIdc, 'var(--color-meta, #6b7280)')}
-                  {tile('Finance Cost (Operating)', 'Interest expensed (cash)', totalFinanceCost, 'var(--color-danger, #b91c1c)')}
+                  {tile('Finance Cost (New)', 'New facility interest paid', financeCostNew, 'var(--color-danger, #b91c1c)')}
+                  {hasExisting && tile('Finance Cost (Existing)', 'Existing facility interest paid', financeCostExisting, 'var(--color-warning, #92400e)')}
                 </div>
               </section>
             );
