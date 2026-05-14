@@ -92,7 +92,7 @@ export default function Module1Financing(): React.JSX.Element {
     costLines, costOverrides, financingTranches,
     equityContributions, landAllocationMode,
     setProject, setFinancingTranches, addFinancingTranche,
-    updateFinancingTranche, removeFinancingTranche,
+    updateFinancingTranche, removeFinancingTranche, updatePhase,
   } = useModule1Store(
     useShallow((s) => ({
       project:                s.project,
@@ -110,6 +110,7 @@ export default function Module1Financing(): React.JSX.Element {
       addFinancingTranche:    s.addFinancingTranche,
       updateFinancingTranche: s.updateFinancingTranche,
       removeFinancingTranche: s.removeFinancingTranche,
+      updatePhase:            s.updatePhase,
     })),
   );
 
@@ -290,6 +291,171 @@ export default function Module1Financing(): React.JSX.Element {
               </div>
             </div>
           </section>
+
+          {/* Pass 44 (2026-05-14): Existing Operations Summary card.
+              Surfaces every "existing" input the user has captured across
+              Tabs 1, 2 and 4 in a single read-only view, so they can
+              confirm the data is flowing into the model. The only
+              editable fields here are Cumulative Depreciation, NBV and
+              Existing Retained Earnings (mirrored from / written back to
+              phase.historicalBaseline). Renders only when at least one
+              operational phase exists. */}
+          {(() => {
+            const opPhases = phases.filter((ph) => ph.status === 'operational');
+            if (opPhases.length === 0) return null;
+            const opAssets = assets.filter((a) => opPhases.some((p) => p.id === a.phaseId));
+            const totalPreCapex = opAssets.reduce((s, a) => s + Math.max(0, a.historicalPreCapex ?? 0), 0);
+            const totalAssetDebt = opAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
+            const totalAssetEquity = opAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
+            const totalExistingFacilityDebt = financingTranches
+              .filter((t) => t.origin === 'existing')
+              .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+            const totalCumDep = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.cumulativeDepreciationCharged ?? 0), 0);
+            const totalNbv = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.netBookValueFixedAssets ?? 0), 0);
+            const totalRetEarn = opPhases.reduce((s, p) => s + Math.max(0, p.historicalBaseline?.existingRetainedEarnings ?? 0), 0);
+
+            const tile = (label: string, value: number, source: string, accent?: string): React.JSX.Element => (
+              <div
+                key={label}
+                style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  borderLeft: `3px solid ${accent ?? 'var(--color-warning, #92400e)'}`,
+                }}
+              >
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>{fmt(value)}</div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>{source}</div>
+              </div>
+            );
+
+            const debtMatch = Math.abs(totalAssetDebt - totalExistingFacilityDebt) < 1;
+            const balancesOk = Math.abs(totalPreCapex - (totalAssetDebt + totalAssetEquity)) < 1;
+
+            return (
+              <section style={sectionStyle}>
+                <div style={sectionTitle}>1b. Existing Operations Summary</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
+                  Read-only view of every existing-operation input across the project. Edit Pre-Capex / Existing Debt / Existing Equity per asset on Tab 1 -&gt; per-asset Historical Baseline. Edit opening BS items below (mirrors Tab 1 phase form).
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 'var(--sp-2)' }}>
+                  {tile('Pre-Capex (assets)', totalPreCapex, `${opAssets.length} asset${opAssets.length === 1 ? '' : 's'} -> Tab 1`, 'var(--color-navy)')}
+                  {tile('Existing Debt (assets)', totalAssetDebt, 'per-asset entry -> Tab 1', 'var(--color-warning, #92400e)')}
+                  {tile('Existing Debt (facility)', totalExistingFacilityDebt, debtMatch ? 'matches assets' : 'mismatch vs assets', debtMatch ? 'var(--color-success, #166534)' : 'var(--color-danger, #b91c1c)')}
+                  {tile('Existing Equity (assets)', totalAssetEquity, 'per-asset entry -> Tab 1', 'var(--color-success, #166534)')}
+                </div>
+                {!balancesOk && (
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--sp-1)' }}>
+                    Pre-Capex {fmt(totalPreCapex)} != Debt {fmt(totalAssetDebt)} + Equity {fmt(totalAssetEquity)}. Per-asset balances on Tab 1 do not reconcile.
+                  </div>
+                )}
+
+                {/* Editable opening BS items per operational phase */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
+                  Opening Balance Sheet (per operational phase)
+                </div>
+                <div style={{ display: 'grid', gap: 'var(--sp-1)' }}>
+                  {opPhases.map((ph) => {
+                    const b = ph.historicalBaseline;
+                    return (
+                      <div
+                        key={ph.id}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr 1fr 1fr',
+                          gap: 8,
+                          alignItems: 'end',
+                          padding: 'var(--sp-1)',
+                          background: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>
+                          {ph.name}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Cumulative Depreciation</div>
+                          <AccountingNumberInput
+                            value={b?.cumulativeDepreciationCharged ?? 0}
+                            onChange={(v) => updatePhase(ph.id, {
+                              historicalBaseline: {
+                                ...(b ?? {
+                                  historicalCapexTotal: 0,
+                                  historicalEquityContributed: 0,
+                                  historicalDebtDrawn: 0,
+                                  currentDebtOutstanding: 0,
+                                  cumulativeDepreciationCharged: 0,
+                                  netBookValueFixedAssets: 0,
+                                  last12MonthsRevenue: 0,
+                                  last12MonthsOpex: 0,
+                                }),
+                                cumulativeDepreciationCharged: Math.max(0, v),
+                              },
+                            })}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Net Book Value (Fixed Assets)</div>
+                          <AccountingNumberInput
+                            value={b?.netBookValueFixedAssets ?? 0}
+                            onChange={(v) => updatePhase(ph.id, {
+                              historicalBaseline: {
+                                ...(b ?? {
+                                  historicalCapexTotal: 0,
+                                  historicalEquityContributed: 0,
+                                  historicalDebtDrawn: 0,
+                                  currentDebtOutstanding: 0,
+                                  cumulativeDepreciationCharged: 0,
+                                  netBookValueFixedAssets: 0,
+                                  last12MonthsRevenue: 0,
+                                  last12MonthsOpex: 0,
+                                }),
+                                netBookValueFixedAssets: Math.max(0, v),
+                              },
+                            })}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Existing Retained Earnings</div>
+                          <AccountingNumberInput
+                            value={b?.existingRetainedEarnings ?? 0}
+                            onChange={(v) => updatePhase(ph.id, {
+                              historicalBaseline: {
+                                ...(b ?? {
+                                  historicalCapexTotal: 0,
+                                  historicalEquityContributed: 0,
+                                  historicalDebtDrawn: 0,
+                                  currentDebtOutstanding: 0,
+                                  cumulativeDepreciationCharged: 0,
+                                  netBookValueFixedAssets: 0,
+                                  last12MonthsRevenue: 0,
+                                  last12MonthsOpex: 0,
+                                }),
+                                existingRetainedEarnings: Math.max(0, v),
+                              },
+                            })}
+                            style={inputStyle}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {opPhases.length > 1 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 'var(--sp-1)', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                    <div>Total Cumulative Depreciation: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalCumDep)}</strong></div>
+                    <div>Total NBV: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalNbv)}</strong></div>
+                    <div>Total Retained Earnings: <strong style={{ color: 'var(--color-heading)' }}>{fmt(totalRetEarn)}</strong></div>
+                  </div>
+                )}
+              </section>
+            );
+          })()}
 
           <section style={sectionStyle}>
             <div style={sectionTitle}>2. Funding Method</div>

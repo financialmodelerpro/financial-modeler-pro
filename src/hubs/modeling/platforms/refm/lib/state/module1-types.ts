@@ -372,6 +372,11 @@ export interface PhaseHistoricalBaseline {
   currentDebtOutstanding: number;
   cumulativeDepreciationCharged: number;
   netBookValueFixedAssets: number;
+  // Pass 44 (2026-05-14): existing retained earnings at project Y0.
+  // Seeds the BS equity section alongside the per-asset historical
+  // equity contributions. Captured on Tab 4 (Financing) under the
+  // Existing Operations Summary card.
+  existingRetainedEarnings?: number;
   /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
   last12MonthsRevenue: number;
   /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
