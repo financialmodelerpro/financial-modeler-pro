@@ -37,7 +37,6 @@ import Topbar from './Topbar';
 import Sidebar from './Sidebar';
 import Dashboard from './Dashboard';
 import ProjectsScreen from './ProjectsScreen';
-import OverviewScreen from './OverviewScreen';
 import Module1ProjectPhases from './modules/Module1ProjectPhases';
 import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';

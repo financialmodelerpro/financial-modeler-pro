@@ -35,7 +35,6 @@ import {
   type AssetParcelSplit,
   type AssetStrategy,
   type AssetStatus,
-  type ManagementAgreement,
   type Parcel,
   type SubUnit,
   type SubUnitCategory,
@@ -50,8 +49,6 @@ import {
   ASSET_TYPES_BY_STRATEGY,
   SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
   DEFAULT_OPERATIONS_BY_STRATEGY,
-  DEFAULT_MANAGEMENT_AGREEMENT,
-  DEFAULT_USEFUL_LIFE_YEARS,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
@@ -69,10 +66,9 @@ import {
   computePhaseTimeline,
   formatOperatingEndDate,
   resolveAssetAreaMetrics,
-  resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency, formatAccounting } from '@/src/core/formatters';
+import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
@@ -146,12 +142,6 @@ const fmtCurrency = (
   scale: import('../../lib/state/module1-types').DisplayScale = 'full',
   decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
 ): string => formatAccounting(n, scale, decimals);
-const fmtCurrencyWithCode = (
-  n: number,
-  currency: string,
-  scale: import('../../lib/state/module1-types').DisplayScale = 'full',
-  decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
-): string => formatScaledCurrency(n, currency, scale, decimals);
 
 // M2.0e: short strategy labels for the dropdown (M2.0i Fix 7
 // 2026-05-07: dropped the verbose descriptions; long-form details
@@ -2079,89 +2069,6 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
       </td>
     </tr>
-  );
-}
-
-// ── ManagementAgreementForm (M2.0d) ───────────────────────────────────────
-interface ManagementAgreementFormProps {
-  asset: Asset;
-  onUpdate: (patch: Partial<Asset>) => void;
-}
-
-function ManagementAgreementForm({ asset, onUpdate }: ManagementAgreementFormProps): React.JSX.Element {
-  const ag = asset.managementAgreement ?? DEFAULT_MANAGEMENT_AGREEMENT;
-  const setAg = (patch: Partial<ManagementAgreement>): void => {
-    onUpdate({ managementAgreement: { ...ag, ...patch } });
-  };
-  return (
-    <div
-      style={{
-        border: '1px solid var(--color-navy)',
-        background: 'var(--color-navy-pale)',
-        borderRadius: 'var(--radius)',
-        padding: 'var(--sp-2)',
-        marginBottom: 'var(--sp-2)',
-      }}
-      data-testid={`asset-${asset.id}-mgmt-agreement`}
-    >
-      <strong style={{ fontSize: 'var(--font-small)', display: 'block', marginBottom: 'var(--sp-1)' }}>Management Agreement, Sell + Manage</strong>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
-        <div>
-          <InputLabel label="Management Fee %" help="Share of operating revenue accruing to the developer post-handover." inputId={`asset-${asset.id}-mgmt-fee`} />
-          <PercentageInput id={`asset-${asset.id}-mgmt-fee`} data-testid={`asset-${asset.id}-mgmt-fee`} min={0} max={100} value={ag.managementFeePct} onChange={(n) => { const v = Math.max(0, Math.min(100, n)); setAg({ managementFeePct: v, ownerRevenueSharePct: 100 - v }); }} style={inputStyle} />
-        </div>
-        <div>
-          <InputLabel label="Owner Share %" help="Share to unit owners. Auto = 100 minus fee." inputId={`asset-${asset.id}-mgmt-owner-share`} />
-          <PercentageInput id={`asset-${asset.id}-mgmt-owner-share`} data-testid={`asset-${asset.id}-mgmt-owner-share`} min={0} max={100} value={ag.ownerRevenueSharePct} onChange={(n) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, n)) })} style={inputStyle} />
-        </div>
-        <div>
-          <InputLabel label="Start Period" help="Optional. Default = handover (sales schedule end)." inputId={`asset-${asset.id}-mgmt-start`} />
-          <AccountingNumberInput id={`asset-${asset.id}-mgmt-start`} data-testid={`asset-${asset.id}-mgmt-start`} min={0} decimals={0} value={ag.agreementStartPeriod ?? 0} onChange={(n) => setAg({ agreementStartPeriod: n > 0 ? n : undefined })} style={inputStyle} />
-        </div>
-        <div>
-          <InputLabel label="Duration (periods)" help="Optional. Blank = perpetual." inputId={`asset-${asset.id}-mgmt-duration`} />
-          <AccountingNumberInput id={`asset-${asset.id}-mgmt-duration`} data-testid={`asset-${asset.id}-mgmt-duration`} min={0} decimals={0} value={ag.agreementDurationPeriods ?? 0} onChange={(n) => setAg({ agreementDurationPeriods: n > 0 ? n : undefined })} style={inputStyle} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── UsefulLifeForm (M2.0d) ────────────────────────────────────────────────
-interface UsefulLifeFormProps {
-  asset: Asset;
-  onUpdate: (patch: Partial<Asset>) => void;
-}
-
-function UsefulLifeForm({ asset, onUpdate }: UsefulLifeFormProps): React.JSX.Element {
-  const resolved = resolveUsefulLifeYears(asset);
-  const explicit = asset.usefulLifeYears && asset.usefulLifeYears > 0;
-  const fallback = asset.strategy === 'Operate' ? DEFAULT_USEFUL_LIFE_YEARS.hospitality
-                  : asset.strategy === 'Lease'   ? DEFAULT_USEFUL_LIFE_YEARS.retail
-                  : DEFAULT_USEFUL_LIFE_YEARS.default;
-  return (
-    <div
-      style={{
-        border: '1px solid var(--color-border)',
-        background: 'var(--color-grey-pale)',
-        borderRadius: 'var(--radius)',
-        padding: 'var(--sp-2)',
-        marginBottom: 'var(--sp-2)',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: 'var(--sp-2)',
-        alignItems: 'flex-end',
-      }}
-      data-testid={`asset-${asset.id}-useful-life`}
-    >
-      <div>
-        <InputLabel label="Useful Life (years)" help="Depreciation horizon. Blank = category default. Land never depreciates." inputId={`asset-${asset.id}-useful-life-input`} />
-        <AccountingNumberInput id={`asset-${asset.id}-useful-life-input`} data-testid={`asset-${asset.id}-useful-life-input`} min={0} decimals={0} value={asset.usefulLifeYears ?? 0} onChange={(n) => onUpdate({ usefulLifeYears: n > 0 ? n : undefined })} placeholder={`default ${fallback}`} style={inputStyle} />
-      </div>
-      <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
-        <strong>Resolved:</strong> {resolved} years{!explicit && (<span style={{ display: 'block', marginTop: 2 }}>(category default)</span>)}
-      </div>
-    </div>
   );
 }
 

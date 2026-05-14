@@ -8,7 +8,7 @@
  *
  * Layout:
  *   1. Top bar: phase selector + stage filter
- *   2. Stage summary tile bar (4 tiles: Land / Hard / Soft / Operating)
+ *   2. Stage summary tile bar (4 tiles: Land / Hard / Soft / Total Capex Excl. Land)
  *   3. Per-phase, per-asset sections (collapsible, default expanded):
  *      a. Asset header (name + strategy + accounting destination)
  *      b. Cost lines table (9 standard + asset-targeted custom)
@@ -57,14 +57,9 @@ import {
   COST_CATEGORY_LABELS,
   COST_DRIVERS,
   COST_DRIVER_LABELS,
-  PER_SUBUNIT_RATE_KEY_SUPPORT,
-  PER_SUBUNIT_RATE_KEY_PARKING,
-  OUTPUT_GRANULARITIES,
-  OUTPUT_GRANULARITY_LABELS,
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
 import {
-  computePhaseCost,
   computeAssetCost,
   computeCostLinePerSubUnit,
   resolveAssetAreaMetrics,
@@ -74,16 +69,13 @@ import {
   resolveUsefulLifeYears,
   deriveCostStage,
   distribute,
-  distributeAnnualToPeriods,
   distributeItemCost,
   generatePeriodLabels,
   costLineCaption,
   costLineProjectPeriodIndex,
-  computeAssetCostSummaryFromBreakdown,
   type AssetCostBreakdown,
-  type AssetCostSummaryTotals,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatScaled, formatScaledCurrency, formatScaledForExport, formatAccounting } from '@/src/core/formatters';
+import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import {
@@ -2176,79 +2168,6 @@ function SummaryTables({
         );
       })()}
     </>
-  );
-}
-
-// ── M2.0L Fix 2: Cost Input Mode chooser modal ───────────────────────────
-// Shown the first time the user opens Tab 3 on a project (Project.costInput-
-// Mode is undefined). One-shot: closes once the user picks a mode; the
-// choice persists on Project.costInputMode and can be switched later via
-// the toggle button at the top of Tab 3.
-interface CostInputModeModalProps {
-  onPick: (mode: CostInputMode) => void;
-}
-
-function CostInputModeModal({ onPick }: CostInputModeModalProps): React.JSX.Element {
-  const overlay: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.45)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 9999,
-  };
-  const modal: React.CSSProperties = {
-    background: 'var(--color-surface)',
-    color: 'var(--color-heading)',
-    border: '1px solid var(--color-border)',
-    borderRadius: 'var(--radius)',
-    padding: 'var(--sp-3)',
-    minWidth: 480,
-    maxWidth: 560,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
-  };
-  const optionCard: React.CSSProperties = {
-    border: '1px solid var(--color-border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: 'var(--sp-2)',
-    cursor: 'pointer',
-    background: 'var(--color-grey-pale)',
-    textAlign: 'left',
-  };
-  return (
-    <div style={overlay} role="dialog" aria-modal="true" data-testid="cost-input-mode-modal">
-      <div style={modal}>
-        <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 'var(--font-h3)' }}>How do you want to enter costs?</h3>
-        <p style={{ margin: 0, marginBottom: 'var(--sp-2)', fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
-          Pick the entry style that fits this project. You can switch later from the toggle at the top of Tab 3.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <button
-            type="button"
-            onClick={() => onPick('same')}
-            style={optionCard}
-            data-testid="cost-input-mode-modal-same"
-          >
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Same for All Assets</div>
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
-              Single cost table, costs apply uniformly (allocated by BUA share or land area).
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => onPick('individual')}
-            style={optionCard}
-            data-testid="cost-input-mode-modal-individual"
-          >
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Individual per Asset</div>
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2 }}>
-              Separate input table per asset. Override rates and methods per asset.
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

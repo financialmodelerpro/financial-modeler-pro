@@ -92,7 +92,7 @@ export default function Module1Financing(): React.JSX.Element {
     costLines, costOverrides, financingTranches,
     equityContributions, landAllocationMode,
     setProject, setFinancingTranches, addFinancingTranche,
-    updateFinancingTranche, removeFinancingTranche, updatePhase,
+    updateFinancingTranche, removeFinancingTranche, updatePhase, updateAsset,
   } = useModule1Store(
     useShallow((s) => ({
       project:                s.project,
@@ -111,6 +111,7 @@ export default function Module1Financing(): React.JSX.Element {
       updateFinancingTranche: s.updateFinancingTranche,
       removeFinancingTranche: s.removeFinancingTranche,
       updatePhase:            s.updatePhase,
+      updateAsset:            s.updateAsset,
     })),
   );
 
@@ -968,14 +969,13 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         ))}
       </div>
 
-      {/* Pass 36 (2026-05-14): existing facility row mirrors the
-          new-tranche structure. Three fields: Opening Balance (auto-
-          prefilled from operational phase historicalBaseline.current-
-          DebtOutstanding on Add; editable), Origination Year (when
-          loan was raised; if >= projectStartYear it draws as a cash
-          inflow that period), Interest Start Year (gates accrual).
-          Remaining Tenor field removed - the engine derives runway
-          from repaymentStartYear + Repayment Periods directly. The
+      {/* Pass 41 (2026-05-14): existing facility row. Opening Balance
+          entered directly on this form (sole entry point per Pass 41).
+          Origination Year: if >= projectStartYear, the balance draws as
+          cash inflow that period; otherwise the pre-project balance
+          carries at Y0. Interest Start Year gates accrual. Remaining
+          Tenor field removed - the engine derives runway from
+          repaymentStartYear + Repayment Periods directly. The
           method/start-year/periods row below is shared with new debt. */}
       {isExisting && (
         <div style={{ marginTop: 'var(--sp-1)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
