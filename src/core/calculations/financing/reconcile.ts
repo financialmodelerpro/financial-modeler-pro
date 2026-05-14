@@ -47,9 +47,13 @@ export function reconcile(
   const totalEquity = split.equity.reduce((s, v) => s + v, 0);
   // Pass 26 (2026-05-14): Min Cash Reserve is funded from the same
   // debt/equity split, so the identity expands to include it.
-  const expectedFunding = capex.totals.exclLandInKind + (funding.minCashReserve ?? 0);
+  // Pass 30 (2026-05-14): Method 4 sizes from user-specified amounts
+  // (funding.method4) instead of capex; identity flips accordingly.
+  const expectedFunding = funding.selectedMethodId === 4
+    ? funding.method4 + (funding.minCashReserve ?? 0)
+    : capex.totals.exclLandInKind + (funding.minCashReserve ?? 0);
   if (!near(totalDebt + totalEquity, expectedFunding))
-    issues.push(`Debt+CashEquity ${totalDebt + totalEquity} vs Capex+MinCash ${expectedFunding}`);
+    issues.push(`Debt+CashEquity ${totalDebt + totalEquity} vs Funding+MinCash ${expectedFunding}`);
 
   let shareSum = 0;
   for (const v of shares.values()) shareSum += v;
@@ -122,7 +126,8 @@ export function reconcile(
   const selectedExpected =
     funding.selectedMethodId === 1 ? funding.method1
     : funding.selectedMethodId === 2 ? funding.method2
-    : funding.method3;
+    : funding.selectedMethodId === 3 ? funding.method3
+    : funding.method4;
   if (!near(funding.selected, selectedExpected))
     issues.push(`Funding.selected ${funding.selected} vs method${funding.selectedMethodId} ${selectedExpected}`);
 

@@ -1400,20 +1400,22 @@ export interface EquityContribution {
 // Method 2 = Net Funding Requirement (was Method 3).
 // Method 3 = Cash Deficit Funding (was Method 4).
 // migrateM20pass17MethodRenumber backfills legacy snapshots.
-export type FundingMethodId = 1 | 2 | 3;
+export type FundingMethodId = 1 | 2 | 3 | 4;
 
-export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3] as const;
+export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3, 4] as const;
 
 export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
   1: 'Fixed Debt-to-Equity Ratio',
   2: 'Net Funding Requirement',
   3: 'Cash Deficit Funding',
+  4: 'Specified Debt + Equity (manual)',
 };
 
 export const FUNDING_METHOD_DESCRIPTIONS: Record<FundingMethodId, string> = {
   1: 'Single global debt% / equity% applied to total capex (excl. land in-kind).',
   2: 'Net funding = capex minus pre-sales minus operating CF minus existing cash, then split by ratio.',
   3: 'Period-by-period: draw debt+equity only when closing cash would fall below minimum reserve.',
+  4: 'User specifies total debt and total equity; engine spreads them per-period via a year-on-year % schedule.',
 };
 
 export interface FundingMethod1Config {
@@ -1433,6 +1435,16 @@ export interface FundingMethod4Config {
   minimumCashReserve: number | number[];
   debtPct: number;
   equityPct: number;
+}
+
+// Pass 30 (2026-05-14): Method 4 (Specified Debt + Equity) lets the
+// user override the capex-derived sizing entirely. They supply two
+// total amounts + a per-period draw curve (sums to 100%).
+export interface FundingMethodFixedAmountConfig {
+  debtAmount: number;
+  equityAmount: number;
+  /** Per-period draw % (project axis order). Engine normalises to 100. */
+  yoySchedule: number[];
 }
 
 // Per-parcel land funding (separate from the 4 project-wide methods).
@@ -1513,6 +1525,8 @@ export interface ProjectFinancingConfig {
   fixedRatio?: FundingMethod1Config;
   netFundingConfig?: FundingMethod3Config;
   cashDeficitConfig?: FundingMethod4Config;
+  /** Pass 30 (2026-05-14): Method 4 - Specified Debt + Equity amounts. */
+  fixedAmountConfig?: FundingMethodFixedAmountConfig;
   parcelFunding: ParcelFundingConfig[];
   /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   viewMode: FundingViewMode;
@@ -1540,6 +1554,12 @@ export const DEFAULT_FUNDING_METHOD_4_CONFIG: FundingMethod4Config = {
   minimumCashReserve: 0,
   debtPct: 70,
   equityPct: 30,
+};
+
+export const DEFAULT_FUNDING_METHOD_FIXED_AMOUNT_CONFIG: FundingMethodFixedAmountConfig = {
+  debtAmount: 0,
+  equityAmount: 0,
+  yoySchedule: [],
 };
 
 export const DEFAULT_PROJECT_FINANCING_CONFIG: ProjectFinancingConfig = {

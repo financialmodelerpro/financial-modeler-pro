@@ -221,7 +221,7 @@ export default function Module1Financing(): React.JSX.Element {
 
           <section style={sectionStyle}>
             <div style={sectionTitle}>2. Funding Method</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {FUNDING_METHOD_IDS.map((id) => {
                 const selected = financingConfig.fundingMethod === id;
                 return (
@@ -286,6 +286,54 @@ export default function Module1Financing(): React.JSX.Element {
                 >
                   {matchOk ? 'Match: 100%' : `Match: ${(((financingConfig.fixedRatio?.debtPct ?? 0) + (financingConfig.fixedRatio?.equityPct ?? 0))).toFixed(2)}%`}
                 </div>
+              </div>
+            </section>
+          )}
+
+          {financingConfig.fundingMethod === 4 && (
+            <section style={sectionStyle}>
+              <div style={sectionTitle}>2a. Method 4 Configuration</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Total Debt Amount</label>
+                  <AccountingNumberInput
+                    value={financingConfig.fixedAmountConfig?.debtAmount ?? 0}
+                    onChange={(v) => setFinancingConfigPatch({
+                      fixedAmountConfig: {
+                        debtAmount: Math.max(0, v),
+                        equityAmount: financingConfig.fixedAmountConfig?.equityAmount ?? 0,
+                        yoySchedule: financingConfig.fixedAmountConfig?.yoySchedule ?? [],
+                      },
+                    })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Total Equity Amount</label>
+                  <AccountingNumberInput
+                    value={financingConfig.fixedAmountConfig?.equityAmount ?? 0}
+                    onChange={(v) => setFinancingConfigPatch({
+                      fixedAmountConfig: {
+                        debtAmount: financingConfig.fixedAmountConfig?.debtAmount ?? 0,
+                        equityAmount: Math.max(0, v),
+                        yoySchedule: financingConfig.fixedAmountConfig?.yoySchedule ?? [],
+                      },
+                    })}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: 'var(--sp-1)' }}>
+                <YoYScheduleEditor
+                  schedule={financingConfig.fixedAmountConfig?.yoySchedule ?? []}
+                  startYear={projectStartYear}
+                  endYear={operationsEndYear}
+                  onChange={(arr) => setFinancingConfigPatch({
+                    fixedAmountConfig: {
+                      debtAmount: financingConfig.fixedAmountConfig?.debtAmount ?? 0,
+                      equityAmount: financingConfig.fixedAmountConfig?.equityAmount ?? 0,
+                      yoySchedule: arr,
+                    },
+                  })}
+                />
               </div>
             </section>
           )}
@@ -1014,10 +1062,17 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>,</td>)}
             </tr>
             <tr>
+              <td style={ROW_DATA.name}>Method 4, Specified Debt + Equity (manual)</td>
+              <td style={ROW_DATA.num}>{p.fmt(p.funding.method4)}</td>
+              {(selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
+                <td key={i} style={ROW_DATA.num}>{selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
+              ))}
+            </tr>
+            <tr>
               <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
               <td style={ROW_SUBTOTAL.num}>{p.fmt(p.funding.selected)}</td>
-              {(selectedMethodId === 1 ? selectedPerPeriod : blanks).map((v, i) => (
-                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 ? p.fmt(v) : ','}</td>
+              {(selectedMethodId === 1 || selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
+                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : ','}</td>
               ))}
             </tr>
             {showMinCashRows && (

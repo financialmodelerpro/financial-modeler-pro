@@ -35,6 +35,7 @@ export interface FundingRequirement {
   method1: number;
   method2: number;
   method3: number;
+  method4: number;
   selected: number;
   selectedMethodId: FundingMethodId;
   debtPct: number;
@@ -54,6 +55,11 @@ export interface FundingRequirement {
   selectedByPeriod: number[];
   totalFundingNeedByPeriod: number[];
   selectedWithMinCash: number;
+  // Pass 30 (2026-05-14): Method 4 (Specified Debt + Equity) supplies
+  // per-period debt + equity arrays directly. When set, debtEquity.ts
+  // uses these instead of the capex-derived split.
+  customDebtByPeriod?: number[];
+  customEquityByPeriod?: number[];
 }
 
 export interface DebtEquitySplit {

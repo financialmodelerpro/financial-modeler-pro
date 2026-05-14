@@ -91,6 +91,30 @@ export function computeDebtEquitySplit(
     inKindLump += inKindValue;
   }
 
+  // Pass 30 (2026-05-14): when Method 4 (Specified Debt + Equity) is
+  // selected, the user-supplied per-period arrays drive the split.
+  // We skip the capex-derived path and let the custom curve own both
+  // non-land + land treatment - the user is taking responsibility for
+  // sizing total debt + equity directly.
+  const useCustom = !!funding.customDebtByPeriod && !!funding.customEquityByPeriod;
+  if (useCustom) {
+    const cd = funding.customDebtByPeriod ?? [];
+    const ce = funding.customEquityByPeriod ?? [];
+    for (let i = 0; i < N; i++) {
+      const minCashAt = funding.minCashByPeriod[i] ?? 0;
+      // Min cash buffer still splits at the project ratio on top of
+      // the user-specified curve.
+      nonLandDebt[i]   = (cd[i] ?? 0) + minCashAt * debtFrac;
+      nonLandEquity[i] = (ce[i] ?? 0) + minCashAt * equityFrac;
+      landDebt[i]      = 0;
+      landEquity[i]    = 0;
+      debt[i]   = nonLandDebt[i];
+      equity[i] = nonLandEquity[i];
+    }
+    if (N > 0) inKind[0] = inKindLump;
+    return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
+  }
+
   for (let i = 0; i < N; i++) {
     // Pass 26 (2026-05-14): Min Cash Reserve lump (per-period, axis-
     // indexed) is treated as additional non-land funding, split at
