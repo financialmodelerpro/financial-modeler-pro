@@ -1065,9 +1065,20 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         <YoYScheduleEditor
           schedule={t.yearOnYearPctSchedule ?? []}
           startYear={t.repaymentStartYear ?? (isExisting ? projectStartYear : defaultRepayStartYear)}
-          endYear={isExisting
-            ? Math.min(operationsEndYear, (t.repaymentStartYear ?? projectStartYear) + Math.max(0, (t.remainingRepaymentPeriods ?? 0) - 1))
-            : operationsEndYear}
+          /* Pass 55 (2026-05-14): default existing-facility YoY end year
+             to operationsEndYear when the user has not yet entered a
+             Repayment Periods value. Previously `remainingRepaymentPeriods ?? 0`
+             collapsed `max(0, -1)` to 0, making endYear == startYear
+             (single-period grid). Now: if periods > 0, end = start +
+             periods - 1 (capped at operationsEndYear); otherwise full
+             operations horizon. */
+          endYear={(() => {
+            if (!isExisting) return operationsEndYear;
+            const periods = t.remainingRepaymentPeriods ?? 0;
+            if (periods <= 0) return operationsEndYear;
+            const start = t.repaymentStartYear ?? projectStartYear;
+            return Math.min(operationsEndYear, start + periods - 1);
+          })()}
           onChange={(arr) => onUpdate(t.id, { yearOnYearPctSchedule: arr })}
         />
       )}
