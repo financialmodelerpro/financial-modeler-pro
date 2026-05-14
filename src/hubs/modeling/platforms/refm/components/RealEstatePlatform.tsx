@@ -391,9 +391,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
       return (
         <Dashboard
           storage={storage}
+          activeProjectId={activeProjectId}
+          activeVersionId={activeVersionId}
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
           onSelectModule={setActiveModule}
+          onSelectTab={setActiveTab}
+          onSaveVersion={() => setVersionModalOpen(true)}
+          onLoadVersion={(pid, vid) => void handleLoadVersion(pid, vid)}
+          can={can}
         />
       );
     }
