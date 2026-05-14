@@ -190,10 +190,17 @@ export default function Topbar({
 
       <div className="pm-divider" />
 
+      {/* Pass 39 (2026-05-14): every topbar control now carries a
+          multi-line title tooltip explaining what it does. The biggest
+          source of confusion was Save vs Version - clarified that
+          clicking Save creates a NEW timestamped snapshot under the
+          currently selected project, and the Version dropdown is the
+          history browser for jumping between those snapshots. */}
+
       <button
         className="pm-btn ctx"
         onClick={onOpenProjects}
-        title="Switch project"
+        title={'PROJECT\n\nThe workspace you are editing. Each project carries its own assets, phases, costs and financing.\n\nClick to switch to another project, create a new one, or rename / delete the current one.'}
         data-testid="topbar-open-project"
       >
         <span className="ctx-eyebrow">Project</span>
@@ -206,7 +213,7 @@ export default function Topbar({
       <button
         className="pm-btn ctx"
         onClick={onOpenVersions}
-        title="Version management"
+        title={'VERSION\n\nA named snapshot of the project at a moment in time. Switching versions reloads the model from that snapshot - useful for comparing scenarios or recovering an older state.\n\n"Unsaved draft" means you are editing on top of the active version but have not saved a new snapshot yet. Hit Save to create one.'}
         data-testid="topbar-open-version"
       >
         <span className="ctx-eyebrow">Version</span>
@@ -226,7 +233,7 @@ export default function Topbar({
             flexShrink: 0,
             boxShadow: '0 0 6px color-mix(in srgb, var(--color-input-border) 70%, transparent)',
           }}
-          title="Unsaved changes"
+          title={'Unsaved changes\n\nThere are edits in this draft that have not been written to a saved version. Hit Save to capture a snapshot.'}
           data-testid="topbar-unsaved-dot"
         />
       )}
@@ -237,6 +244,7 @@ export default function Topbar({
             color: 'color-mix(in srgb, var(--color-on-primary-navy) 40%, transparent)',
             flexShrink: 0,
           }}
+          title={`Last saved at ${lastSavedAt}. The current draft matches the active version on the server.`}
           data-testid="topbar-saved-stamp"
         >
           Saved {lastSavedAt}
@@ -249,7 +257,7 @@ export default function Topbar({
         <button
           className="pm-btn save"
           onClick={onSave}
-          title="Save version"
+          title={'SAVE\n\nCreates a new version snapshot of the current state, named with the current time (e.g. "Save 14:32:08"). Use the Version dropdown to view, name, or jump back between snapshots.\n\nTip: Save often. Snapshots are cheap and let you compare scenarios.'}
           data-testid="topbar-save"
         >
           Save
@@ -271,7 +279,7 @@ export default function Topbar({
       {can('canExport') && (
         <button
           className="pm-btn export-excel"
-          title="Export"
+          title={'EXPORT\n\nDownload the current model as Excel or PDF. Uses the active version data; save first if you want the export to match a specific snapshot.'}
           onClick={onExportClick}
           data-testid="topbar-open-export"
         >
@@ -285,7 +293,7 @@ export default function Topbar({
             ref={colorBtnRef}
             className="pm-btn"
             onClick={handleColorBtn}
-            title="Platform colour picker"
+            title={'COLOURS (admin)\n\nChange the platform Primary and Secondary colours. Affects buttons, charts, badges and accents across every workspace - this is a global brand setting, not per-project.'}
             style={{
               border: colorPanelOpen
                 ? '1.5px solid var(--color-primary)'
@@ -309,7 +317,7 @@ export default function Topbar({
       <button
         className={`rbac-badge role-${currentUserRole}`}
         onClick={onOpenRbac}
-        title={`Current role: ${roleMeta?.label}. Click to switch.`}
+        title={`ROLE: ${roleMeta?.label}\n\nYour current role determines which actions you can take (save, export, change branding, edit assumptions). Click to open the role / permissions panel.`}
         data-testid="topbar-open-rbac"
       >
         <span>{roleMeta?.icon}</span>
@@ -318,7 +326,12 @@ export default function Topbar({
 
       <div className="pm-divider" />
 
-      <Link href="/settings" className="portal-back-btn" title="Settings" data-testid="topbar-settings">
+      <Link
+        href="/settings"
+        className="portal-back-btn"
+        title={'SETTINGS\n\nAccount preferences (display name, currency defaults, notification settings). Opens the user settings page in the same tab.'}
+        data-testid="topbar-settings"
+      >
         Settings
       </Link>
 
@@ -326,7 +339,9 @@ export default function Topbar({
         type="button"
         onClick={onToggleDark}
         className="portal-back-btn"
-        title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={darkMode
+          ? 'Switch to LIGHT mode\n\nUI theme. Stored locally in your browser; does not affect other users.'
+          : 'Switch to DARK mode\n\nUI theme. Stored locally in your browser; does not affect other users.'}
         aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
         data-testid="topbar-toggle-dark"
       >
@@ -336,7 +351,7 @@ export default function Topbar({
       <Link
         href="/modeling/dashboard"
         className="portal-back-btn"
-        title="Back to Modeling Hub"
+        title={'HUB\n\nReturn to the Modeling Hub home page where you can pick a different platform (Real Estate, Business Valuation, etc.). Your current draft stays loaded - you can come back via the project list.'}
         data-testid="topbar-hub"
       >
         Hub
@@ -345,7 +360,7 @@ export default function Topbar({
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
         className="portal-back-btn"
-        title="Sign out"
+        title={'SIGN OUT\n\nEnd your session and return to the public site. Unsaved draft changes are kept on the server so you can resume after signing back in.'}
         style={{
           border: '1px solid color-mix(in srgb, var(--color-negative) 40%, transparent)',
           color: 'var(--color-negative)',
