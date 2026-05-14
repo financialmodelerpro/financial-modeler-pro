@@ -130,10 +130,15 @@ interface SidebarNavItem {
   disabledReason?: string;
 }
 
+// Pass 47 (2026-05-14): Overview entry removed - Dashboard (after the
+// Pass 45 redesign) covers both the portfolio welcome AND the per-
+// project overview, making Overview redundant in the sidebar. The
+// activeModule === 'overview' branch below aliases to the Dashboard
+// component so legacy deep links and ProjectsScreen.setActiveModule
+// ('overview') calls keep working.
 const STATIC_NAV: readonly SidebarNavItem[] = [
   { key: 'dashboard', icon: '📊', label: 'Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
   { key: 'projects', icon: '🏗️', label: 'Projects', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
-  { key: 'overview', icon: '📋', label: 'Overview', featureKey: null, requiredPlan: null, badge: null, badgeClass: '', disabledReason: 'Select a project first' },
 ];
 
 export const sidebarModules: readonly SidebarNavItem[] = [
@@ -387,7 +392,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // Module rendering
   const renderModule = (): React.ReactNode => {
-    if (activeModule === 'dashboard') {
+    // Pass 47 (2026-05-14): both 'dashboard' and 'overview' route to
+    // the Dashboard component. Overview was removed from the sidebar
+    // since the Pass 45 Dashboard covers everything it used to.
+    if (activeModule === 'dashboard' || activeModule === 'overview') {
       return (
         <Dashboard
           storage={storage}
@@ -414,21 +422,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onEditProject={handleEditProject}
           onDeleteProject={(id) => void handleDeleteProject(id)}
           setActiveModule={setActiveModule}
-          can={can}
-        />
-      );
-    }
-    if (activeModule === 'overview') {
-      return (
-        <OverviewScreen
-          storage={storage}
-          activeProjectId={activeProjectId}
-          activeVersionId={activeVersionId}
-          onLoadVersion={(pid, vid) => void handleLoadVersion(pid, vid)}
-          onSaveVersion={() => setVersionModalOpen(true)}
-          onEditProject={() => setProjectModalOpen(true)}
-          setActiveModule={setActiveModule}
-          setActiveTab={setActiveTab}
           can={can}
         />
       );
