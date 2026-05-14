@@ -50,7 +50,7 @@ export function computeFacilitySchedule(
 
   const isExisting = tranche.origin === 'existing';
   const openingBalance = isExisting ? Math.max(0, tranche.openingBalance ?? 0) : 0;
-  const effRepay = isExisting
+  const rawRepay = isExisting
     ? Math.max(0, tranche.remainingRepaymentPeriods ?? 0)
     : Math.max(0, tranche.repaymentPeriods ?? 0);
 
@@ -88,6 +88,18 @@ export function computeFacilitySchedule(
     : tranche.repaymentStartYear && Number.isFinite(tranche.repaymentStartYear)
       ? Math.max(0, Math.min(N, tranche.repaymentStartYear - projectStartYear))
       : constructionEndProj + grace;
+
+  // Pass 24b (2026-05-14): for fixed-count methods (straight_line,
+  // equal_periodic_amortization, balloon, bullet), fall back to the
+  // remaining axis tail when the user leaves Repayment Periods at 0.
+  // Without this, new tranches produced no principal repayment at all
+  // (effRepay === 0 short-circuited every fixed-count branch below).
+  const fixedCountMethods = ['straight_line', 'equal_periodic_amortization', 'balloon', 'bullet'];
+  const effRepay = rawRepay > 0
+    ? rawRepay
+    : (!isExisting && fixedCountMethods.includes(tranche.repaymentMethod))
+      ? Math.max(0, N - repayStartProj)
+      : rawRepay;
 
   const graceInterestTreatment = tranche.graceInterestTreatment ?? 'capitalize';
   const graceWindowStart = constructionEndProj;

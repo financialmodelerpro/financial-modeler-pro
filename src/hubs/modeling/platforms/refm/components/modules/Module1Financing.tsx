@@ -846,19 +846,26 @@ interface YoYScheduleEditorProps {
 }
 
 function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
-  // Pass 24 (2026-05-14): cells span [startYear..endYear] (calendar
+  // Pass 24b (2026-05-14): cells span [startYear..endYear] (calendar
   // years from Repayment Start Year through Operations End). Labels
-  // show the actual year. Width uses a horizontal scroll once the
-  // cell count exceeds what fits the panel, so the editor never
-  // overflows the page.
+  // show the actual year. Each cell is a fixed 78px column with the
+  // percent input forced to width:100% so it fills the cell instead
+  // of overflowing into neighbouring columns. Container scrolls
+  // horizontally when total width exceeds the panel.
   const n = Math.max(0, p.endYear - p.startYear + 1);
   const cells = new Array<number>(Math.max(1, n)).fill(0).map((_, i) => p.schedule[i] ?? 0);
   const sum = cells.reduce((s, v) => s + v, 0);
   const ok = Math.abs(sum - 100) < 0.01;
-  const CELL_WIDTH = 64;
+  const CELL_WIDTH = 78;
+  const cellInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    padding: '3px 4px',
+    fontSize: 11,
+    textAlign: 'right',
+  };
   return (
     <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <span style={{ fontSize: 11, fontWeight: 600 }}>
           Year-on-Year % Schedule ({p.startYear}-{p.endYear}, sum to 100)
         </span>
@@ -871,13 +878,18 @@ function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
           Set Repayment Start Year before editing the schedule.
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cells.length}, ${CELL_WIDTH}px)`, gap: 4 }}>
+        <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+          <div style={{ display: 'inline-grid', gridTemplateColumns: `repeat(${cells.length}, ${CELL_WIDTH}px)`, gap: 4 }}>
+            {cells.map((_, i) => (
+              <div key={`hdr-${i}`} style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textAlign: 'center', padding: '2px 0' }}>
+                {p.startYear + i}
+              </div>
+            ))}
             {cells.map((v, i) => (
-              <div key={i}>
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'center' }}>{p.startYear + i}</div>
+              <div key={`cell-${i}`} style={{ width: CELL_WIDTH }}>
                 <PercentageInput
                   value={v}
+                  style={cellInputStyle}
                   onChange={(nv) => {
                     const next = [...cells];
                     next[i] = nv;
@@ -1220,16 +1232,27 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
   );
 
   // Flow row (additive, total = sum of all periods).
-  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean }) => {
+  // Pass 24b (2026-05-14): `negative` opt renders the row as accounting-
+  // negative (parentheses + red colour) for cash-outflow lines like
+  // principal repaid + total debt service.
+  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean }) => {
     const cropped = p.cropProject(arr);
     const total = cropped.reduce((s, v) => s + v, 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
-    const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
+    const baseNumStyle = opts?.bold ? ROW_GRAND_TOTAL.num : ROW_DATA.num;
+    const numStyle: React.CSSProperties = opts?.negative
+      ? { ...baseNumStyle, color: 'var(--color-danger, #b91c1c)' }
+      : baseNumStyle;
+    const renderVal = (v: number): string => {
+      if (!opts?.negative) return p.fmt(v);
+      const signed = v > 0 ? -v : v;
+      return p.fmt(signed);
+    };
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
-        <td style={numStyle}>{p.fmt(total)}</td>
-        {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
+        <td style={numStyle}>{renderVal(total)}</td>
+        {cropped.map((v, i) => <td key={i} style={numStyle}>{renderVal(v)}</td>)}
       </tr>
     );
   };
@@ -1275,7 +1298,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {renderStateRow('Opening', opening)}
                   {renderFlowRow('Drawdown', r.drawSchedule)}
                   {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
-                  {renderFlowRow('Principal Repaid', r.principalRepaid)}
+                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
                   {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
               </table>
@@ -1299,7 +1322,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {renderStateRow('Opening', opening)}
                   {renderFlowRow('Drawdown', r.drawSchedule)}
                   {renderFlowRow('Interest Capitalized', r.interestCapitalized)}
-                  {renderFlowRow('Principal Repaid', r.principalRepaid)}
+                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
                   {renderStateRow('Closing', r.outstanding, { bold: true })}
                 </tbody>
               </table>
@@ -1318,9 +1341,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               {renderFlowRow('Total Drawdown', p.result.combined.totalDrawdown)}
               {renderFlowRow('Total Interest Accrued', p.result.combined.totalInterestAccrued)}
               {renderFlowRow('Total Interest Capitalized', p.result.combined.totalInterestCapitalized)}
-              {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed)}
-              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid)}
-              {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true })}
+              {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { negative: true })}
+              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { negative: true })}
+              {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
             </tbody>
           </table>
         </div>
