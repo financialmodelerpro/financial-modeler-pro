@@ -41,6 +41,7 @@ import Module1ProjectPhases from './modules/Module1ProjectPhases';
 import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
+import Module2Revenue from './modules/Module2Revenue';
 
 import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
@@ -148,8 +149,8 @@ export const sidebarModules: readonly SidebarNavItem[] = [
     label: `Module ${m.num}: ${m.shortLabel}`,
     featureKey: m.featureKey,
     requiredPlan: m.requiredPlan,
-    badge: m.status === 'done' ? '✓' : m.status === 'soon' ? 'SOON' : null,
-    badgeClass: m.status === 'done' ? 'badge-done' : m.status === 'soon' ? 'badge-soon' : '',
+    badge: m.status === 'done' ? '✓' : m.status === 'wip' ? 'WIP' : m.status === 'soon' ? 'SOON' : null,
+    badgeClass: m.status === 'done' ? 'badge-done' : m.status === 'wip' ? 'badge-wip' : m.status === 'soon' ? 'badge-soon' : '',
     disabled: m.disabled,
     disabledReason: m.disabledReason,
   })),
@@ -478,6 +479,24 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {activeTab === 'financing' && <Module1Financing />}
         </div>
       );
+    }
+    if (activeModule === 'module2') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m2-no-project">
+            No project selected.{' '}
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            >
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      return <Module2Revenue />;
     }
     return (
       <div style={{ padding: 'var(--sp-3)' }} data-testid="module-coming-soon">

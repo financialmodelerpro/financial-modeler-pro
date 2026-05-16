@@ -16,7 +16,7 @@
  * PRO / ENTERPRISE) without re-deriving.
  */
 
-export type ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise';
+export type ModuleStatus = 'done' | 'wip' | 'soon' | 'pro' | 'enterprise';
 
 export type ModulePlan = 'free' | 'professional' | 'enterprise';
 
@@ -53,9 +53,8 @@ export const MODULES: readonly ModuleConfig[] = [
     longLabel: 'Revenue & Sales Projections',
     featureKey: 'module_2',
     requiredPlan: 'free',
-    status: 'soon',
-    disabled: true,
-    disabledReason: 'Coming soon',
+    status: 'wip',
+    disabled: false,
   },
   {
     num: 3,

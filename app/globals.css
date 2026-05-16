@@ -1019,6 +1019,7 @@ thead th:first-child { border-radius: 0; }
 .badge-done   { background: rgba(46,170,74,0.3);  color: #86efac; }
 .badge-active { background: rgba(27,79,138,0.5);  color: #93c5fd; }
 .badge-soon   { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.3); }
+.badge-wip    { background: rgba(245,158,11,0.25); color: #fcd34d; }
 .sidebar-sub {
     margin-left: 30px; border-left: 1px solid rgba(255,255,255,0.08);
     padding-left: 8px; overflow: hidden; max-height: 0;
