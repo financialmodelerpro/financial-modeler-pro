@@ -655,6 +655,47 @@ export interface Asset {
   isCompanion?: boolean;
   companionType?: 'operate';
   unitsFromParent?: number;
+  // M2 Pass 2 (2026-05-16): per-asset revenue configuration. Strategy-
+  // specific sub-config (sell / operate / lease / sellManage) is added
+  // incrementally; each is optional. Schema additive: undefined ==
+  // 'this asset has no revenue config yet'. Phase 1 ships .sell only.
+  // The actual AssetSellConfig type lives at
+  // src/core/calculations/revenue/types.ts to keep the M2 engine free
+  // of M1 store coupling. Stored shape mirrors that type.
+  revenue?: {
+    sell?: {
+      assetId: string;
+      subUnits: Array<{
+        subUnitId: string;
+        preSalesVelocity: number[];
+        postSalesVelocity: number[];
+      }>;
+      cashPaymentProfile: {
+        percentages: number[];
+        positions?: number[];
+        profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+      };
+      recognitionProfile: {
+        method: 'point_in_time' | 'over_time';
+        pointInTimeYear?: 'handover' | 'sale_year';
+        percentages?: number[];
+        positions?: number[];
+        profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+      };
+      escrow: {
+        enabled: boolean;
+        heldPct: number;
+        releaseYear: number;
+      };
+      indexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+      };
+      handoverYearOverride?: number;
+    };
+  };
 }
 
 // M2.0 Pass 56 (2026-05-16): single resolver for an asset's total
