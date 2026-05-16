@@ -10,6 +10,7 @@
 export type {
   AssetSellConfig,
   CashPaymentProfile,
+  Cohort,
   IndexationConfig,
   ProfileMode,
   ReconcileIdentity,

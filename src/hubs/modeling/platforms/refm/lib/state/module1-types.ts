@@ -694,6 +694,33 @@ export interface Asset {
         steps?: Array<{ year: number; factor: number }>;
       };
       handoverYearOverride?: number;
+      // M2 Pass 4 (2026-05-16): optional per-cohort breakdown. When
+      // present + non-empty, the engine sums across every cohort.
+      // When absent or empty, the top-level subUnits + profiles act
+      // as a single implicit cohort (Pass 3 path) so older saved
+      // configs still hydrate without migration.
+      cohorts?: Array<{
+        id: string;
+        name: string;
+        subUnits: Array<{
+          subUnitId: string;
+          preSalesVelocity: number[];
+          postSalesVelocity: number[];
+        }>;
+        cashPaymentProfile?: {
+          percentages: number[];
+          positions?: number[];
+          profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+        };
+        recognitionProfile?: {
+          method: 'point_in_time' | 'over_time';
+          pointInTimeYear?: 'handover' | 'sale_year';
+          percentages?: number[];
+          positions?: number[];
+          profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+        };
+        pricePerSubUnit?: Record<string, number>;
+      }>;
     };
   };
 }

@@ -4,7 +4,9 @@ import { buildRecognition } from './recognition';
 import { buildEscrowMovement } from './escrow';
 import type {
   AssetSellConfig,
+  Cohort,
   SellAssetResult,
+  SellSubUnitConfig,
   SubUnitMaterial,
 } from './types';
 
@@ -23,24 +25,28 @@ export interface ComputeSellInputs {
  * (constructionStart + constructionPeriods - 1, or
  * config.handoverYearOverride when set).
  *
- * Sub-unit value is derived from the sub-unit's effective rate per
- * area (which the M1 SubUnit can carry as ratePerArea or unitPrice /
- * area). The engine intentionally trusts the caller to pre-resolve
- * ratePerArea so the revenue layer never needs to reach into M1's
- * area/count math (matches the M1 resolver-helper convention).
+ * Cohorts (Pass 4): when config.cohorts is non-empty, each cohort runs
+ * its own cash + recognition pipeline using its own per-sub-unit
+ * velocity, optional price overrides, and optional profile overrides.
+ * Asset-level escrow + indexation are shared. When config.cohorts is
+ * absent or empty, the top-level config.subUnits + profiles act as a
+ * single implicit cohort (Pass 3 path).
  *
- * Pre-sales: per sub-unit per year, area sold = total area * velocity.
- * Sales value = area sold * indexed rate. Sums across sub-units form
- * the asset-level cohort. The cohort feeds cash + recognition.
- *
- * Post-sales: applies postSalesVelocity to the residual area left
- * over after the full pre-sales window, indexed at the post-sale
- * year. Post-sales recognition + cash are point-in-time (same year)
- * for the baseline.
+ * Velocity cap is global across cohorts per sub-unit so that the
+ * platform-wide invariant "no sub-unit oversells" holds even when
+ * volume is split across many cohort launches.
  */
 export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const { config, subUnits, axisLength, handoverYear } = inputs;
   const N = Math.max(0, axisLength);
+
+  const cohorts: Cohort[] = config.cohorts && config.cohorts.length > 0
+    ? config.cohorts
+    : [{
+        id: '__implicit__',
+        name: 'Default',
+        subUnits: config.subUnits,
+      }];
 
   const presalesUnits = new Array<number>(N).fill(0);
   const presalesArea = new Array<number>(N).fill(0);
@@ -48,65 +54,74 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const postSalesUnits = new Array<number>(N).fill(0);
   const postSalesArea = new Array<number>(N).fill(0);
   const postSalesRevenue = new Array<number>(N).fill(0);
+  const cashCollectedPresales = new Array<number>(N).fill(0);
+  const recognitionPresales = new Array<number>(N).fill(0);
 
-  const subUnitConfigById = new Map(config.subUnits.map((s) => [s.subUnitId, s]));
+  const cumulativeShareBySubUnit = new Map<string, number>();
 
-  for (const su of subUnits) {
-    const cfg = subUnitConfigById.get(su.id);
-    if (!cfg) continue;
-    const totalArea = Math.max(0, su.area);
-    const totalUnits = Math.max(0, su.count);
-    const areaPerUnit = totalUnits > 0 ? totalArea / totalUnits : 0;
-    const baseRate = Math.max(0, su.ratePerArea);
+  for (const cohort of cohorts) {
+    const cohortCashProfile = cohort.cashPaymentProfile ?? config.cashPaymentProfile;
+    const cohortRecProfile = cohort.recognitionProfile ?? config.recognitionProfile;
+    const cohortPresalesRevenue = new Array<number>(N).fill(0);
 
-    let preCumulativeShare = 0;
-    for (let yr = 0; yr < N; yr++) {
-      const v = Math.max(0, cfg.preSalesVelocity[yr] ?? 0);
-      if (v === 0) continue;
-      const cappedV = Math.min(v, Math.max(0, 1 - preCumulativeShare));
-      preCumulativeShare += cappedV;
-      const areaSold = totalArea * cappedV;
-      const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
-      const indexedRate = applyIndexation(baseRate, yr, config.indexation);
-      const value = areaSold * indexedRate;
-      presalesArea[yr] += areaSold;
-      presalesUnits[yr] += unitsSold;
-      presalesRevenue[yr] += value;
+    const subUnitConfigById = new Map<string, SellSubUnitConfig>(
+      cohort.subUnits.map((s) => [s.subUnitId, s]),
+    );
+
+    for (const su of subUnits) {
+      const cfg = subUnitConfigById.get(su.id);
+      if (!cfg) continue;
+      const totalArea = Math.max(0, su.area);
+      const totalUnits = Math.max(0, su.count);
+      const areaPerUnit = totalUnits > 0 ? totalArea / totalUnits : 0;
+      const overridePrice = cohort.pricePerSubUnit?.[su.id];
+      const baseRate = Math.max(0, overridePrice ?? su.ratePerArea);
+
+      let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
+
+      for (let yr = 0; yr < N; yr++) {
+        const v = Math.max(0, cfg.preSalesVelocity[yr] ?? 0);
+        if (v === 0) continue;
+        const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
+        cumShare += cappedV;
+        const areaSold = totalArea * cappedV;
+        const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
+        const indexedRate = applyIndexation(baseRate, yr, config.indexation);
+        const value = areaSold * indexedRate;
+        presalesArea[yr] += areaSold;
+        presalesUnits[yr] += unitsSold;
+        presalesRevenue[yr] += value;
+        cohortPresalesRevenue[yr] += value;
+      }
+
+      for (let yr = 0; yr < N; yr++) {
+        const v = Math.max(0, cfg.postSalesVelocity[yr] ?? 0);
+        if (v === 0) continue;
+        const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
+        if (cappedV === 0) continue;
+        cumShare += cappedV;
+        const areaSold = totalArea * cappedV;
+        const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
+        const indexedRate = applyIndexation(baseRate, yr, config.indexation);
+        const value = areaSold * indexedRate;
+        postSalesArea[yr] += areaSold;
+        postSalesUnits[yr] += unitsSold;
+        postSalesRevenue[yr] += value;
+      }
+
+      cumulativeShareBySubUnit.set(su.id, cumShare);
     }
 
-    const residualShare = Math.max(0, 1 - preCumulativeShare);
-    let postCumulativeShare = 0;
-    for (let yr = 0; yr < N; yr++) {
-      const v = Math.max(0, cfg.postSalesVelocity[yr] ?? 0);
-      if (v === 0) continue;
-      const cappedV = Math.min(v, Math.max(0, residualShare - postCumulativeShare));
-      if (cappedV === 0) continue;
-      postCumulativeShare += cappedV;
-      const areaSold = totalArea * cappedV;
-      const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
-      const indexedRate = applyIndexation(baseRate, yr, config.indexation);
-      const value = areaSold * indexedRate;
-      postSalesArea[yr] += areaSold;
-      postSalesUnits[yr] += unitsSold;
-      postSalesRevenue[yr] += value;
+    const cohortCash = distributeCashCollection(cohortPresalesRevenue, cohortCashProfile, N);
+    const cohortRec = buildRecognition(cohortPresalesRevenue, cohortRecProfile, handoverYear, N);
+    for (let i = 0; i < N; i++) {
+      cashCollectedPresales[i] += cohortCash[i];
+      recognitionPresales[i] += cohortRec[i];
     }
   }
 
-  const cashCollectedPresales = distributeCashCollection(
-    presalesRevenue,
-    config.cashPaymentProfile,
-    N,
-  );
-  // Post-sales: cash and recognition coincide at the sale year.
   const cashCollected = cashCollectedPresales.map(
     (v, i) => v + (postSalesRevenue[i] ?? 0),
-  );
-
-  const recognitionPresales = buildRecognition(
-    presalesRevenue,
-    config.recognitionProfile,
-    handoverYear,
-    N,
   );
   const recognition = recognitionPresales.map(
     (v, i) => v + (postSalesRevenue[i] ?? 0),

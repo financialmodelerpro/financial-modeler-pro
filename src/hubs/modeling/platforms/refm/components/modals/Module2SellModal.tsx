@@ -78,19 +78,60 @@ function paddedArray(src: number[] | undefined, length: number, fill = 0): numbe
   return out;
 }
 
+function newCohortId(): string {
+  return `cohort_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function emptyCohortSubUnits(subUnits: SubUnit[], totalPeriods: number): Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> {
+  return subUnits.map((su) => ({
+    subUnitId: su.id,
+    preSalesVelocity: new Array<number>(totalPeriods).fill(0),
+    postSalesVelocity: new Array<number>(totalPeriods).fill(0),
+  }));
+}
+
 function seedConfig(asset: Asset, subUnits: SubUnit[], totalPeriods: number, handoverYear: number): AssetSellConfig {
   const existing = asset.revenue?.sell;
   if (existing) {
+    // Pass 4: migrate Pass-3 configs (no cohorts) by folding the
+    // top-level subUnits velocity into cohorts[0]. Pass-4 configs that
+    // already carry cohorts are kept as-is with padding.
+    const cohorts = existing.cohorts && existing.cohorts.length > 0
+      ? existing.cohorts.map((c) => ({
+          id: c.id || newCohortId(),
+          name: c.name || 'Cohort',
+          subUnits: subUnits.map((su) => {
+            const sc = c.subUnits.find((s) => s.subUnitId === su.id);
+            return {
+              subUnitId: su.id,
+              preSalesVelocity: paddedArray(sc?.preSalesVelocity, totalPeriods),
+              postSalesVelocity: paddedArray(sc?.postSalesVelocity, totalPeriods),
+            };
+          }),
+          cashPaymentProfile: c.cashPaymentProfile,
+          recognitionProfile: c.recognitionProfile,
+          pricePerSubUnit: c.pricePerSubUnit,
+        }))
+      : [{
+          id: newCohortId(),
+          name: 'Cohort 1',
+          subUnits: subUnits.map((su) => {
+            const cfg = existing.subUnits.find((s) => s.subUnitId === su.id);
+            return {
+              subUnitId: su.id,
+              preSalesVelocity: paddedArray(cfg?.preSalesVelocity, totalPeriods),
+              postSalesVelocity: paddedArray(cfg?.postSalesVelocity, totalPeriods),
+            };
+          }),
+        }];
+
     return {
       assetId: asset.id,
-      subUnits: subUnits.map((su) => {
-        const cfg = existing.subUnits.find((s) => s.subUnitId === su.id);
-        return {
-          subUnitId: su.id,
-          preSalesVelocity: paddedArray(cfg?.preSalesVelocity, totalPeriods),
-          postSalesVelocity: paddedArray(cfg?.postSalesVelocity, totalPeriods),
-        };
-      }),
+      subUnits: subUnits.map((su) => ({
+        subUnitId: su.id,
+        preSalesVelocity: new Array<number>(totalPeriods).fill(0),
+        postSalesVelocity: new Array<number>(totalPeriods).fill(0),
+      })),
       cashPaymentProfile: {
         percentages: paddedArray(existing.cashPaymentProfile.percentages, totalPeriods),
         profileMode: existing.cashPaymentProfile.profileMode ?? 'absolute_with_catchup',
@@ -106,6 +147,7 @@ function seedConfig(asset: Asset, subUnits: SubUnit[], totalPeriods: number, han
       escrow: { ...existing.escrow },
       indexation: { ...existing.indexation },
       handoverYearOverride: existing.handoverYearOverride,
+      cohorts,
     };
   }
   return {
@@ -125,6 +167,11 @@ function seedConfig(asset: Asset, subUnits: SubUnit[], totalPeriods: number, han
     },
     escrow: { enabled: false, heldPct: 0.04, releaseYear: handoverYear },
     indexation: { method: 'none' },
+    cohorts: [{
+      id: newCohortId(),
+      name: 'Cohort 1',
+      subUnits: emptyCohortSubUnits(subUnits, totalPeriods),
+    }],
   };
 }
 
@@ -168,6 +215,66 @@ export default function Module2SellModal({ asset, onClose }: Props): React.JSX.E
     seedConfig(asset, assetSubUnits, totalPeriods, handoverYear),
   );
 
+  // Pass 4: cohort tab selection. Defaults to first cohort. Clamped
+  // when cohorts are added / removed.
+  const [selectedCohortId, setSelectedCohortId] = useState<string>(() => config.cohorts?.[0]?.id ?? '');
+  const cohorts = config.cohorts ?? [];
+  const selectedCohort = cohorts.find((c) => c.id === selectedCohortId) ?? cohorts[0];
+  const selectedCohortIdx = cohorts.findIndex((c) => c.id === selectedCohort?.id);
+
+  const addCohort = (): void => {
+    const id = newCohortId();
+    setConfig((prev) => ({
+      ...prev,
+      cohorts: [
+        ...(prev.cohorts ?? []),
+        {
+          id,
+          name: `Cohort ${(prev.cohorts?.length ?? 0) + 1}`,
+          subUnits: emptyCohortSubUnits(assetSubUnits, totalPeriods),
+        },
+      ],
+    }));
+    setSelectedCohortId(id);
+  };
+
+  const removeCohort = (id: string): void => {
+    if ((config.cohorts?.length ?? 0) <= 1) return;
+    setConfig((prev) => {
+      const next = (prev.cohorts ?? []).filter((c) => c.id !== id);
+      return { ...prev, cohorts: next };
+    });
+    setSelectedCohortId((cur) => {
+      if (cur !== id) return cur;
+      const remaining = (config.cohorts ?? []).filter((c) => c.id !== id);
+      return remaining[0]?.id ?? '';
+    });
+  };
+
+  const renameCohort = (id: string, name: string): void => {
+    setConfig((prev) => ({
+      ...prev,
+      cohorts: (prev.cohorts ?? []).map((c) => c.id === id ? { ...c, name } : c),
+    }));
+  };
+
+  const updateCohortPrice = (cohortId: string, subUnitId: string, value: number | undefined): void => {
+    setConfig((prev) => ({
+      ...prev,
+      cohorts: (prev.cohorts ?? []).map((c) => {
+        if (c.id !== cohortId) return c;
+        const next: Record<string, number> = { ...(c.pricePerSubUnit ?? {}) };
+        if (value == null || !Number.isFinite(value) || value <= 0) {
+          delete next[subUnitId];
+        } else {
+          next[subUnitId] = value;
+        }
+        const hasAny = Object.keys(next).length > 0;
+        return { ...c, pricePerSubUnit: hasAny ? next : undefined };
+      }),
+    }));
+  };
+
   const subUnitMaterials = useMemo(
     () => assetSubUnits.map(makeSubUnitMaterial),
     [assetSubUnits],
@@ -185,13 +292,21 @@ export default function Module2SellModal({ asset, onClose }: Props): React.JSX.E
   const reconcile = useMemo(() => reconcileSellAsset(result, config), [result, config]);
 
   const updateSubUnitVelocity = (subUnitId: string, periodIdx: number, value: number, kind: 'pre' | 'post'): void => {
+    if (!selectedCohort) return;
+    const targetCohortId = selectedCohort.id;
     setConfig((prev) => ({
       ...prev,
-      subUnits: prev.subUnits.map((s) => {
-        if (s.subUnitId !== subUnitId) return s;
-        const next = kind === 'pre' ? [...s.preSalesVelocity] : [...s.postSalesVelocity];
-        next[periodIdx] = Math.max(0, Math.min(1, value / 100));
-        return kind === 'pre' ? { ...s, preSalesVelocity: next } : { ...s, postSalesVelocity: next };
+      cohorts: (prev.cohorts ?? []).map((c) => {
+        if (c.id !== targetCohortId) return c;
+        return {
+          ...c,
+          subUnits: c.subUnits.map((s) => {
+            if (s.subUnitId !== subUnitId) return s;
+            const next = kind === 'pre' ? [...s.preSalesVelocity] : [...s.postSalesVelocity];
+            next[periodIdx] = Math.max(0, Math.min(1, value / 100));
+            return kind === 'pre' ? { ...s, preSalesVelocity: next } : { ...s, postSalesVelocity: next };
+          }),
+        };
       }),
     }));
   };
@@ -260,21 +375,133 @@ export default function Module2SellModal({ asset, onClose }: Props): React.JSX.E
           {/* ── LEFT: Form ────────────────────────────────────────── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
 
-            {/* Velocity grid */}
-            <Section title="Sales Velocity per Sub-unit (% per year)">
+            {/* Cohort tabs (Pass 4) */}
+            <Section
+              title="Cohorts"
+              tag={`${cohorts.length} cohort${cohorts.length === 1 ? '' : 's'}`}
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6, alignItems: 'center' }}>
+                {cohorts.map((c) => {
+                  const active = c.id === selectedCohort?.id;
+                  return (
+                    <div
+                      key={c.id}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '4px 4px 4px 8px',
+                        background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                        color: active ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 11,
+                      }}
+                      data-testid={`m2-cohort-tab-${c.id}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCohortId(c.id)}
+                        style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: active ? 700 : 500, fontSize: 11, padding: 0 }}
+                      >
+                        {c.name}
+                      </button>
+                      {cohorts.length > 1 && (
+                        <button
+                          type="button"
+                          title={`Remove ${c.name}`}
+                          onClick={() => removeCohort(c.id)}
+                          style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', opacity: 0.7, padding: '0 4px', fontSize: 13 }}
+                          data-testid={`m2-cohort-remove-${c.id}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={addCohort}
+                  data-testid="m2-cohort-add"
+                  style={{ padding: '4px 8px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: 11, cursor: 'pointer', color: 'var(--color-meta)' }}
+                >
+                  + Add cohort
+                </button>
+              </div>
+              {selectedCohort && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                  <FieldLabel>Selected cohort name</FieldLabel>
+                  <input
+                    type="text"
+                    value={selectedCohort.name}
+                    onChange={(e) => renameCohort(selectedCohort.id, e.target.value)}
+                    style={{ ...FAST_INPUT, width: 200 }}
+                    data-testid={`m2-cohort-rename-${selectedCohort.id}`}
+                  />
+                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                    Cohort {selectedCohortIdx + 1} of {cohorts.length}. Velocity sums across cohorts per sub-unit must not exceed 100%.
+                  </span>
+                </div>
+              )}
+            </Section>
+
+            {/* Velocity grid for selected cohort */}
+            <Section title={`${selectedCohort?.name ?? 'Cohort'} · Sales Velocity per Sub-unit (% per year)`}>
               {assetSubUnits.length === 0 ? (
                 <EmptyHint>No sub-units on this asset. Add them on Module 1 Tab 2 first.</EmptyHint>
-              ) : (
+              ) : selectedCohort ? (
                 <VelocityTable
                   yearLabels={yearLabels}
                   handoverYear={handoverYear}
                   subUnits={assetSubUnits}
-                  config={config}
+                  cohort={selectedCohort}
                   onChangePre={(suId, i, v) => updateSubUnitVelocity(suId, i, v, 'pre')}
                   onChangePost={(suId, i, v) => updateSubUnitVelocity(suId, i, v, 'post')}
                 />
+              ) : (
+                <EmptyHint>Select a cohort above to edit its velocity.</EmptyHint>
               )}
             </Section>
+
+            {/* Per-cohort price overrides (optional) */}
+            {selectedCohort && assetSubUnits.length > 0 && (
+              <Section title={`${selectedCohort.name} · Price Override (optional)`}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 6 }}>
+                  {assetSubUnits.map((su) => {
+                    const mat = makeSubUnitMaterial(su);
+                    const override = selectedCohort.pricePerSubUnit?.[su.id];
+                    const effective = override ?? mat.ratePerArea;
+                    return (
+                      <div key={su.id} style={{ padding: 6, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                        <FieldLabel>{su.name || 'sub-unit'} · price / sqm</FieldLabel>
+                        <AccountingNumberInput
+                          value={effective}
+                          onChange={(v) => updateCohortPrice(selectedCohort.id, su.id, v === mat.ratePerArea ? undefined : v)}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-cohort-price-${selectedCohort.id}-${su.id}`}
+                        />
+                        <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                          Asset default: {formatAccounting(mat.ratePerArea, 'full', 0)}{override != null ? ' · OVERRIDDEN' : ''}
+                          {override != null && (
+                            <button
+                              type="button"
+                              onClick={() => updateCohortPrice(selectedCohort.id, su.id, undefined)}
+                              style={{ marginLeft: 6, background: 'transparent', border: 'none', color: 'var(--color-warning, #92400e)', cursor: 'pointer', fontSize: 9, textDecoration: 'underline', padding: 0 }}
+                            >
+                              reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+            )}
 
             {/* Cash payment profile */}
             <Section
@@ -554,12 +781,12 @@ interface VelocityTableProps {
   yearLabels: number[];
   handoverYear: number;
   subUnits: SubUnit[];
-  config: AssetSellConfig;
+  cohort: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> };
   onChangePre: (suId: string, i: number, v: number) => void;
   onChangePost: (suId: string, i: number, v: number) => void;
 }
 
-function VelocityTable({ yearLabels, handoverYear, subUnits, config, onChangePre, onChangePost }: VelocityTableProps): React.JSX.Element {
+function VelocityTable({ yearLabels, handoverYear, subUnits, cohort, onChangePre, onChangePost }: VelocityTableProps): React.JSX.Element {
   const cellInput: React.CSSProperties = { ...FAST_INPUT, padding: '2px 4px', textAlign: 'right' as const, fontSize: 10 };
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
@@ -582,7 +809,7 @@ function VelocityTable({ yearLabels, handoverYear, subUnits, config, onChangePre
         </thead>
         <tbody>
           {subUnits.map((su) => {
-            const cfgSU = config.subUnits.find((s) => s.subUnitId === su.id);
+            const cfgSU = cohort.subUnits.find((s) => s.subUnitId === su.id);
             const preVel = cfgSU?.preSalesVelocity ?? [];
             const postVel = cfgSU?.postSalesVelocity ?? [];
             const sumPre = preVel.reduce((s, v) => s + v, 0);

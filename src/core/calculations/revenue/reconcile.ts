@@ -110,21 +110,34 @@ export function reconcileSellAsset(
     message: netOk ? 'net = collected - held + released' : 'net cash identity broken',
   });
 
-  // 7. Per sub-unit: pre + post velocity sum <= 1.0
+  // 7. Per sub-unit: sum of (pre + post velocity) across ALL cohorts
+  //    is <= 1.0. Single-cohort and multi-cohort paths both fold into
+  //    this check. Cohorts is sourced from config.cohorts when present,
+  //    otherwise from a synthetic single cohort built on config.subUnits.
+  const cohortList = config.cohorts && config.cohorts.length > 0
+    ? config.cohorts
+    : [{ id: '__implicit__', name: 'Default', subUnits: config.subUnits }];
+  const aggByAsset = new Map<string, { pre: number; post: number }>();
+  for (const c of cohortList) {
+    for (const su of c.subUnits) {
+      const prev = aggByAsset.get(su.subUnitId) ?? { pre: 0, post: 0 };
+      prev.pre += (su.preSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
+      prev.post += (su.postSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
+      aggByAsset.set(su.subUnitId, prev);
+    }
+  }
   let velOk = true;
   const violators: string[] = [];
-  for (const su of config.subUnits) {
-    const sumPre = (su.preSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
-    const sumPost = (su.postSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
-    if (sumPre + sumPost > 1 + 1e-6) {
+  for (const [suId, { pre, post }] of aggByAsset) {
+    if (pre + post > 1 + 1e-6) {
       velOk = false;
-      violators.push(`${su.subUnitId} (pre+post=${(sumPre + sumPost).toFixed(3)})`);
+      violators.push(`${suId} (pre+post=${(pre + post).toFixed(3)})`);
     }
   }
   identities.push({
     id: 'velocity-sum-bound',
     ok: velOk,
-    message: velOk ? 'every sub-unit pre+post velocity <= 1.0' : `velocity overflow: ${violators.join(', ')}`,
+    message: velOk ? 'every sub-unit pre+post velocity (summed across cohorts) <= 1.0' : `velocity overflow: ${violators.join(', ')}`,
   });
 
   // 8. Post-sales recognition + cash align period-by-period (the

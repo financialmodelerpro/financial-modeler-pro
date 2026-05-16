@@ -252,6 +252,90 @@ const recB = reconcileSellAsset(resultB, fixtureBConfig);
 assertTrue('B7: reconcile.ok', recB.ok, recB.identities.filter(x => !x.ok).map(x => `${x.id}: ${x.message}`).join(' | ') || 'all passed');
 
 // ───────────────────────────────────────────────────────────────
+// Fixture C: 2-cohort split of Fixture B (must sum to same totals)
+// ───────────────────────────────────────────────────────────────
+console.log('\n--- Fixture C: 2-cohort split must equal Fixture B totals ---');
+
+// Split Fixture B's velocity 50/50 between two cohorts. Total per-sub-unit
+// velocity stays identical, so the cohort-summed output MUST equal the
+// single-cohort Fixture B output cell-for-cell.
+const splitVel = (v: number): number => v * 0.5;
+const fixtureCConfig: AssetSellConfig = {
+  ...fixtureBConfig,
+  cohorts: [
+    {
+      id: 'cohort-1',
+      name: 'Launch Phase 1',
+      subUnits: [
+        { subUnitId: 'su-B-1br',
+          preSalesVelocity: [0, 0.05, 0.30, 0.30, 0.25, 0, 0].map(splitVel),
+          postSalesVelocity: [0, 0, 0, 0, 0, 0.10, 0].map(splitVel) },
+        { subUnitId: 'su-B-2br',
+          preSalesVelocity: [0, 0.05, 0.30, 0.30, 0.25, 0, 0].map(splitVel),
+          postSalesVelocity: [0, 0, 0, 0, 0, 0.10, 0].map(splitVel) },
+      ],
+    },
+    {
+      id: 'cohort-2',
+      name: 'Launch Phase 2',
+      subUnits: [
+        { subUnitId: 'su-B-1br',
+          preSalesVelocity: [0, 0.05, 0.30, 0.30, 0.25, 0, 0].map(splitVel),
+          postSalesVelocity: [0, 0, 0, 0, 0, 0.10, 0].map(splitVel) },
+        { subUnitId: 'su-B-2br',
+          preSalesVelocity: [0, 0.05, 0.30, 0.30, 0.25, 0, 0].map(splitVel),
+          postSalesVelocity: [0, 0, 0, 0, 0, 0.10, 0].map(splitVel) },
+      ],
+    },
+  ],
+};
+
+const resultC = computeSellAsset({
+  config: fixtureCConfig,
+  subUnits: fixtureBSubUnits,
+  axisLength: 7,
+  handoverYear: 4,
+});
+
+for (let i = 0; i < 7; i++) {
+  assertNear(`C1.${i}: pre-sales revenue Y${i + 1} matches B`, resultC.presalesRevenuePerPeriod[i], resultB.presalesRevenuePerPeriod[i], 1, 0.0001);
+  assertNear(`C2.${i}: cash Y${i + 1} matches B`, resultC.cashCollectedPerPeriod[i], resultB.cashCollectedPerPeriod[i], 1, 0.0001);
+  assertNear(`C3.${i}: recognition Y${i + 1} matches B`, resultC.recognitionPerPeriod[i], resultB.recognitionPerPeriod[i], 1, 0.0001);
+  assertNear(`C4.${i}: escrow held Y${i + 1} matches B`, resultC.escrowHeldPerPeriod[i], resultB.escrowHeldPerPeriod[i], 1, 0.0001);
+}
+
+const recC = reconcileSellAsset(resultC, fixtureCConfig);
+assertTrue('C5: reconcile.ok (multi-cohort)', recC.ok, recC.identities.filter((x) => !x.ok).map(x => `${x.id}: ${x.message}`).join(' | ') || 'all passed');
+
+// Fixture C2: velocity overflow across cohorts should trip the reconcile
+// velocity-sum-bound identity (two cohorts each with full 100% velocity
+// = 200% per sub-unit, which is impossible).
+const fixtureC2Config: AssetSellConfig = {
+  ...fixtureBConfig,
+  cohorts: [
+    { id: 'overflow-A', name: 'Overflow A',
+      subUnits: [
+        { subUnitId: 'su-B-1br', preSalesVelocity: [0, 0.50, 0.50, 0, 0, 0, 0], postSalesVelocity: [0,0,0,0,0,0,0] },
+        { subUnitId: 'su-B-2br', preSalesVelocity: [0, 0.50, 0.50, 0, 0, 0, 0], postSalesVelocity: [0,0,0,0,0,0,0] },
+      ] },
+    { id: 'overflow-B', name: 'Overflow B',
+      subUnits: [
+        { subUnitId: 'su-B-1br', preSalesVelocity: [0, 0.50, 0.50, 0, 0, 0, 0], postSalesVelocity: [0,0,0,0,0,0,0] },
+        { subUnitId: 'su-B-2br', preSalesVelocity: [0, 0.50, 0.50, 0, 0, 0, 0], postSalesVelocity: [0,0,0,0,0,0,0] },
+      ] },
+  ],
+};
+const resultC2 = computeSellAsset({
+  config: fixtureC2Config,
+  subUnits: fixtureBSubUnits,
+  axisLength: 7,
+  handoverYear: 4,
+});
+const recC2 = reconcileSellAsset(resultC2, fixtureC2Config);
+const overflowIdentity = recC2.identities.find((x) => x.id === 'velocity-sum-bound');
+assertTrue('C6: cross-cohort velocity overflow flagged by reconciler', !!overflowIdentity && !overflowIdentity.ok, overflowIdentity?.message ?? 'identity missing');
+
+// ───────────────────────────────────────────────────────────────
 // Summary
 // ───────────────────────────────────────────────────────────────
 const passed = checks.filter((c) => c.ok).length;

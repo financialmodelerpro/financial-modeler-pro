@@ -67,6 +67,30 @@ export interface IndexationConfig {
   steps?: Array<{ year: number; factor: number }>;
 }
 
+// A Cohort is a named launch with its own velocity per sub-unit and
+// optional overrides for price and the cash / recognition profiles.
+// When AssetSellConfig.cohorts is non-empty the engine sums across
+// every cohort to produce the asset-level outputs; the top-level
+// config.subUnits + config.cashPaymentProfile + config.recognitionProfile
+// then act as fallbacks for any cohort that does NOT override them.
+//
+// Per-sub-unit velocity in a cohort is interpreted as % of the
+// sub-unit's TOTAL area (same convention as the single-cohort path).
+// The reconcile.velocity-sum-bound identity sums across cohorts: for
+// each sub-unit, sum(cohort[k].subUnits.velocity) <= 1.0.
+//
+// pricePerSubUnit (optional) overrides the SubUnitMaterial.ratePerArea
+// used to value cohort sales (allows multi-phase launches with
+// different prices). Indexation still applies on top of the override.
+export interface Cohort {
+  id: string;
+  name: string;
+  subUnits: SellSubUnitConfig[];
+  cashPaymentProfile?: CashPaymentProfile;
+  recognitionProfile?: RecognitionProfile;
+  pricePerSubUnit?: Record<string, number>;
+}
+
 export interface AssetSellConfig {
   assetId: string;
   subUnits: SellSubUnitConfig[];
@@ -79,6 +103,11 @@ export interface AssetSellConfig {
   // omitted, but the field is allowed as an override for testing /
   // multi-cohort overrides where the handover is forced.
   handoverYearOverride?: number;
+  // M2 Pass 4 (2026-05-16): optional per-cohort breakdown. When present
+  // AND non-empty, the engine sums across every cohort. When absent or
+  // empty, the engine uses the top-level subUnits / cashPaymentProfile
+  // / recognitionProfile as a single implicit cohort (Pass 3 path).
+  cohorts?: Cohort[];
 }
 
 // Per-sub-unit material context the engine pulls from M1 so the math
