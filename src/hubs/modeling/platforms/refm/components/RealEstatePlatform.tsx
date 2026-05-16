@@ -179,8 +179,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Falls back to static MODULES list while in flight.
   const { modules: dynamicSidebarModules } = usePlatformModules('refm');
 
-  // Subscription / plan gating (currently locked pre-launch)
-  const canAccess = (_featureKey: string): boolean => false;
+  // Subscription / plan gating. Free modules are always accessible;
+  // pro / enterprise modules stay locked behind the upgrade prompt
+  // until plan enforcement ships. Previous version returned false for
+  // every featureKey which silently lock-icon'd free modules in the
+  // sidebar (Module 1 / Module 2) and intercepted clicks for paid
+  // tiers - users reported Revenue sidebar feeling unclickable.
+  const canAccess = (featureKey: string): boolean => {
+    const mod = MODULES.find((m) => m.featureKey === featureKey);
+    return mod?.requiredPlan === 'free';
+  };
   const subLoaded = true;
   const [upgradePrompt, setUpgradePrompt] = useState<{ featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
