@@ -26,8 +26,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
-import { formatArea } from '@/src/core/formatters';
-import { resolveHandoverYear } from '@/src/core/calculations/revenue';
+import { formatArea, formatAccounting } from '@/src/core/formatters';
 import Module2SellModal from '../modals/Module2SellModal';
 
 const FAST_INPUT: React.CSSProperties = {
@@ -244,11 +243,42 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
     [totalPeriods, projectStartYear],
   );
   const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-  const handoverYear = resolveHandoverYear(
-    totalPeriods,
-    phaseStartYear,
-    phase.constructionPeriods ?? 0,
-    projectStartYear,
+  // Pass 6 (2026-05-16): per-asset windows anchored to the phase. The
+  // asset's revenue inputs only show the years where activity can occur:
+  //   Pre-Sales window = phase construction years (phaseStart .. handover).
+  //   Post-Sales window = phase operations years (handover+1 .. opsEnd),
+  //   minus phase overlap.
+  // Cash profile window = construction start to operations end (the
+  // active span where milestones can fall).
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  const op = Math.max(0, phase.operationsPeriods ?? 0);
+  const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+  const constructionStartIdx = Math.max(0, Math.min(totalPeriods - 1, phaseStartYear - projectStartYear));
+  const handoverYear = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, constructionStartIdx + cp - 1));
+  const operationsStartIdx = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, handoverYear + 1 - overlap));
+  const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, operationsStartIdx + op - 1));
+
+  type WindowCell = { idx: number; year: number; isHandover: boolean };
+  const constructionWindow: WindowCell[] = cp > 0
+    ? Array.from({ length: Math.max(0, handoverYear - constructionStartIdx + 1) }, (_, k) => {
+        const idx = constructionStartIdx + k;
+        return { idx, year: projectStartYear + idx, isHandover: idx === handoverYear };
+      })
+    : [];
+  const operationsWindow: WindowCell[] = op > 0
+    ? Array.from({ length: Math.max(0, operationsEndIdx - operationsStartIdx + 1) }, (_, k) => {
+        const idx = operationsStartIdx + k;
+        return { idx, year: projectStartYear + idx, isHandover: false };
+      })
+    : [];
+  const cashWindowStart = constructionStartIdx;
+  const cashWindowEnd = op > 0 ? operationsEndIdx : Math.min(totalPeriods - 1, handoverYear);
+  const cashWindow: WindowCell[] = Array.from(
+    { length: Math.max(0, cashWindowEnd - cashWindowStart + 1) },
+    (_, k) => {
+      const idx = cashWindowStart + k;
+      return { idx, year: projectStartYear + idx, isHandover: idx === handoverYear };
+    },
   );
 
   // Inline editing writes directly to Asset.revenue.sell.cohorts[0] when
@@ -293,7 +323,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), sell: nextSell } });
   };
 
-  const setCohortVelocity = (subUnitId: string, periodIdx: number, pct: number): void => {
+  const setCohortVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
     const baseCohorts = (sellConfig?.cohorts && sellConfig.cohorts.length > 0)
       ? sellConfig.cohorts
       : [{ id: `cohort_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -318,9 +348,14 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         ...c,
         subUnits: ensuredSubs.map((s) => {
           if (s.subUnitId !== subUnitId) return s;
-          const next = [...s.preSalesVelocity];
+          if (kind === 'pre') {
+            const next = [...s.preSalesVelocity];
+            next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+            return { ...s, preSalesVelocity: next };
+          }
+          const next = [...s.postSalesVelocity];
           next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
-          return { ...s, preSalesVelocity: next };
+          return { ...s, postSalesVelocity: next };
         }),
       };
     });
@@ -447,48 +482,56 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
       {isSell && subUnits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
 
-          {/* Sales velocity per sub-unit (single-cohort inline view) */}
-          <InlineSection
-            title="Sales velocity (% per year)"
-            hint={`Sum per sub-unit <= 100%. Residual rolls into post-handover. Handover at ${yearLabels[handoverYear]}.`}
-          >
-            <InlineGrid
-              yearLabels={yearLabels}
-              handoverYear={handoverYear}
-              rows={subUnits.map((su) => {
-                const cfgSU = inlineCohort?.subUnits.find((s) => s.subUnitId === su.id);
-                const pre = cfgSU?.preSalesVelocity ?? [];
-                const sum = pre.reduce((s, v) => s + v, 0);
-                return {
-                  id: su.id,
-                  label: su.name || 'sub-unit',
-                  hint: `${su.category} · ${su.metric === 'units' ? `${Math.max(0, su.metricValue).toLocaleString()} units` : `${formatArea(computeSubUnitArea(su), 0)} sqm`}${sum > 0 ? ` · sold ${(sum * 100).toFixed(0)}%` : ''}`,
-                  sumOver: sum > 1 + 1e-6,
-                  values: pre,
-                  onChange: (i, pct) => setCohortVelocity(su.id, i, pct),
-                };
-              })}
-              disabled={multiCohortMode}
-            />
-          </InlineSection>
+          {/* Pre-Sales velocity, scoped to construction window */}
+          {constructionWindow.length > 0 && (
+            <InlineSection
+              title={`Pre-Sales velocity · Construction ${constructionWindow[0].year} to ${constructionWindow[constructionWindow.length - 1].year}`}
+              hint="Pre-sales run during the asset's construction period. Sum per sub-unit + post-sales sum ≤ 100%. Handover column marked with *."
+            >
+              <InlineGrid
+                cells={constructionWindow}
+                rows={subUnits.map((su) => buildVelocityRow(su, inlineCohort, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setCohortVelocity(suId, idx, pct, 'pre')))}
+                disabled={multiCohortMode}
+              />
+            </InlineSection>
+          )}
+
+          {/* Post-Sales velocity, scoped to operations window */}
+          {operationsWindow.length > 0 && (
+            <InlineSection
+              title={`Post-Sales velocity · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
+              hint="Sales During Operation. Applies to residual units left over after pre-sales. Recognized + collected in the same year (point-in-time)."
+            >
+              <InlineGrid
+                cells={operationsWindow}
+                rows={subUnits.map((su) => buildVelocityRow(su, inlineCohort, project.currency, totalPeriods, 'post', (suId, idx, pct) => setCohortVelocity(suId, idx, pct, 'post')))}
+                disabled={multiCohortMode}
+              />
+            </InlineSection>
+          )}
+
+          {constructionWindow.length === 0 && operationsWindow.length === 0 && (
+            <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              Phase has no construction or operations periods. Set them on Module 1 · Tab 1.
+            </div>
+          )}
 
           {/* Cash payment profile + recognition method on one row */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-2)' }}>
             <InlineSection
-              title="Cash payment profile (% per year)"
-              hint="Profile is positioned in absolute project years. Cohort sold in year N catches up cumulative through N at N then per profile in later years."
+              title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
+              hint="Milestones (% of cohort value collected per project year). Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
               tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
               tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
             >
               <InlineProfileStrip
-                yearLabels={yearLabels}
-                handoverYear={handoverYear}
+                cells={cashWindow}
                 values={sellConfig?.cashPaymentProfile?.percentages ?? []}
                 onChange={setCashPct}
               />
             </InlineSection>
 
-            <InlineSection title="Recognition" hint="">
+            <InlineSection title="Recognition">
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 <MethodPill
                   active={sellConfig?.recognitionProfile?.method !== 'over_time'}
@@ -512,6 +555,47 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
       )}
     </div>
   );
+}
+
+// Build a velocity row for the inline grid. Sub-unit label includes
+// the sale price (per unit or per sqm, depending on metric) read
+// directly from M1 Tab 2 - the price stays read-only on this surface
+// so the user knows there is one canonical place to edit it.
+function buildVelocityRow(
+  su: SubUnit,
+  cohort: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
+  currency: string,
+  totalPeriods: number,
+  kind: 'pre' | 'post',
+  onChange: (subUnitId: string, periodIdx: number, pct: number) => void,
+): InlineGridRow {
+  const cfgSU = cohort?.subUnits.find((s) => s.subUnitId === su.id);
+  const arr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
+  const values = paddedArray(arr, totalPeriods);
+  const preSum = (cfgSU?.preSalesVelocity ?? []).reduce((s, v) => s + v, 0);
+  const postSum = (cfgSU?.postSalesVelocity ?? []).reduce((s, v) => s + v, 0);
+  const sumSelf = kind === 'pre' ? preSum : postSum;
+  const sumAll = preSum + postSum;
+  const overall = sumAll > 1 + 1e-6;
+
+  const sizeHint = su.metric === 'units'
+    ? `${Math.max(0, su.metricValue).toLocaleString()} units`
+    : `${formatArea(computeSubUnitArea(su), 0)} sqm`;
+  const priceHint = (su.unitPrice && su.unitPrice > 0)
+    ? (su.metric === 'units'
+        ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
+        : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
+    : 'no price set';
+
+  return {
+    id: su.id,
+    label: su.name || 'sub-unit',
+    priceHint,
+    hint: `${su.category} · ${sizeHint}${sumSelf > 0 ? ` · ${kind === 'pre' ? 'pre' : 'post'} ${(sumSelf * 100).toFixed(0)}%` : ''}${sumAll > 0 && kind === 'pre' ? ` · total ${(sumAll * 100).toFixed(0)}%` : ''}`,
+    sumOver: overall,
+    values,
+    onChange: (idx, pct) => onChange(su.id, idx, pct),
+  };
 }
 
 // ── Small inline subcomponents ────────────────────────────────────────
@@ -542,32 +626,35 @@ function InlineSection({ title, hint, tag, tagColor, children }: { title: string
 interface InlineGridRow {
   id: string;
   label: string;
+  priceHint: string;
   hint: string;
   sumOver: boolean;
-  values: number[];
-  onChange: (periodIdx: number, pct: number) => void;
+  values: number[];   // full project-axis array; cells index into this via cell.idx
+  onChange: (projectIdx: number, pct: number) => void;
 }
 
-function InlineGrid({ yearLabels, handoverYear, rows, disabled }: { yearLabels: number[]; handoverYear: number; rows: InlineGridRow[]; disabled?: boolean }): React.JSX.Element {
+type WindowCell = { idx: number; year: number; isHandover: boolean };
+
+function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: InlineGridRow[]; disabled?: boolean }): React.JSX.Element {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'var(--color-surface-alt, #f3f4f6)' }}>
-            <th style={{ padding: '4px 6px', textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface-alt, #f3f4f6)' }}>Sub-unit</th>
-            {yearLabels.map((y, i) => (
+            <th style={{ padding: '4px 6px', textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface-alt, #f3f4f6)', minWidth: 220 }}>Sub-unit · price</th>
+            {cells.map((c) => (
               <th
-                key={i}
+                key={c.idx}
                 style={{
                   padding: '4px 6px',
                   textAlign: 'center',
-                  minWidth: 50,
-                  color: i === handoverYear ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
-                  fontWeight: i === handoverYear ? 700 : 600,
+                  minWidth: 55,
+                  color: c.isHandover ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
+                  fontWeight: c.isHandover ? 700 : 600,
                 }}
-                title={i === handoverYear ? `Handover ${y}` : String(y)}
+                title={c.isHandover ? `Handover ${c.year}` : String(c.year)}
               >
-                {y}
+                {c.year}{c.isHandover ? '*' : ''}
               </th>
             ))}
           </tr>
@@ -576,24 +663,29 @@ function InlineGrid({ yearLabels, handoverYear, rows, disabled }: { yearLabels: 
           {rows.map((r) => (
             <tr key={r.id}>
               <td style={{ padding: '4px 6px', position: 'sticky', left: 0, background: 'var(--color-surface)', borderRight: '1px solid var(--color-border)' }}>
-                <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{r.label}</div>
+                <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>
+                  {r.label}
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: 'var(--color-navy, #0f2e4c)' }}>
+                    · {r.priceHint}
+                  </span>
+                </div>
                 <div style={{ fontSize: 9, color: r.sumOver ? 'var(--color-warning, #92400e)' : 'var(--color-meta)' }}>
                   {r.hint}{r.sumOver ? ' ⚠ over 100%' : ''}
                 </div>
               </td>
-              {yearLabels.map((_, i) => (
-                <td key={i} style={{ padding: '2px 3px', textAlign: 'center' }}>
+              {cells.map((c) => (
+                <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
                   <input
                     type="number"
-                    value={Math.round((r.values[i] ?? 0) * 10000) / 100}
-                    onChange={(e) => r.onChange(i, Number(e.target.value) || 0)}
+                    value={Math.round((r.values[c.idx] ?? 0) * 10000) / 100}
+                    onChange={(e) => r.onChange(c.idx, Number(e.target.value) || 0)}
                     style={FAST_INPUT}
                     step={1}
                     min={0}
                     max={100}
                     disabled={disabled}
                     title={disabled ? 'Multi-cohort mode - edit in Advanced' : ''}
-                    data-testid={`m2-vel-${r.id}-${i}`}
+                    data-testid={`m2-vel-${r.id}-${c.idx}`}
                   />
                 </td>
               ))}
@@ -605,41 +697,41 @@ function InlineGrid({ yearLabels, handoverYear, rows, disabled }: { yearLabels: 
   );
 }
 
-function InlineProfileStrip({ yearLabels, handoverYear, values, onChange }: { yearLabels: number[]; handoverYear: number; values: number[]; onChange: (i: number, pct: number) => void }): React.JSX.Element {
+function InlineProfileStrip({ cells, values, onChange }: { cells: WindowCell[]; values: number[]; onChange: (projectIdx: number, pct: number) => void }): React.JSX.Element {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'var(--color-surface-alt, #f3f4f6)' }}>
-            {yearLabels.map((y, i) => (
+            {cells.map((c) => (
               <th
-                key={i}
+                key={c.idx}
                 style={{
                   padding: '4px 6px',
                   textAlign: 'center',
-                  minWidth: 50,
-                  color: i === handoverYear ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
-                  fontWeight: i === handoverYear ? 700 : 600,
+                  minWidth: 55,
+                  color: c.isHandover ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
+                  fontWeight: c.isHandover ? 700 : 600,
                 }}
               >
-                {y}
+                {c.year}{c.isHandover ? '*' : ''}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           <tr>
-            {yearLabels.map((_, i) => (
-              <td key={i} style={{ padding: '2px 3px', textAlign: 'center' }}>
+            {cells.map((c) => (
+              <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
                 <input
                   type="number"
-                  value={Math.round((values[i] ?? 0) * 10000) / 100}
-                  onChange={(e) => onChange(i, Number(e.target.value) || 0)}
+                  value={Math.round((values[c.idx] ?? 0) * 10000) / 100}
+                  onChange={(e) => onChange(c.idx, Number(e.target.value) || 0)}
                   style={FAST_INPUT}
                   step={1}
                   min={0}
                   max={100}
-                  data-testid={`m2-cash-${i}`}
+                  data-testid={`m2-cash-${c.idx}`}
                 />
               </td>
             ))}
