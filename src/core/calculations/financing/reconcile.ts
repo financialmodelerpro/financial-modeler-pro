@@ -95,7 +95,20 @@ export function reconcile(
 
   for (const f of facilities.values()) {
     const t = tranches.find((x) => x.id === f.trancheId);
-    const openingInitial = t?.origin === 'existing' ? Math.max(0, t.openingBalance ?? 0) : 0;
+    const isExistingTranche = t?.origin === 'existing';
+    // Pass 58 (2026-05-16): mirror the Pass 36 drawAsInflow path in
+    // schedule.ts. When an existing facility's originationYear falls
+    // inside the project axis, the engine moves openingBalance into
+    // drawSchedule[origIdx] and zeroes the initial bal (schedule.ts
+    // line 74-87). If the reconciler still treated openingBalance as
+    // the initial opening AND counted the drawdown, expectedClosing
+    // doubled (e.g. 4.8B vs actual 2.4B). Detect the inflow path via
+    // drawSchedule sum > 0: existing facilities only write into
+    // drawSchedule under that branch.
+    const drawSum = f.drawSchedule.reduce((s, v) => s + v, 0);
+    const openingInitial = isExistingTranche && drawSum === 0
+      ? Math.max(0, t.openingBalance ?? 0)
+      : 0;
     for (let i = 0; i < N; i++) {
       const opening = i === 0 ? openingInitial : (f.outstanding[i - 1] ?? 0);
       const expectedClosing = opening
