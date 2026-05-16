@@ -1962,9 +1962,11 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   const onEditAreaUnits = (nextArea: number): void => {
     const a = Math.max(0, nextArea);
     if (unitArea <= 0) {
-      // No unit size yet, store area in metricValue temporarily but flag
-      // for derivation once Unit Size is provided.
-      onUpdate({ metric: 'units', metricValue: 0, unitArea: 0 });
+      // Pass 57 (2026-05-16): no-op when Unit Size is missing. Previously
+      // this zeroed out metricValue (the count), which destroyed user-
+      // entered Units / Keys whenever they typed into Area on an
+      // existing-operation row without BUA. The user should set Unit
+      // Size first OR edit Count directly via the new Count input.
       return;
     }
     onUpdate({ metric: 'units', metricValue: a / unitArea });
@@ -1985,6 +1987,17 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   };
   const onEditAreaWhenArea = (next: number): void => {
     onUpdate({ metric: 'area', metricValue: Math.max(0, next) });
+  };
+  // Pass 57 (2026-05-16): direct Count editing for Units mode. Existing
+  // operations often know the count (e.g. 200 keys) but do not track
+  // BUA / Unit Size, so the prior "edit Area, derive Count" path forced
+  // a BUA entry that does not exist. metricValue IS the count in Units
+  // mode, so writing it directly preserves the storage contract. Area
+  // auto-derives when Unit Size is set (count x unitArea); when Unit
+  // Size is 0, Area stays 0 and Count still flows to downstream
+  // revenue / cost math.
+  const onEditCount = (n: number): void => {
+    onUpdate({ metric: 'units', metricValue: Math.max(0, Math.round(n)) });
   };
   return (
     <tr data-testid={`subunit-row-${subUnit.id}`}>
@@ -2026,22 +2039,34 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
               aria-invalid={unitsButNoSize}
             />
             {unitsButNoSize && (
-              <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+              <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Optional, Area derives when set</div>
             )}
           </>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
         )}
       </td>
-      {/* Count: derived (read-only) in Units mode; muted dash in Area mode. */}
+      {/* Count: Pass 57 (2026-05-16) directly editable in Units mode so
+          existing-operation assets (where BUA / Unit Size is unknown)
+          can record their unit count without a forced Area entry. Stays
+          a muted dash in Area mode (count is meaningless when storage
+          is total sqm). */}
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
-          <div style={{ fontSize: 11, color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-count`}>
-            {unitArea > 0 ? count.toLocaleString('en-US') : '-'}
+          <>
+            <AccountingNumberInput
+              value={count}
+              onChange={(n) => onEditCount(n)}
+              scale="full"
+              decimals={0}
+              min={0}
+              style={{ ...inputStyle, fontSize: 11 }}
+              data-testid={`subunit-${subUnit.id}-count`}
+            />
             <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
               {countUnit}
             </div>
-          </div>
+          </>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
         )}
