@@ -34,6 +34,7 @@ import type { StorageShape } from './RealEstatePlatform';
 import { useModule1Store } from '../lib/state/module1-store';
 import {
   DEFAULT_PROJECT_FINANCING_CONFIG,
+  getAssetPreCapexTotal,
   type ProjectFinancingConfig,
 } from '../lib/state/module1-types';
 
@@ -454,7 +455,7 @@ export default function Dashboard({
     phases.some((p) => p.id === a.phaseId && p.status === 'operational'),
   );
   const unbalancedOpAssets = opAssets.filter((a) => {
-    const pre = a.historicalPreCapex ?? 0;
+    const pre = getAssetPreCapexTotal(a);
     const d = a.historicalDebtAmount ?? 0;
     const e = a.historicalEquityAmount ?? 0;
     return Math.abs(pre - (d + e)) > 1;
@@ -601,7 +602,7 @@ export default function Dashboard({
     let exEquity = 0;
     if (p.status === 'operational') {
       for (const a of phaseAssets) {
-        preCapex += Math.max(0, a.historicalPreCapex ?? 0);
+        preCapex += getAssetPreCapexTotal(a);
         exDebt += Math.max(0, a.historicalDebtAmount ?? 0);
         exEquity += Math.max(0, a.historicalEquityAmount ?? 0);
       }

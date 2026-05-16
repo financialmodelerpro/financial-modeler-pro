@@ -3,18 +3,25 @@ import type {
   Phase,
   FinancingTranche,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { getAssetPreCapexTotal } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { ExistingAggregate } from './types';
 
 /**
  * Existing operations aggregate.
  *
- * Pass 38 (2026-05-14): pre-capex / existing equity now derived from
- * per-asset values (Asset.historicalPreCapex / historicalEquityAmount)
- * for assets in operational phases. The phase-level historicalBaseline
- * fields (historicalCapexTotal / historicalEquityContributed) are
- * deprecated and no longer read; the trimmed Tab 1 form only collects
- * opening-BS items (currentDebtOutstanding, cumulativeDepreciation,
+ * Pass 38 (2026-05-14): pre-capex / existing equity derived from
+ * per-asset values for assets in operational phases. The phase-level
+ * historicalBaseline fields (historicalCapexTotal /
+ * historicalEquityContributed) are deprecated and no longer read; the
+ * trimmed Tab 1 form only collects opening-BS items
+ * (currentDebtOutstanding, cumulativeDepreciation,
  * netBookValueFixedAssets) which are unrelated to this aggregation.
+ *
+ * Pass 56 (2026-05-16): pre-capex now reads through
+ * getAssetPreCapexTotal(asset) so the Land + Building split sums into
+ * the same total this aggregate has always exposed. Legacy snapshots
+ * (only historicalPreCapex set) still produce the same numbers via the
+ * helper's fallback.
  *
  * Existing debt comes from facilities with `origin === 'existing'`
  * (their `openingBalance`).
@@ -36,7 +43,7 @@ export function buildExistingAggregate(
   let equityTotal = 0;
   for (const a of assets) {
     if (!operationalPhaseIds.has(a.phaseId)) continue;
-    const pc = Math.max(0, a.historicalPreCapex ?? 0);
+    const pc = getAssetPreCapexTotal(a);
     const eq = Math.max(0, a.historicalEquityAmount ?? 0);
     if (pc > 0) {
       preCapexByPhase.set(a.phaseId, (preCapexByPhase.get(a.phaseId) ?? 0) + pc);

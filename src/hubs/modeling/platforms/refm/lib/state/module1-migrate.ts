@@ -200,7 +200,10 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // 'raise_via_funding' (outermost so it sees the final tranche shape).
   // M2.0 Pass 23 (2026-05-13): seed drawdownStartPeriod = 0 on legacy
   // tranches (outermost so the field lands on the final tranche shape).
-  return migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
+  // Land + Building on each asset (outermost so it runs on the final
+  // asset shape after every earlier-pass per-asset migration).
+  return migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -218,7 +221,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))));
+  ))))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -238,7 +241,10 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // 'raise_via_funding' (outermost so it sees the final tranche shape).
   // M2.0 Pass 23 (2026-05-13): seed drawdownStartPeriod = 0 on legacy
   // tranches (outermost so the field lands on the final tranche shape).
-  return migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
+  // Land + Building on each asset (outermost so it runs on the final
+  // asset shape after every earlier-pass per-asset migration).
+  return migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -256,7 +262,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))));
+  ))))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1968,4 +1974,26 @@ export function migrateM20pass23TrancheSimplify(snap: HydrateSnapshot): HydrateS
   if (!touched) return out as unknown as HydrateSnapshot;
   out.financingConfig = { ...fcAny, tranches: next };
   return out as unknown as HydrateSnapshot;
+}
+
+// M2.0 Pass 56 (2026-05-16): split per-asset historicalPreCapex into
+// historicalPreCapexLand + historicalPreCapexBuilding so future
+// depreciation only applies to the Building portion. For each asset
+// that carries the legacy field but neither new field, seed Building
+// from the legacy value and leave Land at 0 (the user chooses how to
+// reallocate). Idempotent: an asset that already has either split
+// field set is left untouched.
+export function migrateM20pass56SplitPreCapex(snap: HydrateSnapshot): HydrateSnapshot {
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  if (assets.length === 0) return snap;
+  let changed = false;
+  const next = assets.map((a) => {
+    const hasSplit = a.historicalPreCapexLand != null || a.historicalPreCapexBuilding != null;
+    if (hasSplit) return a;
+    const legacy = Math.max(0, a.historicalPreCapex ?? 0);
+    if (legacy <= 0) return a;
+    changed = true;
+    return { ...a, historicalPreCapexLand: 0, historicalPreCapexBuilding: legacy };
+  });
+  return changed ? { ...snap, assets: next } : snap;
 }

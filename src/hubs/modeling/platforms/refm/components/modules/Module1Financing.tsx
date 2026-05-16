@@ -47,6 +47,7 @@ import {
   REPAYMENT_METHODS_USER,
   REPAYMENT_METHOD_LABELS,
   makeDefaultFinancingTranche,
+  getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
@@ -1117,7 +1118,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
               last12MonthsRevenue: 0,
               last12MonthsOpex: 0,
             };
-            const phaseAssetsTotPre = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalPreCapex ?? 0), 0);
+            const phaseAssetsTotPre = trancheePhaseAssets.reduce((s, a) => s + getAssetPreCapexTotal(a), 0);
             const phaseAssetsTotDebt = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
             const phaseAssetsTotEq = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
             const balancesOk = Math.abs(phaseAssetsTotPre - (phaseAssetsTotDebt + phaseAssetsTotEq)) < 1;
@@ -1172,7 +1173,12 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                 ) : (
                   <div style={{ display: 'grid', gap: 6, marginBottom: 'var(--sp-1)' }}>
                     {trancheePhaseAssets.map((a) => {
-                      const pre = Math.max(0, a.historicalPreCapex ?? 0);
+                      // Pass 56: Pre-Capex split into Land + Building/Infra.
+                      // Total is derived (no separate input) so future
+                      // depreciation can target only the Building portion.
+                      const land = Math.max(0, a.historicalPreCapexLand ?? 0);
+                      const building = Math.max(0, a.historicalPreCapexBuilding ?? 0);
+                      const pre = getAssetPreCapexTotal(a);
                       const dbt = Math.max(0, a.historicalDebtAmount ?? 0);
                       const eq = Math.max(0, a.historicalEquityAmount ?? 0);
                       const diff = pre - (dbt + eq);
@@ -1183,7 +1189,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                           key={a.id}
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1.3fr',
+                            gridTemplateColumns: '1.4fr 1.4fr 1fr 1fr 1.3fr',
                             gap: 8,
                             alignItems: 'end',
                             padding: 'var(--sp-1)',
@@ -1198,8 +1204,20 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                             <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{a.name}</div>
                           </div>
                           <div>
-                            <FieldLabel>Pre-Capex</FieldLabel>
-                            <AccountingNumberInput value={pre} onChange={(v) => updateAsset(a.id, { historicalPreCapex: Math.max(0, v) })} style={inputStyle} />
+                            <FieldLabel>Pre-Capex (Land + Building)</FieldLabel>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                              <div>
+                                <div style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Land Value</div>
+                                <AccountingNumberInput value={land} onChange={(v) => updateAsset(a.id, { historicalPreCapexLand: Math.max(0, v) })} style={inputStyle} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Building / Infra</div>
+                                <AccountingNumberInput value={building} onChange={(v) => updateAsset(a.id, { historicalPreCapexBuilding: Math.max(0, v) })} style={inputStyle} />
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, fontStyle: 'italic' }}>
+                              = {fmt(pre)} total (Land does not depreciate)
+                            </div>
                           </div>
                           <div>
                             <FieldLabel>Existing Debt</FieldLabel>
@@ -1212,8 +1230,8 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                           <div
                             title={
                               aBalances
-                                ? `Pre-Capex ${fmt(pre)} = Debt ${fmt(dbt)} + Equity ${fmt(eq)}.`
-                                : `Pre-Capex ${fmt(pre)} should equal Debt ${fmt(dbt)} + Equity ${fmt(eq)}. Equity should be ${fmt(equityNeeded)} to balance.`
+                                ? `Pre-Capex ${fmt(pre)} (Land ${fmt(land)} + Building ${fmt(building)}) = Debt ${fmt(dbt)} + Equity ${fmt(eq)}.`
+                                : `Pre-Capex ${fmt(pre)} (Land ${fmt(land)} + Building ${fmt(building)}) should equal Debt ${fmt(dbt)} + Equity ${fmt(eq)}. Equity should be ${fmt(equityNeeded)} to balance.`
                             }
                             style={{
                               padding: '4px 8px',

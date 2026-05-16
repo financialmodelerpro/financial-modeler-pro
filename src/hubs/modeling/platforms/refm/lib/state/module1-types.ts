@@ -607,11 +607,25 @@ export interface Asset {
   // phase. The brief moves the historical-cost entry out of the
   // phase-level baseline so each asset in a mixed phase can carry its
   // own sunk-cost split. Validation chip in the Tab 1 UI shows
-  // green Balances when historicalPreCapex === historicalDebtAmount +
+  // green Balances when total pre-capex === historicalDebtAmount +
   // historicalEquityAmount (within rounding), amber Mismatch otherwise.
   // Engine wire: pre-capex feeds Tab 4 Capex Breakdown prior column;
   // debt feeds Total Debt Required prior column; equity feeds Equity
   // Required prior column.
+  //
+  // M2.0 Pass 56 (2026-05-16): pre-capex split into two components so
+  // future depreciation can apply only to the depreciable portion.
+  //   - historicalPreCapexLand: land basis (NOT depreciated later).
+  //   - historicalPreCapexBuilding: building + infrastructure capex
+  //     (depreciated later over usefulLifeYears).
+  // Total pre-capex is derived via getAssetPreCapexTotal(asset) and is
+  // what feeds every downstream consumer (engine aggregate, dashboard
+  // tile, balance chip). Legacy historicalPreCapex stays on schema for
+  // back-compat; migrateM20pass56SplitPreCapex seeds Building from it
+  // when the split is absent (Land defaults to 0 for the user to set).
+  historicalPreCapexLand?: number;
+  historicalPreCapexBuilding?: number;
+  /** @deprecated since Pass 56. Use historicalPreCapexLand + historicalPreCapexBuilding (sum via getAssetPreCapexTotal). */
   historicalPreCapex?: number;
   historicalDebtAmount?: number;
   historicalEquityAmount?: number;
@@ -641,6 +655,23 @@ export interface Asset {
   isCompanion?: boolean;
   companionType?: 'operate';
   unitsFromParent?: number;
+}
+
+// M2.0 Pass 56 (2026-05-16): single resolver for an asset's total
+// historical pre-capex. Sums the Land + Building/Infra split; when
+// neither new field is set, falls back to the legacy historicalPreCapex
+// value so pre-migration snapshots keep producing the same total.
+// All downstream consumers (engine existing aggregate, Dashboard tile,
+// balance chip in Tab 4 Existing Operations panel) read through this
+// helper so future depreciation logic only needs to touch the Building
+// portion (historicalPreCapexBuilding) without re-deriving the total.
+export function getAssetPreCapexTotal(a: Asset): number {
+  const land = a.historicalPreCapexLand;
+  const building = a.historicalPreCapexBuilding;
+  if (land == null && building == null) {
+    return Math.max(0, a.historicalPreCapex ?? 0);
+  }
+  return Math.max(0, land ?? 0) + Math.max(0, building ?? 0);
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
