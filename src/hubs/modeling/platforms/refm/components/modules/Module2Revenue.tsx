@@ -14,12 +14,13 @@
  *   Phase 4: Sell + Manage
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, AssetStrategy, Phase, SubUnit } from '../../lib/state/module1-types';
 import { computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea } from '@/src/core/formatters';
+import Module2SellModal from '../modals/Module2SellModal';
 
 interface StrategyMeta {
   key: AssetStrategy;
@@ -90,6 +91,8 @@ export default function Module2Revenue(): React.JSX.Element {
   );
 
   const visibleAssets = assets.filter((a) => a.visible !== false && a.isCompanion !== true);
+  const [sellModalAssetId, setSellModalAssetId] = useState<string | null>(null);
+  const sellModalAsset = sellModalAssetId ? assets.find((a) => a.id === sellModalAssetId) : null;
 
   return (
     <div data-testid="module2-shell" style={{ padding: 'var(--sp-2)' }}>
@@ -222,25 +225,46 @@ export default function Module2Revenue(): React.JSX.Element {
                       <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-body)' }}>
                         {subUnitSummary(myUnits)}
                       </div>
-                      <button
-                        type="button"
-                        disabled
-                        data-testid={`module2-asset-${a.id}-configure`}
-                        title="Revenue form for this strategy is being built."
-                        style={{
-                          marginTop: 'auto',
-                          padding: '6px 10px',
-                          background: 'var(--color-surface-alt, #f3f4f6)',
-                          color: 'var(--color-text-muted)',
-                          border: '1px dashed var(--color-border)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: 'var(--font-small)',
-                          cursor: 'not-allowed',
-                          fontStyle: 'italic',
-                        }}
-                      >
-                        Configure Revenue (coming soon)
-                      </button>
+                      {g.key === 'Sell' ? (
+                        <button
+                          type="button"
+                          data-testid={`module2-asset-${a.id}-configure`}
+                          onClick={() => setSellModalAssetId(a.id)}
+                          style={{
+                            marginTop: 'auto',
+                            padding: '6px 10px',
+                            background: g.accent,
+                            color: 'var(--color-on-primary-navy)',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--font-small)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {a.revenue?.sell ? 'Edit Revenue Config' : 'Configure Revenue'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          data-testid={`module2-asset-${a.id}-configure`}
+                          title="Revenue form for this strategy is being built."
+                          style={{
+                            marginTop: 'auto',
+                            padding: '6px 10px',
+                            background: 'var(--color-surface-alt, #f3f4f6)',
+                            color: 'var(--color-text-muted)',
+                            border: '1px dashed var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--font-small)',
+                            cursor: 'not-allowed',
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          Configure Revenue (coming soon)
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -249,6 +273,13 @@ export default function Module2Revenue(): React.JSX.Element {
           </section>
         );
       })}
+
+      {sellModalAsset && (
+        <Module2SellModal
+          asset={sellModalAsset}
+          onClose={() => setSellModalAssetId(null)}
+        />
+      )}
     </div>
   );
 }
