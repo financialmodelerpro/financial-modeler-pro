@@ -72,10 +72,34 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 
 ## 2. Module 2 (Revenue), remaining build cadence
 
-Pass 7 (today, shipped at commit `8d7be25`) delivered:
-- 4 sidebar sub-tabs under Module 2 (Inputs / Revenue / Cost of Sales / Schedules).
-- Sell-strategy AR + Unearned + Cost of Sales engines + UI surfaces.
-- Verifier 12/12 + existing 76/76 baseline still green.
+**Pass 7 sub-series (closed 2026-05-17), Residential Sell flow:**
+- 7 (commit `8d7be25`): 4 sidebar sub-tabs (Inputs / Revenue / CoS / Schedules), AR + UR + CoS engines.
+- 7a-7d: Wafi escrow + multi-cohort removal; vintage matrix; phase-wise collapsible; indexation UI.
+- 7e (commit `cfff2c5`): project-wide Sell template + per-asset override + units rounding + SQM preview.
+- 7f (commit `fb4f85d`): Revenue Output Block A-F structure (engine emits per-sub-unit + pre/post split arrays).
+- 7g (commit `343b56d`): **REMOVED** project-wide template; every Sell asset owns its own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated (legacy snapshots still parse).
+- 7h (commit `927d1f1`): per-asset Revenue narrative, 6 blocks per asset (SQM pre/post/total + cum %, Revenue pre/post/total per sub-unit, Recognition matrix, Cash matrix, AR, UR). Each table carries inline formula caption.
+- 7i (commit `72829ba`): Inputs tab Recognition above Cash, both full row, Total column on every calc grid, Indexation Start Year input restored, Step indexation builder UI (per-row Year + Uplift% with factor display).
+- 7j (commit `2783c03`): YoY rounding on SQM / units BEFORE revenue derivation. For units-metric, units rounded then area = units × areaPerUnit; for sqm-metric, area rounded to whole sqm. Revenue = roundedArea × indexedRate. Closes ~9k rounding gap vs MAAD reference.
+- 7k-7p: AR + UR exploration (MAAD v1.16 roll-forward floored had stuck-balance bug; per-cohort fixed it; MAAD v7.0 literal one-shot wipe was rejected; signed roll-forward was rejected).
+- **7q (commit `067678c`): FINAL AR + UR formula** = sale-value driven roll-forward.
+  - AR closing = AR opening + Pre-Sales Sale Value - Cash Received (Pre-sales only)
+  - UR closing = UR opening + Pre-Sales Sale Value - Revenue Recognised (Pre-sales only on credit side; post-sales nets to 0 because cash=rec same period)
+  - Both stay >= 0 by construction; both settle to 0 by end of contract lifecycle.
+  - Engine: `accountsReceivable.ts` 1st arg = sale value, 2nd arg = cash; `unearnedRevenue.ts` 1st arg = recognition, 2nd arg = sale value.
+- 7r (commit `8134027`): Cumulative % row on Cash + Recognition profile strips (matches KPMG MAAD "Cumulative Payment Profile" line). **Confirmed MAAD v7.0 Sales During Operation parity**: Calc_Retail & Resi. rows 172-188 = `area × sale price × indexation`, recognised + cash-collected in SAME period; our engine matches byte-for-byte via `postSalesCashPerPeriod = postSalesRevenuePerPeriod.slice()` and `postSalesRecognitionPerPeriod = postSalesRevenuePerPeriod.slice()`. Per-asset totals already roll up correctly: `sum(recognitionPerPeriod)` = pre + post sale value -> P&L; `sum(cashCollectedPerPeriod)` = pre-sales cash + op-sales cash -> CF.
+
+Verifier `scripts/verify-revenue-rebuild.ts` 32/32 green at end of Pass 7.
+
+**Decision rationale captured in 7q:** the user has chosen the obligation-driven AR/UR presentation (sale value as the gross credit for both schedules) over the pure IFRS 15 cash-on-credit treatment. AR decomposes the contract via cash; UR decomposes the same contract via recognition. Two schedules share a common opening line (Pre-Sales Sale Value).
+
+**Convention locked across the platform:**
+- Pre-sales revenue lumps at sale year (engine variable: `presalesRevenuePerPeriod`).
+- Pre-sales cash spreads via cash payment profile (`presalesCashPerPeriod`).
+- Pre-sales recognition spreads via recognition profile (`presalesRecognitionPerPeriod`).
+- Post-sales (Sales During Operation): revenue = cash = recognition in same period (operating sales).
+- Project axis: arr[0] = first active project year (no prior column).
+- YoY rounding (units or sqm) applies BEFORE revenue computation.
 
 Remaining Module 2 passes:
 

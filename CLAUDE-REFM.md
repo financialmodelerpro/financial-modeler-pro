@@ -1,5 +1,28 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-17 EoD. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue) WIP, Residential Sell flow live through Pass 7b (UI audit + phase-wise + collapsible + vintage matrix + indexation).**
+**Last updated: 2026-05-17 EoD. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue) WIP, Residential Sell flow live through Pass 7r. Verifier 32 / 32.**
+
+**M2 Pass 7 sub-series summary (2026-05-17):**
+- **7g** (`343b56d`): removed project-wide Sell template; every asset owns own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated.
+- **7h** (`927d1f1`): per-asset Block A-F Revenue Output narrative (SQM 1a/1b/1c+cum%; Revenue 2a/2b/2c; Recognition vintage matrix; Cash vintage matrix; AR; UR). Engine emits `presales{Area,Revenue}PerPeriodPerSubUnit` + `postSales{Area,Revenue}PerPeriodPerSubUnit` + pre/post split for cash + recognition.
+- **7i** (`72829ba`): Inputs tab Recognition above Cash both full-row; Total column on every calc grid; Indexation Start Year + Step builder UI.
+- **7j** (`2783c03`): MAAD-style YoY rounding on SQM / units BEFORE revenue derivation. Closes ~9k gap vs MAAD residential 1.
+- **7q** (`067678c`, **AR + UR final**): sale-value driven roll-forward for both schedules.
+  - `AR closing = AR opening + Pre-Sales Sale Value - Cash Received`
+  - `UR closing = UR opening + Pre-Sales Sale Value - Revenue Recognised`
+  - Both >= 0 by construction; both settle to 0 at end of contract life.
+  - Engine signatures: `buildAccountsReceivable(saleValue, cash, N)`, `buildUnearnedRevenue(recognition, saleValue, N)`.
+- **7r** (`8134027`): Cumulative % row on Cash + Recognition profile strips. Confirmed MAAD v7.0 Sales During Op parity (Calc_Retail & Resi. rows 172-188 = area × price × indexation in same period); our engine already matches.
+
+**Engine conventions (carry into Hospitality / Lease passes):**
+- Pre-sales revenue lumps at sale year; cash spreads via cash payment profile; recognition spreads via recognition profile.
+- Post-sales (Sales During Operation): revenue = cash = recognition in same period.
+- Project axis: `arr[0]` = first active project year (no prior column).
+- YoY rounding (units or sqm) before revenue computation.
+- Sale value drives both AR + UR (gross credit); cash drains AR; recognition drains UR.
+
+**Next session entry point:** M2 Pass 8 (Hospitality Revenue engine + UI) per PLATFORM-PLAN.md section 2.
+
+---
 
 **M2 Pass 7e (2026-05-17 night, project-wide Sell template + per-asset override + units rounding + SQM preview):**
 - **Schema:** new optional `project.revenueTemplates.sell` (cashPaymentProfile + recognitionProfile + indexation). `operate` + `lease` slots reserved for Passes 8 + 9. `Asset.revenue.sell.overrideProfile?: boolean` flag added.
