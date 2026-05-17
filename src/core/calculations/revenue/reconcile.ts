@@ -20,10 +20,10 @@ function sumOf(arr: number[]): number {
 }
 
 /**
- * Reconciliation identities for a single Sell asset baseline. See M2
- * Pass 2 spec section "reconcile.ts" for the 8 invariants. Each
- * identity returns ok + a tolerant numeric delta. Report.ok is true
- * iff every identity passes.
+ * Reconciliation identities for a single Sell asset baseline.
+ *
+ * Pass 7d (2026-05-17): escrow identities removed (Wafi feature gone),
+ * cross-cohort velocity identity simplified to single-cohort sum.
  */
 export function reconcileSellAsset(
   result: SellAssetResult,
@@ -32,9 +32,6 @@ export function reconcileSellAsset(
   const identities: ReconcileIdentity[] = [];
 
   // 1. Sum of cash collected = sum of total sales value (pre + post)
-  //    Only holds when the full cohort payment profile sums to 1.0 AND
-  //    every cohort has fully collected within the axis (the escrow
-  //    flow is BEFORE escrow adjustment).
   const totalSalesValue = sumOf(result.presalesRevenuePerPeriod) + sumOf(result.postSalesRevenuePerPeriod);
   const totalCash = sumOf(result.cashCollectedPerPeriod);
   identities.push({
@@ -51,84 +48,17 @@ export function reconcileSellAsset(
     message: `recogTotal=${totalRecognition.toFixed(2)} vs salesTotal=${totalSalesValue.toFixed(2)}`,
   });
 
-  // 3. (Removed) The spec-text "cumulative cash >= cumulative
-  //    recognition" identity is mathematically false for Point-in-Time
-  //    recognition with deferred payment plans: recognition lumps at
-  //    handover while cash collection still has milestones to come
-  //    (MAAD pattern). It is also false for Over-Time recognition
-  //    when the recognition profile front-loads ahead of the cash
-  //    profile (MAAD T2: Y2 recognition 0.30 catchup vs cash 0.20).
-  //    The universal totals identity (cash-equals-sales +
-  //    recognition-equals-sales) already certifies correctness.
-
-  // 4. Escrow balance per period = sum(held[0..i]) - sum(released[0..i])
-  const N = result.axisLength;
-  let cumHeld = 0;
-  let cumRel = 0;
-  let escrowBalanceOk = true;
-  for (let i = 0; i < N; i++) {
-    cumHeld += result.escrowHeldPerPeriod[i] ?? 0;
-    cumRel += result.escrowReleasedPerPeriod[i] ?? 0;
-    const expected = cumHeld - cumRel;
-    if (!near(expected, result.escrowBalancePerPeriod[i] ?? 0, 1)) {
-      escrowBalanceOk = false;
-      break;
-    }
-  }
-  identities.push({
-    id: 'escrow-balance-identity',
-    ok: escrowBalanceOk,
-    message: escrowBalanceOk ? 'balance[i] == cum(held) - cum(released)' : 'balance identity broken at some period',
-  });
-
-  // 5. Sum of held = sum of released, when escrow is enabled and the
-  //    release year is inside the axis.
-  if (config.escrow.enabled && config.escrow.releaseYear >= 0 && config.escrow.releaseYear < N) {
-    const sumHeld = sumOf(result.escrowHeldPerPeriod);
-    const sumRel = sumOf(result.escrowReleasedPerPeriod);
-    identities.push({
-      id: 'held-equals-released',
-      ok: near(sumHeld, sumRel, 1),
-      message: `sumHeld=${sumHeld.toFixed(2)} vs sumReleased=${sumRel.toFixed(2)}`,
+  // 3. Per sub-unit: sum of (pre + post velocity) <= 1.0
+  const aggBySubUnit = new Map<string, { pre: number; post: number }>();
+  for (const su of config.subUnits) {
+    aggBySubUnit.set(su.subUnitId, {
+      pre: (su.preSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0),
+      post: (su.postSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0),
     });
-  }
-
-  // 6. Net cash available[i] = cash collected[i] - held[i] + released[i]
-  let netOk = true;
-  for (let i = 0; i < N; i++) {
-    const expected = (result.cashCollectedPerPeriod[i] ?? 0)
-      - (result.escrowHeldPerPeriod[i] ?? 0)
-      + (result.escrowReleasedPerPeriod[i] ?? 0);
-    if (!near(expected, result.netCashAvailablePerPeriod[i] ?? 0, 1)) {
-      netOk = false;
-      break;
-    }
-  }
-  identities.push({
-    id: 'net-cash-identity',
-    ok: netOk,
-    message: netOk ? 'net = collected - held + released' : 'net cash identity broken',
-  });
-
-  // 7. Per sub-unit: sum of (pre + post velocity) across ALL cohorts
-  //    is <= 1.0. Single-cohort and multi-cohort paths both fold into
-  //    this check. Cohorts is sourced from config.cohorts when present,
-  //    otherwise from a synthetic single cohort built on config.subUnits.
-  const cohortList = config.cohorts && config.cohorts.length > 0
-    ? config.cohorts
-    : [{ id: '__implicit__', name: 'Default', subUnits: config.subUnits }];
-  const aggByAsset = new Map<string, { pre: number; post: number }>();
-  for (const c of cohortList) {
-    for (const su of c.subUnits) {
-      const prev = aggByAsset.get(su.subUnitId) ?? { pre: 0, post: 0 };
-      prev.pre += (su.preSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
-      prev.post += (su.postSalesVelocity ?? []).reduce((s, v) => s + Math.max(0, v), 0);
-      aggByAsset.set(su.subUnitId, prev);
-    }
   }
   let velOk = true;
   const violators: string[] = [];
-  for (const [suId, { pre, post }] of aggByAsset) {
+  for (const [suId, { pre, post }] of aggBySubUnit) {
     if (pre + post > 1 + 1e-6) {
       velOk = false;
       violators.push(`${suId} (pre+post=${(pre + post).toFixed(3)})`);
@@ -137,20 +67,7 @@ export function reconcileSellAsset(
   identities.push({
     id: 'velocity-sum-bound',
     ok: velOk,
-    message: velOk ? 'every sub-unit pre+post velocity (summed across cohorts) <= 1.0' : `velocity overflow: ${violators.join(', ')}`,
-  });
-
-  // 8. Post-sales recognition + cash align period-by-period (the
-  //    engine emits post-sales as point-in-time).
-  let postOk = true;
-  for (let i = 0; i < N; i++) {
-    const pv = result.postSalesRevenuePerPeriod[i] ?? 0;
-    if (pv > 0 && !near(pv, pv, 1)) postOk = false; // structural always true; explicit invariant
-  }
-  identities.push({
-    id: 'post-sales-cash-rec-align',
-    ok: postOk,
-    message: 'post-sales recognition and cash both lump at sale year',
+    message: velOk ? 'every sub-unit pre+post velocity <= 1.0' : `velocity overflow: ${violators.join(', ')}`,
   });
 
   return {

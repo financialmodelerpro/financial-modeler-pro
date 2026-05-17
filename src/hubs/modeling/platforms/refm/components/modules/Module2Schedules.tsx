@@ -115,8 +115,6 @@ export default function Module2Schedules(): React.JSX.Element {
   const N = snap.axisLength;
   const projAR = new Array<number>(N).fill(0);
   const projUR = new Array<number>(N).fill(0);
-  const projEscrow = new Array<number>(N).fill(0);
-  const projNetCash = new Array<number>(N).fill(0);
 
   for (const a of sellAssets) {
     const r = snap.bySellAsset.get(a.id);
@@ -126,8 +124,6 @@ export default function Module2Schedules(): React.JSX.Element {
     for (let i = 0; i < N; i++) {
       projAR[i] += ar.perPeriod[i] ?? 0;
       projUR[i] += ur.perPeriod[i] ?? 0;
-      projEscrow[i] += r.escrowBalancePerPeriod[i] ?? 0;
-      projNetCash[i] += r.netCashAvailablePerPeriod[i] ?? 0;
     }
   }
 
@@ -139,7 +135,7 @@ export default function Module2Schedules(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Working-capital schedules per phase / per asset. AR + Unearned are mirrors (at most one non-zero per period). Escrow holds + releases per the Wafi-style schedule.
+          Working-capital schedules per phase / per asset. AR + Unearned are mirrors: at most one is non-zero per period.
         </p>
       </div>
 
@@ -169,13 +165,11 @@ export default function Module2Schedules(): React.JSX.Element {
                   storageKey={`fmp:m2:schedules:asset:${a.id}:collapsed`}
                 >
                   <PeriodTable
-                    title="AR / Unearned / Escrow / Net Cash"
+                    title="AR / Unearned"
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Accounts Receivable (closing)', values: ar.perPeriod },
                       { label: 'Unearned Revenue (closing)', values: ur.perPeriod },
-                      { label: 'Escrow Balance (closing)', values: r.escrowBalancePerPeriod },
-                      { label: 'Net Cash to Developer', values: r.netCashAvailablePerPeriod },
                     ]}
                     currency={currency}
                     latestLabel="Closing"
@@ -200,8 +194,6 @@ export default function Module2Schedules(): React.JSX.Element {
           rows={[
             { label: 'Project AR (closing)', values: projAR, isTotal: true },
             { label: 'Project Unearned (closing)', values: projUR, isTotal: true },
-            { label: 'Project Escrow Balance', values: projEscrow, isTotal: true },
-            { label: 'Project Net Cash to Developer', values: projNetCash, isTotal: true },
           ]}
           currency={currency}
           latestLabel="Closing"

@@ -682,7 +682,8 @@ export interface Asset {
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
       };
-      escrow: {
+      /** @deprecated M2 Pass 7d (2026-05-17): Wafi escrow feature removed from engine. Field kept for snapshot back-compat; engine ignores it on load. */
+      escrow?: {
         enabled: boolean;
         heldPct: number;
         releaseYear: number;
@@ -694,11 +695,7 @@ export interface Asset {
         steps?: Array<{ year: number; factor: number }>;
       };
       handoverYearOverride?: number;
-      // M2 Pass 4 (2026-05-16): optional per-cohort breakdown. When
-      // present + non-empty, the engine sums across every cohort.
-      // When absent or empty, the top-level subUnits + profiles act
-      // as a single implicit cohort (Pass 3 path) so older saved
-      // configs still hydrate without migration.
+      /** @deprecated M2 Pass 7d (2026-05-17): multi-cohort Advanced modal removed. Single implicit cohort drives the engine via top-level subUnits + profiles. Field kept for snapshot back-compat; engine ignores it on load. */
       cohorts?: Array<{
         id: string;
         name: string;

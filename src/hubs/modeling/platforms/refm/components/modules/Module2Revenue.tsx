@@ -28,7 +28,6 @@ import type { Asset, SubUnit, Phase } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { PercentageInput } from '../ui/PercentageInput';
-import Module2SellModal from '../modals/Module2SellModal';
 import { CELL_HEADER } from './_shared/tableStyles';
 
 const FAST_INPUT: React.CSSProperties = {
@@ -95,9 +94,6 @@ export default function Module2Revenue(): React.JSX.Element {
     [assets],
   );
 
-  const [advancedAssetId, setAdvancedAssetId] = useState<string | null>(null);
-  const advancedAsset = advancedAssetId ? assets.find((a) => a.id === advancedAssetId) : null;
-
   return (
     <div data-testid="module2-shell" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -133,16 +129,8 @@ export default function Module2Revenue(): React.JSX.Element {
           subUnits={subUnits}
           project={project}
           phases={phases}
-          onOpenAdvanced={(id) => setAdvancedAssetId(id)}
         />
       ))}
-
-      {advancedAsset && (
-        <Module2SellModal
-          asset={advancedAsset}
-          onClose={() => setAdvancedAssetId(null)}
-        />
-      )}
     </div>
   );
 }
@@ -155,10 +143,9 @@ interface PhaseSectionProps {
   subUnits: SubUnit[];
   project: ReturnType<typeof useModule1Store.getState>['project'];
   phases: Phase[];
-  onOpenAdvanced: (assetId: string) => void;
 }
 
-function PhaseSection({ phase, assets, subUnits, project, phases, onOpenAdvanced }: PhaseSectionProps): React.JSX.Element {
+function PhaseSection({ phase, assets, subUnits, project, phases }: PhaseSectionProps): React.JSX.Element {
   const collapseKey = `fmp:m2:inputs:phase:${phase.id}:collapsed`;
   const readCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
@@ -212,7 +199,6 @@ function PhaseSection({ phase, assets, subUnits, project, phases, onOpenAdvanced
               phase={phase}
               project={project}
               phases={phases}
-              onOpenAdvanced={() => onOpenAdvanced(a.id)}
             />
           ))}
         </>
@@ -229,10 +215,9 @@ interface AssetCardProps {
   phase: Phase;
   project: ReturnType<typeof useModule1Store.getState>['project'];
   phases: Phase[];
-  onOpenAdvanced: () => void;
 }
 
-function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: AssetCardProps): React.JSX.Element {
+function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps): React.JSX.Element {
   const updateAsset = useModule1Store((s) => s.updateAsset);
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   const isSell = asset.strategy === 'Sell';
@@ -312,24 +297,14 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
     },
   );
 
-  // Inline editing writes directly to Asset.revenue.sell.cohorts[0] when
-  // this is a Sell asset. We work against a single-cohort view; the
-  // Advanced modal exposes the full multi-cohort + escrow + indexation
-  // surface and any extra cohorts the user added there stay on save.
+  // Pass 7d (2026-05-17): single-cohort inline editing. The Advanced
+  // modal + cohorts[] feature were removed; the top-level subUnits +
+  // cashPaymentProfile + recognitionProfile drive a single implicit
+  // cohort. Legacy snapshots that carry .cohorts[] are ignored on read
+  // (the engine no longer iterates them).
   const sellConfig = asset.revenue?.sell;
-  const cohort0 = sellConfig?.cohorts?.[0];
 
   const updateSellInline = (patch: Partial<NonNullable<Asset['revenue']>['sell']>): void => {
-    const baseCohorts = sellConfig?.cohorts && sellConfig.cohorts.length > 0
-      ? sellConfig.cohorts
-      : [{ id: `cohort_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-           name: 'Cohort 1',
-           subUnits: subUnits.map((su) => ({
-             subUnitId: su.id,
-             preSalesVelocity: new Array<number>(totalPeriods).fill(0),
-             postSalesVelocity: new Array<number>(totalPeriods).fill(0),
-           })) }];
-
     const nextSell = {
       assetId: asset.id,
       subUnits: sellConfig?.subUnits ?? subUnits.map((su) => ({
@@ -345,52 +320,34 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         method: 'point_in_time' as const,
         pointInTimeYear: 'handover' as const,
       },
-      escrow: sellConfig?.escrow ?? { enabled: false, heldPct: 0.04, releaseYear: handoverYear },
       indexation: sellConfig?.indexation ?? { method: 'none' as const },
       handoverYearOverride: sellConfig?.handoverYearOverride,
-      cohorts: baseCohorts,
       ...patch,
     };
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), sell: nextSell } });
   };
 
-  const setCohortVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
-    const baseCohorts = (sellConfig?.cohorts && sellConfig.cohorts.length > 0)
-      ? sellConfig.cohorts
-      : [{ id: `cohort_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-           name: 'Cohort 1',
-           subUnits: subUnits.map((su) => ({
-             subUnitId: su.id,
-             preSalesVelocity: new Array<number>(totalPeriods).fill(0),
-             postSalesVelocity: new Array<number>(totalPeriods).fill(0),
-           })) }];
-
-    const nextCohorts = baseCohorts.map((c, i) => {
-      if (i !== 0) return c;
-      const ensuredSubs = subUnits.map((su) => {
-        const existing = c.subUnits.find((s) => s.subUnitId === su.id);
-        return {
-          subUnitId: su.id,
-          preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
-          postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
-        };
-      });
+  const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
+    const baseSubs = subUnits.map((su) => {
+      const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
-        ...c,
-        subUnits: ensuredSubs.map((s) => {
-          if (s.subUnitId !== subUnitId) return s;
-          if (kind === 'pre') {
-            const next = [...s.preSalesVelocity];
-            next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
-            return { ...s, preSalesVelocity: next };
-          }
-          const next = [...s.postSalesVelocity];
-          next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
-          return { ...s, postSalesVelocity: next };
-        }),
+        subUnitId: su.id,
+        preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
+        postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
       };
     });
-    updateSellInline({ cohorts: nextCohorts });
+    const nextSubs = baseSubs.map((s) => {
+      if (s.subUnitId !== subUnitId) return s;
+      if (kind === 'pre') {
+        const next = [...s.preSalesVelocity];
+        next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+        return { ...s, preSalesVelocity: next };
+      }
+      const next = [...s.postSalesVelocity];
+      next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+      return { ...s, postSalesVelocity: next };
+    });
+    updateSellInline({ subUnits: nextSubs });
   };
 
   const setCashPct = (periodIdx: number, pct: number): void => {
@@ -451,13 +408,6 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
     });
   };
 
-  // Single-cohort view of velocity. When the user has multiple cohorts
-  // (set in the Advanced modal), the inline grid sums them for display
-  // and a chip warns "Multi-cohort - edit in Advanced".
-  const totalCohorts = sellConfig?.cohorts?.length ?? 0;
-  const multiCohortMode = totalCohorts > 1;
-  const inlineCohort = cohort0;
-
   const cashSum = (sellConfig?.cashPaymentProfile?.percentages ?? []).reduce((s, v) => s + v, 0);
   const cashSumOk = Math.abs(cashSum - 1) < 0.005;
 
@@ -499,31 +449,6 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
           {subUnitSummary(subUnits)}
         </span>
-        {isSell && multiCohortMode && (
-          <span style={{ fontSize: 10, color: 'var(--color-warning, #92400e)', fontWeight: 600, padding: '2px 8px', background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)', borderRadius: 'var(--radius-sm)' }}>
-            {totalCohorts} cohorts · edit in Advanced
-          </span>
-        )}
-        {isSell && (
-          <button
-            type="button"
-            onClick={onOpenAdvanced}
-            data-testid={`m2-asset-${asset.id}-advanced`}
-            style={{
-              marginLeft: 'auto',
-              fontSize: 11,
-              padding: '4px 10px',
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              cursor: 'pointer',
-              color: 'var(--color-navy)',
-              fontWeight: 600,
-            }}
-          >
-            Advanced (cohorts · escrow · indexation · preview)
-          </button>
-        )}
       </div>
 
       {!isSell && !assetCollapsed && (
@@ -565,8 +490,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
             >
               <InlineGrid
                 cells={constructionWindow}
-                rows={subUnits.map((su) => buildVelocityRow(su, inlineCohort, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setCohortVelocity(suId, idx, pct, 'pre')))}
-                disabled={multiCohortMode}
+                rows={subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre')))}
               />
             </InlineSection>
           )}
@@ -579,8 +503,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
             >
               <InlineGrid
                 cells={operationsWindow}
-                rows={subUnits.map((su) => buildVelocityRow(su, inlineCohort, project.currency, totalPeriods, 'post', (suId, idx, pct) => setCohortVelocity(suId, idx, pct, 'post')))}
-                disabled={multiCohortMode}
+                rows={subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post')))}
               />
             </InlineSection>
           )}
@@ -676,13 +599,13 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
 // so the user knows there is one canonical place to edit it.
 function buildVelocityRow(
   su: SubUnit,
-  cohort: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
+  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
   currency: string,
   totalPeriods: number,
   kind: 'pre' | 'post',
   onChange: (subUnitId: string, periodIdx: number, pct: number) => void,
 ): InlineGridRow {
-  const cfgSU = cohort?.subUnits.find((s) => s.subUnitId === su.id);
+  const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
   const arr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
   const values = paddedArray(arr, totalPeriods);
   const preSum = (cfgSU?.preSalesVelocity ?? []).reduce((s, v) => s + v, 0);
@@ -748,7 +671,7 @@ interface InlineGridRow {
 
 type WindowCell = { idx: number; year: number; isHandover: boolean };
 
-function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: InlineGridRow[]; disabled?: boolean }): React.JSX.Element {
+function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[] }): React.JSX.Element {
   // Universal CELL_HEADER token (navy + white text, bold, centered). Sticky
   // first column re-applies the navy background so the sub-unit label header
   // stays solid on horizontal scroll. Handover column underlines with the
@@ -797,8 +720,6 @@ function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: Inli
                     max={100}
                     decimals={2}
                     style={FAST_INPUT}
-                    disabled={disabled}
-                    title={disabled ? 'Multi-cohort mode - edit in Advanced' : ''}
                     data-testid={`m2-vel-${r.id}-${c.idx}`}
                   />
                 </td>

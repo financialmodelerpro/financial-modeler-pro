@@ -86,13 +86,9 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     postSalesRevenuePerPeriod: emptyArr(),
     cashCollectedPerPeriod: emptyArr(),
     recognitionPerPeriod: emptyArr(),
-    escrowHeldPerPeriod: emptyArr(),
-    escrowReleasedPerPeriod: emptyArr(),
     presalesSalesValuePerPeriod: emptyArr(),
     cashVintageMatrix: emptyMatrix(),
     recognitionVintageMatrix: emptyMatrix(),
-    escrowBalancePerPeriod: emptyArr(),
-    netCashAvailablePerPeriod: emptyArr(),
   };
 
   for (const a of assets) {
@@ -143,10 +139,6 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       projectTotals.cashVintageMatrix[r][c] += result.cashVintageMatrix[r]?.[c] ?? 0;
       projectTotals.recognitionVintageMatrix[r][c] += result.recognitionVintageMatrix[r]?.[c] ?? 0;
     }
-    acc('escrowHeldPerPeriod');
-    acc('escrowReleasedPerPeriod');
-    acc('escrowBalancePerPeriod');
-    acc('netCashAvailablePerPeriod');
   }
 
   return { axisLength: N, projectStartYear, yearLabels, bySellAsset, projectTotals };
