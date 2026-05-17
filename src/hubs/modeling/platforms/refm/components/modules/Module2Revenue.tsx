@@ -27,6 +27,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
+import { PercentageInput } from '../ui/PercentageInput';
 import Module2SellModal from '../modals/Module2SellModal';
 
 const FAST_INPUT: React.CSSProperties = {
@@ -675,14 +676,13 @@ function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: Inli
               </td>
               {cells.map((c) => (
                 <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                  <input
-                    type="number"
-                    value={Math.round((r.values[c.idx] ?? 0) * 10000) / 100}
-                    onChange={(e) => r.onChange(c.idx, Number(e.target.value) || 0)}
-                    style={FAST_INPUT}
-                    step={1}
+                  <PercentageInput
+                    value={(r.values[c.idx] ?? 0) * 100}
+                    onChange={(n) => r.onChange(c.idx, n)}
                     min={0}
                     max={100}
+                    decimals={2}
+                    style={FAST_INPUT}
                     disabled={disabled}
                     title={disabled ? 'Multi-cohort mode - edit in Advanced' : ''}
                     data-testid={`m2-vel-${r.id}-${c.idx}`}
@@ -723,14 +723,13 @@ function InlineProfileStrip({ cells, values, onChange }: { cells: WindowCell[]; 
           <tr>
             {cells.map((c) => (
               <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                <input
-                  type="number"
-                  value={Math.round((values[c.idx] ?? 0) * 10000) / 100}
-                  onChange={(e) => onChange(c.idx, Number(e.target.value) || 0)}
-                  style={FAST_INPUT}
-                  step={1}
+                <PercentageInput
+                  value={(values[c.idx] ?? 0) * 100}
+                  onChange={(n) => onChange(c.idx, n)}
                   min={0}
                   max={100}
+                  decimals={2}
+                  style={FAST_INPUT}
                   data-testid={`m2-cash-${c.idx}`}
                 />
               </td>

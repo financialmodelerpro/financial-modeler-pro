@@ -16,7 +16,7 @@
 import React from 'react';
 import type { Role } from '@/src/core/types/settings.types';
 import { ROLE_META } from '@/src/core/state';
-import { sidebarModules as staticSidebarModules, m1Tabs } from './RealEstatePlatform';
+import { sidebarModules as staticSidebarModules, m1Tabs, m2Tabs } from './RealEstatePlatform';
 import type { SidebarNavItem } from '../lib/usePlatformModules';
 import PlanBadge from './PlanBadge';
 
@@ -138,6 +138,8 @@ export default function Sidebar({
 
           const isActive = activeModule === mod.key;
           const isModule1 = mod.key === 'module1';
+          const isModule2 = mod.key === 'module2';
+          const hasSubTabs = isModule1 || isModule2;
 
           return (
             <div key={mod.key} className="sidebar-item-wrap">
@@ -154,7 +156,15 @@ export default function Sidebar({
                   }
                   if (isDisabled) return;
                   setActiveModule(mod.key);
-                  if (isModule1) setSidebarSubOpen(true);
+                  if (hasSubTabs) {
+                    setSidebarSubOpen(true);
+                    if (isModule2 && !m2Tabs.some((t) => t.key === activeTab)) {
+                      setActiveTab(m2Tabs[0].key);
+                    }
+                    if (isModule1 && !m1Tabs.some((t) => t.key === activeTab)) {
+                      setActiveTab(m1Tabs[0].key);
+                    }
+                  }
                 }}
                 disabled={isDisabled}
                 title={isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
@@ -172,7 +182,7 @@ export default function Sidebar({
                 ) : (
                   mod.badge && <span className={`sidebar-badge ${mod.badgeClass}`}>{mod.badge}</span>
                 )}
-                {isModule1 && !sidebarCollapsed && (
+                {hasSubTabs && !sidebarCollapsed && (
                   <span
                     style={{
                       fontSize: '10px',
@@ -206,6 +216,25 @@ export default function Sidebar({
                       className={`sidebar-sub-item${activeTab === tab.key && isActive ? ' active' : ''}`}
                       onClick={() => {
                         setActiveModule('module1');
+                        setActiveTab(tab.key);
+                      }}
+                      data-testid={`sidebar-tab-${tab.key}`}
+                    >
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {isModule2 && (
+                <div className={`sidebar-sub${sidebarSubOpen && isActive ? ' open' : ''}`}>
+                  {m2Tabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      className={`sidebar-sub-item${activeTab === tab.key && isActive ? ' active' : ''}`}
+                      onClick={() => {
+                        setActiveModule('module2');
                         setActiveTab(tab.key);
                       }}
                       data-testid={`sidebar-tab-${tab.key}`}

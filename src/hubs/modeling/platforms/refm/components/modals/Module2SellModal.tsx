@@ -828,14 +828,13 @@ function VelocityTable({ yearLabels, handoverYear, subUnits, cohort, onChangePre
                   </td>
                   {yearLabels.map((_, i) => (
                     <td key={`pre-${i}`} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                      <input
-                        type="number"
-                        value={Math.round((preVel[i] ?? 0) * 10000) / 100}
-                        onChange={(e) => onChangePre(su.id, i, Number(e.target.value) || 0)}
-                        style={cellInput}
-                        step={1}
+                      <PercentageInput
+                        value={(preVel[i] ?? 0) * 100}
+                        onChange={(n) => onChangePre(su.id, i, n)}
                         min={0}
                         max={100}
+                        decimals={2}
+                        style={cellInput}
                         data-testid={`m2-pre-${su.id}-${i}`}
                       />
                     </td>
@@ -844,14 +843,13 @@ function VelocityTable({ yearLabels, handoverYear, subUnits, cohort, onChangePre
                 <tr>
                   {yearLabels.map((_, i) => (
                     <td key={`post-${i}`} style={{ padding: '2px 3px', textAlign: 'center', background: 'var(--color-surface-alt, #f3f4f6)' }}>
-                      <input
-                        type="number"
-                        value={Math.round((postVel[i] ?? 0) * 10000) / 100}
-                        onChange={(e) => onChangePost(su.id, i, Number(e.target.value) || 0)}
-                        style={cellInput}
-                        step={1}
+                      <PercentageInput
+                        value={(postVel[i] ?? 0) * 100}
+                        onChange={(n) => onChangePost(su.id, i, n)}
                         min={0}
                         max={100}
+                        decimals={2}
+                        style={cellInput}
                         data-testid={`m2-post-${su.id}-${i}`}
                       />
                     </td>
@@ -901,14 +899,13 @@ function ProfileStrip({ yearLabels, handoverYear, values, onChange }: ProfileStr
           <tr>
             {yearLabels.map((_, i) => (
               <td key={i} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                <input
-                  type="number"
-                  value={Math.round((values[i] ?? 0) * 10000) / 100}
-                  onChange={(e) => onChange(i, Number(e.target.value) || 0)}
-                  style={{ ...FAST_INPUT, padding: '2px 4px', textAlign: 'right', fontSize: 10 }}
-                  step={1}
+                <PercentageInput
+                  value={(values[i] ?? 0) * 100}
+                  onChange={(n) => onChange(i, n)}
                   min={0}
                   max={100}
+                  decimals={2}
+                  style={{ ...FAST_INPUT, padding: '2px 4px', textAlign: 'right', fontSize: 10 }}
                   data-testid={`m2-profile-${i}`}
                 />
               </td>

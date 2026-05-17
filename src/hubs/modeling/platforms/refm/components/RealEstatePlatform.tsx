@@ -42,6 +42,9 @@ import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
 import Module2Revenue from './modules/Module2Revenue';
+import Module2RevenueOutput from './modules/Module2RevenueOutput';
+import Module2CostOfSales from './modules/Module2CostOfSales';
+import Module2Schedules from './modules/Module2Schedules';
 
 import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
@@ -162,6 +165,16 @@ export const m1Tabs = [
   { key: 'assets', icon: '🏗️', label: '2. Assets & Sub-units', step: 2 },
   { key: 'costs', icon: '💸', label: '3. Costs', step: 3 },
   { key: 'financing', icon: '🏦', label: '4. Financing', step: 4 },
+];
+
+// ── Module 2 tabs (M2 Pass 7: 4 tabs - Inputs / Revenue / CoS / Schedules) ──
+// Inputs reuses the Pass 5/6 phase-wise asset card surface; the other
+// three tabs are read-only output surfaces driven by the revenue engine.
+export const m2Tabs = [
+  { key: 'm2-inputs', icon: '📝', label: '1. Inputs', step: 1 },
+  { key: 'm2-revenue', icon: '💰', label: '2. Revenue', step: 2 },
+  { key: 'm2-cost-of-sales', icon: '🧾', label: '3. Cost of Sales', step: 3 },
+  { key: 'm2-schedules', icon: '📑', label: '4. Schedules', step: 4 },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -504,7 +517,44 @@ export default function RealEstatePlatform(): React.JSX.Element {
           </div>
         );
       }
-      return <Module2Revenue />;
+      const m2ActiveTab = m2Tabs.some((t) => t.key === activeTab) ? activeTab : m2Tabs[0].key;
+      return (
+        <div data-testid="module2-shell-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--sp-1)',
+              borderBottom: '1px solid var(--color-border)',
+              marginBottom: 'var(--sp-3)',
+            }}
+            data-testid="m2-tab-row"
+          >
+            {m2Tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`m2-tab-${tab.key}`}
+                style={{
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  background: m2ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
+                  color: m2ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-small)',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          {m2ActiveTab === 'm2-inputs' && <Module2Revenue />}
+          {m2ActiveTab === 'm2-revenue' && <Module2RevenueOutput />}
+          {m2ActiveTab === 'm2-cost-of-sales' && <Module2CostOfSales />}
+          {m2ActiveTab === 'm2-schedules' && <Module2Schedules />}
+        </div>
+      );
     }
     return (
       <div style={{ padding: 'var(--sp-3)' }} data-testid="module-coming-soon">
