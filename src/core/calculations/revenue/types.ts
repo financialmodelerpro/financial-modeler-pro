@@ -91,8 +91,26 @@ export interface SellAssetResult {
   postSalesUnitsPerPeriod: number[];
   postSalesAreaPerPeriod: number[];
   postSalesRevenuePerPeriod: number[];
+  // Pass 7f (2026-05-17): per-sub-unit breakdowns. Key = sub-unit id,
+  // value = project-axis-indexed array. Aggregate arrays above are the
+  // sum across sub-units; consumers that need the MAAD-style per-line
+  // build (Pre-Sale Area per period per sub-unit, Pre-Sale Revenue per
+  // period per sub-unit) read from these.
+  presalesAreaPerPeriodPerSubUnit: Record<string, number[]>;
+  presalesRevenuePerPeriodPerSubUnit: Record<string, number[]>;
+  postSalesAreaPerPeriodPerSubUnit: Record<string, number[]>;
+  postSalesRevenuePerPeriodPerSubUnit: Record<string, number[]>;
+  // Pass 7f: pre / post split of cash + recognition. Cash collected per
+  // period = presalesCash + postSalesCash. Recognition per period =
+  // presalesRecognition + postSalesRecognition. Post-sales components
+  // equal postSalesRevenuePerPeriod (post-sales = cash + recognition in
+  // the same period under the operating-sales convention).
   cashCollectedPerPeriod: number[];
+  presalesCashPerPeriod: number[];
+  postSalesCashPerPeriod: number[];
   recognitionPerPeriod: number[];
+  presalesRecognitionPerPeriod: number[];
+  postSalesRecognitionPerPeriod: number[];
   presalesSalesValuePerPeriod: number[];
   cashVintageMatrix: number[][];        // matrix[saleYear][collectionYear]
   recognitionVintageMatrix: number[][]; // matrix[saleYear][recognitionYear]

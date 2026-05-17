@@ -38,6 +38,11 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const postSalesArea = new Array<number>(N).fill(0);
   const postSalesRevenue = new Array<number>(N).fill(0);
 
+  const presalesAreaPerSU: Record<string, number[]> = {};
+  const presalesRevenuePerSU: Record<string, number[]> = {};
+  const postSalesAreaPerSU: Record<string, number[]> = {};
+  const postSalesRevenuePerSU: Record<string, number[]> = {};
+
   const cumulativeShareBySubUnit = new Map<string, number>();
   const subUnitConfigById = new Map(config.subUnits.map((s) => [s.subUnitId, s]));
 
@@ -48,6 +53,11 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     const totalUnits = Math.max(0, su.count);
     const areaPerUnit = totalUnits > 0 ? totalArea / totalUnits : 0;
     const baseRate = Math.max(0, su.ratePerArea);
+
+    const preAreaSU = presalesAreaPerSU[su.id] ?? new Array<number>(N).fill(0);
+    const preRevSU = presalesRevenuePerSU[su.id] ?? new Array<number>(N).fill(0);
+    const postAreaSU = postSalesAreaPerSU[su.id] ?? new Array<number>(N).fill(0);
+    const postRevSU = postSalesRevenuePerSU[su.id] ?? new Array<number>(N).fill(0);
 
     let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
 
@@ -67,6 +77,8 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       presalesArea[yr] += areaSold;
       presalesUnits[yr] += unitsSold;
       presalesRevenue[yr] += value;
+      preAreaSU[yr] += areaSold;
+      preRevSU[yr] += value;
     }
 
     for (let yr = 0; yr < N; yr++) {
@@ -82,16 +94,27 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       postSalesArea[yr] += areaSold;
       postSalesUnits[yr] += unitsSold;
       postSalesRevenue[yr] += value;
+      postAreaSU[yr] += areaSold;
+      postRevSU[yr] += value;
     }
 
+    presalesAreaPerSU[su.id] = preAreaSU;
+    presalesRevenuePerSU[su.id] = preRevSU;
+    postSalesAreaPerSU[su.id] = postAreaSU;
+    postSalesRevenuePerSU[su.id] = postRevSU;
     cumulativeShareBySubUnit.set(su.id, cumShare);
   }
 
   const cashCollectedPresales = distributeCashCollection(presalesRevenue, config.cashPaymentProfile, N);
   const recognitionPresales = buildRecognition(presalesRevenue, config.recognitionProfile, handoverYear, N);
 
-  const cashCollected = cashCollectedPresales.map((v, i) => v + (postSalesRevenue[i] ?? 0));
-  const recognition = recognitionPresales.map((v, i) => v + (postSalesRevenue[i] ?? 0));
+  // Pass 7f (2026-05-17): post-sales convention. Post-handover sales
+  // collect and recognize in the same period (operating sales, no
+  // milestone schedule). Pre + post components sum to the aggregate.
+  const postSalesCash = postSalesRevenue.slice();
+  const postSalesRecognition = postSalesRevenue.slice();
+  const cashCollected = cashCollectedPresales.map((v, i) => v + (postSalesCash[i] ?? 0));
+  const recognition = recognitionPresales.map((v, i) => v + (postSalesRecognition[i] ?? 0));
 
   const cashVintageMatrix = buildCohortMatrix(presalesRevenue, config.cashPaymentProfile, N);
   const recognitionVintageMatrix = buildRecognitionMatrix(presalesRevenue, config.recognitionProfile, handoverYear, N);
@@ -105,8 +128,16 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     postSalesUnitsPerPeriod: postSalesUnits,
     postSalesAreaPerPeriod: postSalesArea,
     postSalesRevenuePerPeriod: postSalesRevenue,
+    presalesAreaPerPeriodPerSubUnit: presalesAreaPerSU,
+    presalesRevenuePerPeriodPerSubUnit: presalesRevenuePerSU,
+    postSalesAreaPerPeriodPerSubUnit: postSalesAreaPerSU,
+    postSalesRevenuePerPeriodPerSubUnit: postSalesRevenuePerSU,
     cashCollectedPerPeriod: cashCollected,
+    presalesCashPerPeriod: cashCollectedPresales,
+    postSalesCashPerPeriod: postSalesCash,
     recognitionPerPeriod: recognition,
+    presalesRecognitionPerPeriod: recognitionPresales,
+    postSalesRecognitionPerPeriod: postSalesRecognition,
     presalesSalesValuePerPeriod: presalesRevenue.slice(),
     cashVintageMatrix,
     recognitionVintageMatrix,

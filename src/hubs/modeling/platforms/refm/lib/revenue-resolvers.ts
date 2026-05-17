@@ -129,8 +129,16 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     postSalesUnitsPerPeriod: emptyArr(),
     postSalesAreaPerPeriod: emptyArr(),
     postSalesRevenuePerPeriod: emptyArr(),
+    presalesAreaPerPeriodPerSubUnit: {},
+    presalesRevenuePerPeriodPerSubUnit: {},
+    postSalesAreaPerPeriodPerSubUnit: {},
+    postSalesRevenuePerPeriodPerSubUnit: {},
     cashCollectedPerPeriod: emptyArr(),
+    presalesCashPerPeriod: emptyArr(),
+    postSalesCashPerPeriod: emptyArr(),
     recognitionPerPeriod: emptyArr(),
+    presalesRecognitionPerPeriod: emptyArr(),
+    postSalesRecognitionPerPeriod: emptyArr(),
     presalesSalesValuePerPeriod: emptyArr(),
     cashVintageMatrix: emptyMatrix(),
     recognitionVintageMatrix: emptyMatrix(),
@@ -177,8 +185,24 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     acc('postSalesAreaPerPeriod');
     acc('postSalesRevenuePerPeriod');
     acc('cashCollectedPerPeriod');
+    acc('presalesCashPerPeriod');
+    acc('postSalesCashPerPeriod');
     acc('recognitionPerPeriod');
+    acc('presalesRecognitionPerPeriod');
+    acc('postSalesRecognitionPerPeriod');
     acc('presalesSalesValuePerPeriod');
+    // Per-sub-unit maps: merge by sub-unit id (sub-unit ids are unique
+    // across the project so cross-asset collisions cannot happen).
+    const mergeSU = (src: Record<string, number[]>, dst: Record<string, number[]>): void => {
+      for (const [id, arr] of Object.entries(src)) {
+        if (!dst[id]) dst[id] = new Array<number>(N).fill(0);
+        for (let i = 0; i < N; i++) dst[id][i] += arr[i] ?? 0;
+      }
+    };
+    mergeSU(result.presalesAreaPerPeriodPerSubUnit, projectTotals.presalesAreaPerPeriodPerSubUnit);
+    mergeSU(result.presalesRevenuePerPeriodPerSubUnit, projectTotals.presalesRevenuePerPeriodPerSubUnit);
+    mergeSU(result.postSalesAreaPerPeriodPerSubUnit, projectTotals.postSalesAreaPerPeriodPerSubUnit);
+    mergeSU(result.postSalesRevenuePerPeriodPerSubUnit, projectTotals.postSalesRevenuePerPeriodPerSubUnit);
     // Vintage matrices accumulate by 2D sum
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
       projectTotals.cashVintageMatrix[r][c] += result.cashVintageMatrix[r]?.[c] ?? 0;
