@@ -469,8 +469,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   {/* 6. Unearned Revenue, roll-forward floored (IFRS 15) */}
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
-                    title="6. Unearned Revenue (per-cohort, MAAD BS Build section 4 wiring corrected)"
-                    formula="Per cohort s (sale year): UR_s[y] = MAX(0, cumCash_s[y] - cumRec_s[y]) using the cash + recognition vintage matrices. Aggregate UR[y] = sum across cohorts. By end of recognition, each cohort settles to UR_s = 0; if any cohort lags, that lag stays visible until it clears. Note: MAAD v1.16 section 4 wires both inputs at L22 (cash), so its Unearned column always reports 0. We use accrual recognition (Revenue!L170) which is the IFRS 15 deferred-revenue stock and matches what audit expects."
+                    title="6. Unearned Revenue (signed roll-forward)"
+                    formula="Closing[y] = Opening[y] + Pre-Sales Cash Collected[y] - Revenue Recognised[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Signed: positive Closing = deferred revenue (cash held ahead of recognition); negative Closing = AR position (recognition has overshot cash). Closing settles to 0 by end of contract life when total cash = total recognition."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening Unearned', values: ur.openingPerPeriod },

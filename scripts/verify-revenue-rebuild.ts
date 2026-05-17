@@ -359,11 +359,21 @@ const urSym = buildUnearnedRevenue(recPP, cashPP, 4, recMat, cashMat);
 //   cohort 0 cum: rec=100, cash=50 -> AR=50, UR=0
 //   cohort 1 cum: rec=0,   cash=100 -> AR=0,  UR=100
 //   aggregate AR=50, UR=100. Cumulative netting would have given 0/50.
-assertTrue('E8: per-cohort keeps gross AR + UR visible (AR period 1)',
+// Pass 7m: AR is per-cohort (gross positions visible).
+// Pass 7n: UR is signed roll-forward (aggregate netted, NOT per-cohort).
+// In a mixed 2-cohort fixture the two diverge:
+//   Per-cohort AR period 1 = cohort_0_AR (50) + cohort_1_AR (0) = 50
+//   Signed UR period 1     = cumCash (150) - cumRec (100)        = 50
+assertTrue('E8: AR (per-cohort) sees cohort_0 receivable',
   arSym.perPeriod[1] === 50,
   `got AR ${JSON.stringify(arSym.perPeriod)}`);
-assertTrue('E9: per-cohort keeps gross AR + UR visible (UR period 1)',
-  urSym.perPeriod[1] === 100,
+assertTrue('E9: UR (signed roll-forward) = cumCash - cumRec at period 1',
+  urSym.perPeriod[1] === 50,
+  `got UR ${JSON.stringify(urSym.perPeriod)}`);
+// Period 2: cumCash=200, cumRec=100. Signed UR = 100. AR per-cohort = 0
+// (cohort_0 fully cashed, cohort_1 still no rec yet).
+assertTrue('E9b: UR (signed) at period 2 = 100',
+  urSym.perPeriod[2] === 100,
   `got UR ${JSON.stringify(urSym.perPeriod)}`);
 // By final period: cohort 0 fully settled (cum rec = cum cash = 100),
 // cohort 1 fully settled (cum rec = cum cash = 100). Both at 0.
