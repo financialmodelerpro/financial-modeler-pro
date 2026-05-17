@@ -1,34 +1,45 @@
 'use client';
 
 /**
- * Module2RevenueOutput.tsx (M2 Pass 7f: MAAD step-by-step Block A-F)
+ * Module2RevenueOutput.tsx (M2 Pass 7h, per-asset narrative)
  *
- * Per [[feedback_ui_universal_defaults]] and the M2 Revenue Tab
- * Restructure spec (2026-05-17), the Revenue output for each Sell
- * asset is broken into 6 blocks that mirror the MAAD Revenue sheet:
+ * One residential-first narrative per asset, in this order:
  *
- *   A. Summary (3 tables: Sales Value, Cash Collected, Revenue
- *      Recognised, each split into Pre-Sales + Post-Sales + Total)
- *   B. Pre-Sales Build (per sub-unit: Area sold + Revenue, with the
- *      asset-level totals as the closing row)
- *   C. Sales During Operation Build (same per-sub-unit shape, but
- *      driven by postSalesVelocity, sales happen on operating period)
- *   D. Cash Payment Profile (the configured milestone schedule itself,
- *      shown once so the user can see the profile feeding the matrix)
- *   E. Cash Vintage Matrix (rows = sale year, cols = collection year)
- *   F. Recognition Vintage Matrix (rows = sale year, cols = recog year)
+ *   1. SQM Sold
+ *      1a. Pre-Sales SQM, per sub-unit
+ *      1b. Sales During Operation SQM, per sub-unit
+ *      1c. Total SQM + reconciliation (cum % of BUA per sub-unit)
+ *   2. Revenue
+ *      2a. Pre-Sales Revenue, per sub-unit
+ *      2b. Sales During Operation Revenue, per sub-unit
+ *      2c. Total Revenue, per sub-unit
+ *   3. Revenue Recognised vintage matrix
+ *   4. Cash Collected vintage matrix (per cash profile)
+ *   5. Accounts Receivable
+ *   6. Unearned Revenue
  *
- * Token discipline: all styling pulls from _shared/tableStyles +
- * PhaseSection + VintageMatrix; no module-local style objects.
+ * Every table carries a one-line formula caption so the math is
+ * documented inline. Token discipline: all styling pulls from
+ * _shared/tableStyles + PhaseSection + VintageMatrix.
  */
 
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, resolveSellConfig, DEFAULT_SELL_TEMPLATE } from '../../lib/revenue-resolvers';
-import type { SellAssetResult } from '@/src/core/calculations/revenue';
-import { computeProjectTimeline } from '@/src/core/calculations';
-import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import { computeAllSellResults, resolveSellConfig } from '../../lib/revenue-resolvers';
+import {
+  buildAccountsReceivable,
+  buildUnearnedRevenue,
+  type SellAssetResult,
+} from '@/src/core/calculations/revenue';
+import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
+import {
+  formatAccounting,
+  formatArea,
+  currencyHeaderLine,
+  type DisplayScale,
+  type DisplayDecimals,
+} from '@/src/core/formatters';
 import {
   CELL_HEADER,
   CELL_HEADER_TOTAL,
@@ -42,10 +53,10 @@ import {
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 
-function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
+function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
     if (!Number.isFinite(v)) return '-';
-    if (v === 0) return '-';
+    if (Math.abs(v) < 0.5) return '-';
     return formatAccounting(v, scale, decimals);
   };
 }
@@ -53,16 +64,8 @@ function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) =>
 function makeAreaFmt(decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
     if (!Number.isFinite(v)) return '-';
-    if (v === 0) return '-';
-    return formatAccounting(v, 'full', decimals);
-  };
-}
-
-function makePctFmt(): (v: number) => string {
-  return (v: number) => {
-    if (!Number.isFinite(v)) return '-';
-    if (v === 0) return '-';
-    return `${(v * 100).toFixed(2)}%`;
+    if (Math.abs(v) < 0.5) return '-';
+    return formatArea(v, decimals);
   };
 }
 
@@ -72,37 +75,51 @@ interface PeriodRow {
   label: string;
   values: number[];
   kind?: RowKind;
+  /** Optional trailing column rendered after Total (e.g. cum % of BUA). */
+  trailing?: string;
 }
 
-function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
+function PeriodTable({
+  title,
+  formula,
+  yearLabels,
+  rows,
+  unit,
+  fmt,
+  trailingHeader,
+}: {
   title: string;
-  caption?: string;
+  formula: string;
   yearLabels: number[];
   rows: PeriodRow[];
-  currency: string;
+  unit: string;
   fmt: (v: number) => string;
+  trailingHeader?: string;
 }): React.JSX.Element {
-  const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
+  const extraCols = trailingHeader ? 1 : 0;
+  const nonLabelPct = nonLabelColumnPct(1 + extraCols + yearLabels.length);
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>
         {title}{' '}
-        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span>
+        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({unit})</span>
       </span>
-      {caption && (
-        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>{caption}</div>
-      )}
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
+        Formula: {formula}
+      </div>
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
         <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            {trailingHeader && (<col style={{ width: nonLabelPct }} />)}
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              {trailingHeader && (<th style={CELL_HEADER}>{trailingHeader}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
           </thead>
@@ -118,6 +135,9 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
                 <tr key={`${r.label}-${idx}`}>
                   <td style={tokens.name}>{r.label}</td>
                   <td style={tokens.numTotal}>{fmt(total)}</td>
+                  {trailingHeader && (
+                    <td style={tokens.num}>{r.trailing ?? ''}</td>
+                  )}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v ?? 0)}</td>))}
                 </tr>
               );
@@ -130,75 +150,63 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
 }
 
 /**
- * Cash Payment Profile renderer (Block D). The profile is a milestone
- * schedule (percentage per period) anchored either absolute or
- * relative to the cohort sale year. We surface the percentage row so
- * the user sees what the matrix below is driven by.
+ * Per-sub-unit block: builds an "id -> per-period array" map into rows
+ * keyed by sub-unit name + a closing asset-total row. Used by both the
+ * SQM blocks (1a / 1b / 1c) and the Revenue blocks (2a / 2b / 2c).
  */
-function CashProfileTable({ title, percentages, mode, currency }: {
-  title: string;
-  percentages: number[];
-  mode: string;
-  currency: string;
-}): React.JSX.Element {
-  const fmt = makePctFmt();
-  const total = percentages.reduce((s, v) => s + v, 0);
-  const labels = percentages.map((_, i) =>
-    mode === 'relative_to_sale' ? `Year +${i}` : `Period ${i}`,
-  );
-  const nonLabelPct = nonLabelColumnPct(1 + labels.length);
-  const hasProfile = percentages.length > 0;
-  return (
-    <div style={{ marginBottom: 'var(--sp-3)' }}>
-      <span style={TABLE_TITLE}>
-        {title}{' '}
-        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>
-          ({mode === 'relative_to_sale' ? 'relative to sale year' : 'absolute project periods'})
-        </span>
-      </span>
-      {!hasProfile ? (
-        <div style={{
-          padding: '8px 12px', background: 'var(--color-surface)',
-          border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)',
-          color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic',
-        }}>
-          No payment profile configured. Enter milestone percentages on the Inputs tab.
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-            <colgroup>
-              <col style={{ width: COLUMN_WIDTHS.label }} />
-              <col style={{ width: nonLabelPct }} />
-              {labels.map((l) => (<col key={l} style={{ width: nonLabelPct }} />))}
-            </colgroup>
-            <thead>
-              <tr>
-                <th style={CELL_HEADER}>Milestone</th>
-                <th style={CELL_HEADER_TOTAL}>Total</th>
-                {labels.map((l) => (<th key={l} style={CELL_HEADER}>{l}</th>))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={ROW_DATA.name}>% of sale value</td>
-                <td style={ROW_DATA.numTotal}>{fmt(total)}</td>
-                {percentages.map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-      {hasProfile && Math.abs(total - 1) > 0.001 && (
-        <div style={{ fontSize: 11, color: 'var(--color-warning, #b45309)', marginTop: 4 }}>
-          Warning: profile sums to {(total * 100).toFixed(2)}%, expected 100%.
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 4, fontStyle: 'italic' }}>
-        Profile currency: {currency}. Cash matrix below cascades each cohort through this schedule.
-      </div>
-    </div>
-  );
+function buildPerSubUnitRows(
+  subUnits: Array<{ id: string; name: string }>,
+  perSU: Record<string, number[]>,
+  totalAcrossSU: number[],
+  totalLabel: string,
+): PeriodRow[] {
+  const rows: PeriodRow[] = [];
+  for (const su of subUnits) {
+    rows.push({ label: su.name || 'sub-unit', values: perSU[su.id] ?? [] });
+  }
+  rows.push({ label: totalLabel, values: totalAcrossSU, kind: 'grand' });
+  return rows;
+}
+
+/**
+ * Total SQM block (1c) with reconciliation. For each sub-unit row,
+ * trailing column shows cumulative pct of BUA = sum(pre + post) / area.
+ */
+function buildTotalSqmReconciledRows(
+  subUnits: Array<{ id: string; name: string }>,
+  totalAreaPerSU: number[],
+  preSU: Record<string, number[]>,
+  postSU: Record<string, number[]>,
+  totalAcrossSU: number[],
+  assetBUA: number,
+): PeriodRow[] {
+  const rows: PeriodRow[] = [];
+  subUnits.forEach((su, idx) => {
+    const area = Math.max(0, totalAreaPerSU[idx] ?? 0);
+    const pre = preSU[su.id] ?? [];
+    const post = postSU[su.id] ?? [];
+    const N = Math.max(pre.length, post.length);
+    const combined: number[] = new Array(N).fill(0);
+    let sold = 0;
+    for (let i = 0; i < N; i++) {
+      const v = (pre[i] ?? 0) + (post[i] ?? 0);
+      combined[i] = v;
+      sold += v;
+    }
+    const cumPct = area > 0 ? sold / area : 0;
+    const pctLabel = `${(cumPct * 100).toFixed(0)}%`;
+    rows.push({ label: su.name || 'sub-unit', values: combined, trailing: pctLabel });
+  });
+  const assetCumPct = assetBUA > 0
+    ? totalAcrossSU.reduce((s, v) => s + v, 0) / assetBUA
+    : 0;
+  rows.push({
+    label: 'Asset Total',
+    values: totalAcrossSU,
+    kind: 'grand',
+    trailing: `${(assetCumPct * 100).toFixed(0)}%`,
+  });
+  return rows;
 }
 
 export default function Module2RevenueOutput(): React.JSX.Element {
@@ -213,8 +221,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   const currency = project.currency || '';
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
-  const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
-  const areaFmt = useMemo(() => makeAreaFmt(decimals), [decimals]);
+  const fmt = useMemo(() => makeCurrencyFmt(scale, decimals), [scale, decimals]);
+  const areaFmt = useMemo(() => makeAreaFmt(0), []);
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
 
@@ -243,7 +251,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Per-asset MAAD-style build: Summary &rarr; Pre-Sales Build &rarr; Sales During Operation &rarr; Cash Payment Profile &rarr; Cash Vintage Matrix &rarr; Recognition Vintage Matrix. Diagonal cells in matrices mark the cohort catch-up year.
+          Per-asset build: SQM Sold &rarr; Revenue &rarr; Recognition matrix &rarr; Cash matrix &rarr; Accounts Receivable &rarr; Unearned Revenue. Each table carries its formula inline.
         </p>
       </div>
 
@@ -268,8 +276,31 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               if (!r) return null;
               const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
               const cfg = resolveSellConfig(a, project);
-              const cashProfile = cfg?.cashPaymentProfile ?? DEFAULT_SELL_TEMPLATE.cashPaymentProfile;
-              const recogProfile = cfg?.recognitionProfile ?? DEFAULT_SELL_TEMPLATE.recognitionProfile;
+              const cashProfile = cfg?.cashPaymentProfile;
+              const recProfile = cfg?.recognitionProfile;
+              const indexation = cfg?.indexation;
+              const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
+              const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
+
+              // 5 + 6: AR + Unearned per asset
+              const ar = buildAccountsReceivable(r.recognitionPerPeriod, r.cashCollectedPerPeriod, r.axisLength);
+              const ur = buildUnearnedRevenue(r.recognitionPerPeriod, r.cashCollectedPerPeriod, r.axisLength);
+
+              // Captions
+              const indexLabel = indexation?.method === 'yoy_compound'
+                ? `YoY ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
+                : indexation?.method === 'single_rate'
+                  ? `single rate ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
+                  : indexation?.method === 'step'
+                    ? 'step schedule'
+                    : 'none';
+              const recLabel = recProfile?.method === 'point_in_time'
+                ? `Point-in-Time at ${recProfile.pointInTimeYear ?? 'handover'}`
+                : 'Over-Time profile';
+              const cashMode = cashProfile?.profileMode === 'relative_to_sale'
+                ? 'relative-to-sale milestone schedule'
+                : 'absolute milestone schedule with sale-year catchup';
+
               return (
                 <AssetSection
                   key={a.id}
@@ -278,96 +309,126 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   meta={a.type ? `${a.type}` : undefined}
                   storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
                 >
-                  {/* Block A: Summary (3 tables) */}
+                  {/* 1. SQM Sold */}
+                  <SectionHeading n="1" title="SQM Sold" />
                   <PeriodTable
-                    title="A1. Sales Value (year of sale)"
-                    caption="Cohort sales value at point of sale. Pre + post = total sales contracted in each year."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Pre-Sales (during construction)', values: r.presalesRevenuePerPeriod },
-                      { label: 'Sales During Operation', values: r.postSalesRevenuePerPeriod },
-                      {
-                        label: 'Total Sales Value',
-                        values: r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0)),
-                        kind: 'grand',
-                      },
-                    ]}
-                    currency={currency}
-                    fmt={fmt}
-                  />
-
-                  <PeriodTable
-                    title="A2. Cash Collected"
-                    caption="Pre-sales cash follows the payment profile (Block D). Sales during operation collect in the same period under operating-sales convention."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
-                      { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
-                      { label: 'Total Cash Collected', values: r.cashCollectedPerPeriod, kind: 'grand' },
-                    ]}
-                    currency={currency}
-                    fmt={fmt}
-                  />
-
-                  <PeriodTable
-                    title="A3. Revenue Recognised (P&L)"
-                    caption={`Pre-sales recognition via ${recogProfile.method === 'point_in_time' ? `Point-in-Time (${recogProfile.pointInTimeYear ?? 'handover'})` : 'Over-Time profile'}. Sales during operation recognise on sale.`}
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Pre-Sales Recognition', values: r.presalesRecognitionPerPeriod },
-                      { label: 'Sales During Operation Recognition', values: r.postSalesRecognitionPerPeriod },
-                      { label: 'Total Revenue Recognised', values: r.recognitionPerPeriod, kind: 'grand' },
-                    ]}
-                    currency={currency}
-                    fmt={fmt}
-                  />
-
-                  {/* Block B: Pre-Sales Build (per sub-unit) */}
-                  <PeriodTable
-                    title="B. Pre-Sales Build (per sub-unit)"
-                    caption="Pre-sales velocity × sub-unit area × indexed rate. One Area row + one Revenue row per sub-unit; closing rows aggregate the asset."
+                    title="1a. Pre-Sales SQM (per sub-unit)"
+                    formula="Pre-Sales SQM[su, y] = preSalesVelocity[su, y] x sub-unit total area (capped at remaining unsold area)."
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,
                       r.presalesAreaPerPeriodPerSubUnit,
-                      r.presalesRevenuePerPeriodPerSubUnit,
                       r.presalesAreaPerPeriod,
-                      r.presalesRevenuePerPeriod,
-                      areaFmt,
+                      'Asset Pre-Sales SQM',
                     )}
-                    currency={currency}
-                    fmt={fmt}
+                    unit="sqm"
+                    fmt={areaFmt}
                   />
-
-                  {/* Block C: Sales During Operation Build */}
                   <PeriodTable
-                    title="C. Sales During Operation Build (per sub-unit)"
-                    caption="Sales velocity applied after handover, same area / revenue shape as Pre-Sales."
+                    title="1b. Sales During Operation SQM (per sub-unit)"
+                    formula="Post-Sales SQM[su, y] = postSalesVelocity[su, y] x sub-unit total area (capped at remaining unsold area)."
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,
                       r.postSalesAreaPerPeriodPerSubUnit,
-                      r.postSalesRevenuePerPeriodPerSubUnit,
                       r.postSalesAreaPerPeriod,
-                      r.postSalesRevenuePerPeriod,
-                      areaFmt,
+                      'Asset Post-Sales SQM',
                     )}
-                    currency={currency}
+                    unit="sqm"
+                    fmt={areaFmt}
+                  />
+                  <PeriodTable
+                    title="1c. Total SQM Sold + Reconciliation"
+                    formula="Total SQM[su, y] = Pre + Post. Cum % of BUA = sum(Pre + Post) / sub-unit total area. Engine caps each sub-unit at 100%; this column shows under/over-sell vs BUA."
+                    yearLabels={snap.yearLabels}
+                    rows={buildTotalSqmReconciledRows(
+                      assetSubUnits,
+                      totalAreaPerSU,
+                      r.presalesAreaPerPeriodPerSubUnit,
+                      r.postSalesAreaPerPeriodPerSubUnit,
+                      r.presalesAreaPerPeriod.map((v, i) => v + (r.postSalesAreaPerPeriod[i] ?? 0)),
+                      assetBUA,
+                    )}
+                    unit="sqm"
+                    fmt={areaFmt}
+                    trailingHeader="Cum % of BUA"
+                  />
+
+                  {/* 2. Revenue */}
+                  <SectionHeading n="2" title="Revenue (Sales Value)" />
+                  <PeriodTable
+                    title="2a. Pre-Sales Revenue (per sub-unit)"
+                    formula={`Pre-Sales Revenue[su, y] = Pre-Sales SQM[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
+                    yearLabels={snap.yearLabels}
+                    rows={buildPerSubUnitRows(
+                      assetSubUnits,
+                      r.presalesRevenuePerPeriodPerSubUnit,
+                      r.presalesRevenuePerPeriod,
+                      'Asset Pre-Sales Revenue',
+                    )}
+                    unit={currency}
+                    fmt={fmt}
+                  />
+                  <PeriodTable
+                    title="2b. Sales During Operation Revenue (per sub-unit)"
+                    formula={`Post-Sales Revenue[su, y] = Post-Sales SQM[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
+                    yearLabels={snap.yearLabels}
+                    rows={buildPerSubUnitRows(
+                      assetSubUnits,
+                      r.postSalesRevenuePerPeriodPerSubUnit,
+                      r.postSalesRevenuePerPeriod,
+                      'Asset Post-Sales Revenue',
+                    )}
+                    unit={currency}
+                    fmt={fmt}
+                  />
+                  <PeriodTable
+                    title="2c. Total Revenue (per sub-unit)"
+                    formula="Total Revenue[su, y] = Pre-Sales Revenue + Post-Sales Revenue."
+                    yearLabels={snap.yearLabels}
+                    rows={(() => {
+                      const totalPerSU: Record<string, number[]> = {};
+                      for (const su of assetSubUnits) {
+                        const pre = r.presalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
+                        const post = r.postSalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
+                        const N = Math.max(pre.length, post.length);
+                        const arr = new Array<number>(N).fill(0);
+                        for (let i = 0; i < N; i++) arr[i] = (pre[i] ?? 0) + (post[i] ?? 0);
+                        totalPerSU[su.id] = arr;
+                      }
+                      const totalAcross = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
+                      return buildPerSubUnitRows(
+                        assetSubUnits,
+                        totalPerSU,
+                        totalAcross,
+                        'Asset Total Revenue',
+                      );
+                    })()}
+                    unit={currency}
                     fmt={fmt}
                   />
 
-                  {/* Block D: Cash Payment Profile */}
-                  <CashProfileTable
-                    title="D. Cash Payment Profile"
-                    percentages={cashProfile.percentages}
-                    mode={cashProfile.profileMode ?? 'absolute_with_catchup'}
+                  {/* 3. Revenue Recognised vintage matrix */}
+                  <SectionHeading n="3" title="Revenue Recognised (vintage matrix)" />
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
+                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}. Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year.
+                  </div>
+                  <VintageMatrix
+                    title="3. Recognition Vintage Matrix"
+                    yearLabels={snap.yearLabels}
+                    matrix={r.recognitionVintageMatrix}
                     currency={currency}
+                    handoverYearIdx={handoverYearIdx}
+                    fmt={fmt}
                   />
 
-                  {/* Block E: Cash Vintage Matrix */}
+                  {/* 4. Cash Collected vintage matrix */}
+                  <SectionHeading n="4" title="Cash Collected (vintage matrix)" />
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
+                    Formula: rows = cohort sale year, columns = year collected. Each cohort cascades through the cash payment profile ({cashMode}). Sum across each row = cohort total sales value; sum down each column = cash collected per year.
+                  </div>
                   <VintageMatrix
-                    title="E. Cash Vintage Matrix (cohort sold ↓ × cash collected →)"
-                    caption="Cohort sold in row N catches up to its cumulative profile at year N, then pays per profile in later years. Diagonal shaded."
+                    title="4. Cash Vintage Matrix"
                     yearLabels={snap.yearLabels}
                     matrix={r.cashVintageMatrix}
                     currency={currency}
@@ -375,14 +436,33 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* Block F: Recognition Vintage Matrix */}
-                  <VintageMatrix
-                    title="F. Recognition Vintage Matrix (cohort sold ↓ × revenue recognised →)"
-                    caption="Point-in-Time lumps cohort at handover (or sale year). Over-Time uses the configured profile."
+                  {/* 5. Accounts Receivable */}
+                  <SectionHeading n="5" title="Accounts Receivable" />
+                  <PeriodTable
+                    title="5. Accounts Receivable (period-end balance)"
+                    formula="AR[y] = max(0, cumulative recognition[y] - cumulative cash[y]). Customer owes the developer when revenue is recognised faster than it is collected."
                     yearLabels={snap.yearLabels}
-                    matrix={r.recognitionVintageMatrix}
-                    currency={currency}
-                    handoverYearIdx={handoverYearIdx}
+                    rows={[
+                      { label: 'Cumulative Recognition', values: ar.cumulativeRecognition },
+                      { label: 'Cumulative Cash', values: ar.cumulativeCash },
+                      { label: 'Accounts Receivable (period-end)', values: ar.perPeriod, kind: 'grand' },
+                    ]}
+                    unit={currency}
+                    fmt={fmt}
+                  />
+
+                  {/* 6. Unearned Revenue */}
+                  <SectionHeading n="6" title="Unearned Revenue" />
+                  <PeriodTable
+                    title="6. Unearned Revenue (period-end balance)"
+                    formula="Unearned[y] = max(0, cumulative cash[y] - cumulative recognition[y]). Developer holds customer cash before revenue is earned (typical in pre-sales)."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Cumulative Cash', values: ur.cumulativeCash },
+                      { label: 'Cumulative Recognition', values: ur.cumulativeRecognition },
+                      { label: 'Unearned Revenue (period-end)', values: ur.perPeriod, kind: 'grand' },
+                    ]}
+                    unit={currency}
                     fmt={fmt}
                   />
                 </AssetSection>
@@ -399,56 +479,32 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         storageKey="fmp:m2:revenue:phase:__project__:collapsed"
       >
         <PeriodTable
-          title="Project Sales Value"
+          title="Project Revenue (sales value year-on-year)"
+          formula="Sum of per-asset Pre + Post Revenue across every Sell asset."
           yearLabels={snap.yearLabels}
           rows={[
-            { label: 'Project Pre-Sales', values: snap.projectTotals.presalesRevenuePerPeriod },
-            { label: 'Project Sales During Operation', values: snap.projectTotals.postSalesRevenuePerPeriod },
+            { label: 'Project Pre-Sales Revenue', values: snap.projectTotals.presalesRevenuePerPeriod },
+            { label: 'Project Sales During Operation Revenue', values: snap.projectTotals.postSalesRevenuePerPeriod },
             {
-              label: 'Total',
+              label: 'Project Total Revenue',
               values: snap.projectTotals.presalesRevenuePerPeriod.map(
                 (v, i) => v + (snap.projectTotals.postSalesRevenuePerPeriod[i] ?? 0),
               ),
               kind: 'grand',
             },
           ]}
-          currency={currency}
+          unit={currency}
           fmt={fmt}
         />
         <PeriodTable
-          title="Project Cash Collected"
+          title="Project Recognition + Cash"
+          formula="Sum of per-asset Recognition + Cash across every Sell asset."
           yearLabels={snap.yearLabels}
           rows={[
-            { label: 'Pre-Sales Cash', values: snap.projectTotals.presalesCashPerPeriod },
-            { label: 'Sales During Operation Cash', values: snap.projectTotals.postSalesCashPerPeriod },
-            { label: 'Total Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, kind: 'grand' },
+            { label: 'Project Revenue Recognised', values: snap.projectTotals.recognitionPerPeriod },
+            { label: 'Project Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, kind: 'grand' },
           ]}
-          currency={currency}
-          fmt={fmt}
-        />
-        <PeriodTable
-          title="Project Revenue Recognised"
-          yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Pre-Sales Recognition', values: snap.projectTotals.presalesRecognitionPerPeriod },
-            { label: 'Sales During Operation Recognition', values: snap.projectTotals.postSalesRecognitionPerPeriod },
-            { label: 'Total Revenue Recognised', values: snap.projectTotals.recognitionPerPeriod, kind: 'grand' },
-          ]}
-          currency={currency}
-          fmt={fmt}
-        />
-        <VintageMatrix
-          title="Project Cash Vintage Matrix"
-          yearLabels={snap.yearLabels}
-          matrix={snap.projectTotals.cashVintageMatrix}
-          currency={currency}
-          fmt={fmt}
-        />
-        <VintageMatrix
-          title="Project Recognition Vintage Matrix"
-          yearLabels={snap.yearLabels}
-          matrix={snap.projectTotals.recognitionVintageMatrix}
-          currency={currency}
+          unit={currency}
           fmt={fmt}
         />
       </PhaseSection>
@@ -456,40 +512,26 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   );
 }
 
-/**
- * Build per-sub-unit Block B/C rows: 2 rows per sub-unit (Area + Revenue)
- * + 2 closing subtotal rows (asset-level Area + Revenue). Area cells use
- * the area formatter (never scaled by 'thousands'/'millions') so sqm
- * stays in true units; Revenue cells use the project formatter.
- *
- * The Area rows are encoded as PeriodRow.values but pre-formatted into
- * the values array by passing them through unchanged (PeriodTable formats
- * every value with the same `fmt` prop, which is currency-aware). To keep
- * area rows in true sqm we render them in a separate prefixed label and
- * format via a marker (".name" lookup is sufficient because the table
- * formatter is shared). For now we accept that Area rows pass through
- * the same currency formatter as Revenue; M2 Pass 7g will split tables
- * into Area / Revenue sub-tables if the formatter mismatch becomes
- * confusing in practice. Today the values are numeric in true units and
- * scale identically under `displayScale = 'full'` (the default).
- */
-function buildPerSubUnitRows(
-  subUnits: Array<{ id: string; name: string }>,
-  areaPerSU: Record<string, number[]>,
-  revenuePerSU: Record<string, number[]>,
-  totalArea: number[],
-  totalRevenue: number[],
-  // areaFmt currently unused; reserved for a future Area / Revenue split.
-  _areaFmt: (v: number) => string,
-): PeriodRow[] {
-  const rows: PeriodRow[] = [];
-  for (const su of subUnits) {
-    rows.push({ label: `${su.name} — Area sold (sqm)`, values: areaPerSU[su.id] ?? [] });
-    rows.push({ label: `${su.name} — Revenue`, values: revenuePerSU[su.id] ?? [] });
-  }
-  rows.push({ label: 'Asset Area sold (sqm)', values: totalArea, kind: 'subtotal' });
-  rows.push({ label: 'Asset Revenue', values: totalRevenue, kind: 'grand' });
-  return rows;
+function SectionHeading({ n, title }: { n: string; title: string }): React.JSX.Element {
+  return (
+    <div style={{
+      marginTop: 'var(--sp-3)',
+      marginBottom: 'var(--sp-1)',
+      padding: '4px 8px',
+      background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+      borderLeft: '3px solid var(--color-navy)',
+      borderRadius: '2px',
+    }}>
+      <strong style={{
+        fontSize: 12,
+        color: 'var(--color-heading)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}>
+        {n}. {title}
+      </strong>
+    </div>
+  );
 }
 
 export type { SellAssetResult };

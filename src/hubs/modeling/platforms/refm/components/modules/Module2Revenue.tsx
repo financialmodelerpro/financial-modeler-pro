@@ -518,13 +518,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
           )}
 
-          {/* Year-on-year SQM sold preview, computed from velocity. */}
-          <SqmSoldPreview
-            subUnits={subUnits}
-            sellConfig={sellConfig}
-            cells={[...constructionWindow, ...operationsWindow.filter((c) => !constructionWindow.some((x) => x.idx === c.idx))]}
-            totalPeriods={totalPeriods}
-          />
+          {/* Pass 7h (2026-05-17): Year-on-year SQM sold preview moved
+              to the Revenue Output tab so the Inputs surface stays
+              focused on what the user is editing. */}
 
           {/* Price Indexation */}
           <InlineSection
@@ -625,73 +621,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Year-on-year SQM sold preview ────────────────────────────────────
-// Renders below the velocity grid so the user sees the SQM each cell
-// represents (cumulative pct x sub-unit total area). Cumulative pct chip
-// per sub-unit makes overshoot / undershoot visible at a glance (the
-// engine caps at 100% but the user needs to see when they're
-// under-selling).
-function SqmSoldPreview({ subUnits, sellConfig, cells, totalPeriods }: {
-  subUnits: SubUnit[];
-  sellConfig: NonNullable<Asset['revenue']>['sell'] | undefined;
-  cells: WindowCell[];
-  totalPeriods: number;
-}): React.JSX.Element | null {
-  if (subUnits.length === 0 || cells.length === 0) return null;
-  const sortedCells = [...cells].sort((a, b) => a.idx - b.idx);
-  const HEADER_STICKY: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
-  const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
-  return (
-    <div>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)', marginBottom: 4 }}>
-        Year-on-Year SQM Sold (computed from velocity)
-      </div>
-      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={HEADER_STICKY}>Sub-unit · total area · cumulative %</th>
-              {sortedCells.map((c) => (<th key={c.idx} style={HEADER_YEAR}>{c.year}</th>))}
-            </tr>
-          </thead>
-          <tbody>
-            {subUnits.map((su) => {
-              const totalArea = computeSubUnitArea(su);
-              const cfgSU = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
-              const pre = paddedArray(cfgSU?.preSalesVelocity, totalPeriods);
-              const post = paddedArray(cfgSU?.postSalesVelocity, totalPeriods);
-              const cumPct = pre.reduce((s, v) => s + v, 0) + post.reduce((s, v) => s + v, 0);
-              const over = cumPct > 1 + 1e-6;
-              const under = cumPct < 1 - 1e-3;
-              const chipColor = over ? 'var(--color-warning, #92400e)' : (under ? 'var(--color-meta)' : 'var(--color-success, #166534)');
-              return (
-                <tr key={su.id}>
-                  <td style={{ padding: '4px 6px', position: 'sticky', left: 0, background: 'var(--color-grey-pale)', borderRight: '1px solid var(--color-border)' }}>
-                    <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{su.name || 'sub-unit'}</div>
-                    <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>
-                      Area {formatArea(totalArea, 0)} sqm · <span style={{ color: chipColor, fontWeight: 700 }}>cum {(cumPct * 100).toFixed(0)}%</span>
-                      {over ? ' over 100%' : under ? ' (unsold)' : ' ok'}
-                    </div>
-                  </td>
-                  {sortedCells.map((c) => {
-                    const pct = Math.min(Math.max(0, pre[c.idx] ?? 0) + Math.max(0, post[c.idx] ?? 0), 1);
-                    const sqm = totalArea * pct;
-                    return (
-                      <td key={c.idx} style={{ padding: '4px 6px', textAlign: 'right', background: 'var(--color-grey-pale)', color: 'var(--color-heading)' }}>
-                        {sqm > 0.5 ? formatArea(sqm, 0) : '-'}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
