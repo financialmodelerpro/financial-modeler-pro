@@ -61,23 +61,39 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
 
     let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
 
+    // Pass 7j (2026-05-17): apply MAAD-style YoY rounding on the sold
+    // quantity BEFORE revenue is derived, so revenue is computed from
+    // the rounded area / unit count instead of the raw velocity cap.
+    // Units-metric sub-units round to whole units; sqm-metric round to
+    // whole sqm. cumShare advances by the rounded share so subsequent
+    // periods cap correctly against remaining unsold area.
+    const stepRounded = (cappedV: number): { roundedArea: number; roundedUnits: number; actualV: number } => {
+      const targetArea = totalArea * cappedV;
+      if (areaPerUnit > 0) {
+        const roundedUnits = Math.round(targetArea / areaPerUnit);
+        const roundedArea = roundedUnits * areaPerUnit;
+        const actualV = totalArea > 0 ? roundedArea / totalArea : 0;
+        return { roundedArea, roundedUnits, actualV };
+      }
+      const roundedArea = Math.round(targetArea);
+      const actualV = totalArea > 0 ? roundedArea / totalArea : 0;
+      return { roundedArea, roundedUnits: 0, actualV };
+    };
+
     for (let yr = 0; yr < N; yr++) {
       const v = Math.max(0, cfg.preSalesVelocity[yr] ?? 0);
       if (v === 0) continue;
       const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
-      cumShare += cappedV;
-      const areaSold = totalArea * cappedV;
-      // Pass 7e (2026-05-17): residential units are integer entities.
-      // Round per-period unit count so the UI shows whole units only
-      // (3 not 2.71). Area + revenue stay fractional (computed off
-      // cappedV * totalArea so they reflect the actual share sold).
-      const unitsSold = areaPerUnit > 0 ? Math.round(areaSold / areaPerUnit) : 0;
+      if (cappedV === 0) continue;
+      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV);
+      if (roundedArea === 0) continue;
+      cumShare += actualV;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
-      const value = areaSold * indexedRate;
-      presalesArea[yr] += areaSold;
-      presalesUnits[yr] += unitsSold;
+      const value = roundedArea * indexedRate;
+      presalesArea[yr] += roundedArea;
+      presalesUnits[yr] += roundedUnits;
       presalesRevenue[yr] += value;
-      preAreaSU[yr] += areaSold;
+      preAreaSU[yr] += roundedArea;
       preRevSU[yr] += value;
     }
 
@@ -86,15 +102,15 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       if (v === 0) continue;
       const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
       if (cappedV === 0) continue;
-      cumShare += cappedV;
-      const areaSold = totalArea * cappedV;
-      const unitsSold = areaPerUnit > 0 ? Math.round(areaSold / areaPerUnit) : 0;
+      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV);
+      if (roundedArea === 0) continue;
+      cumShare += actualV;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
-      const value = areaSold * indexedRate;
-      postSalesArea[yr] += areaSold;
-      postSalesUnits[yr] += unitsSold;
+      const value = roundedArea * indexedRate;
+      postSalesArea[yr] += roundedArea;
+      postSalesUnits[yr] += roundedUnits;
       postSalesRevenue[yr] += value;
-      postAreaSU[yr] += areaSold;
+      postAreaSU[yr] += roundedArea;
       postRevSU[yr] += value;
     }
 

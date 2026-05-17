@@ -46,7 +46,12 @@ console.log('--- Fixture A: synthetic Point-in-Time, no escrow ---');
 const fixtureASubUnits: SubUnitMaterial[] = [
   { id: 'su-A-1br', area: 47800, count: 478, ratePerArea: 33456, ratePerUnit: 33456 * 100, metric: 'units' },
 ];
-const totalSalesValueA = 47800 * 33456 * (0.05 + 0.30 + 0.30 + 0.25);
+// Pass 7j (2026-05-17): YoY rounding applied. Units per year =
+// round(velocity * count). 478 units * (0.05, 0.30, 0.30, 0.25) =
+// (23.9, 143.4, 143.4, 119.5) -> (24, 143, 143, 120) = 430 units total
+// (vs 430.2 unrounded). Area = 430 * 100 = 43,000 sqm; revenue =
+// 43,000 * 33,456 = 1,438,608,000 (vs 1,439,277,120 unrounded).
+const totalSalesValueA = (24 + 143 + 143 + 120) * 100 * 33456;
 
 const fixtureAConfig: AssetSellConfig = {
   assetId: 'asset-A',
@@ -100,8 +105,18 @@ const fixtureBSubUnits: SubUnitMaterial[] = [
   { id: 'su-B-1br', area: 47800, count: 478, ratePerArea: 33456, ratePerUnit: 33456 * 100, metric: 'units' },
   { id: 'su-B-2br', area: 36497.1, count: 243, ratePerArea: 33505, ratePerUnit: 33505 * 150.198, metric: 'units' },
 ];
-const totSales1br = 47800 * 33456 * (0.05 + 0.30 + 0.30 + 0.25);
-const totSales2br = 36497.1 * 33505 * (0.05 + 0.30 + 0.30 + 0.25);
+// Pass 7j (2026-05-17): YoY rounding applied. Per-period units:
+// 1BR (478): velocity (0.05, 0.30, 0.30, 0.25) -> rounded (24, 143, 143, 120) = 430
+// 2BR (243): velocity (0.05, 0.30, 0.30, 0.25) -> rounded (12, 73, 73, 61) = 219
+// areaPerUnit_2br = 36497.1 / 243 = 150.1939506
+// Revenue = area * ratePerArea (engine derives area from rounded
+// units * areaPerUnit, then revenue = area * rate).
+const areaPerUnit1br = 47800 / 478;       // = 100
+const areaPerUnit2br = 36497.1 / 243;     // = 150.1939506
+const units1br = 24 + 143 + 143 + 120;    // = 430
+const units2br = 12 + 73 + 73 + 61;       // = 219
+const totSales1br = units1br * areaPerUnit1br * 33456;
+const totSales2br = units2br * areaPerUnit2br * 33505;
 const totSalesB = totSales1br + totSales2br;
 
 const fixtureBConfig: AssetSellConfig = {
@@ -179,12 +194,14 @@ for (let i = 0; i < 7; i++) {
 assertTrue('B7: presales units per period are integer-rounded', intOk,
   intOk ? 'every unit count is an integer' : 'fractional unit count');
 
-// B8: area sold totals == sub-unit total area within rounding tolerance
+// B8: area sold totals = sum of rounded per-period sales. Pass 7j
+// (2026-05-17): YoY rounding makes the area derive from rounded
+// units * areaPerUnit instead of raw cap * totalArea, so the
+// expected uses the rounded math.
 const totalAreaSold = resultB.presalesAreaPerPeriod.reduce((s, v) => s + v, 0)
   + resultB.postSalesAreaPerPeriod.reduce((s, v) => s + v, 0);
-const totalSubUnitArea = fixtureBSubUnits.reduce((s, u) => s + u.area, 0);
-const expectedSold = totalSubUnitArea * (0.05 + 0.30 + 0.30 + 0.25); // cumulative velocity
-assertNear('B8: sum of area sold = totalArea * cumulative velocity', totalAreaSold, expectedSold, 1, 0.01);
+const expectedSold = units1br * areaPerUnit1br + units2br * areaPerUnit2br;
+assertNear('B8: sum of area sold = rounded units * areaPerUnit', totalAreaSold, expectedSold, 1, 0.01);
 
 // ───────────────────────────────────────────────────────────────
 // Fixture D: resolveSellConfig is per-asset only (Pass 7g)
