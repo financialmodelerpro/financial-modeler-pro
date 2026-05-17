@@ -409,6 +409,41 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       },
     });
   };
+  const setIndexationStartYear = (yearAbs: number): void => {
+    const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
+    updateSellInline({
+      indexation: {
+        method: idxConfig.method === 'none' ? 'yoy_compound' : idxConfig.method,
+        rate: idxConfig.rate ?? 0,
+        startYear: idx,
+        steps: idxConfig.steps,
+      },
+    });
+  };
+  const setStepYear = (stepIdx: number, yearAbs: number): void => {
+    const steps = (idxConfig.steps ?? []).slice();
+    const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
+    if (!steps[stepIdx]) return;
+    steps[stepIdx] = { ...steps[stepIdx], year: idx };
+    updateSellInline({ indexation: { ...idxConfig, method: 'step', steps } });
+  };
+  const setStepUpliftPct = (stepIdx: number, upliftPct: number): void => {
+    const steps = (idxConfig.steps ?? []).slice();
+    if (!steps[stepIdx]) return;
+    const factor = 1 + Math.max(0, upliftPct) / 100;
+    steps[stepIdx] = { ...steps[stepIdx], factor };
+    updateSellInline({ indexation: { ...idxConfig, method: 'step', steps } });
+  };
+  const addStep = (): void => {
+    const steps = (idxConfig.steps ?? []).slice();
+    steps.push({ year: 0, factor: 1.0 });
+    updateSellInline({ indexation: { ...idxConfig, method: 'step', steps } });
+  };
+  const removeStep = (stepIdx: number): void => {
+    const steps = (idxConfig.steps ?? []).slice();
+    steps.splice(stepIdx, 1);
+    updateSellInline({ indexation: { ...idxConfig, method: 'step', steps } });
+  };
 
   const cashSum = cashProfile.percentages.reduce((s, v) => s + v, 0);
   const cashSumOk = Math.abs(cashSum - 1) < 0.005;
@@ -525,14 +560,14 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {/* Price Indexation */}
           <InlineSection
             title="Price Indexation"
-            hint="Base sale rate per sub-unit (M1 Tab 2) lifts by the indexation factor each year."
+            hint="Base sale rate per sub-unit (M1 Tab 2) lifts by the indexation factor each year. Method controls how the factor evolves with time."
           >
             <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
               <MethodPill active={idxConfig.method === 'none'} label="None" onClick={() => setIndexationMethod('none')} />
               <MethodPill active={idxConfig.method === 'single_rate'} label="Single-Rate" onClick={() => setIndexationMethod('single_rate')} />
               <MethodPill active={idxConfig.method === 'yoy_compound'} label="YoY Compound" onClick={() => setIndexationMethod('yoy_compound')} />
               <MethodPill active={idxConfig.method === 'step'} label="Step" onClick={() => setIndexationMethod('step')} />
-              {idxConfig.method !== 'none' && idxConfig.method !== 'step' && (
+              {(idxConfig.method === 'single_rate' || idxConfig.method === 'yoy_compound') && (
                 <>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
                   <div style={{ width: 80 }}>
@@ -546,79 +581,191 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                       data-testid={`m2-asset-${asset.id}-idx-rate`}
                     />
                   </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                  <div style={{ width: 90 }}>
+                    <input
+                      type="number"
+                      value={projectStartYear + (idxConfig.startYear ?? 0)}
+                      min={projectStartYear}
+                      max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                      onChange={(e) => setIndexationStartYear(Number(e.target.value))}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-idx-startyear`}
+                    />
+                  </div>
                 </>
               )}
             </div>
+            {idxConfig.method !== 'none' && (
+              <div style={{ marginTop: 6, padding: '6px 10px', background: 'var(--color-grey-pale)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: 10, color: 'var(--color-meta)', lineHeight: 1.5 }}>
+                {idxConfig.method === 'single_rate' && (
+                  <>
+                    <strong>Single-Rate:</strong> a one-time uplift starting on Start Year. For every year &ge; Start Year, rate = base &times; (1 + {(idxConfig.rate ?? 0) * 100}%). Years before Start Year stay at base rate.
+                  </>
+                )}
+                {idxConfig.method === 'yoy_compound' && (
+                  <>
+                    <strong>YoY Compound:</strong> rate compounds annually from Start Year. rate(year) = base &times; (1 + {(idxConfig.rate ?? 0) * 100}%)<sup>(year &minus; Start Year)</sup>. Year 0 from Start Year = base; each subsequent year multiplies again.
+                  </>
+                )}
+                {idxConfig.method === 'step' && (
+                  <>
+                    <strong>Step:</strong> declare specific years and the multiplier to apply from that year forward. The latest step year &le; current year wins. Example: 2030 &rarr; 1.05 (5% uplift), 2035 &rarr; 1.10 (10% uplift). Use to model contracted rent reviews or staged price increases.
+                  </>
+                )}
+              </div>
+            )}
+            {idxConfig.method === 'step' && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)' }}>
+                    Step Schedule
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={addStep}
+                    data-testid={`m2-asset-${asset.id}-idx-add-step`}
+                    style={{ fontSize: 10, padding: '3px 8px', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: '1px solid var(--color-navy)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 700 }}
+                  >
+                    + Add Step
+                  </button>
+                </div>
+                {(idxConfig.steps ?? []).length === 0 ? (
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                    No steps yet. Add one to set a year + uplift %.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                    <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={CELL_HEADER}>Step</th>
+                          <th style={CELL_HEADER}>Year</th>
+                          <th style={CELL_HEADER}>Uplift %</th>
+                          <th style={CELL_HEADER}>Factor</th>
+                          <th style={CELL_HEADER}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(idxConfig.steps ?? []).map((step, sIdx) => {
+                          const upliftPct = (Math.max(1, step.factor) - 1) * 100;
+                          return (
+                            <tr key={sIdx}>
+                              <td style={{ padding: '4px 6px', textAlign: 'center', color: 'var(--color-meta)' }}>#{sIdx + 1}</td>
+                              <td style={{ padding: '2px 4px' }}>
+                                <input
+                                  type="number"
+                                  value={projectStartYear + step.year}
+                                  min={projectStartYear}
+                                  max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                                  onChange={(e) => setStepYear(sIdx, Number(e.target.value))}
+                                  style={FAST_INPUT}
+                                  data-testid={`m2-asset-${asset.id}-idx-step-${sIdx}-year`}
+                                />
+                              </td>
+                              <td style={{ padding: '2px 4px' }}>
+                                <PercentageInput
+                                  value={upliftPct}
+                                  onChange={(n) => setStepUpliftPct(sIdx, n)}
+                                  min={0}
+                                  max={500}
+                                  decimals={2}
+                                  style={FAST_INPUT}
+                                  data-testid={`m2-asset-${asset.id}-idx-step-${sIdx}-pct`}
+                                />
+                              </td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-meta)' }}>
+                                {step.factor.toFixed(4)}
+                              </td>
+                              <td style={{ padding: '2px 4px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => removeStep(sIdx)}
+                                  style={{ fontSize: 10, padding: '2px 6px', background: 'var(--color-surface)', color: 'var(--color-warning, #92400e)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                                  data-testid={`m2-asset-${asset.id}-idx-step-${sIdx}-remove`}
+                                >
+                                  remove
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </InlineSection>
 
-          {/* Cash payment profile + recognition method side by side. */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-2)' }}>
-            <InlineSection
-              title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
-              hint="Milestones (% of cohort value collected per project year). Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
-              tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
-              tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
-            >
-              <InlineProfileStrip
-                cells={cashWindow}
-                values={cashProfile.percentages}
-                onChange={setCashPct}
-                testidPrefix={`m2-cash-${asset.id}`}
+          {/* Revenue Recognition (full row, ABOVE Cash) */}
+          <InlineSection
+            title="Revenue Recognition"
+            tag={recProfile.method === 'over_time' ? `Sum: ${(recSum * 100).toFixed(1)}%` : undefined}
+            tagColor={recSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
+          >
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <MethodPill
+                active={recProfile.method !== 'over_time'}
+                label="Point-in-Time"
+                onClick={() => setRecognitionMethod('point_in_time')}
               />
-            </InlineSection>
-
-            <InlineSection title="Revenue Recognition">
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                <MethodPill
-                  active={recProfile.method !== 'over_time'}
-                  label="Point-in-Time"
-                  onClick={() => setRecognitionMethod('point_in_time')}
-                />
-                <MethodPill
-                  active={recProfile.method === 'over_time'}
-                  label="Over-Time"
-                  onClick={() => setRecognitionMethod('over_time')}
-                />
-              </div>
-              {recProfile.method === 'point_in_time' && (
-                <>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
-                    <MethodPill
-                      active={(recProfile.pointInTimeYear ?? 'handover') === 'handover'}
-                      label="At handover"
-                      onClick={() => setRecognitionAnchor('handover')}
-                    />
-                    <MethodPill
-                      active={recProfile.pointInTimeYear === 'sale_year'}
-                      label="At sale year"
-                      onClick={() => setRecognitionAnchor('sale_year')}
-                    />
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
-                    {(recProfile.pointInTimeYear ?? 'handover') === 'handover'
-                      ? `Each cohort recognises at handover (${yearLabels[handoverYear]}).`
-                      : 'Each cohort recognises in the same year it is sold.'}
-                  </div>
-                </>
-              )}
-              {recProfile.method === 'over_time' && (
-                <div style={{ marginTop: 6 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: recSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)', marginBottom: 4 }}>
-                    Sum: {(recSum * 100).toFixed(1)}%
-                  </div>
-                  <InlineProfileStrip
-                    cells={cashWindow}
-                    values={recProfile.percentages ?? []}
-                    onChange={setRecognitionPct}
-                    testidPrefix={`m2-rec-${asset.id}`}
+              <MethodPill
+                active={recProfile.method === 'over_time'}
+                label="Over-Time"
+                onClick={() => setRecognitionMethod('over_time')}
+              />
+            </div>
+            {recProfile.method === 'point_in_time' && (
+              <>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                  <MethodPill
+                    active={(recProfile.pointInTimeYear ?? 'handover') === 'handover'}
+                    label="At handover"
+                    onClick={() => setRecognitionAnchor('handover')}
                   />
-                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
-                    Percent of cohort recognised per project year. Catch-up applies at the cohort sale year (absolute mode).
-                  </div>
+                  <MethodPill
+                    active={recProfile.pointInTimeYear === 'sale_year'}
+                    label="At sale year"
+                    onClick={() => setRecognitionAnchor('sale_year')}
+                  />
                 </div>
-              )}
-            </InlineSection>
-          </div>
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                  {(recProfile.pointInTimeYear ?? 'handover') === 'handover'
+                    ? `Each cohort recognises 100% of revenue at handover (${yearLabels[handoverYear]}).`
+                    : 'Each cohort recognises 100% of revenue in the same year it is sold.'}
+                </div>
+              </>
+            )}
+            {recProfile.method === 'over_time' && (
+              <div style={{ marginTop: 6 }}>
+                <InlineProfileStrip
+                  cells={cashWindow}
+                  values={recProfile.percentages ?? []}
+                  onChange={setRecognitionPct}
+                  testidPrefix={`m2-rec-${asset.id}`}
+                />
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                  Percent of cohort recognised per project year. Catch-up applies at the cohort sale year (absolute mode). Total must sum to 100%.
+                </div>
+              </div>
+            )}
+          </InlineSection>
+
+          {/* Cash Payment Profile (full row, BELOW Recognition) */}
+          <InlineSection
+            title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
+            hint="Milestones (% of cohort value collected per project year). Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
+            tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
+            tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
+          >
+            <InlineProfileStrip
+              cells={cashWindow}
+              values={cashProfile.percentages}
+              onChange={setCashPct}
+              testidPrefix={`m2-cash-${asset.id}`}
+            />
+          </InlineSection>
         </div>
       )}
     </div>
@@ -703,6 +850,25 @@ interface InlineGridRow {
 
 type WindowCell = { idx: number; year: number; isHandover: boolean };
 
+// Universal Total cell token. Sits between the label column and the
+// year columns on every editable calc grid, matching the Total column
+// pattern from Module 1 results tables (CELL_HEADER_TOTAL on header,
+// dashed-right separator on cells).
+const HEADER_TOTAL_CELL: React.CSSProperties = {
+  ...CELL_HEADER,
+  minWidth: 70,
+  borderRight: '1px dashed color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)',
+};
+const BODY_TOTAL_CELL: React.CSSProperties = {
+  padding: '4px 6px',
+  textAlign: 'right',
+  fontWeight: 700,
+  fontSize: 10,
+  color: 'var(--color-heading)',
+  borderRight: '1px dashed var(--color-border-strong, var(--color-border))',
+  whiteSpace: 'nowrap',
+};
+
 function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[] }): React.JSX.Element {
   const HEADER_STICKY: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
@@ -713,6 +879,7 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
         <thead>
           <tr>
             <th style={HEADER_STICKY}>Sub-unit · price</th>
+            <th style={HEADER_TOTAL_CELL}>Total</th>
             {cells.map((c) => (
               <th
                 key={c.idx}
@@ -725,34 +892,42 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td style={{ padding: '4px 6px', position: 'sticky', left: 0, background: 'var(--color-surface)', borderRight: '1px solid var(--color-border)' }}>
-                <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>
-                  {r.label}
-                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: 'var(--color-navy, #0f2e4c)' }}>
-                    · {r.priceHint}
-                  </span>
-                </div>
-                <div style={{ fontSize: 9, color: r.sumOver ? 'var(--color-warning, #92400e)' : 'var(--color-meta)' }}>
-                  {r.hint}{r.sumOver ? ' over 100%' : ''}
-                </div>
-              </td>
-              {cells.map((c) => (
-                <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                  <PercentageInput
-                    value={(r.values[c.idx] ?? 0) * 100}
-                    onChange={(n) => r.onChange(c.idx, n)}
-                    min={0}
-                    max={100}
-                    decimals={2}
-                    style={FAST_INPUT}
-                    data-testid={`m2-vel-${r.id}-${c.idx}`}
-                  />
+          {rows.map((r) => {
+            // Total = sum of velocity across the visible cells for this
+            // strip (pre OR post, not both). Caller's hint still carries
+            // the cross-strip combined % for context.
+            const rowTotal = cells.reduce((s, c) => s + (r.values[c.idx] ?? 0), 0);
+            const totalPct = `${(rowTotal * 100).toFixed(0)}%`;
+            return (
+              <tr key={r.id}>
+                <td style={{ padding: '4px 6px', position: 'sticky', left: 0, background: 'var(--color-surface)', borderRight: '1px solid var(--color-border)' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>
+                    {r.label}
+                    <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: 'var(--color-navy, #0f2e4c)' }}>
+                      · {r.priceHint}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 9, color: r.sumOver ? 'var(--color-warning, #92400e)' : 'var(--color-meta)' }}>
+                    {r.hint}{r.sumOver ? ' over 100%' : ''}
+                  </div>
                 </td>
-              ))}
-            </tr>
-          ))}
+                <td style={BODY_TOTAL_CELL}>{totalPct}</td>
+                {cells.map((c) => (
+                  <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
+                    <PercentageInput
+                      value={(r.values[c.idx] ?? 0) * 100}
+                      onChange={(n) => r.onChange(c.idx, n)}
+                      min={0}
+                      max={100}
+                      decimals={2}
+                      style={FAST_INPUT}
+                      data-testid={`m2-vel-${r.id}-${c.idx}`}
+                    />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -767,11 +942,16 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
 }): React.JSX.Element {
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
+  const HEADER_LABEL: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', minWidth: 140 };
+  const stripTotal = cells.reduce((s, c) => s + (values[c.idx] ?? 0), 0);
+  const stripTotalPct = `${(stripTotal * 100).toFixed(1)}%`;
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            <th style={HEADER_LABEL}>Profile %</th>
+            <th style={HEADER_TOTAL_CELL}>Total</th>
             {cells.map((c) => (
               <th
                 key={c.idx}
@@ -785,6 +965,10 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
         </thead>
         <tbody>
           <tr>
+            <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
+              % of cohort value
+            </td>
+            <td style={BODY_TOTAL_CELL}>{stripTotalPct}</td>
             {cells.map((c) => (
               <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
                 <PercentageInput
