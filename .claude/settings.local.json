@@ -192,7 +192,8 @@
       "Bash(awk 'NR<1514 || NR>=2300' \"D:/FMP/financial-modeler-pro/src/core/calculations/index.ts\")",
       "Bash(findstr /R /C:\"settings/page\" /C:\"VersionsPanel\" /C:\"ProjectsPanel\" /C:\"ExportPanel\" /C:\"RbacPanel\")",
       "Bash(findstr /R \"api.admin.modules api.platforms config.platforms\")",
-      "Bash(awk 'NR<296 || NR>546 {print}' src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx)"
+      "Bash(awk 'NR<296 || NR>546 {print}' src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx)",
+      "Bash(pip show *)"
     ]
   }
 }

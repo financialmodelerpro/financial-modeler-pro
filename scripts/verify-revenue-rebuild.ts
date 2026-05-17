@@ -170,6 +170,88 @@ for (let c = 0; c < 7; c++) {
 assertTrue('B6: cash vintage matrix col sums = cashCollected per period', colOk,
   colOk ? 'every col total = period cash collection' : 'col sum mismatch');
 
+// B7: units per period are integer-rounded (Pass 7e)
+let intOk = true;
+for (let i = 0; i < 7; i++) {
+  const v = resultB.presalesUnitsPerPeriod[i];
+  if (!Number.isInteger(v)) { intOk = false; break; }
+}
+assertTrue('B7: presales units per period are integer-rounded', intOk,
+  intOk ? 'every unit count is an integer' : 'fractional unit count');
+
+// B8: area sold totals == sub-unit total area within rounding tolerance
+const totalAreaSold = resultB.presalesAreaPerPeriod.reduce((s, v) => s + v, 0)
+  + resultB.postSalesAreaPerPeriod.reduce((s, v) => s + v, 0);
+const totalSubUnitArea = fixtureBSubUnits.reduce((s, u) => s + u.area, 0);
+const expectedSold = totalSubUnitArea * (0.05 + 0.30 + 0.30 + 0.25); // cumulative velocity
+assertNear('B8: sum of area sold = totalArea * cumulative velocity', totalAreaSold, expectedSold, 1, 0.01);
+
+// ───────────────────────────────────────────────────────────────
+// Fixture D: template cascade via resolveSellConfig (Pass 7e)
+// ───────────────────────────────────────────────────────────────
+console.log('--- Fixture D: template cascade (Pass 7e) ---');
+
+import { resolveSellConfig, DEFAULT_SELL_TEMPLATE } from '@/src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
+
+// Synthetic project with a template
+const tplProject = {
+  startDate: '2025-01-01',
+  currency: 'SAR',
+  revenueTemplates: {
+    sell: {
+      cashPaymentProfile: { percentages: [0, 0.2, 0.3, 0.3, 0.15, 0.05, 0], profileMode: 'absolute_with_catchup' as const },
+      recognitionProfile: { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const },
+      indexation: { method: 'yoy_compound' as const, rate: 0.03, startYear: 0 },
+    },
+  },
+};
+
+const trackingAsset = {
+  id: 'a-track',
+  strategy: 'Sell',
+  revenue: {
+    sell: {
+      assetId: 'a-track',
+      subUnits: [{ subUnitId: 'su-1', preSalesVelocity: [], postSalesVelocity: [] }],
+      cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' as const },
+      recognitionProfile: { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const },
+      indexation: { method: 'none' as const },
+      // overrideProfile undefined => tracks template
+    },
+  },
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const trackingResolved = resolveSellConfig(trackingAsset as any, tplProject as any);
+assertTrue('D1: tracking asset cash profile == template', JSON.stringify(trackingResolved?.cashPaymentProfile) === JSON.stringify(tplProject.revenueTemplates.sell.cashPaymentProfile),
+  trackingResolved ? `got cash ${JSON.stringify(trackingResolved.cashPaymentProfile)}` : 'resolver returned null');
+assertTrue('D2: tracking asset indexation rate == template', trackingResolved?.indexation.rate === 0.03,
+  `got rate ${trackingResolved?.indexation.rate}`);
+
+const overrideAsset = {
+  ...trackingAsset,
+  id: 'a-ovr',
+  revenue: {
+    sell: {
+      ...trackingAsset.revenue.sell,
+      assetId: 'a-ovr',
+      overrideProfile: true,
+      cashPaymentProfile: { percentages: [1, 0, 0, 0, 0, 0, 0], profileMode: 'absolute_with_catchup' as const },
+      indexation: { method: 'none' as const },
+    },
+  },
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const overrideResolved = resolveSellConfig(overrideAsset as any, tplProject as any);
+assertTrue('D3: override asset cash profile == asset values, not template',
+  overrideResolved?.cashPaymentProfile.percentages[0] === 1,
+  `got ${overrideResolved?.cashPaymentProfile.percentages[0]}`);
+
+// D4: template default has zero percentages (no accidental seed)
+assertTrue('D4: DEFAULT_SELL_TEMPLATE has empty cash percentages',
+  DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length === 0,
+  `len=${DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length}`);
+
 // Report
 let pass = 0;
 let fail = 0;

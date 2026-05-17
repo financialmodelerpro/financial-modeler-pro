@@ -57,7 +57,11 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
       cumShare += cappedV;
       const areaSold = totalArea * cappedV;
-      const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
+      // Pass 7e (2026-05-17): residential units are integer entities.
+      // Round per-period unit count so the UI shows whole units only
+      // (3 not 2.71). Area + revenue stay fractional (computed off
+      // cappedV * totalArea so they reflect the actual share sold).
+      const unitsSold = areaPerUnit > 0 ? Math.round(areaSold / areaPerUnit) : 0;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
       const value = areaSold * indexedRate;
       presalesArea[yr] += areaSold;
@@ -72,7 +76,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       if (cappedV === 0) continue;
       cumShare += cappedV;
       const areaSold = totalArea * cappedV;
-      const unitsSold = areaPerUnit > 0 ? areaSold / areaPerUnit : 0;
+      const unitsSold = areaPerUnit > 0 ? Math.round(areaSold / areaPerUnit) : 0;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
       const value = areaSold * indexedRate;
       postSalesArea[yr] += areaSold;

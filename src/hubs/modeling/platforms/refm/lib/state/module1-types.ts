@@ -326,6 +326,37 @@ export interface Project {
   // legacy v8 snapshots stay valid; migrateM20MFinancing stamps a
   // default-on-Method-1 wrapper when missing.
   financing?: ProjectFinancingConfig;
+  // M2 Pass 7e (2026-05-17): project-level revenue templates per
+  // strategy. Each Sell / Operate / Lease asset reads cash + recognition
+  // + indexation from the matching template by default. Per-asset
+  // override available via Asset.revenue.sell.overrideProfile.
+  // Velocity stays per-asset (depends on per-sub-unit area).
+  // Operate + Lease templates ship in M2 Passes 8 and 9; the slots are
+  // reserved here so the schema lands once.
+  revenueTemplates?: {
+    sell?: {
+      cashPaymentProfile: {
+        percentages: number[];
+        positions?: number[];
+        profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+      };
+      recognitionProfile: {
+        method: 'point_in_time' | 'over_time';
+        pointInTimeYear?: 'handover' | 'sale_year';
+        percentages?: number[];
+        positions?: number[];
+        profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+      };
+      indexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+      };
+    };
+    operate?: Record<string, unknown>;  // M2 Pass 8 hospitality template
+    lease?: Record<string, unknown>;    // M2 Pass 9 lease template
+  };
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -695,6 +726,15 @@ export interface Asset {
         steps?: Array<{ year: number; factor: number }>;
       };
       handoverYearOverride?: number;
+      /**
+       * M2 Pass 7e (2026-05-17): per-asset profile override. When true,
+       * this asset's cashPaymentProfile + recognitionProfile + indexation
+       * win over the project-level revenueTemplates.sell template. When
+       * false / undefined, the engine reads from the template so any edit
+       * to the template propagates to every non-overridden asset of the
+       * same strategy.
+       */
+      overrideProfile?: boolean;
       /** @deprecated M2 Pass 7d (2026-05-17): multi-cohort Advanced modal removed. Single implicit cohort drives the engine via top-level subUnits + profiles. Field kept for snapshot back-compat; engine ignores it on load. */
       cohorts?: Array<{
         id: string;

@@ -26,6 +26,10 @@ import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
   buildCostOfSales,
+  type AssetSellConfig,
+  type CashPaymentProfile,
+  type IndexationConfig,
+  type RecognitionProfile,
   type SellAssetResult,
   type SubUnitMaterial,
   type AccountsReceivableResult,
@@ -33,7 +37,48 @@ import {
   type CostOfSalesResult,
 } from '@/src/core/calculations/revenue';
 import type { Module1Store } from './state/module1-store';
-import type { Asset, Phase, SubUnit } from './state/module1-types';
+import type { Asset, Phase, Project, SubUnit } from './state/module1-types';
+
+/**
+ * Default Sell template seed used when project.revenueTemplates.sell is
+ * not set. Empty profile arrays; user fills them via the template card
+ * on Tab 1 Inputs.
+ */
+export const DEFAULT_SELL_TEMPLATE: NonNullable<NonNullable<Project['revenueTemplates']>['sell']> = {
+  cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
+  recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+  indexation: { method: 'none' },
+};
+
+/**
+ * Build an AssetSellConfig for the engine. Reads cash + recognition +
+ * indexation from the project template UNLESS the asset has
+ * overrideProfile=true, in which case the asset's own values win.
+ * Velocity stays per-asset always (depends on per-sub-unit area).
+ */
+export function resolveSellConfig(asset: Asset, project: Project): AssetSellConfig | null {
+  const cfg = asset.revenue?.sell;
+  if (!cfg) return null;
+  const tpl = project.revenueTemplates?.sell ?? DEFAULT_SELL_TEMPLATE;
+  const override = cfg.overrideProfile === true;
+  const cashPaymentProfile: CashPaymentProfile = override && cfg.cashPaymentProfile
+    ? cfg.cashPaymentProfile
+    : tpl.cashPaymentProfile;
+  const recognitionProfile: RecognitionProfile = override && cfg.recognitionProfile
+    ? cfg.recognitionProfile
+    : tpl.recognitionProfile;
+  const indexation: IndexationConfig = override && cfg.indexation
+    ? cfg.indexation
+    : tpl.indexation;
+  return {
+    assetId: asset.id,
+    subUnits: cfg.subUnits,
+    cashPaymentProfile,
+    recognitionProfile,
+    indexation,
+    handoverYearOverride: cfg.handoverYearOverride,
+  };
+}
 
 function makeSubUnitMaterial(u: SubUnit): SubUnitMaterial {
   const area = computeSubUnitArea(u);
@@ -94,7 +139,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
     if (a.strategy !== 'Sell') continue;
-    const cfg = a.revenue?.sell;
+    const cfg = resolveSellConfig(a, project);
     if (!cfg) continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;

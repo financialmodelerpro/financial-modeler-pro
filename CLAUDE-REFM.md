@@ -1,6 +1,14 @@
 # Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-05-17 EoD. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue) WIP, Residential Sell flow live through Pass 7b (UI audit + phase-wise + collapsible + vintage matrix + indexation).**
 
+**M2 Pass 7e (2026-05-17 night, project-wide Sell template + per-asset override + units rounding + SQM preview):**
+- **Schema:** new optional `project.revenueTemplates.sell` (cashPaymentProfile + recognitionProfile + indexation). `operate` + `lease` slots reserved for Passes 8 + 9. `Asset.revenue.sell.overrideProfile?: boolean` flag added.
+- **Resolver:** `resolveSellConfig(asset, project)` reads cash + recognition + indexation from the template unless `overrideProfile === true`; then asset values win. `DEFAULT_SELL_TEMPLATE` constant exported. `computeAllSellResults` switched to use the resolver so every Sell asset of the same project inherits the same template.
+- **UI Tab 1:** new `SellTemplateCard` rendered above phase sections whenever any Sell / Sell+Manage asset exists. Edits write to `project.revenueTemplates.sell`. Each Sell AssetCard renders effective values (template OR override) and gates edits behind `isOverridden`. Override chip: "Tracks Template (click to override)" → "Override ON (click to revert)". Toggling on snapshots current effective values onto the asset; toggling off clears the per-asset profiles so the template re-takes effect.
+- **Year-on-year SQM preview** rendered below each asset's velocity grid: per-sub-unit area sold per period plus a cumulative-pct chip (✓ when 100%, "(unsold)" when under, "⚠ over 100%" when above). Drives directly off velocity grid.
+- **Engine units rounding:** `sell.ts` applies `Math.round(areaSold / areaPerUnit)` per period per sub-unit so `presalesUnitsPerPeriod` + `postSalesUnitsPerPeriod` stay integer. Area + revenue stay fractional.
+- **Verifier:** `verify-revenue-rebuild.ts` extended to 17/17 (B7 integer units, B8 area sold = totalArea × cumulative velocity, D1-D4 template cascade vs override).
+
 **M2 Pass 7d (2026-05-17 late EoD, remove Wafi escrow + Advanced multi-cohort):**
 - **Engine:** `escrow.ts` deleted. `WafiEscrowConfig` + `Cohort` types removed from `revenue/types.ts`. `AssetSellConfig` loses `escrow` + `cohorts?` fields. `SellAssetResult` loses `escrowHeldPerPeriod`, `escrowReleasedPerPeriod`, `escrowBalancePerPeriod`, `netCashAvailablePerPeriod`. `sell.ts` simplified to a single implicit cohort driven by `config.subUnits` + `cashPaymentProfile` + `recognitionProfile`. `reconcile.ts` keeps the universal totals identities + per-sub-unit velocity bound, drops the cohort fold + 4 escrow identities.
 - **Schema back-compat:** `Asset.revenue.sell.escrow` + `Asset.revenue.sell.cohorts` marked `@deprecated` in `module1-types.ts` (engine ignores them on load). Older snapshots still parse without migration.
