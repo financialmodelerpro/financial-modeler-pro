@@ -282,9 +282,22 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
               const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
 
-              // 5 + 6: AR + Unearned per asset
-              const ar = buildAccountsReceivable(r.recognitionPerPeriod, r.cashCollectedPerPeriod, r.axisLength);
-              const ur = buildUnearnedRevenue(r.recognitionPerPeriod, r.cashCollectedPerPeriod, r.axisLength);
+              // 5 + 6: AR + Unearned per asset, per-cohort via vintage
+              // matrices so the gross positions are captured correctly.
+              const ar = buildAccountsReceivable(
+                r.recognitionPerPeriod,
+                r.cashCollectedPerPeriod,
+                r.axisLength,
+                r.recognitionVintageMatrix,
+                r.cashVintageMatrix,
+              );
+              const ur = buildUnearnedRevenue(
+                r.recognitionPerPeriod,
+                r.cashCollectedPerPeriod,
+                r.axisLength,
+                r.recognitionVintageMatrix,
+                r.cashVintageMatrix,
+              );
 
               // Captions
               const indexLabel = indexation?.method === 'yoy_compound'
@@ -439,8 +452,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   {/* 5. Accounts Receivable, roll-forward floored */}
                   <SectionHeading n="5" title="Accounts Receivable" />
                   <PeriodTable
-                    title="5. Accounts Receivable (roll-forward, mirrors MAAD BS Build section 5)"
-                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Revenue Recognised - Cash Collected). Roll-forward floored each period: once AR drops to 0 the overhang doesn't carry forward. MAAD wires Recognised = Revenue!L164+L165+L166 (per-asset accrual), Cash = Revenue!L22 (pre-sales cash); we feed the same accrual stream + cash stream so the math ties out cell-for-cell."
+                    title="5. Accounts Receivable (per-cohort, mirrors MAAD BS Build section 5)"
+                    formula="Per cohort s (sale year): AR_s[y] = MAX(0, cumRec_s[y] - cumCash_s[y]) using the recognition + cash vintage matrices. Aggregate AR[y] = sum across cohorts. Captures the gross AR position correctly across mixed cohorts (handles PIT-at-handover where rec lumps later than cash). MAAD wires Recognised = Revenue!L164+L165+L166 (per-asset accrual), Cash = Revenue!L22 (pre-sales cash); we feed the same accrual + cash streams."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening AR', values: ar.openingPerPeriod },
@@ -456,8 +469,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   {/* 6. Unearned Revenue, roll-forward floored (IFRS 15) */}
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
-                    title="6. Unearned Revenue (roll-forward, MAAD BS Build section 4 wiring corrected)"
-                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Cash Collected - Revenue Recognised). Roll-forward floored each period: once Unearned unwinds to 0, new cash overruns build it back up. Note: MAAD v1.16 section 4 wires both inputs at L22 (cash), so its Unearned column always reports 0. We use accrual recognition (Revenue!L170) instead, which is the IFRS 15 deferred-revenue stock and matches what audit expects."
+                    title="6. Unearned Revenue (per-cohort, MAAD BS Build section 4 wiring corrected)"
+                    formula="Per cohort s (sale year): UR_s[y] = MAX(0, cumCash_s[y] - cumRec_s[y]) using the cash + recognition vintage matrices. Aggregate UR[y] = sum across cohorts. By end of recognition, each cohort settles to UR_s = 0; if any cohort lags, that lag stays visible until it clears. Note: MAAD v1.16 section 4 wires both inputs at L22 (cash), so its Unearned column always reports 0. We use accrual recognition (Revenue!L170) which is the IFRS 15 deferred-revenue stock and matches what audit expects."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening Unearned', values: ur.openingPerPeriod },

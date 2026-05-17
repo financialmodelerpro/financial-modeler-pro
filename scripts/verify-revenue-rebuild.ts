@@ -285,68 +285,92 @@ assertTrue('D5: DEFAULT_SELL_TEMPLATE has empty cash percentages',
   `len=${DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length}`);
 
 // ───────────────────────────────────────────────────────────────
-// Fixture E: AR + Unearned MAAD-style roll-forward floored
-// (Pass 7k). Verifies that the floor applies per-period, not just
-// at the end of the cumulative window.
+// Fixture E: AR + Unearned per-cohort via vintage matrices
+// (Pass 7m). Aggregate roll-forward floored (Pass 7k) lost early
+// recognition deficits to the per-period floor and stuck the closing
+// balance. Per-cohort fixes that: AR_s + UR_s computed per cohort,
+// then summed.
 // ───────────────────────────────────────────────────────────────
-console.log('--- Fixture E: AR + Unearned MAAD roll-forward (Pass 7k) ---');
+console.log('--- Fixture E: AR + Unearned per-cohort (Pass 7m) ---');
 
 import { buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
 
-// Hand-rolled stream where cash overruns recognition mid-stream then
-// recognition catches up. Cumulative netting would suppress AR to 0
-// at every step where cum cash > cum rec; roll-forward floored brings
-// it back up when new recognition lands.
-//
-// Period:        0    1    2    3    4
-// Recognised:  100   50    0  300    0
-// Cash:         50  100  100    0  200
-//
-// Roll-forward AR:
-//   y0: max(0, 0 + 100 -  50) =  50
-//   y1: max(0,50 +  50 - 100) =   0   (lost 0 to floor; open+rec-cash = 0)
-//   y2: max(0, 0 +   0 - 100) =   0   (would be -100; floor)
-//   y3: max(0, 0 + 300 -   0) = 300   (rebuilds)
-//   y4: max(0,300 +   0 - 200) = 100
-//
-// Cumulative-netting AR (the OLD wrong behaviour):
-//   cumRec = 100,150,150,450,450
-//   cumCash =  50,150,250,250,450
-//   ar =      50,  0,  0,200,  0
-//
-// Closing balance at y4 differs (100 vs 0) - this is the residential
-// observation MAAD makes by computing AR as a roll-forward.
+// Reuse Fixture B (real cohort matrices) for the per-cohort path.
+// Recognition profile and cash profile both sum to 100% per cohort,
+// so by end of the matrix every cohort settles: UR closes at 0, AR
+// closes at 0. Mid-stream AR > 0 because Over-Time recognition is
+// staggered vs the cash payment milestone schedule.
 
-const recE = [100, 50, 0, 300, 0];
-const cashE = [50, 100, 100, 0, 200];
-const arE = buildAccountsReceivable(recE, cashE, 5);
-const urE = buildUnearnedRevenue(recE, cashE, 5);
+const arB = buildAccountsReceivable(
+  resultB.recognitionPerPeriod,
+  resultB.cashCollectedPerPeriod,
+  resultB.axisLength,
+  resultB.recognitionVintageMatrix,
+  resultB.cashVintageMatrix,
+);
+const urB = buildUnearnedRevenue(
+  resultB.recognitionPerPeriod,
+  resultB.cashCollectedPerPeriod,
+  resultB.axisLength,
+  resultB.recognitionVintageMatrix,
+  resultB.cashVintageMatrix,
+);
 
 assertTrue('E1: AR Opening[0] = 0',
-  arE.openingPerPeriod[0] === 0,
-  `got ${arE.openingPerPeriod[0]}`);
-assertTrue('E2: AR roll-forward matches MAAD',
-  JSON.stringify(arE.perPeriod) === JSON.stringify([50, 0, 0, 300, 100]),
-  `got ${JSON.stringify(arE.perPeriod)}`);
-assertTrue('E3: AR Closing[i] = Opening[i+1]',
-  arE.openingPerPeriod[1] === arE.perPeriod[0]
-    && arE.openingPerPeriod[2] === arE.perPeriod[1]
-    && arE.openingPerPeriod[3] === arE.perPeriod[2]
-    && arE.openingPerPeriod[4] === arE.perPeriod[3],
-  `opening=${JSON.stringify(arE.openingPerPeriod)} closing=${JSON.stringify(arE.perPeriod)}`);
-assertTrue('E4: AR change = Closing - Opening',
-  arE.changePerPeriod.every((d, i) => Math.abs(d - (arE.perPeriod[i] - arE.openingPerPeriod[i])) < 1e-6),
-  `change=${JSON.stringify(arE.changePerPeriod)}`);
-
-assertTrue('E5: Unearned roll-forward matches MAAD',
-  JSON.stringify(urE.perPeriod) === JSON.stringify([0, 50, 150, 0, 200]),
-  `got ${JSON.stringify(urE.perPeriod)}`);
+  arB.openingPerPeriod[0] === 0,
+  `got ${arB.openingPerPeriod[0]}`);
+assertTrue('E2: AR Closing[i] = Opening[i+1] across full axis',
+  arB.openingPerPeriod.slice(1).every((o, i) => Math.abs(o - arB.perPeriod[i]) < 1e-6),
+  `opening=${JSON.stringify(arB.openingPerPeriod)} closing=${JSON.stringify(arB.perPeriod)}`);
+assertTrue('E3: AR change = Closing - Opening',
+  arB.changePerPeriod.every((d, i) => Math.abs(d - (arB.perPeriod[i] - arB.openingPerPeriod[i])) < 1e-6),
+  `change=${JSON.stringify(arB.changePerPeriod)}`);
+// Per-cohort: by the final period both Rec and Cash totals equal the
+// cohort sale value, so each cohort settles. Final closing AR + UR
+// must both be 0 (no stuck balance).
+assertNear('E4: AR settles to 0 by end of recognition',
+  arB.perPeriod[arB.perPeriod.length - 1], 0, 1, 0.01);
+assertNear('E5: Unearned settles to 0 by end of recognition',
+  urB.perPeriod[urB.perPeriod.length - 1], 0, 1, 0.01);
 assertTrue('E6: Unearned Opening[0] = 0',
-  urE.openingPerPeriod[0] === 0,
-  `got ${urE.openingPerPeriod[0]}`);
+  urB.openingPerPeriod[0] === 0,
+  `got ${urB.openingPerPeriod[0]}`);
 assertTrue('E7: Unearned change = Closing - Opening',
-  urE.changePerPeriod.every((d, i) => Math.abs(d - (urE.perPeriod[i] - urE.openingPerPeriod[i])) < 1e-6),
-  `change=${JSON.stringify(urE.changePerPeriod)}`);
+  urB.changePerPeriod.every((d, i) => Math.abs(d - (urB.perPeriod[i] - urB.openingPerPeriod[i])) < 1e-6),
+  `change=${JSON.stringify(urB.changePerPeriod)}`);
+
+// Regression: a hand-traced 2-cohort fixture where one cohort has
+// rec-ahead-of-cash and another has cash-ahead-of-rec at the same
+// period. Aggregate netting would zero them out; per-cohort sums
+// keep both gross positions visible.
+const recMat = [
+  [0, 100, 0, 0],   // cohort 0: rec all in period 1
+  [0,   0, 0, 100], // cohort 1: rec all in period 3
+];
+const cashMat = [
+  [0,  50, 50, 0], // cohort 0: cash split 50/50 across p1, p2
+  [0, 100,  0, 0], // cohort 1: cash all in period 1
+];
+const recPP = [0, 100, 0, 100];
+const cashPP = [0, 150, 50, 0];
+const arSym = buildAccountsReceivable(recPP, cashPP, 4, recMat, cashMat);
+const urSym = buildUnearnedRevenue(recPP, cashPP, 4, recMat, cashMat);
+// At period 1:
+//   cohort 0 cum: rec=100, cash=50 -> AR=50, UR=0
+//   cohort 1 cum: rec=0,   cash=100 -> AR=0,  UR=100
+//   aggregate AR=50, UR=100. Cumulative netting would have given 0/50.
+assertTrue('E8: per-cohort keeps gross AR + UR visible (AR period 1)',
+  arSym.perPeriod[1] === 50,
+  `got AR ${JSON.stringify(arSym.perPeriod)}`);
+assertTrue('E9: per-cohort keeps gross AR + UR visible (UR period 1)',
+  urSym.perPeriod[1] === 100,
+  `got UR ${JSON.stringify(urSym.perPeriod)}`);
+// By final period: cohort 0 fully settled (cum rec = cum cash = 100),
+// cohort 1 fully settled (cum rec = cum cash = 100). Both at 0.
+assertNear('E10: 2-cohort final AR = 0',
+  arSym.perPeriod[3], 0, 0.01);
+assertNear('E11: 2-cohort final UR = 0',
+  urSym.perPeriod[3], 0, 0.01);
 
 // Report
 let pass = 0;

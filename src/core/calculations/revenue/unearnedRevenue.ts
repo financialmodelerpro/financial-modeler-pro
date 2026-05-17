@@ -1,17 +1,25 @@
 /**
  * Unearned Revenue (deferred revenue) for the Sell-strategy stream.
  *
- * Pass 7k (2026-05-17): roll-forward floored, mirrors MAAD v1.16
- * "BS Build" sheet, section 4 (Unearned Revenue / off-plan):
+ * Pass 7m (2026-05-17): per-cohort roll-forward floored. Mirror of
+ * [[accountsReceivable]]: each cohort (sale year) carries its own
+ * Unearned balance because the contract-level cash-vs-recognition
+ * offset lives at the contract level. Aggregating with an aggregate
+ * floor (Pass 7k) loses early deficits and ends with a stuck balance
+ * even when cumulative cash equals cumulative recognition.
  *
- *   Opening[i]   = Closing[i-1]    (Opening[0] = 0)
- *   Closing[i]   = MAX(0, Opening[i] + Cash[i] - Recognised[i])
- *   ChangeInUR[i]= Closing[i] - Opening[i]   (CF working-capital delta)
+ *   For each cohort s:
+ *     cumRec_s[t] = sum_{k<=t} recognitionMatrix[s][k]
+ *     cumCash_s[t] = sum_{k<=t} cashMatrix[s][k]
+ *     UR_s[t] = MAX(0, cumCash_s[t] - cumRec_s[t])
  *
- * Mirror of [[accountsReceivable]]: when the customer has paid more than
- * the developer has earned, the gap sits as a liability on the balance
- * sheet. Roll-forward applies the floor EACH period so once Unearned
- * unwinds to 0, new cash overruns build it back up.
+ *   Aggregate:
+ *     UR[t] = sum_s UR_s[t]
+ *
+ * The roll-forward arrays (opening, closing, change) are derived from
+ * the per-period cohort sums so opening[i+1] = closing[i] holds and
+ * change[i] = closing[i] - opening[i] still drives the CF
+ * working-capital delta.
  *
  * Returns project-axis-indexed arrays (length N).
  */
@@ -27,6 +35,8 @@ export function buildUnearnedRevenue(
   recognitionPerPeriod: number[],
   cashCollectedPerPeriod: number[],
   axisLength: number,
+  recognitionVintageMatrix?: number[][],
+  cashVintageMatrix?: number[][],
 ): UnearnedRevenueResult {
   const N = Math.max(0, axisLength);
   const cumRec = new Array<number>(N).fill(0);
@@ -37,20 +47,35 @@ export function buildUnearnedRevenue(
 
   let rRunning = 0;
   let cRunning = 0;
-  let prevClose = 0;
   for (let i = 0; i < N; i++) {
-    const rec = Math.max(0, recognitionPerPeriod[i] ?? 0);
-    const cash = Math.max(0, cashCollectedPerPeriod[i] ?? 0);
-    rRunning += rec;
-    cRunning += cash;
+    rRunning += Math.max(0, recognitionPerPeriod[i] ?? 0);
+    cRunning += Math.max(0, cashCollectedPerPeriod[i] ?? 0);
     cumRec[i] = rRunning;
     cumCash[i] = cRunning;
-    const open = prevClose;
-    const close = Math.max(0, open + cash - rec);
-    opening[i] = open;
-    closing[i] = close;
-    change[i] = close - open;
-    prevClose = close;
+  }
+
+  if (recognitionVintageMatrix && cashVintageMatrix) {
+    for (let t = 0; t < N; t++) {
+      let agg = 0;
+      for (let s = 0; s < N; s++) {
+        let cumRecS = 0;
+        let cumCashS = 0;
+        for (let k = 0; k <= t; k++) {
+          cumRecS += Math.max(0, recognitionVintageMatrix[s]?.[k] ?? 0);
+          cumCashS += Math.max(0, cashVintageMatrix[s]?.[k] ?? 0);
+        }
+        agg += Math.max(0, cumCashS - cumRecS);
+      }
+      closing[t] = agg;
+      opening[t] = t === 0 ? 0 : closing[t - 1];
+      change[t] = closing[t] - opening[t];
+    }
+  } else {
+    for (let i = 0; i < N; i++) {
+      closing[i] = Math.max(0, cumCash[i] - cumRec[i]);
+      opening[i] = i === 0 ? 0 : closing[i - 1];
+      change[i] = closing[i] - opening[i];
+    }
   }
 
   return {

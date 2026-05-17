@@ -256,8 +256,20 @@ export function computeAssetScheduleBundle(
   result: SellAssetResult,
 ): AssetScheduleBundle {
   const N = result.axisLength;
-  const ar = buildAccountsReceivable(result.recognitionPerPeriod, result.cashCollectedPerPeriod, N);
-  const unearned = buildUnearnedRevenue(result.recognitionPerPeriod, result.cashCollectedPerPeriod, N);
+  const ar = buildAccountsReceivable(
+    result.recognitionPerPeriod,
+    result.cashCollectedPerPeriod,
+    N,
+    result.recognitionVintageMatrix,
+    result.cashVintageMatrix,
+  );
+  const unearned = buildUnearnedRevenue(
+    result.recognitionPerPeriod,
+    result.cashCollectedPerPeriod,
+    N,
+    result.recognitionVintageMatrix,
+    result.cashVintageMatrix,
+  );
   const capex = computeAssetCapex(state, result.assetId);
   const cos = buildCostOfSales(result.recognitionPerPeriod, capex, N);
   return { assetId: result.assetId, ar, unearned, cos };
