@@ -284,6 +284,70 @@ assertTrue('D5: DEFAULT_SELL_TEMPLATE has empty cash percentages',
   DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length === 0,
   `len=${DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length}`);
 
+// ───────────────────────────────────────────────────────────────
+// Fixture E: AR + Unearned MAAD-style roll-forward floored
+// (Pass 7k). Verifies that the floor applies per-period, not just
+// at the end of the cumulative window.
+// ───────────────────────────────────────────────────────────────
+console.log('--- Fixture E: AR + Unearned MAAD roll-forward (Pass 7k) ---');
+
+import { buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
+
+// Hand-rolled stream where cash overruns recognition mid-stream then
+// recognition catches up. Cumulative netting would suppress AR to 0
+// at every step where cum cash > cum rec; roll-forward floored brings
+// it back up when new recognition lands.
+//
+// Period:        0    1    2    3    4
+// Recognised:  100   50    0  300    0
+// Cash:         50  100  100    0  200
+//
+// Roll-forward AR:
+//   y0: max(0, 0 + 100 -  50) =  50
+//   y1: max(0,50 +  50 - 100) =   0   (lost 0 to floor; open+rec-cash = 0)
+//   y2: max(0, 0 +   0 - 100) =   0   (would be -100; floor)
+//   y3: max(0, 0 + 300 -   0) = 300   (rebuilds)
+//   y4: max(0,300 +   0 - 200) = 100
+//
+// Cumulative-netting AR (the OLD wrong behaviour):
+//   cumRec = 100,150,150,450,450
+//   cumCash =  50,150,250,250,450
+//   ar =      50,  0,  0,200,  0
+//
+// Closing balance at y4 differs (100 vs 0) - this is the residential
+// observation MAAD makes by computing AR as a roll-forward.
+
+const recE = [100, 50, 0, 300, 0];
+const cashE = [50, 100, 100, 0, 200];
+const arE = buildAccountsReceivable(recE, cashE, 5);
+const urE = buildUnearnedRevenue(recE, cashE, 5);
+
+assertTrue('E1: AR Opening[0] = 0',
+  arE.openingPerPeriod[0] === 0,
+  `got ${arE.openingPerPeriod[0]}`);
+assertTrue('E2: AR roll-forward matches MAAD',
+  JSON.stringify(arE.perPeriod) === JSON.stringify([50, 0, 0, 300, 100]),
+  `got ${JSON.stringify(arE.perPeriod)}`);
+assertTrue('E3: AR Closing[i] = Opening[i+1]',
+  arE.openingPerPeriod[1] === arE.perPeriod[0]
+    && arE.openingPerPeriod[2] === arE.perPeriod[1]
+    && arE.openingPerPeriod[3] === arE.perPeriod[2]
+    && arE.openingPerPeriod[4] === arE.perPeriod[3],
+  `opening=${JSON.stringify(arE.openingPerPeriod)} closing=${JSON.stringify(arE.perPeriod)}`);
+assertTrue('E4: AR change = Closing - Opening',
+  arE.changePerPeriod.every((d, i) => Math.abs(d - (arE.perPeriod[i] - arE.openingPerPeriod[i])) < 1e-6),
+  `change=${JSON.stringify(arE.changePerPeriod)}`);
+
+assertTrue('E5: Unearned roll-forward matches MAAD',
+  JSON.stringify(urE.perPeriod) === JSON.stringify([0, 50, 150, 0, 200]),
+  `got ${JSON.stringify(urE.perPeriod)}`);
+assertTrue('E6: Unearned Opening[0] = 0',
+  urE.openingPerPeriod[0] === 0,
+  `got ${urE.openingPerPeriod[0]}`);
+assertTrue('E7: Unearned change = Closing - Opening',
+  urE.changePerPeriod.every((d, i) => Math.abs(d - (urE.perPeriod[i] - urE.openingPerPeriod[i])) < 1e-6),
+  `change=${JSON.stringify(urE.changePerPeriod)}`);
+
 // Report
 let pass = 0;
 let fail = 0;

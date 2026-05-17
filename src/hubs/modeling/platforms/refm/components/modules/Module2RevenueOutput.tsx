@@ -436,31 +436,35 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 5. Accounts Receivable */}
+                  {/* 5. Accounts Receivable, MAAD-style roll-forward */}
                   <SectionHeading n="5" title="Accounts Receivable" />
                   <PeriodTable
-                    title="5. Accounts Receivable (period-end balance)"
-                    formula="AR[y] = max(0, cumulative recognition[y] - cumulative cash[y]). Customer owes the developer when revenue is recognised faster than it is collected."
+                    title="5. Accounts Receivable (roll-forward, MAAD BS Build section 5)"
+                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Revenue Recognised - Cash Collected). Roll-forward floored each period: once AR drops to 0 the overhang doesn't carry forward."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Cumulative Recognition', values: ar.cumulativeRecognition },
-                      { label: 'Cumulative Cash', values: ar.cumulativeCash },
-                      { label: 'Accounts Receivable (period-end)', values: ar.perPeriod, kind: 'grand' },
+                      { label: 'Opening AR', values: ar.openingPerPeriod },
+                      { label: '(+) Revenue Recognised', values: r.recognitionPerPeriod },
+                      { label: '(-) Cash Collected', values: r.cashCollectedPerPeriod.map((v) => -v) },
+                      { label: 'Change in AR (CF delta)', values: ar.changePerPeriod, kind: 'subtotal' },
+                      { label: 'Closing AR', values: ar.perPeriod, kind: 'grand' },
                     ]}
                     unit={currency}
                     fmt={fmt}
                   />
 
-                  {/* 6. Unearned Revenue */}
+                  {/* 6. Unearned Revenue, MAAD-style roll-forward */}
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
-                    title="6. Unearned Revenue (period-end balance)"
-                    formula="Unearned[y] = max(0, cumulative cash[y] - cumulative recognition[y]). Developer holds customer cash before revenue is earned (typical in pre-sales)."
+                    title="6. Unearned Revenue (roll-forward, MAAD BS Build section 4)"
+                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Cash Collected - Revenue Recognised). Roll-forward floored each period: once Unearned unwinds to 0, new cash overruns build it back up."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Cumulative Cash', values: ur.cumulativeCash },
-                      { label: 'Cumulative Recognition', values: ur.cumulativeRecognition },
-                      { label: 'Unearned Revenue (period-end)', values: ur.perPeriod, kind: 'grand' },
+                      { label: 'Opening Unearned', values: ur.openingPerPeriod },
+                      { label: '(+) Cash Collected', values: r.cashCollectedPerPeriod },
+                      { label: '(-) Revenue Recognised', values: r.recognitionPerPeriod.map((v) => -v) },
+                      { label: 'Change in Unearned (CF delta)', values: ur.changePerPeriod, kind: 'subtotal' },
+                      { label: 'Closing Unearned', values: ur.perPeriod, kind: 'grand' },
                     ]}
                     unit={currency}
                     fmt={fmt}
