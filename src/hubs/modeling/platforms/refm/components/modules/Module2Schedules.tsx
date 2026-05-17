@@ -17,7 +17,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
-import { formatAccounting } from '@/src/core/formatters';
+import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
   CELL_HEADER_TOTAL,
@@ -29,16 +29,18 @@ import {
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 
-function fmt(v: number): string {
-  if (!Number.isFinite(v)) return '-';
-  if (Math.abs(v) < 0.5) return '-';
-  return formatAccounting(v, 'full', 0);
+function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
+  return (v: number) => {
+    if (!Number.isFinite(v)) return '-';
+    if (v === 0) return '-';
+    return formatAccounting(v, scale, decimals);
+  };
 }
 
 interface Row { label: string; values: number[]; isTotal?: boolean }
 
-function PeriodTable({ title, caption, yearLabels, rows, currency, latestLabel = 'Latest' }: {
-  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string; latestLabel?: string;
+function PeriodTable({ title, caption, yearLabels, rows, currency, latestLabel = 'Latest', fmt }: {
+  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string; latestLabel?: string; fmt: (v: number) => string;
 }): React.JSX.Element {
   const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
   return (
@@ -90,6 +92,9 @@ export default function Module2Schedules(): React.JSX.Element {
     [project, phases, assets, subUnits],
   );
   const currency = project.currency || '';
+  const scale: DisplayScale = project.displayScale ?? 'full';
+  const decimals: DisplayDecimals = project.displayDecimals ?? 2;
+  const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
   const sellAssets = assets.filter((a) => a.visible !== false && a.isCompanion !== true && a.strategy === 'Sell');
 
   if (sellAssets.length === 0) {
@@ -130,6 +135,9 @@ export default function Module2Schedules(): React.JSX.Element {
     <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Schedules</h1>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
+          {currencyHeaderLine(currency, scale)} ({decimals} dp)
+        </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
           Working-capital schedules per phase / per asset. AR + Unearned are mirrors (at most one non-zero per period). Escrow holds + releases per the Wafi-style schedule.
         </p>
@@ -145,7 +153,7 @@ export default function Module2Schedules(): React.JSX.Element {
             title={p.name}
             meta={`${p.status ?? 'planning'}`}
             countLabel={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
-            storageKey={`m2-sched-phase-collapsed-${p.id}`}
+            storageKey={`fmp:m2:schedules:phase:${p.id}:collapsed`}
           >
             {phaseAssets.map((a) => {
               const r = snap.bySellAsset.get(a.id);
@@ -158,7 +166,7 @@ export default function Module2Schedules(): React.JSX.Element {
                   assetId={a.id}
                   title={a.name}
                   meta={a.type}
-                  storageKey={`m2-sched-asset-collapsed-${a.id}`}
+                  storageKey={`fmp:m2:schedules:asset:${a.id}:collapsed`}
                 >
                   <PeriodTable
                     title="AR / Unearned / Escrow / Net Cash"
@@ -171,6 +179,7 @@ export default function Module2Schedules(): React.JSX.Element {
                     ]}
                     currency={currency}
                     latestLabel="Closing"
+                    fmt={fmt}
                   />
                 </AssetSection>
               );
@@ -183,7 +192,7 @@ export default function Module2Schedules(): React.JSX.Element {
         phaseId="__project__"
         title="Project Total"
         meta="all phases combined"
-        storageKey="m2-sched-phase-collapsed-project"
+        storageKey="fmp:m2:schedules:phase:__project__:collapsed"
       >
         <PeriodTable
           title="Project Working-Capital Schedules"
@@ -196,6 +205,7 @@ export default function Module2Schedules(): React.JSX.Element {
           ]}
           currency={currency}
           latestLabel="Closing"
+          fmt={fmt}
         />
       </PhaseSection>
     </div>

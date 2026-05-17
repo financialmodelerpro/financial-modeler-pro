@@ -25,9 +25,20 @@ Every Module 2 and onward surface MUST consume the same design tokens already us
 | `var(--font-h1)`..`var(--font-micro)` | same | every font-size declaration |
 | `var(--sp-1)`..`var(--sp-5)` | same | every padding / margin / gap |
 | `var(--radius-sm)` | same | every rounded corner |
-| `formatAccounting(value, 'full', 0)` | `src/core/formatters` | every currency cell |
-| `formatPercent(value, decimals)` | same | every % cell |
-| `formatArea(value, decimals)` | same | every sqm cell |
+| `formatAccounting(value, project.displayScale ?? 'full', project.displayDecimals ?? 2)` | `src/core/formatters` | every currency cell |
+| `formatPercent(value, 2)` | same | every % cell (2-decimal default, never scaled) |
+| `formatArea(value, project.displayDecimals ?? 2)` | same | every sqm cell (never scaled) |
+| `currencyHeaderLine(project.currency, project.displayScale ?? 'full')` | same | top of every output tab |
+| `makeProjectFormatter({ displayScale, displayDecimals })` | same | convenience for one-line setup |
+
+**Formatter parity contract (Pass 7b lock):**
+Both Module 1 and Module 2 read `project.displayScale` and `project.displayDecimals` for every numeric cell. Hardcoded `'full'` or `0` is a bug. Pattern in every module component:
+```ts
+const scale: DisplayScale = project.displayScale ?? 'full';
+const decimals: DisplayDecimals = project.displayDecimals ?? 2;
+const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
+```
+Where `makeFmt = (s, d) => (v) => formatAccounting(v, s, d)` returns a closure suitable to pass to every table / matrix component as the `fmt` prop. Percentages stay locked at 2 decimals per spec; areas never scale by thousands / millions even when `displayScale = 'thousands'`. The header line `currencyHeaderLine(currency, scale)` renders once per tab so cells never carry the K / M suffix.
 | `FAST_INPUT` pattern (local const, references `--color-navy-pale` + `--color-navy`) | per file | every editable input in REFM |
 | `PercentageInput` + `AccountingNumberInput` | `components/ui/` | every editable currency / % cell |
 

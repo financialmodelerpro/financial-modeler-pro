@@ -42,4 +42,7 @@ test-results/
 playwright-report/
 tests/screenshots/
 Maad_Residential_Cashflow*.xlsx
+# Excel binary workbooks (xlsb), kept locally only for reference / inspection.
+# The canonical MAAD benchmark stays the .xlsx version (already gitignored above).
+*.xlsb
 .m20b-legacy/

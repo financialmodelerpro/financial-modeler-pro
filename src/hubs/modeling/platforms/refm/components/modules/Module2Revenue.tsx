@@ -158,7 +158,7 @@ interface PhaseSectionProps {
 }
 
 function PhaseSection({ phase, assets, subUnits, project, phases, onOpenAdvanced }: PhaseSectionProps): React.JSX.Element {
-  const collapseKey = `m2-phase-collapsed-${phase.id}`;
+  const collapseKey = `fmp:m2:inputs:phase:${phase.id}:collapsed`;
   const readCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
     try { return window.localStorage.getItem(collapseKey) === 'true'; }
@@ -237,7 +237,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
   const isSell = asset.strategy === 'Sell';
 
   // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
-  const assetCollapseKey = `m2-input-asset-collapsed-${asset.id}`;
+  const assetCollapseKey = `fmp:m2:inputs:asset:${asset.id}:collapsed`;
   const readAssetCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
     try { return window.localStorage.getItem(assetCollapseKey) === 'true'; }

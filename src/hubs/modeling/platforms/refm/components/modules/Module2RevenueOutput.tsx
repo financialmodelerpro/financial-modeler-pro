@@ -17,7 +17,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import type { SellAssetResult } from '@/src/core/calculations/revenue';
 import { computeProjectTimeline } from '@/src/core/calculations';
-import { formatAccounting } from '@/src/core/formatters';
+import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
   CELL_HEADER_TOTAL,
@@ -30,16 +30,18 @@ import {
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 
-function fmt(v: number): string {
-  if (!Number.isFinite(v)) return '-';
-  if (Math.abs(v) < 0.5) return '-';
-  return formatAccounting(v, 'full', 0);
+function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
+  return (v: number) => {
+    if (!Number.isFinite(v)) return '-';
+    if (v === 0) return '-';
+    return formatAccounting(v, scale, decimals);
+  };
 }
 
 interface Row { label: string; values: number[]; isTotal?: boolean }
 
-function PeriodTable({ title, caption, yearLabels, rows, currency }: {
-  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string;
+function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
+  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string; fmt: (v: number) => string;
 }): React.JSX.Element {
   const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
   return (
@@ -91,6 +93,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     [project, phases, assets, subUnits],
   );
   const currency = project.currency || '';
+  const scale: DisplayScale = project.displayScale ?? 'full';
+  const decimals: DisplayDecimals = project.displayDecimals ?? 2;
+  const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
 
@@ -115,6 +120,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Revenue (Output)</h1>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
+          {currencyHeaderLine(currency, scale)} ({decimals} dp)
+        </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
           Per-phase, per-asset revenue streams. Each phase collapses; each asset within collapses. Vintage matrices show cohort sold in row N collected / recognised in column M (diagonal shaded).
         </p>
@@ -134,7 +142,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             title={p.name}
             meta={`${p.status ?? 'planning'} · handover ${snap.yearLabels[handoverYearIdx] ?? '?'}`}
             countLabel={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
-            storageKey={`m2-rev-phase-collapsed-${p.id}`}
+            storageKey={`fmp:m2:revenue:phase:${p.id}:collapsed`}
           >
             {phaseAssets.map((a) => {
               const r = snap.bySellAsset.get(a.id);
@@ -145,7 +153,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   assetId={a.id}
                   title={a.name}
                   meta={a.type ? `${a.type}` : undefined}
-                  storageKey={`m2-rev-asset-collapsed-${a.id}`}
+                  storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
                 >
                   <PeriodTable
                     title="Pre-Sales Revenue (sales value year-on-year)"
@@ -158,6 +166,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                       { label: 'Cash Collected', values: r.cashCollectedPerPeriod },
                     ]}
                     currency={currency}
+                    fmt={fmt}
                   />
                   <VintageMatrix
                     title="Cash Vintage Matrix (cohort sold ↓ × cash collected →)"
@@ -166,6 +175,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     matrix={r.cashVintageMatrix}
                     currency={currency}
                     handoverYearIdx={handoverYearIdx}
+                    fmt={fmt}
                   />
                   <VintageMatrix
                     title="Recognition Vintage Matrix (cohort sold ↓ × revenue recognised →)"
@@ -174,6 +184,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     matrix={r.recognitionVintageMatrix}
                     currency={currency}
                     handoverYearIdx={handoverYearIdx}
+                    fmt={fmt}
                   />
                 </AssetSection>
               );
@@ -186,7 +197,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         phaseId="__project__"
         title="Project Total"
         meta="all phases combined"
-        storageKey="m2-rev-phase-collapsed-project"
+        storageKey="fmp:m2:revenue:phase:__project__:collapsed"
       >
         <PeriodTable
           title="Project-wide Streams"
@@ -198,18 +209,21 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             { label: 'Project Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, isTotal: true },
           ]}
           currency={currency}
+          fmt={fmt}
         />
         <VintageMatrix
           title="Project Cash Vintage Matrix"
           yearLabels={snap.yearLabels}
           matrix={snap.projectTotals.cashVintageMatrix}
           currency={currency}
+          fmt={fmt}
         />
         <VintageMatrix
           title="Project Recognition Vintage Matrix"
           yearLabels={snap.yearLabels}
           matrix={snap.projectTotals.recognitionVintageMatrix}
           currency={currency}
+          fmt={fmt}
         />
       </PhaseSection>
     </div>

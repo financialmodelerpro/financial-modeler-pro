@@ -48,7 +48,11 @@ interface PhaseSectionProps {
 }
 
 export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, defaultOpen = true, children }: PhaseSectionProps): React.JSX.Element {
-  const key = storageKey ?? `m-phase-collapsed-${phaseId}`;
+  // Default key uses the fmp:m2 namespace per [[feedback_ui_universal_defaults]].
+  // Callers should pass storageKey explicitly with the surface name baked in
+  // (e.g. `fmp:m2:revenue:phase:${id}:collapsed`) so tabs keep independent
+  // collapse state.
+  const key = storageKey ?? `fmp:m2:phase:${phaseId}:collapsed`;
   const read = (): boolean => {
     if (typeof window === 'undefined') return !defaultOpen;
     try { return window.localStorage.getItem(key) === 'true'; }
@@ -90,7 +94,7 @@ interface AssetSectionProps {
 }
 
 export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = true, children }: AssetSectionProps): React.JSX.Element {
-  const key = storageKey ?? `m-asset-collapsed-${assetId}`;
+  const key = storageKey ?? `fmp:m2:asset:${assetId}:collapsed`;
   const read = (): boolean => {
     if (typeof window === 'undefined') return !defaultOpen;
     try { return window.localStorage.getItem(key) === 'true'; }

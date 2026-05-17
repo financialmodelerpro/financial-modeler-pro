@@ -24,15 +24,23 @@ interface VintageMatrixProps {
   matrix: number[][]; // matrix[saleYearIdx][collectionYearIdx]
   currency: string;
   handoverYearIdx?: number;
+  /**
+   * Format helper. Callers MUST pass a formatter wired to the
+   * project's displayScale + displayDecimals so the matrix matches
+   * the rest of the platform (per [[feedback_ui_universal_defaults]]
+   * rule 2). Default formatter falls back to project-agnostic full /
+   * 2dp accounting if omitted.
+   */
+  fmt?: (v: number) => string;
 }
 
-function fmt(v: number): string {
+const defaultFmt = (v: number): string => {
   if (!Number.isFinite(v)) return '-';
-  if (Math.abs(v) < 0.5) return '-';
-  return formatAccounting(v, 'full', 0);
-}
+  if (v === 0) return '-';
+  return formatAccounting(v, 'full', 2);
+};
 
-export default function VintageMatrix({ title, caption, yearLabels, matrix, currency, handoverYearIdx }: VintageMatrixProps): React.JSX.Element {
+export default function VintageMatrix({ title, caption, yearLabels, matrix, currency, handoverYearIdx, fmt = defaultFmt }: VintageMatrixProps): React.JSX.Element {
   const N = yearLabels.length;
   const rowTotals = matrix.map((row) => row.reduce((s, v) => s + (v ?? 0), 0));
   const colTotals = new Array<number>(N).fill(0);
