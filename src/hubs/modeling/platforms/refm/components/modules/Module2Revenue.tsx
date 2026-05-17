@@ -1,24 +1,25 @@
 'use client';
 
 /**
- * Module2Revenue.tsx (M2 Pass 5 redesign, phase-wise + simple inline inputs)
+ * Module2Revenue.tsx (M2 Pass 7g, per-asset inputs only)
  *
- * Pass 1 grouped assets by strategy and routed every input through a
- * 1180px modal. User feedback (2026-05-16): the layout was complex
- * and congested, the sidebar entry felt unclickable, and revenue
- * should be entered phase-wise (mirroring Module 1 Tab 2's structure).
+ * Pass 7e introduced a project-wide Sell template that cascaded cash +
+ * recognition + indexation to every Sell asset. User feedback
+ * (2026-05-17, Pass 7g): kill the template, each asset owns its own
+ * cash payment profile, recognition profile, and indexation. Phases
+ * stay collapsible; each asset card shows the full set of editable
+ * inputs needed to drive the engine on its own.
  *
- * Pass 5 layout:
- * - Phase header bar (navy gradient, click to collapse - same visual
- *   token as Tab 2) per phase.
- * - Asset cards within each phase. Sell-strategy assets carry a
- *   simple inline form: per-sub-unit velocity row + compact cash
- *   payment profile + recognition method radio. No live preview, no
- *   multi-cohort tabs in the inline view.
- * - "Advanced..." button on each Sell asset opens the existing
- *   Module2SellModal (cohorts + escrow + indexation + price + profile
- *   overrides + live preview + reconciliation).
- * - Non-Sell strategy assets show a clean "coming soon" placeholder.
+ * Tab 1 layout:
+ *  - Phase header bar (navy, click to collapse).
+ *  - Asset cards inside each phase. Sell strategy carries:
+ *      - Per-sub-unit Pre-Sales velocity grid (construction window).
+ *      - Per-sub-unit Sales During Operation velocity grid (ops window).
+ *      - Year-on-year SQM Sold preview computed from velocity.
+ *      - Price Indexation pills + rate (none / single / yoy / step).
+ *      - Cash Payment Profile strip across the asset's cash window.
+ *      - Revenue Recognition pills + (if Over-Time) percentages strip.
+ *  - Non-Sell strategies show a "coming soon" placeholder.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -29,7 +30,6 @@ import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculati
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { PercentageInput } from '../ui/PercentageInput';
 import { CELL_HEADER } from './_shared/tableStyles';
-import { DEFAULT_SELL_TEMPLATE } from '../../lib/revenue-resolvers';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -102,7 +102,7 @@ export default function Module2Revenue(): React.JSX.Element {
           Module 2 · Revenue
         </h1>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Configure revenue per phase. Each asset's revenue form follows its M1 strategy. Phase 1 (Residential / Sell) is live; other strategies follow.
+          Configure revenue per phase. Each asset owns its own velocity, indexation, cash profile, and recognition method. Phase 1 (Residential / Sell) is live; other strategies follow.
         </p>
       </div>
 
@@ -120,10 +120,6 @@ export default function Module2Revenue(): React.JSX.Element {
         >
           No assets yet. Add assets on Module 1 · Tab 2 (Assets &amp; Sub-units), then come back to configure their revenue.
         </div>
-      )}
-
-      {visibleAssets.some((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && (
-        <SellTemplateCard project={project} phases={phases} />
       )}
 
       {phases.map((p) => (
@@ -146,7 +142,7 @@ interface PhaseSectionProps {
   phase: Phase;
   assets: Asset[];
   subUnits: SubUnit[];
-  project: ReturnType<typeof useModule1Store.getState>['project'];
+  project: Project;
   phases: Phase[];
 }
 
@@ -218,7 +214,7 @@ interface AssetCardProps {
   asset: Asset;
   subUnits: SubUnit[];
   phase: Phase;
-  project: ReturnType<typeof useModule1Store.getState>['project'];
+  project: Project;
   phases: Phase[];
 }
 
@@ -241,13 +237,10 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
-  // Universal-styling-fix (2026-05-17): computeProjectTimeline returns
-  // YEARS ELAPSED (endYear - startYear), which is off-by-one for slot
-  // count and causes the Post-Sales operations window to collapse when
-  // a phase's operations extend up to the project end. The financing
-  // engine's buildProjectAxis uses `max(phaseOffset + cp + op - overlap)`
-  // which gives the correct INCLUSIVE slot count. Mirror that derivation
-  // here so M2's axis can never collapse below the data extent.
+  // computeProjectTimeline returns YEARS ELAPSED (off-by-one for slot
+  // count). Mirror the financing engine's `max(phaseOffset + cp + op -
+  // overlap)` derivation so the axis can't collapse below the data
+  // extent.
   const effectiveTotalPeriods = useMemo(() => {
     let maxEnd = Math.max(1, timeline.totalPeriods);
     for (const p of phases) {
@@ -264,13 +257,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     [totalPeriods, projectStartYear],
   );
   const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-  // Pass 6 (2026-05-16): per-asset windows anchored to the phase. The
-  // asset's revenue inputs only show the years where activity can occur:
-  //   Pre-Sales window = phase construction years (phaseStart .. handover).
-  //   Post-Sales window = phase operations years (handover+1 .. opsEnd),
-  //   minus phase overlap.
-  // Cash profile window = construction start to operations end (the
-  // active span where milestones can fall).
   const cp = Math.max(0, phase.constructionPeriods ?? 0);
   const op = Math.max(0, phase.operationsPeriods ?? 0);
   const overlap = Math.max(0, phase.overlapPeriods ?? 0);
@@ -279,7 +265,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const operationsStartIdx = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, handoverYear + 1 - overlap));
   const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, operationsStartIdx + op - 1));
 
-  type WindowCell = { idx: number; year: number; isHandover: boolean };
   const constructionWindow: WindowCell[] = cp > 0
     ? Array.from({ length: Math.max(0, handoverYear - constructionStartIdx + 1) }, (_, k) => {
         const idx = constructionStartIdx + k;
@@ -302,24 +287,19 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     },
   );
 
-  // Pass 7e (2026-05-17): cash/recognition/indexation cascade from a
-  // project-level Sell template. Per-asset override available via the
-  // overrideProfile flag. Velocity stays per-asset always.
+  // Pass 7g (2026-05-17): per-asset only. Read straight from
+  // asset.revenue.sell with sensible defaults; no project-level
+  // template, no override chip.
   const sellConfig = asset.revenue?.sell;
-  const template = project.revenueTemplates?.sell ?? DEFAULT_SELL_TEMPLATE;
-  const isOverridden = sellConfig?.overrideProfile === true;
-  // Effective values shown on the card. Read from template unless
-  // overridden, then read from asset (falling back to template when the
-  // asset doesn't carry a particular field yet).
-  const effCash = isOverridden && sellConfig?.cashPaymentProfile
-    ? sellConfig.cashPaymentProfile
-    : template.cashPaymentProfile;
-  const effRec = isOverridden && sellConfig?.recognitionProfile
-    ? sellConfig.recognitionProfile
-    : template.recognitionProfile;
-  const effIdx = isOverridden && sellConfig?.indexation
-    ? sellConfig.indexation
-    : template.indexation;
+  const cashProfile = sellConfig?.cashPaymentProfile ?? {
+    percentages: [] as number[],
+    profileMode: 'absolute_with_catchup' as const,
+  };
+  const recProfile = sellConfig?.recognitionProfile ?? {
+    method: 'point_in_time' as const,
+    pointInTimeYear: 'handover' as const,
+  };
+  const idxConfig = sellConfig?.indexation ?? { method: 'none' as const };
 
   const updateSellInline = (patch: Partial<NonNullable<Asset['revenue']>['sell']>): void => {
     const nextSell = {
@@ -339,31 +319,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       },
       indexation: sellConfig?.indexation ?? { method: 'none' as const },
       handoverYearOverride: sellConfig?.handoverYearOverride,
-      overrideProfile: sellConfig?.overrideProfile,
       ...patch,
     };
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), sell: nextSell } });
-  };
-
-  const toggleOverride = (): void => {
-    if (isOverridden) {
-      // Revert to template, drop the per-asset profiles.
-      updateSellInline({
-        overrideProfile: false,
-        cashPaymentProfile: undefined,
-        recognitionProfile: undefined,
-        indexation: undefined,
-      } as Partial<NonNullable<Asset['revenue']>['sell']>);
-    } else {
-      // Snapshot current effective values onto the asset so the user
-      // starts editing from the same numbers they were seeing.
-      updateSellInline({
-        overrideProfile: true,
-        cashPaymentProfile: { ...effCash },
-        recognitionProfile: { ...effRec },
-        indexation: { ...effIdx },
-      });
-    }
   };
 
   const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
@@ -390,13 +348,13 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   };
 
   const setCashPct = (periodIdx: number, pct: number): void => {
-    const next = paddedArray(sellConfig?.cashPaymentProfile?.percentages, totalPeriods);
+    const next = paddedArray(cashProfile.percentages, totalPeriods);
     next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
     updateSellInline({
       cashPaymentProfile: {
         percentages: next,
-        positions: sellConfig?.cashPaymentProfile?.positions,
-        profileMode: sellConfig?.cashPaymentProfile?.profileMode ?? 'absolute_with_catchup',
+        positions: cashProfile.positions,
+        profileMode: cashProfile.profileMode ?? 'absolute_with_catchup',
       },
     });
   };
@@ -405,13 +363,29 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateSellInline({
       recognitionProfile: {
         method,
-        pointInTimeYear: sellConfig?.recognitionProfile?.pointInTimeYear ?? 'handover',
+        pointInTimeYear: recProfile.pointInTimeYear ?? 'handover',
         percentages: method === 'over_time'
-          ? sellConfig?.recognitionProfile?.percentages ?? new Array<number>(totalPeriods).fill(0)
+          ? recProfile.percentages ?? new Array<number>(totalPeriods).fill(0)
           : undefined,
-        positions: sellConfig?.recognitionProfile?.positions,
-        profileMode: sellConfig?.recognitionProfile?.profileMode ?? 'absolute_with_catchup',
+        positions: recProfile.positions,
+        profileMode: recProfile.profileMode ?? 'absolute_with_catchup',
       },
+    });
+  };
+
+  const setRecognitionPct = (periodIdx: number, pct: number): void => {
+    if (recProfile.method !== 'over_time') return;
+    const next = paddedArray(recProfile.percentages, totalPeriods);
+    next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+    updateSellInline({
+      recognitionProfile: { ...recProfile, percentages: next },
+    });
+  };
+
+  const setRecognitionAnchor = (anchor: 'handover' | 'sale_year'): void => {
+    if (recProfile.method !== 'point_in_time') return;
+    updateSellInline({
+      recognitionProfile: { ...recProfile, pointInTimeYear: anchor },
     });
   };
 
@@ -419,36 +393,27 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateSellInline({
       indexation: {
         method,
-        rate: sellConfig?.indexation?.rate ?? 0,
-        startYear: sellConfig?.indexation?.startYear ?? 0,
-        steps: sellConfig?.indexation?.steps,
+        rate: idxConfig.rate ?? 0,
+        startYear: idxConfig.startYear ?? 0,
+        steps: idxConfig.steps,
       },
     });
   };
   const setIndexationRate = (pct: number): void => {
     updateSellInline({
       indexation: {
-        method: sellConfig?.indexation?.method ?? 'yoy_compound',
+        method: idxConfig.method === 'none' ? 'yoy_compound' : idxConfig.method,
         rate: Math.max(0, pct / 100),
-        startYear: sellConfig?.indexation?.startYear ?? 0,
-        steps: sellConfig?.indexation?.steps,
-      },
-    });
-  };
-  const setIndexationStartYear = (year: number): void => {
-    const idx = Math.max(0, Math.min(totalPeriods - 1, year - projectStartYear));
-    updateSellInline({
-      indexation: {
-        method: sellConfig?.indexation?.method ?? 'yoy_compound',
-        rate: sellConfig?.indexation?.rate ?? 0,
-        startYear: idx,
-        steps: sellConfig?.indexation?.steps,
+        startYear: idxConfig.startYear ?? 0,
+        steps: idxConfig.steps,
       },
     });
   };
 
-  const cashSum = effCash.percentages.reduce((s, v) => s + v, 0);
+  const cashSum = cashProfile.percentages.reduce((s, v) => s + v, 0);
   const cashSumOk = Math.abs(cashSum - 1) < 0.005;
+  const recSum = (recProfile.percentages ?? []).reduce((s, v) => s + v, 0);
+  const recSumOk = recProfile.method === 'point_in_time' || Math.abs(recSum - 1) < 0.005;
 
   return (
     <div
@@ -488,27 +453,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
           {subUnitSummary(subUnits)}
         </span>
-        {isSell && (
-          <button
-            type="button"
-            onClick={toggleOverride}
-            data-testid={`m2-input-asset-${asset.id}-override`}
-            style={{
-              marginLeft: 'auto',
-              fontSize: 10,
-              padding: '3px 10px',
-              background: isOverridden ? 'var(--color-warning, #92400e)' : 'var(--color-surface)',
-              color: isOverridden ? 'var(--color-on-primary-navy, #fff)' : 'var(--color-navy)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              cursor: 'pointer',
-              fontWeight: 700,
-            }}
-            title={isOverridden ? 'Currently overrides the project template. Click to revert to template.' : 'Currently tracks the project template. Click to override for this asset only.'}
-          >
-            {isOverridden ? 'Override ON (click to revert)' : 'Tracks Template (click to override)'}
-          </button>
-        )}
       </div>
 
       {!isSell && !assetCollapsed && (
@@ -546,7 +490,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {constructionWindow.length > 0 && (
             <InlineSection
               title={`Pre-Sales velocity · Construction ${constructionWindow[0].year} to ${constructionWindow[constructionWindow.length - 1].year}`}
-              hint="Pre-sales run during the asset's construction period. Sum per sub-unit + post-sales sum ≤ 100%. Handover column marked with *."
+              hint="Pre-sales run during the asset's construction period. Sum per sub-unit + post-sales sum <= 100%. Handover column marked with *."
             >
               <InlineGrid
                 cells={constructionWindow}
@@ -558,8 +502,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {/* Post-Sales velocity, scoped to operations window */}
           {operationsWindow.length > 0 && (
             <InlineSection
-              title={`Post-Sales velocity · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
-              hint="Sales During Operation. Applies to residual units left over after pre-sales. Recognized + collected in the same year (point-in-time)."
+              title={`Sales During Operation · ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
+              hint="Sales during operating period. Applies to residual units left over after pre-sales. Collected + recognised in the same year."
             >
               <InlineGrid
                 cells={operationsWindow}
@@ -574,8 +518,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
           )}
 
-          {/* Year-on-year SQM sold preview (Pass 7e). Computed from
-              the velocity grid above, cumulative across pre+post. */}
+          {/* Year-on-year SQM sold preview, computed from velocity. */}
           <SqmSoldPreview
             subUnits={subUnits}
             sellConfig={sellConfig}
@@ -583,44 +526,27 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             totalPeriods={totalPeriods}
           />
 
-          {/* Cascade banner: if not overridden, show that this asset
-              tracks the project template, with values rendered read-only. */}
-          {!isOverridden && (
-            <div style={{
-              padding: '6px 10px',
-              background: 'var(--color-grey-pale)',
-              border: '1px dashed var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-meta)',
-              fontSize: 11,
-              fontStyle: 'italic',
-            }}>
-              Cash + Recognition + Indexation track the project-wide Sell template (above). Click Override to customise per asset.
-            </div>
-          )}
-
-          {/* Price Indexation block, EFFECTIVE values (template or override) */}
+          {/* Price Indexation */}
           <InlineSection
-            title={`Price Indexation${isOverridden ? '' : ' · from template'}`}
+            title="Price Indexation"
             hint="Base sale rate per sub-unit (M1 Tab 2) lifts by the indexation factor each year."
           >
             <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
-              <MethodPill active={effIdx.method === 'none'} label="None" onClick={() => isOverridden && setIndexationMethod('none')} />
-              <MethodPill active={effIdx.method === 'single_rate'} label="Single-Rate" onClick={() => isOverridden && setIndexationMethod('single_rate')} />
-              <MethodPill active={effIdx.method === 'yoy_compound'} label="YoY Compound" onClick={() => isOverridden && setIndexationMethod('yoy_compound')} />
-              <MethodPill active={effIdx.method === 'step'} label="Step" onClick={() => isOverridden && setIndexationMethod('step')} />
-              {effIdx.method !== 'none' && effIdx.method !== 'step' && (
+              <MethodPill active={idxConfig.method === 'none'} label="None" onClick={() => setIndexationMethod('none')} />
+              <MethodPill active={idxConfig.method === 'single_rate'} label="Single-Rate" onClick={() => setIndexationMethod('single_rate')} />
+              <MethodPill active={idxConfig.method === 'yoy_compound'} label="YoY Compound" onClick={() => setIndexationMethod('yoy_compound')} />
+              <MethodPill active={idxConfig.method === 'step'} label="Step" onClick={() => setIndexationMethod('step')} />
+              {idxConfig.method !== 'none' && idxConfig.method !== 'step' && (
                 <>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
                   <div style={{ width: 80 }}>
                     <PercentageInput
-                      value={(effIdx.rate ?? 0) * 100}
+                      value={(idxConfig.rate ?? 0) * 100}
                       onChange={setIndexationRate}
                       min={0}
                       max={50}
                       decimals={2}
                       style={FAST_INPUT}
-                      disabled={!isOverridden}
                       data-testid={`m2-asset-${asset.id}-idx-rate`}
                     />
                   </div>
@@ -629,40 +555,72 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
           </InlineSection>
 
-          {/* Cash payment profile + recognition method on one row */}
+          {/* Cash payment profile + recognition method side by side. */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-2)' }}>
             <InlineSection
-              title={`Cash payment profile${isOverridden ? '' : ' · from template'} · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
+              title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
               hint="Milestones (% of cohort value collected per project year). Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
               tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
               tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
             >
               <InlineProfileStrip
                 cells={cashWindow}
-                values={effCash.percentages}
-                onChange={isOverridden ? setCashPct : () => undefined}
-                readOnly={!isOverridden}
+                values={cashProfile.percentages}
+                onChange={setCashPct}
+                testidPrefix={`m2-cash-${asset.id}`}
               />
             </InlineSection>
 
-            <InlineSection title={`Recognition${isOverridden ? '' : ' · from template'}`}>
+            <InlineSection title="Revenue Recognition">
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 <MethodPill
-                  active={effRec.method !== 'over_time'}
+                  active={recProfile.method !== 'over_time'}
                   label="Point-in-Time"
-                  onClick={() => isOverridden && setRecognitionMethod('point_in_time')}
+                  onClick={() => setRecognitionMethod('point_in_time')}
                 />
                 <MethodPill
-                  active={effRec.method === 'over_time'}
+                  active={recProfile.method === 'over_time'}
                   label="Over-Time"
-                  onClick={() => isOverridden && setRecognitionMethod('over_time')}
+                  onClick={() => setRecognitionMethod('over_time')}
                 />
               </div>
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
-                {effRec.method === 'over_time'
-                  ? 'Over-Time profile edited on template card above.'
-                  : `Lumps at handover (${yearLabels[handoverYear]}).`}
-              </div>
+              {recProfile.method === 'point_in_time' && (
+                <>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                    <MethodPill
+                      active={(recProfile.pointInTimeYear ?? 'handover') === 'handover'}
+                      label="At handover"
+                      onClick={() => setRecognitionAnchor('handover')}
+                    />
+                    <MethodPill
+                      active={recProfile.pointInTimeYear === 'sale_year'}
+                      label="At sale year"
+                      onClick={() => setRecognitionAnchor('sale_year')}
+                    />
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                    {(recProfile.pointInTimeYear ?? 'handover') === 'handover'
+                      ? `Each cohort recognises at handover (${yearLabels[handoverYear]}).`
+                      : 'Each cohort recognises in the same year it is sold.'}
+                  </div>
+                </>
+              )}
+              {recProfile.method === 'over_time' && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: recSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)', marginBottom: 4 }}>
+                    Sum: {(recSum * 100).toFixed(1)}%
+                  </div>
+                  <InlineProfileStrip
+                    cells={cashWindow}
+                    values={recProfile.percentages ?? []}
+                    onChange={setRecognitionPct}
+                    testidPrefix={`m2-rec-${asset.id}`}
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                    Percent of cohort recognised per project year. Catch-up applies at the cohort sale year (absolute mode).
+                  </div>
+                </div>
+              )}
             </InlineSection>
           </div>
         </div>
@@ -671,12 +629,12 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   );
 }
 
-// ── Year-on-year SQM sold preview (Pass 7e) ───────────────────────────
+// ── Year-on-year SQM sold preview ────────────────────────────────────
 // Renders below the velocity grid so the user sees the SQM each cell
-// represents (cumulative pct x sub-unit total area). Also surfaces a
-// cumulative pct chip per sub-unit so overshoot / undershoot is visible
-// at a glance (the engine caps at 100% but the user needs to see when
-// they're under-selling).
+// represents (cumulative pct x sub-unit total area). Cumulative pct chip
+// per sub-unit makes overshoot / undershoot visible at a glance (the
+// engine caps at 100% but the user needs to see when they're
+// under-selling).
 function SqmSoldPreview({ subUnits, sellConfig, cells, totalPeriods }: {
   subUnits: SubUnit[];
   sellConfig: NonNullable<Asset['revenue']>['sell'] | undefined;
@@ -716,7 +674,7 @@ function SqmSoldPreview({ subUnits, sellConfig, cells, totalPeriods }: {
                     <div style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{su.name || 'sub-unit'}</div>
                     <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>
                       Area {formatArea(totalArea, 0)} sqm · <span style={{ color: chipColor, fontWeight: 700 }}>cum {(cumPct * 100).toFixed(0)}%</span>
-                      {over ? ' ⚠ over 100%' : under ? ' (unsold)' : ' ✓'}
+                      {over ? ' over 100%' : under ? ' (unsold)' : ' ok'}
                     </div>
                   </td>
                   {sortedCells.map((c) => {
@@ -740,7 +698,7 @@ function SqmSoldPreview({ subUnits, sellConfig, cells, totalPeriods }: {
 
 // Build a velocity row for the inline grid. Sub-unit label includes
 // the sale price (per unit or per sqm, depending on metric) read
-// directly from M1 Tab 2 - the price stays read-only on this surface
+// directly from M1 Tab 2; the price stays read-only on this surface
 // so the user knows there is one canonical place to edit it.
 function buildVelocityRow(
   su: SubUnit,
@@ -817,11 +775,6 @@ interface InlineGridRow {
 type WindowCell = { idx: number; year: number; isHandover: boolean };
 
 function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[] }): React.JSX.Element {
-  // Universal CELL_HEADER token (navy + white text, bold, centered). Sticky
-  // first column re-applies the navy background so the sub-unit label header
-  // stays solid on horizontal scroll. Handover column underlines with the
-  // accent color while keeping the white text required by rule 1
-  // ([[feedback_ui_universal_defaults]]).
   const HEADER_STICKY: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
@@ -853,7 +806,7 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
                   </span>
                 </div>
                 <div style={{ fontSize: 9, color: r.sumOver ? 'var(--color-warning, #92400e)' : 'var(--color-meta)' }}>
-                  {r.hint}{r.sumOver ? ' ⚠ over 100%' : ''}
+                  {r.hint}{r.sumOver ? ' over 100%' : ''}
                 </div>
               </td>
               {cells.map((c) => (
@@ -877,7 +830,12 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
   );
 }
 
-function InlineProfileStrip({ cells, values, onChange, readOnly }: { cells: WindowCell[]; values: number[]; onChange: (projectIdx: number, pct: number) => void; readOnly?: boolean }): React.JSX.Element {
+function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
+  cells: WindowCell[];
+  values: number[];
+  onChange: (projectIdx: number, pct: number) => void;
+  testidPrefix?: string;
+}): React.JSX.Element {
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
   return (
@@ -907,184 +865,13 @@ function InlineProfileStrip({ cells, values, onChange, readOnly }: { cells: Wind
                   max={100}
                   decimals={2}
                   style={FAST_INPUT}
-                  disabled={readOnly}
-                  data-testid={`m2-cash-${c.idx}`}
+                  data-testid={testidPrefix ? `${testidPrefix}-${c.idx}` : `m2-profile-${c.idx}`}
                 />
               </td>
             ))}
           </tr>
         </tbody>
       </table>
-    </div>
-  );
-}
-
-// ── Project-wide Sell Template card (Pass 7e) ─────────────────────────
-// Per [[feedback-ui-universal-defaults]] rule + user request 2026-05-17:
-// one settings template per strategy at project level. All Sell assets
-// inherit cash + recognition + indexation from here unless they flip
-// the Override chip on their own card.
-
-function SellTemplateCard({ project, phases }: { project: Project; phases: Phase[] }): React.JSX.Element {
-  const setProject = useModule1Store((s) => s.setProject);
-  const template = project.revenueTemplates?.sell ?? DEFAULT_SELL_TEMPLATE;
-  const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
-  const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
-  const effectiveTotalPeriods = useMemo(() => {
-    let maxEnd = Math.max(1, timeline.totalPeriods);
-    for (const p of phases) {
-      const ps = p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear;
-      const psIdx = Math.max(0, ps - projectStartYear);
-      const phaseLen = Math.max(0, (p.constructionPeriods ?? 0) + (p.operationsPeriods ?? 0) - (p.overlapPeriods ?? 0));
-      if (psIdx + phaseLen > maxEnd) maxEnd = psIdx + phaseLen;
-    }
-    return maxEnd;
-  }, [timeline.totalPeriods, phases, projectStartYear]);
-  const cells: WindowCell[] = useMemo(
-    () => Array.from({ length: effectiveTotalPeriods }, (_, i) => ({ idx: i, year: projectStartYear + i, isHandover: false })),
-    [effectiveTotalPeriods, projectStartYear],
-  );
-
-  const updateTemplate = (patch: Partial<NonNullable<NonNullable<Project['revenueTemplates']>['sell']>>): void => {
-    setProject({
-      revenueTemplates: {
-        ...(project.revenueTemplates ?? {}),
-        sell: { ...template, ...patch },
-      },
-    });
-  };
-
-  const setCashPct = (idx: number, pct: number): void => {
-    const next = paddedArray(template.cashPaymentProfile.percentages, effectiveTotalPeriods);
-    next[idx] = Math.max(0, Math.min(1, pct / 100));
-    updateTemplate({
-      cashPaymentProfile: { ...template.cashPaymentProfile, percentages: next },
-    });
-  };
-
-  const setRecMethod = (method: 'point_in_time' | 'over_time'): void => {
-    updateTemplate({
-      recognitionProfile: {
-        method,
-        pointInTimeYear: template.recognitionProfile.pointInTimeYear ?? 'handover',
-        percentages: method === 'over_time'
-          ? template.recognitionProfile.percentages ?? new Array<number>(effectiveTotalPeriods).fill(0)
-          : undefined,
-        positions: template.recognitionProfile.positions,
-        profileMode: template.recognitionProfile.profileMode ?? 'absolute_with_catchup',
-      },
-    });
-  };
-
-  const setRecPct = (idx: number, pct: number): void => {
-    if (template.recognitionProfile.method !== 'over_time') return;
-    const next = paddedArray(template.recognitionProfile.percentages, effectiveTotalPeriods);
-    next[idx] = Math.max(0, Math.min(1, pct / 100));
-    updateTemplate({
-      recognitionProfile: { ...template.recognitionProfile, percentages: next },
-    });
-  };
-
-  const setIdxMethod = (method: 'none' | 'single_rate' | 'yoy_compound' | 'step'): void => {
-    updateTemplate({ indexation: { ...template.indexation, method } });
-  };
-  const setIdxRate = (pct: number): void => {
-    updateTemplate({ indexation: { ...template.indexation, rate: Math.max(0, pct / 100) } });
-  };
-
-  const cashSum = template.cashPaymentProfile.percentages.reduce((s, v) => s + v, 0);
-  const cashSumOk = Math.abs(cashSum - 1) < 0.005;
-  const recSum = (template.recognitionProfile.percentages ?? []).reduce((s, v) => s + v, 0);
-  const recSumOk = template.recognitionProfile.method === 'point_in_time' || Math.abs(recSum - 1) < 0.005;
-
-  return (
-    <div
-      data-testid="m2-sell-template-card"
-      style={{
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-navy)',
-        borderRadius: 'var(--radius-sm)',
-        padding: 'var(--sp-2)',
-        marginBottom: 'var(--sp-3)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)', flexWrap: 'wrap', gap: 8 }}>
-        <strong style={{ fontSize: 13, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Project-Wide Sell Template
-        </strong>
-        <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>
-          Applies to every Sell + Sell+Manage asset. Per-asset override via the chip on each card.
-        </span>
-      </div>
-
-      {/* Indexation */}
-      <InlineSection title="Price Indexation">
-        <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <MethodPill active={template.indexation.method === 'none'} label="None" onClick={() => setIdxMethod('none')} />
-          <MethodPill active={template.indexation.method === 'single_rate'} label="Single-Rate" onClick={() => setIdxMethod('single_rate')} />
-          <MethodPill active={template.indexation.method === 'yoy_compound'} label="YoY Compound" onClick={() => setIdxMethod('yoy_compound')} />
-          <MethodPill active={template.indexation.method === 'step'} label="Step" onClick={() => setIdxMethod('step')} />
-          {template.indexation.method !== 'none' && template.indexation.method !== 'step' && (
-            <>
-              <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
-              <div style={{ width: 80 }}>
-                <PercentageInput
-                  value={(template.indexation.rate ?? 0) * 100}
-                  onChange={setIdxRate}
-                  min={0}
-                  max={50}
-                  decimals={2}
-                  style={FAST_INPUT}
-                  data-testid="m2-tpl-idx-rate"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </InlineSection>
-
-      {/* Cash payment profile */}
-      <div style={{ marginTop: 'var(--sp-2)' }}>
-        <InlineSection
-          title="Cash Payment Profile (per project year)"
-          hint="Milestones expressed as % of cohort value collected at each project year. Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
-          tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
-          tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
-        >
-          <InlineProfileStrip
-            cells={cells}
-            values={template.cashPaymentProfile.percentages}
-            onChange={setCashPct}
-          />
-        </InlineSection>
-      </div>
-
-      {/* Recognition */}
-      <div style={{ marginTop: 'var(--sp-2)' }}>
-        <InlineSection title="Revenue Recognition">
-          <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-            <MethodPill active={template.recognitionProfile.method === 'point_in_time'} label="Point-in-Time" onClick={() => setRecMethod('point_in_time')} />
-            <MethodPill active={template.recognitionProfile.method === 'over_time'} label="Over-Time" onClick={() => setRecMethod('over_time')} />
-            {template.recognitionProfile.method === 'over_time' && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: recSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)', marginLeft: 8 }}>
-                Sum: {(recSum * 100).toFixed(1)}%
-              </span>
-            )}
-          </div>
-          {template.recognitionProfile.method === 'over_time' && (
-            <InlineProfileStrip
-              cells={cells}
-              values={template.recognitionProfile.percentages ?? []}
-              onChange={setRecPct}
-            />
-          )}
-          {template.recognitionProfile.method === 'point_in_time' && (
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic' }}>
-              Cohort revenue lumps at handover year of its phase.
-            </div>
-          )}
-        </InlineSection>
-      </div>
     </div>
   );
 }

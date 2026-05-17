@@ -40,42 +40,38 @@ import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, Project, SubUnit } from './state/module1-types';
 
 /**
- * Default Sell template seed used when project.revenueTemplates.sell is
- * not set. Empty profile arrays; user fills them via the template card
- * on Tab 1 Inputs.
+ * Default Sell asset seed used when fields are missing on a fresh
+ * asset. Pass 7g (2026-05-17) removed the project-wide template; each
+ * asset owns its own cash + recognition + indexation. The DEFAULT_*
+ * objects below are the empty / "no schedule" baselines that the
+ * resolver returns when the asset hasn't been edited yet.
+ *
+ * Exported because the Output tab uses them as render fallbacks when
+ * the user hasn't filled a profile yet.
  */
-export const DEFAULT_SELL_TEMPLATE: NonNullable<NonNullable<Project['revenueTemplates']>['sell']> = {
-  cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
-  recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
-  indexation: { method: 'none' },
-};
+const DEFAULT_CASH_PROFILE: CashPaymentProfile = { percentages: [], profileMode: 'absolute_with_catchup' };
+const DEFAULT_RECOGNITION_PROFILE: RecognitionProfile = { method: 'point_in_time', pointInTimeYear: 'handover' };
+const DEFAULT_INDEXATION: IndexationConfig = { method: 'none' };
+export const DEFAULT_SELL_TEMPLATE = {
+  cashPaymentProfile: DEFAULT_CASH_PROFILE,
+  recognitionProfile: DEFAULT_RECOGNITION_PROFILE,
+  indexation: DEFAULT_INDEXATION,
+} as const;
 
 /**
- * Build an AssetSellConfig for the engine. Reads cash + recognition +
- * indexation from the project template UNLESS the asset has
- * overrideProfile=true, in which case the asset's own values win.
- * Velocity stays per-asset always (depends on per-sub-unit area).
+ * Build an AssetSellConfig for the engine. Pass 7g: reads cash +
+ * recognition + indexation directly from the asset; defaults fill
+ * unset fields. No project-level template, no override flag.
  */
-export function resolveSellConfig(asset: Asset, project: Project): AssetSellConfig | null {
+export function resolveSellConfig(asset: Asset, _project: Project): AssetSellConfig | null {
   const cfg = asset.revenue?.sell;
   if (!cfg) return null;
-  const tpl = project.revenueTemplates?.sell ?? DEFAULT_SELL_TEMPLATE;
-  const override = cfg.overrideProfile === true;
-  const cashPaymentProfile: CashPaymentProfile = override && cfg.cashPaymentProfile
-    ? cfg.cashPaymentProfile
-    : tpl.cashPaymentProfile;
-  const recognitionProfile: RecognitionProfile = override && cfg.recognitionProfile
-    ? cfg.recognitionProfile
-    : tpl.recognitionProfile;
-  const indexation: IndexationConfig = override && cfg.indexation
-    ? cfg.indexation
-    : tpl.indexation;
   return {
     assetId: asset.id,
     subUnits: cfg.subUnits,
-    cashPaymentProfile,
-    recognitionProfile,
-    indexation,
+    cashPaymentProfile: cfg.cashPaymentProfile ?? DEFAULT_CASH_PROFILE,
+    recognitionProfile: cfg.recognitionProfile ?? DEFAULT_RECOGNITION_PROFILE,
+    indexation: cfg.indexation ?? DEFAULT_INDEXATION,
     handoverYearOverride: cfg.handoverYearOverride,
   };
 }

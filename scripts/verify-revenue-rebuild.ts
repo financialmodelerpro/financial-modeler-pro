@@ -187,18 +187,28 @@ const expectedSold = totalSubUnitArea * (0.05 + 0.30 + 0.30 + 0.25); // cumulati
 assertNear('B8: sum of area sold = totalArea * cumulative velocity', totalAreaSold, expectedSold, 1, 0.01);
 
 // ───────────────────────────────────────────────────────────────
-// Fixture D: template cascade via resolveSellConfig (Pass 7e)
+// Fixture D: resolveSellConfig is per-asset only (Pass 7g)
+// Project-wide template removed; resolver reads cash + recognition +
+// indexation straight from the asset (with empty defaults when unset).
 // ───────────────────────────────────────────────────────────────
-console.log('--- Fixture D: template cascade (Pass 7e) ---');
+console.log('--- Fixture D: resolveSellConfig per-asset (Pass 7g) ---');
 
 import { resolveSellConfig, DEFAULT_SELL_TEMPLATE } from '@/src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
 
-// Synthetic project with a template
-const tplProject = {
+// Synthetic project, no template. revenueTemplates is now @deprecated
+// and ignored even when present, so we omit it entirely.
+const perAssetProject = {
   startDate: '2025-01-01',
   currency: 'SAR',
-  revenueTemplates: {
+};
+
+const customAsset = {
+  id: 'a-1',
+  strategy: 'Sell',
+  revenue: {
     sell: {
+      assetId: 'a-1',
+      subUnits: [{ subUnitId: 'su-1', preSalesVelocity: [], postSalesVelocity: [] }],
       cashPaymentProfile: { percentages: [0, 0.2, 0.3, 0.3, 0.15, 0.05, 0], profileMode: 'absolute_with_catchup' as const },
       recognitionProfile: { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const },
       indexation: { method: 'yoy_compound' as const, rate: 0.03, startYear: 0 },
@@ -206,49 +216,54 @@ const tplProject = {
   },
 };
 
-const trackingAsset = {
-  id: 'a-track',
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const customResolved = resolveSellConfig(customAsset as any, perAssetProject as any);
+assertTrue('D1: asset cash profile resolves to asset values',
+  customResolved?.cashPaymentProfile.percentages[1] === 0.2,
+  `got ${customResolved?.cashPaymentProfile.percentages[1]}`);
+assertTrue('D2: asset indexation rate resolves to asset value',
+  customResolved?.indexation.rate === 0.03,
+  `got rate ${customResolved?.indexation.rate}`);
+
+// Asset without per-asset profile fields: resolver returns the empty
+// defaults (no schedule, no indexation).
+const bareAsset = {
+  id: 'a-bare',
   strategy: 'Sell',
   revenue: {
     sell: {
-      assetId: 'a-track',
+      assetId: 'a-bare',
       subUnits: [{ subUnitId: 'su-1', preSalesVelocity: [], postSalesVelocity: [] }],
-      cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' as const },
-      recognitionProfile: { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const },
-      indexation: { method: 'none' as const },
-      // overrideProfile undefined => tracks template
     },
   },
 };
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const trackingResolved = resolveSellConfig(trackingAsset as any, tplProject as any);
-assertTrue('D1: tracking asset cash profile == template', JSON.stringify(trackingResolved?.cashPaymentProfile) === JSON.stringify(tplProject.revenueTemplates.sell.cashPaymentProfile),
-  trackingResolved ? `got cash ${JSON.stringify(trackingResolved.cashPaymentProfile)}` : 'resolver returned null');
-assertTrue('D2: tracking asset indexation rate == template', trackingResolved?.indexation.rate === 0.03,
-  `got rate ${trackingResolved?.indexation.rate}`);
+const bareResolved = resolveSellConfig(bareAsset as any, perAssetProject as any);
+assertTrue('D3: bare asset cash profile is empty default',
+  (bareResolved?.cashPaymentProfile.percentages.length ?? -1) === 0,
+  `got len ${bareResolved?.cashPaymentProfile.percentages.length}`);
 
-const overrideAsset = {
-  ...trackingAsset,
-  id: 'a-ovr',
-  revenue: {
+// D4: legacy revenueTemplates on the project is IGNORED by the resolver
+// (deprecated). Even when present, the asset still wins.
+const legacyTemplateProject = {
+  ...perAssetProject,
+  revenueTemplates: {
     sell: {
-      ...trackingAsset.revenue.sell,
-      assetId: 'a-ovr',
-      overrideProfile: true,
       cashPaymentProfile: { percentages: [1, 0, 0, 0, 0, 0, 0], profileMode: 'absolute_with_catchup' as const },
-      indexation: { method: 'none' as const },
+      recognitionProfile: { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const },
+      indexation: { method: 'yoy_compound' as const, rate: 0.10, startYear: 0 },
     },
   },
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const overrideResolved = resolveSellConfig(overrideAsset as any, tplProject as any);
-assertTrue('D3: override asset cash profile == asset values, not template',
-  overrideResolved?.cashPaymentProfile.percentages[0] === 1,
-  `got ${overrideResolved?.cashPaymentProfile.percentages[0]}`);
+const ignoredTplResolved = resolveSellConfig(bareAsset as any, legacyTemplateProject as any);
+assertTrue('D4: legacy project template is ignored by per-asset resolver',
+  (ignoredTplResolved?.cashPaymentProfile.percentages.length ?? -1) === 0
+    && ignoredTplResolved?.indexation.method === 'none',
+  `got len=${ignoredTplResolved?.cashPaymentProfile.percentages.length} idx=${ignoredTplResolved?.indexation.method}`);
 
-// D4: template default has zero percentages (no accidental seed)
-assertTrue('D4: DEFAULT_SELL_TEMPLATE has empty cash percentages',
+// D5: DEFAULT_SELL_TEMPLATE exported (used by Output tab as fallback)
+assertTrue('D5: DEFAULT_SELL_TEMPLATE has empty cash percentages',
   DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length === 0,
   `len=${DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length}`);
 

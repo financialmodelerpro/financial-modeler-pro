@@ -326,13 +326,12 @@ export interface Project {
   // legacy v8 snapshots stay valid; migrateM20MFinancing stamps a
   // default-on-Method-1 wrapper when missing.
   financing?: ProjectFinancingConfig;
-  // M2 Pass 7e (2026-05-17): project-level revenue templates per
-  // strategy. Each Sell / Operate / Lease asset reads cash + recognition
-  // + indexation from the matching template by default. Per-asset
-  // override available via Asset.revenue.sell.overrideProfile.
-  // Velocity stays per-asset (depends on per-sub-unit area).
-  // Operate + Lease templates ship in M2 Passes 8 and 9; the slots are
-  // reserved here so the schema lands once.
+  /**
+   * @deprecated M2 Pass 7g (2026-05-17): project-wide revenue templates
+   * removed; every Sell / Operate / Lease asset owns its own cash +
+   * recognition + indexation directly. Field kept on the schema so
+   * legacy snapshots load without throwing; the engine ignores it.
+   */
   revenueTemplates?: {
     sell?: {
       cashPaymentProfile: {
@@ -727,12 +726,9 @@ export interface Asset {
       };
       handoverYearOverride?: number;
       /**
-       * M2 Pass 7e (2026-05-17): per-asset profile override. When true,
-       * this asset's cashPaymentProfile + recognitionProfile + indexation
-       * win over the project-level revenueTemplates.sell template. When
-       * false / undefined, the engine reads from the template so any edit
-       * to the template propagates to every non-overridden asset of the
-       * same strategy.
+       * @deprecated M2 Pass 7g (2026-05-17): per-asset only, the project
+       * template is gone so override no longer means anything. Field
+       * kept so older snapshots still parse; engine ignores it.
        */
       overrideProfile?: boolean;
       /** @deprecated M2 Pass 7d (2026-05-17): multi-cohort Advanced modal removed. Single implicit cohort drives the engine via top-level subUnits + profiles. Field kept for snapshot back-compat; engine ignores it on load. */
