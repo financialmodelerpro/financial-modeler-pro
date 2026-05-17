@@ -966,7 +966,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
         <tbody>
           <tr>
             <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
-              % of cohort value
+              Profile %
             </td>
             <td style={BODY_TOTAL_CELL}>{stripTotalPct}</td>
             {cells.map((c) => (
@@ -982,6 +982,34 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
                 />
               </td>
             ))}
+          </tr>
+          <tr>
+            <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)', background: 'var(--color-grey-pale)' }}>
+              Cumulative %
+            </td>
+            <td style={{ ...BODY_TOTAL_CELL, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>{stripTotalPct}</td>
+            {(() => {
+              let running = 0;
+              return cells.map((c) => {
+                running += Math.max(0, values[c.idx] ?? 0);
+                return (
+                  <td
+                    key={c.idx}
+                    style={{
+                      padding: '4px 6px',
+                      textAlign: 'right',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: 'var(--color-meta)',
+                      background: 'var(--color-grey-pale)',
+                    }}
+                    data-testid={testidPrefix ? `${testidPrefix}-cum-${c.idx}` : `m2-profile-cum-${c.idx}`}
+                  >
+                    {running > 0 ? `${(running * 100).toFixed(1)}%` : '-'}
+                  </td>
+                );
+              });
+            })()}
           </tr>
         </tbody>
       </table>
