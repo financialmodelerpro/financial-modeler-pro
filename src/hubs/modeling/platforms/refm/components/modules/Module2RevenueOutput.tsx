@@ -282,21 +282,18 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
               const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
 
-              // 5 + 6: AR + Unearned per asset, per-cohort via vintage
-              // matrices so the gross positions are captured correctly.
+              // 5 + 6: AR + Unearned per asset (Pass 7q sale-value driven).
+              // AR  = Pre-Sales Sale Value - Cash Received
+              // UR  = Pre-Sales Sale Value - Revenue Recognised
               const ar = buildAccountsReceivable(
-                r.recognitionPerPeriod,
-                r.cashCollectedPerPeriod,
+                r.presalesRevenuePerPeriod,
+                r.presalesCashPerPeriod,
                 r.axisLength,
-                r.recognitionVintageMatrix,
-                r.cashVintageMatrix,
               );
               const ur = buildUnearnedRevenue(
-                r.recognitionPerPeriod,
-                r.cashCollectedPerPeriod,
+                r.presalesRecognitionPerPeriod,
+                r.presalesRevenuePerPeriod,
                 r.axisLength,
-                r.recognitionVintageMatrix,
-                r.cashVintageMatrix,
               );
 
               // Captions
@@ -449,16 +446,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 5. Accounts Receivable, roll-forward floored */}
+                  {/* 5. Accounts Receivable, sale-value driven roll-forward */}
                   <SectionHeading n="5" title="Accounts Receivable" />
                   <PeriodTable
-                    title="5. Accounts Receivable (per-cohort, mirrors MAAD BS Build section 5)"
-                    formula="Per cohort s (sale year): AR_s[y] = MAX(0, cumRec_s[y] - cumCash_s[y]) using the recognition + cash vintage matrices. Aggregate AR[y] = sum across cohorts. Captures the gross AR position correctly across mixed cohorts (handles PIT-at-handover where rec lumps later than cash). MAAD wires Recognised = Revenue!L164+L165+L166 (per-asset accrual), Cash = Revenue!L22 (pre-sales cash); we feed the same accrual + cash streams."
+                    title="5. Accounts Receivable (Sales Receivable roll-forward)"
+                    formula="Closing[y] = Opening[y] + Pre-Sales Sale Value[y] - Cash Received[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Sale value (Block 2a) credits the receivable at contract signing; cash received via the milestone profile drains it. Settles to 0 when total cash equals total pre-sales sale value."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening AR', values: ar.openingPerPeriod },
-                      { label: '(+) Revenue Recognised', values: r.recognitionPerPeriod },
-                      { label: '(-) Cash Collected', values: r.cashCollectedPerPeriod.map((v) => -v) },
+                      { label: '(+) Pre-Sales Sale Value', values: r.presalesRevenuePerPeriod },
+                      { label: '(-) Cash Received', values: r.presalesCashPerPeriod.map((v) => -v) },
                       { label: 'Change in AR (CF delta)', values: ar.changePerPeriod, kind: 'subtotal' },
                       { label: 'Closing AR', values: ar.perPeriod, kind: 'grand' },
                     ]}
@@ -466,16 +463,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 6. Unearned Revenue, roll-forward floored (IFRS 15) */}
+                  {/* 6. Unearned Revenue, sale-value driven roll-forward */}
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
-                    title="6. Unearned Revenue (signed roll-forward)"
-                    formula="Closing[y] = Opening[y] + Pre-Sales Cash Collected[y] - Revenue Recognised[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Signed: positive Closing = deferred revenue (cash held ahead of recognition); negative Closing = AR position (recognition has overshot cash). Closing settles to 0 by end of contract life when total cash = total recognition."
+                    title="6. Unearned Revenue (Contract Liability roll-forward)"
+                    formula="Closing[y] = Opening[y] + Pre-Sales Sale Value[y] - Revenue Recognised[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Sale value (Block 2a) credits the obligation at contract signing; recognition via the recognition profile drains it. Settles to 0 when total recognition equals total pre-sales sale value."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening Unearned', values: ur.openingPerPeriod },
-                      { label: '(+) Cash Collected', values: r.cashCollectedPerPeriod },
-                      { label: '(-) Revenue Recognised', values: r.recognitionPerPeriod.map((v) => -v) },
+                      { label: '(+) Pre-Sales Sale Value', values: r.presalesRevenuePerPeriod },
+                      { label: '(-) Revenue Recognised', values: r.presalesRecognitionPerPeriod.map((v) => -v) },
                       { label: 'Change in Unearned (CF delta)', values: ur.changePerPeriod, kind: 'subtotal' },
                       { label: 'Closing Unearned', values: ur.perPeriod, kind: 'grand' },
                     ]}

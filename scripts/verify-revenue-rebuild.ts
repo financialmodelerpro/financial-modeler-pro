@@ -285,35 +285,24 @@ assertTrue('D5: DEFAULT_SELL_TEMPLATE has empty cash percentages',
   `len=${DEFAULT_SELL_TEMPLATE.cashPaymentProfile.percentages.length}`);
 
 // ───────────────────────────────────────────────────────────────
-// Fixture E: AR + Unearned per-cohort via vintage matrices
-// (Pass 7m). Aggregate roll-forward floored (Pass 7k) lost early
-// recognition deficits to the per-period floor and stuck the closing
-// balance. Per-cohort fixes that: AR_s + UR_s computed per cohort,
-// then summed.
+// Fixture E: AR + Unearned sale-value driven (Pass 7q)
+// Sale value drives the credit on both schedules; cash drains
+// AR; recognition drains UR. Both settle to 0 by end of cohort
+// lifecycle.
 // ───────────────────────────────────────────────────────────────
-console.log('--- Fixture E: AR + Unearned per-cohort (Pass 7m) ---');
+console.log('--- Fixture E: AR + Unearned sale-value driven (Pass 7q) ---');
 
 import { buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
 
-// Reuse Fixture B (real cohort matrices) for the per-cohort path.
-// Recognition profile and cash profile both sum to 100% per cohort,
-// so by end of the matrix every cohort settles: UR closes at 0, AR
-// closes at 0. Mid-stream AR > 0 because Over-Time recognition is
-// staggered vs the cash payment milestone schedule.
-
 const arB = buildAccountsReceivable(
-  resultB.recognitionPerPeriod,
-  resultB.cashCollectedPerPeriod,
+  resultB.presalesRevenuePerPeriod,
+  resultB.presalesCashPerPeriod,
   resultB.axisLength,
-  resultB.recognitionVintageMatrix,
-  resultB.cashVintageMatrix,
 );
 const urB = buildUnearnedRevenue(
-  resultB.recognitionPerPeriod,
-  resultB.cashCollectedPerPeriod,
+  resultB.presalesRecognitionPerPeriod,
+  resultB.presalesRevenuePerPeriod,
   resultB.axisLength,
-  resultB.recognitionVintageMatrix,
-  resultB.cashVintageMatrix,
 );
 
 assertTrue('E1: AR Opening[0] = 0',
@@ -325,10 +314,7 @@ assertTrue('E2: AR Closing[i] = Opening[i+1] across full axis',
 assertTrue('E3: AR change = Closing - Opening',
   arB.changePerPeriod.every((d, i) => Math.abs(d - (arB.perPeriod[i] - arB.openingPerPeriod[i])) < 1e-6),
   `change=${JSON.stringify(arB.changePerPeriod)}`);
-// Per-cohort: by the final period both Rec and Cash totals equal the
-// cohort sale value, so each cohort settles. Final closing AR + UR
-// must both be 0 (no stuck balance).
-assertNear('E4: AR settles to 0 by end of recognition',
+assertNear('E4: AR settles to 0 by end of cash collection',
   arB.perPeriod[arB.perPeriod.length - 1], 0, 1, 0.01);
 assertNear('E5: Unearned settles to 0 by end of recognition',
   urB.perPeriod[urB.perPeriod.length - 1], 0, 1, 0.01);
@@ -339,48 +325,74 @@ assertTrue('E7: Unearned change = Closing - Opening',
   urB.changePerPeriod.every((d, i) => Math.abs(d - (urB.perPeriod[i] - urB.openingPerPeriod[i])) < 1e-6),
   `change=${JSON.stringify(urB.changePerPeriod)}`);
 
-// Regression: a hand-traced 2-cohort fixture where one cohort has
-// rec-ahead-of-cash and another has cash-ahead-of-rec at the same
-// period. Aggregate netting would zero them out; per-cohort sums
-// keep both gross positions visible.
-const recMat = [
-  [0, 100, 0, 0],   // cohort 0: rec all in period 1
-  [0,   0, 0, 100], // cohort 1: rec all in period 3
-];
-const cashMat = [
-  [0,  50, 50, 0], // cohort 0: cash split 50/50 across p1, p2
-  [0, 100,  0, 0], // cohort 1: cash all in period 1
-];
-const recPP = [0, 100, 0, 100];
-const cashPP = [0, 150, 50, 0];
-const arSym = buildAccountsReceivable(recPP, cashPP, 4, recMat, cashMat);
-const urSym = buildUnearnedRevenue(recPP, cashPP, 4, recMat, cashMat);
-// At period 1:
-//   cohort 0 cum: rec=100, cash=50 -> AR=50, UR=0
-//   cohort 1 cum: rec=0,   cash=100 -> AR=0,  UR=100
-//   aggregate AR=50, UR=100. Cumulative netting would have given 0/50.
-// Pass 7m: AR is per-cohort (gross positions visible).
-// Pass 7n: UR is signed roll-forward (aggregate netted, NOT per-cohort).
-// In a mixed 2-cohort fixture the two diverge:
-//   Per-cohort AR period 1 = cohort_0_AR (50) + cohort_1_AR (0) = 50
-//   Signed UR period 1     = cumCash (150) - cumRec (100)        = 50
-assertTrue('E8: AR (per-cohort) sees cohort_0 receivable',
-  arSym.perPeriod[1] === 50,
-  `got AR ${JSON.stringify(arSym.perPeriod)}`);
-assertTrue('E9: UR (signed roll-forward) = cumCash - cumRec at period 1',
-  urSym.perPeriod[1] === 50,
-  `got UR ${JSON.stringify(urSym.perPeriod)}`);
-// Period 2: cumCash=200, cumRec=100. Signed UR = 100. AR per-cohort = 0
-// (cohort_0 fully cashed, cohort_1 still no rec yet).
-assertTrue('E9b: UR (signed) at period 2 = 100',
-  urSym.perPeriod[2] === 100,
-  `got UR ${JSON.stringify(urSym.perPeriod)}`);
-// By final period: cohort 0 fully settled (cum rec = cum cash = 100),
-// cohort 1 fully settled (cum rec = cum cash = 100). Both at 0.
-assertNear('E10: 2-cohort final AR = 0',
-  arSym.perPeriod[3], 0, 0.01);
-assertNear('E11: 2-cohort final UR = 0',
-  urSym.perPeriod[3], 0, 0.01);
+// Pass 7q removed the old per-cohort cash-vs-rec hand-traced
+// fixture (E8-E11). The sale-value formula no longer accepts
+// (recognition, cash) as positional args; Fixture F covers the
+// new semantics.
+
+// ───────────────────────────────────────────────────────────────
+// Fixture F: AR + Unearned sale-value driven (Pass 7q)
+// Sale value drives the credit on BOTH schedules. AR drains via
+// cash; UR drains via recognition. Both settle to 0 by end.
+// ───────────────────────────────────────────────────────────────
+console.log('--- Fixture F: AR + Unearned sale-value driven (Pass 7q) ---');
+
+// Hand-traced 2-cohort fixture.
+//   Cohort A sold year 0, value 100. Cash collected [0, 50, 50, 0].
+//   Cohort B sold year 1, value 200. Cash collected [0, 0, 100, 100].
+//   Aggregate sale value per year: [100, 200, 0, 0].
+//   Aggregate cash per year:        [0,  50, 150, 100].
+// AR closing per period:
+//   y0: 0   + 100 - 0   = 100
+//   y1: 100 + 200 - 50  = 250
+//   y2: 250 + 0   - 150 = 100
+//   y3: 100 + 0   - 100 = 0
+const saleAgg = [100, 200, 0, 0];
+const cashAgg = [0, 50, 150, 100];
+const arSV = buildAccountsReceivable(saleAgg, cashAgg, 4);
+assertTrue('F1: sale-value AR series matches hand trace',
+  JSON.stringify(arSV.perPeriod) === JSON.stringify([100, 250, 100, 0]),
+  `got ${JSON.stringify(arSV.perPeriod)}`);
+assertNear('F2: sale-value AR final = 0', arSV.perPeriod[3], 0, 0.01);
+
+// UR closing per period using PIT recognition at year 3 (lumps 300):
+//   recognition per year: [0, 0, 0, 300]
+//   y0: 0   + 100 - 0   = 100
+//   y1: 100 + 200 - 0   = 300
+//   y2: 300 + 0   - 0   = 300
+//   y3: 300 + 0   - 300 = 0
+const recPIT_SV = [0, 0, 0, 300];
+const urSV = buildUnearnedRevenue(recPIT_SV, saleAgg, 4);
+assertTrue('F3: sale-value UR series matches hand trace (PIT)',
+  JSON.stringify(urSV.perPeriod) === JSON.stringify([100, 300, 300, 0]),
+  `got ${JSON.stringify(urSV.perPeriod)}`);
+assertNear('F4: sale-value UR final = 0', urSV.perPeriod[3], 0, 0.01);
+
+// Symmetry: when cash profile == recognition profile, AR == UR.
+const matched = [0, 50, 150, 100];
+const arMatched = buildAccountsReceivable(saleAgg, matched, 4);
+const urMatched = buildUnearnedRevenue(matched, saleAgg, 4);
+assertTrue('F5: AR == UR when cash profile == recognition profile',
+  JSON.stringify(arMatched.perPeriod) === JSON.stringify(urMatched.perPeriod),
+  `AR=${JSON.stringify(arMatched.perPeriod)} UR=${JSON.stringify(urMatched.perPeriod)}`);
+
+// Fixture B (real engine output) under Pass 7q:
+//   AR  = presalesRevenuePerPeriod (sale) - presalesCashPerPeriod
+//   UR  = presalesRevenuePerPeriod (sale) - presalesRecognitionPerPeriod
+const arBsv = buildAccountsReceivable(
+  resultB.presalesRevenuePerPeriod,
+  resultB.presalesCashPerPeriod,
+  resultB.axisLength,
+);
+const urBsv = buildUnearnedRevenue(
+  resultB.presalesRecognitionPerPeriod,
+  resultB.presalesRevenuePerPeriod,
+  resultB.axisLength,
+);
+assertNear('F6: fixture B sale-value AR settles to 0',
+  arBsv.perPeriod[arBsv.perPeriod.length - 1], 0, 1, 0.01);
+assertNear('F7: fixture B sale-value UR settles to 0',
+  urBsv.perPeriod[urBsv.perPeriod.length - 1], 0, 1, 0.01);
 
 // Report
 let pass = 0;

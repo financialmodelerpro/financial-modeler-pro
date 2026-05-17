@@ -256,19 +256,17 @@ export function computeAssetScheduleBundle(
   result: SellAssetResult,
 ): AssetScheduleBundle {
   const N = result.axisLength;
+  // Pass 7q: sale value drives both AR + UR (gross obligation).
+  // AR unwinds via cash; Unearned unwinds via recognition.
   const ar = buildAccountsReceivable(
-    result.recognitionPerPeriod,
-    result.cashCollectedPerPeriod,
+    result.presalesRevenuePerPeriod,
+    result.presalesCashPerPeriod,
     N,
-    result.recognitionVintageMatrix,
-    result.cashVintageMatrix,
   );
   const unearned = buildUnearnedRevenue(
-    result.recognitionPerPeriod,
-    result.cashCollectedPerPeriod,
+    result.presalesRecognitionPerPeriod,
+    result.presalesRevenuePerPeriod,
     N,
-    result.recognitionVintageMatrix,
-    result.cashVintageMatrix,
   );
   const capex = computeAssetCapex(state, result.assetId);
   const cos = buildCostOfSales(result.recognitionPerPeriod, capex, N);
