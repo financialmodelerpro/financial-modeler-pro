@@ -436,11 +436,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 5. Accounts Receivable, MAAD-style roll-forward */}
+                  {/* 5. Accounts Receivable, roll-forward floored */}
                   <SectionHeading n="5" title="Accounts Receivable" />
                   <PeriodTable
-                    title="5. Accounts Receivable (roll-forward, MAAD BS Build section 5)"
-                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Revenue Recognised - Cash Collected). Roll-forward floored each period: once AR drops to 0 the overhang doesn't carry forward."
+                    title="5. Accounts Receivable (roll-forward, mirrors MAAD BS Build section 5)"
+                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Revenue Recognised - Cash Collected). Roll-forward floored each period: once AR drops to 0 the overhang doesn't carry forward. MAAD wires Recognised = Revenue!L164+L165+L166 (per-asset accrual), Cash = Revenue!L22 (pre-sales cash); we feed the same accrual stream + cash stream so the math ties out cell-for-cell."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening AR', values: ar.openingPerPeriod },
@@ -453,11 +453,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 6. Unearned Revenue, MAAD-style roll-forward */}
+                  {/* 6. Unearned Revenue, roll-forward floored (IFRS 15) */}
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
-                    title="6. Unearned Revenue (roll-forward, MAAD BS Build section 4)"
-                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Cash Collected - Revenue Recognised). Roll-forward floored each period: once Unearned unwinds to 0, new cash overruns build it back up."
+                    title="6. Unearned Revenue (roll-forward, MAAD BS Build section 4 wiring corrected)"
+                    formula="Opening[y] = Closing[y-1] (Opening[0] = 0). Closing[y] = MAX(0, Opening + Cash Collected - Revenue Recognised). Roll-forward floored each period: once Unearned unwinds to 0, new cash overruns build it back up. Note: MAAD v1.16 section 4 wires both inputs at L22 (cash), so its Unearned column always reports 0. We use accrual recognition (Revenue!L170) instead, which is the IFRS 15 deferred-revenue stock and matches what audit expects."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening Unearned', values: ur.openingPerPeriod },
