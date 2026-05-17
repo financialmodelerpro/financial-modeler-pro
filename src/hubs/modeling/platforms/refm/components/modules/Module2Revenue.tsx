@@ -29,6 +29,7 @@ import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculati
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { PercentageInput } from '../ui/PercentageInput';
 import Module2SellModal from '../modals/Module2SellModal';
+import { CELL_HEADER } from './_shared/tableStyles';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -249,8 +250,25 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
   }, [assetCollapsed, assetCollapseKey]);
 
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
-  const totalPeriods = Math.max(1, timeline.totalPeriods);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
+  // Universal-styling-fix (2026-05-17): computeProjectTimeline returns
+  // YEARS ELAPSED (endYear - startYear), which is off-by-one for slot
+  // count and causes the Post-Sales operations window to collapse when
+  // a phase's operations extend up to the project end. The financing
+  // engine's buildProjectAxis uses `max(phaseOffset + cp + op - overlap)`
+  // which gives the correct INCLUSIVE slot count. Mirror that derivation
+  // here so M2's axis can never collapse below the data extent.
+  const effectiveTotalPeriods = useMemo(() => {
+    let maxEnd = Math.max(1, timeline.totalPeriods);
+    for (const p of phases) {
+      const ps = p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear;
+      const psIdx = Math.max(0, ps - projectStartYear);
+      const phaseLen = Math.max(0, (p.constructionPeriods ?? 0) + (p.operationsPeriods ?? 0) - (p.overlapPeriods ?? 0));
+      if (psIdx + phaseLen > maxEnd) maxEnd = psIdx + phaseLen;
+    }
+    return maxEnd;
+  }, [timeline.totalPeriods, phases, projectStartYear]);
+  const totalPeriods = effectiveTotalPeriods;
   const yearLabels = useMemo(
     () => Array.from({ length: totalPeriods }, (_, i) => projectStartYear + i),
     [totalPeriods, projectStartYear],
@@ -731,22 +749,24 @@ interface InlineGridRow {
 type WindowCell = { idx: number; year: number; isHandover: boolean };
 
 function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: InlineGridRow[]; disabled?: boolean }): React.JSX.Element {
+  // Universal CELL_HEADER token (navy + white text, bold, centered). Sticky
+  // first column re-applies the navy background so the sub-unit label header
+  // stays solid on horizontal scroll. Handover column underlines with the
+  // accent color while keeping the white text required by rule 1
+  // ([[feedback_ui_universal_defaults]]).
+  const HEADER_STICKY: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
+  const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
+  const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: 'var(--color-surface-alt, #f3f4f6)' }}>
-            <th style={{ padding: '4px 6px', textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface-alt, #f3f4f6)', minWidth: 220 }}>Sub-unit · price</th>
+          <tr>
+            <th style={HEADER_STICKY}>Sub-unit · price</th>
             {cells.map((c) => (
               <th
                 key={c.idx}
-                style={{
-                  padding: '4px 6px',
-                  textAlign: 'center',
-                  minWidth: 55,
-                  color: c.isHandover ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
-                  fontWeight: c.isHandover ? 700 : 600,
-                }}
+                style={c.isHandover ? HEADER_HANDOVER : HEADER_YEAR}
                 title={c.isHandover ? `Handover ${c.year}` : String(c.year)}
               >
                 {c.year}{c.isHandover ? '*' : ''}
@@ -792,21 +812,18 @@ function InlineGrid({ cells, rows, disabled }: { cells: WindowCell[]; rows: Inli
 }
 
 function InlineProfileStrip({ cells, values, onChange }: { cells: WindowCell[]; values: number[]; onChange: (projectIdx: number, pct: number) => void }): React.JSX.Element {
+  const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
+  const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: 'var(--color-surface-alt, #f3f4f6)' }}>
+          <tr>
             {cells.map((c) => (
               <th
                 key={c.idx}
-                style={{
-                  padding: '4px 6px',
-                  textAlign: 'center',
-                  minWidth: 55,
-                  color: c.isHandover ? 'var(--color-info, #1d4ed8)' : 'var(--color-body)',
-                  fontWeight: c.isHandover ? 700 : 600,
-                }}
+                style={c.isHandover ? HEADER_HANDOVER : HEADER_YEAR}
+                title={c.isHandover ? `Handover ${c.year}` : String(c.year)}
               >
                 {c.year}{c.isHandover ? '*' : ''}
               </th>

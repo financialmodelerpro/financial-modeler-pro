@@ -57,8 +57,18 @@ export interface ProjectRevenueSnapshot {
 export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
   const { project, phases, assets, subUnits } = state;
   const timeline = computeProjectTimeline(project, phases);
-  const N = Math.max(1, timeline.totalPeriods);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
+  // Mirror buildProjectAxis: inclusive slot count derived from
+  // max(phaseOffset + cp + op - overlap), not endYear - startYear (which
+  // is years elapsed and off-by-one for the last operating year).
+  let maxEnd = Math.max(1, timeline.totalPeriods);
+  for (const p of phases) {
+    const ps = p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear;
+    const psIdx = Math.max(0, ps - projectStartYear);
+    const phaseLen = Math.max(0, (p.constructionPeriods ?? 0) + (p.operationsPeriods ?? 0) - (p.overlapPeriods ?? 0));
+    if (psIdx + phaseLen > maxEnd) maxEnd = psIdx + phaseLen;
+  }
+  const N = maxEnd;
   const yearLabels = Array.from({ length: N }, (_, i) => projectStartYear + i);
 
   const bySellAsset = new Map<string, SellAssetResult>();
