@@ -63,6 +63,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
 
   const bySellAsset = new Map<string, SellAssetResult>();
   const emptyArr = (): number[] => new Array<number>(N).fill(0);
+  const emptyMatrix = (): number[][] => { const m: number[][] = []; for (let i = 0; i < N; i++) m.push(new Array<number>(N).fill(0)); return m; };
 
   const projectTotals: SellAssetResult = {
     assetId: '__project__',
@@ -77,6 +78,9 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     recognitionPerPeriod: emptyArr(),
     escrowHeldPerPeriod: emptyArr(),
     escrowReleasedPerPeriod: emptyArr(),
+    presalesSalesValuePerPeriod: emptyArr(),
+    cashVintageMatrix: emptyMatrix(),
+    recognitionVintageMatrix: emptyMatrix(),
     escrowBalancePerPeriod: emptyArr(),
     netCashAvailablePerPeriod: emptyArr(),
   };
@@ -123,6 +127,12 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     acc('postSalesRevenuePerPeriod');
     acc('cashCollectedPerPeriod');
     acc('recognitionPerPeriod');
+    acc('presalesSalesValuePerPeriod');
+    // Vintage matrices accumulate by 2D sum
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      projectTotals.cashVintageMatrix[r][c] += result.cashVintageMatrix[r]?.[c] ?? 0;
+      projectTotals.recognitionVintageMatrix[r][c] += result.recognitionVintageMatrix[r]?.[c] ?? 0;
+    }
     acc('escrowHeldPerPeriod');
     acc('escrowReleasedPerPeriod');
     acc('escrowBalancePerPeriod');

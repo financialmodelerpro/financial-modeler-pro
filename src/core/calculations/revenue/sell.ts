@@ -2,9 +2,11 @@ import { applyIndexation } from './indexation';
 import { distributeCashCollection } from './payment';
 import { buildRecognition } from './recognition';
 import { buildEscrowMovement } from './escrow';
+import { buildCohortMatrix } from './cohort';
 import type {
   AssetSellConfig,
   Cohort,
+  RecognitionProfile,
   SellAssetResult,
   SellSubUnitConfig,
   SubUnitMaterial,
@@ -56,6 +58,13 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const postSalesRevenue = new Array<number>(N).fill(0);
   const cashCollectedPresales = new Array<number>(N).fill(0);
   const recognitionPresales = new Array<number>(N).fill(0);
+
+  // Cohort matrices (rows = sale year, cols = collection / recognition year)
+  // aggregated across every cohort. Used by the UI to render the MAAD-style
+  // vintage matrix on Tab 2 / Tab 4 outputs.
+  const cashMatrix: number[][] = [];
+  const recMatrix: number[][] = [];
+  for (let i = 0; i < N; i++) { cashMatrix.push(new Array<number>(N).fill(0)); recMatrix.push(new Array<number>(N).fill(0)); }
 
   const cumulativeShareBySubUnit = new Map<string, number>();
 
@@ -118,6 +127,16 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       cashCollectedPresales[i] += cohortCash[i];
       recognitionPresales[i] += cohortRec[i];
     }
+
+    // Accumulate the cohort's contribution to the vintage matrices. Cash
+    // re-uses the shared cohort engine directly. Recognition splits into
+    // point-in-time (lump on diagonal at handover/sale year) vs over-time
+    // (shared cohort engine on the over-time profile).
+    const cashCohortMatrix = buildCohortMatrix(cohortPresalesRevenue, cohortCashProfile, N);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) cashMatrix[r][c] += cashCohortMatrix[r][c] ?? 0;
+
+    const recCohortMatrix = buildRecognitionMatrix(cohortPresalesRevenue, cohortRecProfile, handoverYear, N);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) recMatrix[r][c] += recCohortMatrix[r][c] ?? 0;
   }
 
   const cashCollected = cashCollectedPresales.map(
@@ -145,7 +164,45 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     escrowReleasedPerPeriod: escrow.released,
     escrowBalancePerPeriod: escrow.balance,
     netCashAvailablePerPeriod: netCash,
+    presalesSalesValuePerPeriod: presalesRevenue.slice(),
+    cashVintageMatrix: cashMatrix,
+    recognitionVintageMatrix: recMatrix,
   };
+}
+
+/**
+ * Recognition vintage matrix builder. PIT recognition lumps the full
+ * cohort on a single column (handover year or sale year). Over-Time
+ * recognition uses the shared cohort engine with the recognition profile.
+ */
+function buildRecognitionMatrix(
+  salesValuePerYear: number[],
+  profile: RecognitionProfile,
+  handoverYear: number,
+  axisLength: number,
+): number[][] {
+  const N = Math.max(0, axisLength);
+  const out: number[][] = [];
+  for (let i = 0; i < N; i++) out.push(new Array<number>(N).fill(0));
+
+  if (profile.method === 'point_in_time') {
+    const anchor = profile.pointInTimeYear ?? 'handover';
+    for (let saleYear = 0; saleYear < N; saleYear++) {
+      const v = Math.max(0, salesValuePerYear[saleYear] ?? 0);
+      if (v === 0) continue;
+      const target = anchor === 'handover'
+        ? Math.max(0, Math.min(N - 1, handoverYear))
+        : saleYear;
+      out[saleYear][target] += v;
+    }
+    return out;
+  }
+
+  return buildCohortMatrix(
+    salesValuePerYear,
+    { percentages: profile.percentages ?? [], positions: profile.positions, profileMode: profile.profileMode },
+    N,
+  );
 }
 
 export function resolveHandoverYear(

@@ -236,6 +236,18 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   const isSell = asset.strategy === 'Sell';
 
+  // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
+  const assetCollapseKey = `m2-input-asset-collapsed-${asset.id}`;
+  const readAssetCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(assetCollapseKey) === 'true'; }
+    catch { return false; }
+  };
+  const [assetCollapsed, setAssetCollapsed] = useState<boolean>(readAssetCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(assetCollapseKey, String(assetCollapsed)); } catch { /* noop */ }
+  }, [assetCollapsed, assetCollapseKey]);
+
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const totalPeriods = Math.max(1, timeline.totalPeriods);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
@@ -389,6 +401,38 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
     });
   };
 
+  const setIndexationMethod = (method: 'none' | 'single_rate' | 'yoy_compound' | 'step'): void => {
+    updateSellInline({
+      indexation: {
+        method,
+        rate: sellConfig?.indexation?.rate ?? 0,
+        startYear: sellConfig?.indexation?.startYear ?? 0,
+        steps: sellConfig?.indexation?.steps,
+      },
+    });
+  };
+  const setIndexationRate = (pct: number): void => {
+    updateSellInline({
+      indexation: {
+        method: sellConfig?.indexation?.method ?? 'yoy_compound',
+        rate: Math.max(0, pct / 100),
+        startYear: sellConfig?.indexation?.startYear ?? 0,
+        steps: sellConfig?.indexation?.steps,
+      },
+    });
+  };
+  const setIndexationStartYear = (year: number): void => {
+    const idx = Math.max(0, Math.min(totalPeriods - 1, year - projectStartYear));
+    updateSellInline({
+      indexation: {
+        method: sellConfig?.indexation?.method ?? 'yoy_compound',
+        rate: sellConfig?.indexation?.rate ?? 0,
+        startYear: idx,
+        steps: sellConfig?.indexation?.steps,
+      },
+    });
+  };
+
   // Single-cohort view of velocity. When the user has multiple cohorts
   // (set in the Advanced modal), the inline grid sums them for display
   // and a chip warns "Multi-cohort - edit in Advanced".
@@ -410,8 +454,20 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         marginBottom: 'var(--sp-1)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: isSell ? 'var(--sp-2)' : 0, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 14, color: 'var(--color-heading)' }}>{asset.name}</strong>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: isSell && !assetCollapsed ? 'var(--sp-2)' : 0, flexWrap: 'wrap' }}>
+        <span
+          onClick={() => setAssetCollapsed(!assetCollapsed)}
+          style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-meta)', marginRight: 4 }}
+          data-testid={`m2-input-asset-${asset.id}-toggle`}
+        >
+          {assetCollapsed ? '▶' : '▼'}
+        </span>
+        <strong
+          style={{ fontSize: 14, color: 'var(--color-heading)', cursor: 'pointer' }}
+          onClick={() => setAssetCollapsed(!assetCollapsed)}
+        >
+          {asset.name}
+        </strong>
         <span style={{
           fontSize: 10,
           fontWeight: 700,
@@ -452,7 +508,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         )}
       </div>
 
-      {!isSell && (
+      {!isSell && !assetCollapsed && (
         <div style={{
           padding: '6px 10px',
           background: 'var(--color-surface-alt, #f3f4f6)',
@@ -466,7 +522,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         </div>
       )}
 
-      {isSell && subUnits.length === 0 && (
+      {isSell && !assetCollapsed && subUnits.length === 0 && (
         <div style={{
           padding: '6px 10px',
           background: 'var(--color-surface-alt, #f3f4f6)',
@@ -480,7 +536,7 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
         </div>
       )}
 
-      {isSell && subUnits.length > 0 && (
+      {isSell && !assetCollapsed && subUnits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
 
           {/* Pre-Sales velocity, scoped to construction window */}
@@ -516,6 +572,44 @@ function AssetCard({ asset, subUnits, phase, project, phases, onOpenAdvanced }: 
               Phase has no construction or operations periods. Set them on Module 1 · Tab 1.
             </div>
           )}
+
+          {/* Price Indexation block */}
+          <InlineSection
+            title="Price Indexation"
+            hint="Base sale rate per sub-unit (read from M1 Tab 2) lifts each year by the indexation factor. None = flat. Single-rate = one-step bump from start year. YoY = compounding annual lift. Step = override per year via Advanced."
+          >
+            <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+              <MethodPill active={(sellConfig?.indexation?.method ?? 'none') === 'none'} label="None" onClick={() => setIndexationMethod('none')} />
+              <MethodPill active={sellConfig?.indexation?.method === 'single_rate'} label="Single-Rate" onClick={() => setIndexationMethod('single_rate')} />
+              <MethodPill active={sellConfig?.indexation?.method === 'yoy_compound'} label="YoY Compound" onClick={() => setIndexationMethod('yoy_compound')} />
+              <MethodPill active={sellConfig?.indexation?.method === 'step'} label="Step (Advanced)" onClick={() => setIndexationMethod('step')} />
+              {sellConfig?.indexation?.method && sellConfig.indexation.method !== 'none' && sellConfig.indexation.method !== 'step' && (
+                <>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
+                  <div style={{ width: 80 }}>
+                    <PercentageInput
+                      value={(sellConfig.indexation.rate ?? 0) * 100}
+                      onChange={setIndexationRate}
+                      min={0}
+                      max={50}
+                      decimals={2}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-idx-rate`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                  <select
+                    value={yearLabels[sellConfig.indexation.startYear ?? 0] ?? yearLabels[0]}
+                    onChange={(e) => setIndexationStartYear(parseInt(e.target.value, 10))}
+                    style={{ ...FAST_INPUT, width: 90, padding: '2px 4px', textAlign: 'left' }}
+                    data-testid={`m2-asset-${asset.id}-idx-start`}
+                  >
+                    {yearLabels.map((y) => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+                </>
+              )}
+            </div>
+          </InlineSection>
 
           {/* Cash payment profile + recognition method on one row */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-2)' }}>

@@ -136,6 +136,13 @@ export interface SellAssetResult {
   escrowReleasedPerPeriod: number[];
   escrowBalancePerPeriod: number[];
   netCashAvailablePerPeriod: number[];
+  // Universal UI rule (2026-05-17): cohort vintage matrices required for
+  // every cash + recognition profile so consumers can render the 2D grid
+  // (rows = sale year, cols = collection / recognition year) that MAAD
+  // ships as the canonical visualisation. Aggregated across cohorts.
+  presalesSalesValuePerPeriod: number[];
+  cashVintageMatrix: number[][];        // matrix[saleYear][collectionYear]
+  recognitionVintageMatrix: number[][]; // matrix[saleYear][recognitionYear]
 }
 
 export interface ReconcileIdentity {

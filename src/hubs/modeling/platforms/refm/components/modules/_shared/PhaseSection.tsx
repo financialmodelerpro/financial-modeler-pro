@@ -1,0 +1,118 @@
+'use client';
+
+/**
+ * Shared phase section wrapper for Module 2-6 output tabs.
+ *
+ * Renders the universal navy phase header bar (white text per [[feedback_ui_universal_defaults]] rule 1),
+ * collapse chevron with localStorage memory (rule 4), and asset count chip.
+ * Reuses the same visual language as Module 1 Tab 2 phase headers so the
+ * whole platform reads as one product.
+ */
+
+import React, { useEffect, useState } from 'react';
+
+const phaseHeaderStyle: React.CSSProperties = {
+  background: 'var(--color-navy)',
+  color: 'var(--color-on-primary-navy)',
+  padding: 'var(--sp-2) var(--sp-3)',
+  borderRadius: 'var(--radius-sm)',
+  marginBottom: 'var(--sp-2)',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  cursor: 'pointer',
+};
+
+const assetHeaderStyle: React.CSSProperties = {
+  background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+  color: 'var(--color-heading)',
+  padding: 'var(--sp-1) var(--sp-2)',
+  borderRadius: 'var(--radius-sm)',
+  marginBottom: 'var(--sp-1)',
+  marginTop: 'var(--sp-1)',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  cursor: 'pointer',
+  border: '1px solid color-mix(in srgb, var(--color-navy) 14%, transparent)',
+};
+
+interface PhaseSectionProps {
+  phaseId: string;
+  title: string;
+  meta?: string;
+  countLabel?: string;
+  storageKey?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}
+
+export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, defaultOpen = true, children }: PhaseSectionProps): React.JSX.Element {
+  const key = storageKey ?? `m-phase-collapsed-${phaseId}`;
+  const read = (): boolean => {
+    if (typeof window === 'undefined') return !defaultOpen;
+    try { return window.localStorage.getItem(key) === 'true'; }
+    catch { return !defaultOpen; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(read);
+  useEffect(() => {
+    try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, key]);
+
+  return (
+    <div data-testid={`phase-section-${phaseId}`} style={{ marginBottom: 'var(--sp-3)' }}>
+      <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
+        <div>
+          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</strong>
+          {meta && (
+            <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }}>{meta}</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {countLabel && (
+            <span style={{ fontSize: 11, opacity: 0.85 }}>{countLabel}</span>
+          )}
+          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
+        </div>
+      </div>
+      {!collapsed && children}
+    </div>
+  );
+}
+
+interface AssetSectionProps {
+  assetId: string;
+  title: string;
+  meta?: string;
+  storageKey?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}
+
+export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = true, children }: AssetSectionProps): React.JSX.Element {
+  const key = storageKey ?? `m-asset-collapsed-${assetId}`;
+  const read = (): boolean => {
+    if (typeof window === 'undefined') return !defaultOpen;
+    try { return window.localStorage.getItem(key) === 'true'; }
+    catch { return !defaultOpen; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(read);
+  useEffect(() => {
+    try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, key]);
+
+  return (
+    <div data-testid={`asset-section-${assetId}`} style={{ marginBottom: 'var(--sp-2)' }}>
+      <div style={assetHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
+        <div>
+          <strong style={{ fontSize: 12 }}>{title}</strong>
+          {meta && (
+            <span style={{ marginLeft: 10, fontSize: 10, color: 'var(--color-meta)', fontWeight: 400 }}>{meta}</span>
+          )}
+        </div>
+        <span style={{ fontSize: 12 }}>{collapsed ? '▶' : '▼'}</span>
+      </div>
+      {!collapsed && <div style={{ paddingLeft: 'var(--sp-2)' }}>{children}</div>}
+    </div>
+  );
+}

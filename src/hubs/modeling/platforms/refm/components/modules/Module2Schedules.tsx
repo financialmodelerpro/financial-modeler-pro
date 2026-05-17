@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Module2Schedules.tsx (M2 Pass 7, Tab 4 of Module 2)
+ * Module2Schedules.tsx (M2 Pass 7b, phase-wise + collapsible)
  *
  * Working-capital schedules for the Sell-strategy stream:
  *   1. Accounts Receivable  = max(0, cum recognition - cum cash)
@@ -9,10 +9,7 @@
  *   3. Escrow Balance       (already computed by the revenue engine)
  *   4. Net Cash to Project  = cash collected - escrow held + escrow released
  *
- * AR and Unearned are mirrors: at most one is non-zero in any given
- * period. The split aligns with the balance-sheet convention used in
- * the MAAD model (AR for under-collected revenue, Unearned for over-
- * collected cash).
+ * Universal UI rules per [[feedback_ui_universal_defaults]].
  */
 
 import React, { useMemo } from 'react';
@@ -30,6 +27,7 @@ import {
   TABLE_TITLE,
   nonLabelColumnPct,
 } from './_shared/tableStyles';
+import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 
 function fmt(v: number): string {
   if (!Number.isFinite(v)) return '-';
@@ -39,12 +37,10 @@ function fmt(v: number): string {
 
 interface Row { label: string; values: number[]; isTotal?: boolean }
 
-function PeriodTable({ title, caption, yearLabels, rows, currency }: {
-  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string;
+function PeriodTable({ title, caption, yearLabels, rows, currency, latestLabel = 'Latest' }: {
+  title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string; latestLabel?: string;
 }): React.JSX.Element {
-  const nonLabelCount = 1 + yearLabels.length;
-  const nonLabelPct = nonLabelColumnPct(nonLabelCount);
-
+  const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span></span>
@@ -60,8 +56,8 @@ function PeriodTable({ title, caption, yearLabels, rows, currency }: {
           </colgroup>
           <thead>
             <tr>
-              <th style={CELL_HEADER}>Asset</th>
-              <th style={CELL_HEADER_TOTAL}>Latest</th>
+              <th style={CELL_HEADER}>Line</th>
+              <th style={CELL_HEADER_TOTAL}>{latestLabel}</th>
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
           </thead>
@@ -112,12 +108,6 @@ export default function Module2Schedules(): React.JSX.Element {
   }
 
   const N = snap.axisLength;
-
-  const arPerAsset: Row[] = [];
-  const unearnedPerAsset: Row[] = [];
-  const escrowPerAsset: Row[] = [];
-  const netCashPerAsset: Row[] = [];
-
   const projAR = new Array<number>(N).fill(0);
   const projUR = new Array<number>(N).fill(0);
   const projEscrow = new Array<number>(N).fill(0);
@@ -128,10 +118,6 @@ export default function Module2Schedules(): React.JSX.Element {
     if (!r) continue;
     const ar = buildAccountsReceivable(r.recognitionPerPeriod, r.cashCollectedPerPeriod, N);
     const ur = buildUnearnedRevenue(r.recognitionPerPeriod, r.cashCollectedPerPeriod, N);
-    arPerAsset.push({ label: a.name, values: ar.perPeriod });
-    unearnedPerAsset.push({ label: a.name, values: ur.perPeriod });
-    escrowPerAsset.push({ label: a.name, values: r.escrowBalancePerPeriod });
-    netCashPerAsset.push({ label: a.name, values: r.netCashAvailablePerPeriod });
     for (let i = 0; i < N; i++) {
       projAR[i] += ar.perPeriod[i] ?? 0;
       projUR[i] += ur.perPeriod[i] ?? 0;
@@ -139,51 +125,79 @@ export default function Module2Schedules(): React.JSX.Element {
       projNetCash[i] += r.netCashAvailablePerPeriod[i] ?? 0;
     }
   }
-  arPerAsset.push({ label: 'Project AR (closing)', values: projAR, isTotal: true });
-  unearnedPerAsset.push({ label: 'Project Unearned (closing)', values: projUR, isTotal: true });
-  escrowPerAsset.push({ label: 'Project Escrow Balance', values: projEscrow, isTotal: true });
-  netCashPerAsset.push({ label: 'Project Net Cash to Developer', values: projNetCash, isTotal: true });
 
   return (
     <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Schedules</h1>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Working-capital schedules driven by the recognition vs cash mismatch. AR rises when recognition outpaces cash; Unearned rises when cash outpaces recognition. Escrow + net-cash track the cash actually freed to the developer.
+          Working-capital schedules per phase / per asset. AR + Unearned are mirrors (at most one non-zero per period). Escrow holds + releases per the Wafi-style schedule.
         </p>
       </div>
 
-      <PeriodTable
-        title="1. Accounts Receivable (closing balance per period)"
-        caption="AR = max(0, cumulative recognition - cumulative cash collected). Falls when cash catches up."
-        yearLabels={snap.yearLabels}
-        rows={arPerAsset}
-        currency={currency}
-      />
+      {phases.map((p) => {
+        const phaseAssets = sellAssets.filter((a) => a.phaseId === p.id);
+        if (phaseAssets.length === 0) return null;
+        return (
+          <PhaseSection
+            key={p.id}
+            phaseId={p.id}
+            title={p.name}
+            meta={`${p.status ?? 'planning'}`}
+            countLabel={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
+            storageKey={`m2-sched-phase-collapsed-${p.id}`}
+          >
+            {phaseAssets.map((a) => {
+              const r = snap.bySellAsset.get(a.id);
+              if (!r) return null;
+              const ar = buildAccountsReceivable(r.recognitionPerPeriod, r.cashCollectedPerPeriod, N);
+              const ur = buildUnearnedRevenue(r.recognitionPerPeriod, r.cashCollectedPerPeriod, N);
+              return (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta={a.type}
+                  storageKey={`m2-sched-asset-collapsed-${a.id}`}
+                >
+                  <PeriodTable
+                    title="AR / Unearned / Escrow / Net Cash"
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Accounts Receivable (closing)', values: ar.perPeriod },
+                      { label: 'Unearned Revenue (closing)', values: ur.perPeriod },
+                      { label: 'Escrow Balance (closing)', values: r.escrowBalancePerPeriod },
+                      { label: 'Net Cash to Developer', values: r.netCashAvailablePerPeriod },
+                    ]}
+                    currency={currency}
+                    latestLabel="Closing"
+                  />
+                </AssetSection>
+              );
+            })}
+          </PhaseSection>
+        );
+      })}
 
-      <PeriodTable
-        title="2. Unearned Revenue (closing balance per period)"
-        caption="Unearned = max(0, cumulative cash - cumulative recognition). Mirror of AR; both never simultaneously non-zero."
-        yearLabels={snap.yearLabels}
-        rows={unearnedPerAsset}
-        currency={currency}
-      />
-
-      <PeriodTable
-        title="3. Escrow Balance (closing)"
-        caption="Cash held in escrow per the Wafi-style release schedule. Released into Net Cash on the configured release year."
-        yearLabels={snap.yearLabels}
-        rows={escrowPerAsset}
-        currency={currency}
-      />
-
-      <PeriodTable
-        title="4. Net Cash to Developer"
-        caption="Cash collected - escrow held + escrow released. The actual operating cash flow from sales available to the project."
-        yearLabels={snap.yearLabels}
-        rows={netCashPerAsset}
-        currency={currency}
-      />
+      <PhaseSection
+        phaseId="__project__"
+        title="Project Total"
+        meta="all phases combined"
+        storageKey="m2-sched-phase-collapsed-project"
+      >
+        <PeriodTable
+          title="Project Working-Capital Schedules"
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Project AR (closing)', values: projAR, isTotal: true },
+            { label: 'Project Unearned (closing)', values: projUR, isTotal: true },
+            { label: 'Project Escrow Balance', values: projEscrow, isTotal: true },
+            { label: 'Project Net Cash to Developer', values: projNetCash, isTotal: true },
+          ]}
+          currency={currency}
+          latestLabel="Closing"
+        />
+      </PhaseSection>
     </div>
   );
 }
