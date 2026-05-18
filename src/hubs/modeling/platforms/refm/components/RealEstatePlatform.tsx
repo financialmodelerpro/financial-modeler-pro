@@ -45,6 +45,8 @@ import Module2Revenue from './modules/Module2Revenue';
 import Module2RevenueOutput from './modules/Module2RevenueOutput';
 import Module2CostOfSales from './modules/Module2CostOfSales';
 import Module2Schedules from './modules/Module2Schedules';
+import Module3Opex from './modules/Module3Opex';
+import Module3OpexOutput from './modules/Module3OpexOutput';
 
 import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
@@ -175,6 +177,15 @@ export const m2Tabs = [
   { key: 'm2-revenue', icon: '💰', label: '2. Revenue', step: 2 },
   { key: 'm2-cost-of-sales', icon: '🧾', label: '3. Cost of Sales', step: 3 },
   { key: 'm2-schedules', icon: '📑', label: '4. Schedules', step: 4 },
+];
+
+// ── Module 3 tabs (Opex Pass 2: Inputs / Output) ──
+// Inputs is the per-asset line-item editor + HQ corporate overheads.
+// Output is the read-only narrative + project totals computed by the
+// engine from M1 sub-units + M2 revenue + the per-asset opex config.
+export const m3Tabs = [
+  { key: 'm3-inputs', icon: '📝', label: '1. Inputs', step: 1 },
+  { key: 'm3-output', icon: '📊', label: '2. Opex Output', step: 2 },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -553,6 +564,59 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {m2ActiveTab === 'm2-revenue' && <Module2RevenueOutput />}
           {m2ActiveTab === 'm2-cost-of-sales' && <Module2CostOfSales />}
           {m2ActiveTab === 'm2-schedules' && <Module2Schedules />}
+        </div>
+      );
+    }
+    if (activeModule === 'module3') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m3-no-project">
+            No project selected.{' '}
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            >
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      const m3ActiveTab = m3Tabs.some((t) => t.key === activeTab) ? activeTab : m3Tabs[0].key;
+      return (
+        <div data-testid="module3-shell-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--sp-1)',
+              borderBottom: '1px solid var(--color-border)',
+              marginBottom: 'var(--sp-3)',
+            }}
+            data-testid="m3-tab-row"
+          >
+            {m3Tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`m3-tab-${tab.key}`}
+                style={{
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  background: m3ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
+                  color: m3ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-small)',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          {m3ActiveTab === 'm3-inputs' && <Module3Opex />}
+          {m3ActiveTab === 'm3-output' && <Module3OpexOutput />}
         </div>
       );
     }

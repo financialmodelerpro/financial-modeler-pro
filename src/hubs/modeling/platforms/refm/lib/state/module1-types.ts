@@ -361,6 +361,28 @@ export interface Project {
     operate?: Record<string, unknown>;  // M2 Pass 8 hospitality template
     lease?: Record<string, unknown>;    // M2 Pass 9 lease template
   };
+  /**
+   * Module 3 Opex: project-wide HQ / corporate opex line items
+   * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
+   * on Asset.opex.
+   */
+  hqOpex?: {
+    lines: Array<{
+      id: string;
+      name: string;
+      category: import('@/src/core/calculations/opex').OpexLineCategory;
+      mode: import('@/src/core/calculations/opex').OpexLineMode;
+      value: number;
+      indexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
+      };
+      disabled?: boolean;
+    }>;
+  };
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -841,6 +863,31 @@ export interface Asset {
       /** Days Sales Outstanding for AR roll-forward. Default 30. */
       arDays?: number;
     };
+  };
+  /**
+   * Module 3 Opex configuration. Per-asset line-item list driving the
+   * operational expense build (direct departmental + indirect +
+   * management fees + reserves + fixed charges). Optional: when
+   * absent, the resolver seeds a strategy-appropriate default on
+   * first Module 3 visit.
+   */
+  opex?: {
+    /** Flat list of line items; engine evaluates each over the ops window. */
+    lines: Array<{
+      id: string;
+      name: string;
+      category: import('@/src/core/calculations/opex').OpexLineCategory;
+      mode: import('@/src/core/calculations/opex').OpexLineMode;
+      value: number;
+      indexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
+      };
+      disabled?: boolean;
+    }>;
   };
 }
 

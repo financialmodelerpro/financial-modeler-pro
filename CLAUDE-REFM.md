@@ -1,5 +1,16 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-18. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue + CoS + Schedules) LOCKED at Pass 9g-O. Verifier 133 / 133.**
+**Last updated: 2026-05-18. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue + CoS + Schedules) LOCKED at Pass 9g-O. Module 3 (Opex) WIP on Pass 2. Verifiers: revenue 133/133; opex 26/26.**
+
+**Module 3 status (Opex, Pass 2 complete):**
+- **Engine** at `src/core/calculations/opex/`: per-asset `computeAssetOpex` + project-wide `computeHQOpex`. Two-pass evaluation: Pass A resolves every non-GOP line (fixed_baseline / pct_of_* / per_room / per_sqm); Pass B derives GOP = Revenue − Direct − Indirect, then fills `pct_of_gop` lines (mgmt incentive).
+- **Line modes** (mirror KPMG SC7 hospitality + simpler Lease bundle): `fixed_baseline`, `pct_of_room_rev`, `pct_of_fb_rev`, `pct_of_other_rev`, `pct_of_total_rev`, `pct_of_lease_rev`, `per_room_year`, `per_sqm_year`, `pct_of_gop`. Each line carries an `IndexationConfig` (None / YoY Compound / Step / YoY Per Period, same shape as M2).
+- **Line categories** drive bucket aggregation: Direct (rooms / F&B / other), Indirect (G&A / IT / S&M / POM / Energy / EOSB), Management (base / tech / incentive / replacement reserve), Other fixed (rent_insurance / property_tax / utilities / cam / other), HQ (payroll / office / professional / other).
+- **Resolver** at `src/hubs/modeling/platforms/refm/lib/opex-resolvers.ts`: `computeAllOpexResults(state, revenueSnap)` returns `ProjectOpexSnapshot` (byAsset map + projectTotals + hq result + totalOpexPerPeriodInclHQ). Default-seeds lines when an asset / project has none.
+- **Schema**: `Asset.opex.lines[]` per-asset, `Project.hqOpex.lines[]` project-wide. Same shape as the engine `OpexLine`. Both optional — defaults seed on first read.
+- **UI**: `Module3Opex.tsx` (Inputs) + `Module3OpexOutput.tsx` (read-only narrative). Inputs is a per-asset line-item editor with mode-aware value cell (% or accounting), inflation toggle + rate, on/off checkbox, remove + add-line. Output renders per-asset Drivers → Direct → GOP → Indirect → Mgmt → Other → NOI plus HQ + Project Total tables.
+- **Verifier** `scripts/verify-opex.ts` 26 / 26: A-series Hospitality (direct/indirect/GOP/mgmt incentive/NOI), B-series Lease (% of lease rev / per-sqm with inflation), C-series indexation compounding ratio, D-series disabled line, E-series HQ.
+- **Reference structure**: KPMG SC7 hospitality assumption hierarchy walked through (`Maad Model (KPMG Sc7)`): Rooms / F&B / OOD direct (salary fixed + non-salary % of dept rev); G&A / IT / S&M / POM / Energy / EOSB indirect; Mgmt fee (base % room rev + technology per-room + incentive % adj. GOP); Replacement reserve % TR; Rent & insurance. v1.16 P&L confirms group-by-asset Hospitality / Retail opex + HQ Expenses → EBIZDA shape.
+
 
 **Module 2 final state (Pass 9g-O):**
 - **Revenue engines**: Residential Sell, Hospitality (Operate + Sell+Manage companions), Retail/Lease.

@@ -3,8 +3,9 @@
 
 **Module status (REFM platform):**
 - **Module 1 (Project Setup / Costs / Financing)** — LOCKED at M2.0 Pass 58.
-- **Module 2 (Revenue + Cost of Sales + Schedules)** — LOCKED at Pass 9g-O. Verifier `scripts/verify-revenue-rebuild.ts` 133/133 green. Engines: Residential Sell, Hospitality (pure Operate + Sell+Manage companions), Retail/Office Lease. Schedules tab is a raw line-item financial-statement feed (Revenue / CoS / Gross Margin / Inventory / AR / Unearned / Cash / Capex per asset, grouped by strategy); no derived totals here, those compose in M3.
-- **Module 3 (Financial Statements)** — NEXT. Compose P&L (Revenue − CoS − opex − D&A = NI), BS (NWC + D&A + retained earnings), CF (Direct + Indirect) from the M2 schedule outputs.
+- **Module 2 (Revenue + Cost of Sales + Schedules)** — LOCKED at Pass 9g-O. Verifier `scripts/verify-revenue-rebuild.ts` 133/133 green. Engines: Residential Sell, Hospitality (pure Operate + Sell+Manage companions), Retail/Office Lease. Schedules tab is a raw line-item financial-statement feed (Revenue / CoS / Gross Margin / Inventory / AR / Unearned / Cash / Capex per asset, grouped by strategy); no derived totals here, those compose in M4.
+- **Module 3 (Operating Expenses)** — WIP. Pass 2 complete: per-asset line-item engine (Hospitality + Lease) + HQ corporate overheads + Inputs UI + Output narrative. KPMG SC7 hierarchy expressed as configurable line modes: pct_of_room_rev / pct_of_fb_rev / pct_of_other_rev / pct_of_total_rev / pct_of_lease_rev / per_room_year / per_sqm_year / fixed_baseline / pct_of_gop. Verifier `scripts/verify-opex.ts` 26/26 green.
+- **Module 4 (Financial Statements)** — NEXT. Compose P&L (Revenue − CoS − Opex − D&A = NI), BS (NWC + D&A + retained earnings), CF (Direct + Indirect) from the M2 schedules feed + M3 opex output.
 
 **M2 lock conventions** (apply to M3+ unless overridden):
 - The reference Excel at repo root is the verification benchmark, not a behavioural spec. Every reference-specific behaviour stays configurable; never hard-code currency, locale, escrow, or DSO defaults into engine paths.
