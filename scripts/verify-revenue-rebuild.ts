@@ -9,8 +9,10 @@
 
 import {
   computeSellAsset,
+  computeLeaseAsset,
   reconcileSellAsset,
   type AssetSellConfig,
+  type LeaseConfig,
   type SubUnitMaterial,
 } from '@/src/core/calculations/revenue';
 
@@ -831,6 +833,113 @@ assertNear('L13: Vintage[2027][2027] = 328401.65 × 0.21 = 68964.35',
 const vintage2026RowSum = cosL.vintageMatrix[1].reduce((s, v) => s + v, 0);
 assertNear('L14: Vintage[2026] row sum = capex_2026 × 0.9 = 624907.60',
   vintage2026RowSum, 624907.60, 1.0);
+
+// ─────────────────────────────────────────────────────────────────────
+// M-series: Retail / Lease engine (Pass 9g)
+// Reference v1.16 Revenue sheet row 332 / 334 / 335 / 336 (support
+// retail 2): GLA 5521 sqm, base rate 3500 SAR/sqm, indexation 2.5% YoY,
+// occupancy 45/60/75/90/90/... starting year 5 (operations idx 4).
+// Project axis: 16 periods. Engine takes ops indices and computes
+// per-period revenue. Indexation factor reference (cumulative from
+// project start at 2026, ops start 2030 = idx 4):
+//   2030: (1.025)^4 = 1.1038128906...
+//   2031: (1.025)^5 = 1.1314082...
+//   2032: (1.025)^6 = 1.1596934...
+//   2033: (1.025)^7 = 1.1886857...
+
+const leaseAxisLength = 16;
+const leaseConfig: LeaseConfig = {
+  assetId: 'support-retail-2',
+  subUnits: [],
+  gla: 5521,
+  baseRate: 3500,
+  rentIndexation: { method: 'yoy_compound', rate: 0.025, startYear: 0 },
+  occupancyPerPeriod: (() => {
+    const arr = new Array<number>(leaseAxisLength).fill(0);
+    // Project start 2026 -> idx 0. Ops start 2030 -> idx 4.
+    arr[4] = 0.45;
+    arr[5] = 0.60;
+    arr[6] = 0.75;
+    arr[7] = 0.90;
+    for (let i = 8; i < leaseAxisLength; i++) arr[i] = 0.90;
+    return arr;
+  })(),
+  opsStartIdx: 4,
+  opsEndIdx: leaseAxisLength - 2,
+};
+const leaseResult = computeLeaseAsset({ config: leaseConfig, axisLength: leaseAxisLength });
+
+assertNear('M1: Rent indexation factor at ops start (idx 4) = 1.1038',
+  leaseResult.rentIndexationFactorPerPeriod[4], 1.1038128906, 0.001);
+assertNear('M2: Indexed rate at idx 4 = 3500 × 1.1038 = 3863.34',
+  leaseResult.indexedRatePerPeriod[4], 3863.345, 0.5);
+assertNear('M3: Occupied lease area at idx 4 = 5521 × 0.45 = 2484.45',
+  leaseResult.occupiedAreaPerPeriod[4], 2484.45, 0.1);
+assertNear('M4: Revenue at idx 4 = 2484.45 × 3863.345 = 9,598,287',
+  leaseResult.totalRevenuePerPeriod[4], 9598287.78, 100);
+assertNear('M5: Revenue at idx 5 = 3312.6 × 3959.93 = 13,117,659',
+  leaseResult.totalRevenuePerPeriod[5], 13117659.96, 100);
+assertNear('M6: Revenue at idx 6 = 4140.75 × 4058.93 = 16,807,001',
+  leaseResult.totalRevenuePerPeriod[6], 16807001.83, 200);
+assertNear('M7: Revenue at idx 7 = 4968.9 × 4160.40 = 20,672,612',
+  leaseResult.totalRevenuePerPeriod[7], 20672612.24, 300);
+assertNear('M8: Revenue before ops start (idx 3) = 0',
+  leaseResult.totalRevenuePerPeriod[3], 0, 0.001);
+assertNear('M9: Revenue after ops end (idx 15) = 0',
+  leaseResult.totalRevenuePerPeriod[15], 0, 0.001);
+// Occupancy is a clamped pass-through.
+assertNear('M10: Occupancy at idx 4 clamped to 0.45',
+  leaseResult.occupancyPerPeriod[4], 0.45, 0.001);
+
+// Per-sub-unit aggregation: split the 5521 GLA across two zones with
+// different rates and verify the GLA-weighted average lands correctly.
+const leaseMulti: LeaseConfig = {
+  assetId: 'mall-multi',
+  subUnits: [
+    { id: 'anchor', gla: 4000, baseRate: 3000 },
+    { id: 'inline', gla: 1521, baseRate: 4500 },
+  ],
+  gla: 5521,
+  baseRate: 0,
+  rentIndexation: { method: 'none' },
+  occupancyPerPeriod: (() => {
+    const arr = new Array<number>(leaseAxisLength).fill(0);
+    for (let i = 4; i < 14; i++) arr[i] = 1.0; // 100% to isolate per-sub-unit math
+    return arr;
+  })(),
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+const leaseMultiResult = computeLeaseAsset({ config: leaseMulti, axisLength: leaseAxisLength });
+
+assertNear('M11: Multi-sub-unit GLA-weighted rate = (4000×3000 + 1521×4500)/5521 = 3413.34',
+  leaseMultiResult.indexedRatePerPeriod[4],
+  (4000 * 3000 + 1521 * 4500) / 5521, 0.5);
+assertNear('M12: Multi-sub-unit Revenue at idx 4 = anchor + inline = 18,844,500',
+  leaseMultiResult.totalRevenuePerPeriod[4], 4000 * 3000 + 1521 * 4500, 1);
+assertNear('M13: Multi-sub-unit anchor zone revenue = 4000 × 3000 = 12,000,000',
+  leaseMultiResult.perSubUnit['anchor'].revenuePerPeriod[4], 12000000, 1);
+assertNear('M14: Multi-sub-unit inline zone revenue = 1521 × 4500 = 6,844,500',
+  leaseMultiResult.perSubUnit['inline'].revenuePerPeriod[4], 6844500, 1);
+
+// Empty subUnits falls back to asset-level GLA + baseRate.
+const leaseEmpty: LeaseConfig = {
+  assetId: 'fallback',
+  subUnits: [],
+  gla: 1000,
+  baseRate: 500,
+  rentIndexation: { method: 'none' },
+  occupancyPerPeriod: (() => {
+    const arr = new Array<number>(leaseAxisLength).fill(0);
+    arr[4] = 0.80;
+    return arr;
+  })(),
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+const leaseEmptyResult = computeLeaseAsset({ config: leaseEmpty, axisLength: leaseAxisLength });
+assertNear('M15: Empty subUnits falls back to asset-level (1000 × 500 × 0.80 = 400,000)',
+  leaseEmptyResult.totalRevenuePerPeriod[4], 400000, 1);
 
 // Report
 let pass = 0;

@@ -107,8 +107,15 @@ export default function Module2Schedules(): React.JSX.Element {
     (a) => a.visible !== false
       && (a.strategy === 'Operate' || a.isCompanion === true),
   );
+  // Pass 9g-D (2026-05-18): retail / office lease assets get the same
+  // DSO-driven AR roll-forward as hospitality.
+  const leaseAssets = assets.filter(
+    (a) => a.visible !== false
+      && a.isCompanion !== true
+      && a.strategy === 'Lease',
+  );
 
-  if (sellAssets.length === 0 && hospAssets.length === 0) {
+  if (sellAssets.length === 0 && hospAssets.length === 0 && leaseAssets.length === 0) {
     return (
       <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Schedules</h1>
@@ -127,6 +134,7 @@ export default function Module2Schedules(): React.JSX.Element {
   const projAR = new Array<number>(N).fill(0);
   const projUR = new Array<number>(N).fill(0);
   const projHospAR = new Array<number>(N).fill(0);
+  const projLeaseAR = new Array<number>(N).fill(0);
 
   for (const a of sellAssets) {
     const r = snap.bySellAsset.get(a.id);
@@ -149,6 +157,18 @@ export default function Module2Schedules(): React.JSX.Element {
       axisLength: N,
     });
     for (let i = 0; i < N; i++) projHospAR[i] += arH.perPeriod[i] ?? 0;
+  }
+  for (const a of leaseAssets) {
+    const r = snap.byLeaseAsset.get(a.id);
+    if (!r) continue;
+    const arDays = a.revenue?.lease?.arDays ?? 30;
+    const arL = buildAccountsReceivableDSO({
+      revenuePerPeriod: r.totalRevenuePerPeriod,
+      dsoDays: arDays,
+      daysPerYear: 365,
+      axisLength: N,
+    });
+    for (let i = 0; i < N; i++) projLeaseAR[i] += arL.perPeriod[i] ?? 0;
   }
 
   return (
@@ -194,6 +214,60 @@ export default function Module2Schedules(): React.JSX.Element {
                     rows={[
                       { label: 'Accounts Receivable (closing)', values: ar.perPeriod },
                       { label: 'Unearned Revenue (closing)', values: ur.perPeriod },
+                    ]}
+                    currency={currency}
+                    latestLabel="Closing"
+                    fmt={fmt}
+                  />
+                </AssetSection>
+              );
+            })}
+          </PhaseSection>
+        );
+      })}
+
+      {/* Pass 9g-D (2026-05-18): Lease AR via DSO. Same engine as
+          hospitality but with the Lease asset's own arDays. */}
+      {phases.map((p) => {
+        const phaseLease = leaseAssets.filter((a) => a.phaseId === p.id);
+        if (phaseLease.length === 0) return null;
+        return (
+          <PhaseSection
+            key={`lease-${p.id}`}
+            phaseId={`lease-${p.id}`}
+            title={`${p.name} · Retail / Lease`}
+            meta={`${p.status ?? 'planning'}`}
+            countLabel={`${phaseLease.length} lease asset${phaseLease.length === 1 ? '' : 's'}`}
+            storageKey={`fmp:m2:schedules:phase:lease:${p.id}:collapsed`}
+          >
+            {phaseLease.map((a) => {
+              const r = snap.byLeaseAsset.get(a.id);
+              if (!r) return null;
+              const arDays = a.revenue?.lease?.arDays ?? 30;
+              const arL = buildAccountsReceivableDSO({
+                revenuePerPeriod: r.totalRevenuePerPeriod,
+                dsoDays: arDays,
+                daysPerYear: 365,
+                axisLength: N,
+              });
+              return (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta={a.type}
+                  storageKey={`fmp:m2:schedules:asset:${a.id}:collapsed`}
+                >
+                  <PeriodTable
+                    title={`AR roll-forward · ${arDays} days receivable`}
+                    caption="Closing AR = Revenue × Receivable Days / 365. Change in AR = Closing - Opening. Cash received = Revenue - Change in AR. AR settles to 0 as revenue tails off."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Opening AR', values: arL.openingPerPeriod },
+                      { label: '(+) Revenue', values: r.totalRevenuePerPeriod },
+                      { label: '(-) Cash Received', values: arL.cashReceivedPerPeriod.map((v) => -v) },
+                      { label: 'Change in AR', values: arL.changePerPeriod, isTotal: false },
+                      { label: 'Closing AR', values: arL.perPeriod, isTotal: true },
                     ]}
                     currency={currency}
                     latestLabel="Closing"
@@ -272,6 +346,7 @@ export default function Module2Schedules(): React.JSX.Element {
             { label: 'Project Sell AR (closing)', values: projAR, isTotal: true },
             { label: 'Project Sell Unearned (closing)', values: projUR, isTotal: true },
             { label: 'Project Hospitality AR (closing, receivable-days-driven)', values: projHospAR, isTotal: true },
+            { label: 'Project Lease AR (closing, receivable-days-driven)', values: projLeaseAR, isTotal: true },
           ]}
           currency={currency}
           latestLabel="Closing"
