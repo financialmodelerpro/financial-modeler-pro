@@ -28,9 +28,8 @@ export interface ComputeSellInputs {
  * handover year from the asset's phase (constructionStart +
  * constructionPeriods - 1, or config.handoverYearOverride when set).
  *
- * Pass 7d (2026-05-17): single implicit cohort. Multi-cohort + Wafi
- * escrow removed. Cohort engine helper (buildCohortMatrix) is still
- * used to produce the vintage matrices.
+ * Single implicit cohort. The buildCohortMatrix helper is still used
+ * to produce the vintage matrices.
  */
 export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const { config, subUnits, axisLength, handoverYear, projectStartYear } = inputs;

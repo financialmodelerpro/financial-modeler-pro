@@ -5,12 +5,9 @@
  * Asset.revenue.sell in module1-types.ts (mirrors this shape). All
  * arrays are project-axis-indexed (arr[0] = first active project year).
  *
- * Pass 7d (2026-05-17) removed multi-cohort (Cohort) + Wafi escrow
- * (WafiEscrowConfig) from the engine. The Advanced cohort modal and
- * the Wafi-style escrow / net-cash columns are gone. Single implicit
- * cohort is driven by the top-level subUnits + cashPaymentProfile +
- * recognitionProfile. Schema fields stay on Asset.revenue.sell as
- * `@deprecated` so older snapshots still parse.
+ * Single implicit cohort driven by top-level subUnits +
+ * cashPaymentProfile + recognitionProfile (multi-cohort and escrow
+ * variants were removed pre-lock). Project-axis-indexed throughout.
  */
 
 import type { SubUnitMetric } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';

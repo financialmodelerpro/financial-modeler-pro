@@ -60,7 +60,7 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 | **Debt** | Tranche 1 SNB Phase 1 + Tranche 2 SNB Phase 2, rate, tenor, drawdown year, repayment schedule | M1 Tab 4 (already done) |
 | **CF** | Revenue Received, Costs Paid, Debt Movement, Equity Movement, Net Cash | **M4 CF statement** |
 | **P&L** | Revenue, CoS, Gross Margin, OpEx, EBITDA, Depreciation, Interest, Tax, Net Income | **M4 P&L statement** |
-| **Wafi Escrow** | per-asset 4% locked + release schedule | **M2** (engine done in Pass 2, surfaced in Pass 7 Tab 4) |
+| **Escrow Schedule** | per-asset locked % + release schedule (reference benchmark feature) | **M2** (engine done in Pass 2; removed pre-lock — re-introduce as configurable in M4 BS if needed) |
 | **Land Summary** | per-parcel area, price, value, % per phase | M1 Tab 2 (already done) |
 | **Review Summary** | key totals snapshot, capex by asset, returns | **M5 Returns + M6 Reports** |
 | **Actual P&L** | VOCO (existing operations) operating P&L | **M4** existing-operations slot |
@@ -76,7 +76,7 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 
 **Pass 7 sub-series (closed 2026-05-17), Residential Sell flow:**
 - 7 (commit `8d7be25`): 4 sidebar sub-tabs (Inputs / Revenue / CoS / Schedules), AR + UR + CoS engines.
-- 7a-7d: Wafi escrow + multi-cohort removal; vintage matrix; phase-wise collapsible; indexation UI.
+- 7a-7d: legacy escrow + multi-cohort removal; vintage matrix; phase-wise collapsible; indexation UI.
 - 7e (commit `cfff2c5`): project-wide Sell template + per-asset override + units rounding + SQM preview.
 - 7f (commit `fb4f85d`): Revenue Output Block A-F structure (engine emits per-sub-unit + pre/post split arrays).
 - 7g (commit `343b56d`): **REMOVED** project-wide template; every Sell asset owns its own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated (legacy snapshots still parse).
@@ -247,7 +247,7 @@ Driven by the reference model Review Summary + CF Exit Value.
 
 ### Pass 1, Excel exporter
 - `src/hubs/modeling/platforms/refm/lib/export/excel-static.ts` (already exists for M1) extended to dump every Module 2 / 3 / 4 / 5 output table to its own sheet.
-- Single workbook with 12+ sheets matching the reference model structure: Cover / Revenue / Costs / Capex / Capex Allocation / Debt / CF / P&L / Wafi Escrow / Land Summary / Returns / Review Summary.
+- Single workbook with 12+ sheets matching the reference model structure: Cover / Revenue / Costs / Capex / Capex Allocation / Debt / CF / P&L / Escrow Schedule / Land Summary / Returns / Review Summary.
 
 ### Pass 2, PDF report (Investor Memo)
 - `@react-pdf/renderer` based. 12-page IC memo layout: Cover + Executive Summary + Project Overview + Land + Capex + Funding + Revenue Build + OpEx Build + Financial Statements + Returns + Sensitivity + Appendix.

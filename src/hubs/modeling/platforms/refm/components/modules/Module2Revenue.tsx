@@ -752,14 +752,11 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateOperateInline({ occupancyPerPeriod: next });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
-  // Pass 9g-O (2026-05-18): single rentalPoolMode toggle replaces the
-  // lag + rate scalar inputs. 'auto_from_sales' = pool tracks parent's
-  // sales with a 1-year lag (sold units become available next year).
+  // Single rentalPoolMode toggle: 'auto_from_sales' = pool tracks parent's
+  // sales with a 1-year lag (sold units become available next year);
   // 'day_one_full' = 100% of keys live from operations start.
   const setOperateRentalPoolMode = (mode: 'auto_from_sales' | 'day_one_full'): void => {
-    // Clear the legacy lag/rate fields when switching to the simple
-    // toggle so they can't leak in later.
-    updateOperateInline({ rentalPoolMode: mode, enrollmentLagYears: undefined, enrollmentRate: undefined });
+    updateOperateInline({ rentalPoolMode: mode });
   };
   const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });

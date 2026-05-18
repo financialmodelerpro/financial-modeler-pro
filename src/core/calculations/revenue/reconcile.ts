@@ -21,9 +21,6 @@ function sumOf(arr: number[]): number {
 
 /**
  * Reconciliation identities for a single Sell asset baseline.
- *
- * Pass 7d (2026-05-17): escrow identities removed (Wafi feature gone),
- * cross-cohort velocity identity simplified to single-cohort sum.
  */
 export function reconcileSellAsset(
   result: SellAssetResult,

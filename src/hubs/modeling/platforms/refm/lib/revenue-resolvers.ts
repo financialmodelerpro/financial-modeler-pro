@@ -157,56 +157,23 @@ export function resolveHospitalityConfig(
       adrIndexation: u.hospitalityIndexation,
     }));
 
-  // Pass 9g-O (2026-05-18): rental pool mode resolves to one of two
-  // behaviours:
-  //   - 'auto_from_sales': pool % = cum units sold by (y - 1) / total keys.
-  //     Default for companions. Equivalent to lag=1, rate=100%.
-  //   - 'day_one_full': no participation scaling — engine defaults to
-  //     full keys from operations start. Default for standalone Operate.
-  // Legacy snapshots written before Pass 9g-O may carry the deprecated
-  // enrollmentLagYears / enrollmentRate fields; those are honoured when
-  // rentalPoolMode is unset (so old saved values keep producing the
-  // same numbers they always did).
+  // Rental pool mode: 'auto_from_sales' (default for companions) ramps
+  // pool % = cum units sold by (y - 1) / total keys. 'day_one_full'
+  // skips participation so the engine uses full keys from ops start.
   let keysParticipationPerPeriod: number[] | undefined;
-  if (parentSellResult && keys > 0) {
-    const isCompanion = parentSellResult !== null;
-    // Resolve effective mode + lag/rate.
-    let lag = 1;
-    let rate = 1.0;
-    let useParticipation = false;
-    if (cfg.rentalPoolMode === 'day_one_full') {
-      useParticipation = false;
-    } else if (cfg.rentalPoolMode === 'auto_from_sales') {
-      useParticipation = true;
-      lag = 1;
-      rate = 1.0;
-    } else if (cfg.enrollmentLagYears != null || cfg.enrollmentRate != null) {
-      // Legacy snapshot: honour the explicit scalar fields.
-      useParticipation = true;
-      lag = Math.max(0, Math.round(cfg.enrollmentLagYears ?? 1));
-      rate = Math.max(0, Math.min(1, cfg.enrollmentRate ?? 1));
-    } else {
-      // No mode set, no legacy fields: companions default to auto-link,
-      // standalone Operate (no parent) is already filtered upstream
-      // (parentSellResult === null short-circuits the if-block).
-      useParticipation = isCompanion;
+  if (parentSellResult && keys > 0 && cfg.rentalPoolMode !== 'day_one_full') {
+    const cumSold = new Array<number>(axisLength).fill(0);
+    let running = 0;
+    for (let t = 0; t < axisLength; t++) {
+      const pre = Math.max(0, parentSellResult.presalesUnitsPerPeriod[t] ?? 0);
+      const post = Math.max(0, parentSellResult.postSalesUnitsPerPeriod[t] ?? 0);
+      running += pre + post;
+      cumSold[t] = running;
     }
-    if (useParticipation) {
-      const cumSold = new Array<number>(axisLength).fill(0);
-      let running = 0;
-      for (let t = 0; t < axisLength; t++) {
-        const pre = Math.max(0, parentSellResult.presalesUnitsPerPeriod[t] ?? 0);
-        const post = Math.max(0, parentSellResult.postSalesUnitsPerPeriod[t] ?? 0);
-        running += pre + post;
-        cumSold[t] = running;
-      }
-      keysParticipationPerPeriod = new Array<number>(axisLength).fill(0);
-      for (let t = 0; t < axisLength; t++) {
-        const laggedIdx = t - lag;
-        const sold = laggedIdx >= 0 ? cumSold[laggedIdx] : 0;
-        const raw = (sold / keys) * rate;
-        keysParticipationPerPeriod[t] = Math.max(0, Math.min(1, raw));
-      }
+    keysParticipationPerPeriod = new Array<number>(axisLength).fill(0);
+    for (let t = 0; t < axisLength; t++) {
+      const sold = t >= 1 ? cumSold[t - 1] : 0;
+      keysParticipationPerPeriod[t] = Math.max(0, Math.min(1, sold / keys));
     }
   }
 

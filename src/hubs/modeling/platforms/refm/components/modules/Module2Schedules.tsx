@@ -43,7 +43,8 @@ import {
   buildCostOfSalesV2,
 } from '@/src/core/calculations/revenue';
 import { computeAssetCost } from '@/src/core/calculations';
-import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import { makeFmt, ZERO_SNAP_THRESHOLD } from './_shared/numberFmt';
 import {
   CELL_HEADER,
   CELL_HEADER_TOTAL,
@@ -55,15 +56,6 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection } from './_shared/PhaseSection';
-
-const ZERO_SNAP_THRESHOLD = 1;
-function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
-  return (v: number) => {
-    if (!Number.isFinite(v)) return '-';
-    if (Math.abs(v) < ZERO_SNAP_THRESHOLD) return '-';
-    return formatAccounting(v, scale, decimals);
-  };
-}
 
 type Aggregation = 'sum' | 'last' | 'none';
 

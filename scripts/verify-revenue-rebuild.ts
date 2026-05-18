@@ -1,9 +1,9 @@
 ﻿/**
- * M2 Pass 2 verifier (re-baselined Pass 7d).
+ * M2 Revenue Engine verifier (Module 2 lock baseline).
  *
- * Phase 1 Residential Sell engine baseline. Pass 7d (2026-05-17)
- * removed multi-cohort + Wafi escrow. Fixtures retained:
- *   A. Synthetic PIT recognition, no escrow.
+ * Covers Sell + Hospitality + Lease + Sell+Manage engines plus AR,
+ * Unearned Revenue, CoS, and reconciliation identities. Fixtures:
+ *   A. Synthetic PIT recognition.
  *   B. reference T2 cohort matrix (cash + over-time recognition) totals.
  */
 

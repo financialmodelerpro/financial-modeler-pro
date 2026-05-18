@@ -65,6 +65,7 @@ import {
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
+import { makePctFmt } from './_shared/numberFmt';
 
 function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -642,13 +643,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </AssetSection>,
       );
     }
-    // Pass 9e-10 (2026-05-18): % rows follow project displayDecimals
-    // (universal across the model). ADR uses the same setting with a
-    // minimum of 1 decimal (per user: ADR needs 1 or 2 decimals).
-    const pctFmt = (v: number): string => {
-      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-      return `${(v * 100).toFixed(decimals)}%`;
-    };
+    const pctFmt = makePctFmt(decimals);
     const factorFmt = (v: number): string => {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
       return `${v.toFixed(4)}×`;
@@ -795,19 +790,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               ? (() => {
                   const parent = snap.bySellAsset.get(a.parentAssetId);
                   if (!parent) return [];
-                  // Pass 9g-O (2026-05-18): resolve effective mode +
-                  // lag/rate. New snapshots use rentalPoolMode; legacy
-                  // ones may carry enrollmentLagYears/Rate. Default for
-                  // companions = auto_from_sales (lag=1, rate=100%).
-                  const mode = opCfg?.rentalPoolMode
-                    ?? (opCfg?.enrollmentLagYears != null || opCfg?.enrollmentRate != null ? 'auto_from_sales' : 'auto_from_sales');
+                  const mode = opCfg?.rentalPoolMode ?? 'auto_from_sales';
                   if (mode === 'day_one_full') return [];
-                  const lag = opCfg?.rentalPoolMode === 'auto_from_sales'
-                    ? 1
-                    : Math.max(0, Math.round(opCfg?.enrollmentLagYears ?? 1));
-                  const rate = opCfg?.rentalPoolMode === 'auto_from_sales'
-                    ? 1
-                    : Math.max(0, Math.min(1, opCfg?.enrollmentRate ?? 1));
                   const cumSold = new Array<number>(N).fill(0);
                   let running = 0;
                   for (let i = 0; i < N; i++) {
@@ -815,15 +799,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                       + Math.max(0, parent.postSalesUnitsPerPeriod[i] ?? 0);
                     cumSold[i] = running;
                   }
-                  const laggedCumSold = cumSold.map((_, i) => {
-                    const idx = i - lag;
-                    return idx >= 0 ? cumSold[idx] : 0;
-                  });
-                  const rateLabel = rate < 1 ? ` × ${(rate * 100).toFixed(0)}% rate` : '';
+                  const laggedCumSold = cumSold.map((_, i) => (i >= 1 ? cumSold[i - 1] : 0));
                   return [
                     { label: 'Cumulative Units Sold (from parent)', values: cumSold, rowFmt: intFmt, totalOverride: intFmt(cumSold[cumSold.length - 1] ?? 0), indent: 1 },
-                    { label: `Cumulative Sold at y − ${lag} (enrollment lag)`, values: laggedCumSold, rowFmt: intFmt, totalOverride: intFmt(laggedCumSold[laggedCumSold.length - 1] ?? 0), indent: 1 },
-                    { label: `Rental Pool Participation % (lagged ÷ ${opKeys.toLocaleString('en-US')} keys${rateLabel})`, values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
+                    { label: 'Cumulative Sold at y − 1 (enrollment lag)', values: laggedCumSold, rowFmt: intFmt, totalOverride: intFmt(laggedCumSold[laggedCumSold.length - 1] ?? 0), indent: 1 },
+                    { label: `Rental Pool Participation % (lagged ÷ ${opKeys.toLocaleString('en-US')} keys)`, values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
                     { label: 'Effective Rental Pool Keys', values: r.effectiveKeysPerPeriod, rowFmt: intFmt, totalOverride: intFmt(r.effectiveKeysPerPeriod[r.effectiveKeysPerPeriod.length - 1] ?? 0), indent: 1 },
                   ];
                 })()
@@ -931,10 +911,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </AssetSection>
       );
     }
-    const pctFmt = (v: number): string => {
-      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-      return `${(v * 100).toFixed(decimals)}%`;
-    };
+    const pctFmt = makePctFmt(decimals);
     const factorFmt = (v: number): string => {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
       return `${v.toFixed(4)}×`;

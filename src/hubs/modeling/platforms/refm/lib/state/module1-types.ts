@@ -737,12 +737,6 @@ export interface Asset {
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
       };
-      /** @deprecated M2 Pass 7d (2026-05-17): Wafi escrow feature removed from engine. Field kept for snapshot back-compat; engine ignores it on load. */
-      escrow?: {
-        enabled: boolean;
-        heldPct: number;
-        releaseYear: number;
-      };
       indexation: {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
@@ -751,35 +745,6 @@ export interface Asset {
         growthPerPeriod?: number[];
       };
       handoverYearOverride?: number;
-      /**
-       * @deprecated M2 Pass 7g (2026-05-17): per-asset only, the project
-       * template is gone so override no longer means anything. Field
-       * kept so older snapshots still parse; engine ignores it.
-       */
-      overrideProfile?: boolean;
-      /** @deprecated M2 Pass 7d (2026-05-17): multi-cohort Advanced modal removed. Single implicit cohort drives the engine via top-level subUnits + profiles. Field kept for snapshot back-compat; engine ignores it on load. */
-      cohorts?: Array<{
-        id: string;
-        name: string;
-        subUnits: Array<{
-          subUnitId: string;
-          preSalesVelocity: number[];
-          postSalesVelocity: number[];
-        }>;
-        cashPaymentProfile?: {
-          percentages: number[];
-          positions?: number[];
-          profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
-        };
-        recognitionProfile?: {
-          method: 'point_in_time' | 'over_time';
-          pointInTimeYear?: 'handover' | 'sale_year';
-          percentages?: number[];
-          positions?: number[];
-          profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
-        };
-        pricePerSubUnit?: Record<string, number>;
-      }>;
     };
     /**
      * M2 Pass 8b (2026-05-18): Hospitality (Operate-strategy) config.
@@ -849,18 +814,6 @@ export interface Asset {
        *   - standalone Operate: 'day_one_full'
        */
       rentalPoolMode?: 'auto_from_sales' | 'day_one_full';
-      /**
-       * @deprecated Pass 9g-O (2026-05-18). Replaced by rentalPoolMode.
-       * Kept for snapshot back-compat. The resolver still honours
-       * non-undefined values on snapshots written before Pass 9g-O,
-       * but new snapshots only use rentalPoolMode.
-       */
-      enrollmentLagYears?: number;
-      /**
-       * @deprecated Pass 9g-O (2026-05-18). Replaced by rentalPoolMode.
-       * Kept for snapshot back-compat.
-       */
-      enrollmentRate?: number;
     };
     /**
      * M2 Pass 9g (2026-05-18): Retail / Office Lease config. Mirrors

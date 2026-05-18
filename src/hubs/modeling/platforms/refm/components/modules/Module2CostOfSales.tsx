@@ -30,7 +30,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
 import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
-import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
   CELL_HEADER_TOTAL,
@@ -42,23 +42,7 @@ import {
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
-
-/**
- * Pass 9g-H (2026-05-18): snap-to-zero rounding rule mirrored from
- * Module 1 financing schedule (src/core/calculations/financing/
- * schedule.ts:266 `if (Math.abs(bal) < 1000) bal = 0;`). Float math
- * leaves sub-currency-unit residuals on cumulative rollups (inventory
- * closing, AR/UR settlement, etc.). Treat any raw value smaller than
- * 1 monetary unit as zero so the table doesn't display rounding noise.
- */
-const ZERO_SNAP_THRESHOLD = 1;
-function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
-  return (v: number) => {
-    if (!Number.isFinite(v)) return '-';
-    if (Math.abs(v) < ZERO_SNAP_THRESHOLD) return '-';
-    return formatAccounting(v, scale, decimals);
-  };
-}
+import { makeFmt, makePctFmt } from './_shared/numberFmt';
 
 interface Row {
   label: string;
@@ -323,11 +307,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
               count={`${phaseRows.length} Sell asset${phaseRows.length === 1 ? '' : 's'}`}
             />
             {phaseRows.map((row) => {
-              // Pass 9e-10 (2026-05-18): % rows follow project decimals.
-              const pctFmt = (v: number): string => {
-                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-                return `${(v * 100).toFixed(decimals)}%`;
-              };
+              const pctFmt = makePctFmt(decimals);
               const bd = row.breakdown;
               const stageLand = bd?.byStage.land ?? 0;
               const stageHard = bd?.byStage.hard ?? 0;

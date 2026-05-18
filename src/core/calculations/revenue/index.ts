@@ -1,13 +1,10 @@
 /**
  * M2 Revenue Engine, public entry.
  *
- * Phase 1 ships Sell-strategy primitives: cohort matrix, cash payment
- * distribution, recognition, AR / Unearned / CoS schedules. Hospitality,
- * Lease, Sell+Manage to follow in Pass 8+.
- *
- * Pass 7d (2026-05-17): Wafi escrow + multi-cohort removed. Single
- * implicit cohort drives the engine. buildCohortMatrix remains as a
- * shared helper (cash + recognition vintage matrices).
+ * Ships Sell + Hospitality + Lease + Sell+Manage primitives: cohort
+ * matrix, cash payment distribution, recognition, AR / Unearned / CoS
+ * schedules. Single implicit cohort drives the Sell engine;
+ * buildCohortMatrix produces cash + recognition vintage matrices.
  */
 export type {
   AncillaryRevenueConfig,
