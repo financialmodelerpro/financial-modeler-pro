@@ -42,7 +42,11 @@ test-results/
 playwright-report/
 tests/screenshots/
 Maad_Residential_Cashflow*.xlsx
-# Excel binary workbooks (xlsb), kept locally only for reference / inspection.
-# The canonical MAAD benchmark stays the .xlsx version (already gitignored above).
+# Excel binary workbooks (xlsb / xlsm), kept locally only for reference /
+# inspection. The canonical MAAD benchmark stays the .xlsx version (already
+# gitignored above). Macro-enabled .xlsm variants explicitly excluded so an
+# accidental `git add -A` cannot snag them.
 *.xlsb
+*.xlsm
+Maad*Model*
 .m20b-legacy/
