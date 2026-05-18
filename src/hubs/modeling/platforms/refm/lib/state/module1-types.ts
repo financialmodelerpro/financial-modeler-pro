@@ -782,6 +782,12 @@ export interface Asset {
       assetId: string;
       daysPerYear?: number;
       startingADR: number;
+      // Pass 9e (2026-05-18): operations can start mid-construction
+      // (e.g., a hotel soft-opens before the asset is fully complete).
+      // When set, this absolute project year overrides the resolver's
+      // default opsStartIdx = handoverYear + 1 - overlap. Engine still
+      // respects operationsEndIdx from the phase.
+      operationsStartYearOverride?: number;
       adrIndexation: {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;

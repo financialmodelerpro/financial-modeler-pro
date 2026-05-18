@@ -96,9 +96,13 @@ export function resolveHospitalityConfig(
   const cfg = asset.revenue?.operate;
   if (!cfg) return null;
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
+  // Pass 9e (2026-05-18): hospitality keys are integer counts. Round
+  // each sub-unit's metricValue at the resolver boundary so any
+  // fractional rounding from velocity / scaling math in M1 doesn't
+  // leak into ADR × keys revenue calculations.
   const keys = assetSubUnits
     .filter((u) => u.metric === 'units')
-    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+    .reduce((s, u) => s + Math.max(0, Math.round(u.metricValue)), 0);
   const phaseStartYear = phase.startDate
     ? new Date(phase.startDate).getUTCFullYear()
     : projectStartYear;
@@ -107,7 +111,14 @@ export function resolveHospitalityConfig(
   const overlap = Math.max(0, phase.overlapPeriods ?? 0);
   const constructionStartIdx = Math.max(0, Math.min(axisLength - 1, phaseStartYear - projectStartYear));
   const handoverYear = Math.max(constructionStartIdx, Math.min(axisLength - 1, constructionStartIdx + cp - 1));
-  const opsStartIdx = Math.max(constructionStartIdx, Math.min(axisLength - 1, handoverYear + 1 - overlap));
+  // Pass 9e (2026-05-18): operations can begin mid-construction when
+  // the user sets operationsStartYearOverride. Default is the legacy
+  // "after handover" rule (handoverYear + 1 - overlap). Override is
+  // clamped to [constructionStartIdx, axisLength - 1].
+  const defaultOpsStartIdx = Math.max(constructionStartIdx, Math.min(axisLength - 1, handoverYear + 1 - overlap));
+  const opsStartIdx = cfg.operationsStartYearOverride != null
+    ? Math.max(constructionStartIdx, Math.min(axisLength - 1, cfg.operationsStartYearOverride - projectStartYear))
+    : defaultOpsStartIdx;
   const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, opsStartIdx + op - 1));
 
   // Pass 9c (2026-05-18): per-sub-unit ADR resolution. Each
@@ -121,7 +132,7 @@ export function resolveHospitalityConfig(
     .filter((u) => u.metric === 'units')
     .map((u) => ({
       id: u.id,
-      keys: Math.max(0, u.metricValue),
+      keys: Math.max(0, Math.round(u.metricValue)),
       startingADR: u.startingAdr ?? cfg.startingADR ?? 0,
       adrIndexation: u.hospitalityIndexation,
     }));

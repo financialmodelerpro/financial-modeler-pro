@@ -91,9 +91,14 @@ function subUnitSummary(units: SubUnit[]): string {
 function SubUnitReferenceStrip({
   units,
   currency,
+  mode = 'sell',
 }: {
   units: SubUnit[];
   currency: string;
+  // Pass 9e (2026-05-18): 'operate' surfaces SubUnit.startingAdr as
+  // "ADR / night" and labels the count as "keys". 'sell' (default)
+  // surfaces unitPrice as "/ unit" or "/ sqm" depending on metric.
+  mode?: 'sell' | 'operate';
 }): React.JSX.Element | null {
   if (units.length === 0) return null;
   return (
@@ -113,13 +118,20 @@ function SubUnitReferenceStrip({
       {units.map((su) => {
         const area = computeSubUnitArea(su);
         const isUnitsMetric = su.metric === 'units';
-        const rateLabel = (su.unitPrice && su.unitPrice > 0)
-          ? (isUnitsMetric
-              ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
-              : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
-          : 'no price';
+        const countNoun = mode === 'operate' && isUnitsMetric ? 'keys' : 'units';
+        let rateLabel: string;
+        if (mode === 'operate' && isUnitsMetric) {
+          const adr = su.startingAdr ?? su.unitPrice ?? 0;
+          rateLabel = adr > 0 ? `${currency} ${formatAccounting(adr, 'full', 0)} / night (ADR)` : 'no ADR';
+        } else {
+          rateLabel = (su.unitPrice && su.unitPrice > 0)
+            ? (isUnitsMetric
+                ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
+                : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
+            : 'no price';
+        }
         const sizeLabel = isUnitsMetric
-          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} units · ${formatArea(area, 0)} sqm`
+          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} ${countNoun} · ${formatArea(area, 0)} sqm`
           : `${formatArea(area, 0)} sqm`;
         return (
           <span
@@ -397,7 +409,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const overlap = Math.max(0, phase.overlapPeriods ?? 0);
   const constructionStartIdx = Math.max(0, Math.min(totalPeriods - 1, phaseStartYear - projectStartYear));
   const handoverYear = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, constructionStartIdx + cp - 1));
-  const operationsStartIdx = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, handoverYear + 1 - overlap));
+  const defaultOperationsStartIdx = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, handoverYear + 1 - overlap));
+  // Pass 9e (2026-05-18): per-asset override so a hotel can soft-open
+  // mid-construction (or any custom calendar year). Resolver mirrors
+  // this logic; this is the UI-side window so the occupancy + ADR
+  // strips render the right year range.
+  const opsStartOverride = asset.revenue?.operate?.operationsStartYearOverride;
+  const operationsStartIdx = opsStartOverride != null
+    ? Math.max(constructionStartIdx, Math.min(totalPeriods - 1, opsStartOverride - projectStartYear))
+    : defaultOperationsStartIdx;
   const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, operationsStartIdx + op - 1));
 
   const constructionWindow: WindowCell[] = cp > 0
@@ -754,7 +774,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
       {isHospitality && !assetCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} />
+          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} mode="operate" />
 
           {operationsWindow.length === 0 ? (
             <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -762,25 +782,17 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
           ) : (
             <>
-              {/* ADR */}
+              {/* ADR (Pass 9e: asset-level Starting ADR input removed —
+                  per-sub-unit ADR comes from Module 1 Tab 2 startingAdr.
+                  Indexation pills + Per-Year strip remain at the asset
+                  level since they apply uniformly to all room types
+                  unless overridden via SubUnit.hospitalityIndexation.) */}
               <InlineSection
-                title={`ADR (per occupied room night) · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
-                hint="Starting Average Daily Rate per occupied room. Indexation escalates from Start Year onwards."
+                title={`ADR Indexation · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
+                hint="Per-sub-unit ADR is entered in Module 1 Tab 2 (Starting ADR per room type). Indexation escalates each sub-unit's ADR from Start Year onwards (unless a sub-unit carries its own indexation override)."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Starting ADR ({project.currency})</span>
-                  <div style={{ width: 120 }}>
-                    <AccountingNumberInput
-                      value={opStartingADR}
-                      onChange={setOperateADR}
-                      scale="full"
-                      decimals={0}
-                      min={0}
-                      style={FAST_INPUT}
-                      data-testid={`m2-asset-${asset.id}-adr`}
-                    />
-                  </div>
-                  <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Indexation</span>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Indexation</span>
                   <MethodPill active={opADRIdx.method === 'none'} label="None" onClick={() => setOperateADRIndexationMethod('none')} />
                   <MethodPill active={opADRIdx.method === 'yoy_compound'} label="YoY Compound" onClick={() => setOperateADRIndexationMethod('yoy_compound')} />
                   <MethodPill active={opADRIdx.method === 'yoy_per_period'} label="Per-Year" onClick={() => setOperateADRIndexationMethod('yoy_per_period')} />
@@ -873,79 +885,57 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                 )}
               </InlineSection>
 
-              {/* Pass 9c (2026-05-18): per-sub-unit ADR split.
-                  Mirrors Pass 7v's velocity split toggle. When OFF
-                  (default), all unit-type sub-units inherit the
-                  asset-level ADR above. When ON, each room type
-                  (Standard / Deluxe / Suite etc.) gets its own
-                  startingADR stored on the SubUnit. Engine sums
-                  rooms revenue across sub-units. */}
-              {(() => {
-                const unitSubUnits = subUnits.filter((u) => u.metric === 'units');
-                if (unitSubUnits.length === 0) return null;
-                const anySplit = unitSubUnits.some((u) => u.startingAdr != null);
-                const enableSplit = (): void => {
-                  for (const u of unitSubUnits) {
-                    if (u.startingAdr == null) updateSubUnit(u.id, { startingAdr: opStartingADR });
-                  }
-                };
-                const disableSplit = (): void => {
-                  for (const u of unitSubUnits) {
-                    if (u.startingAdr != null) updateSubUnit(u.id, { startingAdr: undefined });
-                  }
-                };
-                return (
-                  <InlineSection
-                    title={`ADR per room type · ${unitSubUnits.length} sub-unit${unitSubUnits.length === 1 ? '' : 's'}`}
-                    hint="When OFF every sub-unit uses the asset-level ADR above. When ON each room type (Standard / Deluxe / Suite) gets its own ADR. Engine sums rooms revenue across sub-units."
-                  >
-                    <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap', marginBottom: anySplit ? 8 : 0 }}>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Mode</span>
-                      <MethodPill active={!anySplit} label="All sub-units share" onClick={disableSplit} />
-                      <MethodPill active={anySplit} label="Split per sub-unit" onClick={enableSplit} />
-                      {anySplit && (
-                        <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginLeft: 8 }}>
-                          Per-row ADR overrides the asset-level value. Indexation still pulls from the asset-level setting above.
-                        </span>
-                      )}
-                    </div>
-                    {anySplit && (
-                      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ ...CELL_HEADER, textAlign: 'left', minWidth: 160 }}>Sub-unit</th>
-                              <th style={{ ...CELL_HEADER, minWidth: 80 }}>Keys</th>
-                              <th style={{ ...CELL_HEADER, minWidth: 140 }}>Starting ADR ({project.currency})</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {unitSubUnits.map((u) => (
-                              <tr key={u.id}>
-                                <td style={{ padding: '4px 8px', borderTop: '1px solid var(--color-border)' }}>{u.name}</td>
-                                <td style={{ padding: '4px 8px', borderTop: '1px solid var(--color-border)', textAlign: 'right' }}>
-                                  {Math.max(0, u.metricValue).toLocaleString('en-US')}
-                                </td>
-                                <td style={{ padding: '2px 4px', borderTop: '1px solid var(--color-border)' }}>
-                                  <AccountingNumberInput
-                                    value={u.startingAdr ?? opStartingADR}
-                                    onChange={(n) => updateSubUnit(u.id, { startingAdr: Math.max(0, n) })}
-                                    scale="full"
-                                    decimals={0}
-                                    min={0}
-                                    style={FAST_INPUT}
-                                    data-testid={`m2-asset-${asset.id}-su-${u.id}-adr`}
-                                  />
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </InlineSection>
-                );
-              })()}
+              {/* Pass 9e (2026-05-18): Per Room Type split table (Pass 9c)
+                  removed. Sub-unit Starting ADR is now Module 1's
+                  single edit surface; the read-only sub-unit chip
+                  strip above renders the current values for context. */}
+
+              {/* Pass 9e (2026-05-18): operations start year override.
+                  Default is the year after handover; user can pull it
+                  forward to soft-open mid-construction. */}
+              <InlineSection
+                title="Operations start year"
+                hint="Defaults to the year after handover. Override to soft-open mid-construction (hotel running while still building) or push to any specific year."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Start operations in</span>
+                  <div style={{ width: 90 }}>
+                    <input
+                      type="number"
+                      value={projectStartYear + operationsStartIdx}
+                      min={projectStartYear + constructionStartIdx}
+                      max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                      onChange={(e) => {
+                        const yr = Number(e.target.value);
+                        const defaultYr = projectStartYear + defaultOperationsStartIdx;
+                        updateOperateInline({ operationsStartYearOverride: yr === defaultYr ? undefined : yr });
+                      }}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-ops-start-year`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}
+                  </span>
+                  {opsStartOverride != null && (
+                    <button
+                      type="button"
+                      onClick={() => updateOperateInline({ operationsStartYearOverride: undefined })}
+                      style={{
+                        fontSize: 10,
+                        padding: '2px 8px',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-meta)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Reset to default
+                    </button>
+                  )}
+                </div>
+              </InlineSection>
 
               {/* Occupancy ramp */}
               <InlineSection
@@ -983,6 +973,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   onChange={setOperateOccupancy}
                   testidPrefix={`m2-asset-${asset.id}-occ`}
                   showCumulative={false}
+                  label="Occupancy"
                 />
               </InlineSection>
 
@@ -1674,7 +1665,7 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
   );
 }
 
-function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulative = true }: {
+function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulative = true, label = 'Profile %' }: {
   cells: WindowCell[];
   values: number[];
   onChange: (projectIdx: number, pct: number) => void;
@@ -1683,6 +1674,9 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
   // the cohort, so the cumulative row is meaningful. Occupancy is a
   // per-year rate (no cohort sum semantics), so disable for that case.
   showCumulative?: boolean;
+  // Pass 9e (2026-05-18): per-caller row label. Defaults to 'Profile %'
+  // for cash + recognition profiles; occupancy passes 'Occupancy'.
+  label?: string;
 }): React.JSX.Element {
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
@@ -1703,7 +1697,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={HEADER_LABEL}>Profile %</th>
+            <th style={HEADER_LABEL}>{label}</th>
             <th style={HEADER_TOTAL_CELL}>{summaryLabel}</th>
             {cells.map((c) => (
               <th
@@ -1719,7 +1713,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
         <tbody>
           <tr>
             <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
-              Profile %
+              {label}
             </td>
             <td style={BODY_TOTAL_CELL}>{summaryValue}</td>
             {cells.map((c) => (
