@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Module2RevenueOutput.tsx (M2 Pass 7h, per-asset narrative)
+ * Module2RevenueOutput.tsx (M2 Pass 7s, per-asset narrative)
  *
  * One residential-first narrative per asset, in this order:
  *
@@ -9,14 +9,22 @@
  *      1a. Pre-Sales SQM, per sub-unit
  *      1b. Sales During Operation SQM, per sub-unit
  *      1c. Total SQM + reconciliation (cum % of BUA per sub-unit)
- *   2. Revenue
+ *   2. Revenue (Sales Value)
  *      2a. Pre-Sales Revenue, per sub-unit
  *      2b. Sales During Operation Revenue, per sub-unit
  *      2c. Total Revenue, per sub-unit
- *   3. Revenue Recognised vintage matrix
- *   4. Cash Collected vintage matrix (per cash profile)
- *   5. Accounts Receivable
- *   6. Unearned Revenue
+ *   3. Revenue Recognised
+ *      3a. Pre-Sales Recognition vintage matrix (per recognition profile)
+ *      3b. Recognition Summary per period: Pre + SDO + Total
+ *   4. Cash Collected
+ *      4a. Pre-Sales Cash vintage matrix (per cash profile)
+ *      4b. Cash Summary per period: Pre + SDO + Total
+ *   5. Accounts Receivable (pre-sales only; SDO does not form a balance)
+ *   6. Unearned Revenue (pre-sales only; SDO does not form a balance)
+ *
+ * Pass 7s (2026-05-18) surfaces Sales During Operation in Blocks 3 + 4
+ * and at the Project Total level so the cash + recognition view mirrors
+ * the Revenue (Sales Value) Pre/Post/Total breakdown in Block 2.
  *
  * Every table carries a one-line formula caption so the math is
  * documented inline. Token discipline: all styling pulls from
@@ -418,31 +426,55 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
 
-                  {/* 3. Revenue Recognised vintage matrix */}
-                  <SectionHeading n="3" title="Revenue Recognised (vintage matrix)" />
+                  {/* 3. Revenue Recognised */}
+                  <SectionHeading n="3" title="Revenue Recognised" />
                   <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}. Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year.
+                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}. Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year (Pre-Sales only).
                   </div>
                   <VintageMatrix
-                    title="3. Recognition Vintage Matrix"
+                    title="3a. Pre-Sales Recognition Vintage Matrix"
                     yearLabels={snap.yearLabels}
                     matrix={r.recognitionVintageMatrix}
                     currency={currency}
                     handoverYearIdx={handoverYearIdx}
                     fmt={fmt}
                   />
+                  <PeriodTable
+                    title="3b. Recognition Summary (per period)"
+                    formula="Pre-Sales Recognised = column-sum of 3a (per recognition profile). Sales During Operation Recognised = post-sales revenue recognised same period (operating sales, no deferral). Total = Pre + Post = P&L revenue per year."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Pre-Sales Recognised', values: r.presalesRecognitionPerPeriod },
+                      { label: 'Sales During Operation Recognised', values: r.postSalesRecognitionPerPeriod },
+                      { label: 'Total Revenue Recognised', values: r.recognitionPerPeriod, kind: 'grand' },
+                    ]}
+                    unit={currency}
+                    fmt={fmt}
+                  />
 
-                  {/* 4. Cash Collected vintage matrix */}
-                  <SectionHeading n="4" title="Cash Collected (vintage matrix)" />
+                  {/* 4. Cash Collected */}
+                  <SectionHeading n="4" title="Cash Collected" />
                   <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-                    Formula: rows = cohort sale year, columns = year collected. Each cohort cascades through the cash payment profile ({cashMode}). Sum across each row = cohort total sales value; sum down each column = cash collected per year.
+                    Formula: rows = cohort sale year, columns = year collected. Each cohort cascades through the cash payment profile ({cashMode}). Sum across each row = cohort total sales value; sum down each column = cash collected per year (Pre-Sales only).
                   </div>
                   <VintageMatrix
-                    title="4. Cash Vintage Matrix"
+                    title="4a. Pre-Sales Cash Vintage Matrix"
                     yearLabels={snap.yearLabels}
                     matrix={r.cashVintageMatrix}
                     currency={currency}
                     handoverYearIdx={handoverYearIdx}
+                    fmt={fmt}
+                  />
+                  <PeriodTable
+                    title="4b. Cash Summary (per period)"
+                    formula="Pre-Sales Cash = column-sum of 4a (per cash payment profile). Sales During Operation Cash = post-sales revenue collected same period (operating sales, no deferral). Total = Pre + Post = cash flow from revenue per year."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
+                      { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
+                      { label: 'Total Cash Collected', values: r.cashCollectedPerPeriod, kind: 'grand' },
+                    ]}
+                    unit={currency}
                     fmt={fmt}
                   />
 
@@ -511,12 +543,25 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           fmt={fmt}
         />
         <PeriodTable
-          title="Project Recognition + Cash"
-          formula="Sum of per-asset Recognition + Cash across every Sell asset."
+          title="Project Revenue Recognised"
+          formula="Sum of per-asset Recognition across every Sell asset. Pre = column-sum of recognition vintage matrices. Post = post-sales revenue recognised same period (operating sales)."
           yearLabels={snap.yearLabels}
           rows={[
-            { label: 'Project Revenue Recognised', values: snap.projectTotals.recognitionPerPeriod },
-            { label: 'Project Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, kind: 'grand' },
+            { label: 'Project Pre-Sales Recognised', values: snap.projectTotals.presalesRecognitionPerPeriod },
+            { label: 'Project Sales During Operation Recognised', values: snap.projectTotals.postSalesRecognitionPerPeriod },
+            { label: 'Project Total Revenue Recognised', values: snap.projectTotals.recognitionPerPeriod, kind: 'grand' },
+          ]}
+          unit={currency}
+          fmt={fmt}
+        />
+        <PeriodTable
+          title="Project Cash Collected"
+          formula="Sum of per-asset Cash across every Sell asset. Pre = column-sum of cash vintage matrices. Post = post-sales revenue collected same period (operating sales)."
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Project Pre-Sales Cash', values: snap.projectTotals.presalesCashPerPeriod },
+            { label: 'Project Sales During Operation Cash', values: snap.projectTotals.postSalesCashPerPeriod },
+            { label: 'Project Total Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, kind: 'grand' },
           ]}
           unit={currency}
           fmt={fmt}
