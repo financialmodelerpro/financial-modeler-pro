@@ -133,3 +133,78 @@ export interface ReconcileReport {
   ok: boolean;
   identities: ReconcileIdentity[];
 }
+
+// ───────────────────────────────────────────────────────────────────
+// M2 Pass 8: Hospitality (Operate-strategy) revenue types.
+//
+// Engine math per project-axis period y, inside the operations window:
+//   AvailableRoomNights[y] = keys × daysPerYear
+//   OccupiedRoomNights[y]  = ARN[y] × occupancy[y]
+//   ADR[y]                 = indexed(startingADR, y, adrIndexation)
+//   Rooms[y]               = ORN[y] × ADR[y]
+//   Guests[y]              = ORN[y] × guestsPerOccupiedRoom
+//   F&B[y]                 = ancillary(fb, Rooms[y], Guests[y], y)
+//   Other[y]               = ancillary(other, Rooms[y], Guests[y], y)
+//   Total[y]               = Rooms + F&B + Other
+//
+// Outside [opsStartIdx, opsEndIdx] (inclusive) all outputs are 0.
+// ───────────────────────────────────────────────────────────────────
+
+export type AncillaryRevenueMode = 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
+
+export interface AncillaryRevenueConfig {
+  mode: AncillaryRevenueMode;
+  // percent_of_rooms: F&B[y] = Rooms[y] × pct(y). Scalar (uniform) or
+  // per-period array. Indexation does not apply (already a ratio).
+  percentOfRooms?: number | number[];
+  // per_guest: F&B[y] = Guests[y] × ratePerGuest(y). Currency per
+  // guest per occupied night. Scalar (uniform) or per-period array.
+  // Indexation MAY apply (rate escalation).
+  ratePerGuest?: number | number[];
+  // fixed_amount: F&B[y] = explicit per-period currency value.
+  // Indexation MAY apply (lift base by factor).
+  fixedAmountPerPeriod?: number[];
+  // Optional indexation on the rate (per_guest) or the fixed amount.
+  // Ignored for percent_of_rooms.
+  indexation?: IndexationConfig;
+}
+
+export interface HospitalityConfig {
+  assetId: string;
+  // Total keys for the asset. Caller resolves from M1 sub-units
+  // (sum of metricValue where metric='units').
+  keys: number;
+  // Days per operating year. Default 365 (some operators use 360).
+  daysPerYear?: number;
+  // Starting Average Daily Rate (currency / occupied room night) at
+  // the operations start year. Escalates per adrIndexation.
+  startingADR: number;
+  // ADR escalation. Reuses IndexationConfig from Sell.
+  adrIndexation: IndexationConfig;
+  // Occupancy ramp, project-axis-indexed. 0..1 per period. Engine
+  // clamps. Values outside [opsStart, opsEnd] are ignored.
+  occupancyPerPeriod: number[];
+  // Average paying guests per occupied room night. Default 1.5.
+  // Drives the per-guest F&B / Other revenue modes.
+  guestsPerOccupiedRoom?: number;
+  fb: AncillaryRevenueConfig;
+  otherRevenue: AncillaryRevenueConfig;
+  // Operations window (project-axis indices, inclusive). Engine zeros
+  // every output before opsStartIdx and after opsEndIdx.
+  opsStartIdx: number;
+  opsEndIdx: number;
+}
+
+export interface HospitalityAssetResult {
+  assetId: string;
+  axisLength: number;
+  availableRoomNightsPerPeriod: number[];
+  occupiedRoomNightsPerPeriod: number[];
+  occupancyPerPeriod: number[];          // clamped, mirror of input
+  adrPerPeriod: number[];                // indexed
+  guestsPerPeriod: number[];
+  roomsRevenuePerPeriod: number[];
+  fbRevenuePerPeriod: number[];
+  otherRevenuePerPeriod: number[];
+  totalRevenuePerPeriod: number[];
+}

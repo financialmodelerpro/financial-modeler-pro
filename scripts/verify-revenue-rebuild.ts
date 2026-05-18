@@ -449,6 +449,120 @@ assertNear('F6: fixture B sale-value AR settles to 0',
 assertNear('F7: fixture B sale-value UR settles to 0',
   urBsv.perPeriod[urBsv.perPeriod.length - 1], 0, 1, 0.01);
 
+// ───────────────────────────────────────────────────────────────
+// Fixture H (Pass 8a): Hospitality engine.
+// 200 keys, ADR 500, occupancy ramp, F&B + Other across modes,
+// ops window 4..13 (years 5-14 of a 14-year project axis).
+// ───────────────────────────────────────────────────────────────
+import { computeHospitalityAsset, type HospitalityConfig } from '@/src/core/calculations/revenue';
+
+console.log('--- Fixture H: Hospitality engine baseline (Pass 8a) ---');
+
+// H1: rooms math + percent_of_rooms F&B + percent Other.
+// Year 5 (idx 4): occ 70%, no indexation.
+const fixtureH1: HospitalityConfig = {
+  assetId: 'asset-H1',
+  keys: 200,
+  daysPerYear: 365,
+  startingADR: 500,
+  adrIndexation: { method: 'none' },
+  occupancyPerPeriod: [0, 0, 0, 0, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70, 0.70],
+  guestsPerOccupiedRoom: 1.5,
+  fb:    { mode: 'percent_of_rooms', percentOfRooms: 0.25 },
+  otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0.10 },
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+const resH1 = computeHospitalityAsset({ config: fixtureH1, axisLength: 14 });
+
+const ARN_y5 = 200 * 365;            // 73,000
+const ORN_y5 = ARN_y5 * 0.70;        // 51,100
+const ROOMS_y5 = ORN_y5 * 500;       // 25,550,000
+const FB_y5 = ROOMS_y5 * 0.25;       // 6,387,500
+const OTHER_y5 = ROOMS_y5 * 0.10;    // 2,555,000
+const TOTAL_y5 = ROOMS_y5 + FB_y5 + OTHER_y5;  // 34,492,500
+
+assertNear('H1-1: ARN year 5 = keys × 365', resH1.availableRoomNightsPerPeriod[4], ARN_y5, 0.5);
+assertNear('H1-2: ORN year 5 = ARN × occ', resH1.occupiedRoomNightsPerPeriod[4], ORN_y5, 0.5);
+assertNear('H1-3: Rooms revenue year 5 = ORN × ADR', resH1.roomsRevenuePerPeriod[4], ROOMS_y5, 1, 0.01);
+assertNear('H1-4: F&B (percent_of_rooms 25%) year 5', resH1.fbRevenuePerPeriod[4], FB_y5, 1, 0.01);
+assertNear('H1-5: Other (percent_of_rooms 10%) year 5', resH1.otherRevenuePerPeriod[4], OTHER_y5, 1, 0.01);
+assertNear('H1-6: Total revenue year 5', resH1.totalRevenuePerPeriod[4], TOTAL_y5, 1, 0.01);
+assertTrue('H1-7: pre-ops (idx 0..3) revenue is 0',
+  resH1.totalRevenuePerPeriod.slice(0, 4).every((v) => v === 0),
+  `got ${JSON.stringify(resH1.totalRevenuePerPeriod.slice(0, 4))}`);
+
+// H2: per_guest F&B mode. 1.5 guests/ORN × SAR 200/guest.
+const fixtureH2: HospitalityConfig = {
+  ...fixtureH1,
+  assetId: 'asset-H2',
+  fb:    { mode: 'per_guest', ratePerGuest: 200 },
+  otherRevenue: { mode: 'per_guest', ratePerGuest: 50 },
+};
+const resH2 = computeHospitalityAsset({ config: fixtureH2, axisLength: 14 });
+const GUESTS_y5 = ORN_y5 * 1.5;       // 76,650
+const FB_pg_y5 = GUESTS_y5 * 200;     // 15,330,000
+const OTHER_pg_y5 = GUESTS_y5 * 50;   // 3,832,500
+assertNear('H2-1: Guests year 5 = ORN × guestsPerOR', resH2.guestsPerPeriod[4], GUESTS_y5, 0.5);
+assertNear('H2-2: F&B (per_guest 200/guest) year 5', resH2.fbRevenuePerPeriod[4], FB_pg_y5, 1, 0.01);
+assertNear('H2-3: Other (per_guest 50/guest) year 5', resH2.otherRevenuePerPeriod[4], OTHER_pg_y5, 1, 0.01);
+
+// H3: ADR YoY indexation 3% from operations start (idx 4).
+const fixtureH3: HospitalityConfig = {
+  ...fixtureH1,
+  assetId: 'asset-H3',
+  adrIndexation: { method: 'yoy_compound', rate: 0.03, startYear: 4 },
+};
+const resH3 = computeHospitalityAsset({ config: fixtureH3, axisLength: 14 });
+assertNear('H3-1: ADR year 5 = base (start year)', resH3.adrPerPeriod[4], 500, 0.01);
+assertNear('H3-2: ADR year 6 = base × 1.03', resH3.adrPerPeriod[5], 500 * 1.03, 0.01);
+assertNear('H3-3: ADR year 7 = base × 1.03^2', resH3.adrPerPeriod[6], 500 * 1.03 * 1.03, 0.01);
+
+// H4: occupancy ramp (40 / 60 / 70 / 75 / 75...) + clamping >1.
+const fixtureH4: HospitalityConfig = {
+  ...fixtureH1,
+  assetId: 'asset-H4',
+  occupancyPerPeriod: [0, 0, 0, 0, 0.40, 0.60, 0.70, 0.75, 1.20, 0.75, 0.75, 0.75, 0.75, 0.75],
+};
+const resH4 = computeHospitalityAsset({ config: fixtureH4, axisLength: 14 });
+assertNear('H4-1: Occupancy year 5 = 40%', resH4.occupancyPerPeriod[4], 0.40, 0.001);
+assertNear('H4-2: Occupancy year 9 clamped to 100%', resH4.occupancyPerPeriod[8], 1.00, 0.001);
+assertNear('H4-3: ORN year 5 = ARN × 0.40', resH4.occupiedRoomNightsPerPeriod[4], 200 * 365 * 0.40, 0.5);
+
+// H5: ops window. Years before opsStartIdx and after opsEndIdx are 0.
+const fixtureH5: HospitalityConfig = {
+  ...fixtureH1,
+  assetId: 'asset-H5',
+  opsStartIdx: 4,
+  opsEndIdx: 8, // shorter window: years 5..9
+  occupancyPerPeriod: new Array<number>(14).fill(0.70), // would otherwise fire every year
+};
+const resH5 = computeHospitalityAsset({ config: fixtureH5, axisLength: 14 });
+assertTrue('H5-1: Pre-ops (idx 0..3) revenue is 0',
+  resH5.totalRevenuePerPeriod.slice(0, 4).every((v) => v === 0),
+  `pre-ops got ${JSON.stringify(resH5.totalRevenuePerPeriod.slice(0, 4))}`);
+assertTrue('H5-2: Post-ops (idx 9..13) revenue is 0',
+  resH5.totalRevenuePerPeriod.slice(9).every((v) => v === 0),
+  `post-ops got ${JSON.stringify(resH5.totalRevenuePerPeriod.slice(9))}`);
+assertTrue('H5-3: In-ops (idx 4..8) revenue > 0',
+  resH5.totalRevenuePerPeriod.slice(4, 9).every((v) => v > 0),
+  `in-ops got ${JSON.stringify(resH5.totalRevenuePerPeriod.slice(4, 9))}`);
+
+// H6: fixed_amount Other revenue with indexation.
+const fixtureH6: HospitalityConfig = {
+  ...fixtureH1,
+  assetId: 'asset-H6',
+  otherRevenue: {
+    mode: 'fixed_amount',
+    fixedAmountPerPeriod: [0, 0, 0, 0, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000],
+    indexation: { method: 'yoy_compound', rate: 0.05, startYear: 4 },
+  },
+};
+const resH6 = computeHospitalityAsset({ config: fixtureH6, axisLength: 14 });
+assertNear('H6-1: Other (fixed 100k) year 5 = 100,000', resH6.otherRevenuePerPeriod[4], 100000, 1);
+assertNear('H6-2: Other (fixed 100k × 1.05) year 6', resH6.otherRevenuePerPeriod[5], 100000 * 1.05, 1);
+assertNear('H6-3: Other (fixed 100k × 1.05^2) year 7', resH6.otherRevenuePerPeriod[6], 100000 * 1.05 * 1.05, 1);
+
 // Report
 let pass = 0;
 let fail = 0;

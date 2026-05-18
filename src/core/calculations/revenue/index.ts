@@ -10,8 +10,12 @@
  * shared helper (cash + recognition vintage matrices).
  */
 export type {
+  AncillaryRevenueConfig,
+  AncillaryRevenueMode,
   AssetSellConfig,
   CashPaymentProfile,
+  HospitalityAssetResult,
+  HospitalityConfig,
   IndexationConfig,
   ProfileMode,
   ReconcileIdentity,
@@ -28,6 +32,8 @@ export { distributeCashCollection } from './payment';
 export { buildRecognition } from './recognition';
 export { computeSellAsset, resolveHandoverYear } from './sell';
 export type { ComputeSellInputs } from './sell';
+export { computeHospitalityAsset } from './hospitality';
+export type { ComputeHospitalityInputs } from './hospitality';
 export { reconcileSellAsset } from './reconcile';
 export { buildAccountsReceivable } from './accountsReceivable';
 export type { AccountsReceivableResult } from './accountsReceivable';

@@ -118,6 +118,14 @@ Verifier `scripts/verify-revenue-rebuild.ts` 37/37 green at end of Pass 7z.
 Remaining Module 2 passes:
 
 ### Pass 8, Hospitality Revenue engine + UI
+
+**Sub-passes (2026-05-18):**
+- **8a (shipped, this commit):** Engine baseline. `src/core/calculations/revenue/hospitality.ts`. Math per project-axis period y: ARN[y] = keys × daysPerYear; ORN[y] = ARN[y] × clamp(occupancy[y]); ADR[y] = applyIndexation(startingADR, y, adrIndexation); Rooms[y] = ORN[y] × ADR[y]; Guests[y] = ORN[y] × guestsPerOccupiedRoom; F&B[y] + Other[y] driven by `AncillaryRevenueConfig` with 3 modes (`percent_of_rooms` | `per_guest` | `fixed_amount`); Total = Rooms + F&B + Other. Outputs zero outside [opsStartIdx, opsEndIdx]. Per the user's "flexible, automated" ask, F&B and Other revenue are independently configurable (one can be % of rooms while the other is per-guest, etc.). `guestsPerOccupiedRoom` defaults to 1.5; `daysPerYear` defaults to 365. Both ancillary modes accept optional `IndexationConfig` for rate / amount escalation. 22 verifier scenarios (H1-1..H6-3) cover rooms math, F&B percent + per-guest modes, ADR YoY indexation, occupancy clamping, ops window, fixed-amount Other with indexation. 59/59 total verifier green.
+- **8b (next):** resolver + Inputs UI. Asset.revenue.operate (new field) + resolveHospitalityConfig + Module2Revenue.tsx Hospitality variant. ADR row, Occupancy ramp row, F&B mode toggle (% / per-guest / fixed), Other mode toggle, FAST blue inputs.
+- **8c:** Output tab integration + Project Total Hospitality / Operations group populates with engine values (replacing Pass 7u zero placeholders).
+- **8d:** AR via DSO driver (default 30 days). Schedules tab Hospitality section.
+
+**Original spec (reference):**
 - **Engine:** `src/core/calculations/revenue/hospitality.ts`. Per-asset inputs: rooms (= sub-unit count where category is hotel), starting ADR, indexation, occupancy ramp per year (% per year), F&B revenue % of rooms revenue, Other revenue % of rooms revenue, seasonality (optional). Output: `HospitalityAssetResult` with rooms revenue / F&B revenue / Other revenue / total revenue per period.
 - **UI Tab 1 inputs:** Hospitality cards reuse the AssetCard layout but swap velocity grid for: ADR row + Occupancy row + F&B % + Other %, all editable inline. FAST blue inputs.
 - **UI Tab 2 outputs:** add 3 new period tables for Hospitality (Rooms / F&B / Other / Total Hospitality Revenue).
