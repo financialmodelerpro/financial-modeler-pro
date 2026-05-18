@@ -22,12 +22,15 @@ import {
 } from '@/src/core/calculations';
 import {
   computeSellAsset,
+  computeHospitalityAsset,
   resolveHandoverYear,
   buildAccountsReceivable,
   buildUnearnedRevenue,
   buildCostOfSales,
   type AssetSellConfig,
   type CashPaymentProfile,
+  type HospitalityAssetResult,
+  type HospitalityConfig,
   type IndexationConfig,
   type RecognitionProfile,
   type SellAssetResult,
@@ -76,6 +79,64 @@ export function resolveSellConfig(asset: Asset, _project: Project): AssetSellCon
   };
 }
 
+/**
+ * Pass 8b (2026-05-18): build a HospitalityConfig for the engine.
+ * Reads asset.revenue.operate + sums keys across sub-units where
+ * metric='units'. Operations window comes from the asset's phase
+ * (operationsStart..operationsEnd, inclusive). Returns null when the
+ * asset has no operate config yet.
+ */
+export function resolveHospitalityConfig(
+  asset: Asset,
+  phase: Phase,
+  subUnits: SubUnit[],
+  projectStartYear: number,
+  axisLength: number,
+): HospitalityConfig | null {
+  const cfg = asset.revenue?.operate;
+  if (!cfg) return null;
+  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
+  const keys = assetSubUnits
+    .filter((u) => u.metric === 'units')
+    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+  const phaseStartYear = phase.startDate
+    ? new Date(phase.startDate).getUTCFullYear()
+    : projectStartYear;
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  const op = Math.max(0, phase.operationsPeriods ?? 0);
+  const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+  const constructionStartIdx = Math.max(0, Math.min(axisLength - 1, phaseStartYear - projectStartYear));
+  const handoverYear = Math.max(constructionStartIdx, Math.min(axisLength - 1, constructionStartIdx + cp - 1));
+  const opsStartIdx = Math.max(constructionStartIdx, Math.min(axisLength - 1, handoverYear + 1 - overlap));
+  const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, opsStartIdx + op - 1));
+
+  return {
+    assetId: asset.id,
+    keys,
+    daysPerYear: cfg.daysPerYear ?? 365,
+    startingADR: cfg.startingADR,
+    adrIndexation: cfg.adrIndexation ?? DEFAULT_INDEXATION,
+    occupancyPerPeriod: cfg.occupancyPerPeriod ?? new Array<number>(axisLength).fill(0),
+    guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
+    fb: {
+      mode: cfg.fb.mode,
+      percentOfRooms: cfg.fb.percentOfRooms,
+      ratePerGuest: cfg.fb.ratePerGuest,
+      fixedAmountPerPeriod: cfg.fb.fixedAmountPerPeriod,
+      indexation: cfg.fb.indexation,
+    },
+    otherRevenue: {
+      mode: cfg.otherRevenue.mode,
+      percentOfRooms: cfg.otherRevenue.percentOfRooms,
+      ratePerGuest: cfg.otherRevenue.ratePerGuest,
+      fixedAmountPerPeriod: cfg.otherRevenue.fixedAmountPerPeriod,
+      indexation: cfg.otherRevenue.indexation,
+    },
+    opsStartIdx,
+    opsEndIdx,
+  };
+}
+
 function makeSubUnitMaterial(u: SubUnit): SubUnitMaterial {
   const area = computeSubUnitArea(u);
   if (u.metric === 'units') {
@@ -93,6 +154,11 @@ export interface ProjectRevenueSnapshot {
   yearLabels: number[];
   bySellAsset: Map<string, SellAssetResult>;
   projectTotals: SellAssetResult;
+  // Pass 8b (2026-05-18): Hospitality (Operate-strategy) per-asset
+  // results. Sell + Manage companions live here too (they're the
+  // operate side of a sell parent). Includes pure Operate parents.
+  byHospitalityAsset: Map<string, HospitalityAssetResult>;
+  hospitalityProjectTotals: HospitalityAssetResult;
 }
 
 export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
@@ -215,7 +281,61 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     }
   }
 
-  return { axisLength: N, projectStartYear, yearLabels, bySellAsset, projectTotals };
+  // Pass 8b (2026-05-18): Hospitality compute loop. Operate-strategy
+  // parents + every companion (companions are the operate side of a
+  // Sell + Manage parent, regardless of their own strategy field).
+  const byHospitalityAsset = new Map<string, HospitalityAssetResult>();
+  const hospitalityProjectTotals: HospitalityAssetResult = {
+    assetId: '__project__',
+    axisLength: N,
+    availableRoomNightsPerPeriod: emptyArr(),
+    occupiedRoomNightsPerPeriod: emptyArr(),
+    occupancyPerPeriod: emptyArr(),
+    adrPerPeriod: emptyArr(),
+    guestsPerPeriod: emptyArr(),
+    roomsRevenuePerPeriod: emptyArr(),
+    fbRevenuePerPeriod: emptyArr(),
+    otherRevenuePerPeriod: emptyArr(),
+    totalRevenuePerPeriod: emptyArr(),
+  };
+
+  for (const a of assets) {
+    if (a.visible === false) continue;
+    const isOperate = a.strategy === 'Operate' || a.isCompanion === true;
+    if (!isOperate) continue;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    if (!phase) continue;
+    const cfg = resolveHospitalityConfig(a, phase, subUnits, projectStartYear, N);
+    if (!cfg) continue;
+    const result = computeHospitalityAsset({ config: cfg, axisLength: N });
+    byHospitalityAsset.set(a.id, result);
+    const accH = (key: keyof HospitalityAssetResult): void => {
+      const src = result[key] as number[];
+      const dst = hospitalityProjectTotals[key] as number[];
+      for (let i = 0; i < N; i++) dst[i] += src[i] ?? 0;
+    };
+    accH('availableRoomNightsPerPeriod');
+    accH('occupiedRoomNightsPerPeriod');
+    accH('guestsPerPeriod');
+    accH('roomsRevenuePerPeriod');
+    accH('fbRevenuePerPeriod');
+    accH('otherRevenuePerPeriod');
+    accH('totalRevenuePerPeriod');
+    // occupancyPerPeriod + adrPerPeriod don't sum meaningfully across
+    // assets (they're rates, not flows), so leave the project totals
+    // at 0 for those two fields. Consumers should not read project-
+    // level occupancy / ADR.
+  }
+
+  return {
+    axisLength: N,
+    projectStartYear,
+    yearLabels,
+    bySellAsset,
+    projectTotals,
+    byHospitalityAsset,
+    hospitalityProjectTotals,
+  };
 }
 
 /**

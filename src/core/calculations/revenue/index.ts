@@ -37,6 +37,8 @@ export type { ComputeHospitalityInputs } from './hospitality';
 export { reconcileSellAsset } from './reconcile';
 export { buildAccountsReceivable } from './accountsReceivable';
 export type { AccountsReceivableResult } from './accountsReceivable';
+export { buildAccountsReceivableDSO } from './accountsReceivableDSO';
+export type { AccountsReceivableDSOResult, BuildAccountsReceivableDSOInputs } from './accountsReceivableDSO';
 export { buildUnearnedRevenue } from './unearnedRevenue';
 export type { UnearnedRevenueResult } from './unearnedRevenue';
 export { buildCostOfSales } from './costOfSales';

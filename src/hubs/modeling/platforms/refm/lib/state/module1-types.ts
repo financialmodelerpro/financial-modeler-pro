@@ -755,6 +755,52 @@ export interface Asset {
         pricePerSubUnit?: Record<string, number>;
       }>;
     };
+    /**
+     * M2 Pass 8b (2026-05-18): Hospitality (Operate-strategy) config.
+     * Mirrors HospitalityConfig at src/core/calculations/revenue/types.ts
+     * minus the engine-resolved fields (keys, opsStartIdx, opsEndIdx)
+     * which the resolver derives from M1 sub-units + phase windows.
+     */
+    operate?: {
+      assetId: string;
+      daysPerYear?: number;
+      startingADR: number;
+      adrIndexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+      };
+      // Project-axis-indexed occupancy ramp (0..1 per period).
+      occupancyPerPeriod: number[];
+      guestsPerOccupiedRoom?: number;
+      fb: {
+        mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
+        percentOfRooms?: number | number[];
+        ratePerGuest?: number | number[];
+        fixedAmountPerPeriod?: number | number[];
+        indexation?: {
+          method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+          rate?: number;
+          startYear?: number;
+          steps?: Array<{ year: number; factor: number }>;
+        };
+      };
+      otherRevenue: {
+        mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
+        percentOfRooms?: number | number[];
+        ratePerGuest?: number | number[];
+        fixedAmountPerPeriod?: number | number[];
+        indexation?: {
+          method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+          rate?: number;
+          startYear?: number;
+          steps?: Array<{ year: number; factor: number }>;
+        };
+      };
+      /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
+      dso?: number;
+    };
   };
 }
 

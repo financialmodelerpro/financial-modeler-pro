@@ -29,6 +29,7 @@ import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-typ
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { PercentageInput } from '../ui/PercentageInput';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 
 const FAST_INPUT: React.CSSProperties = {
@@ -288,9 +289,12 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   // Pass 7w (2026-05-18): Sell + Manage parents get full Sell-side
   // treatment (velocity grid, indexation, cash profile, recognition
-  // profile). The companion (operate side) lives in Hospitality
-  // controls and wires in at Pass 10.
+  // profile). The companion (operate side) handled by isHospitality.
   const isSell = asset.strategy === 'Sell' || asset.strategy === 'Sell + Manage';
+  // Pass 8b (2026-05-18): Hospitality (Operate-strategy) input variant.
+  // Pure Operate assets + every companion (companions are the operate
+  // side of a Sell + Manage parent).
+  const isHospitality = asset.strategy === 'Operate' || asset.isCompanion === true;
 
   // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
   const assetCollapseKey = `fmp:m2:inputs:asset:${asset.id}:collapsed`;
@@ -563,6 +567,72 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateSellInline({ indexation: { ...idxConfig, method: 'step', steps } });
   };
 
+  // ── Pass 8b (2026-05-18): Hospitality (Operate) config + setters ─
+  type OperateCfg = NonNullable<NonNullable<Asset['revenue']>['operate']>;
+  type AncillaryCfg = OperateCfg['fb']; // same shape as otherRevenue
+  const operateConfig = asset.revenue?.operate;
+  const opADRIdx = operateConfig?.adrIndexation ?? { method: 'none' as const };
+  const opFb: AncillaryCfg = operateConfig?.fb ?? { mode: 'percent_of_rooms' as const, percentOfRooms: 0 };
+  const opOther: AncillaryCfg = operateConfig?.otherRevenue ?? { mode: 'percent_of_rooms' as const, percentOfRooms: 0 };
+  const opOccupancy = operateConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
+  const opGuestsPerOR = operateConfig?.guestsPerOccupiedRoom ?? 1.5;
+  const opStartingADR = operateConfig?.startingADR ?? 0;
+  const opDSO = operateConfig?.dso ?? 30;
+
+  const updateOperateInline = (patch: Partial<OperateCfg>): void => {
+    const next: OperateCfg = {
+      assetId: asset.id,
+      daysPerYear: 365,
+      startingADR: opStartingADR,
+      adrIndexation: opADRIdx,
+      occupancyPerPeriod: paddedArray(opOccupancy, totalPeriods),
+      guestsPerOccupiedRoom: opGuestsPerOR,
+      fb: opFb,
+      otherRevenue: opOther,
+      dso: opDSO,
+      ...(operateConfig ?? {}),
+      ...patch,
+    };
+    updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), operate: next } });
+  };
+  const setOperateADR = (n: number): void => updateOperateInline({ startingADR: Math.max(0, n) });
+  const setOperateOccupancy = (idx: number, pct: number): void => {
+    const next = paddedArray(opOccupancy, totalPeriods);
+    next[idx] = Math.max(0, Math.min(1, pct / 100));
+    updateOperateInline({ occupancyPerPeriod: next });
+  };
+  const setOperateGuestsPerOR = (n: number): void => updateOperateInline({ guestsPerOccupiedRoom: Math.max(0, n) });
+  const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
+  const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step'): void => {
+    updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
+  };
+  const setOperateADRIndexationRate = (pct: number): void => {
+    updateOperateInline({ adrIndexation: { method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, rate: Math.max(0, pct / 100), startYear: opADRIdx.startYear ?? operationsStartIdx } });
+  };
+  const setOperateADRIndexationStartYear = (yearAbs: number): void => {
+    const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
+    updateOperateInline({ adrIndexation: { method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, rate: opADRIdx.rate ?? 0, startYear: idx } });
+  };
+  const setFbMode = (mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount'): void => {
+    updateOperateInline({ fb: { ...opFb, mode } });
+  };
+  const setFbPercent = (pct: number): void => updateOperateInline({ fb: { ...opFb, percentOfRooms: Math.max(0, pct / 100) } });
+  const setFbRatePerGuest = (n: number): void => updateOperateInline({ fb: { ...opFb, ratePerGuest: Math.max(0, n) } });
+  const setFbFixed = (n: number): void => updateOperateInline({ fb: { ...opFb, fixedAmountPerPeriod: Math.max(0, n) } });
+  const setOtherMode = (mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount'): void => {
+    updateOperateInline({ otherRevenue: { ...opOther, mode } });
+  };
+  const setOtherPercent = (pct: number): void => updateOperateInline({ otherRevenue: { ...opOther, percentOfRooms: Math.max(0, pct / 100) } });
+  const setOtherRatePerGuest = (n: number): void => updateOperateInline({ otherRevenue: { ...opOther, ratePerGuest: Math.max(0, n) } });
+  const setOtherFixed = (n: number): void => updateOperateInline({ otherRevenue: { ...opOther, fixedAmountPerPeriod: Math.max(0, n) } });
+
+  // Read scalar values (or pull index 0 from arrays for legacy data)
+  const scalarOf = (v: number | number[] | undefined): number => {
+    if (v == null) return 0;
+    if (typeof v === 'number') return v;
+    return v[0] ?? 0;
+  };
+
   const cashSum = cashProfile.percentages.reduce((s, v) => s + v, 0);
   const cashSumOk = Math.abs(cashSum - 1) < 0.005;
   const recSum = (recProfile.percentages ?? []).reduce((s, v) => s + v, 0);
@@ -608,7 +678,256 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         </span>
       </div>
 
-      {!isSell && !assetCollapsed && (
+      {isHospitality && !assetCollapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} />
+
+          {operationsWindow.length === 0 ? (
+            <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              Phase has no operations periods. Set them on Module 1 Tab 1.
+            </div>
+          ) : (
+            <>
+              {/* ADR */}
+              <InlineSection
+                title={`ADR (per occupied room night) · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
+                hint="Starting Average Daily Rate per occupied room. Indexation escalates from Start Year onwards."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Starting ADR ({project.currency})</span>
+                  <div style={{ width: 120 }}>
+                    <AccountingNumberInput
+                      value={opStartingADR}
+                      onChange={setOperateADR}
+                      scale="full"
+                      decimals={0}
+                      min={0}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-adr`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Indexation</span>
+                  <MethodPill active={opADRIdx.method === 'none'} label="None" onClick={() => setOperateADRIndexationMethod('none')} />
+                  <MethodPill active={opADRIdx.method === 'yoy_compound'} label="YoY Compound" onClick={() => setOperateADRIndexationMethod('yoy_compound')} />
+                  <MethodPill active={opADRIdx.method === 'step'} label="Step" onClick={() => setOperateADRIndexationMethod('step')} />
+                  {opADRIdx.method === 'yoy_compound' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
+                      <div style={{ width: 80 }}>
+                        <PercentageInput
+                          value={(opADRIdx.rate ?? 0) * 100}
+                          onChange={setOperateADRIndexationRate}
+                          min={0}
+                          max={50}
+                          decimals={2}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-adr-idx-rate`}
+                        />
+                      </div>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                      <div style={{ width: 90 }}>
+                        <input
+                          type="number"
+                          value={projectStartYear + (opADRIdx.startYear ?? operationsStartIdx)}
+                          min={projectStartYear}
+                          max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                          onChange={(e) => setOperateADRIndexationStartYear(Number(e.target.value))}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-adr-idx-startyear`}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </InlineSection>
+
+              {/* Occupancy ramp */}
+              <InlineSection
+                title="Occupancy ramp"
+                hint="Per-year occupancy %. Drives Occupied Room Nights = Keys × 365 × Occupancy."
+                tag={(() => {
+                  const visible = operationsWindow.map((c) => opOccupancy[c.idx] ?? 0);
+                  const max = Math.max(0, ...visible);
+                  return `peak ${(max * 100).toFixed(0)}%`;
+                })()}
+              >
+                <InlineProfileStrip
+                  cells={operationsWindow}
+                  values={opOccupancy}
+                  onChange={setOperateOccupancy}
+                  testidPrefix={`m2-asset-${asset.id}-occ`}
+                />
+              </InlineSection>
+
+              {/* Guests per occupied room night */}
+              <InlineSection
+                title="Average guests per occupied room night"
+                hint="Used by per-guest F&B / Other revenue modes. Default 1.5."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
+                  <div style={{ width: 80 }}>
+                    <AccountingNumberInput
+                      value={opGuestsPerOR}
+                      onChange={setOperateGuestsPerOR}
+                      scale="full"
+                      decimals={2}
+                      min={0}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-guests-per-or`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                    Guests / Year = Occupied Room Nights × {opGuestsPerOR.toFixed(2)}
+                  </span>
+                </div>
+              </InlineSection>
+
+              {/* F&B Revenue */}
+              <InlineSection
+                title="F&B Revenue"
+                hint="Pick the driver. Percent-of-Rooms = F&B as % of Rooms revenue. Per-Guest = guests × rate per guest. Fixed Amount = explicit annual amount with optional indexation."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <MethodPill active={opFb.mode === 'percent_of_rooms'} label="% of Rooms" onClick={() => setFbMode('percent_of_rooms')} />
+                  <MethodPill active={opFb.mode === 'per_guest'} label="Per Guest" onClick={() => setFbMode('per_guest')} />
+                  <MethodPill active={opFb.mode === 'fixed_amount'} label="Fixed Annual" onClick={() => setFbMode('fixed_amount')} />
+                  {opFb.mode === 'percent_of_rooms' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>F&B %</span>
+                      <div style={{ width: 80 }}>
+                        <PercentageInput
+                          value={scalarOf(opFb.percentOfRooms) * 100}
+                          onChange={setFbPercent}
+                          min={0}
+                          max={200}
+                          decimals={2}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-fb-pct`}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {opFb.mode === 'per_guest' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate per Guest ({project.currency})</span>
+                      <div style={{ width: 120 }}>
+                        <AccountingNumberInput
+                          value={scalarOf(opFb.ratePerGuest)}
+                          onChange={setFbRatePerGuest}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-fb-rate`}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {opFb.mode === 'fixed_amount' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Annual Amount ({project.currency})</span>
+                      <div style={{ width: 150 }}>
+                        <AccountingNumberInput
+                          value={scalarOf(opFb.fixedAmountPerPeriod)}
+                          onChange={setFbFixed}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-fb-fixed`}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </InlineSection>
+
+              {/* Other Revenue */}
+              <InlineSection
+                title="Other Revenue"
+                hint="Same flexibility as F&B. Use for spa / parking / minibar / banqueting rollups, or set Fixed Annual for a contractual line."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <MethodPill active={opOther.mode === 'percent_of_rooms'} label="% of Rooms" onClick={() => setOtherMode('percent_of_rooms')} />
+                  <MethodPill active={opOther.mode === 'per_guest'} label="Per Guest" onClick={() => setOtherMode('per_guest')} />
+                  <MethodPill active={opOther.mode === 'fixed_amount'} label="Fixed Annual" onClick={() => setOtherMode('fixed_amount')} />
+                  {opOther.mode === 'percent_of_rooms' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Other %</span>
+                      <div style={{ width: 80 }}>
+                        <PercentageInput
+                          value={scalarOf(opOther.percentOfRooms) * 100}
+                          onChange={setOtherPercent}
+                          min={0}
+                          max={200}
+                          decimals={2}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-other-pct`}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {opOther.mode === 'per_guest' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate per Guest ({project.currency})</span>
+                      <div style={{ width: 120 }}>
+                        <AccountingNumberInput
+                          value={scalarOf(opOther.ratePerGuest)}
+                          onChange={setOtherRatePerGuest}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-other-rate`}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {opOther.mode === 'fixed_amount' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Annual Amount ({project.currency})</span>
+                      <div style={{ width: 150 }}>
+                        <AccountingNumberInput
+                          value={scalarOf(opOther.fixedAmountPerPeriod)}
+                          onChange={setOtherFixed}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-other-fixed`}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </InlineSection>
+
+              {/* DSO (drives AR roll-forward, Pass 8d) */}
+              <InlineSection
+                title="DSO (Days Sales Outstanding)"
+                hint="Drives the AR roll-forward on the Schedules tab. Hospitality default 30 days."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
+                  <div style={{ width: 80 }}>
+                    <AccountingNumberInput
+                      value={opDSO}
+                      onChange={setOperateDSO}
+                      scale="full"
+                      decimals={0}
+                      min={0}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-dso`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>days</span>
+                </div>
+              </InlineSection>
+            </>
+          )}
+        </div>
+      )}
+
+      {!isSell && !isHospitality && !assetCollapsed && (
         <div style={{
           padding: '6px 10px',
           background: 'var(--color-surface-alt, #f3f4f6)',

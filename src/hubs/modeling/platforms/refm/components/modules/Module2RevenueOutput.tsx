@@ -464,9 +464,13 @@ function buildProjectGroupedRows({
     rows.push({ label: 'Hospitality / Operations', values: [], kind: 'section', indent: 0 });
     const series: number[][] = [];
     for (const a of operateAssets) {
-      // Pure Operate engine wires in Pass 8; companion (Sell + Manage
-      // operate side) engine wires in Pass 10. Zero placeholders until.
-      const vals = zeros();
+      // Pass 8b (2026-05-18): real engine values for Operate + Sell +
+      // Manage companions. Revenue / Recognition / Cash all read
+      // totalRevenuePerPeriod (operating-sales convention: rec = cash
+      // = revenue same period). Companion engine still wires in at
+      // Pass 10; meanwhile companions without operate config are zero.
+      const hospResult = snap.byHospitalityAsset.get(a.id);
+      const vals = hospResult ? hospResult.totalRevenuePerPeriod : zeros();
       rows.push({ label: a.name || 'Operate asset', values: vals, indent: 1 });
       series.push(vals);
     }
@@ -523,8 +527,14 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       && a.isCompanion !== true
       && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
   );
+  // Pass 8c (2026-05-18): Hospitality-only projects no longer hit the
+  // "no Sell assets" placeholder. The output surface now serves both
+  // Sell narratives + Hospitality narratives.
+  const operateAssetsAny = assets.some(
+    (a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true),
+  );
 
-  if (sellAssets.length === 0) {
+  if (sellAssets.length === 0 && !operateAssetsAny) {
     return (
       <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Revenue (Output)</h1>
@@ -533,7 +543,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)',
           color: 'var(--color-text-muted)', fontSize: 'var(--font-small)',
         }}>
-          No Sell-strategy assets configured. Add Sell assets in Module 1 Tab 2, then enter revenue inputs in Module 2 Tab 1.
+          No revenue-bearing assets configured. Add Sell, Operate, or Sell + Manage assets in Module 1 Tab 2, then enter revenue inputs in Module 2 Tab 1.
         </div>
       </div>
     );
@@ -826,6 +836,110 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     unit={currency}
                     fmt={fmt}
                   />
+                </AssetSection>
+              );
+            })}
+          </PhaseSection>
+        );
+      })}
+
+      {/* Pass 8c (2026-05-18): per-asset Hospitality narrative.
+          Operate-strategy assets + Sell + Manage companions. */}
+      {phases.map((p) => {
+        const phaseHospitalityAssets = assets.filter(
+          (a) => a.phaseId === p.id
+            && a.visible !== false
+            && (a.strategy === 'Operate' || a.isCompanion === true),
+        );
+        if (phaseHospitalityAssets.length === 0) return null;
+        return (
+          <PhaseSection
+            key={`hosp-${p.id}`}
+            phaseId={`hosp-${p.id}`}
+            title={`${p.name} · Hospitality / Operations`}
+            meta={`${p.status ?? 'planning'}`}
+            countLabel={`${phaseHospitalityAssets.length} hospitality asset${phaseHospitalityAssets.length === 1 ? '' : 's'}`}
+            storageKey={`fmp:m2:revenue:phase:hosp:${p.id}:collapsed`}
+          >
+            {phaseHospitalityAssets.map((a) => {
+              const r = snap.byHospitalityAsset.get(a.id);
+              const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
+              if (!r) {
+                return (
+                  <AssetSection
+                    key={a.id}
+                    assetId={a.id}
+                    title={a.name}
+                    meta={a.type ? `${a.type}` : undefined}
+                    storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+                  >
+                    <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+                    <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+                      No operate config yet. Enter ADR + Occupancy on the Inputs tab.
+                    </div>
+                  </AssetSection>
+                );
+              }
+              const pctFmt = (v: number): string => {
+                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+                return `${(v * 100).toFixed(1)}%`;
+              };
+              return (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta={a.type ? `${a.type}` : undefined}
+                  storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+                >
+                  <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+
+                  {/* 1. Operations Capacity */}
+                  <SectionHeading n="1" title="Operations Capacity" />
+                  <PeriodTable
+                    title="1a. Available + Occupied Room Nights + Guests"
+                    formula="Available Room Nights = keys × days/year. Occupied Room Nights = ARN × Occupancy. Guests = ORN × guests per occupied room (from Inputs)."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod },
+                      { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod },
+                      { label: 'Guests per Year', values: r.guestsPerPeriod, kind: 'subtotal' },
+                    ]}
+                    fmt={unitsFmt}
+                  />
+                  <PeriodTable
+                    title="1b. Occupancy %"
+                    formula="Per-year occupancy from the ramp on the Inputs tab. Clamped to 100%."
+                    yearLabels={snap.yearLabels}
+                    rows={[{ label: 'Occupancy', values: r.occupancyPerPeriod }]}
+                    fmt={pctFmt}
+                  />
+                  <PeriodTable
+                    title="1c. ADR (per occupied room night)"
+                    formula="ADR = starting ADR × indexation factor. Indexation method set on Inputs tab."
+                    yearLabels={snap.yearLabels}
+                    rows={[{ label: `ADR (${currency})`, values: r.adrPerPeriod }]}
+                    fmt={fmt}
+                  />
+
+                  {/* 2. Revenue */}
+                  <SectionHeading n="2" title="Revenue" />
+                  <PeriodTable
+                    title="2. Rooms + F&B + Other + Total Hospitality Revenue"
+                    formula="Rooms = ORN × ADR. F&B + Other follow per-asset mode (% of Rooms / Per Guest / Fixed Annual). Operating-sales convention: recognition = cash = revenue in the same period."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Rooms Revenue', values: r.roomsRevenuePerPeriod },
+                      { label: 'F&B Revenue', values: r.fbRevenuePerPeriod },
+                      { label: 'Other Revenue', values: r.otherRevenuePerPeriod },
+                      { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' },
+                    ]}
+                    fmt={fmt}
+                  />
+
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: '4px 0' }}>
+                    Recognition + Cash: equal to Total Revenue per period (operating-sales convention, no deferral). AR via DSO surfaces on the Schedules tab.
+                  </div>
                 </AssetSection>
               );
             })}

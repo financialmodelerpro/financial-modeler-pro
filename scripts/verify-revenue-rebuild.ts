@@ -563,6 +563,53 @@ assertNear('H6-1: Other (fixed 100k) year 5 = 100,000', resH6.otherRevenuePerPer
 assertNear('H6-2: Other (fixed 100k × 1.05) year 6', resH6.otherRevenuePerPeriod[5], 100000 * 1.05, 1);
 assertNear('H6-3: Other (fixed 100k × 1.05^2) year 7', resH6.otherRevenuePerPeriod[6], 100000 * 1.05 * 1.05, 1);
 
+// ───────────────────────────────────────────────────────────────
+// Fixture I (Pass 8d): DSO-driven AR for operating revenue.
+// ───────────────────────────────────────────────────────────────
+import { buildAccountsReceivableDSO } from '@/src/core/calculations/revenue';
+
+console.log('--- Fixture I: AR DSO roll-forward (Pass 8d) ---');
+
+// 4 years of revenue: [1000, 1200, 0, 0], DSO = 90 days, days/year = 360.
+// ratio = 90/360 = 0.25
+// closing = revenue × 0.25 = [250, 300, 0, 0]
+// opening = [0, 250, 300, 0]
+// change  = closing - opening = [250, 50, -300, 0]
+// cash    = revenue - change  = [750, 1150, 300, 0]
+const arDSO = buildAccountsReceivableDSO({
+  revenuePerPeriod: [1000, 1200, 0, 0],
+  dsoDays: 90,
+  daysPerYear: 360,
+  axisLength: 4,
+});
+assertTrue('I1: AR closing = revenue × dso/days',
+  JSON.stringify(arDSO.perPeriod) === JSON.stringify([250, 300, 0, 0]),
+  `got ${JSON.stringify(arDSO.perPeriod)}`);
+assertTrue('I2: AR opening = prior closing (opening[0] = 0)',
+  JSON.stringify(arDSO.openingPerPeriod) === JSON.stringify([0, 250, 300, 0]),
+  `got ${JSON.stringify(arDSO.openingPerPeriod)}`);
+assertTrue('I3: AR change = closing - opening',
+  JSON.stringify(arDSO.changePerPeriod) === JSON.stringify([250, 50, -300, 0]),
+  `got ${JSON.stringify(arDSO.changePerPeriod)}`);
+assertTrue('I4: Cash received = revenue - change in AR',
+  JSON.stringify(arDSO.cashReceivedPerPeriod) === JSON.stringify([750, 1150, 300, 0]),
+  `got ${JSON.stringify(arDSO.cashReceivedPerPeriod)}`);
+assertNear('I5: Total cash collected over lifetime = total revenue',
+  arDSO.cashReceivedPerPeriod.reduce((s, v) => s + v, 0),
+  1000 + 1200 + 0 + 0,
+  0.01);
+assertNear('I6: AR settles to 0 once revenue tails off',
+  arDSO.perPeriod[3], 0, 0.01);
+
+// Default daysPerYear = 365 sanity:
+const arDSO365 = buildAccountsReceivableDSO({
+  revenuePerPeriod: [365],
+  dsoDays: 30,
+  axisLength: 1,
+});
+assertNear('I7: DSO=30, days=365 default, revenue=365 -> closing=30',
+  arDSO365.perPeriod[0], 30, 0.01);
+
 // Report
 let pass = 0;
 let fail = 0;

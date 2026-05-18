@@ -16,7 +16,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
-import { buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
+import { buildAccountsReceivable, buildUnearnedRevenue, buildAccountsReceivableDSO } from '@/src/core/calculations/revenue';
 import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
@@ -96,14 +96,19 @@ export default function Module2Schedules(): React.JSX.Element {
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
   const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
   // Pass 7w (2026-05-18): Sell + Manage parents get the same AR / UR
-  // / CoS schedules as pure Sell. Companion schedules wire in Pass 10.
+  // / CoS schedules as pure Sell. Pass 8d (2026-05-18): Hospitality
+  // assets (Operate parents + companions) get DSO-driven AR alongside.
   const sellAssets = assets.filter(
     (a) => a.visible !== false
       && a.isCompanion !== true
       && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
   );
+  const hospAssets = assets.filter(
+    (a) => a.visible !== false
+      && (a.strategy === 'Operate' || a.isCompanion === true),
+  );
 
-  if (sellAssets.length === 0) {
+  if (sellAssets.length === 0 && hospAssets.length === 0) {
     return (
       <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Schedules</h1>
@@ -112,7 +117,7 @@ export default function Module2Schedules(): React.JSX.Element {
           border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)',
           color: 'var(--color-text-muted)', fontSize: 'var(--font-small)',
         }}>
-          No Sell-strategy assets configured.
+          No revenue-bearing assets configured.
         </div>
       </div>
     );
@@ -121,6 +126,7 @@ export default function Module2Schedules(): React.JSX.Element {
   const N = snap.axisLength;
   const projAR = new Array<number>(N).fill(0);
   const projUR = new Array<number>(N).fill(0);
+  const projHospAR = new Array<number>(N).fill(0);
 
   for (const a of sellAssets) {
     const r = snap.bySellAsset.get(a.id);
@@ -131,6 +137,18 @@ export default function Module2Schedules(): React.JSX.Element {
       projAR[i] += ar.perPeriod[i] ?? 0;
       projUR[i] += ur.perPeriod[i] ?? 0;
     }
+  }
+  for (const a of hospAssets) {
+    const r = snap.byHospitalityAsset.get(a.id);
+    if (!r) continue;
+    const dso = a.revenue?.operate?.dso ?? 30;
+    const arH = buildAccountsReceivableDSO({
+      revenuePerPeriod: r.totalRevenuePerPeriod,
+      dsoDays: dso,
+      daysPerYear: a.revenue?.operate?.daysPerYear ?? 365,
+      axisLength: N,
+    });
+    for (let i = 0; i < N; i++) projHospAR[i] += arH.perPeriod[i] ?? 0;
   }
 
   return (
@@ -188,6 +206,59 @@ export default function Module2Schedules(): React.JSX.Element {
         );
       })}
 
+      {/* Pass 8d (2026-05-18): Hospitality AR via DSO. */}
+      {phases.map((p) => {
+        const phaseHosp = hospAssets.filter((a) => a.phaseId === p.id);
+        if (phaseHosp.length === 0) return null;
+        return (
+          <PhaseSection
+            key={`hosp-${p.id}`}
+            phaseId={`hosp-${p.id}`}
+            title={`${p.name} · Hospitality / Operations`}
+            meta={`${p.status ?? 'planning'}`}
+            countLabel={`${phaseHosp.length} hospitality asset${phaseHosp.length === 1 ? '' : 's'}`}
+            storageKey={`fmp:m2:schedules:phase:hosp:${p.id}:collapsed`}
+          >
+            {phaseHosp.map((a) => {
+              const r = snap.byHospitalityAsset.get(a.id);
+              if (!r) return null;
+              const dso = a.revenue?.operate?.dso ?? 30;
+              const arH = buildAccountsReceivableDSO({
+                revenuePerPeriod: r.totalRevenuePerPeriod,
+                dsoDays: dso,
+                daysPerYear: a.revenue?.operate?.daysPerYear ?? 365,
+                axisLength: N,
+              });
+              return (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta={a.type}
+                  storageKey={`fmp:m2:schedules:asset:${a.id}:collapsed`}
+                >
+                  <PeriodTable
+                    title={`AR roll-forward · DSO ${dso} days`}
+                    caption="Closing AR = Revenue × DSO/days. Change in AR = Closing - Opening. Cash received = Revenue - Change in AR. AR settles to 0 as revenue tails off."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Opening AR', values: arH.openingPerPeriod },
+                      { label: '(+) Revenue', values: r.totalRevenuePerPeriod },
+                      { label: '(-) Cash Received', values: arH.cashReceivedPerPeriod.map((v) => -v) },
+                      { label: 'Change in AR', values: arH.changePerPeriod, isTotal: false },
+                      { label: 'Closing AR', values: arH.perPeriod, isTotal: true },
+                    ]}
+                    currency={currency}
+                    latestLabel="Closing"
+                    fmt={fmt}
+                  />
+                </AssetSection>
+              );
+            })}
+          </PhaseSection>
+        );
+      })}
+
       <PhaseSection
         phaseId="__project__"
         title="Project Total"
@@ -198,8 +269,9 @@ export default function Module2Schedules(): React.JSX.Element {
           title="Project Working-Capital Schedules"
           yearLabels={snap.yearLabels}
           rows={[
-            { label: 'Project AR (closing)', values: projAR, isTotal: true },
-            { label: 'Project Unearned (closing)', values: projUR, isTotal: true },
+            { label: 'Project Sell AR (closing)', values: projAR, isTotal: true },
+            { label: 'Project Sell Unearned (closing)', values: projUR, isTotal: true },
+            { label: 'Project Hospitality AR (closing, DSO-driven)', values: projHospAR, isTotal: true },
           ]}
           currency={currency}
           latestLabel="Closing"

@@ -161,9 +161,10 @@ export interface AncillaryRevenueConfig {
   // guest per occupied night. Scalar (uniform) or per-period array.
   // Indexation MAY apply (rate escalation).
   ratePerGuest?: number | number[];
-  // fixed_amount: F&B[y] = explicit per-period currency value.
-  // Indexation MAY apply (lift base by factor).
-  fixedAmountPerPeriod?: number[];
+  // fixed_amount: F&B[y] = explicit per-period currency value, or a
+  // single scalar that broadcasts to every operating year. Indexation
+  // MAY apply (lift base by factor).
+  fixedAmountPerPeriod?: number | number[];
   // Optional indexation on the rate (per_guest) or the fixed amount.
   // Ignored for percent_of_rooms.
   indexation?: IndexationConfig;
