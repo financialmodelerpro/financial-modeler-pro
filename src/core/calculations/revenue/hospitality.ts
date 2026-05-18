@@ -88,6 +88,7 @@ export function computeHospitalityAsset(
   const orn = new Array<number>(N).fill(0);
   const occ = new Array<number>(N).fill(0);
   const adr = new Array<number>(N).fill(0);
+  const adrFactor = new Array<number>(N).fill(0);
   const guests = new Array<number>(N).fill(0);
   const rooms = new Array<number>(N).fill(0);
   const fb = new Array<number>(N).fill(0);
@@ -105,7 +106,8 @@ export function computeHospitalityAsset(
     const rawOcc = config.occupancyPerPeriod[y] ?? 0;
     const occClamped = Math.max(0, Math.min(1, rawOcc));
     const ornY = annualARN * occClamped;
-    const adrY = applyIndexation(Math.max(0, config.startingADR), y, config.adrIndexation);
+    const factorY = applyIndexation(1, y, config.adrIndexation);
+    const adrY = Math.max(0, config.startingADR) * factorY;
     const guestsY = ornY * Math.max(0, guestsPerOR);
     const roomsY = ornY * adrY;
     const fbY = computeAncillary(config.fb, roomsY, guestsY, y);
@@ -115,6 +117,7 @@ export function computeHospitalityAsset(
     orn[y] = ornY;
     occ[y] = occClamped;
     adr[y] = adrY;
+    adrFactor[y] = factorY;
     guests[y] = guestsY;
     rooms[y] = roomsY;
     fb[y] = fbY;
@@ -129,6 +132,7 @@ export function computeHospitalityAsset(
     occupiedRoomNightsPerPeriod: orn,
     occupancyPerPeriod: occ,
     adrPerPeriod: adr,
+    adrIndexationFactorPerPeriod: adrFactor,
     guestsPerPeriod: guests,
     roomsRevenuePerPeriod: rooms,
     fbRevenuePerPeriod: fb,

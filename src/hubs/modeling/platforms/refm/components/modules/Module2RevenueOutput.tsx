@@ -181,6 +181,21 @@ interface PeriodRow {
   trailing?: string;
   /** Visual indent depth, applied to the label cell. */
   indent?: number;
+  /**
+   * Pass 8f (2026-05-18): per-row formatter overriding the table's fmt
+   * prop. Lets a single PeriodTable mix currency / integer / % / decimal
+   * factor rows — e.g., Hospitality Block 1 walking from Rooms (int) ->
+   * Days (int) -> Occupancy (%) -> ADR Factor (×) -> ADR (currency) ->
+   * ARN/ORN/Guests (int).
+   */
+  rowFmt?: (v: number) => string;
+  /**
+   * Optional explicit string for the "Total" column. Use for constant
+   * broadcast values (Rooms, Days) where summing across years is
+   * meaningless, or for rate rows where you'd rather show
+   * latest/average/dash than a nonsense sum.
+   */
+  totalOverride?: string;
 }
 
 function PeriodTable({
@@ -259,14 +274,17 @@ function PeriodTable({
               const labelStyle = indentPx > 0
                 ? { ...tokens.name, paddingLeft: `calc(${tokens.name.paddingLeft ?? 'var(--sp-2)'} + ${indentPx}px)` }
                 : tokens.name;
+              // Pass 8f: respect per-row formatter + total override.
+              const cellFmt = r.rowFmt ?? fmt;
+              const totalDisplay = r.totalOverride ?? cellFmt(total);
               return (
                 <tr key={`${r.label}-${idx}`}>
                   <td style={labelStyle}>{r.label}</td>
-                  <td style={tokens.numTotal}>{fmt(total)}</td>
+                  <td style={tokens.numTotal}>{totalDisplay}</td>
                   {trailingHeader && (
                     <td style={tokens.num}>{r.trailing ?? ''}</td>
                   )}
-                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v ?? 0)}</td>))}
+                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{cellFmt(v ?? 0)}</td>))}
                 </tr>
               );
             })}
@@ -884,6 +902,40 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
                 return `${(v * 100).toFixed(1)}%`;
               };
+              const factorFmt = (v: number): string => {
+                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+                return `${v.toFixed(4)}×`;
+              };
+              // Per-asset operate config (for the broadcast rows)
+              const opCfg = a.revenue?.operate;
+              const opKeys = assetSubUnits
+                .filter((u) => u.metric === 'units')
+                .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+              const opDaysPerYear = opCfg?.daysPerYear ?? 365;
+              const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
+              const opStartingADR = opCfg?.startingADR ?? 0;
+              // Broadcast across the full project axis (or zero outside
+              // the ops window, since the engine clamps anyway and these
+              // rows mirror the engine's view).
+              const broadcastIfOps = (v: number): number[] => r.availableRoomNightsPerPeriod.map(
+                (arn) => (arn > 0 ? v : 0),
+              );
+              // Pretty totals for input rows.
+              const intFmt = unitsFmt;
+              const finalAdr = (() => {
+                for (let i = r.adrPerPeriod.length - 1; i >= 0; i--) {
+                  if (r.adrPerPeriod[i] > 0) return r.adrPerPeriod[i];
+                }
+                return 0;
+              })();
+              const finalFactor = (() => {
+                for (let i = r.adrIndexationFactorPerPeriod.length - 1; i >= 0; i--) {
+                  if (r.adrIndexationFactorPerPeriod[i] > 0) return r.adrIndexationFactorPerPeriod[i];
+                }
+                return 0;
+              })();
+              const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
+              const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
               return (
                 <AssetSection
                   key={a.id}
@@ -894,32 +946,25 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 >
                   <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
 
-                  {/* 1. Operations Capacity */}
+                  {/* 1. Operations Capacity (Pass 8f: merged Drivers + Calcs) */}
                   <SectionHeading n="1" title="Operations Capacity" />
                   <PeriodTable
-                    title="1a. Available + Occupied Room Nights + Guests"
-                    formula="Available Room Nights = keys × days/year. Occupied Room Nights = ARN × Occupancy. Guests = ORN × guests per occupied room (from Inputs)."
+                    title="1. Drivers + Calculations"
+                    formula="Top five rows are user inputs (broadcast or per-year). Bottom three rows are derived: Available Room Nights = Keys × Days/Year; Occupied Room Nights = ARN × Occupancy; Guests = ORN × Guests/Room."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod },
-                      { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod },
-                      { label: 'Guests per Year', values: r.guestsPerPeriod, kind: 'subtotal' },
+                      { label: 'Drivers', values: [], kind: 'section', indent: 0 },
+                      { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
+                      { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
+                      { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
+                      { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
+                      { label: `ADR (${currency} per occupied room night)`, values: r.adrPerPeriod, rowFmt: fmt, totalOverride: fmt(finalAdr), indent: 1 },
+                      { label: 'Calculations', values: [], kind: 'section', indent: 0 },
+                      { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
+                      { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
+                      { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal', indent: 1 },
                     ]}
-                    fmt={unitsFmt}
-                  />
-                  <PeriodTable
-                    title="1b. Occupancy %"
-                    formula="Per-year occupancy from the ramp on the Inputs tab. Clamped to 100%."
-                    yearLabels={snap.yearLabels}
-                    rows={[{ label: 'Occupancy', values: r.occupancyPerPeriod }]}
-                    fmt={pctFmt}
-                  />
-                  <PeriodTable
-                    title="1c. ADR (per occupied room night)"
-                    formula="ADR = starting ADR × indexation factor. Indexation method set on Inputs tab."
-                    yearLabels={snap.yearLabels}
-                    rows={[{ label: `ADR (${currency})`, values: r.adrPerPeriod }]}
-                    fmt={fmt}
+                    fmt={intFmt}
                   />
 
                   {/* 2. Revenue */}

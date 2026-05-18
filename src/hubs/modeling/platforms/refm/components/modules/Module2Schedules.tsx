@@ -238,8 +238,8 @@ export default function Module2Schedules(): React.JSX.Element {
                   storageKey={`fmp:m2:schedules:asset:${a.id}:collapsed`}
                 >
                   <PeriodTable
-                    title={`AR roll-forward · DSO ${dso} days`}
-                    caption="Closing AR = Revenue × DSO/days. Change in AR = Closing - Opening. Cash received = Revenue - Change in AR. AR settles to 0 as revenue tails off."
+                    title={`AR roll-forward · ${dso} days receivable`}
+                    caption="Closing AR = Revenue × Receivable Days / 365. Change in AR = Closing - Opening. Cash received = Revenue - Change in AR. AR settles to 0 as revenue tails off."
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Opening AR', values: arH.openingPerPeriod },
@@ -271,7 +271,7 @@ export default function Module2Schedules(): React.JSX.Element {
           rows={[
             { label: 'Project Sell AR (closing)', values: projAR, isTotal: true },
             { label: 'Project Sell Unearned (closing)', values: projUR, isTotal: true },
-            { label: 'Project Hospitality AR (closing, DSO-driven)', values: projHospAR, isTotal: true },
+            { label: 'Project Hospitality AR (closing, receivable-days-driven)', values: projHospAR, isTotal: true },
           ]}
           currency={currency}
           latestLabel="Closing"

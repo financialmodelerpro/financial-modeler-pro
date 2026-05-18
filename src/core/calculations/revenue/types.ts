@@ -209,6 +209,11 @@ export interface HospitalityAssetResult {
   occupiedRoomNightsPerPeriod: number[];
   occupancyPerPeriod: number[];          // clamped, mirror of input
   adrPerPeriod: number[];                // indexed
+  // Pass 8f (2026-05-18): the indexation multiplier the engine applied
+  // to startingADR at each period (= adr[y] / startingADR when start is
+  // > 0; 1.0 otherwise). Exposed so the Output tab can show users the
+  // year-by-year escalation factor separately from the ADR value.
+  adrIndexationFactorPerPeriod: number[];
   guestsPerPeriod: number[];
   roomsRevenuePerPeriod: number[];
   fbRevenuePerPeriod: number[];

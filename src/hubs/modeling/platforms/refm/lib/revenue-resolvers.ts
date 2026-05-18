@@ -292,6 +292,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     occupiedRoomNightsPerPeriod: emptyArr(),
     occupancyPerPeriod: emptyArr(),
     adrPerPeriod: emptyArr(),
+    adrIndexationFactorPerPeriod: emptyArr(),
     guestsPerPeriod: emptyArr(),
     roomsRevenuePerPeriod: emptyArr(),
     fbRevenuePerPeriod: emptyArr(),

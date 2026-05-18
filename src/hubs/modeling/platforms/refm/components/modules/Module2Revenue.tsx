@@ -857,6 +857,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   values={opOccupancy}
                   onChange={setOperateOccupancy}
                   testidPrefix={`m2-asset-${asset.id}-occ`}
+                  showCumulative={false}
                 />
               </InlineSection>
 
@@ -1005,8 +1006,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
               {/* DSO (drives AR roll-forward, Pass 8d) */}
               <InlineSection
-                title="DSO (Days Sales Outstanding)"
-                hint="Drives the AR roll-forward on the Schedules tab. Hospitality default 30 days."
+                title="Accounts Receivable Days"
+                hint="Drives the AR roll-forward on the Schedules tab. Hospitality default 30 days. (Industry term: DSO, Days Sales Outstanding.)"
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
                   <div style={{ width: 80 }}>
@@ -1548,24 +1549,37 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
   );
 }
 
-function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
+function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulative = true }: {
   cells: WindowCell[];
   values: number[];
   onChange: (projectIdx: number, pct: number) => void;
   testidPrefix?: string;
+  // Pass 8f (2026-05-18): cash + recognition profiles sum to 100% across
+  // the cohort, so the cumulative row is meaningful. Occupancy is a
+  // per-year rate (no cohort sum semantics), so disable for that case.
+  showCumulative?: boolean;
 }): React.JSX.Element {
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
   const HEADER_LABEL: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', minWidth: 140 };
   const stripTotal = cells.reduce((s, c) => s + (values[c.idx] ?? 0), 0);
   const stripTotalPct = `${(stripTotal * 100).toFixed(1)}%`;
+  // Pass 8f: per-year rates (occupancy) — show average instead of sum
+  // since summing % across years is meaningless. Visible non-zero years
+  // only so a sparse ramp doesn't dilute toward zero.
+  const nonZeroCount = cells.reduce((s, c) => s + ((values[c.idx] ?? 0) > 0 ? 1 : 0), 0);
+  const stripAvgPct = nonZeroCount > 0
+    ? `${(stripTotal / nonZeroCount * 100).toFixed(1)}%`
+    : '-';
+  const summaryLabel = showCumulative ? 'Total' : 'Avg';
+  const summaryValue = showCumulative ? stripTotalPct : stripAvgPct;
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={HEADER_LABEL}>Profile %</th>
-            <th style={HEADER_TOTAL_CELL}>Total</th>
+            <th style={HEADER_TOTAL_CELL}>{summaryLabel}</th>
             {cells.map((c) => (
               <th
                 key={c.idx}
@@ -1582,7 +1596,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
             <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
               Profile %
             </td>
-            <td style={BODY_TOTAL_CELL}>{stripTotalPct}</td>
+            <td style={BODY_TOTAL_CELL}>{summaryValue}</td>
             {cells.map((c) => (
               <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
                 <PercentageInput
@@ -1597,34 +1611,36 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix }: {
               </td>
             ))}
           </tr>
-          <tr>
-            <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)', background: 'var(--color-grey-pale)' }}>
-              Cumulative %
-            </td>
-            <td style={{ ...BODY_TOTAL_CELL, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>{stripTotalPct}</td>
-            {(() => {
-              let running = 0;
-              return cells.map((c) => {
-                running += Math.max(0, values[c.idx] ?? 0);
-                return (
-                  <td
-                    key={c.idx}
-                    style={{
-                      padding: '4px 6px',
-                      textAlign: 'right',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: 'var(--color-meta)',
-                      background: 'var(--color-grey-pale)',
-                    }}
-                    data-testid={testidPrefix ? `${testidPrefix}-cum-${c.idx}` : `m2-profile-cum-${c.idx}`}
-                  >
-                    {running > 0 ? `${(running * 100).toFixed(1)}%` : '-'}
-                  </td>
-                );
-              });
-            })()}
-          </tr>
+          {showCumulative && (
+            <tr>
+              <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)', background: 'var(--color-grey-pale)' }}>
+                Cumulative %
+              </td>
+              <td style={{ ...BODY_TOTAL_CELL, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>{stripTotalPct}</td>
+              {(() => {
+                let running = 0;
+                return cells.map((c) => {
+                  running += Math.max(0, values[c.idx] ?? 0);
+                  return (
+                    <td
+                      key={c.idx}
+                      style={{
+                        padding: '4px 6px',
+                        textAlign: 'right',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: 'var(--color-meta)',
+                        background: 'var(--color-grey-pale)',
+                      }}
+                      data-testid={testidPrefix ? `${testidPrefix}-cum-${c.idx}` : `m2-profile-cum-${c.idx}`}
+                    >
+                      {running > 0 ? `${(running * 100).toFixed(1)}%` : '-'}
+                    </td>
+                  );
+                });
+              })()}
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
