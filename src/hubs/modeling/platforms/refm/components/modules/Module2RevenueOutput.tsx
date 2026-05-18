@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 /**
  * Module2RevenueOutput.tsx (M2 Pass 7s, per-asset narrative)
@@ -567,6 +567,232 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     );
   }
 
+  // Pass 9d (2026-05-18): renderHospitalityAssetSection lifts the
+  // hospitality per-asset JSX (Blocks 1 + 2) into a helper so it can
+  // be rendered in two places:
+  //   1. The standalone Hospitality phase section (pure Operate
+  //      assets + Operate companions of non-Sell-Manage parents).
+  //   2. Inline under each Sell + Manage parent, immediately after
+  //      the parent's Sell narrative — so the user sees Tower 01's
+  //      Sell blocks and its Manage / Operate blocks together in
+  //      one continuous asset narrative.
+  // The `inline` flag wraps the section in a left-border + label
+  // chip ("↳ Manage / Operate") to make the parent-child link
+  // visible. Standalone callers pass inline=false.
+  const renderHospitalityAssetSection = (a: Asset, inline: boolean): React.JSX.Element => {
+    const r = snap.byHospitalityAsset.get(a.id);
+    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
+    const wrap = (inner: React.JSX.Element): React.JSX.Element => {
+      if (!inline) return inner;
+      return (
+        <div
+          key={a.id}
+          style={{
+            marginLeft: 20,
+            marginTop: -6,
+            marginBottom: 'var(--sp-3)',
+            paddingLeft: 12,
+            borderLeft: '3px solid var(--color-info, #1d4ed8)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--color-info, #1d4ed8)',
+              fontWeight: 600,
+              marginBottom: 4,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+            }}
+          >
+            ↳ Manage / Operate · revenue from operations after handover
+          </div>
+          {inner}
+        </div>
+      );
+    };
+    if (!r) {
+      return wrap(
+        <AssetSection
+          key={a.id}
+          assetId={a.id}
+          title={a.name}
+          meta={a.type ? `${a.type}` : undefined}
+          storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+        >
+          <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+            No operate config yet. Enter ADR + Occupancy on the Inputs tab.
+          </div>
+        </AssetSection>,
+      );
+    }
+    const pctFmt = (v: number): string => {
+      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+      return `${(v * 100).toFixed(1)}%`;
+    };
+    const factorFmt = (v: number): string => {
+      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+      return `${v.toFixed(4)}×`;
+    };
+    const opCfg = a.revenue?.operate;
+    const opKeys = assetSubUnits
+      .filter((u) => u.metric === 'units')
+      .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+    const opDaysPerYear = opCfg?.daysPerYear ?? 365;
+    const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
+    const opFbMode = opCfg?.fb?.mode ?? 'percent_of_rooms';
+    const opOtherMode = opCfg?.otherRevenue?.mode ?? 'percent_of_rooms';
+    const resolveAncillary = (raw: number | number[] | undefined, n: number): number[] => {
+      if (Array.isArray(raw)) {
+        const out = new Array<number>(n).fill(0);
+        for (let i = 0; i < n; i++) out[i] = Math.max(0, raw[i] ?? 0);
+        return out;
+      }
+      const scalar = Math.max(0, raw ?? 0);
+      return new Array<number>(n).fill(scalar);
+    };
+    const isScalar = (raw: number | number[] | undefined): boolean => !Array.isArray(raw);
+    const N = r.adrPerPeriod.length;
+    const opFbPctOfRoomsArr = resolveAncillary(opCfg?.fb?.percentOfRooms, N);
+    const opFbRatePerGuestArr = resolveAncillary(opCfg?.fb?.ratePerGuest, N);
+    const opFbFixedArr = resolveAncillary(opCfg?.fb?.fixedAmountPerPeriod, N);
+    const opOtherPctOfRoomsArr = resolveAncillary(opCfg?.otherRevenue?.percentOfRooms, N);
+    const opOtherRatePerGuestArr = resolveAncillary(opCfg?.otherRevenue?.ratePerGuest, N);
+    const opOtherFixedArr = resolveAncillary(opCfg?.otherRevenue?.fixedAmountPerPeriod, N);
+    const opFbPctScalar = isScalar(opCfg?.fb?.percentOfRooms) ? Math.max(0, (opCfg?.fb?.percentOfRooms as number | undefined) ?? 0) : null;
+    const opFbRatePerGuestScalar = isScalar(opCfg?.fb?.ratePerGuest) ? Math.max(0, (opCfg?.fb?.ratePerGuest as number | undefined) ?? 0) : null;
+    const opOtherPctScalar = isScalar(opCfg?.otherRevenue?.percentOfRooms) ? Math.max(0, (opCfg?.otherRevenue?.percentOfRooms as number | undefined) ?? 0) : null;
+    const opOtherRatePerGuestScalar = isScalar(opCfg?.otherRevenue?.ratePerGuest) ? Math.max(0, (opCfg?.otherRevenue?.ratePerGuest as number | undefined) ?? 0) : null;
+    const opsMask = r.availableRoomNightsPerPeriod.map((arn) => (arn > 0 ? 1 : 0));
+    const masked = (arr: number[]): number[] => arr.map((v, i) => v * (opsMask[i] ?? 0));
+    const showGuestsPerOR = opFbMode === 'per_guest' || opOtherMode === 'per_guest';
+    const broadcastIfOps = (v: number): number[] => r.availableRoomNightsPerPeriod.map((arn) => (arn > 0 ? v : 0));
+    const intFmt = unitsFmt;
+    const finalAdr = (() => {
+      for (let i = r.adrPerPeriod.length - 1; i >= 0; i--) if (r.adrPerPeriod[i] > 0) return r.adrPerPeriod[i];
+      return 0;
+    })();
+    const finalFactor = (() => {
+      for (let i = r.adrIndexationFactorPerPeriod.length - 1; i >= 0; i--) if (r.adrIndexationFactorPerPeriod[i] > 0) return r.adrIndexationFactorPerPeriod[i];
+      return 0;
+    })();
+    const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
+    const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
+    const unitSubUnits = assetSubUnits.filter((u) => u.metric === 'units');
+    const showPerSuBreakdown = unitSubUnits.length > 1;
+    const lastNonZero = (arr: number[]): number => {
+      for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
+      return 0;
+    };
+    const perSuAdrRows = showPerSuBreakdown
+      ? unitSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} ADR (${Math.max(0, u.metricValue).toLocaleString('en-US')} keys)`,
+            values: sub.adrPerPeriod,
+            rowFmt: fmt,
+            totalOverride: fmt(lastNonZero(sub.adrPerPeriod)),
+            indent: 2,
+          }];
+        })
+      : [];
+    const perSuRoomsRevenueRows = showPerSuBreakdown
+      ? unitSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} Rooms Revenue`,
+            values: sub.roomsRevenuePerPeriod,
+            rowFmt: fmt,
+            indent: 1,
+          }];
+        })
+      : [];
+    return wrap(
+      <AssetSection
+        key={a.id}
+        assetId={a.id}
+        title={a.name}
+        meta={a.type ? `${a.type}` : undefined}
+        storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+      >
+        <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+        <SectionHeading n="1" title="Operations Capacity" />
+        <PeriodTable
+          title="1. Drivers + Calculations"
+          formula="Driver rows are user inputs (broadcast or per-year); only the F&B + Other inputs matching the active mode are shown. Calculations: Available Room Nights = Keys × Days/Year; Occupied Room Nights = ARN × Occupancy; Guests = ORN × Guests/Room."
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
+            { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
+            { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
+            { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
+            { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
+            {
+              label: showPerSuBreakdown
+                ? `ADR (keys-weighted avg, ${currency} per occupied room night)`
+                : `ADR (${currency} per occupied room night)`,
+              values: r.adrPerPeriod,
+              rowFmt: fmt,
+              totalOverride: fmt(finalAdr),
+              indent: 1,
+            },
+            ...perSuAdrRows,
+            ...(showGuestsPerOR
+              ? [{ label: 'Guests per Occupied Room', values: broadcastIfOps(opGuestsPerOR), rowFmt: (v: number) => (Number.isFinite(v) && v > 0 ? v.toFixed(2) : '-'), totalOverride: opGuestsPerOR.toFixed(2), indent: 1 }]
+              : []),
+            ...(opFbMode === 'percent_of_rooms'
+              ? [{ label: 'F&B % of Rooms Revenue', values: masked(opFbPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opFbPctScalar !== null ? pctFmt(opFbPctScalar) : undefined, indent: 1 }]
+              : []),
+            ...(opFbMode === 'per_guest'
+              ? [{ label: `F&B Rate per Guest (${currency})`, values: masked(opFbRatePerGuestArr), rowFmt: fmt, totalOverride: opFbRatePerGuestScalar !== null ? fmt(opFbRatePerGuestScalar) : undefined, indent: 1 }]
+              : []),
+            ...(opFbMode === 'fixed_amount'
+              ? [{ label: `F&B Fixed Amount per Year (${currency})`, values: masked(opFbFixedArr), rowFmt: fmt, indent: 1 }]
+              : []),
+            ...(opOtherMode === 'percent_of_rooms'
+              ? [{ label: 'Other % of Rooms Revenue', values: masked(opOtherPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opOtherPctScalar !== null ? pctFmt(opOtherPctScalar) : undefined, indent: 1 }]
+              : []),
+            ...(opOtherMode === 'per_guest'
+              ? [{ label: `Other Rate per Guest (${currency})`, values: masked(opOtherRatePerGuestArr), rowFmt: fmt, totalOverride: opOtherRatePerGuestScalar !== null ? fmt(opOtherRatePerGuestScalar) : undefined, indent: 1 }]
+              : []),
+            ...(opOtherMode === 'fixed_amount'
+              ? [{ label: `Other Fixed Amount per Year (${currency})`, values: masked(opOtherFixedArr), rowFmt: fmt, indent: 1 }]
+              : []),
+            { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
+            { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
+            { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
+            { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal' as const, indent: 1 },
+          ]}
+          fmt={intFmt}
+        />
+        <SectionHeading n="2" title="Revenue" />
+        <PeriodTable
+          title="2. Rooms + F&B + Other + Total Hospitality Revenue"
+          formula="Rooms = ORN × ADR (per sub-unit, then summed). F&B + Other follow per-asset mode (% of Rooms / Per Guest / Fixed Annual). Operating-sales convention: recognition = cash = revenue in the same period."
+          yearLabels={snap.yearLabels}
+          rows={[
+            ...perSuRoomsRevenueRows,
+            {
+              label: showPerSuBreakdown ? 'Total Rooms Revenue' : 'Rooms Revenue',
+              values: r.roomsRevenuePerPeriod,
+              kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+            },
+            { label: 'F&B Revenue', values: r.fbRevenuePerPeriod },
+            { label: 'Other Revenue', values: r.otherRevenuePerPeriod },
+            { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' as const },
+          ]}
+          fmt={fmt}
+        />
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: '4px 0' }}>
+          Recognition + Cash: equal to Total Revenue per period (operating-sales convention, no deferral). AR via DSO surfaces on the Schedules tab.
+        </div>
+      </AssetSection>,
+    );
+  };
+
   return (
     <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -651,9 +877,13 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 ? 'relative-to-sale milestone schedule'
                 : 'absolute milestone schedule with sale-year catchup';
 
+              // Pass 9d: when Sell + Manage, find companion to append below
+              const sellManageCompanion = a.strategy === 'Sell + Manage'
+                ? assets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
+                : undefined;
               return (
+                <React.Fragment key={a.id}>
                 <AssetSection
-                  key={a.id}
                   assetId={a.id}
                   title={a.name}
                   meta={a.type ? `${a.type}` : undefined}
@@ -855,6 +1085,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
                 </AssetSection>
+                {sellManageCompanion && renderHospitalityAssetSection(sellManageCompanion, true)}
+                </React.Fragment>
               );
             })}
           </PhaseSection>
@@ -862,13 +1094,21 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       })}
 
       {/* Pass 8c (2026-05-18): per-asset Hospitality narrative.
-          Operate-strategy assets + Sell + Manage companions. */}
+          Pass 9d: Sell + Manage companions are NOT rendered here —
+          they're rendered inline under their parent's Sell section
+          above so the user reads Tower 01's Sell + Manage halves
+          back-to-back. Only pure Operate assets and companions of
+          non-Sell+Manage parents stay in this standalone section. */}
       {phases.map((p) => {
-        const phaseHospitalityAssets = assets.filter(
-          (a) => a.phaseId === p.id
-            && a.visible !== false
-            && (a.strategy === 'Operate' || a.isCompanion === true),
-        );
+        const phaseHospitalityAssets = assets.filter((a) => {
+          if (a.phaseId !== p.id || a.visible === false) return false;
+          if (a.strategy === 'Operate') return true;
+          if (a.isCompanion === true) {
+            const parent = assets.find((x) => x.id === a.parentAssetId);
+            return parent?.strategy !== 'Sell + Manage';
+          }
+          return false;
+        });
         if (phaseHospitalityAssets.length === 0) return null;
         return (
           <PhaseSection
@@ -879,225 +1119,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             countLabel={`${phaseHospitalityAssets.length} hospitality asset${phaseHospitalityAssets.length === 1 ? '' : 's'}`}
             storageKey={`fmp:m2:revenue:phase:hosp:${p.id}:collapsed`}
           >
-            {phaseHospitalityAssets.map((a) => {
-              const r = snap.byHospitalityAsset.get(a.id);
-              const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
-              if (!r) {
-                return (
-                  <AssetSection
-                    key={a.id}
-                    assetId={a.id}
-                    title={a.name}
-                    meta={a.type ? `${a.type}` : undefined}
-                    storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
-                  >
-                    <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
-                    <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-                      No operate config yet. Enter ADR + Occupancy on the Inputs tab.
-                    </div>
-                  </AssetSection>
-                );
-              }
-              const pctFmt = (v: number): string => {
-                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-                return `${(v * 100).toFixed(1)}%`;
-              };
-              const factorFmt = (v: number): string => {
-                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-                return `${v.toFixed(4)}×`;
-              };
-              // Per-asset operate config (for the broadcast rows)
-              const opCfg = a.revenue?.operate;
-              const opKeys = assetSubUnits
-                .filter((u) => u.metric === 'units')
-                .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
-              const opDaysPerYear = opCfg?.daysPerYear ?? 365;
-              const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
-              const opStartingADR = opCfg?.startingADR ?? 0;
-              // Pass 9b (2026-05-18): conditional F&B + Other driver rows
-              // surface the per-asset rate/percent only when the active
-              // mode uses it. Keeps Block 1 honest about which inputs
-              // actually drive Block 2 revenue.
-              const opFbMode = opCfg?.fb?.mode ?? 'percent_of_rooms';
-              const opOtherMode = opCfg?.otherRevenue?.mode ?? 'percent_of_rooms';
-              // Pass 9b: AncillaryRevenueConfig fields are number | number[].
-              // Resolve to a per-period array clamped to the project axis
-              // so the table can render either uniform (scalar) or
-              // year-specific (array) inputs.
-              const resolveAncillary = (raw: number | number[] | undefined, n: number): number[] => {
-                if (Array.isArray(raw)) {
-                  const out = new Array<number>(n).fill(0);
-                  for (let i = 0; i < n; i++) out[i] = Math.max(0, raw[i] ?? 0);
-                  return out;
-                }
-                const scalar = Math.max(0, raw ?? 0);
-                return new Array<number>(n).fill(scalar);
-              };
-              const isScalar = (raw: number | number[] | undefined): boolean => !Array.isArray(raw);
-              const N = r.adrPerPeriod.length;
-              const opFbPctOfRoomsArr = resolveAncillary(opCfg?.fb?.percentOfRooms, N);
-              const opFbRatePerGuestArr = resolveAncillary(opCfg?.fb?.ratePerGuest, N);
-              const opFbFixedArr = resolveAncillary(opCfg?.fb?.fixedAmountPerPeriod, N);
-              const opOtherPctOfRoomsArr = resolveAncillary(opCfg?.otherRevenue?.percentOfRooms, N);
-              const opOtherRatePerGuestArr = resolveAncillary(opCfg?.otherRevenue?.ratePerGuest, N);
-              const opOtherFixedArr = resolveAncillary(opCfg?.otherRevenue?.fixedAmountPerPeriod, N);
-              // Constant scalar (for the Total column override on uniform inputs).
-              const opFbPctScalar = isScalar(opCfg?.fb?.percentOfRooms) ? Math.max(0, (opCfg?.fb?.percentOfRooms as number | undefined) ?? 0) : null;
-              const opFbRatePerGuestScalar = isScalar(opCfg?.fb?.ratePerGuest) ? Math.max(0, (opCfg?.fb?.ratePerGuest as number | undefined) ?? 0) : null;
-              const opOtherPctScalar = isScalar(opCfg?.otherRevenue?.percentOfRooms) ? Math.max(0, (opCfg?.otherRevenue?.percentOfRooms as number | undefined) ?? 0) : null;
-              const opOtherRatePerGuestScalar = isScalar(opCfg?.otherRevenue?.ratePerGuest) ? Math.max(0, (opCfg?.otherRevenue?.ratePerGuest as number | undefined) ?? 0) : null;
-              // Zero outside the ops window so it looks honest in the
-              // Output (engine clamps anyway).
-              const opsMask = r.availableRoomNightsPerPeriod.map((arn) => (arn > 0 ? 1 : 0));
-              const masked = (arr: number[]): number[] => arr.map((v, i) => v * (opsMask[i] ?? 0));
-              const showGuestsPerOR = opFbMode === 'per_guest' || opOtherMode === 'per_guest';
-              // Broadcast across the full project axis (or zero outside
-              // the ops window, since the engine clamps anyway and these
-              // rows mirror the engine's view).
-              const broadcastIfOps = (v: number): number[] => r.availableRoomNightsPerPeriod.map(
-                (arn) => (arn > 0 ? v : 0),
-              );
-              // Pretty totals for input rows.
-              const intFmt = unitsFmt;
-              const finalAdr = (() => {
-                for (let i = r.adrPerPeriod.length - 1; i >= 0; i--) {
-                  if (r.adrPerPeriod[i] > 0) return r.adrPerPeriod[i];
-                }
-                return 0;
-              })();
-              const finalFactor = (() => {
-                for (let i = r.adrIndexationFactorPerPeriod.length - 1; i >= 0; i--) {
-                  if (r.adrIndexationFactorPerPeriod[i] > 0) return r.adrIndexationFactorPerPeriod[i];
-                }
-                return 0;
-              })();
-              const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
-              const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
-              // Pass 9c (2026-05-18): per-sub-unit ADR + Rooms Revenue
-              // rows. Surfaced only when the asset has 2+ unit-type
-              // sub-units so the user can see how each room type
-              // contributes. Single-sub-unit assets keep the simple
-              // single-line view (per-sub-unit ADR == asset-level).
-              const unitSubUnits = assetSubUnits.filter((u) => u.metric === 'units');
-              const showPerSuBreakdown = unitSubUnits.length > 1;
-              const lastNonZero = (arr: number[]): number => {
-                for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
-                return 0;
-              };
-              const perSuAdrRows = showPerSuBreakdown
-                ? unitSubUnits.flatMap((u) => {
-                    const sub = r.perSubUnit?.[u.id];
-                    if (!sub) return [];
-                    return [{
-                      label: `${u.name} ADR (${Math.max(0, u.metricValue).toLocaleString('en-US')} keys)`,
-                      values: sub.adrPerPeriod,
-                      rowFmt: fmt,
-                      totalOverride: fmt(lastNonZero(sub.adrPerPeriod)),
-                      indent: 2,
-                    }];
-                  })
-                : [];
-              const perSuRoomsRevenueRows = showPerSuBreakdown
-                ? unitSubUnits.flatMap((u) => {
-                    const sub = r.perSubUnit?.[u.id];
-                    if (!sub) return [];
-                    return [{
-                      label: `${u.name} Rooms Revenue`,
-                      values: sub.roomsRevenuePerPeriod,
-                      rowFmt: fmt,
-                      indent: 1,
-                    }];
-                  })
-                : [];
-              return (
-                <AssetSection
-                  key={a.id}
-                  assetId={a.id}
-                  title={a.name}
-                  meta={a.type ? `${a.type}` : undefined}
-                  storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
-                >
-                  <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
-
-                  {/* 1. Operations Capacity (Pass 8f: merged Drivers + Calcs;
-                       Pass 9b: conditional F&B + Other driver rows) */}
-                  <SectionHeading n="1" title="Operations Capacity" />
-                  <PeriodTable
-                    title="1. Drivers + Calculations"
-                    formula="Driver rows are user inputs (broadcast or per-year); only the F&B + Other inputs matching the active mode are shown. Calculations: Available Room Nights = Keys × Days/Year; Occupied Room Nights = ARN × Occupancy; Guests = ORN × Guests/Room."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
-                      { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
-                      { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
-                      { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
-                      { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
-                      {
-                        label: showPerSuBreakdown
-                          ? `ADR (keys-weighted avg, ${currency} per occupied room night)`
-                          : `ADR (${currency} per occupied room night)`,
-                        values: r.adrPerPeriod,
-                        rowFmt: fmt,
-                        totalOverride: fmt(finalAdr),
-                        indent: 1,
-                      },
-                      ...perSuAdrRows,
-                      ...(showGuestsPerOR
-                        ? [{ label: 'Guests per Occupied Room', values: broadcastIfOps(opGuestsPerOR), rowFmt: (v: number) => (Number.isFinite(v) && v > 0 ? v.toFixed(2) : '-'), totalOverride: opGuestsPerOR.toFixed(2), indent: 1 }]
-                        : []),
-                      ...(opFbMode === 'percent_of_rooms'
-                        ? [{ label: 'F&B % of Rooms Revenue', values: masked(opFbPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opFbPctScalar !== null ? pctFmt(opFbPctScalar) : undefined, indent: 1 }]
-                        : []),
-                      ...(opFbMode === 'per_guest'
-                        ? [{ label: `F&B Rate per Guest (${currency})`, values: masked(opFbRatePerGuestArr), rowFmt: fmt, totalOverride: opFbRatePerGuestScalar !== null ? fmt(opFbRatePerGuestScalar) : undefined, indent: 1 }]
-                        : []),
-                      ...(opFbMode === 'fixed_amount'
-                        ? [{ label: `F&B Fixed Amount per Year (${currency})`, values: masked(opFbFixedArr), rowFmt: fmt, indent: 1 }]
-                        : []),
-                      ...(opOtherMode === 'percent_of_rooms'
-                        ? [{ label: 'Other % of Rooms Revenue', values: masked(opOtherPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opOtherPctScalar !== null ? pctFmt(opOtherPctScalar) : undefined, indent: 1 }]
-                        : []),
-                      ...(opOtherMode === 'per_guest'
-                        ? [{ label: `Other Rate per Guest (${currency})`, values: masked(opOtherRatePerGuestArr), rowFmt: fmt, totalOverride: opOtherRatePerGuestScalar !== null ? fmt(opOtherRatePerGuestScalar) : undefined, indent: 1 }]
-                        : []),
-                      ...(opOtherMode === 'fixed_amount'
-                        ? [{ label: `Other Fixed Amount per Year (${currency})`, values: masked(opOtherFixedArr), rowFmt: fmt, indent: 1 }]
-                        : []),
-                      { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
-                      { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
-                      { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
-                      { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal' as const, indent: 1 },
-                    ]}
-                    fmt={intFmt}
-                  />
-
-                  {/* 2. Revenue (Pass 9c: per-sub-unit Rooms Revenue
-                       rows when multi-room-type) */}
-                  <SectionHeading n="2" title="Revenue" />
-                  <PeriodTable
-                    title="2. Rooms + F&B + Other + Total Hospitality Revenue"
-                    formula="Rooms = ORN × ADR (per sub-unit, then summed). F&B + Other follow per-asset mode (% of Rooms / Per Guest / Fixed Annual). Operating-sales convention: recognition = cash = revenue in the same period."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      ...perSuRoomsRevenueRows,
-                      {
-                        label: showPerSuBreakdown ? 'Total Rooms Revenue' : 'Rooms Revenue',
-                        values: r.roomsRevenuePerPeriod,
-                        kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
-                      },
-                      { label: 'F&B Revenue', values: r.fbRevenuePerPeriod },
-                      { label: 'Other Revenue', values: r.otherRevenuePerPeriod },
-                      { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' as const },
-                    ]}
-                    fmt={fmt}
-                  />
-
-                  <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: '4px 0' }}>
-                    Recognition + Cash: equal to Total Revenue per period (operating-sales convention, no deferral). AR via DSO surfaces on the Schedules tab.
-                  </div>
-                </AssetSection>
-              );
-            })}
+            {phaseHospitalityAssets.map((a) => renderHospitalityAssetSection(a, false))}
           </PhaseSection>
         );
       })}

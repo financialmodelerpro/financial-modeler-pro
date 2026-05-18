@@ -193,6 +193,7 @@ export default function Module2Revenue(): React.JSX.Element {
           key={p.id}
           phase={p}
           assets={visibleAssets.filter((a) => a.phaseId === p.id)}
+          allAssets={assets}
           subUnits={subUnits}
           project={project}
           phases={phases}
@@ -207,12 +208,13 @@ export default function Module2Revenue(): React.JSX.Element {
 interface PhaseSectionProps {
   phase: Phase;
   assets: Asset[];
+  allAssets: Asset[];
   subUnits: SubUnit[];
   project: Project;
   phases: Phase[];
 }
 
-function PhaseSection({ phase, assets, subUnits, project, phases }: PhaseSectionProps): React.JSX.Element {
+function PhaseSection({ phase, assets, allAssets, subUnits, project, phases }: PhaseSectionProps): React.JSX.Element {
   const collapseKey = `fmp:m2:inputs:phase:${phase.id}:collapsed`;
   const readCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
@@ -258,16 +260,59 @@ function PhaseSection({ phase, assets, subUnits, project, phases }: PhaseSection
               No assets in {phase.name} yet. Add them on Module 1 · Tab 2.
             </div>
           )}
-          {assets.map((a) => (
-            <AssetCard
-              key={a.id}
-              asset={a}
-              subUnits={subUnits.filter((u) => u.assetId === a.id)}
-              phase={phase}
-              project={project}
-              phases={phases}
-            />
-          ))}
+          {assets.map((a) => {
+            // Pass 9d (2026-05-18): when a Sell + Manage parent is
+            // rendered, also surface its companion's Hospitality
+            // inputs nested directly underneath. Without this the
+            // companion lives off-screen and the user has nowhere
+            // to enter ADR / occupancy / F&B / Other for the manage
+            // half, so revenue-from-operations stays at 0.
+            const companion = a.strategy === 'Sell + Manage'
+              ? allAssets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
+              : undefined;
+            return (
+              <React.Fragment key={a.id}>
+                <AssetCard
+                  asset={a}
+                  subUnits={subUnits.filter((u) => u.assetId === a.id)}
+                  phase={phase}
+                  project={project}
+                  phases={phases}
+                />
+                {companion && (
+                  <div
+                    style={{
+                      marginLeft: 20,
+                      marginTop: -6,
+                      marginBottom: 'var(--sp-3)',
+                      paddingLeft: 12,
+                      borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--color-info, #1d4ed8)',
+                        fontWeight: 600,
+                        marginBottom: 4,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      ↳ Manage / Operate · revenue from operations after handover
+                    </div>
+                    <AssetCard
+                      asset={companion}
+                      subUnits={subUnits.filter((u) => u.assetId === companion.id)}
+                      phase={phase}
+                      project={project}
+                      phases={phases}
+                    />
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </>
       )}
     </div>
