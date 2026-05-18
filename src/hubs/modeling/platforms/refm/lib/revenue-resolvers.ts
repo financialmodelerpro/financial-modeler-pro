@@ -142,7 +142,12 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
 
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
-    if (a.strategy !== 'Sell') continue;
+    // Pass 7w (2026-05-18): Sell + Manage parents share the same
+    // sell-side revenue mechanics as pure Sell (Pre-Sales velocity +
+    // Sales During Operation + cash + recognition + indexation). The
+    // companion (operate side) wires in at Pass 10 and lives in
+    // Hospitality / Operations.
+    if (a.strategy !== 'Sell' && a.strategy !== 'Sell + Manage') continue;
     const cfg = resolveSellConfig(a, project);
     if (!cfg) continue;
     const phase = phases.find((p) => p.id === a.phaseId);

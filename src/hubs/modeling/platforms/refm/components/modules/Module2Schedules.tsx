@@ -95,7 +95,13 @@ export default function Module2Schedules(): React.JSX.Element {
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
   const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
-  const sellAssets = assets.filter((a) => a.visible !== false && a.isCompanion !== true && a.strategy === 'Sell');
+  // Pass 7w (2026-05-18): Sell + Manage parents get the same AR / UR
+  // / CoS schedules as pure Sell. Companion schedules wire in Pass 10.
+  const sellAssets = assets.filter(
+    (a) => a.visible !== false
+      && a.isCompanion !== true
+      && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
+  );
 
   if (sellAssets.length === 0) {
     return (

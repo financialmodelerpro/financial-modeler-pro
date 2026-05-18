@@ -100,7 +100,13 @@ export default function Module2CostOfSales(): React.JSX.Element {
     [state.project, state.phases, state.assets, state.subUnits],
   );
 
-  const sellAssets = state.assets.filter((a) => a.visible !== false && a.isCompanion !== true && a.strategy === 'Sell');
+  // Pass 7w (2026-05-18): Sell + Manage parents get the same CoS
+  // treatment as pure Sell. Companion-side opex handled in M3.
+  const sellAssets = state.assets.filter(
+    (a) => a.visible !== false
+      && a.isCompanion !== true
+      && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
+  );
   const currency = state.project.currency || '';
   const scale: DisplayScale = state.project.displayScale ?? 'full';
   const decimals: DisplayDecimals = state.project.displayDecimals ?? 2;

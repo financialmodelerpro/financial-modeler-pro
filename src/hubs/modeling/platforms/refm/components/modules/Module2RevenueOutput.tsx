@@ -339,9 +339,6 @@ function buildProjectGroupedRows({
       const preSeries: number[][] = [];
       for (const a of sellAssets) {
         const r = snap.bySellAsset.get(a.id);
-        // Sell + Manage parents are not in bySellAsset yet (resolver
-        // filters strategy !== 'Sell'); they show zero placeholders
-        // until Pass 10 wires their engine.
         const vals = r ? pickSegment(r, view, 'pre') : zeros();
         rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
         preSeries.push(vals);
@@ -424,7 +421,14 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
 
-  const sellAssets = assets.filter((a) => a.visible !== false && a.isCompanion !== true && a.strategy === 'Sell');
+  // Pass 7w (2026-05-18): Sell + Manage parents render the same
+  // per-asset narrative (Blocks 1-6) as pure Sell. Companions live
+  // in Hospitality / Operations (Pass 10).
+  const sellAssets = assets.filter(
+    (a) => a.visible !== false
+      && a.isCompanion !== true
+      && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
+  );
 
   if (sellAssets.length === 0) {
     return (

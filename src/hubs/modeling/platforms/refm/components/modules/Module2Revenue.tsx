@@ -221,7 +221,11 @@ interface AssetCardProps {
 function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps): React.JSX.Element {
   const updateAsset = useModule1Store((s) => s.updateAsset);
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
-  const isSell = asset.strategy === 'Sell';
+  // Pass 7w (2026-05-18): Sell + Manage parents get full Sell-side
+  // treatment (velocity grid, indexation, cash profile, recognition
+  // profile). The companion (operate side) lives in Hospitality
+  // controls and wires in at Pass 10.
+  const isSell = asset.strategy === 'Sell' || asset.strategy === 'Sell + Manage';
 
   // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
   const assetCollapseKey = `fmp:m2:inputs:asset:${asset.id}:collapsed`;
