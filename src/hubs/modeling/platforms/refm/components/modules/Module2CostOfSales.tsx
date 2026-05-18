@@ -28,8 +28,9 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
-import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
+import { buildCostOfSalesV2, type CostOfSalesV2Result, resolveHandoverYear } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
+import type { Asset, Phase } from '../../lib/state/module1-types';
 import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
@@ -48,6 +49,95 @@ function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) =>
     if (v === 0) return '-';
     return formatAccounting(v, scale, decimals);
   };
+}
+
+/**
+ * Pass 9f-3 (2026-05-18): builds the LITERAL recognition profile %
+ * stream on the project axis, matching the values the user entered in
+ * Revenue Inputs (e.g. [2%, 22%, 42%, 35%] at construction periods).
+ * The previous Pass 9f-2 used presalesRecognitionPerPeriod / total
+ * which produced cohort-weighted percentages diverging from the input
+ * profile when pre-sales velocity spread cohorts across multiple
+ * years (catchup logic).
+ *
+ * Modes:
+ *   - 'absolute_with_catchup' (default): pct[k] lands at axis index
+ *     positions[k] (defaults to k). Out-of-axis pct collapses to last
+ *     in-axis position so a profile like positions=[1,2,3,4] on a
+ *     short axis still sums to 100%.
+ *   - 'point_in_time': 100% at handoverYear (or saleYear, but for the
+ *     project-axis cumulative we treat handover as the anchor).
+ *   - 'relative_to_sale': can't be flattened to a project-axis profile
+ *     without a single sale year — fall back to the derived
+ *     presalesRecognitionPerPeriod / total stream. Annotated inline.
+ */
+function buildLiteralRecognitionProfile(
+  asset: Asset,
+  phase: Phase | undefined,
+  projectStartYear: number,
+  axisLength: number,
+  derivedFallback: number[],
+): { profile: number[]; mode: 'literal' | 'derived' } {
+  const N = Math.max(0, axisLength);
+  const out = new Array<number>(N).fill(0);
+  const sellCfg = asset.revenue?.sell;
+  if (!sellCfg || !phase) return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  const profile = sellCfg.recognitionProfile;
+  const phaseStartYear = phase.startDate
+    ? new Date(phase.startDate).getUTCFullYear()
+    : projectStartYear;
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  const handoverYear = resolveHandoverYear(N, phaseStartYear, cp, projectStartYear, sellCfg.handoverYearOverride);
+  const phaseOffset = Math.max(0, phaseStartYear - projectStartYear);
+
+  if (profile.method === 'point_in_time') {
+    const anchor = profile.pointInTimeYear ?? 'handover';
+    if (anchor === 'handover') {
+      const idx = Math.max(0, Math.min(N - 1, handoverYear));
+      out[idx] = 1;
+      return { profile: out, mode: 'literal' };
+    }
+    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  }
+
+  const pct = profile.percentages ?? [];
+  const pos = profile.positions ?? pct.map((_, k) => k);
+  const mode = profile.profileMode ?? 'absolute_with_catchup';
+
+  if (mode === 'relative_to_sale' || pct.length === 0) {
+    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  }
+
+  // Absolute mode: place pct[k] at project-axis index (phaseOffset + positions[k]).
+  // The profile positions are construction-phase-anchored (0..cp-1) when set
+  // by the user via the construction-period builder. Anything past the axis
+  // collapses into the last in-axis slot to preserve sum=100%.
+  let overflow = 0;
+  for (let k = 0; k < pct.length; k++) {
+    const localPos = pos[k] ?? k;
+    const axisIdx = phaseOffset + localPos;
+    const value = Math.max(0, pct[k] ?? 0);
+    if (axisIdx < 0) {
+      overflow += value;
+    } else if (axisIdx >= N) {
+      overflow += value;
+    } else {
+      out[axisIdx] += value;
+    }
+  }
+  if (overflow > 0) {
+    const lastIdx = Math.max(0, Math.min(N - 1, phaseOffset + cp - 1));
+    out[lastIdx] += overflow;
+  }
+
+  // Normalise to sum=1 in case percentages were entered as 0..100 or
+  // any rounding makes them sum to 0.99. Catches both "2,22,42,35" and
+  // "0.02,0.22,0.42,0.35" without callers needing to pre-normalise.
+  const sum = out.reduce((s, v) => s + v, 0);
+  if (sum > 0 && Math.abs(sum - 1) > 1e-6) {
+    for (let i = 0; i < N; i++) out[i] = out[i] / sum;
+  }
+  return { profile: out, mode: 'literal' };
 }
 
 interface Row {
@@ -210,11 +300,24 @@ export default function Module2CostOfSales(): React.JSX.Element {
     const totalPre = presales.reduce((s, v) => s + Math.max(0, v), 0);
     const totalPost = postSales.reduce((s, v) => s + Math.max(0, v), 0);
     const totalInventory = totalPre + totalPost;
-    // Recognition profile during construction. We approximate the
-    // construction recognition profile from the per-period recognition
-    // generated by the engine (handles point-in-time + over-time +
-    // handover-at-end uniformly).
-    const recognitionProfile = r?.presalesRecognitionPerPeriod ?? new Array<number>(N).fill(0);
+    // Pass 9f-3 (2026-05-18): use the LITERAL recognition profile %
+    // entered in Revenue Inputs (project-axis-anchored, sums to 100%)
+    // rather than the cohort-weighted presalesRecognitionPerPeriod
+    // stream. The CoS joint factor (cum_rec × cum_pre) is conceptually
+    // project-axis-anchored — mixing in cohort weighting double-counts
+    // the velocity ramp on the recognition side. Falls back to the
+    // derived stream for relative_to_sale profiles where no single
+    // project-axis % shape exists.
+    const projectStartYearLocal = snap.yearLabels[0] ?? 0;
+    const derivedFallback = r?.presalesRecognitionPerPeriod ?? new Array<number>(N).fill(0);
+    const profileResolution = buildLiteralRecognitionProfile(
+      a,
+      phase,
+      projectStartYearLocal,
+      N,
+      derivedFallback,
+    );
+    const recognitionProfile = profileResolution.profile;
     const cos: CostOfSalesV2Result = buildCostOfSalesV2({
       capexPerPeriod,
       presalesPerPeriod: presales,
@@ -223,7 +326,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
       totalInventory,
       axisLength: N,
     });
-    return { asset: a, sell: r, capex, capexPerPeriod, cos, breakdown };
+    return { asset: a, sell: r, capex, capexPerPeriod, cos, breakdown, recognitionProfile, profileMode: profileResolution.mode };
   }), [sellAssets, snap, state]);
 
   const projTotals = useMemo(() => {
@@ -329,16 +432,17 @@ export default function Module2CostOfSales(): React.JSX.Element {
               const cumRecFinal = cos.cumRecognitionPerPeriod[cos.cumRecognitionPerPeriod.length - 1] ?? 0;
               const jointFinal = cos.jointFactorPerPeriod[cos.jointFactorPerPeriod.length - 1] ?? 0;
               const inventoryLabel = allUnits ? 'units' : 'sqm';
-              // Pass 9f-2: per-period recognition % matches the recognition
-              // profile entered in M2 Inputs (and shown in Revenue Output
-              // Block 3). Derived from the engine's presales recognition
-              // stream so PIT / over-time / handover-at-end shapes all
-              // produce the right per-period shares.
-              const totalRecForPct = r ? r.presalesRecognitionPerPeriod.reduce((s, v) => s + Math.max(0, v), 0) : 0;
-              const recognitionPctPerPeriod = r
-                ? r.presalesRecognitionPerPeriod.map((v) => totalRecForPct > 0 ? Math.max(0, v) / totalRecForPct : 0)
-                : new Array<number>(N).fill(0);
+              // Pass 9f-3 (2026-05-18): per-period recognition % is the
+              // LITERAL profile entered in Revenue Inputs (e.g. 2%, 22%,
+              // 42%, 35% over the four construction years), not a
+              // cohort-weighted derived stream. Falls back to the
+              // weighted stream only for relative_to_sale profiles
+              // where no project-axis shape exists.
+              const recognitionPctPerPeriod = row.recognitionProfile;
               const totalRecPct = recognitionPctPerPeriod.reduce((s, v) => s + v, 0);
+              const profileSourceCaption = row.profileMode === 'literal'
+                ? undefined
+                : 'Recognition profile is relative-to-sale — % shown is the cohort-weighted projection.';
 
               return (
                 <AssetSection
@@ -350,7 +454,10 @@ export default function Module2CostOfSales(): React.JSX.Element {
                 >
                   <PeriodTable
                     title="Cost of Sales · Drivers"
-                    caption="Capex per year (from M1) + pre-sales cohort + post-handover sales + revenue recognition profile during construction. These four streams drive the CoS calculation below."
+                    caption={
+                      `Capex per year (from M1) + pre-sales cohort + post-handover sales + revenue recognition profile during construction. These four streams drive the CoS calculation below.` +
+                      (profileSourceCaption ? ` ${profileSourceCaption}` : '')
+                    }
                     yearLabels={snap.yearLabels}
                     rows={[
                       { label: 'Capex by stage (Total Capex basis for CoS)', values: [], isSection: true, indent: 0 },
