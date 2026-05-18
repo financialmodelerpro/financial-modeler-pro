@@ -80,6 +80,71 @@ function subUnitSummary(units: SubUnit[]): string {
   return [a, b].filter(Boolean).join(' · ') || 'No measurements';
 }
 
+/**
+ * Pass 7x (2026-05-18): sub-unit reference chip strip. Read-only
+ * line showing each sub-unit's area + sale rate so the user can
+ * verify M1 Tab 2 inputs without leaving the Revenue surface. Used
+ * by both Inputs (above the velocity grids) and Output (above each
+ * per-asset narrative).
+ */
+function SubUnitReferenceStrip({
+  units,
+  currency,
+}: {
+  units: SubUnit[];
+  currency: string;
+}): React.JSX.Element | null {
+  if (units.length === 0) return null;
+  return (
+    <div style={{
+      display: 'flex',
+      gap: 6,
+      flexWrap: 'wrap',
+      padding: '6px 8px',
+      background: 'var(--color-grey-pale)',
+      border: '1px dashed var(--color-border)',
+      borderRadius: 'var(--radius-sm)',
+      marginBottom: 'var(--sp-2)',
+    }}>
+      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', alignSelf: 'center' }}>
+        Sub-units (from M1)
+      </span>
+      {units.map((su) => {
+        const area = computeSubUnitArea(su);
+        const isUnitsMetric = su.metric === 'units';
+        const rateLabel = (su.unitPrice && su.unitPrice > 0)
+          ? (isUnitsMetric
+              ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
+              : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
+          : 'no price';
+        const sizeLabel = isUnitsMetric
+          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} units · ${formatArea(area, 0)} sqm`
+          : `${formatArea(area, 0)} sqm`;
+        return (
+          <span
+            key={su.id}
+            style={{
+              fontSize: 10,
+              padding: '3px 8px',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--color-text-muted)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <strong style={{ color: 'var(--color-heading)' }}>{su.name || 'sub-unit'}</strong>
+            {' · '}
+            {sizeLabel}
+            {' · '}
+            {rateLabel}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Module2Revenue(): React.JSX.Element {
   const { project, phases, assets, subUnits } = useModule1Store(
     useShallow((s) => ({
@@ -573,6 +638,11 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
       {isSell && !assetCollapsed && subUnits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+
+          {/* Pass 7x: sub-unit reference strip so users can verify the
+              area + price they entered in M1 Tab 2 without switching
+              tabs. */}
+          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} />
 
           {/* Pass 7v: per-asset velocity view toggle. Default collapsed
               (lockstep across all sub-units); opt-in split exposes the

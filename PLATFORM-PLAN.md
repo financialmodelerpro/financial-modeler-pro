@@ -97,7 +97,9 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 
 - 7w (2026-05-18): Sell + Manage parents now get the FULL Sell-side treatment — velocity grid + indexation + cash profile + recognition profile (Inputs tab), per-asset narrative Blocks 1-6 (Output tab), per-asset Cost of Sales table (CoS tab), per-asset AR + UR roll-forwards (Schedules tab). Five filters updated to allow `strategy === 'Sell' || strategy === 'Sell + Manage'`: `revenue-resolvers.ts` engine loop, `Module2Revenue.tsx` `isSell` flag, `Module2RevenueOutput.tsx` `sellAssets` filter, `Module2CostOfSales.tsx` `sellAssets` filter, `Module2Schedules.tsx` `sellAssets` filter. `resolveSellConfig` is strategy-agnostic (reads `asset.revenue?.sell` directly) so no resolver changes needed beyond the loop filter. Sell + Manage companions (operate side, `isCompanion === true`) remain placeholders in Hospitality / Operations until Pass 10 wires the operate engine.
 
-Verifier `scripts/verify-revenue-rebuild.ts` 32/32 green at end of Pass 7w.
+- 7x (2026-05-18): sub-unit reference chip strip on Inputs + Output tabs for every Sell asset. Read-only chips show each sub-unit's name + area + sale rate (per unit if metric='units', per sqm if metric='sqm') so users can verify the M1 Tab 2 inputs without leaving the Revenue surface. Strip lives directly under the asset header on both tabs (above the velocity grids on Inputs, above Section 1 on Output). Duplicated inline in both files (~55 lines each); future refactor candidate to `_shared/SubUnitReferenceStrip.tsx` if a third surface needs it.
+
+Verifier `scripts/verify-revenue-rebuild.ts` 32/32 green at end of Pass 7x.
 
 **Decision rationale captured in 7q:** the user has chosen the obligation-driven AR/UR presentation (sale value as the gross credit for both schedules) over the pure IFRS 15 cash-on-credit treatment. AR decomposes the contract via cash; UR decomposes the same contract via recognition. Two schedules share a common opening line (Pre-Sales Sale Value).
 

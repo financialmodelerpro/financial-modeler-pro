@@ -44,7 +44,7 @@ import {
   buildUnearnedRevenue,
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
-import type { Asset } from '../../lib/state/module1-types';
+import type { Asset, SubUnit } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import {
   formatAccounting,
@@ -80,6 +80,70 @@ function makeAreaFmt(decimals: DisplayDecimals): (v: number) => string {
     if (Math.abs(v) < 0.5) return '-';
     return formatArea(v, decimals);
   };
+}
+
+/**
+ * Pass 7x (2026-05-18): sub-unit reference chip strip mirroring the
+ * one in the Inputs tab. Renders each sub-unit's name + area + sale
+ * rate as a read-only chip so users can verify M1 Tab 2 entries
+ * without leaving the Output surface.
+ */
+function SubUnitReferenceStrip({
+  units,
+  currency,
+}: {
+  units: SubUnit[];
+  currency: string;
+}): React.JSX.Element | null {
+  if (units.length === 0) return null;
+  return (
+    <div style={{
+      display: 'flex',
+      gap: 6,
+      flexWrap: 'wrap',
+      padding: '6px 8px',
+      background: 'var(--color-grey-pale)',
+      border: '1px dashed var(--color-border)',
+      borderRadius: 'var(--radius-sm)',
+      marginBottom: 'var(--sp-2)',
+    }}>
+      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', alignSelf: 'center' }}>
+        Sub-units (from M1)
+      </span>
+      {units.map((su) => {
+        const area = computeSubUnitArea(su);
+        const isUnitsMetric = su.metric === 'units';
+        const rateLabel = (su.unitPrice && su.unitPrice > 0)
+          ? (isUnitsMetric
+              ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
+              : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
+          : 'no price';
+        const sizeLabel = isUnitsMetric
+          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} units · ${formatArea(area, 0)} sqm`
+          : `${formatArea(area, 0)} sqm`;
+        return (
+          <span
+            key={su.id}
+            style={{
+              fontSize: 10,
+              padding: '3px 8px',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--color-text-muted)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <strong style={{ color: 'var(--color-heading)' }}>{su.name || 'sub-unit'}</strong>
+            {' · '}
+            {sizeLabel}
+            {' · '}
+            {rateLabel}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 type RowKind = 'data' | 'subtotal' | 'grand' | 'section';
@@ -521,6 +585,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   meta={a.type ? `${a.type}` : undefined}
                   storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
                 >
+                  {/* Pass 7x: sub-unit reference strip so users can
+                      verify the area + price they entered in M1 Tab 2
+                      without switching back. */}
+                  <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+
                   {/* 1. SQM Sold */}
                   <SectionHeading n="1" title="SQM Sold" />
                   <PeriodTable
