@@ -275,15 +275,37 @@ function PhaseSection({ phase, assets, allAssets, subUnits, project, phases }: P
           {assets.map((a) => {
             // Pass 9d (2026-05-18): when a Sell + Manage parent is
             // rendered, also surface its companion's Hospitality
-            // inputs nested directly underneath. Without this the
-            // companion lives off-screen and the user has nowhere
-            // to enter ADR / occupancy / F&B / Other for the manage
-            // half, so revenue-from-operations stays at 0.
+            // inputs as a SIBLING card so the user has somewhere to
+            // enter ADR / occupancy / F&B / Other for the manage half.
+            // Pass 9e-6 (2026-05-18): per user feedback, the companion
+            // is no longer visually nested inside the parent's card —
+            // it renders as its own collapsible sibling, with a small
+            // "Linked to {parent}" reference chip on top to preserve
+            // the relationship.
             const companion = a.strategy === 'Sell + Manage'
               ? allAssets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
               : undefined;
             return (
               <React.Fragment key={a.id}>
+                {companion && (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--color-info, #1d4ed8)',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      padding: '4px 10px',
+                      background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
+                      borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                      borderTopLeftRadius: 'var(--radius-sm)',
+                      borderTopRightRadius: 'var(--radius-sm)',
+                      marginBottom: 0,
+                    }}
+                  >
+                    ↑ Sell · linked to {companion.name} (Manage / Operate companion below)
+                  </div>
+                )}
                 <AssetCard
                   asset={a}
                   subUnits={subUnits.filter((u) => u.assetId === a.id)}
@@ -292,26 +314,23 @@ function PhaseSection({ phase, assets, allAssets, subUnits, project, phases }: P
                   phases={phases}
                 />
                 {companion && (
-                  <div
-                    style={{
-                      marginLeft: 20,
-                      marginTop: -6,
-                      marginBottom: 'var(--sp-3)',
-                      paddingLeft: 12,
-                      borderLeft: '3px solid var(--color-info, #1d4ed8)',
-                    }}
-                  >
+                  <div style={{ marginBottom: 'var(--sp-2)' }}>
                     <div
                       style={{
-                        fontSize: 11,
+                        fontSize: 10,
                         color: 'var(--color-info, #1d4ed8)',
-                        fontWeight: 600,
-                        marginBottom: 4,
+                        fontWeight: 700,
                         textTransform: 'uppercase',
                         letterSpacing: '0.04em',
+                        padding: '4px 10px',
+                        background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
+                        borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                        borderTopLeftRadius: 'var(--radius-sm)',
+                        borderTopRightRadius: 'var(--radius-sm)',
+                        marginBottom: 0,
                       }}
                     >
-                      ↳ Manage / Operate · revenue from operations after handover
+                      ↳ Manage / Operate · linked to {a.name} (Sell side above)
                     </div>
                     <AssetCard
                       asset={companion}
