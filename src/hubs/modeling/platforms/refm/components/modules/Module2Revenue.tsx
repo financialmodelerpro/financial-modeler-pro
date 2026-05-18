@@ -441,7 +441,14 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // mid-construction (or any custom calendar year). Resolver mirrors
   // this logic; this is the UI-side window so the occupancy + ADR
   // strips render the right year range.
-  const opsStartOverride = asset.revenue?.operate?.operationsStartYearOverride;
+  // Pass 9g-D (2026-05-18): lease assets keep their override under
+  // asset.revenue.lease.operationsStartYearOverride. Without this
+  // strategy-aware read, the Lease "Start operations in" input always
+  // displayed the default + ignored user edits (the value flowed to
+  // the lease snapshot but the input re-read from the operate path).
+  const opsStartOverride = asset.strategy === 'Lease'
+    ? asset.revenue?.lease?.operationsStartYearOverride
+    : asset.revenue?.operate?.operationsStartYearOverride;
   const operationsStartIdx = opsStartOverride != null
     ? Math.max(constructionStartIdx, Math.min(totalPeriods - 1, opsStartOverride - projectStartYear))
     : defaultOperationsStartIdx;
