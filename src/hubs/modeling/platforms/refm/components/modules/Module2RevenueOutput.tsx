@@ -82,6 +82,31 @@ function makeAreaFmt(decimals: DisplayDecimals): (v: number) => string {
   };
 }
 
+function unitsFmt(v: number): string {
+  if (!Number.isFinite(v)) return '-';
+  if (Math.abs(v) < 0.5) return '-';
+  return Math.round(v).toLocaleString('en-US');
+}
+
+/**
+ * Pass 7y (2026-05-18): per-asset metric resolution. Returns the
+ * dominant metric for an asset based on its sub-units. Uniform asset
+ * (all sub-units in same metric) -> that metric. Mixed -> 'area' (the
+ * universal denominator the engine always tracks). Empty -> 'area'.
+ *
+ * SubUnitMetric type is 'units' | 'area'; UI calls 'area' "sqm" in
+ * user-facing labels.
+ */
+function resolveAssetMetric(units: Array<{ metric: 'units' | 'area' }>): {
+  metric: 'units' | 'area';
+  uniform: boolean;
+} {
+  if (units.length === 0) return { metric: 'area', uniform: true };
+  const first = units[0].metric;
+  const uniform = units.every((u) => u.metric === first);
+  return { metric: uniform ? first : 'area', uniform };
+}
+
 /**
  * Pass 7x (2026-05-18): sub-unit reference chip strip mirroring the
  * one in the Inputs tab. Renders each sub-unit's name + area + sale
@@ -272,20 +297,25 @@ function buildPerSubUnitRows(
 }
 
 /**
- * Total SQM block (1c) with reconciliation. For each sub-unit row,
- * trailing column shows cumulative pct of BUA = sum(pre + post) / area.
+ * Total Sold block (1c) with reconciliation. Generic across metrics:
+ * pass per-sub-unit denominator (total area when metric='sqm', total
+ * units when metric='units') + the matching pre/post arrays.
+ *
+ * Pass 7y (2026-05-18): renamed from buildTotalSqmReconciledRows; the
+ * math is identical for both metrics, the math just divides sold by
+ * total inventory.
  */
-function buildTotalSqmReconciledRows(
+function buildTotalSoldReconciledRows(
   subUnits: Array<{ id: string; name: string }>,
-  totalAreaPerSU: number[],
+  totalInventoryPerSU: number[],
   preSU: Record<string, number[]>,
   postSU: Record<string, number[]>,
   totalAcrossSU: number[],
-  assetBUA: number,
+  assetInventory: number,
 ): PeriodRow[] {
   const rows: PeriodRow[] = [];
   subUnits.forEach((su, idx) => {
-    const area = Math.max(0, totalAreaPerSU[idx] ?? 0);
+    const inv = Math.max(0, totalInventoryPerSU[idx] ?? 0);
     const pre = preSU[su.id] ?? [];
     const post = postSU[su.id] ?? [];
     const N = Math.max(pre.length, post.length);
@@ -296,12 +326,12 @@ function buildTotalSqmReconciledRows(
       combined[i] = v;
       sold += v;
     }
-    const cumPct = area > 0 ? sold / area : 0;
+    const cumPct = inv > 0 ? sold / inv : 0;
     const pctLabel = `${(cumPct * 100).toFixed(0)}%`;
     rows.push({ label: su.name || 'sub-unit', values: combined, trailing: pctLabel });
   });
-  const assetCumPct = assetBUA > 0
-    ? totalAcrossSU.reduce((s, v) => s + v, 0) / assetBUA
+  const assetCumPct = assetInventory > 0
+    ? totalAcrossSU.reduce((s, v) => s + v, 0) / assetInventory
     : 0;
   rows.push({
     label: 'Asset Total',
@@ -547,6 +577,22 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const indexation = cfg?.indexation;
               const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
               const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
+              // Pass 7y: metric-aware Block 1. Uniform-units asset shows
+              // Block 1 in units (apartments / keys); uniform-sqm shows
+              // in sqm; mixed-asset falls back to sqm (universal).
+              const { metric: assetMetric, uniform: metricUniform } = resolveAssetMetric(assetSubUnits);
+              const useUnits = assetMetric === 'units';
+              const totalUnitsPerSU = assetSubUnits.map((su) => su.metric === 'units' ? Math.max(0, su.metricValue) : 0);
+              const assetTotalUnits = totalUnitsPerSU.reduce((s, v) => s + v, 0);
+              const inventoryLabel = useUnits ? 'Units' : 'SQM';
+              const inventoryLabelLower = useUnits ? 'units' : 'sqm';
+              const inventoryFmt = useUnits ? unitsFmt : areaFmt;
+              const preInventoryPerSU = useUnits ? r.presalesUnitsPerPeriodPerSubUnit : r.presalesAreaPerPeriodPerSubUnit;
+              const postInventoryPerSU = useUnits ? r.postSalesUnitsPerPeriodPerSubUnit : r.postSalesAreaPerPeriodPerSubUnit;
+              const preInventoryTotal = useUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod;
+              const postInventoryTotal = useUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
+              const inventoryDenomPerSU = useUnits ? totalUnitsPerSU : totalAreaPerSU;
+              const inventoryDenomAsset = useUnits ? assetTotalUnits : assetBUA;
 
               // 5 + 6: AR + Unearned per asset (Pass 7q sale-value driven).
               // AR  = Pre-Sales Sale Value - Cash Received
@@ -590,56 +636,58 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                       without switching back. */}
                   <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
 
-                  {/* 1. SQM Sold */}
-                  <SectionHeading n="1" title="SQM Sold" />
+                  {/* 1. Inventory Sold (metric-aware per Pass 7y) */}
+                  <SectionHeading n="1" title={`${inventoryLabel} Sold`} />
+                  {!metricUniform && (
+                    <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 6 }}>
+                      Note: sub-units use mixed metrics. Block 1 shown in sqm (the universal denominator). Per-sub-unit native metrics still apply for rounding.
+                    </div>
+                  )}
                   <PeriodTable
-                    title="1a. Pre-Sales SQM (per sub-unit)"
-                    formula="Pre-Sales SQM[su, y] = preSalesVelocity[su, y] x sub-unit total area (capped at remaining unsold area)."
+                    title={`1a. Pre-Sales ${inventoryLabel} (per sub-unit)`}
+                    formula={`Pre-Sales ${inventoryLabel}[su, y] = preSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory). Engine rounds to whole ${inventoryLabelLower} per sub-unit before deriving revenue.`}
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,
-                      r.presalesAreaPerPeriodPerSubUnit,
-                      r.presalesAreaPerPeriod,
-                      'Asset Pre-Sales SQM',
+                      preInventoryPerSU,
+                      preInventoryTotal,
+                      `Asset Pre-Sales ${inventoryLabel}`,
                     )}
-                    unit="sqm"
-                    fmt={areaFmt}
+                    fmt={inventoryFmt}
                   />
                   <PeriodTable
-                    title="1b. Sales During Operation SQM (per sub-unit)"
-                    formula="Post-Sales SQM[su, y] = postSalesVelocity[su, y] x sub-unit total area (capped at remaining unsold area)."
+                    title={`1b. Sales During Operation ${inventoryLabel} (per sub-unit)`}
+                    formula={`Post-Sales ${inventoryLabel}[su, y] = postSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory).`}
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,
-                      r.postSalesAreaPerPeriodPerSubUnit,
-                      r.postSalesAreaPerPeriod,
-                      'Asset Post-Sales SQM',
+                      postInventoryPerSU,
+                      postInventoryTotal,
+                      `Asset Post-Sales ${inventoryLabel}`,
                     )}
-                    unit="sqm"
-                    fmt={areaFmt}
+                    fmt={inventoryFmt}
                   />
                   <PeriodTable
-                    title="1c. Total SQM Sold + Reconciliation"
-                    formula="Total SQM[su, y] = Pre + Post. Cum % of BUA = sum(Pre + Post) / sub-unit total area. Engine caps each sub-unit at 100%; this column shows under/over-sell vs BUA."
+                    title={`1c. Total ${inventoryLabel} Sold + Reconciliation`}
+                    formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Cum % Sold = sum(Pre + Post) / sub-unit total inventory. Engine caps each sub-unit at 100%; this column shows under/over-sell vs total inventory.`}
                     yearLabels={snap.yearLabels}
-                    rows={buildTotalSqmReconciledRows(
+                    rows={buildTotalSoldReconciledRows(
                       assetSubUnits,
-                      totalAreaPerSU,
-                      r.presalesAreaPerPeriodPerSubUnit,
-                      r.postSalesAreaPerPeriodPerSubUnit,
-                      r.presalesAreaPerPeriod.map((v, i) => v + (r.postSalesAreaPerPeriod[i] ?? 0)),
-                      assetBUA,
+                      inventoryDenomPerSU,
+                      preInventoryPerSU,
+                      postInventoryPerSU,
+                      preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
+                      inventoryDenomAsset,
                     )}
-                    unit="sqm"
-                    fmt={areaFmt}
-                    trailingHeader="Cum % of BUA"
+                    fmt={inventoryFmt}
+                    trailingHeader="Cum % Sold"
                   />
 
                   {/* 2. Revenue */}
                   <SectionHeading n="2" title="Revenue (Sales Value)" />
                   <PeriodTable
                     title="2a. Pre-Sales Revenue (per sub-unit)"
-                    formula={`Pre-Sales Revenue[su, y] = Pre-Sales SQM[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
+                    formula={`Pre-Sales Revenue[su, y] = Pre-Sales ${inventoryLabel}[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,
@@ -652,7 +700,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   />
                   <PeriodTable
                     title="2b. Sales During Operation Revenue (per sub-unit)"
-                    formula={`Post-Sales Revenue[su, y] = Post-Sales SQM[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
+                    formula={`Post-Sales Revenue[su, y] = Post-Sales ${inventoryLabel}[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
                     yearLabels={snap.yearLabels}
                     rows={buildPerSubUnitRows(
                       assetSubUnits,

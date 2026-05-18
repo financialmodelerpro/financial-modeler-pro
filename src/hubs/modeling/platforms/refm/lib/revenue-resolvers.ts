@@ -127,8 +127,10 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     postSalesRevenuePerPeriod: emptyArr(),
     presalesAreaPerPeriodPerSubUnit: {},
     presalesRevenuePerPeriodPerSubUnit: {},
+    presalesUnitsPerPeriodPerSubUnit: {},
     postSalesAreaPerPeriodPerSubUnit: {},
     postSalesRevenuePerPeriodPerSubUnit: {},
+    postSalesUnitsPerPeriodPerSubUnit: {},
     cashCollectedPerPeriod: emptyArr(),
     presalesCashPerPeriod: emptyArr(),
     postSalesCashPerPeriod: emptyArr(),
@@ -202,8 +204,10 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     };
     mergeSU(result.presalesAreaPerPeriodPerSubUnit, projectTotals.presalesAreaPerPeriodPerSubUnit);
     mergeSU(result.presalesRevenuePerPeriodPerSubUnit, projectTotals.presalesRevenuePerPeriodPerSubUnit);
+    mergeSU(result.presalesUnitsPerPeriodPerSubUnit, projectTotals.presalesUnitsPerPeriodPerSubUnit);
     mergeSU(result.postSalesAreaPerPeriodPerSubUnit, projectTotals.postSalesAreaPerPeriodPerSubUnit);
     mergeSU(result.postSalesRevenuePerPeriodPerSubUnit, projectTotals.postSalesRevenuePerPeriodPerSubUnit);
+    mergeSU(result.postSalesUnitsPerPeriodPerSubUnit, projectTotals.postSalesUnitsPerPeriodPerSubUnit);
     // Vintage matrices accumulate by 2D sum
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
       projectTotals.cashVintageMatrix[r][c] += result.cashVintageMatrix[r]?.[c] ?? 0;

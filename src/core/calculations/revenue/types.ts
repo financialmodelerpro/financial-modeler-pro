@@ -100,6 +100,12 @@ export interface SellAssetResult {
   presalesRevenuePerPeriodPerSubUnit: Record<string, number[]>;
   postSalesAreaPerPeriodPerSubUnit: Record<string, number[]>;
   postSalesRevenuePerPeriodPerSubUnit: Record<string, number[]>;
+  // Pass 7y (2026-05-18): per-sub-unit unit counts for units-metric
+  // sub-units (e.g., apartments / hotel keys). Zero for sqm-metric
+  // sub-units. Lets the UI render Block 1 in the sub-unit's native
+  // metric (units when metric='units', sqm otherwise).
+  presalesUnitsPerPeriodPerSubUnit: Record<string, number[]>;
+  postSalesUnitsPerPeriodPerSubUnit: Record<string, number[]>;
   // Pass 7f: pre / post split of cash + recognition. Cash collected per
   // period = presalesCash + postSalesCash. Recognition per period =
   // presalesRecognition + postSalesRecognition. Post-sales components

@@ -40,8 +40,10 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
 
   const presalesAreaPerSU: Record<string, number[]> = {};
   const presalesRevenuePerSU: Record<string, number[]> = {};
+  const presalesUnitsPerSU: Record<string, number[]> = {};
   const postSalesAreaPerSU: Record<string, number[]> = {};
   const postSalesRevenuePerSU: Record<string, number[]> = {};
+  const postSalesUnitsPerSU: Record<string, number[]> = {};
 
   const cumulativeShareBySubUnit = new Map<string, number>();
   const subUnitConfigById = new Map(config.subUnits.map((s) => [s.subUnitId, s]));
@@ -56,8 +58,10 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
 
     const preAreaSU = presalesAreaPerSU[su.id] ?? new Array<number>(N).fill(0);
     const preRevSU = presalesRevenuePerSU[su.id] ?? new Array<number>(N).fill(0);
+    const preUnitsSU = presalesUnitsPerSU[su.id] ?? new Array<number>(N).fill(0);
     const postAreaSU = postSalesAreaPerSU[su.id] ?? new Array<number>(N).fill(0);
     const postRevSU = postSalesRevenuePerSU[su.id] ?? new Array<number>(N).fill(0);
+    const postUnitsSU = postSalesUnitsPerSU[su.id] ?? new Array<number>(N).fill(0);
 
     let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
 
@@ -95,6 +99,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       presalesRevenue[yr] += value;
       preAreaSU[yr] += roundedArea;
       preRevSU[yr] += value;
+      preUnitsSU[yr] += roundedUnits;
     }
 
     for (let yr = 0; yr < N; yr++) {
@@ -112,12 +117,15 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       postSalesRevenue[yr] += value;
       postAreaSU[yr] += roundedArea;
       postRevSU[yr] += value;
+      postUnitsSU[yr] += roundedUnits;
     }
 
     presalesAreaPerSU[su.id] = preAreaSU;
     presalesRevenuePerSU[su.id] = preRevSU;
+    presalesUnitsPerSU[su.id] = preUnitsSU;
     postSalesAreaPerSU[su.id] = postAreaSU;
     postSalesRevenuePerSU[su.id] = postRevSU;
+    postSalesUnitsPerSU[su.id] = postUnitsSU;
     cumulativeShareBySubUnit.set(su.id, cumShare);
   }
 
@@ -146,8 +154,10 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     postSalesRevenuePerPeriod: postSalesRevenue,
     presalesAreaPerPeriodPerSubUnit: presalesAreaPerSU,
     presalesRevenuePerPeriodPerSubUnit: presalesRevenuePerSU,
+    presalesUnitsPerPeriodPerSubUnit: presalesUnitsPerSU,
     postSalesAreaPerPeriodPerSubUnit: postSalesAreaPerSU,
     postSalesRevenuePerPeriodPerSubUnit: postSalesRevenuePerSU,
+    postSalesUnitsPerPeriodPerSubUnit: postSalesUnitsPerSU,
     cashCollectedPerPeriod: cashCollected,
     presalesCashPerPeriod: cashCollectedPresales,
     postSalesCashPerPeriod: postSalesCash,
