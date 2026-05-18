@@ -64,12 +64,11 @@ async function inspect(file: string, sheetPatterns: RegExp[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Pass 9a (2026-05-18): scan v1.16 for Cost of Sales structure.
   await inspect(
-    'Maad Model (KPMG Sc7) - v19 (2025.12.01) v1.1 Cleaned Version.xlsm',
-    [/^FS$/i, /assumption/i, /hospitality/i, /hotel/i, /room/i, /revenue/i, /opex/i, /cost/i],
+    'Maad_Residential_Cashflow v1.16 05132026 all Tabs.xlsx',
+    [/cost/i, /cos/i, /capex/i, /land/i, /resi/i, /calc_resi/i, /review/i],
   );
-  // .xlsb is binary; exceljs cannot parse. User would need to Save As
-  // .xlsx in Excel for inspection here. Skip silently.
 }
 
 main().catch((e) => {

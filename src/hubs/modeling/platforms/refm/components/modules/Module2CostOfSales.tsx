@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, computeAssetCapex } from '../../lib/revenue-resolvers';
 import { buildCostOfSales, type CostOfSalesResult } from '@/src/core/calculations/revenue';
+import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
 import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
@@ -36,7 +37,15 @@ function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) =>
   };
 }
 
-interface Row { label: string; values: number[]; isTotal?: boolean }
+interface Row {
+  label: string;
+  values: number[];
+  isTotal?: boolean;
+  isSection?: boolean;        // Pass 9a (2026-05-18): colspan section header
+  indent?: number;
+  rowFmt?: (v: number) => string;
+  totalOverride?: string;
+}
 
 function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
   title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string; fmt: (v: number) => string;
@@ -64,13 +73,41 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
           </thead>
           <tbody>
             {rows.map((r, idx) => {
+              if (r.isSection) {
+                const indentPx = Math.max(0, r.indent ?? 0) * 14;
+                return (
+                  <tr key={r.label + idx}>
+                    <td
+                      colSpan={2 + yearLabels.length}
+                      style={{
+                        padding: `var(--sp-1) calc(var(--sp-2) + ${indentPx}px)`,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: 'var(--color-heading)',
+                        background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+                        borderTop: '1px solid var(--color-border)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {r.label}
+                    </td>
+                  </tr>
+                );
+              }
               const tokens = r.isTotal ? ROW_GRAND_TOTAL : ROW_DATA;
+              const cellFmt = r.rowFmt ?? fmt;
               const total = r.values.reduce((s, v) => s + v, 0);
+              const totalDisplay = r.totalOverride ?? cellFmt(total);
+              const indentPx = Math.max(0, r.indent ?? 0) * 14;
+              const labelStyle = indentPx > 0
+                ? { ...tokens.name, paddingLeft: `calc(${tokens.name.paddingLeft ?? 'var(--sp-2)'} + ${indentPx}px)` }
+                : tokens.name;
               return (
                 <tr key={r.label + idx}>
-                  <td style={tokens.name}>{r.label}</td>
-                  <td style={tokens.numTotal}>{fmt(total)}</td>
-                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v)}</td>))}
+                  <td style={labelStyle}>{r.label}</td>
+                  <td style={tokens.numTotal}>{totalDisplay}</td>
+                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{cellFmt(v)}</td>))}
                 </tr>
               );
             })}
@@ -114,11 +151,29 @@ export default function Module2CostOfSales(): React.JSX.Element {
 
   const perAsset = useMemo(() => sellAssets.map((a) => {
     const r = snap.bySellAsset.get(a.id);
-    const capex = computeAssetCapex(state, a.id);
+    const phase = state.phases.find((p) => p.id === a.phaseId);
+    // Pass 9a (2026-05-18): full capex breakdown by stage so the
+    // CoS surface can render Land / Hard / Soft / Operating as
+    // separate driver rows (v1.16 design: land IS included in CoS).
+    const breakdown: AssetCostBreakdown | null = phase
+      ? computeAssetCost(
+          a,
+          state.project,
+          phase,
+          state.parcels,
+          state.assets,
+          state.subUnits,
+          state.costLines,
+          state.costOverrides,
+          state.landAllocationMode,
+          state.project.financing?.parcelFunding,
+        )
+      : null;
+    const capex = breakdown?.total ?? computeAssetCapex(state, a.id);
     const cos: CostOfSalesResult = r
       ? buildCostOfSales(r.recognitionPerPeriod, capex, snap.axisLength)
       : buildCostOfSales(new Array<number>(snap.axisLength).fill(0), capex, snap.axisLength);
-    return { asset: a, sell: r, capex, cos };
+    return { asset: a, sell: r, capex, cos, breakdown };
   }), [sellAssets, snap, state]);
 
   const projTotals = useMemo(() => {
@@ -181,28 +236,66 @@ export default function Module2CostOfSales(): React.JSX.Element {
             countLabel={`${phaseRows.length} Sell asset${phaseRows.length === 1 ? '' : 's'}`}
             storageKey={`fmp:m2:costofsales:phase:${p.id}:collapsed`}
           >
-            {phaseRows.map((row) => (
-              <AssetSection
-                key={row.asset.id}
-                assetId={row.asset.id}
-                title={row.asset.name}
-                meta={`Capex ${currency} ${fmt(row.capex)} · Recognition ${currency} ${fmt(row.cos.totalRecognition)}`}
-                storageKey={`fmp:m2:costofsales:asset:${row.asset.id}:collapsed`}
-              >
-                <PeriodTable
-                  title="Cost of Sales (matched to recognition)"
-                  yearLabels={snap.yearLabels}
-                  rows={[
-                    { label: 'Recognition (P&L)', values: row.sell?.recognitionPerPeriod ?? new Array<number>(snap.axisLength).fill(0) },
-                    { label: 'Cost of Sales', values: row.cos.perPeriod },
-                    { label: 'Gross Margin', values: row.cos.grossMarginPerPeriod },
-                    { label: 'Cumulative CoS', values: row.cos.cumulativePerPeriod },
-                  ]}
-                  currency={currency}
-                  fmt={fmt}
-                />
-              </AssetSection>
-            ))}
+            {phaseRows.map((row) => {
+              const N = snap.axisLength;
+              const recognition = row.sell?.recognitionPerPeriod ?? new Array<number>(N).fill(0);
+              const totalRec = row.cos.totalRecognition;
+              // Recognition % per period (= revenue share = CoS share
+              // under the matching principle).
+              const recPctPerPeriod = recognition.map((v) => (totalRec > 0 ? v / totalRec : 0));
+              const recCumPctPerPeriod: number[] = [];
+              let cumRec = 0;
+              for (const p of recPctPerPeriod) {
+                cumRec += p;
+                recCumPctPerPeriod.push(cumRec);
+              }
+              const broadcast = (v: number): number[] => recognition.map(() => v);
+              const pctFmt = (v: number): string => {
+                if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+                return `${(v * 100).toFixed(1)}%`;
+              };
+              const bd = row.breakdown;
+              const stageLand = bd?.byStage.land ?? 0;
+              const stageHard = bd?.byStage.hard ?? 0;
+              const stageSoft = bd?.byStage.soft ?? 0;
+              const stageOperating = bd?.byStage.operating ?? 0;
+
+              return (
+                <AssetSection
+                  key={row.asset.id}
+                  assetId={row.asset.id}
+                  title={row.asset.name}
+                  meta={`Total Capex (incl. Land) ${currency} ${fmt(row.capex)} · CoS recognised = capex × recognition %`}
+                  storageKey={`fmp:m2:costofsales:asset:${row.asset.id}:collapsed`}
+                >
+                  <PeriodTable
+                    title="Cost of Sales · Drivers + Calculations"
+                    caption="Drivers (top): capex breakdown from M1 + revenue recognition profile. Calculations (below): CoS matched to recognition (CoS[y] = total capex × recognition[y] / total recognition). v1.16 design: land IS included in CoS."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'Drivers — Capex from Module 1', values: [], isSection: true, indent: 0 },
+                      { label: 'Land', values: broadcast(stageLand), totalOverride: fmt(stageLand), indent: 1 },
+                      { label: 'Hard Costs (Construction + Infra + Landscaping)', values: broadcast(stageHard), totalOverride: fmt(stageHard), indent: 1 },
+                      { label: 'Soft Costs (Pre-op + Professional + Commission + Contingency)', values: broadcast(stageSoft), totalOverride: fmt(stageSoft), indent: 1 },
+                      ...(stageOperating > 0
+                        ? [{ label: 'Operating (Operating-stage capex)', values: broadcast(stageOperating), totalOverride: fmt(stageOperating), indent: 1 }]
+                        : []),
+                      { label: 'Total Capex (incl. Land)', values: broadcast(row.capex), totalOverride: fmt(row.capex), isTotal: true, indent: 1 },
+                      { label: 'Drivers — Revenue Recognition profile', values: [], isSection: true, indent: 0 },
+                      { label: 'Revenue Recognition %', values: recPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(recPctPerPeriod.reduce((s, v) => s + v, 0)), indent: 1 },
+                      { label: 'Cumulative Revenue Recognition %', values: recCumPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(recCumPctPerPeriod[recCumPctPerPeriod.length - 1] ?? 0), indent: 1 },
+                      { label: 'Calculations', values: [], isSection: true, indent: 0 },
+                      { label: 'Revenue Recognised', values: recognition, indent: 1 },
+                      { label: 'Cost of Sales (matched)', values: row.cos.perPeriod, indent: 1 },
+                      { label: 'Gross Margin', values: row.cos.grossMarginPerPeriod, indent: 1 },
+                      { label: 'Cumulative CoS', values: row.cos.cumulativePerPeriod, isTotal: true, indent: 1, totalOverride: fmt(row.cos.cumulativePerPeriod[row.cos.cumulativePerPeriod.length - 1] ?? 0) },
+                    ]}
+                    currency={currency}
+                    fmt={fmt}
+                  />
+                </AssetSection>
+              );
+            })}
           </PhaseSection>
         );
       })}
