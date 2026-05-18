@@ -248,6 +248,76 @@ export function resolveLeaseConfig(
   };
 }
 
+/**
+ * Pass 9g-G (2026-05-18): builds the LITERAL recognition profile %
+ * stream on the project axis (moved from Module2CostOfSales so the
+ * Schedules summary feed can use the same computation). Matches the
+ * values the user entered in Revenue Inputs (e.g. [2%, 22%, 42%, 35%]
+ * at construction periods).
+ *
+ * Modes:
+ *   - 'absolute_with_catchup' (default): pct[k] lands at axis index
+ *     positions[k] (defaults to k). Out-of-axis pct collapses to
+ *     handover year so a profile running past the axis still sums to
+ *     100%.
+ *   - 'point_in_time': 100% at handover year.
+ *   - 'relative_to_sale': can't be flattened to a project-axis profile
+ *     without a single sale year — falls back to the cohort-weighted
+ *     derivedFallback stream.
+ */
+export function resolveLiteralRecognitionProfile(
+  asset: Asset,
+  phase: Phase | undefined,
+  projectStartYear: number,
+  axisLength: number,
+  derivedFallback: number[],
+): { profile: number[]; mode: 'literal' | 'derived' } {
+  const N = Math.max(0, axisLength);
+  const out = new Array<number>(N).fill(0);
+  const sellCfg = asset.revenue?.sell;
+  if (!sellCfg || !phase) return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  const profile = sellCfg.recognitionProfile;
+  const phaseStartYear = phase.startDate
+    ? new Date(phase.startDate).getUTCFullYear()
+    : projectStartYear;
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  const handoverYear = resolveHandoverYear(N, phaseStartYear, cp, projectStartYear, sellCfg.handoverYearOverride);
+
+  if (profile.method === 'point_in_time') {
+    const anchor = profile.pointInTimeYear ?? 'handover';
+    if (anchor === 'handover') {
+      const idx = Math.max(0, Math.min(N - 1, handoverYear));
+      out[idx] = 1;
+      return { profile: out, mode: 'literal' };
+    }
+    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  }
+
+  const pct = profile.percentages ?? [];
+  const pos = profile.positions ?? pct.map((_, k) => k);
+  const mode = profile.profileMode ?? 'absolute_with_catchup';
+  if (mode === 'relative_to_sale' || pct.length === 0) {
+    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
+  }
+
+  let overflow = 0;
+  for (let k = 0; k < pct.length; k++) {
+    const axisIdx = pos[k] ?? k;
+    const value = Math.max(0, pct[k] ?? 0);
+    if (axisIdx < 0 || axisIdx >= N) overflow += value;
+    else out[axisIdx] += value;
+  }
+  if (overflow > 0) {
+    const lastIdx = Math.max(0, Math.min(N - 1, handoverYear));
+    out[lastIdx] += overflow;
+  }
+  const sum = out.reduce((s, v) => s + v, 0);
+  if (sum > 0 && Math.abs(sum - 1) > 1e-6) {
+    for (let i = 0; i < N; i++) out[i] = out[i] / sum;
+  }
+  return { profile: out, mode: 'literal' };
+}
+
 function makeSubUnitMaterial(u: SubUnit): SubUnitMaterial {
   const area = computeSubUnitArea(u);
   if (u.metric === 'units') {

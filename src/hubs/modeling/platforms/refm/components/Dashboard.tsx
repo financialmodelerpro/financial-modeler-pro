@@ -569,7 +569,7 @@ export default function Dashboard({
     },
     {
       icon: '💸',
-      name: 'Costs',
+      name: 'Capex',
       desc: 'Cost lines, overrides, IDC drivers',
       hint:
         costLineCount === 0

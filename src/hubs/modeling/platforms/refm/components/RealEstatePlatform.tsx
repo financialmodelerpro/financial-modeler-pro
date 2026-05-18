@@ -163,7 +163,7 @@ export const sidebarModules: readonly SidebarNavItem[] = [
 export const m1Tabs = [
   { key: 'project-phases', icon: '📅', label: '1. Project & Phases', step: 1 },
   { key: 'assets', icon: '🏗️', label: '2. Assets & Sub-units', step: 2 },
-  { key: 'costs', icon: '💸', label: '3. Costs', step: 3 },
+  { key: 'costs', icon: '💸', label: '3. Capex', step: 3 },
   { key: 'financing', icon: '🏦', label: '4. Financing', step: 4 },
 ];
 

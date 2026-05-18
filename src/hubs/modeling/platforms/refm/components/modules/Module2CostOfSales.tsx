@@ -27,10 +27,9 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults } from '../../lib/revenue-resolvers';
-import { buildCostOfSalesV2, type CostOfSalesV2Result, resolveHandoverYear } from '@/src/core/calculations/revenue';
+import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
+import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
-import type { Asset, Phase } from '../../lib/state/module1-types';
 import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
   CELL_HEADER,
@@ -50,101 +49,6 @@ function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) =>
     if (v === 0) return '-';
     return formatAccounting(v, scale, decimals);
   };
-}
-
-/**
- * Pass 9f-3 (2026-05-18): builds the LITERAL recognition profile %
- * stream on the project axis, matching the values the user entered in
- * Revenue Inputs (e.g. [2%, 22%, 42%, 35%] at construction periods).
- * The previous Pass 9f-2 used presalesRecognitionPerPeriod / total
- * which produced cohort-weighted percentages diverging from the input
- * profile when pre-sales velocity spread cohorts across multiple
- * years (catchup logic).
- *
- * Modes:
- *   - 'absolute_with_catchup' (default): pct[k] lands at axis index
- *     positions[k] (defaults to k). Out-of-axis pct collapses to last
- *     in-axis position so a profile like positions=[1,2,3,4] on a
- *     short axis still sums to 100%.
- *   - 'point_in_time': 100% at handoverYear (or saleYear, but for the
- *     project-axis cumulative we treat handover as the anchor).
- *   - 'relative_to_sale': can't be flattened to a project-axis profile
- *     without a single sale year — fall back to the derived
- *     presalesRecognitionPerPeriod / total stream. Annotated inline.
- */
-function buildLiteralRecognitionProfile(
-  asset: Asset,
-  phase: Phase | undefined,
-  projectStartYear: number,
-  axisLength: number,
-  derivedFallback: number[],
-): { profile: number[]; mode: 'literal' | 'derived' } {
-  const N = Math.max(0, axisLength);
-  const out = new Array<number>(N).fill(0);
-  const sellCfg = asset.revenue?.sell;
-  if (!sellCfg || !phase) return { profile: derivedFallback.slice(0, N), mode: 'derived' };
-  const profile = sellCfg.recognitionProfile;
-  const phaseStartYear = phase.startDate
-    ? new Date(phase.startDate).getUTCFullYear()
-    : projectStartYear;
-  const cp = Math.max(0, phase.constructionPeriods ?? 0);
-  const handoverYear = resolveHandoverYear(N, phaseStartYear, cp, projectStartYear, sellCfg.handoverYearOverride);
-  const phaseOffset = Math.max(0, phaseStartYear - projectStartYear);
-
-  if (profile.method === 'point_in_time') {
-    const anchor = profile.pointInTimeYear ?? 'handover';
-    if (anchor === 'handover') {
-      const idx = Math.max(0, Math.min(N - 1, handoverYear));
-      out[idx] = 1;
-      return { profile: out, mode: 'literal' };
-    }
-    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
-  }
-
-  const pct = profile.percentages ?? [];
-  const pos = profile.positions ?? pct.map((_, k) => k);
-  const mode = profile.profileMode ?? 'absolute_with_catchup';
-
-  if (mode === 'relative_to_sale' || pct.length === 0) {
-    return { profile: derivedFallback.slice(0, N), mode: 'derived' };
-  }
-
-  // Pass 9g-D-fix3 (2026-05-18): positions are PROJECT-AXIS-ABSOLUTE
-  // indices, not phase-local. The Revenue Inputs strip writes
-  // percentages[c.idx] where c.idx is the project-axis position
-  // (cashWindow cells), and the cohort engine compares `position`
-  // directly to `saleYear` (also project-axis). The previous code
-  // added `phaseOffset` on top, shifting every recognition row one
-  // phase-length later (user reported: Revenue showed 2026, CoS
-  // rendered 2027). Use positions / default-k directly. Overflow
-  // collapses into the last in-axis slot to preserve sum=100%.
-  void phaseOffset;
-  let overflow = 0;
-  for (let k = 0; k < pct.length; k++) {
-    const axisIdx = pos[k] ?? k;
-    const value = Math.max(0, pct[k] ?? 0);
-    if (axisIdx < 0 || axisIdx >= N) {
-      overflow += value;
-    } else {
-      out[axisIdx] += value;
-    }
-  }
-  if (overflow > 0) {
-    // Park overflow on the handover year so a profile that runs past
-    // the axis still sums correctly. Falls back to last axis slot
-    // when handover is outside the axis.
-    const lastIdx = Math.max(0, Math.min(N - 1, handoverYear));
-    out[lastIdx] += overflow;
-  }
-
-  // Normalise to sum=1 in case percentages were entered as 0..100 or
-  // any rounding makes them sum to 0.99. Catches both "2,22,42,35" and
-  // "0.02,0.22,0.42,0.35" without callers needing to pre-normalise.
-  const sum = out.reduce((s, v) => s + v, 0);
-  if (sum > 0 && Math.abs(sum - 1) > 1e-6) {
-    for (let i = 0; i < N; i++) out[i] = out[i] / sum;
-  }
-  return { profile: out, mode: 'literal' };
 }
 
 interface Row {
@@ -317,7 +221,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
     // project-axis % shape exists.
     const projectStartYearLocal = snap.yearLabels[0] ?? 0;
     const derivedFallback = r?.presalesRecognitionPerPeriod ?? new Array<number>(N).fill(0);
-    const profileResolution = buildLiteralRecognitionProfile(
+    const profileResolution = resolveLiteralRecognitionProfile(
       a,
       phase,
       projectStartYearLocal,
