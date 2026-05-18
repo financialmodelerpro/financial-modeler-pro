@@ -360,13 +360,19 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   };
 
   const setRecognitionMethod = (method: 'point_in_time' | 'over_time'): void => {
+    // Pass 7t (2026-05-18): retain `percentages` even when switching to
+    // Point-in-Time so toggling back to Over-Time preserves the user's
+    // schedule. Engine only consumes `percentages` when method ===
+    // 'over_time' (see sell.ts:178-189), so the carry-over is inert in
+    // PIT mode. First-time switch to Over-Time still seeds a fresh
+    // zero array when none exists.
     updateSellInline({
       recognitionProfile: {
         method,
         pointInTimeYear: recProfile.pointInTimeYear ?? 'handover',
         percentages: method === 'over_time'
           ? recProfile.percentages ?? new Array<number>(totalPeriods).fill(0)
-          : undefined,
+          : recProfile.percentages,
         positions: recProfile.positions,
         profileMode: recProfile.profileMode ?? 'absolute_with_catchup',
       },
