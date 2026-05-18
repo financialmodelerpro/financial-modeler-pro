@@ -635,10 +635,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
       return `${v.toFixed(4)}×`;
     };
+    // Pass 9e-4 (2026-05-18): ADR + per-guest rates are per-night /
+    // per-guest figures, NOT period flow amounts. The project-level
+    // display scale (typically 'thousands') would render 1,200 SAR as
+    // "1" — wrong for rate fields. Force 'full' scale + 0 decimals for
+    // ADR and per-guest rate rows.
+    const adrFmt = makeCurrencyFmt('full', 0);
     const opCfg = a.revenue?.operate;
     const opKeys = assetSubUnits
       .filter((u) => u.metric === 'units')
-      .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+      .reduce((s, u) => s + Math.max(0, Math.round(u.metricValue)), 0);
     const opDaysPerYear = opCfg?.daysPerYear ?? 365;
     const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
     const opFbMode = opCfg?.fb?.mode ?? 'percent_of_rooms';
@@ -689,11 +695,12 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       ? unitSubUnits.flatMap((u) => {
           const sub = r.perSubUnit?.[u.id];
           if (!sub) return [];
+          const keysRounded = Math.round(Math.max(0, u.metricValue));
           return [{
-            label: `${u.name} ADR (${Math.max(0, u.metricValue).toLocaleString('en-US')} keys)`,
+            label: `${u.name} ADR (${keysRounded.toLocaleString('en-US')} keys)`,
             values: sub.adrPerPeriod,
-            rowFmt: fmt,
-            totalOverride: fmt(lastNonZero(sub.adrPerPeriod)),
+            rowFmt: adrFmt,
+            totalOverride: adrFmt(lastNonZero(sub.adrPerPeriod)),
             indent: 2,
           }];
         })
@@ -735,8 +742,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 ? `ADR (keys-weighted avg, ${currency} per occupied room night)`
                 : `ADR (${currency} per occupied room night)`,
               values: r.adrPerPeriod,
-              rowFmt: fmt,
-              totalOverride: fmt(finalAdr),
+              rowFmt: adrFmt,
+              totalOverride: adrFmt(finalAdr),
               indent: 1,
             },
             ...perSuAdrRows,
@@ -747,7 +754,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               ? [{ label: 'F&B % of Rooms Revenue', values: masked(opFbPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opFbPctScalar !== null ? pctFmt(opFbPctScalar) : undefined, indent: 1 }]
               : []),
             ...(opFbMode === 'per_guest'
-              ? [{ label: `F&B Rate per Guest (${currency})`, values: masked(opFbRatePerGuestArr), rowFmt: fmt, totalOverride: opFbRatePerGuestScalar !== null ? fmt(opFbRatePerGuestScalar) : undefined, indent: 1 }]
+              ? [{ label: `F&B Rate per Guest (${currency})`, values: masked(opFbRatePerGuestArr), rowFmt: adrFmt, totalOverride: opFbRatePerGuestScalar !== null ? adrFmt(opFbRatePerGuestScalar) : undefined, indent: 1 }]
               : []),
             ...(opFbMode === 'fixed_amount'
               ? [{ label: `F&B Fixed Amount per Year (${currency})`, values: masked(opFbFixedArr), rowFmt: fmt, indent: 1 }]
@@ -756,7 +763,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               ? [{ label: 'Other % of Rooms Revenue', values: masked(opOtherPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opOtherPctScalar !== null ? pctFmt(opOtherPctScalar) : undefined, indent: 1 }]
               : []),
             ...(opOtherMode === 'per_guest'
-              ? [{ label: `Other Rate per Guest (${currency})`, values: masked(opOtherRatePerGuestArr), rowFmt: fmt, totalOverride: opOtherRatePerGuestScalar !== null ? fmt(opOtherRatePerGuestScalar) : undefined, indent: 1 }]
+              ? [{ label: `Other Rate per Guest (${currency})`, values: masked(opOtherRatePerGuestArr), rowFmt: adrFmt, totalOverride: opOtherRatePerGuestScalar !== null ? adrFmt(opOtherRatePerGuestScalar) : undefined, indent: 1 }]
               : []),
             ...(opOtherMode === 'fixed_amount'
               ? [{ label: `Other Fixed Amount per Year (${currency})`, values: masked(opOtherFixedArr), rowFmt: fmt, indent: 1 }]

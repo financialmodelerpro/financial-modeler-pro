@@ -1488,7 +1488,7 @@ function buildVelocityRow(
   const overall = sumAll > 1 + 1e-6;
 
   const sizeHint = su.metric === 'units'
-    ? `${Math.max(0, su.metricValue).toLocaleString()} units`
+    ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString()} units`
     : `${formatArea(computeSubUnitArea(su), 0)} sqm`;
   const priceHint = (su.unitPrice && su.unitPrice > 0)
     ? (su.metric === 'units'

@@ -1969,7 +1969,10 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       // Size first OR edit Count directly via the new Count input.
       return;
     }
-    onUpdate({ metric: 'units', metricValue: a / unitArea });
+    // Pass 9e-4 (2026-05-18): keys / unit counts must be integers
+    // (a hotel can't have 159.989 keys). Round at every site that
+    // derives metricValue from area / unitArea.
+    onUpdate({ metric: 'units', metricValue: Math.round(a / unitArea) });
   };
   const onEditUnitSize = (nextUnitArea: number): void => {
     const ua = Math.max(0, nextUnitArea);
@@ -1977,10 +1980,10 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
     // newCount = area / new ua = (oldCount * oldUnitArea) / ua.
     if (storedIsUnits && ua > 0 && unitArea > 0) {
       const area = subUnit.metricValue * unitArea;
-      onUpdate({ unitArea: ua, metricValue: area / ua, metric: 'units' });
+      onUpdate({ unitArea: ua, metricValue: Math.round(area / ua), metric: 'units' });
     } else if (!storedIsUnits && ua > 0) {
       // Stored is 'area'; convert to 'units' with derived count.
-      onUpdate({ unitArea: ua, metricValue: subUnit.metricValue / ua, metric: 'units' });
+      onUpdate({ unitArea: ua, metricValue: Math.round(subUnit.metricValue / ua), metric: 'units' });
     } else {
       onUpdate({ unitArea: ua, metric: 'units' });
     }
