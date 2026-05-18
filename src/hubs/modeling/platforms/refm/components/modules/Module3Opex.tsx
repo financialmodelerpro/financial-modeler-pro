@@ -228,9 +228,6 @@ function OpexLineTable({
   opsYearCells?: Array<{ idx: number; year: number }>;
   axisLength?: number;
 }): React.JSX.Element {
-  // Which row's per-year ramp editor is expanded. Single-open at a time.
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
-
   const updateLine = (idx: number, patch: Partial<OpexLine>): void => {
     const next = lines.map((l, i) => (i === idx ? { ...l, ...patch } : l));
     onChange(next);
@@ -336,7 +333,6 @@ function OpexLineTable({
               ? Math.round(((l.indexation.rate ?? 0) * 100) * 100) / 100
               : 0;
             const supportsPerPeriod = opsYearCells && opsYearCells.length > 0;
-            const isExpanded = expandedRow === idx && method === 'yoy_per_period';
             return (
               <React.Fragment key={l.id}>
                 <tr style={{ borderBottom: '1px solid var(--color-border)', opacity: l.disabled ? 0.5 : 1 }}>
@@ -376,21 +372,36 @@ function OpexLineTable({
                   <td style={{ padding: '4px 6px' }}>{renderValueInput(l, idx)}</td>
                   <td style={{ padding: '4px 6px' }}>
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <select
-                        value={method}
-                        onChange={(e) => {
-                          const m = e.target.value as 'none' | 'yoy_compound' | 'yoy_per_period';
-                          setIndexationMethod(idx, m);
-                          if (m === 'yoy_per_period') setExpandedRow(idx);
-                          else if (expandedRow === idx) setExpandedRow(null);
-                        }}
-                        style={{ ...FAST_INPUT, textAlign: 'left', width: 90 }}
-                        data-testid={`${testidPrefix}-infl-method-${idx}`}
-                      >
-                        <option value="none">Off</option>
-                        <option value="yoy_compound">Flat YoY</option>
-                        {supportsPerPeriod && <option value="yoy_per_period">Yearly</option>}
-                      </select>
+                      {(['none', 'yoy_compound', 'yoy_per_period'] as const).map((m) => {
+                        const active = method === m;
+                        const disabled = m === 'yoy_per_period' && !supportsPerPeriod;
+                        const label = m === 'none' ? 'Off' : m === 'yoy_compound' ? 'Flat' : 'Yearly';
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setIndexationMethod(idx, m)}
+                            title={disabled ? 'Yearly inflation is per-asset only (not available on HQ).' : ''}
+                            style={{
+                              fontSize: 10,
+                              padding: '3px 8px',
+                              background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                              color: active
+                                ? 'var(--color-on-primary-navy)'
+                                : disabled ? 'var(--color-meta)' : 'var(--color-navy)',
+                              border: '1px solid var(--color-navy)',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: disabled ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                              opacity: disabled ? 0.5 : 1,
+                            }}
+                            data-testid={`${testidPrefix}-infl-${m}-${idx}`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                       {method === 'yoy_compound' && (
                         <PercentageInput
                           value={flatRate}
@@ -403,23 +414,9 @@ function OpexLineTable({
                         />
                       )}
                       {method === 'yoy_per_period' && supportsPerPeriod && (
-                        <button
-                          type="button"
-                          onClick={() => setExpandedRow(isExpanded ? null : idx)}
-                          style={{
-                            fontSize: 10,
-                            padding: '2px 8px',
-                            background: 'var(--color-surface)',
-                            color: 'var(--color-navy)',
-                            border: '1px solid var(--color-navy)',
-                            borderRadius: 'var(--radius-sm)',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                          }}
-                          data-testid={`${testidPrefix}-infl-expand-${idx}`}
-                        >
-                          {isExpanded ? '▾ Hide' : '▸ Edit yearly'}
-                        </button>
+                        <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+                          ↓ per-year strip below
+                        </span>
                       )}
                     </div>
                   </td>
@@ -447,7 +444,7 @@ function OpexLineTable({
                     >×</button>
                   </td>
                 </tr>
-                {isExpanded && opsYearCells && (
+                {method === 'yoy_per_period' && supportsPerPeriod && opsYearCells && (
                   <tr style={{ background: 'var(--color-grey-pale)' }}>
                     <td colSpan={7} style={{ padding: '6px 12px' }}>
                       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
