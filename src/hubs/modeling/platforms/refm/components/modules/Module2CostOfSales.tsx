@@ -42,6 +42,7 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import VintageMatrix from './_shared/VintageMatrix';
 
 function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -500,6 +501,61 @@ export default function Module2CostOfSales(): React.JSX.Element {
                     currency={currency}
                     fmt={fmt}
                   />
+                  {/* Pass 9g-E (2026-05-18): CoS vintage matrix +
+                      Inventory roll-forward. The vintage matrix shows
+                      where each year's capex dollar lands as CoS over
+                      time (rows = capex spend year, cols = CoS year).
+                      Inventory = cumulative capex - cumulative CoS (work-
+                      in-progress + completed-unsold inventory still
+                      sitting on the balance sheet). */}
+                  <VintageMatrix
+                    title="Cost of Sales · Vintage Matrix"
+                    caption="Each row = capex spent in that year. Each column = CoS recognised in that year. Cell(i, t) = capex_i × ∆joint[t] (or × joint[i] on the spend year, collapsing missed pre-i recognition). Row sum = capex_i × cum Pre-Sales %. Diagonal highlights where capex first contributes."
+                    yearLabels={snap.yearLabels}
+                    matrix={cos.vintageMatrix}
+                    currency={currency}
+                    fmt={fmt}
+                    rowAxisHeader="Capex spent in ↓ / CoS year →"
+                    rowTotalHeader="Capex Released"
+                    rowLabelPrefix="Spent in"
+                    emptyMessage="No capex spend yet. Enter cost lines on Module 1 Tab 3."
+                  />
+                  {(() => {
+                    // Inventory roll-forward: opening + capex - CoS = closing.
+                    // Capex per period feeds inventory; CoS releases inventory
+                    // to expense as it's matched to recognised revenue. Final
+                    // closing inventory tails to zero once 100% of pre-sales +
+                    // sales-during-operation have been recognised.
+                    const N = snap.axisLength;
+                    const opening = new Array<number>(N).fill(0);
+                    const closing = new Array<number>(N).fill(0);
+                    let prev = 0;
+                    for (let t = 0; t < N; t++) {
+                      opening[t] = prev;
+                      const cap = Math.max(0, row.capexPerPeriod[t] ?? 0);
+                      const coS = Math.max(0, cos.totalCosPerPeriod[t] ?? 0);
+                      const close = Math.max(0, prev + cap - coS);
+                      closing[t] = close;
+                      prev = close;
+                    }
+                    const cosNeg = cos.totalCosPerPeriod.map((v) => -Math.max(0, v));
+                    const closingFinal = closing[closing.length - 1] ?? 0;
+                    return (
+                      <PeriodTable
+                        title="Inventory · Roll-Forward"
+                        caption="Inventory tracks construction-in-progress + completed-but-unsold stock on the balance sheet. Opening + Capex spent - CoS recognised = Closing. Settles to 0 once 100% of inventory has been sold + matched to CoS."
+                        yearLabels={snap.yearLabels}
+                        rows={[
+                          { label: 'Opening Inventory', values: opening, indent: 0 },
+                          { label: '(+) Capex per period (build into inventory)', values: row.capexPerPeriod, indent: 0 },
+                          { label: '(-) Cost of Sales (release from inventory)', values: cosNeg, indent: 0 },
+                          { label: 'Closing Inventory', values: closing, isTotal: true, indent: 0, totalOverride: fmt(closingFinal) },
+                        ]}
+                        currency={currency}
+                        fmt={fmt}
+                      />
+                    );
+                  })()}
                 </AssetSection>
               );
             })}

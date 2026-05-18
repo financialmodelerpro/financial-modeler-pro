@@ -32,6 +32,16 @@ interface VintageMatrixProps {
    * 2dp accounting if omitted.
    */
   fmt?: (v: number) => string;
+  /**
+   * Pass 9g-D-fix4 (2026-05-18): optional row labels for non-sales
+   * matrices. CoS vintage matrix uses "Capex spent in" instead of
+   * "Sold in", etc. Defaults preserve the original sales-cohort
+   * semantics for back-compat.
+   */
+  rowAxisHeader?: string;     // default: 'Cohort sold in ↓ / Year →'
+  rowTotalHeader?: string;    // default: 'Cohort Total'
+  rowLabelPrefix?: string;    // default: 'Sold in'
+  emptyMessage?: string;      // default: 'No cohorts yet, ...'
 }
 
 const defaultFmt = (v: number): string => {
@@ -40,7 +50,19 @@ const defaultFmt = (v: number): string => {
   return formatAccounting(v, 'full', 2);
 };
 
-export default function VintageMatrix({ title, caption, yearLabels, matrix, currency, handoverYearIdx, fmt = defaultFmt }: VintageMatrixProps): React.JSX.Element {
+export default function VintageMatrix({
+  title,
+  caption,
+  yearLabels,
+  matrix,
+  currency,
+  handoverYearIdx,
+  fmt = defaultFmt,
+  rowAxisHeader = 'Cohort sold in ↓ / Year →',
+  rowTotalHeader = 'Cohort Total',
+  rowLabelPrefix = 'Sold in',
+  emptyMessage = 'No cohorts yet, enter pre-sales velocity in Tab 1 Inputs.',
+}: VintageMatrixProps): React.JSX.Element {
   const N = yearLabels.length;
   const rowTotals = matrix.map((row) => row.reduce((s, v) => s + (v ?? 0), 0));
   const colTotals = new Array<number>(N).fill(0);
@@ -61,7 +83,7 @@ export default function VintageMatrix({ title, caption, yearLabels, matrix, curr
       )}
       {activeRows.length === 0 ? (
         <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-          No cohorts yet, enter pre-sales velocity in Tab 1 Inputs.
+          {emptyMessage}
         </div>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
@@ -73,8 +95,8 @@ export default function VintageMatrix({ title, caption, yearLabels, matrix, curr
             </colgroup>
             <thead>
               <tr>
-                <th style={CELL_HEADER}>Cohort sold in ↓ / Year →</th>
-                <th style={CELL_HEADER_TOTAL}>Cohort Total</th>
+                <th style={CELL_HEADER}>{rowAxisHeader}</th>
+                <th style={CELL_HEADER_TOTAL}>{rowTotalHeader}</th>
                 {yearLabels.map((y) => (
                   <th key={y} style={{ ...CELL_HEADER, ...(handoverYearIdx != null && yearLabels.indexOf(y) === handoverYearIdx ? { borderBottom: '2px solid var(--color-info, #1d4ed8)' } : {}) }}>
                     {y}{handoverYearIdx != null && yearLabels.indexOf(y) === handoverYearIdx ? '*' : ''}
@@ -85,7 +107,7 @@ export default function VintageMatrix({ title, caption, yearLabels, matrix, curr
             <tbody>
               {activeRows.map((r) => (
                 <tr key={r}>
-                  <td style={ROW_DATA.name}>Sold in {yearLabels[r]}</td>
+                  <td style={ROW_DATA.name}>{rowLabelPrefix} {yearLabels[r]}</td>
                   <td style={ROW_DATA.numTotal}>{fmt(rowTotals[r])}</td>
                   {yearLabels.map((_, c) => {
                     const v = matrix[r]?.[c] ?? 0;
