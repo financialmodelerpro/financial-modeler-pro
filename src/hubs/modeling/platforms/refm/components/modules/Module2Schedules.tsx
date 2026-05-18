@@ -1,42 +1,33 @@
 'use client';
 
 /**
- * Module2Schedules.tsx (M2 Pass 9g-I, financial-statement feed v2)
+ * Module2Schedules.tsx (M2 Pass 9g-L, raw line-item feed)
  *
- * Project-level summary structured per-asset (under strategy groups)
- * so each line item feeds directly into the financial statements in
- * M3. Four sub-tables:
+ * Project-level per-asset feed grouped by strategy. Surfaces only the
+ * RAW line items that flow into the financial statements in Module 3.
+ * The full P&L / BS / CF compose in M3 from these inputs (NI = Revenue
+ * - CoS - opex - D&A; Direct CF; Indirect CF reconciliation; Net
+ * Working Capital roll-forward; etc.).
  *
+ * Three sub-tables:
  *   1. Income Statement Feed
- *        Revenue                      per asset, grouped by strategy
- *        Cost of Sales                per Sell asset, grouped
- *        Gross Margin                 Revenue - CoS
+ *        Revenue per asset → Total Revenue
+ *        Cost of Sales per Sell asset → Total CoS
+ *        Gross Margin (= Revenue - CoS, helper line)
  *   2. Balance Sheet Feed (closing balances)
- *        Inventory                    per Sell asset
- *        Accounts Receivable          per asset (Sell + Hospitality + Lease)
- *        Unearned Revenue             per Sell asset
- *        Accounts Payable             placeholder (M3 supplier terms)
- *        Net Working Capital
- *   3. Cash Flow Feed (Direct Method)
- *        Cash from Customers          per asset, grouped
- *        Capex                        per Sell asset
- *        Net Operating Cash (Direct)  cash in - cash out
- *   4. Cash Flow Feed (Indirect Method)
- *        Net Income (proxy)           Revenue - CoS  (M3 adds opex + D&A)
- *        Working-capital changes      Δ Inventory / AR / UR / AP
- *        Net Operating Cash (Indirect)
- *        (-) Capex (Investing)
- *        Net Cash Flow
+ *        Inventory per Sell asset
+ *        Accounts Receivable per asset (Sell + Hospitality + Lease)
+ *        Unearned Revenue per Sell asset
+ *   3. Cash Flow Feed
+ *        Cash collected per asset (Sell + Hospitality + Lease)
+ *        Capex per Sell asset
  *
- * Row aggregation: FLOW rows (Revenue, CoS, Cash collected, ∆ deltas)
- * show SUM in the total column. STOCK rows (Inventory, AR, UR, AP)
- * show CLOSING (last period) in the total column.
+ * Pass 9g-L (2026-05-18): removed Net Working Capital + Direct / Indirect
+ * CF reconciliation tables. Those compose in M3 once Net Income, D&A,
+ * and opex are available. Zero-value rows hidden across the board.
  *
- * Pass 9g-I (2026-05-18):
- *   - AR / Unearned engine call args fixed (was passing recognition
- *     where sale-value was expected, causing negative balances).
- *   - Total cell honours aggregation: 'sum' (flows) | 'last' (stocks).
- *   - Per-asset detail under strategy sections (no Pre/Post split).
+ * Row aggregation: FLOW rows (Revenue, CoS, Cash) show SUM in the total
+ * column. STOCK rows (Inventory, AR, UR) show CLOSING (last period).
  *
  * Universal UI rules per [[feedback_ui_universal_defaults]].
  */
@@ -392,29 +383,12 @@ export default function Module2Schedules(): React.JSX.Element {
   const totalUR = sumArrays(perAssetFeed.map((a) => a.ur));
   const totalAP = zeros();   // M3 placeholder
 
-  // Working-capital deltas (closing[t] - closing[t-1]).
-  const delta = (arr: number[]): number[] => {
-    const d = zeros();
-    for (let i = 0; i < N; i++) d[i] = arr[i] - (i > 0 ? arr[i - 1] : 0);
-    return d;
-  };
-  const dInventory = delta(totalInventory);
-  const dAR = delta(totalAR);
-  const dUR = delta(totalUR);
-  const dAP = delta(totalAP);
-
-  // Indirect CF reconstruction:
-  // Cash from ops (Indirect) = NI + ΔUR + ΔAP - ΔInventory - ΔAR
-  // For verification: this should equal totalCash - totalCapex (when
-  // engine math holds; small float residuals snap to 0).
-  const indirectOpsCash = grossMargin.map((ni, i) =>
-    ni + dUR[i] + dAP[i] - dInventory[i] - dAR[i]
-  );
-
-  const netOpCashDirect = totalCash.map((v, i) => v - totalCapex[i]);
-  const investingCash = totalCapex.map((v) => -v);
-  const netCashIndirect = indirectOpsCash.map((v, i) => v + investingCash[i]);
-  const nwc = totalAR.map((v, i) => v + totalInventory[i] - totalUR[i] - totalAP[i]);
+  // Pass 9g-L (2026-05-18): Direct + Indirect CF reconciliation and
+  // Net Working Capital removed — those derivations belong in Module 3
+  // (Financial Statements). Schedules is a raw line-item feed only.
+  // totalAP retained as a project-total placeholder so future M3
+  // supplier-terms work has a hook.
+  void totalAP;
 
   // ─ Empty state ─
   if (perAssetFeed.length === 0) {
@@ -507,9 +481,9 @@ export default function Module2Schedules(): React.JSX.Element {
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
           Per-asset feed grouped by strategy. Only assets with non-zero values for a given line appear; zero rows are hidden so the
-          financial-statement feed stays compact. Flow lines (Revenue, CoS, Cash, Δ) show <strong>sum</strong> in the Total
-          column. Stock lines (Inventory, AR, UR) show <strong>closing balance</strong>. Both Direct and Indirect cash-flow
-          methods are surfaced; Project Finance models typically run with Direct.
+          feed stays compact. Flow lines (Revenue, CoS, Cash) show <strong>sum</strong> in the Total column; stock lines
+          (Inventory, AR, UR) show <strong>closing balance</strong>. Schedules surfaces only raw line items here — Direct /
+          Indirect cash-flow reconciliation, Net Working Capital, and the full P&amp;L / BS / CF statements compose in Module 3.
         </p>
       </div>
 
@@ -607,26 +581,20 @@ export default function Module2Schedules(): React.JSX.Element {
             />
           );
         })()}
-        {hasAnyValue(nwc) && (
-          <PeriodTable
-            title="Net Working Capital"
-            caption="NWC = (AR + Inventory) - (Unearned + AP). Accounts Payable wires in at M3 alongside supplier credit terms."
-            yearLabels={snap.yearLabels}
-            rows={[
-              { label: 'Net Working Capital', values: nwc, isTotal: true, aggregation: 'last' as Aggregation },
-            ]}
-            currency={currency}
-            totalLabel="Closing"
-            fmt={fmt}
-          />
-        )}
       </PhaseSection>
 
+      {/* Pass 9g-L (2026-05-18): Cash Flow Feed reduced to the two
+          input streams (cash collected per asset + capex per Sell
+          asset). The Direct / Indirect reconciliation tables were
+          removed — those derivations belong in Module 3 (Financial
+          Statements) where Net Income, D&A, opex, and working-
+          capital movement compose the full CF statement. Schedules
+          stays a raw line-item feed only. */}
       <PhaseSection
-        phaseId="m2-schedules-cf-direct"
-        title="Cash Flow Feed — Direct Method"
-        meta="Cash from customers - Capex = Net Operating Cash"
-        storageKey="fmp:m2:schedules:cf-direct:collapsed"
+        phaseId="m2-schedules-cf"
+        title="Cash Flow Feed"
+        meta="Cash collected + Capex per asset — composed into the full CF statement in Module 3"
+        storageKey="fmp:m2:schedules:cf:collapsed"
       >
         <PeriodTable
           title="Cash Collected from Customers (per asset)"
@@ -656,48 +624,6 @@ export default function Module2Schedules(): React.JSX.Element {
             />
           );
         })()}
-        <PeriodTable
-          title="Net Operating Cash (Direct)"
-          caption="Cash from customers - Capex. Project Finance models typically read the Direct method here directly."
-          yearLabels={snap.yearLabels}
-          rows={[
-            { label: '(+) Cash Collected from Customers', values: totalCash, aggregation: 'sum' },
-            { label: '(-) Capex (cash invested in inventory)', values: totalCapex.map((v) => -v), aggregation: 'sum' },
-            { label: 'Net Operating Cash Flow (Direct)', values: netOpCashDirect, isTotal: true, aggregation: 'sum' },
-          ]}
-          currency={currency}
-          totalLabel="Total"
-          fmt={fmt}
-        />
-      </PhaseSection>
-
-      <PhaseSection
-        phaseId="m2-schedules-cf-indirect"
-        title="Cash Flow Feed — Indirect Method"
-        meta="Net Income + non-cash + working-capital movement"
-        storageKey="fmp:m2:schedules:cf-indirect:collapsed"
-      >
-        <PeriodTable
-          title="Cash Flow Reconciliation (Indirect)"
-          caption="NI + ΔUnearned + ΔAP − ΔInventory − ΔAR + non-cash items = Cash from Operations. D&A + opex wire in at M3 (currently zero). Subtract Capex (Investing) for total free cash flow. Should reconcile to Direct method within float residuals."
-          yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Operating Activities', values: [], isSection: true },
-            { label: 'Net Income (proxy: Gross Margin until M3 opex/D&A)', values: grossMargin, indent: 1, aggregation: 'sum' },
-            { label: 'Working-Capital Changes', values: [], isSection: true },
-            ...(hasAnyValue(dUR) ? [{ label: '(+) Δ Unearned Revenue', values: dUR, indent: 1, aggregation: 'sum' as Aggregation }] : []),
-            ...(hasAnyValue(dAP) ? [{ label: '(+) Δ Accounts Payable', values: dAP, indent: 1, aggregation: 'sum' as Aggregation }] : []),
-            ...(hasAnyValue(dInventory) ? [{ label: '(-) Δ Inventory', values: dInventory.map((v) => -v), indent: 1, aggregation: 'sum' as Aggregation }] : []),
-            ...(hasAnyValue(dAR) ? [{ label: '(-) Δ Accounts Receivable', values: dAR.map((v) => -v), indent: 1, aggregation: 'sum' as Aggregation }] : []),
-            { label: 'Cash from Operations (Indirect)', values: indirectOpsCash, isSubtotal: true, aggregation: 'sum' },
-            { label: 'Investing Activities', values: [], isSection: true },
-            { label: '(-) Capex', values: investingCash, indent: 1, aggregation: 'sum' },
-            { label: 'Net Cash Flow', values: netCashIndirect, isTotal: true, aggregation: 'sum' },
-          ]}
-          currency={currency}
-          totalLabel="Total"
-          fmt={fmt}
-        />
       </PhaseSection>
     </div>
   );
