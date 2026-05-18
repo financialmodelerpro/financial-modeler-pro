@@ -973,6 +973,42 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               })();
               const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
               const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
+              // Pass 9c (2026-05-18): per-sub-unit ADR + Rooms Revenue
+              // rows. Surfaced only when the asset has 2+ unit-type
+              // sub-units so the user can see how each room type
+              // contributes. Single-sub-unit assets keep the simple
+              // single-line view (per-sub-unit ADR == asset-level).
+              const unitSubUnits = assetSubUnits.filter((u) => u.metric === 'units');
+              const showPerSuBreakdown = unitSubUnits.length > 1;
+              const lastNonZero = (arr: number[]): number => {
+                for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
+                return 0;
+              };
+              const perSuAdrRows = showPerSuBreakdown
+                ? unitSubUnits.flatMap((u) => {
+                    const sub = r.perSubUnit?.[u.id];
+                    if (!sub) return [];
+                    return [{
+                      label: `${u.name} ADR (${Math.max(0, u.metricValue).toLocaleString('en-US')} keys)`,
+                      values: sub.adrPerPeriod,
+                      rowFmt: fmt,
+                      totalOverride: fmt(lastNonZero(sub.adrPerPeriod)),
+                      indent: 2,
+                    }];
+                  })
+                : [];
+              const perSuRoomsRevenueRows = showPerSuBreakdown
+                ? unitSubUnits.flatMap((u) => {
+                    const sub = r.perSubUnit?.[u.id];
+                    if (!sub) return [];
+                    return [{
+                      label: `${u.name} Rooms Revenue`,
+                      values: sub.roomsRevenuePerPeriod,
+                      rowFmt: fmt,
+                      indent: 1,
+                    }];
+                  })
+                : [];
               return (
                 <AssetSection
                   key={a.id}
@@ -996,7 +1032,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                       { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
                       { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
                       { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
-                      { label: `ADR (${currency} per occupied room night)`, values: r.adrPerPeriod, rowFmt: fmt, totalOverride: fmt(finalAdr), indent: 1 },
+                      {
+                        label: showPerSuBreakdown
+                          ? `ADR (keys-weighted avg, ${currency} per occupied room night)`
+                          : `ADR (${currency} per occupied room night)`,
+                        values: r.adrPerPeriod,
+                        rowFmt: fmt,
+                        totalOverride: fmt(finalAdr),
+                        indent: 1,
+                      },
+                      ...perSuAdrRows,
                       ...(showGuestsPerOR
                         ? [{ label: 'Guests per Occupied Room', values: broadcastIfOps(opGuestsPerOR), rowFmt: (v: number) => (Number.isFinite(v) && v > 0 ? v.toFixed(2) : '-'), totalOverride: opGuestsPerOR.toFixed(2), indent: 1 }]
                         : []),
@@ -1026,17 +1071,23 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={intFmt}
                   />
 
-                  {/* 2. Revenue */}
+                  {/* 2. Revenue (Pass 9c: per-sub-unit Rooms Revenue
+                       rows when multi-room-type) */}
                   <SectionHeading n="2" title="Revenue" />
                   <PeriodTable
                     title="2. Rooms + F&B + Other + Total Hospitality Revenue"
-                    formula="Rooms = ORN × ADR. F&B + Other follow per-asset mode (% of Rooms / Per Guest / Fixed Annual). Operating-sales convention: recognition = cash = revenue in the same period."
+                    formula="Rooms = ORN × ADR (per sub-unit, then summed). F&B + Other follow per-asset mode (% of Rooms / Per Guest / Fixed Annual). Operating-sales convention: recognition = cash = revenue in the same period."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Rooms Revenue', values: r.roomsRevenuePerPeriod },
+                      ...perSuRoomsRevenueRows,
+                      {
+                        label: showPerSuBreakdown ? 'Total Rooms Revenue' : 'Rooms Revenue',
+                        values: r.roomsRevenuePerPeriod,
+                        kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+                      },
                       { label: 'F&B Revenue', values: r.fbRevenuePerPeriod },
                       { label: 'Other Revenue', values: r.otherRevenuePerPeriod },
-                      { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' },
+                      { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' as const },
                     ]}
                     fmt={fmt}
                   />

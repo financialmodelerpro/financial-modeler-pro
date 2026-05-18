@@ -176,17 +176,44 @@ export interface AncillaryRevenueConfig {
   indexation?: IndexationConfig;
 }
 
+/**
+ * Pass 9c (2026-05-18): per-sub-unit room-type config. A hospitality
+ * asset (hotel) often has multiple room types (Standard / Deluxe /
+ * Suite) each with their own keys + starting ADR + indexation.
+ * Occupancy + F&B + Other stay asset-wide (hotel-wide hospitality
+ * ratios) but rooms revenue is summed across sub-units.
+ */
+export interface HospitalitySubUnitConfig {
+  id: string;
+  // Keys (rooms) of this sub-unit. Resolver reads from
+  // M1 SubUnit.metricValue where metric='units'.
+  keys: number;
+  // Starting ADR for this room type. Caller defaults this from the
+  // asset-level startingADR when the sub-unit has no per-row ADR set.
+  startingADR: number;
+  // Optional per-sub-unit ADR indexation override. When undefined,
+  // the engine falls back to the asset-level adrIndexation.
+  adrIndexation?: IndexationConfig;
+}
+
 export interface HospitalityConfig {
   assetId: string;
-  // Total keys for the asset. Caller resolves from M1 sub-units
-  // (sum of metricValue where metric='units').
+  // Pass 9c: per-sub-unit room-type breakdown. Engine sums rooms
+  // revenue across sub-units. Empty array = asset has no sub-units;
+  // engine then falls back to the asset-level keys + startingADR
+  // single-room-type convention.
+  subUnits: HospitalitySubUnitConfig[];
+  // Total keys for the asset (legacy / fallback path). Used when
+  // subUnits is empty. Equal to sum(subUnits[i].keys) when present.
   keys: number;
   // Days per operating year. Default 365 (some operators use 360).
   daysPerYear?: number;
-  // Starting Average Daily Rate (currency / occupied room night) at
-  // the operations start year. Escalates per adrIndexation.
+  // Asset-level starting ADR. Acts as the DEFAULT for any sub-unit
+  // that doesn't carry its own startingADR. Also used in the
+  // single-room-type fallback path when subUnits is empty.
   startingADR: number;
-  // ADR escalation. Reuses IndexationConfig from Sell.
+  // Asset-level ADR escalation. Acts as the DEFAULT for any sub-unit
+  // that doesn't carry its own adrIndexation override.
   adrIndexation: IndexationConfig;
   // Occupancy ramp, project-axis-indexed. 0..1 per period. Engine
   // clamps. Values outside [opsStart, opsEnd] are ignored.
@@ -208,15 +235,32 @@ export interface HospitalityAssetResult {
   availableRoomNightsPerPeriod: number[];
   occupiedRoomNightsPerPeriod: number[];
   occupancyPerPeriod: number[];          // clamped, mirror of input
-  adrPerPeriod: number[];                // indexed
+  // Asset-level keys-weighted ADR (= sum(keys_i × ADR_i) / sum(keys_i))
+  // per period. When the asset has a single sub-unit (or no sub-units),
+  // this equals that one ADR. With multiple sub-units carrying
+  // different ADRs, it's the keys-weighted average that explains
+  // Rooms Revenue / ORN at the asset level.
+  adrPerPeriod: number[];
   // Pass 8f (2026-05-18): the indexation multiplier the engine applied
-  // to startingADR at each period (= adr[y] / startingADR when start is
-  // > 0; 1.0 otherwise). Exposed so the Output tab can show users the
-  // year-by-year escalation factor separately from the ADR value.
+  // to the asset-level startingADR at each period. With per-sub-unit
+  // indexation overrides this is the keys-weighted factor.
   adrIndexationFactorPerPeriod: number[];
   guestsPerPeriod: number[];
   roomsRevenuePerPeriod: number[];
   fbRevenuePerPeriod: number[];
   otherRevenuePerPeriod: number[];
   totalRevenuePerPeriod: number[];
+  // Pass 9c (2026-05-18): per-sub-unit breakdown. Keyed by sub-unit id.
+  // Each entry holds the engine's per-period ADR + Rooms Revenue +
+  // Available + Occupied room nights for transparency in the Output
+  // tab. Empty when the caller passed no subUnits (single-room-type
+  // fallback path).
+  perSubUnit: Record<string, {
+    keys: number;
+    adrPerPeriod: number[];
+    adrIndexationFactorPerPeriod: number[];
+    availableRoomNightsPerPeriod: number[];
+    occupiedRoomNightsPerPeriod: number[];
+    roomsRevenuePerPeriod: number[];
+  }>;
 }

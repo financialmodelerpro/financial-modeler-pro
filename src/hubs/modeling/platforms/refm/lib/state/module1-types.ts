@@ -504,8 +504,23 @@ export interface SubUnit {
   // Count derives from parent metricValue). startingAdr captures the
   // Average Daily Rate the user enters; it is the only editable field
   // on a companion sub-unit row.
+  //
+  // Pass 9c (2026-05-18): per-sub-unit ADR also applies to non-companion
+  // Operate sub-units (multiple room types on a pure-Operate asset,
+  // e.g. Standard / Deluxe / Suite). Storage stays on startingAdr; the
+  // M2 resolver reads it for any metric='units' sub-unit under an
+  // Operate or companion asset. hospitalityIndexation is the optional
+  // per-sub-unit ADR escalation override; the M2 resolver falls back
+  // to the asset-level adrIndexation when this is undefined.
   parentSubUnitId?: string;
   startingAdr?: number;
+  hospitalityIndexation?: {
+    method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+    rate?: number;
+    startYear?: number;
+    steps?: Array<{ year: number; factor: number }>;
+    growthPerPeriod?: number[];
+  };
 }
 
 // ── Asset ──────────────────────────────────────────────────────────────────

@@ -110,8 +110,25 @@ export function resolveHospitalityConfig(
   const opsStartIdx = Math.max(constructionStartIdx, Math.min(axisLength - 1, handoverYear + 1 - overlap));
   const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, opsStartIdx + op - 1));
 
+  // Pass 9c (2026-05-18): per-sub-unit ADR resolution. Each
+  // metric='units' sub-unit becomes a HospitalitySubUnitConfig with
+  // its own keys + startingADR. Asset-level cfg.startingADR remains
+  // the default when a sub-unit hasn't been edited (SubUnit.startingAdr
+  // is undefined). Indexation override comes from the optional
+  // SubUnit.hospitalityIndexation field; when absent the engine falls
+  // back to asset-level adrIndexation.
+  const hospSubUnits: HospitalityConfig['subUnits'] = assetSubUnits
+    .filter((u) => u.metric === 'units')
+    .map((u) => ({
+      id: u.id,
+      keys: Math.max(0, u.metricValue),
+      startingADR: u.startingAdr ?? cfg.startingADR ?? 0,
+      adrIndexation: u.hospitalityIndexation,
+    }));
+
   return {
     assetId: asset.id,
+    subUnits: hospSubUnits,
     keys,
     daysPerYear: cfg.daysPerYear ?? 365,
     // Pass 9b (2026-05-18): defensive ?? 0 fallback so undefined or
@@ -303,6 +320,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     fbRevenuePerPeriod: emptyArr(),
     otherRevenuePerPeriod: emptyArr(),
     totalRevenuePerPeriod: emptyArr(),
+    perSubUnit: {},
   };
 
   for (const a of assets) {

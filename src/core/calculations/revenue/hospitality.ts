@@ -95,34 +95,87 @@ export function computeHospitalityAsset(
   const other = new Array<number>(N).fill(0);
   const total = new Array<number>(N).fill(0);
 
-  const keys = Math.max(0, config.keys);
   const daysPerYear = config.daysPerYear ?? DEFAULT_DAYS_PER_YEAR;
   const guestsPerOR = config.guestsPerOccupiedRoom ?? DEFAULT_GUESTS_PER_OCCUPIED_ROOM;
   const startIdx = Math.max(0, Math.min(N - 1, config.opsStartIdx));
   const endIdx = Math.max(startIdx, Math.min(N - 1, config.opsEndIdx));
-  const annualARN = keys * daysPerYear;
+
+  // Pass 9c (2026-05-18): per-sub-unit loop. Empty subUnits collapses
+  // to a single virtual sub-unit using the asset-level keys + ADR
+  // (legacy single-room-type path). Each sub-unit carries its own
+  // startingADR + (optional) indexation override.
+  const subUnits = config.subUnits.length > 0
+    ? config.subUnits
+    : [{
+        id: '__asset__',
+        keys: Math.max(0, config.keys),
+        startingADR: Math.max(0, config.startingADR),
+        adrIndexation: config.adrIndexation,
+      }];
+
+  const perSubUnit: HospitalityAssetResult['perSubUnit'] = {};
+  for (const su of subUnits) {
+    perSubUnit[su.id] = {
+      keys: Math.max(0, su.keys),
+      adrPerPeriod: new Array<number>(N).fill(0),
+      adrIndexationFactorPerPeriod: new Array<number>(N).fill(0),
+      availableRoomNightsPerPeriod: new Array<number>(N).fill(0),
+      occupiedRoomNightsPerPeriod: new Array<number>(N).fill(0),
+      roomsRevenuePerPeriod: new Array<number>(N).fill(0),
+    };
+  }
+
+  const totalKeys = subUnits.reduce((s, u) => s + Math.max(0, u.keys), 0);
 
   for (let y = startIdx; y <= endIdx; y++) {
     const rawOcc = config.occupancyPerPeriod[y] ?? 0;
     const occClamped = Math.max(0, Math.min(1, rawOcc));
-    const ornY = annualARN * occClamped;
-    const factorY = applyIndexation(1, y, config.adrIndexation);
-    const adrY = Math.max(0, config.startingADR) * factorY;
-    const guestsY = ornY * Math.max(0, guestsPerOR);
-    const roomsY = ornY * adrY;
-    const fbY = computeAncillary(config.fb, roomsY, guestsY, y);
-    const otherY = computeAncillary(config.otherRevenue, roomsY, guestsY, y);
 
-    arn[y] = annualARN;
-    orn[y] = ornY;
+    let totalArnY = 0;
+    let totalOrnY = 0;
+    let totalRoomsY = 0;
+    let weightedAdrSum = 0;     // sum(keys_i × ADR_i)
+    let weightedFactorSum = 0;  // sum(keys_i × factor_i)
+
+    for (const su of subUnits) {
+      const suKeys = Math.max(0, su.keys);
+      const suARN = suKeys * daysPerYear;
+      const suORN = suARN * occClamped;
+      const idx = su.adrIndexation ?? config.adrIndexation;
+      const suFactor = applyIndexation(1, y, idx);
+      const suADR = Math.max(0, su.startingADR) * suFactor;
+      const suRooms = suORN * suADR;
+
+      totalArnY += suARN;
+      totalOrnY += suORN;
+      totalRoomsY += suRooms;
+      weightedAdrSum += suKeys * suADR;
+      weightedFactorSum += suKeys * suFactor;
+
+      const sub = perSubUnit[su.id];
+      sub.adrPerPeriod[y] = suADR;
+      sub.adrIndexationFactorPerPeriod[y] = suFactor;
+      sub.availableRoomNightsPerPeriod[y] = suARN;
+      sub.occupiedRoomNightsPerPeriod[y] = suORN;
+      sub.roomsRevenuePerPeriod[y] = suRooms;
+    }
+
+    const guestsY = totalOrnY * Math.max(0, guestsPerOR);
+    const fbY = computeAncillary(config.fb, totalRoomsY, guestsY, y);
+    const otherY = computeAncillary(config.otherRevenue, totalRoomsY, guestsY, y);
+
+    arn[y] = totalArnY;
+    orn[y] = totalOrnY;
     occ[y] = occClamped;
-    adr[y] = adrY;
-    adrFactor[y] = factorY;
+    // Keys-weighted average ADR + factor. When totalKeys=0 (degenerate
+    // empty asset) both default to 0 — no rooms revenue anyway.
+    adr[y] = totalKeys > 0 ? weightedAdrSum / totalKeys : 0;
+    adrFactor[y] = totalKeys > 0 ? weightedFactorSum / totalKeys : 0;
     guests[y] = guestsY;
-    rooms[y] = roomsY;
+    rooms[y] = totalRoomsY;
     fb[y] = fbY;
     other[y] = otherY;
-    total[y] = roomsY + fbY + otherY;
+    total[y] = totalRoomsY + fbY + otherY;
   }
 
   return {
@@ -138,5 +191,6 @@ export function computeHospitalityAsset(
     fbRevenuePerPeriod: fb,
     otherRevenuePerPeriod: other,
     totalRevenuePerPeriod: total,
+    perSubUnit,
   };
 }

@@ -286,6 +286,7 @@ interface AssetCardProps {
 
 function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps): React.JSX.Element {
   const updateAsset = useModule1Store((s) => s.updateAsset);
+  const updateSubUnit = useModule1Store((s) => s.updateSubUnit);
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   // Pass 7w (2026-05-18): Sell + Manage parents get full Sell-side
   // treatment (velocity grid, indexation, cash profile, recognition
@@ -826,6 +827,80 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   </div>
                 )}
               </InlineSection>
+
+              {/* Pass 9c (2026-05-18): per-sub-unit ADR split.
+                  Mirrors Pass 7v's velocity split toggle. When OFF
+                  (default), all unit-type sub-units inherit the
+                  asset-level ADR above. When ON, each room type
+                  (Standard / Deluxe / Suite etc.) gets its own
+                  startingADR stored on the SubUnit. Engine sums
+                  rooms revenue across sub-units. */}
+              {(() => {
+                const unitSubUnits = subUnits.filter((u) => u.metric === 'units');
+                if (unitSubUnits.length === 0) return null;
+                const anySplit = unitSubUnits.some((u) => u.startingAdr != null);
+                const enableSplit = (): void => {
+                  for (const u of unitSubUnits) {
+                    if (u.startingAdr == null) updateSubUnit(u.id, { startingAdr: opStartingADR });
+                  }
+                };
+                const disableSplit = (): void => {
+                  for (const u of unitSubUnits) {
+                    if (u.startingAdr != null) updateSubUnit(u.id, { startingAdr: undefined });
+                  }
+                };
+                return (
+                  <InlineSection
+                    title={`ADR per room type · ${unitSubUnits.length} sub-unit${unitSubUnits.length === 1 ? '' : 's'}`}
+                    hint="When OFF every sub-unit uses the asset-level ADR above. When ON each room type (Standard / Deluxe / Suite) gets its own ADR. Engine sums rooms revenue across sub-units."
+                  >
+                    <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap', marginBottom: anySplit ? 8 : 0 }}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Mode</span>
+                      <MethodPill active={!anySplit} label="All sub-units share" onClick={disableSplit} />
+                      <MethodPill active={anySplit} label="Split per sub-unit" onClick={enableSplit} />
+                      {anySplit && (
+                        <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginLeft: 8 }}>
+                          Per-row ADR overrides the asset-level value. Indexation still pulls from the asset-level setting above.
+                        </span>
+                      )}
+                    </div>
+                    {anySplit && (
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ ...CELL_HEADER, textAlign: 'left', minWidth: 160 }}>Sub-unit</th>
+                              <th style={{ ...CELL_HEADER, minWidth: 80 }}>Keys</th>
+                              <th style={{ ...CELL_HEADER, minWidth: 140 }}>Starting ADR ({project.currency})</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {unitSubUnits.map((u) => (
+                              <tr key={u.id}>
+                                <td style={{ padding: '4px 8px', borderTop: '1px solid var(--color-border)' }}>{u.name}</td>
+                                <td style={{ padding: '4px 8px', borderTop: '1px solid var(--color-border)', textAlign: 'right' }}>
+                                  {Math.max(0, u.metricValue).toLocaleString('en-US')}
+                                </td>
+                                <td style={{ padding: '2px 4px', borderTop: '1px solid var(--color-border)' }}>
+                                  <AccountingNumberInput
+                                    value={u.startingAdr ?? opStartingADR}
+                                    onChange={(n) => updateSubUnit(u.id, { startingAdr: Math.max(0, n) })}
+                                    scale="full"
+                                    decimals={0}
+                                    min={0}
+                                    style={FAST_INPUT}
+                                    data-testid={`m2-asset-${asset.id}-su-${u.id}-adr`}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </InlineSection>
+                );
+              })()}
 
               {/* Occupancy ramp */}
               <InlineSection

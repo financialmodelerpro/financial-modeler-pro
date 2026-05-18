@@ -462,6 +462,7 @@ console.log('--- Fixture H: Hospitality engine baseline (Pass 8a) ---');
 // Year 5 (idx 4): occ 70%, no indexation.
 const fixtureH1: HospitalityConfig = {
   assetId: 'asset-H1',
+  subUnits: [],
   keys: 200,
   daysPerYear: 365,
   startingADR: 500,
@@ -644,6 +645,7 @@ assertNear('J6: factor before startYear (idx 3) = base',
 const hospJ = computeHospitalityAsset({
   config: {
     assetId: 'asset-J',
+    subUnits: [],
     keys: 100,
     daysPerYear: 365,
     startingADR: 500,
@@ -663,6 +665,102 @@ assertNear('J8: ADR year 6 in hospitality engine = 525',
   hospJ.adrPerPeriod[5], 525, 0.01);
 assertNear('J9: ADR year 7 in hospitality engine = 540.75',
   hospJ.adrPerPeriod[6], 540.75, 0.01);
+
+// ───────────────────────────────────────────────────────────────
+// Fixture K (Pass 9c, 2026-05-18): per-sub-unit ADR.
+// 3 room types: Standard (100 keys @ 400), Deluxe (50 keys @ 600),
+// Suite (10 keys @ 1500). 14-year axis, ops 4..13, occ 70%, no
+// indexation, no ancillary. Test asset-level keys-weighted ADR +
+// per-sub-unit Rooms revenue.
+// ───────────────────────────────────────────────────────────────
+console.log('\n--- Fixture K: per-sub-unit ADR (Pass 9c) ---');
+
+const cfgK: HospitalityConfig = {
+  assetId: 'asset-K',
+  subUnits: [
+    { id: 'std', keys: 100, startingADR: 400 },
+    { id: 'dlx', keys: 50, startingADR: 600 },
+    { id: 'ste', keys: 10, startingADR: 1500 },
+  ],
+  keys: 160, // ignored when subUnits non-empty
+  daysPerYear: 365,
+  startingADR: 0, // ignored when sub-units carry their own
+  adrIndexation: { method: 'none' },
+  occupancyPerPeriod: new Array<number>(14).fill(0).map((_, i) => (i >= 4 && i <= 13 ? 0.70 : 0)),
+  guestsPerOccupiedRoom: 1.5,
+  fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+const resK = computeHospitalityAsset({ config: cfgK, axisLength: 14 });
+
+const arnK = (100 + 50 + 10) * 365;         // 58,400
+const ornK = arnK * 0.70;                   // 40,880
+const roomsStd = 100 * 365 * 0.70 * 400;    // 10,220,000
+const roomsDlx = 50 * 365 * 0.70 * 600;     // 7,665,000
+const roomsSte = 10 * 365 * 0.70 * 1500;    // 3,832,500
+const totalRoomsK = roomsStd + roomsDlx + roomsSte;
+const weightedADR = (100 * 400 + 50 * 600 + 10 * 1500) / (100 + 50 + 10);
+
+assertNear('K1: Available Room Nights y5 = (100+50+10) × 365 = 58,400',
+  resK.availableRoomNightsPerPeriod[4], arnK, 0.5);
+assertNear('K2: Occupied Room Nights y5 = ARN × 0.70 = 40,880',
+  resK.occupiedRoomNightsPerPeriod[4], ornK, 0.5);
+assertNear('K3: keys-weighted ADR y5 = (100×400+50×600+10×1500)/160 = 531.25',
+  resK.adrPerPeriod[4], weightedADR, 0.01);
+assertNear('K4: Total Rooms Revenue y5 = sum of per-sub-unit Rooms',
+  resK.roomsRevenuePerPeriod[4], totalRoomsK, 0.5);
+assertNear('K5: per-sub-unit Standard Rooms y5 = 10,220,000',
+  resK.perSubUnit.std.roomsRevenuePerPeriod[4], roomsStd, 0.5);
+assertNear('K6: per-sub-unit Deluxe Rooms y5 = 7,665,000',
+  resK.perSubUnit.dlx.roomsRevenuePerPeriod[4], roomsDlx, 0.5);
+assertNear('K7: per-sub-unit Suite Rooms y5 = 3,832,500',
+  resK.perSubUnit.ste.roomsRevenuePerPeriod[4], roomsSte, 0.5);
+assertNear('K8: per-sub-unit Suite ADR y5 = 1,500 (no indexation)',
+  resK.perSubUnit.ste.adrPerPeriod[4], 1500, 0.01);
+assertNear('K9: per-sub-unit Suite ARN y5 = 10 × 365 = 3,650',
+  resK.perSubUnit.ste.availableRoomNightsPerPeriod[4], 10 * 365, 0.5);
+
+// K10: per-sub-unit indexation override. Only Suite gets 5% YoY.
+const cfgK2: HospitalityConfig = {
+  ...cfgK,
+  subUnits: [
+    { id: 'std', keys: 100, startingADR: 400 },
+    { id: 'dlx', keys: 50, startingADR: 600 },
+    { id: 'ste', keys: 10, startingADR: 1500, adrIndexation: { method: 'yoy_compound', rate: 0.05, startYear: 4 } },
+  ],
+};
+const resK2 = computeHospitalityAsset({ config: cfgK2, axisLength: 14 });
+assertNear('K10: Standard ADR y6 = 400 (no per-su indexation, asset-level=none)',
+  resK2.perSubUnit.std.adrPerPeriod[5], 400, 0.01);
+assertNear('K11: Suite ADR y6 = 1500 × 1.05 = 1575 (per-su YoY 5%)',
+  resK2.perSubUnit.ste.adrPerPeriod[5], 1500 * 1.05, 0.01);
+assertNear('K12: Suite ADR y8 = 1500 × 1.05^3 = 1736.4375',
+  resK2.perSubUnit.ste.adrPerPeriod[7], 1500 * 1.05 * 1.05 * 1.05, 0.01);
+
+// K13: empty subUnits falls back to asset-level keys + startingADR.
+const cfgK3: HospitalityConfig = {
+  assetId: 'asset-K3',
+  subUnits: [],
+  keys: 200,
+  daysPerYear: 365,
+  startingADR: 500,
+  adrIndexation: { method: 'none' },
+  occupancyPerPeriod: new Array<number>(14).fill(0).map((_, i) => (i >= 4 && i <= 13 ? 0.70 : 0)),
+  guestsPerOccupiedRoom: 1.5,
+  fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+const resK3 = computeHospitalityAsset({ config: cfgK3, axisLength: 14 });
+const arnK3 = 200 * 365;
+const ornK3 = arnK3 * 0.70;
+assertNear('K13: empty subUnits falls back to asset-level (ARN = 200 × 365)',
+  resK3.availableRoomNightsPerPeriod[4], arnK3, 0.5);
+assertNear('K14: empty subUnits fallback Rooms = ORN × 500',
+  resK3.roomsRevenuePerPeriod[4], ornK3 * 500, 0.5);
 
 // Report
 let pass = 0;
