@@ -274,18 +274,31 @@ export default function Module2CostOfSales(): React.JSX.Element {
         </p>
       </div>
 
+      {/* Pass 9f-2 (2026-05-18): strategy-first grouping to mirror
+          Revenue Output. CoS only applies to Sell + Sell + Manage
+          parents, so a single outer strategy section covers everything. */}
+      <PhaseSection
+        phaseId="strategy-sell-cos"
+        title="Residential / Sell"
+        meta="Sell + Sell + Manage parents across all phases"
+        countLabel={`${perAsset.length} asset${perAsset.length === 1 ? '' : 's'}`}
+        storageKey="fmp:m2:costofsales:strategy:sell:collapsed"
+      >
+      {perAsset.length === 0 && (
+        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+          No Sell or Sell + Manage assets configured yet.
+        </div>
+      )}
       {state.phases.map((p) => {
         const phaseRows = perAsset.filter((row) => row.asset.phaseId === p.id);
         if (phaseRows.length === 0) return null;
         return (
-          <PhaseSection
-            key={p.id}
-            phaseId={p.id}
-            title={p.name}
-            meta={`${p.status ?? 'planning'}`}
-            countLabel={`${phaseRows.length} Sell asset${phaseRows.length === 1 ? '' : 's'}`}
-            storageKey={`fmp:m2:costofsales:phase:${p.id}:collapsed`}
-          >
+          <div key={p.id} style={{ marginBottom: 'var(--sp-2)' }}>
+            <PhaseDivider
+              title={p.name}
+              meta={`${p.status ?? 'planning'}`}
+              count={`${phaseRows.length} Sell asset${phaseRows.length === 1 ? '' : 's'}`}
+            />
             {phaseRows.map((row) => {
               // Pass 9e-10 (2026-05-18): % rows follow project decimals.
               const pctFmt = (v: number): string => {
@@ -316,6 +329,16 @@ export default function Module2CostOfSales(): React.JSX.Element {
               const cumRecFinal = cos.cumRecognitionPerPeriod[cos.cumRecognitionPerPeriod.length - 1] ?? 0;
               const jointFinal = cos.jointFactorPerPeriod[cos.jointFactorPerPeriod.length - 1] ?? 0;
               const inventoryLabel = allUnits ? 'units' : 'sqm';
+              // Pass 9f-2: per-period recognition % matches the recognition
+              // profile entered in M2 Inputs (and shown in Revenue Output
+              // Block 3). Derived from the engine's presales recognition
+              // stream so PIT / over-time / handover-at-end shapes all
+              // produce the right per-period shares.
+              const totalRecForPct = r ? r.presalesRecognitionPerPeriod.reduce((s, v) => s + Math.max(0, v), 0) : 0;
+              const recognitionPctPerPeriod = r
+                ? r.presalesRecognitionPerPeriod.map((v) => totalRecForPct > 0 ? Math.max(0, v) / totalRecForPct : 0)
+                : new Array<number>(N).fill(0);
+              const totalRecPct = recognitionPctPerPeriod.reduce((s, v) => s + v, 0);
 
               return (
                 <AssetSection
@@ -343,6 +366,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
                       { label: 'Cumulative Pre-Sales %', values: cos.cumPreSalesPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cumPreFinal), indent: 1 },
                       { label: `Sales (post-handover) % per period`, values: postSalesPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(totalPostSalesPct), indent: 1 },
                       { label: 'Revenue Recognition profile (during construction)', values: [], isSection: true, indent: 0 },
+                      { label: 'Recognition % per period', values: recognitionPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(totalRecPct), indent: 1 },
                       { label: 'Cumulative Recognition %', values: cos.cumRecognitionPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cumRecFinal), indent: 1 },
                       { label: 'Joint factor = cum Recognition × cum Pre-Sales', values: cos.jointFactorPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(jointFinal), indent: 1 },
                       { label: '∆ Joint factor (drives CoS during construction)', values: cos.deltaJointPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cos.deltaJointPerPeriod.reduce((s, v) => s + v, 0)), indent: 1 },
@@ -366,9 +390,10 @@ export default function Module2CostOfSales(): React.JSX.Element {
                 </AssetSection>
               );
             })}
-          </PhaseSection>
+          </div>
         );
       })}
+      </PhaseSection>
 
       <PhaseSection
         phaseId="__project__"
@@ -390,6 +415,33 @@ export default function Module2CostOfSales(): React.JSX.Element {
           fmt={fmt}
         />
       </PhaseSection>
+    </div>
+  );
+}
+
+/**
+ * Pass 9f-2 (2026-05-18): phase divider rendered inside a strategy
+ * section. Lighter than the full PhaseSection chrome so the strategy
+ * header stays the dominant visual anchor.
+ */
+function PhaseDivider({ title, meta, count }: { title: string; meta?: string; count?: string }): React.JSX.Element {
+  return (
+    <div style={{
+      marginTop: 'var(--sp-2)',
+      marginBottom: 'var(--sp-1)',
+      padding: '6px 12px',
+      background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+      borderLeft: '3px solid var(--color-navy)',
+      borderRadius: '2px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    }}>
+      <div>
+        <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)' }}>{title}</strong>
+        {meta && <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--color-meta)' }}>{meta}</span>}
+      </div>
+      {count && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{count}</span>}
     </div>
   );
 }
