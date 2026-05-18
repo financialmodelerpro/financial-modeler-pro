@@ -422,7 +422,12 @@ function Step2({
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-startdate">Phase Start Date</th>
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-construction">Construction ({periodUnit})</th>
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-operations">Operations ({periodUnit})</th>
-            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-overlap">Overlap ({periodUnit})</th>
+            {/* Pass 9g-N (2026-05-18): Overlap input removed —
+                soft-open lives on asset.revenue.operate.operations
+                StartYearOverride (per-asset, end-anchored). New phases
+                created from the wizard default overlapPeriods=0 for
+                schema back-compat; engine still reads the value on
+                legacy snapshots. */}
             <th></th>
           </tr>
         </thead>
@@ -464,16 +469,6 @@ function Step2({
                   data-testid={`wiz-phase-${idx}-operationsPeriods`}
                   value={p.operationsPeriods}
                   onChange={(n) => updatePhase(idx, { operationsPeriods: Math.max(0, Math.round(n)) })}
-                  style={inputStyle}
-                />
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }}>
-                <AccountingNumberInput
-                  min={0}
-                  decimals={0}
-                  data-testid={`wiz-phase-${idx}-overlapPeriods`}
-                  value={p.overlapPeriods}
-                  onChange={(n) => updatePhase(idx, { overlapPeriods: Math.max(0, Math.round(n)) })}
                   style={inputStyle}
                 />
               </td>

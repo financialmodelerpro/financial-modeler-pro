@@ -349,14 +349,17 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               <th style={tableHeaderStyle}>
                 <InputLabel label={`Operations (${'years'})`} help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
               </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label={`Overlap (${'years'})`} help="Periods where operations begin before construction ends (e.g. tower 1 opens during tower 2 build)." textStyle={tableHeaderLabelStyle} />
-              </th>
+              {/* Pass 9g-N (2026-05-18): Overlap input removed — soft
+                  open / mid-construction operations now lives on
+                  asset.revenue.operate.operationsStartYearOverride
+                  (per-asset, more flexible, end-anchored). Schema +
+                  engine still read phase.overlapPeriods for back-compat
+                  on snapshots that previously set it. */}
               <th style={tableHeaderStyle}>
                 <InputLabel label="Construction End" help="Auto-derived = Phase Start Date + Construction Periods." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Operations Start" help="Auto-derived = Construction End - Overlap Periods." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label="Operations Start" help="Auto-derived = Construction End + 1 period. Per-asset soft-open (mid-construction start) is set on the Revenue Inputs tab." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
                 <InputLabel label="Operations End" help="Auto-derived = Operations Start + Operations Periods. Also the phase's contribution to Project End." textStyle={tableHeaderLabelStyle} />
@@ -465,18 +468,6 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
           scale="full"
           decimals={0}
           data-testid={`phase-${phase.id}-operationsPeriods`}
-          style={inputStyle}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <AccountingNumberInput
-          value={phase.overlapPeriods}
-          onChange={(n) => onUpdate({ overlapPeriods: Math.max(0, Math.min(phase.constructionPeriods, n)) })}
-          min={0}
-          max={phase.constructionPeriods}
-          scale="full"
-          decimals={0}
-          data-testid={`phase-${phase.id}-overlapPeriods`}
           style={inputStyle}
         />
       </td>
