@@ -1,4 +1,4 @@
-# Tab 3 Costs render diagnostic
+﻿# Tab 3 Costs render diagnostic
 
 **Date:** 2026-05-12.
 **Brief:** Tab 3 Costs Critical Fixes.
@@ -117,7 +117,7 @@ The Land Cash + Land In-Kind start=0/end=0 (`single period`) is already correct.
 
 Once the strict-equality filter at line 2726 is corrected, the rendered cost-line table will show all 10 masters for the active asset. `assetSubtotal = lines.reduce((s, l) => s + bd.byLineId[l.id], 0)` will then sum the engine's correct per-line totals.
 
-For Branded Apt T2&T3 (MAAD: buaSqm 130874, sub-units producing NSA ~84K + Support ~46K, sharing Phase 2 parcel):
+For Branded Apt T2&T3 (the reference model: buaSqm 130874, sub-units producing NSA ~84K + Support ~46K, sharing Phase 2 parcel):
 - Land (Cash) = 100% of (Phase 2 parcel value × Branded's BUA share × cashPct)
 - Land (In-Kind) = same × inKindPct
 - Construction (BUA) = 4500 × computeAssetBua(asset) ≈ 4500 × 130,874 = 588.9M

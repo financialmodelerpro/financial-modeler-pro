@@ -1,4 +1,4 @@
-/**
+﻿/**
  * m20f-structural-fixes.spec.ts
  *
  * Phase M2.0f: structural fixes across the 6 surfaces Ahmad flagged
@@ -13,7 +13,7 @@
  *   Fix 4: Tab 1 Project & Phases shows date columns instead of period
  *          numbers; editing Phase Start Date cascades to derived
  *          construction / operations end columns.
- *   Fix 5: MAAD-shape inputs print an inclusive end year (2039 for a
+ *   Fix 5: reference shape inputs print an inclusive end year (2039 for a
  *          2025-start, 4-yr construction + 10-yr operations phase).
  *   Fix 6: Asset card areas row shows derived BUA / Sellable / Support
  *          / Parking; sub-unit dropdown surfaces the new Parking
@@ -90,7 +90,7 @@ test.describe('M2.0f structural fixes', () => {
     await page.getByTestId('wizard-close').click();
   });
 
-  test('Fix 4 + 5: Tab 1 Phase Start Date column + MAAD-shape end year 2039', async ({ page }) => {
+  test('Fix 4 + 5: Tab 1 Phase Start Date column + reference shape end year 2039', async ({ page }) => {
     await page.goto('/refm');
     if ((await page.getByTestId('sidebar-module1').count()) === 0) test.skip(true, '/refm requires auth');
     await expect(page.getByTestId('sidebar-module1')).toBeVisible({ timeout: 15000 });
@@ -130,11 +130,11 @@ test.describe('M2.0f structural fixes', () => {
     await expect(constructionEnd).toBeVisible();
     await expect(opsEnd).toBeVisible();
 
-    // For MAAD-shape (2025 start, 4 + 10 = 14 years), endYear caption should be 2039.
+    // For reference shape (2025 start, 4 + 10 = 14 years), endYear caption should be 2039.
     const endYear = page.getByTestId('project-end-year');
     if ((await endYear.count()) > 0) {
-      // The fixture may or may not exactly match MAAD shape; just check the
-      // caption is a 4-digit year, not "2040" off-by-one for the MAAD fixture
+      // The fixture may or may not exactly match reference shape; just check the
+      // caption is a 4-digit year, not "2040" off-by-one for the reference fixture
       // when the test populates it.
       const text = (await endYear.textContent()) ?? '';
       expect(text).toMatch(/^\d{4}$/);

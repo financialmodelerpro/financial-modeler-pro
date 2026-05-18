@@ -1,7 +1,7 @@
-/**
+﻿/**
  * tab2-pass2.spec.ts (Tab 2 Pass 2 DOM proof, 2026-05-12)
  *
- * Two proofs against the Pass 2 multi-phase MAAD-shape fixture:
+ * Two proofs against the Pass 2 multi-phase reference shape fixture:
  *   1. Phase 2 asset's Sqm Allocated row renders non-zero (Fix 1 +
  *      per-asset BUA-weighted split inside the phase).
  *   2. Companion (Sell + Manage Operate sibling) renders WITHOUT a
@@ -23,11 +23,11 @@ import { mkdirSync } from 'node:fs';
 
 const SCREENSHOT_DIR = resolve(__dirname, '..', 'screenshots', 'tab2-pass2');
 
-const MAAD_MULTIPHASE_SNAPSHOT = {
+const REF_MULTIPHASE_SNAPSHOT = {
   version: 8,
   savedAt: '2026-05-12T00:00:00.000Z',
   project: {
-    name: 'MAAD Pass 2 Multi-Phase',
+    name: 'the reference model Pass 2 Multi-Phase',
     startDate: '2026-01-01',
     currency: 'SAR',
     modelType: 'annual',
@@ -91,7 +91,7 @@ test.describe('Tab 2 Pass 2 DOM proof', () => {
       try {
         window.localStorage.setItem('module1-store', JSON.stringify({ state: snap, version: 0 }));
       } catch { /* noop */ }
-    }, MAAD_MULTIPHASE_SNAPSHOT);
+    }, REF_MULTIPHASE_SNAPSHOT);
     await page.reload();
     if ((await page.getByTestId('sidebar-module1').count()) === 0) {
       test.skip(true, '/refm requires auth after reload');
@@ -124,7 +124,7 @@ test.describe('Tab 2 Pass 2 DOM proof', () => {
       try {
         window.localStorage.setItem('module1-store', JSON.stringify({ state: snap, version: 0 }));
       } catch { /* noop */ }
-    }, MAAD_MULTIPHASE_SNAPSHOT);
+    }, REF_MULTIPHASE_SNAPSHOT);
     await page.reload();
     if ((await page.getByTestId('sidebar-module1').count()) === 0) {
       test.skip(true, '/refm requires auth after reload');

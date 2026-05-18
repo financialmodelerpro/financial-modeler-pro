@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-m20f.ts (M2.0f verifier)
  *
@@ -19,7 +19,7 @@
  *      multi-parcel inputs).
  *   3. Calc engine: computeAssetLandBreakdown per-parcel rate, multi-
  *      parcel split sum, validateLandAllocation over/under, project
- *      timeline endYear (MAAD shape -> 2039), BUA source-of-truth.
+ *      timeline endYear (reference shape -> 2039), BUA source-of-truth.
  *   4. State: source-file markers for the 6 fix surfaces +
  *      em-dash sweep across 7 files.
  *   5. UI: Playwright spec presence + run gate.
@@ -222,22 +222,22 @@ const overValidation = validateLandAllocation(overParcels, [overAsset], 'sqm');
 if (overValidation.status === 'over' && overValidation.overAllocatedSqm === 1000) pass('Fix 2: validation status=over (1000 sqm excess)');
 else fail('validation status over', `status=${overValidation.status}, over=${overValidation.overAllocatedSqm}`);
 
-// Fix 5: computeProjectTimeline endYear, MAAD-shape (4 + 10 = 14 yrs).
+// Fix 5: computeProjectTimeline endYear, reference shape (4 + 10 = 14 yrs).
 // M2.0g Fix 1 update: end-of-period now = Dec 31 of last year, so the
 // 4 + 10 chain from 2025-01-01 ends 2038-12-31 (NOT 2039-01-01). End
 // year display is 2038. The pre-M2.0g 2039-01-01 ("start of next year")
 // was the off-by-one that Fix 1 closes.
-const maadPhases: Phase[] = [
+const refPhases: Phase[] = [
   { id: 'p1', name: 'Phase 1', constructionStart: 1, constructionPeriods: 4, operationsPeriods: 10, overlapPeriods: 0, startDate: '2025-01-01' },
 ];
-const maadTimeline = computeProjectTimeline(project, maadPhases);
-if (maadTimeline.endDate === '2038-12-31') pass(`Fix 5: MAAD-shape endDate = 2038-12-31 (got ${maadTimeline.endDate})`);
-else fail('Fix 5 endDate', `expected 2038-12-31, got ${maadTimeline.endDate}`);
-if (maadTimeline.endYear === 2038) pass(`Fix 5: MAAD-shape endYear = 2038 (no +1 offset, end-of-period)`);
-else fail('Fix 5 endYear', `expected 2038, got ${maadTimeline.endYear}`);
-if (maadTimeline.start === maadTimeline.startDate) pass('Fix 5: legacy alias .start mirrors .startDate');
+const refTimeline = computeProjectTimeline(project, refPhases);
+if (refTimeline.endDate === '2038-12-31') pass(`Fix 5: reference shape endDate = 2038-12-31 (got ${refTimeline.endDate})`);
+else fail('Fix 5 endDate', `expected 2038-12-31, got ${refTimeline.endDate}`);
+if (refTimeline.endYear === 2038) pass(`Fix 5: reference shape endYear = 2038 (no +1 offset, end-of-period)`);
+else fail('Fix 5 endYear', `expected 2038, got ${refTimeline.endYear}`);
+if (refTimeline.start === refTimeline.startDate) pass('Fix 5: legacy alias .start mirrors .startDate');
 else fail('legacy alias start', 'mismatch');
-if (maadTimeline.end === maadTimeline.endDate) pass('Fix 5: legacy alias .end mirrors .endDate');
+if (refTimeline.end === refTimeline.endDate) pass('Fix 5: legacy alias .end mirrors .endDate');
 else fail('legacy alias end', 'mismatch');
 
 // Fix 6: BUA derives from sub-units. M2.0g Fix 4: Parking moves to

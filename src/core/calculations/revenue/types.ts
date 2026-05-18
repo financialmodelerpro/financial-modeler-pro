@@ -60,7 +60,7 @@ export interface IndexationConfig {
   // Pass 8e (2026-05-18): per-year growth array, project-axis-indexed
   // (decimal, e.g. 0.05 = 5%). Used only when method = 'yoy_per_period'.
   // factor[y] = factor[y-1] × (1 + growthPerPeriod[y]) for y > startYear;
-  // factor[startYear] = 1. Mirrors MAAD's OOD revenue growth column
+  // factor[startYear] = 1. Mirrors the reference model's revenue growth column
   // pattern where each year's escalation can differ.
   growthPerPeriod?: number[];
 }
@@ -99,7 +99,7 @@ export interface SellAssetResult {
   postSalesRevenuePerPeriod: number[];
   // Pass 7f (2026-05-17): per-sub-unit breakdowns. Key = sub-unit id,
   // value = project-axis-indexed array. Aggregate arrays above are the
-  // sum across sub-units; consumers that need the MAAD-style per-line
+  // sum across sub-units; consumers that need the per-line
   // build (Pre-Sale Area per period per sub-unit, Pre-Sale Revenue per
   // period per sub-unit) read from these.
   presalesAreaPerPeriodPerSubUnit: Record<string, number[]>;

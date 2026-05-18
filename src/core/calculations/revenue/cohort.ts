@@ -6,7 +6,7 @@ import type { ProfileMode } from './types';
  * the cash distribution and the over-time recognition pipelines reuse
  * this helper.
  *
- * profileMode = 'absolute_with_catchup' (MAAD convention):
+ * profileMode = 'absolute_with_catchup' (default convention):
  *   percentages[k] is keyed at the absolute project period positions[k]
  *   (defaults to k). A cohort with sale year N pays / recognizes the
  *   sum of percentages whose position <= N as a single lump at year N

@@ -1,4 +1,4 @@
-# Tab 3 Edit Mode Runtime Diagnostic (2026-05-12)
+﻿# Tab 3 Edit Mode Runtime Diagnostic (2026-05-12)
 
 ## Brief
 User reported: "Pass 1 fix (per-field editability) did not actually land in
@@ -9,14 +9,14 @@ The Pass 1 verifier (`scripts/verify-tab3-regression-2.ts`, 35/0) passes
 headless because it scans source markers. Headless source scan is NOT
 runtime DOM proof. This diagnostic stands up a real headless Chromium
 against the running dev server, renders Module1Costs against a seeded
-MAAD-shape store, and reads the live DOM markup plus actually exercises
+reference shape store, and reads the live DOM markup plus actually exercises
 the click/type/blur cycle.
 
 ## Approach
 
 `app/test-costrow-diag/page.tsx` (diagnostic-only page; unlinked from the
 main app) seeds the module1-store via `useModule1Store.setState` with the
-MAAD fixture (one phase, one parcel, one asset with 130,874 BUA, default
+reference fixture (one phase, one parcel, one asset with 130,874 BUA, default
 cost lines including Land Cash + Land In-Kind + Construction (BUA)).
 It then renders `<Module1Costs />` directly. No /refm auth, no Modeling
 Hub shell, no project list, no Wizard.

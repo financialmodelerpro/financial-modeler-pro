@@ -14,8 +14,8 @@ import type { IndexationConfig } from './types';
  *                      factor[startYear] = 1; factor[y] = factor[y-1] ×
  *                      (1 + growthPerPeriod[y]) for y > startYear. Each
  *                      growth value is clamped to ≥ -99% so the factor
- *                      cannot collapse to zero. Mirrors MAAD's OOD-style
- *                      column where each year carries its own escalation.
+ *                      cannot collapse to zero. Mirrors the per-year
+ *                      growth column where each year carries its own escalation.
  */
 export function applyIndexation(
   baseRate: number,

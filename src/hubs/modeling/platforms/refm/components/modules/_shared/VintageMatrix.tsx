@@ -9,8 +9,8 @@
  * year. Diagonal cells are highlighted (cohort-N catches up at year N).
  * Empty cells render as a dash so the eye reads the schedule shape.
  *
- * Mirrors the MAAD Excel pre-sales schedule visualization (Revenue
- * sheet rows 24+ and CF sheet rows 7+).
+ * The pre-sales schedule visualization mirrors the standard cohort-by-
+ * collection-year layout used in residential feasibility models.
  */
 
 import React from 'react';

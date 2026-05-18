@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-tab3-critical.ts (Tab 3 Costs Critical Fixes, 2026-05-12)
  *
@@ -11,7 +11,7 @@
  *      (definition + 3 hydrate chains).
  *   5. Fix 4 endPeriod = cp + 1 on the 8 non-land defaults; Land Cash
  *      + Land In-Kind stay at start = 0 / end = 0.
- *   6. Fix 6 MAAD subtotal sanity: Branded Apt T2&T3 fixture produces
+ *   6. Fix 6 reference subtotal sanity: Branded Apt T2&T3 fixture produces
  *      a Land + Construction subtotal in the right neighbourhood.
  *   7. Em-dash sweep.
  *
@@ -167,10 +167,10 @@ console.log('\n[5/7] Fix 4: default endPeriod = cp + 1');
   }
 }
 
-// ── Section 6: MAAD subtotal sanity ──────────────────────────────────────
-console.log('\n[6/7] Fix 6: Branded Apt MAAD fixture produces sensible Land + BUA subtotal');
+// ── Section 6: reference subtotal sanity ──────────────────────────────────────
+console.log('\n[6/7] Fix 6: Branded Apt reference fixture produces sensible Land + BUA subtotal');
 {
-  // MAAD-flavoured fixture matching the brief.
+  // reference-flavoured fixture matching the brief.
   const project = makeDefaultProject();
   const phase: Phase = { ...makeDefaultPhase(), id: 'phase-2', name: 'Phase 2', constructionPeriods: 5, operationsPeriods: 8, overlapPeriods: 0 };
   const parcel: Parcel = { id: 'parcel-2', phaseId: 'phase-2', name: 'Parcel 2', area: 22066, rate: 98450, cashPct: 80, inKindPct: 20 };

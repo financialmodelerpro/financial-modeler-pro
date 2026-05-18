@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Module2CostOfSales.tsx (M2 Pass 9e-2, rebuilt per MAAD v1.16)
+ * Module2CostOfSales.tsx (M2 Pass 9e-2, rebuilt for the joint
+ * cumulative cost-of-sales formula).
  *
- * Cost of Sales follows the MAAD Residential Cashflow v1.16 design:
+ * Cost of Sales follows the joint cumulative design:
  *
  *   CoS during construction = ∆(cum_recognition × cum_pre_sales) × total_capex
  *   CoS during operations   = (post_handover_sales[t] / inventory) × total_capex
@@ -268,7 +269,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Pass 9e-2 (MAAD v1.16): CoS during construction = ∆(cum recognition × cum pre-sales) × total capex.
+          CoS during construction = ∆(cum recognition × cum pre-sales) × total capex.
           CoS during operations = post-handover sales × total capex (same period). Phases and assets collapse.
         </p>
       </div>
@@ -321,7 +322,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
                   key={row.asset.id}
                   assetId={row.asset.id}
                   title={row.asset.name}
-                  meta={`Total Capex (incl. Land) ${currency} ${fmt(totalCapex)} · CoS construction + operations per MAAD v1.16`}
+                  meta={`Total Capex (incl. Land) ${currency} ${fmt(totalCapex)} · CoS construction + operations`}
                   storageKey={`fmp:m2:costofsales:asset:${row.asset.id}:collapsed`}
                 >
                   <PeriodTable

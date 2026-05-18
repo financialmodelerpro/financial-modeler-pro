@@ -1,7 +1,7 @@
-/**
+﻿/**
  * m20-full-flow.spec.ts
  *
- * M2.0 (MAAD-Spec) full first-time flow walkthrough.
+ * M2.0 (spec) full first-time flow walkthrough.
  *
  * 1. Open /refm
  * 2. Open the wizard from Dashboard
@@ -23,7 +23,7 @@ async function setColorMode(page: import('@playwright/test').Page, mode: 'light'
   }, mode);
 }
 
-test.describe('M2.0 4-tab MAAD-Spec module 1', () => {
+test.describe('M2.0 4-tab spec module 1', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('wizard creates project + 4 tabs render with v5 testIds', async ({ page }) => {

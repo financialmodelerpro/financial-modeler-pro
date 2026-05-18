@@ -1,11 +1,11 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-m20costsCleanup-pass9.ts (M2.0 Costs Cleanup Pass 9, 2026-05-12)
  *
  * Sections:
  *   1. Mandatory diagnostic file present.
  *   2. Fix 8: computeAssetBua + computeAssetSellableBua fallback to
- *      asset.buaSqm / sellableBuaSqm when sub-units sum to 0. MAAD
+ *      asset.buaSqm / sellableBuaSqm when sub-units sum to 0. reference
  *      fixture: Land (Cash) total renders non-zero through
  *      computeAssetCost end-to-end.
  *   3. Fix 1: derived Count rounds to integer.

@@ -1,4 +1,4 @@
-# M2.0 Costs Cleanup Pass 10, Regression Audit
+﻿# M2.0 Costs Cleanup Pass 10, Regression Audit
 
 **Date:** 2026-05-12
 **Author:** Claude Code (pre-implementation audit)
@@ -104,7 +104,7 @@ If ALL phase assets have zero BUA (no sub-units AND no buaSqm), totalBua = 0, re
 
 **The Pass 9 Fix 8 fallback only helps when at least one asset in the phase carries a non-zero `buaSqm`. If every asset is bare, line 206 still returns zero.**
 
-This explains why Land Zero "persists in some projects" even after Pass 9. The MAAD fixture (130874 BUA on one asset) DOES trigger the Pass 9 fallback successfully, hence the verifier passes. But a user project where assets carry zero BUA (because user hasn't entered it yet) still renders zero.
+This explains why Land Zero "persists in some projects" even after Pass 9. The reference fixture (130874 BUA on one asset) DOES trigger the Pass 9 fallback successfully, hence the verifier passes. But a user project where assets carry zero BUA (because user hasn't entered it yet) still renders zero.
 
 **Pass 10 fix:** when `totalBua <= 0` in autoByBua mode, fall back to per-asset equal share of `agg.totalAreaSqm` across visible phase assets. Or, more conservatively, return `agg.totalAreaSqm / phaseAssets.length` per asset. This guarantees a non-zero land allocation even when the user hasn't entered BUA on any asset yet.
 

@@ -18,8 +18,8 @@
  * the contract via cash; Unearned decomposes the same contract via
  * revenue recognised.
  *
- * Note: this is the "Sales Receivable" presentation used in MAAD-
- * style residential pre-sales models, not the traditional book AR
+ * Note: this is the "Sales Receivable" presentation used in
+ * residential pre-sales models, not the traditional book AR
  * (revenue earned - cash collected). The accounting interpretation
  * is: at signing of the pre-sale contract, the full contract value
  * is booked as a receivable from the customer regardless of when the

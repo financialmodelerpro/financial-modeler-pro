@@ -1,5 +1,5 @@
--- ═══════════════════════════════════════════════════════════════════════════════
--- M2.0: REFM Module 1 hard-cut rebuild to MAAD-Spec v5
+﻿-- ═══════════════════════════════════════════════════════════════════════════════
+-- M2.0: REFM Module 1 hard-cut rebuild to spec v5
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Phase M2.0 (2026-05-06).
 --
@@ -44,24 +44,24 @@ UPDATE refm_projects
 
 -- ── 3. Table comments documenting the v5 contract ──────────────────────────
 COMMENT ON TABLE refm_projects IS
-  'REFM Module 1 project rows. schema_version: 5 = MAAD-Spec (M2.0). '
+  'REFM Module 1 project rows. schema_version: 5 = spec (M2.0). '
   'Pre-5 projects are auto-archived; their version snapshots remain '
   'in refm_project_versions but cannot be loaded into the v5 store '
   '(module1-migrate returns an explicit error).';
 
 COMMENT ON TABLE refm_project_versions IS
   'REFM Module 1 version history. snapshot jsonb shape depends on '
-  'schema_version: 5 = MAAD-Spec v5 (project + phases + parcels + '
+  'schema_version: 5 = spec v5 (project + phases + parcels + '
   'assets + subUnits + costLines + costOverrides + financingTranches + '
   'equityContributions + landAllocationMode). Pre-5 snapshots are '
   'preserved as historical artefacts but rejected on load.';
 
 COMMENT ON COLUMN refm_projects.schema_version IS
-  'Tracks the MAAD-Spec snapshot shape. v5 is the current; v2/v3/v4 are '
+  'Tracks the spec snapshot shape. v5 is the current; v2/v3/v4 are '
   'frozen historical shapes (see CLAUDE.md M2.0 closure).';
 
 COMMENT ON COLUMN refm_project_versions.schema_version IS
-  'Tracks the snapshot shape this version was written in. v5 = MAAD-Spec; '
+  'Tracks the snapshot shape this version was written in. v5 = spec; '
   'v4 and earlier rows are read-only historical artefacts.';
 
 -- ═══════════════════════════════════════════════════════════════════════════════

@@ -14,9 +14,9 @@
  *     Tab 2 type-catalog dropdown filters by it.
  *
  * Phase M2.0d (2026-05-06): bumps to v7 to absorb the M2.0d Costs polish:
- *   - AssetStrategy.Hybrid renamed to 'Sell + Manage' (MAAD Tower 01
- *     pattern: build, sell to investors, retain operating rights via
- *     management agreement).
+ *   - AssetStrategy.Hybrid renamed to 'Sell + Manage' (build-then-
+ *     manage pattern: build, sell to investors, retain operating
+ *     rights via a management agreement).
  *   - Asset.managementAgreement added (management fee % + owner revenue
  *     share % + optional agreement start/duration).
  *   - Asset.usefulLifeYears added (depreciation horizon for Operate /
@@ -33,10 +33,9 @@
  *     field stays writeable so custom user lines can carry a user-picked
  *     stage at create time.
  *
- * Phase M2.0 (2026-05-06): complete rebuild to MAAD-Spec.
+ * Phase M2.0 (2026-05-06): complete rebuild to the flat v5 spec.
  *
- * Reference: MAAD Residential Cashflow v1.13 (Saudi mixed-use feasibility,
- * 4-day model). The previous v3/v4 schema (Master Holding / Sub-Project /
+ * The previous v3/v4 schema (Master Holding / Sub-Project /
  * Plot / Zone / FAR / Cascade / Parking Allocator) has been retired
  * entirely. Module 1 is now flat:
  *
@@ -67,13 +66,13 @@
  */
 
 // ── Strategy enum ──────────────────────────────────────────────────────────
-// MAAD vocabulary: how an asset earns money over its life.
+// How an asset earns money over its life.
 //   'Sell'         -> develop and sell on completion (residential, villas)
 //   'Operate'      -> develop and run as a going concern (hotel, serviced)
 //   'Lease'        -> develop and lease to tenants (retail, office)
 //   'Sell + Manage'-> develop, sell units to investors, retain operating
-//                     rights via a management agreement (MAAD Tower 01
-//                     pattern, branded residences with management contract).
+//                     rights via a management agreement (branded
+//                     residences with management contract).
 //                     Capex still flows through COGS at unit sale (developer
 //                     does NOT own the asset post-sale, no Fixed Assets, no
 //                     depreciation), but managementFeePct of operating
@@ -445,8 +444,8 @@ export interface Phase {
 
 // ── Parcel (land) ──────────────────────────────────────────────────────────
 // Project-level land. Multiple parcels supported (mixed cash + in-kind +
-// donated land are common in MAAD models). Allocation across assets is
-// driven by landAllocationMode at the snapshot level.
+// donated land are common in mixed-use feasibility models). Allocation
+// across assets is driven by landAllocationMode at the snapshot level.
 //
 // M2.0h Fix 4 (2026-05-07): per-parcel optional NDA (Net Developable
 // Area) deduction. When hasNdaDeduction is true, NDA = area × (1 -
@@ -540,7 +539,7 @@ export interface SubUnit {
 // rules (sqm / percent / autoByBua) using a value-weighted average
 // rate across the phase's parcels. See AssetLandAllocation below.
 //
-// gfaSqm / buaSqm / sellableBuaSqm: explicit area inputs in MAAD-Spec.
+// gfaSqm / buaSqm / sellableBuaSqm: explicit area inputs.
 // No FAR / coverage / cascade math; the user enters whatever the
 // architect handed them. UI shows live-derived ratios (efficiency =
 // sellable / bua, etc.) as read-outs only.
@@ -1183,7 +1182,7 @@ export interface CostOverride {
 //   - 'front_loaded': 100% in first period of availability (bullet draw)
 //   - 'equal_periodic': equal drawdown each period across availability
 //   - 'custom_schedule': per-period absolute amounts (not %)
-//   - 'cash_available' alias to capex_minus_presales (KPMG MAAD pattern)
+//   - 'cash_available' alias to capex_minus_presales
 // The 5 original values continue to be accepted; the calc engine
 // resolves cash_available -> capex_minus_presales.
 export type DrawdownMethod =
@@ -1195,7 +1194,7 @@ export type DrawdownMethod =
   | 'front_loaded'          // 100% in first period of availability
   | 'equal_periodic'        // equal drawdown across availability period
   | 'custom_schedule'       // per-period absolute amounts (drawdownCustomSchedule[])
-  | 'cash_available';       // alias to capex_minus_presales (MAAD pattern)
+  | 'cash_available';       // alias to capex_minus_presales
 
 export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
   'capex_basis',

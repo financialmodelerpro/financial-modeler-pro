@@ -1,4 +1,4 @@
-/**
+﻿/**
  * m20g-display-recon-costs.spec.ts
  *
  * Phase M2.0g: display scale + reconciliation + Costs sub-tabs +
@@ -6,7 +6,7 @@
  *
  * Specs:
  *   Fix 1: Tab 1 phase end dates show end-of-period (Dec 31 of last
- *          year for annual MAAD shape).
+ *          year for annual reference shape).
  *   Fix 2: Tab 2 land reconciliation block at top + parcel dropdown
  *          defaults to first parcel + Custom Rate option.
  *   Fix 3: Wizard Step 1 has Display Scale radios + instruction line;

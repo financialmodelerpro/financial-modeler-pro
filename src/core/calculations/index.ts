@@ -1874,7 +1874,7 @@ export function computeProjectTimeline(project: Project, phases: Phase[]): Proje
   // M2.0f Fix 5: endYear comes straight from endDate.getFullYear() with
   // no +1 / no rounding. For phase startDate=2025-01-01, construction=4,
   // operations=10, overlap=0 the chain produces endDate=2039-01-01 and
-  // endYear=2039 (the inclusive "Project End" caption MAAD expects).
+  // endYear=2039 (the inclusive "Project End" caption).
   const endYear = endD.getFullYear() || 0;
   return {
     startDate,
@@ -1892,8 +1892,8 @@ export function computeProjectTimeline(project: Project, phases: Phase[]): Proje
 // end-of-period convention (Dec 31 of last year, last day of last
 // month) flows through to the project-end caption. Pre-M2.0g this
 // returned a "start of next period" date (e.g. 2040-01-01) that
-// confused MAAD-shape readers. Now MAAD shape (start 2025-01-01, 4
-// + 10 = 14 yrs) returns 2038-12-31.
+// confused downstream readers. Now (start 2025-01-01, 4 + 10 = 14 yrs)
+// returns 2038-12-31.
 export function computeProjectEndDate(project: Project, phases: Phase[]): string {
   if (phases.length === 0) return project.startDate;
   let endIso = project.startDate;
@@ -1907,7 +1907,7 @@ export function computeProjectEndDate(project: Project, phases: Phase[]): string
 // ── M2.0h Fix 5: Per-sub-unit custom cost rates breakdown ─────────────────
 // Returns the resolved row list (sub-unit + Support + Parking) with each
 // row's area, rate, and total. Used by the Cost row sub-table UI in
-// Module1Costs and by the verifier's MAAD-Spec example assertion.
+// Module1Costs and by the verifier's reference example assertion.
 export interface CostLinePerSubUnitRow {
   key: string;          // sub-unit id, or '__support__' / '__parking__'
   label: string;        // display label

@@ -1,8 +1,8 @@
-'use client';
+﻿'use client';
 
 /**
  * Test page for Tab 3 Costs edit-mode runtime diagnostic.
- * Seeds the module1-store with a MAAD-shape fixture and renders
+ * Seeds the module1-store with a reference shape fixture and renders
  * Module1Costs directly. Bypasses auth + project list flow so a
  * Playwright spec can navigate to /test-costrow-diag and inspect the
  * actual rendered CostRow DOM without signing in.
@@ -17,7 +17,7 @@ import React, { useEffect, useState } from 'react';
 import Module1Costs from '@/src/hubs/modeling/platforms/refm/components/modules/Module1Costs';
 import { useModule1Store } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 
-const MAAD_SEED = {
+const REF_SEED = {
   project: {
     name: 'Diagnostic Project',
     startDate: '2026-01-01',
@@ -77,7 +77,7 @@ export default function TestCostRowDiagPage(): React.JSX.Element {
     // so the missing optional fields are acceptable.
     useModule1Store.setState((s) => ({
       ...s,
-      ...(MAAD_SEED as unknown as Partial<typeof s>),
+      ...(REF_SEED as unknown as Partial<typeof s>),
     }));
     setSeeded(true);
   }, []);

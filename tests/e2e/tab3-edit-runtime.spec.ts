@@ -1,4 +1,4 @@
-/**
+﻿/**
  * tab3-edit-runtime.spec.ts (Tab 3 Costs runtime edit-mode diagnostic)
  *
  * Brief from user (2026-05-12): "Pass 1 fix (per-field editability) did
@@ -43,7 +43,7 @@ async function makeAuthCookie(): Promise<string> {
   return token;
 }
 
-const MAAD_SNAPSHOT = {
+const REF_SNAPSHOT = {
   version: 8,
   savedAt: '2026-05-12T00:00:00.000Z',
   project: {
@@ -104,7 +104,7 @@ test.describe('Tab 3 Edit Mode Runtime Diagnostic', () => {
 
     // T3-edit-runtime: navigate to the diagnostic-only page that
     // bypasses the auth + project-list flow and renders Module1Costs
-    // directly against a seeded MAAD store. The page lives at
+    // directly against a seeded the reference model store. The page lives at
     // /__test_costrow and is unlinked from the main app.
     const resp = await page.goto('http://localhost:3000/test-costrow-diag');
     console.log('[diagnostic] /test-costrow-diag status:', resp?.status());

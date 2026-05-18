@@ -41,12 +41,14 @@ scripts/pdf-export-fixture.out.pdf
 test-results/
 playwright-report/
 tests/screenshots/
-Maad_Residential_Cashflow*.xlsx
-# Excel binary workbooks (xlsb / xlsm), kept locally only for reference /
-# inspection. The canonical MAAD benchmark stays the .xlsx version (already
-# gitignored above). Macro-enabled .xlsm variants explicitly excluded so an
+# Private reference workbooks (kept locally only, never committed). Add
+# a glob here for any private financial model the user keeps at the
+# repo root for verification. The reference client's actual filename
+# MUST NOT appear in this file — use generic patterns.
+*Cashflow*.xlsx
+# Excel binary workbooks (xlsb / xlsm), kept locally only for reference
+# / inspection. Macro-enabled .xlsm variants explicitly excluded so an
 # accidental `git add -A` cannot snag them.
 *.xlsb
 *.xlsm
-Maad*Model*
 .m20b-legacy/

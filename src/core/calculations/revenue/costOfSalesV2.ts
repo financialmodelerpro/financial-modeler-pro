@@ -1,11 +1,10 @@
 /**
- * M2 Pass 9e-2 (2026-05-18): Cost of Sales engine v2, per MAAD
- * Residential Cashflow v1.16 design.
+ * M2 Pass 9e-2 (2026-05-18): Cost of Sales engine v2.
  *
  * The old (Pass 9a) costOfSales.ts applied a simple
  *   CoS[t] = totalCapex × recognition[t] / totalRecognition
- * which ignores the timing of pre-sales (cohort commitment). MAAD
- * v1.16 splits CoS into two streams:
+ * which ignores the timing of pre-sales (cohort commitment). This
+ * engine splits CoS into two streams:
  *
  *   1. CoS during construction (pre-sales cohort)
  *      Joint cumulative: cum_recognition × cum_pre_sales.
@@ -121,7 +120,7 @@ export function buildCostOfSalesV2(inputs: CostOfSalesV2Inputs): CostOfSalesV2Re
   // to CoS once it's been spent. Equivalent formula:
   //   cosConstruction[t] = cumCapex[t] × joint[t] - cumCapex[t-1] × joint[t-1]
   // This collapses any "missed" recognition years for a vintage into
-  // the year it's first spent, matching the MAAD v1.16 column sums.
+  // the year it's first spent, matching the per-period column sums.
   const cosConstruction = new Array<number>(N).fill(0);
   const cosOperations = new Array<number>(N).fill(0);
   const cosTotal = new Array<number>(N).fill(0);

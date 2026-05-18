@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-m20g.ts (M2.0g verifier)
  *
@@ -14,7 +14,7 @@
  *      bit-identical against the post-v8 47.8 KB sha 22923b5275a7.
  *   3. Calc engine: periodEndDate annual + monthly + mid-year,
  *      formatScaled full / thousands / millions, computeAssetArea-
- *      Totals MAAD-shape reconciliation, computeLandReconciliation,
+ *      Totals reference shape reconciliation, computeLandReconciliation,
  *      land allocation single + custom + multi-parcel, v7 -> v8
  *      monthly migration aggregates.
  *   4. State: source-file markers for the M2.0g surface files +
@@ -157,8 +157,8 @@ const project: Project = { name: 'M', currency: 'SAR', modelType: 'annual', star
 const phase: Phase = { id: 'p1', name: 'P1', constructionStart: 1, constructionPeriods: 4, operationsPeriods: 10, overlapPeriods: 0, startDate: '2025-01-01' };
 const tl = computePhaseTimeline(phase, project);
 if (tl.constructionEnd === '2028-12-31' && tl.operationsStart === '2029-01-01' && tl.operationsEnd === '2038-12-31') {
-  pass('Fix 1: MAAD chain constructionEnd=2028-12-31 / opsStart=2029-01-01 / opsEnd=2038-12-31');
-} else fail('Fix 1 MAAD chain', `got ${tl.constructionEnd} / ${tl.operationsStart} / ${tl.operationsEnd}`);
+  pass('Fix 1: reference chain constructionEnd=2028-12-31 / opsStart=2029-01-01 / opsEnd=2038-12-31');
+} else fail('Fix 1 reference chain', `got ${tl.constructionEnd} / ${tl.operationsStart} / ${tl.operationsEnd}`);
 
 // Fix 3: formatScaled
 if (formatScaled(1234567, 'full') === '1,234,567.00') pass(`Fix 3: formatScaled full = ${formatScaled(1234567, 'full')}`);
@@ -187,7 +187,7 @@ if (totals.subUnitsRevenue === 84297 && totals.supportArea === 46577 && totals.p
   pass('Fix 4: computeAssetAreaTotals sub-units 84297 + support 46577 + parking 26259');
 } else fail('computeAssetAreaTotals', `got ${totals.subUnitsRevenue} / ${totals.supportArea} / ${totals.parkingArea}`);
 if (totals.derivedTotal === 84297 + 46577 + 26259) {
-  pass(`Fix 4: derivedTotal = ${totals.derivedTotal} (matches MAAD 157,133)`);
+  pass(`Fix 4: derivedTotal = ${totals.derivedTotal} (matches reference 157,133)`);
 } else fail('derivedTotal', `expected 157133, got ${totals.derivedTotal}`);
 if (totals.matches === true && totals.mismatchSqm === 0) pass('Fix 4: reconciliation matches');
 else fail('reconciliation match', `mismatch ${totals.mismatchSqm}`);

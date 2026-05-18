@@ -1,14 +1,14 @@
-/**
+﻿/**
  * m20costs-pass10.spec.ts (M2.0 Costs Cleanup Pass 10)
  *
  * Pass 10 brief explicitly requires Playwright screenshot proof for
- * the Land Zero forced fix (Fix 9). The MAAD-shape fixture (130874 BUA
+ * the Land Zero forced fix (Fix 9). The reference shape fixture (130874 BUA
  * single asset, parcel 22066 sqm x 98450 SAR, 80% cash, 20% in-kind)
  * must render non-zero values for Land (Cash) + Land (In-Kind) cost
  * lines in the UI, not just in the calc engine.
  *
  * Spec strategy:
- *   1. Seed a MAAD-shape snapshot into localStorage so /refm hydrates
+ *   1. Seed a reference shape snapshot into localStorage so /refm hydrates
  *      it on next render. Bypasses the Modeling Hub auth gate.
  *   2. Navigate to /refm + Module 1 + Tab 3 + expand the cost rows
  *      (Pass 9 Fix 6 default-collapses them; Pass 10 Fix 1 shows
@@ -30,16 +30,16 @@ import { mkdirSync } from 'node:fs';
 
 const SCREENSHOT_DIR = resolve(__dirname, '..', 'screenshots', 'm20costs-pass10');
 
-// MAAD-shape v8 HydrateSnapshot. One phase, one parcel, one asset
+// reference shape v8 HydrateSnapshot. One phase, one parcel, one asset
 // with buaSqm=130874 (sub-units empty so Pass 9 Fix 8 fallback to
 // buaSqm exercises). Parcel rate x area x cashPct = SAR 1,737M Cash;
 // rate x area x inKindPct = SAR 434M In-Kind. autoByBua land
 // allocation -> asset gets the full 22066 sqm.
-const MAAD_SNAPSHOT = {
+const REF_SNAPSHOT = {
   version: 8,
   savedAt: '2026-05-12T00:00:00.000Z',
   project: {
-    name: 'MAAD Pass 10 Land Zero Proof',
+    name: 'Pass 10 Land Zero Proof',
     startDate: '2026-01-01',
     currency: 'SAR',
     modelType: 'annual',
@@ -115,10 +115,10 @@ test.describe('M2.0 Pass 10 Land Zero forced fix', () => {
   // hard-refresh, then run this spec headed
   // (`npx playwright test ... --headed`). Verifier Section 4
   // proves the calc math via direct computeAssetLandSqm calls on
-  // a MAAD-shape fixture; this Playwright spec captures the DOM
+  // a reference shape fixture; this Playwright spec captures the DOM
   // evidence when the user can run it post-auth.
 
-  test('Land (Cash) + Land (In-Kind) totals render non-zero on MAAD fixture', async ({ page }) => {
+  test('Land (Cash) + Land (In-Kind) totals render non-zero on reference fixture', async ({ page }) => {
     // Seed snapshot before navigation so the store hydrates from
     // localStorage on first paint. Key matches the Zustand persist
     // middleware's key. If the auth gate redirects, skip.
@@ -130,7 +130,7 @@ test.describe('M2.0 Pass 10 Land Zero forced fix', () => {
       try {
         window.localStorage.setItem('module1-store', JSON.stringify({ state: snap, version: 0 }));
       } catch { /* noop */ }
-    }, MAAD_SNAPSHOT);
+    }, REF_SNAPSHOT);
     await page.reload();
     if ((await page.getByTestId('sidebar-module1').count()) === 0) {
       test.skip(true, '/refm requires authentication after reload');
@@ -139,7 +139,7 @@ test.describe('M2.0 Pass 10 Land Zero forced fix', () => {
     await page.getByTestId('m1-tab-costs').click();
 
     // P10 Fix 1: collapsed rows show formatted value totals. Read the
-    // Land (Cash) total cell. With MAAD fixture, expect ~SAR 1.7M
+    // Land (Cash) total cell. With reference fixture, expect ~SAR 1.7M
     // (cash share = 22066 x 98450 x 80% = 1,738M).
     const cashTotal = page.getByTestId('cost-asset-1-land-cash__phase-1-total');
     const inKindTotal = page.getByTestId('cost-asset-1-land-inkind__phase-1-total');
@@ -168,7 +168,7 @@ test.describe('M2.0 Pass 10 Land Zero forced fix', () => {
       try {
         window.localStorage.setItem('module1-store', JSON.stringify({ state: snap, version: 0 }));
       } catch { /* noop */ }
-    }, MAAD_SNAPSHOT);
+    }, REF_SNAPSHOT);
     await page.reload();
     if ((await page.getByTestId('sidebar-module1').count()) === 0) {
       test.skip(true, '/refm requires auth after reload');

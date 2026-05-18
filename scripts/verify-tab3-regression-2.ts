@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-tab3-regression-2.ts (Tab 3 Costs Critical Regressions Round 2, 2026-05-12)
  *
@@ -17,7 +17,7 @@
  *      same phase + asset collapse to one.
  *   5. Fix 5: Land Cash/In-Kind Value cell branches on isLand to display
  *      metrics.cashLandValue / inKindLandValue. Functional proof on the
- *      MAAD-style fixture: Branded-style asset produces non-zero per-
+ *      reference-style fixture: Branded-style asset produces non-zero per-
  *      asset land values.
  *   6. Em-dash sweep across the touched files.
  *

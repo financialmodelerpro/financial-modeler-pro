@@ -3,7 +3,7 @@
 /**
  * RealEstatePlatform.tsx (v5 schema, M2.0b shell rewire)
  *
- * Phase M2.0 (4-tab MAAD-Spec rebuild) + Phase M2.0b (brand-styled
+ * Phase M2.0 (4-tab spec rebuild) + Phase M2.0b (brand-styled
  * shell restoration). The 4 tab components subscribe to the v5
  * Zustand store directly; the shell wires layout + persistence +
  * project routing + RBAC + dark-mode.

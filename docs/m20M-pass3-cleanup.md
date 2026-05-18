@@ -1,4 +1,4 @@
-# M2.0M Pass 3, Tab 4 Financing Cleanup
+﻿# M2.0M Pass 3, Tab 4 Financing Cleanup
 
 **Date:** 2026-05-12
 **Scope:** Drop Single Asset toggle, fix capex hook post Pass 7,
@@ -17,7 +17,7 @@ post Pass 7. Schema stays v8 (additive + deprecation).
 | # | Area | Change |
 |---|------|--------|
 | 1 | Inputs view toggle | Drop "Combined / Single Asset" toggle entirely. Inputs always operate on Combined Project basis. `viewMode` deprecated (migration reverts `single_asset` -> `combined`). |
-| 2 | Capex hook (zero bug) | Audit `getCapexExclLandInKind` etc. post Pass 7. `computeAssetCost` already filters lines per `targetAssetId === asset.id || undefined`. Verify aggregation across phases yields non-zero for projects with cost lines (verifier asserts MAAD-shape capex). |
+| 2 | Capex hook (zero bug) | Audit `getCapexExclLandInKind` etc. post Pass 7. `computeAssetCost` already filters lines per `targetAssetId === asset.id || undefined`. Verify aggregation across phases yields non-zero for projects with cost lines (verifier asserts reference shape capex). |
 | 3 | Facility ratio inherits | Remove per-facility `debtPct` + `principal` inputs. Facility principal auto-computes from chosen funding method (Method 1: capex × debt%; Method 2: cost-line ratios; Method 3: net funding × debt%; Method 4: cash deficit × debt%). Multi-facility split via `facilitySharePct` (sums to 100% across facilities; single facility defaults to 100). |
 | 4 | Facility scope | Re-expose `scope: 'project' \| 'phase' \| 'asset'`. Asset-specific opens asset picker. Pass 2 dropped asset option; Pass 3 restores. |
 | 5 | Drawdown method | Drop per-facility drawdown method dropdown. Schedule auto-derives from chosen funding method. `drawdownMethod` deprecated. |

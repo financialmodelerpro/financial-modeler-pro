@@ -8,7 +8,7 @@ import type { RecognitionProfile } from './types';
  * year (constant across cohorts) or the cohort's own sale year.
  *
  * Over-Time: reuses the shared cohort engine with the recognition
- * profile, matching MAAD rows 176-184 (absolute-year + catchup).
+ * profile (absolute-year + catchup convention).
  */
 export function buildRecognition(
   salesValuePerYear: number[],

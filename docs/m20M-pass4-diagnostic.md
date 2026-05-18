@@ -1,4 +1,4 @@
-# M2.0M Pass 4 Diagnostic — Why does the UI render zero when hook unit tests pass?
+﻿# M2.0M Pass 4 Diagnostic — Why does the UI render zero when hook unit tests pass?
 
 **Date:** 2026-05-12
 **Status:** Diagnostic only. No code changes in this commit.
@@ -138,7 +138,7 @@ Flow engines.
 
 ## Acceptance test for the fix
 
-MAAD-shape project:
+reference shape project:
 - 1 phase, 4 construction periods
 - 1 asset, BUA 130,874 sqm
 - 1 cost line: Construction, `rate_per_bua`, value 4500, even
@@ -162,7 +162,7 @@ the UI uses).
 1. This diagnostic note (no code changes).
 2. Fix 10 (force fix zero render): rewire Capital Structure Overview
    to consume `funding` + `equity` (project-wide), bypass
-   `computeCapitalStack`'s stale-field path. Verify MAAD fixture
+   `computeCapitalStack`'s stale-field path. Verify reference fixture
    renders 588M in the DOM.
 3. Fix 9: Asset filter replaces Phase filter (`assetFilter` field;
    migration converts `phaseFilter`).

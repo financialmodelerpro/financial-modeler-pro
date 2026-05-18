@@ -1,7 +1,7 @@
 /**
  * buildWizardSnapshot.ts (v5 schema)
  *
- * Phase M2.0 (2026-05-06): rewrite for MAAD-Spec.
+ * Phase M2.0 (2026-05-06): rewrite for the v5 spec.
  *
  * Translates a ProjectWizard draft into a v5 HydrateSnapshot. The
  * wizard captures:

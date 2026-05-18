@@ -1,4 +1,4 @@
-# Tab 1 + Tab 2 — end-to-end narrative walkthrough
+﻿# Tab 1 + Tab 2 — end-to-end narrative walkthrough
 
 **Audience:** new developer joining the team.
 **Scope:** how Tab 1 (Project & Phases) and Tab 2 (Assets & Sub-units) actually work, end-to-end. Schema, store, calc engine, render path.
@@ -446,9 +446,9 @@ The radio's `onChange` calls `switchAssetMetric('units')` defined inline at `Mod
 
 ---
 
-## Full MAAD shape walkthrough
+## Full the reference model shape walkthrough
 
-Now let's walk through a complete realistic scenario from scratch: a Saudi mixed-use project with **3 phases**, parcels per phase, assets in each, sub-units, and a companion. This mirrors `tests/e2e/tab2-pass2.spec.ts`'s MAAD_MULTIPHASE_SNAPSHOT fixture.
+Now let's walk through a complete realistic scenario from scratch: a Saudi mixed-use project with **3 phases**, parcels per phase, assets in each, sub-units, and a companion. This mirrors `tests/e2e/tab2-pass2.spec.ts`'s REF_MULTIPHASE_SNAPSHOT fixture.
 
 ### Setup the project (Tab 1)
 
@@ -460,7 +460,7 @@ User lands on Tab 1 of a fresh project. The default state from `DEFAULT_MODULE1_
 - `financingTranches = [defaultTranche]`
 
 The user edits:
-- Project Name: "MAAD Multi-Phase"
+- Project Name: "the reference model Multi-Phase"
 - Currency: "SAR"
 - Project Start Date: 2026-01-01
 - Status: "active"
@@ -492,7 +492,7 @@ User clicks Tab 2. The default `phase-1` parcel is still there. User wants three
 
 Hmm. In practice, the user would need:
 - For Phase 2 parcel: either edit JSON in localStorage, or wait for a future "Phase" dropdown on Parcel row.
-- The MAAD fixture in `tab2-pass2.spec.ts` works because it seeds the snapshot directly into localStorage with the correct `parcel.phaseId` values pre-set.
+- The reference fixture in `tab2-pass2.spec.ts` works because it seeds the snapshot directly into localStorage with the correct `parcel.phaseId` values pre-set.
 
 So as of today, the UI for adding multiple parcels across multiple phases is **not fully wired**. Users who want phase-specific parcels need to seed via wizard or via direct localStorage manipulation.
 

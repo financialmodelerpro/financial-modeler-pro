@@ -1,8 +1,10 @@
-# REFM Platform Master Plan, Modules 2 to 6
+﻿# REFM Platform Master Plan, Modules 2 to 6
 
 **Owner:** Ahmad. **Author:** Claude Code. **Last updated:** 2026-05-17.
 **Source of truth for sequencing:** this file. Per-pass narratives still land in `CLAUDE-REFM.md`; this file is the forward map and decision log.
-**Verification benchmark:** `Maad_Residential_Cashflow v1.16 05132026 all Tabs.xlsx` at repo root (17 sheets). Every MAAD-specific behaviour is configurable, MAAD is the regression fixture, not the spec.
+**Verification benchmark:** the gitignored reference cashflow Excel at the repo root. Every reference-specific behaviour is configurable, the reference model is the regression fixture, not the spec.
+
+**STRICT RULE — never use the reference client's actual name**: the reference Excel files are private. Their name must never appear in code, comments, UI strings, commit messages, MD docs, or test fixtures. Use generic phrasing like "the reference model" / "the reference benchmark" / "the reference design" everywhere. See CLAUDE.md "Writing rule" for the full list of surfaces this covers. Audit and scrub on contact.
 
 ---
 
@@ -46,9 +48,9 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 
 ---
 
-## 1. MAAD workbook map (17 sheets, what we model from each)
+## 1. the reference model workbook map (17 sheets, what we model from each)
 
-| MAAD sheet | What it holds | Our module |
+| the reference model sheet | What it holds | Our module |
 |---|---|---|
 | **Cover** | project overview, asset mix, currency, time horizon | M1 Tab 1 (already done) |
 | **Revenue** | pre-sales schedule, indexation, cash payment + recognition profiles, escrow, hospitality (rooms + F&B + other), retail (NLA × rent) | **M2** |
@@ -80,14 +82,14 @@ Pass 7 audit result: green. Same tokens used in `Module2RevenueOutput.tsx`, `Mod
 - 7g (commit `343b56d`): **REMOVED** project-wide template; every Sell asset owns its own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated (legacy snapshots still parse).
 - 7h (commit `927d1f1`): per-asset Revenue narrative, 6 blocks per asset (SQM pre/post/total + cum %, Revenue pre/post/total per sub-unit, Recognition matrix, Cash matrix, AR, UR). Each table carries inline formula caption.
 - 7i (commit `72829ba`): Inputs tab Recognition above Cash, both full row, Total column on every calc grid, Indexation Start Year input restored, Step indexation builder UI (per-row Year + Uplift% with factor display).
-- 7j (commit `2783c03`): YoY rounding on SQM / units BEFORE revenue derivation. For units-metric, units rounded then area = units × areaPerUnit; for sqm-metric, area rounded to whole sqm. Revenue = roundedArea × indexedRate. Closes ~9k rounding gap vs MAAD reference.
-- 7k-7p: AR + UR exploration (MAAD v1.16 roll-forward floored had stuck-balance bug; per-cohort fixed it; MAAD v7.0 literal one-shot wipe was rejected; signed roll-forward was rejected).
+- 7j (commit `2783c03`): YoY rounding on SQM / units BEFORE revenue derivation. For units-metric, units rounded then area = units × areaPerUnit; for sqm-metric, area rounded to whole sqm. Revenue = roundedArea × indexedRate. Closes ~9k rounding gap vs the reference model reference.
+- 7k-7p: AR + UR exploration (the reference design roll-forward floored had stuck-balance bug; per-cohort fixed it; the reference model literal one-shot wipe was rejected; signed roll-forward was rejected).
 - **7q (commit `067678c`): FINAL AR + UR formula** = sale-value driven roll-forward.
   - AR closing = AR opening + Pre-Sales Sale Value - Cash Received (Pre-sales only)
   - UR closing = UR opening + Pre-Sales Sale Value - Revenue Recognised (Pre-sales only on credit side; post-sales nets to 0 because cash=rec same period)
   - Both stay >= 0 by construction; both settle to 0 by end of contract lifecycle.
   - Engine: `accountsReceivable.ts` 1st arg = sale value, 2nd arg = cash; `unearnedRevenue.ts` 1st arg = recognition, 2nd arg = sale value.
-- 7r (commit `8134027`): Cumulative % row on Cash + Recognition profile strips (matches KPMG MAAD "Cumulative Payment Profile" line). **Confirmed MAAD v7.0 Sales During Operation parity**: Calc_Retail & Resi. rows 172-188 = `area × sale price × indexation`, recognised + cash-collected in SAME period; our engine matches byte-for-byte via `postSalesCashPerPeriod = postSalesRevenuePerPeriod.slice()` and `postSalesRecognitionPerPeriod = postSalesRevenuePerPeriod.slice()`. Per-asset totals already roll up correctly: `sum(recognitionPerPeriod)` = pre + post sale value -> P&L; `sum(cashCollectedPerPeriod)` = pre-sales cash + op-sales cash -> CF.
+- 7r (commit `8134027`): Cumulative % row on Cash + Recognition profile strips (matches the reference model "Cumulative Payment Profile" line). **Confirmed the reference model Sales During Operation parity**: Calc_Retail & Resi. rows 172-188 = `area × sale price × indexation`, recognised + cash-collected in SAME period; our engine matches byte-for-byte via `postSalesCashPerPeriod = postSalesRevenuePerPeriod.slice()` and `postSalesRecognitionPerPeriod = postSalesRevenuePerPeriod.slice()`. Per-asset totals already roll up correctly: `sum(recognitionPerPeriod)` = pre + post sale value -> P&L; `sum(cashCollectedPerPeriod)` = pre-sales cash + op-sales cash -> CF.
 - 7s (2026-05-18 pt 1): surfaces Sales During Operation in Revenue Output Blocks 3 + 4 (per-asset). Block 3 splits into 3a (Pre-Sales recognition vintage matrix, unchanged) + 3b (Recognition Summary per period: Pre-Sales / Sales During Operation / Total Revenue Recognised). Block 4 splits into 4a (Pre-Sales cash vintage matrix, unchanged) + 4b (Cash Summary per period: Pre-Sales / Sales During Operation / Total Cash Collected). Engine unchanged (post-sales recognition + cash already same-period since 7f); pure UI surfacing. AR + UR (Blocks 5 + 6) intentionally remain pre-sales-only by construction (SDO collects + recognises same period, no balance forms). Replicates across every Sell asset automatically.
 - 7s (2026-05-18 pt 2): restructures the Project Total section into strategy-grouped per-asset breakdown. For each of Revenue (Sales Value), Recognition, Cash the layout is: Residential / Sell (section header) -> Pre-Sales (sub-section) per-asset rows + Total Pre-Sales subtotal -> Sales During Operation (sub-section) per-asset rows + Total Sales During Operation subtotal -> Total Residential / Sell strategy grand; Hospitality / Operations (section) per-asset rows + strategy grand (zero placeholders until Pass 8); Retail / Lease (section) per-asset rows + strategy grand (zero placeholders until Pass 9); Sell + Manage (section) per-asset rows + strategy grand (zero placeholders until Pass 10). PeriodTable gained `'section'` row kind (label-only colspan over Total + year columns, navy-tinted bg) + per-row `indent` so nested groups render cleanly without restyling existing tables. Future Module 4 P&L tab will reuse the same `buildProjectGroupedRows` helper with a new `'pl'` view.
 
@@ -125,14 +127,14 @@ Remaining Module 2 passes:
 - **8c (shipped):** Output tab integration. Module2RevenueOutput.tsx renders a per-asset Hospitality narrative per phase with 2 main blocks: Block 1 (Operations Capacity: 1a Available + Occupied Room Nights + Guests, 1b Occupancy %, 1c ADR per ORN) and Block 2 (Rooms + F&B + Other + Total Hospitality Revenue, with operating-sales convention note). Empty-state check now considers Hospitality assets too — a hospitality-only project no longer hits the "no Sell assets" placeholder. Project Total Hospitality / Operations group now pulls `snap.byHospitalityAsset.get(a.id).totalRevenuePerPeriod` for each Operate asset + companion, replacing the Pass 7u zero placeholders.
 - **8d (shipped):** AR via DSO. New `accountsReceivableDSO.ts` engine: `AR_closing[y] = Revenue[y] × DSO / daysPerYear`. Cash received = Revenue - ΔAR. Settles to 0 as revenue tails off. Lifetime cash equals lifetime revenue. 7 verifier scenarios (I1-I7) pin the math + the default daysPerYear = 365 + edge cases. Module2Schedules.tsx grew a Hospitality phase loop per asset rendering opening / revenue / cash-received / change / closing AR, plus a "Project Hospitality AR (closing, DSO-driven)" row in the project total. Empty-state check updated.
 
-- **8e (shipped):** MAAD parity audit + flexibility additions. Audited the Maad Model (KPMG SC7) Assumptions tab (481 rows) and confirmed our hospitality revenue engine covers the MAAD revenue side exactly (Rooms = rooms × nights × occupancy × ADR; F&B = ORN × guests-per-room × spend-per-guest; OOD = baseline × growth — all three modes natively supported). Three additions land here: (1) new `yoy_per_period` indexation method — per-year variable growth array, compounds cumulatively, `factor[y] = factor[y-1] × (1 + growth[y])` from startYear forward. Engine universal (works for Sell price + Hospitality ADR + ancillary rates); Hospitality ADR UI gets a "Per-Year" pill that exposes a strip across the operations window for entering per-year growth (negative values allowed, engine clamps growth ≥ -99%). Mirrors MAAD's OOD growth column where each year's escalation can differ. (2) "Fixed Annual" mode pill renamed "Baseline + Growth" on F&B + Other Revenue sections + input label changed from "Annual Amount" to "Baseline Amount" — clarifies that fixed_amount mode is MAAD's OOD-style structure where a baseline year amount escalates via the attached indexation. Engine field name (`fixedAmountPerPeriod`) unchanged. (3) Occupancy stabilization curve preset: one-click button on the Occupancy ramp section that fills the operations window with a typical curve (40% / 60% / 65% / 67% + stabilised at 67% for years 4+). User can tweak per-year afterward. 9 new verifier scenarios (J1-J9) cover yoy_per_period at startYear, mid-window, post-window, before startYear, and engine integration (ADR per period from hospitality engine matches the cumulative growth). MAAD-side audit also captured the OpEx structure for the future M3 build: direct costs per department (salary fixed × inflation + non-salary as % of dept revenue), indirect costs (G&A / IT / S&M / POM / Energy / EOSB), management fees, working capital DSO/DPO/DIO/DPPO. Those land in M3 + M4.
+- **8e (shipped):** the reference model parity audit + flexibility additions. Audited the reference Model (KPMG SC7) Assumptions tab (481 rows) and confirmed our hospitality revenue engine covers the the reference model revenue side exactly (Rooms = rooms × nights × occupancy × ADR; F&B = ORN × guests-per-room × spend-per-guest; OOD = baseline × growth — all three modes natively supported). Three additions land here: (1) new `yoy_per_period` indexation method — per-year variable growth array, compounds cumulatively, `factor[y] = factor[y-1] × (1 + growth[y])` from startYear forward. Engine universal (works for Sell price + Hospitality ADR + ancillary rates); Hospitality ADR UI gets a "Per-Year" pill that exposes a strip across the operations window for entering per-year growth (negative values allowed, engine clamps growth ≥ -99%). Mirrors the reference model's OOD growth column where each year's escalation can differ. (2) "Fixed Annual" mode pill renamed "Baseline + Growth" on F&B + Other Revenue sections + input label changed from "Annual Amount" to "Baseline Amount" — clarifies that fixed_amount mode is the reference model's OOD-style structure where a baseline year amount escalates via the attached indexation. Engine field name (`fixedAmountPerPeriod`) unchanged. (3) Occupancy stabilization curve preset: one-click button on the Occupancy ramp section that fills the operations window with a typical curve (40% / 60% / 65% / 67% + stabilised at 67% for years 4+). User can tweak per-year afterward. 9 new verifier scenarios (J1-J9) cover yoy_per_period at startYear, mid-window, post-window, before startYear, and engine integration (ADR per period from hospitality engine matches the cumulative growth). the reference model-side audit also captured the OpEx structure for the future M3 build: direct costs per department (salary fixed × inflation + non-salary as % of dept revenue), indirect costs (G&A / IT / S&M / POM / Energy / EOSB), management fees, working capital DSO/DPO/DIO/DPPO. Those land in M3 + M4.
 
 - **8f (shipped 2026-05-18):** UI polish on the Hospitality surfaces. (1) Occupancy ramp strip no longer shows the cumulative % row that's nonsensical for a per-year rate — `InlineProfileStrip` gained a `showCumulative` prop (default true; passed `false` for occupancy). The strip's summary column also switches from "Total" to "Avg" when cumulative is off, so the user sees the average occupancy across the operating years rather than a misleading 864.1% sum. Cash + Recognition profile strips retain the cumulative row (still meaningful — cohort sums to 100%). (2) "DSO (Days Sales Outstanding)" renamed to **"Accounts Receivable Days"** on the Inputs tab + matching captions on the Schedules tab ("AR roll-forward · N days receivable"). The engine field name stays `dso` for back-compat. (3) Output tab Block 1 (Operations Capacity) restructured from three separate tables (1a ARN/ORN/Guests, 1b Occupancy, 1c ADR) into a single merged table with two sections: "Drivers" (Total Rooms / Days per Year / Occupancy % / ADR Indexation Factor / ADR) above, "Calculations" (Available Room Nights / Occupied Room Nights / Guests per Year) below. New `PeriodTable` capabilities: optional per-row `rowFmt` (so the same table can mix integer + % + factor + currency rows) and `totalOverride` (so broadcast rows show the constant instead of a meaningless sum, and rate rows show avg / latest instead of sum-of-rates). Engine exposes `adrIndexationFactorPerPeriod` so users can see the multiplier separate from the ADR value.
 
 **Final verifier:** `scripts/verify-revenue-rebuild.ts` 75/75 green (was 32/32 pre-Pass 7s; +9 Pass 7+8 surface improvements + 22 hospitality engine + 7 DSO AR + 9 yoy_per_period).
 
 ### Pass 9a (Residential CoS UX restructure)
-- **9a (shipped 2026-05-18):** Per user's MAAD v1.16 reference (where they "created a simple and accurate CoS including land value"), the per-asset Cost of Sales surface (`Module2CostOfSales.tsx`) now opens with an explicit DRIVERS section followed by a CALCULATIONS section, mirroring the Pass 8f Hospitality Block 1 pattern. DRIVERS shows: Capex from Module 1 broken down by stage (Land / Hard Costs / Soft Costs / Operating, plus Total Capex incl. Land) — each row broadcast across the project axis with `totalOverride` to render the constant cleanly; then Revenue Recognition % per period + Cumulative Revenue Recognition % (the matching-principle drivers — % of revenue recognised = % of capex expensed each year). CALCULATIONS shows the derived flows: Revenue Recognised, Cost of Sales (matched), Gross Margin, Cumulative CoS. Land is explicitly included in CoS per the v1.16 design (the user's note in v1.16 contrasts with KPMG which excludes land). Implementation: switched the CoS resolver from `computeAssetCapex` (total scalar) to the full `computeAssetCost` (returns `AssetCostBreakdown` with `byStage` records); extended the local CoS PeriodTable's Row type with `isSection` + `rowFmt` + `totalOverride` + `indent` so a single table can mix currency, broadcast, %, and cumulative cells.
+- **9a (shipped 2026-05-18):** Per user's the reference design reference (where they "created a simple and accurate CoS including land value"), the per-asset Cost of Sales surface (`Module2CostOfSales.tsx`) now opens with an explicit DRIVERS section followed by a CALCULATIONS section, mirroring the Pass 8f Hospitality Block 1 pattern. DRIVERS shows: Capex from Module 1 broken down by stage (Land / Hard Costs / Soft Costs / Operating, plus Total Capex incl. Land) — each row broadcast across the project axis with `totalOverride` to render the constant cleanly; then Revenue Recognition % per period + Cumulative Revenue Recognition % (the matching-principle drivers — % of revenue recognised = % of capex expensed each year). CALCULATIONS shows the derived flows: Revenue Recognised, Cost of Sales (matched), Gross Margin, Cumulative CoS. Land is explicitly included in CoS per the v1.16 design (the user's note in v1.16 contrasts with KPMG which excludes land). Implementation: switched the CoS resolver from `computeAssetCapex` (total scalar) to the full `computeAssetCost` (returns `AssetCostBreakdown` with `byStage` records); extended the local CoS PeriodTable's Row type with `isSection` + `rowFmt` + `totalOverride` + `indent` so a single table can mix currency, broadcast, %, and cumulative cells.
 
 **Original spec (reference):**
 - **Engine:** `src/core/calculations/revenue/hospitality.ts`. Per-asset inputs: rooms (= sub-unit count where category is hotel), starting ADR, indexation, occupancy ramp per year (% per year), F&B revenue % of rooms revenue, Other revenue % of rooms revenue, seasonality (optional). Output: `HospitalityAssetResult` with rooms revenue / F&B revenue / Other revenue / total revenue per period.
@@ -140,19 +142,19 @@ Remaining Module 2 passes:
 - **UI Tab 2 outputs:** add 3 new period tables for Hospitality (Rooms / F&B / Other / Total Hospitality Revenue).
 - **Tab 3 CoS:** hospitality has no CoS-style matching, recognition = cash = revenue per period (operating). The CoS tab section for hospitality reads "Operating revenue, no deferred cost matching".
 - **Tab 4 schedules:** AR for hospitality uses DSO driver (default 30 days, configurable). Engine produces AR per period.
-- **Verifier:** `verify-m2-pass8.ts`, MAAD VOCO Hotel + Hotel 01 fixtures. Targets: VOCO 2025 = 309,010 SAR'000, VOCO Total = 6,541,596 SAR'000, Tower 01 Total = 998,402 SAR'000, Hotel 01 Total = 970,246 SAR'000.
+- **Verifier:** `verify-m2-pass8.ts`, the reference model VOCO Hotel + Hotel 01 fixtures. Targets: VOCO 2025 = 309,010 SAR'000, VOCO Total = 6,541,596 SAR'000, Tower 01 Total = 998,402 SAR'000, Hotel 01 Total = 970,246 SAR'000.
 
 ### Pass 9, Retail / Office Lease engine + UI
 - **Engine:** `src/core/calculations/revenue/lease.ts`. Per-asset inputs: NLA (= sub-unit area where category is retail / office), starting rent per sqm per year, indexation (typically 5% YoY step), occupancy ramp (% per year), service charge % of rent (optional), free-rent months (lease incentive). Output: `LeaseAssetResult` with base rent / service charge / total lease revenue per period.
 - **UI Tab 1 inputs:** Lease cards swap velocity for rent + occupancy + indexation + free-rent inputs.
 - **UI Tab 2 outputs:** add per-asset Retail / Office Revenue tables.
 - **Tab 4 schedules:** AR uses DSO (default 60 days for retail leases).
-- **Verifier:** `verify-m2-pass9.ts`, MAAD Support Retail (Phase 2) + Support Retail (Phase 3). Targets: Phase 2 Total = 220,121 SAR'000, Phase 3 Total = 115,889 SAR'000.
+- **Verifier:** `verify-m2-pass9.ts`, the reference model Support Retail (Phase 2) + Support Retail (Phase 3). Targets: Phase 2 Total = 220,121 SAR'000, Phase 3 Total = 115,889 SAR'000.
 
 ### Pass 10, Sell + Manage companion revenue
 - **Engine:** companion (operate-side sibling of a Sell asset) inherits sub-units from parent and adds hospitality-style operating revenue starting at handover. Reuses `hospitality.ts` with the companion's own ADR + occupancy. Sell parent's pre-sales runs unchanged.
 - **UI:** Sell+Manage AssetCard becomes a 2-pane card: left pane = Sell (velocity / cash / recognition) for the parent, right pane = Operate (ADR / occupancy) for the companion. Single card avoids the user navigating between two assets.
-- **Verifier:** `verify-m2-pass10.ts`, MAAD Branded Apartments Tower 2 (Sell + Manage) parent + companion. Targets: parent pre-sales 2,539,827 SAR'000 + companion residual operate revenue 282,214 SAR'000.
+- **Verifier:** `verify-m2-pass10.ts`, the reference model Branded Apartments Tower 2 (Sell + Manage) parent + companion. Targets: parent pre-sales 2,539,827 SAR'000 + companion residual operate revenue 282,214 SAR'000.
 
 ### Pass 11, M2 dashboard hook + KPI tiles
 - Add 4 Module 2 KPI tiles to the Dashboard module deck: Pre-Sales (lifetime), Post-Sales + Operate (lifetime), Recognition this year, AR / Unearned (latest closing).
@@ -167,7 +169,7 @@ Remaining Module 2 passes:
 
 ## 3. Module 3 (OpEx), build plan
 
-Driven by MAAD Costs sheet structure (departmental + undistributed + management + G&A + S&M + pre-operating).
+Driven by the reference model Costs sheet structure (departmental + undistributed + management + G&A + S&M + pre-operating).
 
 ### Pass 1, Engine baseline
 - `src/core/calculations/opex/` new folder.
@@ -178,7 +180,7 @@ Driven by MAAD Costs sheet structure (departmental + undistributed + management 
 
 ### Pass 2, UI Tab 1 inputs
 - 4 sub-tabs under Module 3 mirror Module 2 pattern: Inputs / Output / Capitalization / Schedules.
-- Inputs tab: phase-wise asset cards with one row per OpEx line. Default seed pulls MAAD-style line catalog for each strategy (Hospitality gets dept + undist + mgmt; Retail gets G&A + S&M; Sell gets only Commission + Marketing during pre-sales).
+- Inputs tab: phase-wise asset cards with one row per OpEx line. Default seed pulls reference-style line catalog for each strategy (Hospitality gets dept + undist + mgmt; Retail gets G&A + S&M; Sell gets only Commission + Marketing during pre-sales).
 - FAST blue inputs.
 
 ### Pass 3, UI Tab 2 output
@@ -188,21 +190,21 @@ Driven by MAAD Costs sheet structure (departmental + undistributed + management 
 - Lines marked `capitalize: true` (pre-operating) feed back into Module 1 Tab 3 Costs as a synthetic auto-line "Pre-Operating (from M3)". User sees the flow.
 
 ### Pass 5, UI Tab 4 Schedules
-- Accounts Payable schedule using DPO driver (default 90 days per MAAD BS Build).
+- Accounts Payable schedule using DPO driver (default 90 days per the reference model BS Build).
 - AP roll-forward: opening + accrued opex + accrued capex - cash paid = closing.
 
 ### Pass 6, M3 Phase 1 LOCK
-- Verifier `verify-m3-phase1.ts`. MAAD VOCO opex + Hotel 01 opex + Retail opex targets. Existing VOCO Departmental = -179,960 SAR'000, Undistributed = -141,074 SAR'000, etc. from MAAD Actual P&L.
+- Verifier `verify-m3-phase1.ts`. the reference model VOCO opex + Hotel 01 opex + Retail opex targets. Existing VOCO Departmental = -179,960 SAR'000, Undistributed = -141,074 SAR'000, etc. from the reference model Actual P&L.
 
 ---
 
 ## 4. Module 4 (Financial Statements), build plan
 
-Driven by MAAD BS Plan + BS Build + P&L + CF sheets.
+Driven by the reference model BS Plan + BS Build + P&L + CF sheets.
 
 ### Pass 1, Cash Flow Statement engine + UI
 - `src/core/calculations/financials/cashFlow.ts`. Pulls from M2 (revenue received), M3 (costs paid), M1 (capex paid + debt drawn / repaid + equity contributed / returned). Outputs: Operating CF / Investing CF / Financing CF / Net Change in Cash / Closing Cash.
-- Sub-tab 1 of Module 4 = CF Statement, surface the cascade per period. Mirror MAAD CF sheet.
+- Sub-tab 1 of Module 4 = CF Statement, surface the cascade per period. Mirror the reference model CF sheet.
 
 ### Pass 2, Income Statement (P&L) engine + UI
 - `src/core/calculations/financials/profitLoss.ts`. Pulls from M2 (revenue recognized), M3 (opex recognized), Module 1 (depreciation from capex + useful life + handover year), Module 1 (interest expense from debt amortization). Output per period: Revenue / CoS / Gross Margin / OpEx / EBITDA / Depreciation / EBIT / Interest / Zakat / Net Income.
@@ -214,7 +216,7 @@ Driven by MAAD BS Plan + BS Build + P&L + CF sheets.
 - Tie-out chip: TOTAL ASSETS - TOTAL LIABILITIES - TOTAL EQUITY = 0 ± 1 SAR per period. Green or amber per the M1 reconciliation pattern.
 
 ### Pass 4, 3-statement integration verifier
-- `verify-m4-three-statement.ts`. Asserts: CF Closing Cash = BS Cash, P&L Net Income flows to BS Retained Earnings change, AR change reconciles between BS roll and CF Operating, AP change reconciles between BS roll and CF Operating, Cum Depreciation reconciles between BS and P&L. MAAD targets: TOTAL ASSETS 2039 = ? (compute from sheet), closing cash 2039 = 7,126,135 SAR'000.
+- `verify-m4-three-statement.ts`. Asserts: CF Closing Cash = BS Cash, P&L Net Income flows to BS Retained Earnings change, AR change reconciles between BS roll and CF Operating, AP change reconciles between BS roll and CF Operating, Cum Depreciation reconciles between BS and P&L. the reference model targets: TOTAL ASSETS 2039 = ? (compute from sheet), closing cash 2039 = 7,126,135 SAR'000.
 
 ### Pass 5, M4 dashboard hook + LOCK
 
@@ -222,13 +224,13 @@ Driven by MAAD BS Plan + BS Build + P&L + CF sheets.
 
 ## 5. Module 5 (Returns & Valuation), build plan
 
-Driven by MAAD Review Summary + CF Exit Value.
+Driven by the reference model Review Summary + CF Exit Value.
 
 ### Pass 1, Engine
 - `src/core/calculations/returns/` new folder.
 - Functions: `npv(rate, cashFlows)`, `irr(cashFlows)`, `equityMultiple(equityIn, equityOut)`, `payback(cashFlows)`, `terminalValue(noi, capRate)` and `terminalValueExitMultiple(revenue, multiple)`.
 - Levered vs unlevered cash flows (use post-debt CF for levered IRR, pre-debt CF for unlevered).
-- Configurable exit assumption (default = Year 15 NOI / 7% cap rate, MAAD style).
+- Configurable exit assumption (default = Year 15 NOI / 7% cap rate, the reference model style).
 
 ### Pass 2, UI 4-tab structure
 - Inputs (discount rate, exit cap rate, exit multiple, hold period, etc.).
@@ -245,7 +247,7 @@ Driven by MAAD Review Summary + CF Exit Value.
 
 ### Pass 1, Excel exporter
 - `src/hubs/modeling/platforms/refm/lib/export/excel-static.ts` (already exists for M1) extended to dump every Module 2 / 3 / 4 / 5 output table to its own sheet.
-- Single workbook with 12+ sheets matching MAAD structure: Cover / Revenue / Costs / Capex / Capex Allocation / Debt / CF / P&L / Wafi Escrow / Land Summary / Returns / Review Summary.
+- Single workbook with 12+ sheets matching the reference model structure: Cover / Revenue / Costs / Capex / Capex Allocation / Debt / CF / P&L / Wafi Escrow / Land Summary / Returns / Review Summary.
 
 ### Pass 2, PDF report (Investor Memo)
 - `@react-pdf/renderer` based. 12-page IC memo layout: Cover + Executive Summary + Project Overview + Land + Capex + Funding + Revenue Build + OpEx Build + Financial Statements + Returns + Sensitivity + Appendix.
@@ -261,12 +263,12 @@ Driven by MAAD Review Summary + CF Exit Value.
 
 These are open questions to lock with the user before the relevant pass starts:
 
-1. **Tax / Zakat treatment.** MAAD uses simplified 2.5% Zakat × PBZ (pre-Zakat profit). Locked default, but offer toggle for full corporate-tax computation (jurisdictional).
-2. **Currency display.** MAAD is SAR '000. The platform stores in full units, formats with thousands separator. No global '000 toggle planned; users can re-scale in the project currency setting.
-3. **DSO / DPO defaults.** MAAD = 60 days DSO / 90 days DPO. Configurable per asset (Hospitality 30 days, Retail 60, Residential pre-sales bypass since AR is driven by milestone profile not DSO).
-4. **Exit assumption default.** MAAD = NOI × multiple at Year 15. Default exit method = NOI / cap-rate (7% cap), with NOI multiple as secondary option in M5 Inputs.
-5. **Depreciation policy.** MAAD treats VOCO existing fixed asset depreciation per IFRS schedule. Configurable per asset (straight-line vs declining balance, useful life from M1 Tab 2 already captured).
-6. **Pre-operating capitalization toggle.** M3 Pass 4 needs the user to confirm: pre-operating costs go to Capex (capitalized) or P&L (expensed)? Default = capitalize per MAAD.
+1. **Tax / Zakat treatment.** the reference model uses simplified 2.5% Zakat × PBZ (pre-Zakat profit). Locked default, but offer toggle for full corporate-tax computation (jurisdictional).
+2. **Currency display.** the reference model is SAR '000. The platform stores in full units, formats with thousands separator. No global '000 toggle planned; users can re-scale in the project currency setting.
+3. **DSO / DPO defaults.** the reference model = 60 days DSO / 90 days DPO. Configurable per asset (Hospitality 30 days, Retail 60, Residential pre-sales bypass since AR is driven by milestone profile not DSO).
+4. **Exit assumption default.** the reference model = NOI × multiple at Year 15. Default exit method = NOI / cap-rate (7% cap), with NOI multiple as secondary option in M5 Inputs.
+5. **Depreciation policy.** the reference model treats VOCO existing fixed asset depreciation per IFRS schedule. Configurable per asset (straight-line vs declining balance, useful life from M1 Tab 2 already captured).
+6. **Pre-operating capitalization toggle.** M3 Pass 4 needs the user to confirm: pre-operating costs go to Capex (capitalized) or P&L (expensed)? Default = capitalize per the reference model.
 
 ---
 
@@ -275,18 +277,18 @@ These are open questions to lock with the user before the relevant pass starts:
 Every phase ships a `scripts/verify-[phaseId].ts` covering the 5 sections per `[[feedback_phase_verification_workflow]]`:
 1. **Database / persistence**: Supabase JSONB roundtrip via service-role.
 2. **Route smoke**: 401-without-auth gates; skips when `localhost:3000` is down.
-3. **Calculation correctness**: snapshot diffs + targeted assertions on MAAD fixture.
+3. **Calculation correctness**: snapshot diffs + targeted assertions on the reference model fixture.
 4. **State integrity**: load fixture into store, mutate via store actions, assert cascade.
 5. **UI rendering**: Playwright headless light + dark screenshots saved to `tests/screenshots/[phase]/`.
 
-MAAD totals to assert each module against (full-project numbers, SAR '000):
+the reference model totals to assert each module against (full-project numbers, SAR '000):
 - Total Revenue (P&L) = 15,255,233
 - Residential Pre-Sales = 6,318,676 (CF!E7:E11)
 - Hospitality VOCO + Tower 01 + Hotel 01 = 7,782,978 (CF!E13:E15)
 - Retail Support Phase 2 + Phase 3 = 336,010 (CF!E17:E18)
 - Total Capex Incl. Land = 4,912,146 (Review Summary B23)
 - Closing Cash 2039 = 7,126,136 (CF!T70)
-- Min Closing Cash all years ≥ 50,000 (constraint, MAAD audit)
+- Min Closing Cash all years ≥ 50,000 (constraint, the reference model audit)
 
 ---
 
@@ -313,7 +315,7 @@ MAAD totals to assert each module against (full-project numbers, SAR '000):
 | 17 | M5 Pass 1 | M5 | Returns engine | `verify-m5-pass1.ts` |
 | 18 | M5 Pass 2 | M5 | 4-tab UI (Inputs / Returns / Sensitivity / Exit) | `verify-m5-pass2.ts` |
 | 19 | M5 Pass 3 | M5 | LOCK + Dashboard tiles | `verify-m5-phase1.ts` |
-| 20 | M6 Pass 1 | M6 | Excel exporter (12 sheets, MAAD parity) | (manual diff against MAAD) |
+| 20 | M6 Pass 1 | M6 | Excel exporter (12 sheets, the reference model parity) | (manual diff against the reference model) |
 | 21 | M6 Pass 2 | M6 | PDF IC memo | (visual review) |
 | 22 | M6 Pass 3 | M6 | Audit findings panel | (smoke test) |
 | 23 | M6 Pass 4 | M6 | LOCK | platform LOCK |
@@ -338,7 +340,7 @@ These ship after M6 LOCK and are scoped in their own plan files.
 - Project-axis indexing throughout. Per-asset windowing is a UI concern only.
 - No em-dashes anywhere (CLAUDE.md global rule).
 - FAST blue for editable, grey-pale for calc-output, navy for table headers (CLAUDE-REFM.md design system).
-- MAAD is a reference, never a hard-coded behaviour. Every MAAD assumption gets a knob (`[[feedback_maad_is_reference_only]]`).
+- The reference model is a reference, never a hard-coded behaviour. Every reference-model assumption gets a knob (`[[feedback_reference_model_only]]`).
 - After every task: commit + push (no per-push confirmation needed, per `[[feedback_commit_push_workflow]]`).
 - Per-phase verifier per `[[feedback_phase_verification_workflow]]`.
 - MD updates stay token-efficient (`[[feedback_md_token_efficiency]]`): pass-level narrative consolidates into CLAUDE-FEATURES.md at module LOCK; this PLATFORM-PLAN.md is the forward map and stays the same length.

@@ -1,4 +1,4 @@
-# M2.0M Pass 2, Tab 4 Financing Cleanup
+﻿# M2.0M Pass 2, Tab 4 Financing Cleanup
 
 **Date:** 2026-05-11
 **Scope:** 13 targeted fixes simplifying Tab 4 Financing surface. Schema stays v8 (additive + deprecation, no breaking changes). Calc engine refactored around a single uniform funding flow.
@@ -23,7 +23,7 @@ Funding methods diverge only at step 1. Steps 2 + 3 are method-agnostic. This co
 | 1 | Calc | `computeFunding(method, projectData)` returns `{ totalNeed, periodArray, debtEquitySplit }` for every method. Schedule renderers consume this uniform shape. |
 | 2 | UI | "LTV %" labels replaced with "Debt %". Equity % auto-fills to 100 - Debt. Schema field stays `debtPct`. |
 | 3 | UI | `facilityType` dropdown hidden. Schema field kept; new facilities default `'senior_construction'`. |
-| 4 | UI | Every "MAAD" user-facing string replaced with a neutral equivalent. Internal names, comments, function ids unaffected. |
+| 4 | UI | Every "the reference model" user-facing string replaced with a neutral equivalent. Internal names, comments, function ids unaffected. |
 | 5 | Schema + Calc + UI | Repayment methods reduce to 3: `equal_repayment` (sub: `equal_total` or `equal_principal`), `year_on_year_pct`, `cash_sweep`. Legacy values migrate (bullet/balloon/custom -> equal_repayment + year_on_year_pct as nearest equivalent). |
 | 6 | Schema + UI | `Project.financing.minimumCashReserve` moves to top-level. Old `cashDeficitConfig.minimumCashReserve` migrates. All methods + cash-sweep respect the floor. |
 | 7 | UI | IDC treatment dropdown shows Capitalize + Expense only. "Mixed" schema retained; migrates to Capitalize on hydrate. |
@@ -191,14 +191,14 @@ Total in 2nd position for flow rows; balance rows show "-".
 
 ## Verifier
 
-`scripts/verify-m20M-pass2.ts` covers schema additions / deprecations, migration mapping (5 legacy repayment values + min-cash move + scope='asset' rewrite + IDC mixed -> capitalize + phaseFilter default), calc correctness (uniform funding shape, annuity PMT, year-on-year sum=100, cash-sweep min-cash floor, equity = funding x (1-debt%) - in-kind), and UI source markers (no "LTV" / "MAAD" in Tab 4, facility type hidden, IDC dropdown has 2 options, scope has 2 options, phaseFilter pill present, equity rows in capital stack, Equity Schedule table present, Total column 2nd position across schedules, no K/M suffix in cells, em-dash sweep clean).
+`scripts/verify-m20M-pass2.ts` covers schema additions / deprecations, migration mapping (5 legacy repayment values + min-cash move + scope='asset' rewrite + IDC mixed -> capitalize + phaseFilter default), calc correctness (uniform funding shape, annuity PMT, year-on-year sum=100, cash-sweep min-cash floor, equity = funding x (1-debt%) - in-kind), and UI source markers (no "LTV" / "the reference model" in Tab 4, facility type hidden, IDC dropdown has 2 options, scope has 2 options, phaseFilter pill present, equity rows in capital stack, Equity Schedule table present, Total column 2nd position across schedules, no K/M suffix in cells, em-dash sweep clean).
 
 ---
 
 ## Commit plan
 
 1. This design note (`docs/m20M-pass2-cleanup.md`).
-2. P2-Fix 4: drop "MAAD" UI strings.
+2. P2-Fix 4: drop "the reference model" UI strings.
 3. P2-Fix 2: "LTV %" -> "Debt %" labels.
 4. P2-Fix 9: Financing cells use `formatScaledForExport`.
 5. P2-Fix 6: move `minimumCashReserve` to top-level; UI moves; migration.

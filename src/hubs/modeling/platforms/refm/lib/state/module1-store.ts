@@ -1,7 +1,7 @@
 /**
  * module1-store.ts (v6 schema)
  *
- * Phase M2.0 (2026-05-06): MAAD-Spec rebuild (flat hierarchy).
+ * Phase M2.0 (2026-05-06): v5 spec rebuild (flat hierarchy).
  * Phase M2.0c (2026-05-06): cost-line catalog opens up + financing
  * matrix expands; the store API switches from `(key, phaseId)` lookup
  * to `(lineId)` lookup since lineIds are now globally unique.

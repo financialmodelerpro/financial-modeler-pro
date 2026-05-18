@@ -1,4 +1,4 @@
-# M2.0 Costs Pass 9 - Land Zero Render Diagnostic
+﻿# M2.0 Costs Pass 9 - Land Zero Render Diagnostic
 
 **Date:** 2026-05-12
 **Status:** Diagnostic only. No code changes in this commit.
@@ -162,7 +162,7 @@ Same pattern for `computeAssetSellableBua` (NSA fallback) at `src/core/calculati
 
 ### Acceptance criteria (DOM-level)
 
-After the patch, with MAAD-shape fixture (1 phase, 1 asset, BUA 130,874 sqm, sub-units empty OR with `metricValue=0`, parcel 22,066 sqm × 98,450 SAR × 80% cash / 20% in-kind):
+After the patch, with reference shape fixture (1 phase, 1 asset, BUA 130,874 sqm, sub-units empty OR with `metricValue=0`, parcel 22,066 sqm × 98,450 SAR × 80% cash / 20% in-kind):
 
 - `assetMetrics.bua = 130,874` (from asset.buaSqm fallback)
 - `landSqm = totalAreaSqm * (myBua/totalBua) = 22,066 * 1 = 22,066 sqm`
@@ -190,7 +190,7 @@ For `computeAssetLandSqm` (autoByBua):
 ## Plan
 
 1. This diagnostic note (no code changes).
-2. Fix 8 (force fix Land zero): patch `computeAssetBua` + `computeAssetSellableBua` fallback to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units exist but sum to zero. Verify with MAAD-shape unit + (where possible) Playwright DOM assertion.
+2. Fix 8 (force fix Land zero): patch `computeAssetBua` + `computeAssetSellableBua` fallback to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units exist but sum to zero. Verify with reference shape unit + (where possible) Playwright DOM assertion.
 3. Fix 1 (round derived Count): `Math.round(area / unitSize)` in sub-unit table Units mode.
 4. Fix 2 (NDA recon shows NDA): reconciliation block at top of Tab 2 walks Total Parcel Land - Roads% - Parks% = Net Developable Area; asset allocations sum to NDA (or Total when NDA disabled).
 5. Fix 3 (End period drop max cap): drop HTML5 max + JS clamp on endPeriod input. Informational warning chips only; blocking error only when End < Start.

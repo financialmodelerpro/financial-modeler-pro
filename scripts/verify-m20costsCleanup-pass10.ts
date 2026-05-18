@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-m20costsCleanup-pass10.ts (M2.0 Costs Cleanup Pass 10, 2026-05-12)
  *
@@ -9,7 +9,7 @@
  *   3. Fix 1: collapsed cost row renders readonly numeric Value/Start/
  *      End/Phasing instead of dashes.
  *   4. Fix 9: computeAssetLandSqm falls back to equal-share when
- *      totalBua across phase assets is 0 (MAAD fixture proves
+ *      totalBua across phase assets is 0 (reference fixture proves
  *      non-zero land allocation with zero-BUA assets).
  *   5. Fix 2: addAsset auto-replicates per-asset cost lines from a
  *      phase peer (or makeDefaultCostLines fallback). removeAsset
@@ -31,7 +31,7 @@
  *   - Fix 3 hybrid project-wide + per-asset override architecture.
  *   - Fix 8 universal AccountingNumberInput sweep.
  *   - Playwright Land Zero screenshot proof. Section 4 verifies the
- *     calc math end-to-end on a MAAD fixture; manual UI verification
+ *     calc math end-to-end on a reference fixture; manual UI verification
  *     pending post-deploy.
  *
  * Usage: npx tsx scripts/verify-m20costsCleanup-pass10.ts
@@ -153,17 +153,17 @@ console.log('\n[4/10] Fix 9: equal-share land fallback when totalBua=0');
     pass('equal-share sums to total parcel area');
   } else fail('equal-share sum', `${landA + landB} != ${parcel.area}`);
 
-  // MAAD-shape fixture (one asset with sub-unit metricValue=0 but
+  // reference shape fixture (one asset with sub-unit metricValue=0 but
   // buaSqm=130874) - existing Pass 9 Fix 8 path still works.
-  const maadAsset: Asset = {
-    id: 'maad', phaseId: phase.id, name: 'Branded Apt T2&T3', type: '',
+  const refAsset: Asset = {
+    id: 'ref', phaseId: phase.id, name: 'Branded Apt T2&T3', type: '',
     strategy: 'Sell', visible: true,
     gfaSqm: 0, buaSqm: 130874, sellableBuaSqm: 84297, parkingBaysRequired: 0,
   };
-  const maadStub: SubUnit = { id: 'stub', assetId: maadAsset.id, name: 'Stub', category: 'Sellable', metric: 'units', metricValue: 0, unitArea: 0, unitPrice: 0 };
-  const maadLand = computeAssetLandSqm(maadAsset, [parcel], [maadAsset], [maadStub], 'autoByBua');
-  if (maadLand > 0) pass(`MAAD fixture single-asset still resolves land (${maadLand.toFixed(0)} sqm)`);
-  else fail('MAAD fixture', `landSqm=${maadLand}; expected ${parcel.area}`);
+  const refStub: SubUnit = { id: 'stub', assetId: refAsset.id, name: 'Stub', category: 'Sellable', metric: 'units', metricValue: 0, unitArea: 0, unitPrice: 0 };
+  const refLand = computeAssetLandSqm(refAsset, [parcel], [refAsset], [refStub], 'autoByBua');
+  if (refLand > 0) pass(`reference fixture single-asset still resolves land (${refLand.toFixed(0)} sqm)`);
+  else fail('reference fixture', `landSqm=${refLand}; expected ${parcel.area}`);
 }
 
 // ── Section 5: Fix 2 + Fix 3 addAsset behaviour ──────────────────────────

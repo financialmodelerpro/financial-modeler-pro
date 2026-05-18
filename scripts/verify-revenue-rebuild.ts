@@ -1,10 +1,10 @@
-/**
+﻿/**
  * M2 Pass 2 verifier (re-baselined Pass 7d).
  *
  * Phase 1 Residential Sell engine baseline. Pass 7d (2026-05-17)
  * removed multi-cohort + Wafi escrow. Fixtures retained:
  *   A. Synthetic PIT recognition, no escrow.
- *   B. MAAD T2 cohort matrix (cash + over-time recognition) totals.
+ *   B. reference T2 cohort matrix (cash + over-time recognition) totals.
  */
 
 import {
@@ -151,10 +151,10 @@ assertTrue('A2-5: no pre-sales recognition leakage into other years',
   `expected all 0 except idx 3, got ${JSON.stringify(resultA2.presalesRecognitionPerPeriod)}`);
 
 // ───────────────────────────────────────────────────────────────
-// Fixture B: MAAD T2 (1BR + 2BR, over-time recognition, no escrow)
+// Fixture B: reference T2 (1BR + 2BR, over-time recognition, no escrow)
 // Verifies cohort matrix totals across cash + recognition.
 // ───────────────────────────────────────────────────────────────
-console.log('--- Fixture B: MAAD T2 cohort totals (no escrow) ---');
+console.log('--- Fixture B: reference T2 cohort totals (no escrow) ---');
 
 const fixtureBSubUnits: SubUnitMaterial[] = [
   { id: 'su-B-1br', area: 47800, count: 478, ratePerArea: 33456, ratePerUnit: 33456 * 100, metric: 'units' },
@@ -764,21 +764,21 @@ assertNear('K14: empty subUnits fallback Rooms = ORN × 500',
 
 // ───────────────────────────────────────────────────────────────
 // Fixture L (Pass 9e-2, 2026-05-18): Cost of Sales V2.
-// Reproduces the MAAD Residential Cashflow v1.16 "Branded
+// Reproduces the reference Residential Cashflow v1.16 "Branded
 // Apartments T2 & T3" worked example. Construction 2026-2029,
 // pre-sales 5/30/30/25 (sum 90%), post-sales 10% in 2030.
 // Recognition profile 30/30/30/10. Capex per year:
 // 2026: 694341.78, 2027: 328401.65, 2028: 394081.98,
 // 2029: 448022.62, 2030: 11739.69 (operating-stage clean-up).
 // Total capex = 1876587.72.
-// Expected results from MAAD Costs sheet rows 122-138.
+// Expected results from reference Costs sheet rows 122-138.
 // ───────────────────────────────────────────────────────────────
 console.log('\n--- Fixture L: CoS V2 joint cumulative (Pass 9e-2) ---');
 
 import { buildCostOfSalesV2 } from '@/src/core/calculations/revenue';
 
 // 14-year axis. 2025 = idx 0 (project start), 2026 = idx 1, ...
-// Capex starts year 2 (idx 1) per MAAD; pre-sales also align with
+// Capex starts year 2 (idx 1) per reference; pre-sales also align with
 // capex years. Total inventory = 100 (% mode); pre-sales 5/30/30/25
 // post-sales 10.
 const cosLInputs = {
@@ -799,7 +799,7 @@ assertNear('L3: Cum recognition at handover = 1.0',
   cosL.cumRecognitionPerPeriod[4], 1.0, 1e-6);
 assertNear('L4: Joint factor at handover = 1.0 × 0.9 = 0.9',
   cosL.jointFactorPerPeriod[4], 0.9, 1e-6);
-// Per-year construction CoS expected from MAAD r136:
+// Per-year construction CoS expected from reference r136:
 // 2026 (idx 1): 10415.13; 2027 (idx 2): 204360.99;
 // 2028 (idx 3): 614066.75; 2029 (idx 4): 849520.37
 assertNear('L5: CoS construction 2026 = 10415.13',

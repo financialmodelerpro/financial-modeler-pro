@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-tab2-pass2.ts (Tab 2 Pass 2: Data Ownership + Auto-Rendering, 2026-05-12)
  *
@@ -9,7 +9,7 @@
  *
  * Sections:
  *   1. Audit doc present.
- *   2. Fix 1 calc rules end-to-end (MAAD-shape multi-phase fixture).
+ *   2. Fix 1 calc rules end-to-end (reference shape multi-phase fixture).
  *   3. Fix 2 companion guards (Areas Row, NDA row, hierarchy chips,
  *      footer summary, Land Recon list).
  *   4. Fix 3 + 4 auto-managed Area Recon (companion + zero-data
@@ -56,8 +56,8 @@ console.log('\n[1/5] Audit doc');
   } else fail('audit rules coverage', 'missing rule references');
 }
 
-// ── Section 2: Fix 1 calc end-to-end on MAAD multi-phase shape ───────────
-console.log('\n[2/5] Fix 1: computeAssetLandSqm per-phase data ownership (MAAD multi-phase)');
+// ── Section 2: Fix 1 calc end-to-end on reference multi-phase shape ───────────
+console.log('\n[2/5] Fix 1: computeAssetLandSqm per-phase data ownership (reference multi-phase)');
 {
   // Three phases. Phase 1 has a parcel but NO assets (matches user brief).
   // Phase 2 has a parcel + two non-companion assets (BUA-weighted split).

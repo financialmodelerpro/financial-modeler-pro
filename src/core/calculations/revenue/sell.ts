@@ -65,7 +65,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
 
     let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
 
-    // Pass 7j (2026-05-17): apply MAAD-style YoY rounding on the sold
+    // Pass 7j (2026-05-17): apply whole-unit YoY rounding on the sold
     // quantity BEFORE revenue is derived, so revenue is computed from
     // the rounded area / unit count instead of the raw velocity cap.
     // Units-metric sub-units round to whole units; sqm-metric round to

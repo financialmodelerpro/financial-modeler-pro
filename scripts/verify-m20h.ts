@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 /**
  * verify-m20h.ts (M2.0h verifier)
  *
@@ -12,8 +12,8 @@
  *      formatter.
  *   2. Routes + baseline: dev server reachable, baseline diff
  *      bit-identical against the post-M2.0h refresh.
- *   3. Calc engine: computeAssetAreaHierarchy MAAD-shape + computeParcelNda
- *      toggle on/off + computeCostLinePerSubUnit MAAD example +
+ *   3. Calc engine: computeAssetAreaHierarchy reference shape + computeParcelNda
+ *      toggle on/off + computeCostLinePerSubUnit reference example +
  *      distributeAnnualToPeriods + formatPeriodLabel + generatePeriodLabels.
  *   4. State: source-file markers across the M2.0h surface files +
  *      em-dash sweep.
@@ -151,10 +151,10 @@ try {
 // ── Section 3: calc engine ────────────────────────────────────────────────
 console.log('\n[3/5] Calc engine');
 
-// Fix 3: computeAssetAreaHierarchy MAAD-shape (Branded Apt T2&T3 example
+// Fix 3: computeAssetAreaHierarchy reference shape (Branded Apt T2&T3 example
 // from spec: NSA 84,297 / BUA 130,874 / GFA 157,133).
-const maadAsset: Asset = {
-  id: 'maad',
+const refAsset: Asset = {
+  id: 'ref',
   phaseId: 'p1',
   name: 'Branded Apt T2&T3',
   type: 'High-end Apartments',
@@ -167,13 +167,13 @@ const maadAsset: Asset = {
   supportArea: 46577,
   parkingArea: 26259,
 };
-const maadSubUnits: SubUnit[] = [
-  { id: 's1', assetId: 'maad', name: '1BR', category: 'Sellable', metric: 'area', metricValue: 47800, unitPrice: 33456 },
-  { id: 's2', assetId: 'maad', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 36497, unitPrice: 33505 },
+const refSubUnits: SubUnit[] = [
+  { id: 's1', assetId: 'ref', name: '1BR', category: 'Sellable', metric: 'area', metricValue: 47800, unitPrice: 33456 },
+  { id: 's2', assetId: 'ref', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 36497, unitPrice: 33505 },
 ];
-const hier = computeAssetAreaHierarchy(maadAsset, maadSubUnits);
+const hier = computeAssetAreaHierarchy(refAsset, refSubUnits);
 if (hier.nsa === 84297 && hier.bua === 130874 && hier.gfa === 157133) {
-  pass(`Fix 3: MAAD hierarchy NSA ${hier.nsa} / BUA ${hier.bua} / GFA ${hier.gfa}`);
+  pass(`Fix 3: reference hierarchy NSA ${hier.nsa} / BUA ${hier.bua} / GFA ${hier.gfa}`);
 } else fail('Fix 3 hierarchy', `got NSA ${hier.nsa} / BUA ${hier.bua} / GFA ${hier.gfa}`);
 
 // Fix 4: computeParcelNda toggle off
@@ -193,7 +193,7 @@ if (Math.abs(onNda.nda - expectedNda) < 0.5 && Math.abs(onNda.effectiveNdaRate -
   pass(`Fix 4: NDA toggle ON 10% roads + 5% parks -> NDA ${onNda.nda} effRate ${onNda.effectiveNdaRate.toFixed(2)}`);
 } else fail('Fix 4 NDA on', `nda ${onNda.nda} (expected ${expectedNda}), effRate ${onNda.effectiveNdaRate} (expected ${expectedRate})`);
 
-// Fix 5: computeCostLinePerSubUnit MAAD-Spec example
+// Fix 5: computeCostLinePerSubUnit spec example
 const f5Asset: Asset = {
   id: 'f5',
   phaseId: 'p1',
@@ -238,7 +238,7 @@ const expectedSupport = 46577 * 4500;
 const expectedParking = 26259 * 2500;
 const expectedTotalCost = expected1BR + expected2BR + expectedSupport + expectedParking;
 if (Math.abs(f5Bd.totalCost - expectedTotalCost) < 1) {
-  pass(`Fix 5: per-sub-unit total ${f5Bd.totalCost} (matches MAAD example sum)`);
+  pass(`Fix 5: per-sub-unit total ${f5Bd.totalCost} (matches reference example sum)`);
 } else fail('Fix 5 per-subunit total', `got ${f5Bd.totalCost}, expected ${expectedTotalCost}`);
 if (f5Bd.rows.length === 4) pass('Fix 5: 4 rows (2 sub-units + Support + Parking)');
 else fail('Fix 5 row count', `got ${f5Bd.rows.length}`);

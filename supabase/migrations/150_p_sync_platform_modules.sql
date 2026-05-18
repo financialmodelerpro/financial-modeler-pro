@@ -1,4 +1,4 @@
--- ============================================================================
+﻿-- ============================================================================
 -- Phase P-Sync: Platform & Module Admin Sync (single source of truth)
 -- ============================================================================
 -- Adds two new tables alongside the existing `modules` table (which stores
@@ -129,7 +129,7 @@ VALUES
      '[
         "Project hierarchy: Project to Phases to Assets to Sub-units",
         "14 project types from Residential to Data Center to Marina",
-        "MAAD-spec accounting with Sell, Operate, Lease, and Sell + Manage strategies",
+        "the reference model-spec accounting with Sell, Operate, Lease, and Sell + Manage strategies",
         "NSA / BUA / GFA area hierarchy with custom cost rates per sub-unit",
         "Multi-parcel land allocation with optional NDA deduction",
         "Per-asset cost lines with 13+ calculation methods and 6 phasing curves",
@@ -264,7 +264,7 @@ BEGIN
             "bullets": [
                 "Project hierarchy: Project to Phases to Assets to Sub-units",
                 "14 project types from Residential to Data Center to Marina",
-                "MAAD-spec accounting with Sell, Operate, Lease, and Sell + Manage strategies",
+                "the reference model-spec accounting with Sell, Operate, Lease, and Sell + Manage strategies",
                 "NSA / BUA / GFA area hierarchy with custom cost rates per sub-unit",
                 "Multi-parcel land allocation with optional NDA deduction",
                 "Per-asset cost lines with 13+ calculation methods and 6 phasing curves",

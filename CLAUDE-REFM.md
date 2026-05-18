@@ -1,17 +1,17 @@
-# Real Estate Financial Modeling (REFM), Claude Code Project Brief
+﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-05-17 EoD. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue) WIP, Residential Sell flow live through Pass 7r. Verifier 32 / 32.**
 
 **M2 Pass 7 sub-series summary (2026-05-17):**
 - **7g** (`343b56d`): removed project-wide Sell template; every asset owns own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated.
 - **7h** (`927d1f1`): per-asset Block A-F Revenue Output narrative (SQM 1a/1b/1c+cum%; Revenue 2a/2b/2c; Recognition vintage matrix; Cash vintage matrix; AR; UR). Engine emits `presales{Area,Revenue}PerPeriodPerSubUnit` + `postSales{Area,Revenue}PerPeriodPerSubUnit` + pre/post split for cash + recognition.
 - **7i** (`72829ba`): Inputs tab Recognition above Cash both full-row; Total column on every calc grid; Indexation Start Year + Step builder UI.
-- **7j** (`2783c03`): MAAD-style YoY rounding on SQM / units BEFORE revenue derivation. Closes ~9k gap vs MAAD residential 1.
+- **7j** (`2783c03`): reference-style YoY rounding on SQM / units BEFORE revenue derivation. Closes ~9k gap vs the reference model residential 1.
 - **7q** (`067678c`, **AR + UR final**): sale-value driven roll-forward for both schedules.
   - `AR closing = AR opening + Pre-Sales Sale Value - Cash Received`
   - `UR closing = UR opening + Pre-Sales Sale Value - Revenue Recognised`
   - Both >= 0 by construction; both settle to 0 at end of contract life.
   - Engine signatures: `buildAccountsReceivable(saleValue, cash, N)`, `buildUnearnedRevenue(recognition, saleValue, N)`.
-- **7r** (`8134027`): Cumulative % row on Cash + Recognition profile strips. Confirmed MAAD v7.0 Sales During Op parity (Calc_Retail & Resi. rows 172-188 = area × price × indexation in same period); our engine already matches.
+- **7r** (`8134027`): Cumulative % row on Cash + Recognition profile strips. Confirmed the reference model Sales During Op parity (Calc_Retail & Resi. rows 172-188 = area × price × indexation in same period); our engine already matches.
 
 **Engine conventions (carry into Hospitality / Lease passes):**
 - Pre-sales revenue lumps at sale year; cash spreads via cash payment profile; recognition spreads via recognition profile.
@@ -36,7 +36,7 @@
 - **Engine:** `escrow.ts` deleted. `WafiEscrowConfig` + `Cohort` types removed from `revenue/types.ts`. `AssetSellConfig` loses `escrow` + `cohorts?` fields. `SellAssetResult` loses `escrowHeldPerPeriod`, `escrowReleasedPerPeriod`, `escrowBalancePerPeriod`, `netCashAvailablePerPeriod`. `sell.ts` simplified to a single implicit cohort driven by `config.subUnits` + `cashPaymentProfile` + `recognitionProfile`. `reconcile.ts` keeps the universal totals identities + per-sub-unit velocity bound, drops the cohort fold + 4 escrow identities.
 - **Schema back-compat:** `Asset.revenue.sell.escrow` + `Asset.revenue.sell.cohorts` marked `@deprecated` in `module1-types.ts` (engine ignores them on load). Older snapshots still parse without migration.
 - **UI:** `Module2SellModal.tsx` deleted (the Advanced cohort + escrow + price-override + live-preview surface is gone). `Module2Revenue.tsx` strips: import, Advanced button on Sell asset cards, multi-cohort warning chip, `setCohortVelocity` (replaced by single-cohort `setVelocity` writing directly to top-level subUnits), `disabled={multiCohortMode}` on InlineGrid. `Module2Schedules.tsx` drops Escrow Balance + Net Cash to Developer rows; "AR / Unearned" only. `revenue-resolvers.ts` `projectTotals` drops escrow + netCash fields + accumulators. Wafi-specific caption text removed.
-- **Verifiers:** `verify-revenue-rebuild.ts` re-baselined to 11/11 (Fixture A PIT + reconcile, Fixture B MAAD T2 over-time totals + cohort matrix row/col sums; dropped 65 cohort + escrow assertions). `verify-m2-pass7.ts` 12/12 still green.
+- **Verifiers:** `verify-revenue-rebuild.ts` re-baselined to 11/11 (Fixture A PIT + reconcile, Fixture B the reference model T2 over-time totals + cohort matrix row/col sums; dropped 65 cohort + escrow assertions). `verify-m2-pass7.ts` 12/12 still green.
 
 **M2 Pass 7c (2026-05-17 late EoD, universal table styling token promotion + axis off-by-one fix):**
 - **Token promotion.** `InlineGrid` + `InlineProfileStrip` `<th>` cells in `Module2Revenue.tsx` swapped from local style objects (`background: var(--color-surface-alt)` + `color: var(--color-body)` which collapsed to invisible text in dark mode) to the universal `CELL_HEADER` token imported from `_shared/tableStyles`. Handover columns add a 2px amber `border-bottom` underline on top of the navy + white base so they stay visually marked while keeping rule 1 contrast.
@@ -45,7 +45,7 @@
 - Verifier 12/12 + 76/76 still green.
 
 **M2 Pass 7b (2026-05-17 EoD, UI audit + vintage matrix + universal collapse):** addresses feedback `[[feedback_ui_universal_defaults]]` (6 universal rules locked: navy headers white text, project-setup formatting platform-wide, phase-then-asset organization, phases + assets collapsible, vintage matrix mandatory for cohort cash + recognition, indexation inputs first-class).
-- **Engine vintage matrices.** `SellAssetResult` extends with `cashVintageMatrix: number[][]` + `recognitionVintageMatrix: number[][]` (rows = sale year, cols = collection / recognition year) + `presalesSalesValuePerPeriod`. Built in `sell.ts` via `buildCohortMatrix` per cohort summed across cohorts. New private `buildRecognitionMatrix` handles PIT (lump on diagonal at handover / sale year) vs Over-Time (shared cohort engine). Mirrors MAAD Revenue sheet rows 24+.
+- **Engine vintage matrices.** `SellAssetResult` extends with `cashVintageMatrix: number[][]` + `recognitionVintageMatrix: number[][]` (rows = sale year, cols = collection / recognition year) + `presalesSalesValuePerPeriod`. Built in `sell.ts` via `buildCohortMatrix` per cohort summed across cohorts. New private `buildRecognitionMatrix` handles PIT (lump on diagonal at handover / sale year) vs Over-Time (shared cohort engine). Mirrors the reference model Revenue sheet rows 24+.
 - **Shared phase / asset section wrapper.** New `components/modules/_shared/PhaseSection.tsx`: `<PhaseSection>` (navy header bar, white text, chevron, localStorage memory) + `<AssetSection>` (light navy header bar, dark text, chevron, localStorage memory). Used by every Module 2-6 output surface so visual language is universal.
 - **Vintage matrix table.** New `_shared/VintageMatrix.tsx` renders the 2D cohort grid with cohort total + year total + diagonal shading (handover year flagged with * blue underline). Only renders rows with non-zero cohort value.
 - **Output tabs rewritten.** `Module2RevenueOutput.tsx` / `Module2CostOfSales.tsx` / `Module2Schedules.tsx` now nest content in `PhaseSection` (per M1 phase) > `AssetSection` (per Sell asset within phase). RevenueOutput surfaces 4 streams (Pre-Sales / Post-Sales / Recognition / Cash) plus Cash Vintage Matrix + Recognition Vintage Matrix per asset and project-wide. Project Total wrapped in its own `PhaseSection` at bottom. CoS surfaces per-asset Recognition + CoS + Gross Margin + Cumulative CoS within the same structure. Schedules surfaces per-asset AR + Unearned + Escrow Balance + Net Cash within the same structure.
@@ -73,11 +73,11 @@
 
 **M2 Passes 1-4 (2026-05-16, Residential Sell flow):**
 - **Pass 1 (commit `3e9c453`)**: Module 2 shell shipped. New `'wip'` ModuleStatus added (badge-wip amber pill); Module 2 flipped from `'soon'` (disabled) to `'wip'` (enabled). `Module2Revenue.tsx` groups every visible non-companion asset by M1 strategy (Residential Sell, Hospitality Operate, Retail/Office Lease, Sell + Manage) with per-strategy blurb + asset count chip. Per-asset cards show phase + type + status + sub-unit summary. Configure Revenue button stubs for non-Sell strategies; live for Sell. Wired into RealEstatePlatform `activeModule === 'module2'` branch.
-- **Pass 2 (commit `8ebaa80`)**: pure engine baseline under `src/core/calculations/revenue/`. 9 files: types / indexation / cohort (shared engine for cash + recognition) / payment / recognition / escrow / sell / reconcile / index. ProfileMode = `'absolute_with_catchup'` (MAAD default) or `'relative_to_sale'` (UAE / SEA convention) - configurable per cohort so engine serves wider market. computeSellAsset orchestrates per-sub-unit velocity -> per-period sales value (indexed) -> cohort matrix -> cash + recognition + escrow. Schema additive: `Asset.revenue?.sell?` shape mirrors AssetSellConfig. Verifier `scripts/verify-revenue-rebuild.ts` with Fixture A (synthetic PIT + no escrow, 14 assertions including cohort catchup arithmetic) + Fixture B (MAAD T2 with 1BR 47,800 sqm @ 33,456 + 2BR 36,497.1 @ 33,505, over-time profile [0.30,0.30,0.30,0.10], Wafi 4% release Y6). Pre-sales total 2,539,827 SAR'000 reconciles within 0.0014% on every cell. **Spec deviation flagged**: spec's "cumulative cash >= cumulative recognition" identity dropped from reconciler - mathematically false for PIT with deferred milestones AND for over-time when recognition front-loads ahead of cash (both MAAD behaviours). Universal totals identity covers correctness.
+- **Pass 2 (commit `8ebaa80`)**: pure engine baseline under `src/core/calculations/revenue/`. 9 files: types / indexation / cohort (shared engine for cash + recognition) / payment / recognition / escrow / sell / reconcile / index. ProfileMode = `'absolute_with_catchup'` (the reference model default) or `'relative_to_sale'` (UAE / SEA convention) - configurable per cohort so engine serves wider market. computeSellAsset orchestrates per-sub-unit velocity -> per-period sales value (indexed) -> cohort matrix -> cash + recognition + escrow. Schema additive: `Asset.revenue?.sell?` shape mirrors AssetSellConfig. Verifier `scripts/verify-revenue-rebuild.ts` with Fixture A (synthetic PIT + no escrow, 14 assertions including cohort catchup arithmetic) + Fixture B (the reference model T2 with 1BR 47,800 sqm @ 33,456 + 2BR 36,497.1 @ 33,505, over-time profile [0.30,0.30,0.30,0.10], Wafi 4% release Y6). Pre-sales total 2,539,827 SAR'000 reconciles within 0.0014% on every cell. **Spec deviation flagged**: spec's "cumulative cash >= cumulative recognition" identity dropped from reconciler - mathematically false for PIT with deferred milestones AND for over-time when recognition front-loads ahead of cash (both the reference model behaviours). Universal totals identity covers correctness.
 - **Pass 3 (commit `4574b97`)**: per-asset form modal `Module2SellModal.tsx`. 1180px modal with 2-col body. Left: 5 sections (velocity grid rows=sub-units cols=years with Pre + Post stacked rows, cash payment profile %-per-year strip, recognition method picker + over-time profile strip + PIT anchor select, escrow block enabled+heldPct+releaseYear, indexation block). Right: live preview table showing all 5 streams (Pre-Sales / Cash / Recognition / Escrow Held / Net Cash) + reconciliation chip with per-identity list, updated on every keystroke. Handover year highlighted blue with * marker. FAST blue inputs. Configure Revenue button on Sell cards opens modal; label flips to 'Edit Revenue Config' when `asset.revenue.sell` exists. Save commits to `Asset.revenue.sell` via updateAsset.
 - **Pass 4 (commit `83de2ac`)**: multi-cohort support. Engine adds `Cohort` type + `AssetSellConfig.cohorts?: Cohort[]` (additive). When cohorts non-empty, sell.ts iterates per cohort, each running cash + recognition with cohort's own profile or asset-level fallback + per-sub-unit price override. Velocity cap is GLOBAL across cohorts per sub-unit (cumulativeShareBySubUnit map) so platform-wide "no sub-unit oversells" invariant holds. Reconciler velocity-sum-bound identity sums across cohorts. Schema cohorts shape additive on Asset.revenue.sell. UI: cohorts tab bar in modal with +/x controls + inline rename; selected cohort scopes velocity grid; per-cohort Price Override section per sub-unit (defaults to asset rate with one-click reset). Backward compat: Pass-3 saved configs without cohorts migrate to single Cohort 1 on modal load. Verifier Fixture C: 2-cohort 50/50 split of Fixture B MUST sum cell-for-cell identical (28 assertions, every delta=0.00). Fixture C2: cross-cohort velocity overflow correctly flagged. **Verifier: 76 pass / 0 fail / 76 total.**
 
-**M2 standing convention** (per `[[feedback_maad_is_reference_only]]`): MAAD Excel at repo root is the verification benchmark, not the spec. Every MAAD-specific behaviour gets a configurable knob with MAAD as default; never hard-code Saudi / SAR / Wafi assumptions into engine paths. Cash payment + recognition profile semantics are configurable per cohort. Reconcile against MAAD fixtures is a regression test, not a behavioural prescription.
+**M2 standing convention** (per `[[feedback_reference_model_only]]`): the reference Excel at repo root is the verification benchmark, not the spec. Every reference-specific behaviour gets a configurable knob with the reference model as default; never hard-code Saudi / SAR / Wafi assumptions into engine paths. Cash payment + recognition profile semantics are configurable per cohort. Reconcile against reference fixtures is a regression test, not a behavioural prescription.
 
 **Build cadence remaining for Residential Sell** (`[[project_m2_revenue_plan]]`): Pass 5 (five output schedules surfaced per asset + project), Pass 6 (Sales During Operation post-handover surfacing), Pass 7 (indexation editor + verifier fixture with indexation on), Pass 8 (dashboard hook + M2 KPI tiles), Pass 9 (Phase 1 verifier-script per `[[feedback_phase_verification_workflow]]` and Phase 1 LOCK). Then Phase 2 (Hospitality Operate), Phase 3 (Lease), Phase 4 (Sell+Manage).
 
@@ -271,7 +271,7 @@ untouched per brief.
 
 - **Verifier:** `scripts/verify-tab3-regression-2.ts` 35 pass / 0 fail
   across 6 sections (per-field gate markers + input wiring + clamp
-  migration + caption text on MAAD-style fixture + dedup migration +
+  migration + caption text on reference-style fixture + dedup migration +
   Land value flow with engine byLineId check + em-dash sweep).
 
 Commits (7): `9f64327` (diagnostic), `655900c` (Fix 1 per-field gates),
@@ -372,7 +372,7 @@ untouched.
   Sqm / percent modes with 0 explicit input still fall through to
   autoByBua (Pass 1 Fix 1 behaviour kept) so brand-new projects show
   meaningful per-asset values. Signature unchanged (5 args). Verifier
-  Section 2 proves the math on the user's MAAD multi-phase fixture
+  Section 2 proves the math on the user's the reference model multi-phase fixture
   (Phase 1: parcel + no assets → 0 for any phantom call; Phase 2:
   Branded Apt + Residential split 50000 sqm by BUA proportion; Phase 3:
   Hotel + Retail split 40000 sqm by BUA proportion; companion always
@@ -400,12 +400,12 @@ untouched.
   "0 / 0 / 0%" on a brand-new empty asset is noise.
 
 - **Verifier:** `scripts/verify-tab2-pass2.ts` 24 pass / 0 fail across
-  5 sections (audit doc + Fix 1 calc end-to-end on MAAD multi-phase
+  5 sections (audit doc + Fix 1 calc end-to-end on the reference model multi-phase
   shape + Fix 2 companion guards + Fix 3+4 auto-managed recon +
   em-dash sweep).
 
 - **Playwright spec:** `tests/e2e/tab2-pass2.spec.ts` (2 specs). First
-  seeds the MAAD multi-phase snapshot (Phase 1 parcel + no assets;
+  seeds the the reference model multi-phase snapshot (Phase 1 parcel + no assets;
   Phase 2 parcel + Branded Apt + Residential + companion; Phase 3
   parcel + Hotel + Retail) and asserts the `recon-asset-a-branded-sqm`
   cell renders non-zero post-Fix 1. Second asserts the companion card
@@ -431,7 +431,7 @@ Schema stays v8 additive (SubUnit gains `parentSubUnitId?` +
   the asset's allocation is 0, so brand-new projects with allocations
   not yet entered still surface a non-zero Sqm Allocated row in Land
   Reconciliation. Existing non-zero allocations keep their explicit
-  values. MAAD-shape fixture (1 parcel, 1 asset, sqm=0) now returns
+  values. reference shape fixture (1 parcel, 1 asset, sqm=0) now returns
   22066 sqm via the equal-share fallback (Pass 10 Fix 9 path).
 
 - **Fix 2 + 3 (Land Recon NDA + Land Value layout + chips)**:
@@ -515,7 +515,7 @@ Commits (3): `162c3ee` (Fix 1) - `a48d66a` (Fix 2 + 3) - `cfd1588`
 
 - **Fix 1 (collapsed cost row legibility, ships):** Pass 9 Fix 6 collapsed-by-default hid Value/Start/End/Phasing behind dashes; user read this as "inputs were removed". Pass 10 swaps the dashes for read-only formatted values: `formatScaled(effValue, 'full', decimals)` for Value, integers for Start/End, `PHASING_LABELS[effPhasing]` for Phasing. Chevron + row click still required to EDIT. Addresses the discoverability gap while keeping Fix 6 collapsed-default intact. New testids: `cost-{aid}-{lid}-{value,start,end,phasing}-collapsed`.
 
-- **Fix 9 (Land Zero deeper fallback, ships):** Pass 9 Fix 8 widened `computeAssetBua` to fall back to `asset.buaSqm` when sub-units sum to 0. But `computeAssetLandSqm` autoByBua branch (line 206) still returned 0 when totalBua across ALL phase assets was 0 (every asset stub: no sub-units AND no buaSqm). Pass 10 closes the gap: when totalBua=0 and phase has at least one visible asset, fall back to equal-share allocation: `agg.totalAreaSqm / phaseAssets.length` per asset. Guarantees a non-zero land allocation the moment the user adds a parcel, even before any BUA is entered. **Playwright screenshot proof deferred**; verifier section 4 proves the math end-to-end on a MAAD-shape fixture (130874 BUA single asset still resolves 22066 sqm land via Pass 9 Fix 8 path; zero-BUA two-asset fixture splits 22066/2 evenly via Pass 10 Fix 9 path).
+- **Fix 9 (Land Zero deeper fallback, ships):** Pass 9 Fix 8 widened `computeAssetBua` to fall back to `asset.buaSqm` when sub-units sum to 0. But `computeAssetLandSqm` autoByBua branch (line 206) still returned 0 when totalBua across ALL phase assets was 0 (every asset stub: no sub-units AND no buaSqm). Pass 10 closes the gap: when totalBua=0 and phase has at least one visible asset, fall back to equal-share allocation: `agg.totalAreaSqm / phaseAssets.length` per asset. Guarantees a non-zero land allocation the moment the user adds a parcel, even before any BUA is entered. **Playwright screenshot proof deferred**; verifier section 4 proves the math end-to-end on a reference shape fixture (130874 BUA single asset still resolves 22066 sqm land via Pass 9 Fix 8 path; zero-BUA two-asset fixture splits 22066/2 evenly via Pass 10 Fix 9 path).
 
 - **Fix 2 (auto-replicate cost lines on addAsset, ships):** Pass 7's per-asset architecture requires every CostLine to carry `targetAssetId` with composed id `${baseId}__${phaseId}__${assetId}`. Pass 7 migration replicated for existing assets, but `addAsset` never replicated for subsequent additions, leaving new assets with zero cost lines (Tab 3 effectively blank). `addAsset` now finds a phase peer, takes its cost lines as template, re-composes ids + retargets to new asset, appends. Falls back to `makeDefaultCostLines` re-composed when no peer exists. `removeAsset` cascade extended: also removes companion children (parentAssetId pointing at removed parent) + their sub-units + cost lines + costOverrides.
 
@@ -535,7 +535,7 @@ Commits (3): `162c3ee` (Fix 1) - `a48d66a` (Fix 2 + 3) - `cfd1588`
 
 - **Verifier:** `scripts/verify-m20costsCleanup-pass10.ts` 53 pass / 0 fail / 0 skip across 12 sections (audit doc presence + each fix's source markers + calc fixture math + hybrid architecture markers + AccountingNumberInput sweep coverage + em-dash sweep + Pass 10 status in CLAUDE-REFM.md).
 
-- **Playwright spec:** `tests/e2e/m20costs-pass10.spec.ts` (2 specs). Seeds a MAAD-shape snapshot into `module1-store` localStorage, navigates to /refm Tab 3, asserts Land (Cash) + Land (In-Kind) totals non-zero, captures screenshot to `tests/screenshots/m20costs-pass10/land-zero-proof.png`. Skips gracefully in headless dev without NextAuth; runs post-auth via `npx playwright test ... --headed`.
+- **Playwright spec:** `tests/e2e/m20costs-pass10.spec.ts` (2 specs). Seeds a reference shape snapshot into `module1-store` localStorage, navigates to /refm Tab 3, asserts Land (Cash) + Land (In-Kind) totals non-zero, captures screenshot to `tests/screenshots/m20costs-pass10/land-zero-proof.png`. Skips gracefully in headless dev without NextAuth; runs post-auth via `npx playwright test ... --headed`.
 
 Commits (12): `5752454` (audit), `ca4c5ab` (Fix 6 collapse foundation), `2cff997` (Fix 1 readonly collapsed cells), `162d053` (Fix 9 deeper Land Zero fallback), `dfec7c7` (Fix 2 addAsset replication + Asset schema; Fix 3 later replaced this path), `aaf847b` (Fix 5 + 7 NDA Recon polish + Revenue in summary), `fc63dfa` (Fix 4 Sell+Manage companion), `56f0f12` (Fix 10 commission revenue hooks), `ba30e1a` (initial closure), `259c343` (Fix 3 hybrid architecture), `eb6d1b7` (Fix 8 AccountingNumberInput sweep + extended verifier), final closure (Playwright spec + CLAUDE-REFM.md final update). Type-check clean on every commit.
 
@@ -545,7 +545,7 @@ Commits (12): `5752454` (audit), `ca4c5ab` (Fix 6 collapse foundation), `2cff997
 
 - **Mandatory diagnostic** at `docs/m20costs-pass9-land-zero-diagnostic.md` (commit first). Identifies root cause of the Land Cash / Land In-Kind cost lines rendering zero across 4 prior passes: `computeAssetBua` at `src/core/calculations/index.ts:136-140` has a narrower fallback than `resolveAssetAreaMetrics`. When an asset carries stub sub-units (`metricValue=0`), `computeAssetBua` returns 0 without trying `asset.buaSqm`. `resolveAssetAreaMetrics` was patched in M2.0L Fix 4 / Pass 3 widening; `computeAssetBua` was never patched. The autoByBua land allocation path walks `computeAssetBua` directly via `computeAssetLandSqm`, so `landSqm=0 -> landValue=0 -> cashLandValue=0 -> Land cost = 0`.
 
-- **Fix 8 (Land zero forced fix)**: patch `computeAssetBua` + `computeAssetSellableBua` to fall back to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units exist but sum to zero. MAAD fixture (parcel 22,066 sqm x 98,450 SAR, 80% cash, asset with `buaSqm=130,874` + stub sub-unit) now renders Land (Cash) 1,737M + Land (In-Kind) 434M in `byLineId` end-to-end (verified by Section 2 of the Pass 9 verifier).
+- **Fix 8 (Land zero forced fix)**: patch `computeAssetBua` + `computeAssetSellableBua` to fall back to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units exist but sum to zero. reference fixture (parcel 22,066 sqm x 98,450 SAR, 80% cash, asset with `buaSqm=130,874` + stub sub-unit) now renders Land (Cash) 1,737M + Land (In-Kind) 434M in `byLineId` end-to-end (verified by Section 2 of the Pass 9 verifier).
 
 - **Fix 1 (round derived Count)**: `SubUnitRow` rounds the derived Count to a whole number via `Math.round(area / unitSize)`. Total Revenue uses the rounded count when in Units mode (so the displayed math stays self-consistent: `Total = roundedCount x Rate`). Applies to all category labels via `countUnitLabel` (Units / Keys / Beds / Bays / Tenants / Items).
 
@@ -602,7 +602,7 @@ Commits (10): `ae02b6f` (design note) - `31a3712` (Fix 1) - `7873107` (Fix 2) - 
 
 - **Mandatory diagnostic** at `docs/m20M-pass4-diagnostic.md` (commit first). Root cause: UI never called `createFinancingHooks` (hook contract was documented but unconsumed); `computeCapitalStack` read deprecated `tranche.ltvPct` + `tranche.principal` that Pass 3 hid from UI; Pass 3 migration cleared `equityContributions[]` but stack still walked them. Three intertwined bugs combined to render zero across all schedules.
 
-- **Fix 10 (force fix zero-rendering)**: route `computeFunding` through `inputsSummary.totals` (project-wide capex aggregate across ALL phases). Bypass `computeCapitalStack` entirely; derive stack directly from `funding + equity`. `phaseTranches` debt breakdown uses `tranche.facilitySharePct`. MAAD-shape fixture (1 phase, 1 asset, BUA 130874, rate 4500) now renders 588.9M in Capital Structure Overview Total Funding card.
+- **Fix 10 (force fix zero-rendering)**: route `computeFunding` through `inputsSummary.totals` (project-wide capex aggregate across ALL phases). Bypass `computeCapitalStack` entirely; derive stack directly from `funding + equity`. `phaseTranches` debt breakdown uses `tranche.facilitySharePct`. reference shape fixture (1 phase, 1 asset, BUA 130874, rate 4500) now renders 588.9M in Capital Structure Overview Total Funding card.
 
 - **Fix 9 (assetFilter replaces phaseFilter)**: new `Project.financing.assetFilter?: string` (sentinel `__combined__` = all assets). Top-of-Tab-4 dropdown rebuilt as Asset Filter (`data-testid="financing-asset-filter"`); options = Combined + per-asset (visible only). `phaseFilter` retained on schema for back-compat (no longer rendered).
 
@@ -634,7 +634,7 @@ Commits (10): `d370b64` - `b297594` - `1404bc1` - `34326fa` - `465f041` - `23bdb
 
 - **Fix 1, drop Single Asset toggle**: Tab 4 Inputs always operates on Combined Project basis. The Combined / Single Asset toggle is removed; `viewMode` field stays on schema. Migration flips legacy `viewMode='single_asset'` to `'combined'` and clears `selectedAssetId`.
 
-- **Fix 2, capex hook audit**: `getCapexExclLandInKind` (and siblings) verified to read per-asset cost lines correctly post Pass 7. Added new hooks `getCapexSchedule(assetId?)` (per-asset capex series) and `getLandCashValue()` (parcels' total cash share). MAAD-shape fixture (130,874 BUA x SAR 4,500/BUA) sums to SAR 588,933,000 as expected.
+- **Fix 2, capex hook audit**: `getCapexExclLandInKind` (and siblings) verified to read per-asset cost lines correctly post Pass 7. Added new hooks `getCapexSchedule(assetId?)` (per-asset capex series) and `getLandCashValue()` (parcels' total cash share). reference shape fixture (130,874 BUA x SAR 4,500/BUA) sums to SAR 588,933,000 as expected.
 
 - **Fix 3, facility ratio inherits**: per-facility Debt % + Principal inputs dropped from `TrancheCard`. Facility principal auto-derives from chosen funding method. New optional `FinancingTranche.facilitySharePct` (0..100, sums to 100% across facilities in the same scope) surfaces when `facilityCount > 1`; single facility defaults to 100. Migration defaults missing multi-facility shares to even split.
 
@@ -695,7 +695,7 @@ Commits (7): `b93ffbd` (design note) · `64583b3` · `384b9e4` · `00e7a72` · `
 
 - **Fix 3, facility type dropdown hidden.** UI removes the `senior_construction / mezzanine / bridge / ...` dropdown. Schema field retained; new facilities default `senior_construction`.
 
-- **Fix 4, MAAD refs dropped.** Drawdown label `'Cash-Available Basis (MAAD)' -> 'Cash-Available Basis'`.
+- **Fix 4, the reference model refs dropped.** Drawdown label `'Cash-Available Basis (the reference model)' -> 'Cash-Available Basis'`.
 
 - **Fix 5, repayment methods reduced to 3.** New `RepaymentMethod` user-facing values: `equal_repayment` (sub-mode: `equal_total` annuity or `equal_principal` declining), `year_on_year_pct` (per-period %), `cash_sweep`. Legacy 9-value type kept on schema; `migrateM20mPass2Financing` maps legacy values:
   - `straight_line -> equal_repayment + equal_principal`

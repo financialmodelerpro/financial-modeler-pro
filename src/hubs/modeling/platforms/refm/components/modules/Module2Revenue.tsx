@@ -1031,7 +1031,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               {/* F&B Revenue */}
               <InlineSection
                 title="F&B Revenue"
-                hint="Pick the driver. % of Rooms = F&B as % of Rooms revenue. Per Guest = guests × rate per guest. Baseline + Growth = explicit baseline amount escalated by an indexation rate (MAAD OOD-style)."
+                hint="Pick the driver. % of Rooms = F&B as % of Rooms revenue. Per Guest = guests × rate per guest. Baseline + Growth = explicit baseline amount escalated by an indexation rate."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <MethodPill active={opFb.mode === 'percent_of_rooms'} label="% of Rooms" onClick={() => setFbMode('percent_of_rooms')} />
