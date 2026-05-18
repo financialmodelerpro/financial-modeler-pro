@@ -830,32 +830,26 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           >
             {phaseAssets.map((a) => {
               const r = snap.bySellAsset.get(a.id);
-              // Pass 9e-5 (2026-05-18): when a Sell + Manage parent has
-              // no revenue.sell config yet (just-flipped from Sell, or
-              // never filled), still render a placeholder so its
-              // companion's Operate narrative can appear inline below.
-              // Otherwise the parent vanishes and the companion would
-              // float orphaned in the standalone Hospitality section,
-              // appearing as a duplicate.
+              // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
+              // no revenue.sell config yet, render a placeholder so the
+              // asset still appears in the Sell section. The companion
+              // is no longer nested here — it shows in the standalone
+              // Hospitality / Operations section per user direction
+              // (same treatment as other hospitality assets).
               if (!r) {
                 if (a.strategy === 'Sell + Manage') {
-                  const placeholderCompanion = assets.find(
-                    (c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false,
-                  );
                   return (
-                    <React.Fragment key={a.id}>
-                      <AssetSection
-                        assetId={a.id}
-                        title={a.name}
-                        meta={a.type ? `${a.type}` : undefined}
-                        storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
-                      >
-                        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-                          No Sell-side revenue config yet. Enter velocity / cash / recognition on the Inputs tab to populate Blocks 1-6.
-                        </div>
-                      </AssetSection>
-                      {placeholderCompanion && renderHospitalityAssetSection(placeholderCompanion, true)}
-                    </React.Fragment>
+                    <AssetSection
+                      key={a.id}
+                      assetId={a.id}
+                      title={a.name}
+                      meta={a.type ? `${a.type}` : undefined}
+                      storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+                    >
+                      <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+                        No Sell-side revenue config yet. Enter velocity / cash / recognition on the Inputs tab to populate Blocks 1-6. The Manage / Operate half shows under Hospitality / Operations below.
+                      </div>
+                    </AssetSection>
                   );
                 }
                 return null;
@@ -913,13 +907,13 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 ? 'relative-to-sale milestone schedule'
                 : 'absolute milestone schedule with sale-year catchup';
 
-              // Pass 9d: when Sell + Manage, find companion to append below
-              const sellManageCompanion = a.strategy === 'Sell + Manage'
-                ? assets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
-                : undefined;
+              // Pass 9e-7 (2026-05-18): companion no longer rendered
+              // inline in the Sell section. It shows under Hospitality
+              // / Operations as a separate asset, mirroring the Inputs
+              // tab's separate-collapsible treatment.
               return (
-                <React.Fragment key={a.id}>
                 <AssetSection
+                  key={a.id}
                   assetId={a.id}
                   title={a.name}
                   meta={a.type ? `${a.type}` : undefined}
@@ -1121,8 +1115,6 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={fmt}
                   />
                 </AssetSection>
-                {sellManageCompanion && renderHospitalityAssetSection(sellManageCompanion, true)}
-                </React.Fragment>
               );
             })}
           </PhaseSection>
@@ -1130,17 +1122,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       })}
 
       {/* Pass 8c (2026-05-18): per-asset Hospitality narrative.
-          Pass 9d / 9e-5: companions NEVER render in this standalone
-          section — they always render inline under their Sell + Manage
-          parent above. Only pure Operate strategy assets show here.
-          A stricter "no companions" filter than Pass 9d, so data with
-          a missing parent reference or stale strategy can't produce a
-          duplicate hospitality entry. */}
+          Pass 9e-7 (2026-05-18): companions are surfaced here as
+          separate hospitality assets, mirroring the Inputs tab's
+          separate-collapsible treatment. Tower 01 (Sell + Manage)
+          renders in the Sell section above, and its Operate companion
+          renders here under Hospitality / Operations next to any
+          pure Operate hotels. */}
       {phases.map((p) => {
         const phaseHospitalityAssets = assets.filter((a) => {
           if (a.phaseId !== p.id || a.visible === false) return false;
-          if (a.isCompanion === true) return false;
-          return a.strategy === 'Operate';
+          return a.strategy === 'Operate' || a.isCompanion === true;
         });
         if (phaseHospitalityAssets.length === 0) return null;
         return (
