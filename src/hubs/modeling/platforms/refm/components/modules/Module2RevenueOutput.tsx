@@ -116,9 +116,13 @@ function resolveAssetMetric(units: Array<{ metric: 'units' | 'area' }>): {
 function SubUnitReferenceStrip({
   units,
   currency,
+  mode = 'sell',
 }: {
   units: SubUnit[];
   currency: string;
+  // Pass 9g (2026-05-18): 'lease' shows rate as "/ sqm / yr" (annual
+  // base rent). 'sell' (default) keeps the legacy "/ unit" or "/ sqm".
+  mode?: 'sell' | 'lease';
 }): React.JSX.Element | null {
   if (units.length === 0) return null;
   return (
@@ -138,11 +142,18 @@ function SubUnitReferenceStrip({
       {units.map((su) => {
         const area = computeSubUnitArea(su);
         const isUnitsMetric = su.metric === 'units';
-        const rateLabel = (su.unitPrice && su.unitPrice > 0)
-          ? (isUnitsMetric
-              ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
-              : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
-          : 'no price';
+        let rateLabel: string;
+        if (mode === 'lease') {
+          rateLabel = (su.unitPrice && su.unitPrice > 0)
+            ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm / yr`
+            : 'no rate';
+        } else {
+          rateLabel = (su.unitPrice && su.unitPrice > 0)
+            ? (isUnitsMetric
+                ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
+                : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
+            : 'no price';
+        }
         const sizeLabel = isUnitsMetric
           ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} units · ${formatArea(area, 0)} sqm`
           : `${formatArea(area, 0)} sqm`;
@@ -505,8 +516,11 @@ function buildProjectGroupedRows({
     rows.push({ label: 'Retail / Lease', values: [], kind: 'section', indent: 0 });
     const series: number[][] = [];
     for (const a of leaseAssets) {
-      // Engine wires in Pass 9 — zeros until then.
-      const vals = zeros();
+      // Pass 9g (2026-05-18): real engine values. Revenue / Recognition
+      // / Cash all read totalRevenuePerPeriod (operating-sales convention:
+      // rec = cash = revenue same period; AR delay handled on Schedules).
+      const leaseResult = snap.byLeaseAsset.get(a.id);
+      const vals = leaseResult ? leaseResult.totalRevenuePerPeriod : zeros();
       rows.push({ label: a.name || 'Lease asset', values: vals, indent: 1 });
       series.push(vals);
     }
@@ -846,6 +860,152 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           Recognition + Cash: equal to Total Revenue per period (operating-sales convention, no deferral). AR via DSO surfaces on the Schedules tab.
         </div>
       </AssetSection>,
+    );
+  };
+
+  // Pass 9g (2026-05-18): renderLeaseAssetSection mirrors the
+  // hospitality helper but for retail / office lease. Two blocks:
+  //   1. Drivers + Calculations (GLA, Occupancy, Rent Indexation
+  //      Factor, Indexed Rate → Occupied Lease Area)
+  //   2. Revenue (per-sub-unit Rent Revenue → asset total)
+  const renderLeaseAssetSection = (a: Asset): React.JSX.Element => {
+    const r = snap.byLeaseAsset.get(a.id);
+    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
+    if (!r) {
+      return (
+        <AssetSection
+          key={a.id}
+          assetId={a.id}
+          title={a.name}
+          meta={a.type ? `${a.type}` : undefined}
+          storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+        >
+          <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+            No lease config yet. Enter Rent Indexation + Occupancy on the Inputs tab.
+          </div>
+        </AssetSection>
+      );
+    }
+    const pctFmt = (v: number): string => {
+      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+      return `${(v * 100).toFixed(decimals)}%`;
+    };
+    const factorFmt = (v: number): string => {
+      if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
+      return `${v.toFixed(4)}×`;
+    };
+    // Lease rate is per-sqm-per-year, not per-period flow — force 'full'
+    // scale (same convention as hospitality ADR) so 3,500 SAR/sqm does
+    // not render as "4" under a thousands-scaled project.
+    const rateDecimals = Math.max(1, decimals) as DisplayDecimals;
+    const rateFmt = makeCurrencyFmt('full', rateDecimals);
+    const opsMask = r.occupiedAreaPerPeriod.map((v) => (v > 0 ? 1 : 0));
+    const broadcastIfOps = (v: number): number[] => opsMask.map((m) => (m > 0 ? v : 0));
+    const areaSubUnits = assetSubUnits.filter((u) => u.metric === 'area');
+    const showPerSuBreakdown = areaSubUnits.length > 1;
+    const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u)), 0);
+    const lastNonZero = (arr: number[]): number => {
+      for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
+      return 0;
+    };
+    const finalRate = lastNonZero(r.indexedRatePerPeriod);
+    const finalFactor = lastNonZero(r.rentIndexationFactorPerPeriod);
+    const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
+    const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
+    const perSuRateRows = showPerSuBreakdown
+      ? areaSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} Indexed Rate (${formatArea(sub.gla, 0)} sqm GLA)`,
+            values: sub.indexedRatePerPeriod,
+            rowFmt: rateFmt,
+            totalOverride: rateFmt(lastNonZero(sub.indexedRatePerPeriod)),
+            indent: 2,
+          }];
+        })
+      : [];
+    const perSuOccupiedRows = showPerSuBreakdown
+      ? areaSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} Occupied Area (sqm)`,
+            values: sub.occupiedAreaPerPeriod,
+            rowFmt: areaFmt,
+            indent: 2,
+          }];
+        })
+      : [];
+    const perSuRevenueRows = showPerSuBreakdown
+      ? areaSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} Rent Revenue`,
+            values: sub.revenuePerPeriod,
+            rowFmt: fmt,
+            indent: 1,
+          }];
+        })
+      : [];
+    return (
+      <AssetSection
+        key={a.id}
+        assetId={a.id}
+        title={a.name}
+        meta={a.type ? `${a.type}` : undefined}
+        storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+      >
+        <SubUnitReferenceStrip units={assetSubUnits} currency={currency} mode="lease" />
+        <SectionHeading n="1" title="Lease Capacity" />
+        <PeriodTable
+          title="1. Drivers + Calculations"
+          formula="Driver rows are user inputs (broadcast or per-year). Calculations: Occupied Lease Area = GLA × Occupancy; Indexed Rate = Base Rate × Rent Indexation Factor; Revenue = Occupied Area × Indexed Rate."
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
+            { label: 'Total Gross Lease Area (sqm)', values: broadcastIfOps(totalGla), rowFmt: areaFmt, totalOverride: areaFmt(totalGla), indent: 1 },
+            { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
+            { label: 'Rent Indexation Factor', values: r.rentIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
+            {
+              label: showPerSuBreakdown
+                ? `Indexed Rate (GLA-weighted avg, ${currency} per sqm/yr)`
+                : `Indexed Rate (${currency} per sqm/yr)`,
+              values: r.indexedRatePerPeriod,
+              rowFmt: rateFmt,
+              totalOverride: rateFmt(finalRate),
+              indent: 1,
+            },
+            ...perSuRateRows,
+            { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
+            ...perSuOccupiedRows,
+            {
+              label: showPerSuBreakdown ? 'Total Occupied Lease Area (sqm)' : 'Occupied Lease Area (sqm)',
+              values: r.occupiedAreaPerPeriod,
+              rowFmt: areaFmt,
+              kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+              indent: 1,
+            },
+          ]}
+          fmt={areaFmt}
+        />
+        <SectionHeading n="2" title="Revenue" />
+        <PeriodTable
+          title="2. Per-Sub-Unit + Total Lease Revenue"
+          formula="Revenue = Occupied Area × Indexed Rate (per sub-zone, then summed). Operating-sales convention: recognition = cash = revenue in the same period."
+          yearLabels={snap.yearLabels}
+          rows={[
+            ...perSuRevenueRows,
+            { label: 'Total Lease Revenue', values: r.totalRevenuePerPeriod, kind: 'grand' as const },
+          ]}
+          fmt={fmt}
+        />
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: '4px 0' }}>
+          Recognition + Cash: equal to Total Revenue per period (operating-sales convention, no deferral). AR via DSO (Accounts Receivable Days) surfaces on the Schedules tab.
+        </div>
+      </AssetSection>
     );
   };
 
@@ -1230,7 +1390,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       })}
       </PhaseSection>
 
-      {/* Pass 9e-8: Retail / Lease placeholder. Wires in at Pass 9 / Retail engine. */}
+      {/* Pass 9g (2026-05-18): Retail / Lease engine wired. Per-phase
+          grouped, each lease asset renders its own Drivers + Calculations
+          + Revenue narrative. */}
       <PhaseSection
         phaseId="strategy-retail"
         title="Retail / Lease"
@@ -1241,9 +1403,34 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         })()}
         storageKey="fmp:m2:revenue:strategy:retail:collapsed"
       >
-        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-          Lease revenue engine queued. Tracked Lease assets will surface here once Module 2 Lease (Pass 9) ships.
-        </div>
+        {(() => {
+          const anyLease = assets.some((a) => a.visible !== false && a.strategy === 'Lease');
+          if (!anyLease) {
+            return (
+              <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+                No Lease assets configured yet.
+              </div>
+            );
+          }
+          return null;
+        })()}
+        {phases.map((p) => {
+          const phaseLeaseAssets = assets.filter((a) => {
+            if (a.phaseId !== p.id || a.visible === false) return false;
+            return a.strategy === 'Lease';
+          });
+          if (phaseLeaseAssets.length === 0) return null;
+          return (
+            <div key={`lease-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
+              <PhaseDivider
+                title={p.name}
+                meta={`${p.status ?? 'planning'}`}
+                count={`${phaseLeaseAssets.length} lease asset${phaseLeaseAssets.length === 1 ? '' : 's'}`}
+              />
+              {phaseLeaseAssets.map((a) => renderLeaseAssetSection(a))}
+            </div>
+          );
+        })}
       </PhaseSection>
 
       <PhaseSection
