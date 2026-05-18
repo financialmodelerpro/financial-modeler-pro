@@ -330,6 +330,7 @@ function buildTotalSoldReconciledRows(
   postSU: Record<string, number[]>,
   totalAcrossSU: number[],
   assetInventory: number,
+  decimals: DisplayDecimals = 0,
 ): PeriodRow[] {
   const rows: PeriodRow[] = [];
   subUnits.forEach((su, idx) => {
@@ -345,7 +346,7 @@ function buildTotalSoldReconciledRows(
       sold += v;
     }
     const cumPct = inv > 0 ? sold / inv : 0;
-    const pctLabel = `${(cumPct * 100).toFixed(0)}%`;
+    const pctLabel = `${(cumPct * 100).toFixed(decimals)}%`;
     rows.push({ label: su.name || 'sub-unit', values: combined, trailing: pctLabel });
   });
   const assetCumPct = assetInventory > 0
@@ -355,7 +356,7 @@ function buildTotalSoldReconciledRows(
     label: 'Asset Total',
     values: totalAcrossSU,
     kind: 'grand',
-    trailing: `${(assetCumPct * 100).toFixed(0)}%`,
+    trailing: `${(assetCumPct * 100).toFixed(decimals)}%`,
   });
   return rows;
 }
@@ -627,9 +628,12 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </AssetSection>,
       );
     }
+    // Pass 9e-10 (2026-05-18): % rows follow project displayDecimals
+    // (universal across the model). ADR uses the same setting with a
+    // minimum of 1 decimal (per user: ADR needs 1 or 2 decimals).
     const pctFmt = (v: number): string => {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-      return `${(v * 100).toFixed(1)}%`;
+      return `${(v * 100).toFixed(decimals)}%`;
     };
     const factorFmt = (v: number): string => {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
@@ -638,9 +642,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     // Pass 9e-4 (2026-05-18): ADR + per-guest rates are per-night /
     // per-guest figures, NOT period flow amounts. The project-level
     // display scale (typically 'thousands') would render 1,200 SAR as
-    // "1" — wrong for rate fields. Force 'full' scale + 0 decimals for
-    // ADR and per-guest rate rows.
-    const adrFmt = makeCurrencyFmt('full', 0);
+    // "1" — wrong for rate fields. Force 'full' scale.
+    // Pass 9e-10 (2026-05-18): use the project's decimals (min 1) so
+    // ADR rows show 1,200.00 (or .0) instead of "1,200".
+    const adrDecimals = Math.max(1, decimals) as DisplayDecimals;
+    const adrFmt = makeCurrencyFmt('full', adrDecimals);
     const opCfg = a.revenue?.operate;
     const opKeys = assetSubUnits
       .filter((u) => u.metric === 'units')

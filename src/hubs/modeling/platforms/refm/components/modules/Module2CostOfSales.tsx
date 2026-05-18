@@ -286,9 +286,10 @@ export default function Module2CostOfSales(): React.JSX.Element {
             storageKey={`fmp:m2:costofsales:phase:${p.id}:collapsed`}
           >
             {phaseRows.map((row) => {
+              // Pass 9e-10 (2026-05-18): % rows follow project decimals.
               const pctFmt = (v: number): string => {
                 if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
-                return `${(v * 100).toFixed(1)}%`;
+                return `${(v * 100).toFixed(decimals)}%`;
               };
               const bd = row.breakdown;
               const stageLand = bd?.byStage.land ?? 0;

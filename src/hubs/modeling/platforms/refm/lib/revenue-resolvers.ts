@@ -133,12 +133,18 @@ export function resolveHospitalityConfig(
   // is undefined). Indexation override comes from the optional
   // SubUnit.hospitalityIndexation field; when absent the engine falls
   // back to asset-level adrIndexation.
+  // Pass 9e-10 (2026-05-18): for pure Operate assets (Hotel 01 etc.)
+  // the M1 sub-unit row writes ADR to `unitPrice`, not `startingAdr`
+  // (the latter is the dedicated input only on companion mirror
+  // rows). Fall back through both fields so the engine sees the ADR
+  // the user actually entered, matching the sub-unit chip strip which
+  // already does the same fallback.
   const hospSubUnits: HospitalityConfig['subUnits'] = assetSubUnits
     .filter((u) => u.metric === 'units')
     .map((u) => ({
       id: u.id,
       keys: Math.max(0, Math.round(u.metricValue)),
-      startingADR: u.startingAdr ?? cfg.startingADR ?? 0,
+      startingADR: u.startingAdr ?? u.unitPrice ?? cfg.startingADR ?? 0,
       adrIndexation: u.hospitalityIndexation,
     }));
 
