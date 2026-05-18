@@ -193,7 +193,9 @@
       "Bash(findstr /R /C:\"settings/page\" /C:\"VersionsPanel\" /C:\"ProjectsPanel\" /C:\"ExportPanel\" /C:\"RbacPanel\")",
       "Bash(findstr /R \"api.admin.modules api.platforms config.platforms\")",
       "Bash(awk 'NR<296 || NR>546 {print}' src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "Bash(awk -F'D[0-9]*=' '{print $2}')",
+      "Bash(awk -F' \\\\\\\\| ' '{print $1}')"
     ]
   }
 }

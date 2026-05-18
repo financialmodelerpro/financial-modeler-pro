@@ -53,10 +53,16 @@ export interface RecognitionProfile {
 }
 
 export interface IndexationConfig {
-  method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+  method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
   rate?: number;
   startYear?: number;
   steps?: Array<{ year: number; factor: number }>;
+  // Pass 8e (2026-05-18): per-year growth array, project-axis-indexed
+  // (decimal, e.g. 0.05 = 5%). Used only when method = 'yoy_per_period'.
+  // factor[y] = factor[y-1] × (1 + growthPerPeriod[y]) for y > startYear;
+  // factor[startYear] = 1. Mirrors MAAD's OOD revenue growth column
+  // pattern where each year's escalation can differ.
+  growthPerPeriod?: number[];
 }
 
 export interface AssetSellConfig {

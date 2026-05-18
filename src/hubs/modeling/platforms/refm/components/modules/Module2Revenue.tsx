@@ -602,8 +602,23 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateOperateInline({ occupancyPerPeriod: next });
   };
   const setOperateGuestsPerOR = (n: number): void => updateOperateInline({ guestsPerOccupiedRoom: Math.max(0, n) });
+  // Pass 8e (2026-05-18): typical hospitality stabilization curve.
+  // Ramp 40% / 60% / 65% across years 1-3, then stabilised 67% for the
+  // remainder of the operations window. Standard 5-star / urban hotel
+  // shape; user can tweak per-year afterward.
+  const applyOccupancyStabilizationPreset = (): void => {
+    const ramp = [0.40, 0.60, 0.65];
+    const stabilized = 0.67;
+    const next = paddedArray(opOccupancy, totalPeriods);
+    const opLen = operationsEndIdx - operationsStartIdx + 1;
+    for (let k = 0; k < opLen; k++) {
+      const idx = operationsStartIdx + k;
+      next[idx] = k < ramp.length ? ramp[k] : stabilized;
+    }
+    updateOperateInline({ occupancyPerPeriod: next });
+  };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
-  const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step'): void => {
+  const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
   };
   const setOperateADRIndexationRate = (pct: number): void => {
@@ -612,6 +627,14 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const setOperateADRIndexationStartYear = (yearAbs: number): void => {
     const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
     updateOperateInline({ adrIndexation: { method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, rate: opADRIdx.rate ?? 0, startYear: idx } });
+  };
+  // Pass 8e (2026-05-18): per-year ADR growth setter. Allows negative
+  // values (e.g., -2% in a recession year). Engine clamps growth ≥ -99%
+  // so factor cannot collapse to 0.
+  const setOperateADRGrowthPerYear = (periodIdx: number, pctValue: number): void => {
+    const current = paddedArray(opADRIdx.growthPerPeriod, totalPeriods);
+    current[periodIdx] = pctValue / 100;
+    updateOperateInline({ adrIndexation: { ...opADRIdx, method: 'yoy_per_period', growthPerPeriod: current, startYear: opADRIdx.startYear ?? operationsStartIdx } });
   };
   const setFbMode = (mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount'): void => {
     updateOperateInline({ fb: { ...opFb, mode } });
@@ -709,6 +732,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Indexation</span>
                   <MethodPill active={opADRIdx.method === 'none'} label="None" onClick={() => setOperateADRIndexationMethod('none')} />
                   <MethodPill active={opADRIdx.method === 'yoy_compound'} label="YoY Compound" onClick={() => setOperateADRIndexationMethod('yoy_compound')} />
+                  <MethodPill active={opADRIdx.method === 'yoy_per_period'} label="Per-Year" onClick={() => setOperateADRIndexationMethod('yoy_per_period')} />
                   <MethodPill active={opADRIdx.method === 'step'} label="Step" onClick={() => setOperateADRIndexationMethod('step')} />
                   {opADRIdx.method === 'yoy_compound' && (
                     <>
@@ -738,7 +762,64 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                       </div>
                     </>
                   )}
+                  {opADRIdx.method === 'yoy_per_period' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                      <div style={{ width: 90 }}>
+                        <input
+                          type="number"
+                          value={projectStartYear + (opADRIdx.startYear ?? operationsStartIdx)}
+                          min={projectStartYear}
+                          max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                          onChange={(e) => setOperateADRIndexationStartYear(Number(e.target.value))}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-adr-idx-pyrgrowth-start`}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
+                {opADRIdx.method === 'yoy_per_period' && operationsWindow.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: 4 }}>
+                      Per-year growth from Start Year. Compounds cumulatively: ADR[y] = ADR[y-1] × (1 + growth[y]). Negative values allowed (engine clamps growth ≥ -99%). Year matching Start Year stays at base.
+                    </div>
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...CELL_HEADER, textAlign: 'left', minWidth: 140 }}>ADR Growth %</th>
+                            {operationsWindow.map((c) => (
+                              <th key={c.idx} style={{ ...CELL_HEADER, minWidth: 55 }}>
+                                {c.year}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
+                              YoY growth
+                            </td>
+                            {operationsWindow.map((c) => (
+                              <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
+                                <PercentageInput
+                                  value={((opADRIdx.growthPerPeriod ?? [])[c.idx] ?? 0) * 100}
+                                  onChange={(n) => setOperateADRGrowthPerYear(c.idx, n)}
+                                  min={-50}
+                                  max={100}
+                                  decimals={2}
+                                  style={FAST_INPUT}
+                                  data-testid={`m2-asset-${asset.id}-adr-pyrgrowth-${c.idx}`}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </InlineSection>
 
               {/* Occupancy ramp */}
@@ -751,6 +832,26 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   return `peak ${(max * 100).toFixed(0)}%`;
                 })()}
               >
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                  <button
+                    type="button"
+                    onClick={applyOccupancyStabilizationPreset}
+                    style={{
+                      fontSize: 10,
+                      padding: '3px 8px',
+                      background: 'var(--color-surface)',
+                      color: 'var(--color-navy)',
+                      border: '1px solid var(--color-navy)',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                    title="Fill the operations window with a typical stabilization curve: yr1 40% / yr2 60% / yr3 65% / yr4+ stabilised 67%. Edit per-year afterward."
+                    data-testid={`m2-asset-${asset.id}-occ-preset`}
+                  >
+                    Apply stabilization curve (40 → 60 → 65 → 67%)
+                  </button>
+                </div>
                 <InlineProfileStrip
                   cells={operationsWindow}
                   values={opOccupancy}
@@ -785,12 +886,12 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               {/* F&B Revenue */}
               <InlineSection
                 title="F&B Revenue"
-                hint="Pick the driver. Percent-of-Rooms = F&B as % of Rooms revenue. Per-Guest = guests × rate per guest. Fixed Amount = explicit annual amount with optional indexation."
+                hint="Pick the driver. % of Rooms = F&B as % of Rooms revenue. Per Guest = guests × rate per guest. Baseline + Growth = explicit baseline amount escalated by an indexation rate (MAAD OOD-style)."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <MethodPill active={opFb.mode === 'percent_of_rooms'} label="% of Rooms" onClick={() => setFbMode('percent_of_rooms')} />
                   <MethodPill active={opFb.mode === 'per_guest'} label="Per Guest" onClick={() => setFbMode('per_guest')} />
-                  <MethodPill active={opFb.mode === 'fixed_amount'} label="Fixed Annual" onClick={() => setFbMode('fixed_amount')} />
+                  <MethodPill active={opFb.mode === 'fixed_amount'} label="Baseline + Growth" onClick={() => setFbMode('fixed_amount')} />
                   {opFb.mode === 'percent_of_rooms' && (
                     <>
                       <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>F&B %</span>
@@ -825,7 +926,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   )}
                   {opFb.mode === 'fixed_amount' && (
                     <>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Annual Amount ({project.currency})</span>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Baseline Amount ({project.currency})</span>
                       <div style={{ width: 150 }}>
                         <AccountingNumberInput
                           value={scalarOf(opFb.fixedAmountPerPeriod)}
@@ -845,12 +946,12 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               {/* Other Revenue */}
               <InlineSection
                 title="Other Revenue"
-                hint="Same flexibility as F&B. Use for spa / parking / minibar / banqueting rollups, or set Fixed Annual for a contractual line."
+                hint="Same flexibility as F&B. Use for spa / parking / minibar / banqueting rollups, or set Baseline + Growth for a contractual line that escalates over time."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <MethodPill active={opOther.mode === 'percent_of_rooms'} label="% of Rooms" onClick={() => setOtherMode('percent_of_rooms')} />
                   <MethodPill active={opOther.mode === 'per_guest'} label="Per Guest" onClick={() => setOtherMode('per_guest')} />
-                  <MethodPill active={opOther.mode === 'fixed_amount'} label="Fixed Annual" onClick={() => setOtherMode('fixed_amount')} />
+                  <MethodPill active={opOther.mode === 'fixed_amount'} label="Baseline + Growth" onClick={() => setOtherMode('fixed_amount')} />
                   {opOther.mode === 'percent_of_rooms' && (
                     <>
                       <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Other %</span>
@@ -885,7 +986,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   )}
                   {opOther.mode === 'fixed_amount' && (
                     <>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Annual Amount ({project.currency})</span>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Baseline Amount ({project.currency})</span>
                       <div style={{ width: 150 }}>
                         <AccountingNumberInput
                           value={scalarOf(opOther.fixedAmountPerPeriod)}

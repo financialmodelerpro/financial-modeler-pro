@@ -610,6 +610,60 @@ const arDSO365 = buildAccountsReceivableDSO({
 assertNear('I7: DSO=30, days=365 default, revenue=365 -> closing=30',
   arDSO365.perPeriod[0], 30, 0.01);
 
+// ───────────────────────────────────────────────────────────────
+// Fixture J (Pass 8e): yoy_per_period indexation method.
+// User asked for per-year variable ADR escalation. Engine math:
+//   factor[startYear] = 1
+//   factor[y] = factor[y-1] × (1 + growthPerPeriod[y]) for y > startYear
+// ───────────────────────────────────────────────────────────────
+import { applyIndexation, type IndexationConfig } from '@/src/core/calculations/revenue';
+
+console.log('--- Fixture J: yoy_per_period indexation (Pass 8e) ---');
+
+// J1: per-year growth from idx 4 onwards. growth at idx 5,6,7 =
+// 5%, 3%, 4%. Base 500.
+const cfgJ: IndexationConfig = {
+  method: 'yoy_per_period',
+  startYear: 4,
+  growthPerPeriod: [0, 0, 0, 0, 0, 0.05, 0.03, 0.04, 0, 0, 0, 0, 0, 0],
+};
+assertNear('J1: factor at startYear (idx 4) = base',
+  applyIndexation(500, 4, cfgJ), 500, 0.01);
+assertNear('J2: factor at idx 5 = base × (1+5%) = 525',
+  applyIndexation(500, 5, cfgJ), 500 * 1.05, 0.01);
+assertNear('J3: factor at idx 6 = 525 × 1.03 = 540.75',
+  applyIndexation(500, 6, cfgJ), 500 * 1.05 * 1.03, 0.01);
+assertNear('J4: factor at idx 7 = 540.75 × 1.04 = 562.38',
+  applyIndexation(500, 7, cfgJ), 500 * 1.05 * 1.03 * 1.04, 0.01);
+assertNear('J5: factor at idx 8 = unchanged (growth 0 at 8)',
+  applyIndexation(500, 8, cfgJ), 500 * 1.05 * 1.03 * 1.04, 0.01);
+assertNear('J6: factor before startYear (idx 3) = base',
+  applyIndexation(500, 3, cfgJ), 500, 0.01);
+
+// J7: integrate with hospitality engine — ADR escalates per-year.
+const hospJ = computeHospitalityAsset({
+  config: {
+    assetId: 'asset-J',
+    keys: 100,
+    daysPerYear: 365,
+    startingADR: 500,
+    adrIndexation: cfgJ,
+    occupancyPerPeriod: new Array<number>(14).fill(0.70),
+    guestsPerOccupiedRoom: 1.5,
+    fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+    otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+    opsStartIdx: 4,
+    opsEndIdx: 13,
+  },
+  axisLength: 14,
+});
+assertNear('J7: ADR year 5 in hospitality engine = 500',
+  hospJ.adrPerPeriod[4], 500, 0.01);
+assertNear('J8: ADR year 6 in hospitality engine = 525',
+  hospJ.adrPerPeriod[5], 525, 0.01);
+assertNear('J9: ADR year 7 in hospitality engine = 540.75',
+  hospJ.adrPerPeriod[6], 540.75, 0.01);
+
 // Report
 let pass = 0;
 let fail = 0;

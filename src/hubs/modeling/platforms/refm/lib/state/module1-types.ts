@@ -347,10 +347,11 @@ export interface Project {
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
       };
       indexation: {
-        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
       };
     };
     operate?: Record<string, unknown>;  // M2 Pass 8 hospitality template
@@ -719,10 +720,11 @@ export interface Asset {
         releaseYear: number;
       };
       indexation: {
-        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
       };
       handoverYearOverride?: number;
       /**
@@ -766,10 +768,11 @@ export interface Asset {
       daysPerYear?: number;
       startingADR: number;
       adrIndexation: {
-        method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
       };
       // Project-axis-indexed occupancy ramp (0..1 per period).
       occupancyPerPeriod: number[];
@@ -780,10 +783,11 @@ export interface Asset {
         ratePerGuest?: number | number[];
         fixedAmountPerPeriod?: number | number[];
         indexation?: {
-          method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+          method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
           steps?: Array<{ year: number; factor: number }>;
+          growthPerPeriod?: number[];
         };
       };
       otherRevenue: {
@@ -792,10 +796,11 @@ export interface Asset {
         ratePerGuest?: number | number[];
         fixedAmountPerPeriod?: number | number[];
         indexation?: {
-          method: 'none' | 'single_rate' | 'yoy_compound' | 'step';
+          method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
           steps?: Array<{ year: number; factor: number }>;
+          growthPerPeriod?: number[];
         };
       };
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */

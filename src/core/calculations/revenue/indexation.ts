@@ -6,10 +6,16 @@ import type { IndexationConfig } from './types';
  * convention: no prior column).
  *
  * Methods:
- *   - none:           factor = 1.0 always.
- *   - single_rate:    factor = (1 + rate) for years >= startYear; 1.0 before.
- *   - yoy_compound:   factor = (1 + rate) ^ max(0, year - startYear).
- *   - step:           pickup the latest steps[i].factor where steps[i].year <= year.
+ *   - none:            factor = 1.0 always.
+ *   - single_rate:     factor = (1 + rate) for years >= startYear; 1.0 before.
+ *   - yoy_compound:    factor = (1 + rate) ^ max(0, year - startYear).
+ *   - step:            pickup the latest steps[i].factor where steps[i].year <= year.
+ *   - yoy_per_period:  per-year variable growth from `growthPerPeriod`.
+ *                      factor[startYear] = 1; factor[y] = factor[y-1] ×
+ *                      (1 + growthPerPeriod[y]) for y > startYear. Each
+ *                      growth value is clamped to ≥ -99% so the factor
+ *                      cannot collapse to zero. Mirrors MAAD's OOD-style
+ *                      column where each year carries its own escalation.
  */
 export function applyIndexation(
   baseRate: number,
@@ -32,6 +38,16 @@ export function applyIndexation(
     let factor = 1;
     for (const s of steps) {
       if (s.year <= year) factor = s.factor;
+    }
+    return base * factor;
+  }
+  if (config.method === 'yoy_per_period') {
+    if (year <= start) return base;
+    const growth = config.growthPerPeriod ?? [];
+    let factor = 1;
+    for (let i = start + 1; i <= year; i++) {
+      const g = Math.max(-0.99, growth[i] ?? 0);
+      factor *= 1 + g;
     }
     return base * factor;
   }
