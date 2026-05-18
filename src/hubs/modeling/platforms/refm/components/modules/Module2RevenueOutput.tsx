@@ -739,8 +739,12 @@ export default function Module2RevenueOutput(): React.JSX.Element {
 
                   {/* 3. Revenue Recognised */}
                   <SectionHeading n="3" title="Revenue Recognised" />
-                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}. Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year (Pre-Sales only).
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
+                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}.
+                    {recProfile?.method === 'point_in_time' && (recProfile.pointInTimeYear ?? 'handover') === 'handover' && (
+                      <> <strong>Handover</strong> resolves to <strong>{snap.yearLabels[handoverYearIdx] ?? '?'}</strong> (last construction year, marked <strong>*</strong> in the matrix below). Every pre-sales cohort lumps 100% there.</>
+                    )}
+                    {' '}Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year (Pre-Sales only).
                   </div>
                   <VintageMatrix
                     title="3a. Pre-Sales Recognition Vintage Matrix"

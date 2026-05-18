@@ -870,7 +870,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                   <MethodPill
                     active={(recProfile.pointInTimeYear ?? 'handover') === 'handover'}
-                    label="At handover"
+                    label={`At handover (${yearLabels[handoverYear] ?? '?'})`}
                     onClick={() => setRecognitionAnchor('handover')}
                   />
                   <MethodPill
@@ -879,9 +879,11 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                     onClick={() => setRecognitionAnchor('sale_year')}
                   />
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
                   {(recProfile.pointInTimeYear ?? 'handover') === 'handover'
-                    ? `Each cohort recognises 100% of revenue at handover (${yearLabels[handoverYear]}).`
+                    ? <>
+                        <strong>Rule:</strong> handover = LAST construction year (={yearLabels[handoverYear]}), not the first operations year. Every pre-sales cohort (2026-{yearLabels[handoverYear]}) lumps 100% of revenue at {yearLabels[handoverYear]}. Sales During Operation recognise in their own sale year (operating-sales convention).
+                      </>
                     : 'Each cohort recognises 100% of revenue in the same year it is sold.'}
                 </div>
               </>

@@ -96,6 +96,61 @@ assertTrue('A5: reconcile.ok (PIT no escrow)', reconA.ok,
   reconA.identities.filter((x) => !x.ok).map((x) => `${x.id}:${x.message}`).join('; ') || 'all passed');
 
 // ───────────────────────────────────────────────────────────────
+// Pass 7z (2026-05-18): pin the handover convention. resolveHandoverYear
+// must return the LAST construction year (= phaseStart + cp - 1 -
+// projectStart), NOT the first operations year. Mirrors the user's
+// scenario: Construction 2026-2029 (cp=4), Operations 2030+. Pre-sales
+// recognition under PIT-at-handover must lump at 2029 (idx 3), and
+// post-sales (sales during operation in 2030 = idx 4) must recognise
+// in 2030.
+// ───────────────────────────────────────────────────────────────
+console.log('--- Fixture A2: handover convention (PIT lumps at LAST construction year) ---');
+
+import { resolveHandoverYear } from '@/src/core/calculations/revenue';
+
+const handoverIdx = resolveHandoverYear(14, 2026, 4, 2026);
+assertTrue('A2-1: resolveHandoverYear returns LAST construction year (cp - 1)',
+  handoverIdx === 3,
+  `expected 3 (= 2029 index), got ${handoverIdx}`);
+
+const fixtureA2SubUnits: SubUnitMaterial[] = [
+  { id: 'su-A2-1br', area: 47800, count: 478, ratePerArea: 33456, ratePerUnit: 33456 * 100, metric: 'units' },
+];
+const fixtureA2Config: AssetSellConfig = {
+  assetId: 'asset-A2',
+  subUnits: [
+    { subUnitId: 'su-A2-1br',
+      // 2026 (idx 0): 5%, 2027: 30%, 2028: 30%, 2029: 25% (= 90% pre)
+      preSalesVelocity: [0.05, 0.30, 0.30, 0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      // 2030 (idx 4): 10% (SDO, same-period recognition)
+      postSalesVelocity:[0,    0,    0,    0,    0.10, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  ],
+  cashPaymentProfile: { percentages: [0.05, 0.30, 0.30, 0.25, 0.10, 0, 0, 0, 0, 0, 0, 0, 0, 0], profileMode: 'absolute_with_catchup' },
+  recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+  indexation: { method: 'none' },
+};
+const resultA2 = computeSellAsset({
+  config: fixtureA2Config,
+  subUnits: fixtureA2SubUnits,
+  axisLength: 14,
+  handoverYear: handoverIdx,
+});
+
+const preTotalA2 = resultA2.presalesRevenuePerPeriod.reduce((s, v) => s + v, 0);
+const postTotalA2 = resultA2.postSalesRevenuePerPeriod.reduce((s, v) => s + v, 0);
+
+assertNear('A2-2: pre-sales recognition lumps at idx 3 (2029)',
+  resultA2.recognitionPerPeriod[3], preTotalA2, 1, 0.01);
+assertNear('A2-3: post-sales (SDO) recognises at idx 4 (2030), same period as sale',
+  resultA2.recognitionPerPeriod[4], postTotalA2, 1, 0.01);
+assertTrue('A2-4: no recognition spillover into 2030 from pre-sales (idx 4 has only SDO)',
+  Math.abs(resultA2.presalesRecognitionPerPeriod[4]) < 0.5,
+  `presalesRecognition[2030] should be 0, got ${resultA2.presalesRecognitionPerPeriod[4]}`);
+assertTrue('A2-5: no pre-sales recognition leakage into other years',
+  resultA2.presalesRecognitionPerPeriod.every((v, i) => i === 3 ? v > 0 : v < 0.5),
+  `expected all 0 except idx 3, got ${JSON.stringify(resultA2.presalesRecognitionPerPeriod)}`);
+
+// ───────────────────────────────────────────────────────────────
 // Fixture B: MAAD T2 (1BR + 2BR, over-time recognition, no escrow)
 // Verifies cohort matrix totals across cash + recognition.
 // ───────────────────────────────────────────────────────────────
