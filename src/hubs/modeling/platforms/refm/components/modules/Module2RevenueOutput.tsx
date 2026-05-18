@@ -903,7 +903,13 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const opsMask = r.occupiedAreaPerPeriod.map((v) => (v > 0 ? 1 : 0));
     const broadcastIfOps = (v: number): number[] => opsMask.map((m) => (m > 0 ? v : 0));
     const areaSubUnits = assetSubUnits.filter((u) => u.metric === 'area');
-    const showPerSuBreakdown = areaSubUnits.length > 1;
+    // Pass 9g-D-fix2 (2026-05-18): always render per-sub-unit calculated
+    // rows above the grand total, even with a single sub-unit. The
+    // breakdown (rate / occupied area / revenue) is the work-shown for
+    // the total — without it the table is just a single grand row.
+    // weighted-avg label still kicks in only when there are 2+ zones.
+    const hasAnySubUnits = areaSubUnits.length > 0;
+    const isWeightedAvg = areaSubUnits.length > 1;
     const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u)), 0);
     const lastNonZero = (arr: number[]): number => {
       for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
@@ -913,7 +919,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const finalFactor = lastNonZero(r.rentIndexationFactorPerPeriod);
     const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
     const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
-    const perSuRateRows = showPerSuBreakdown
+    const perSuRateRows = hasAnySubUnits
       ? areaSubUnits.flatMap((u) => {
           const sub = r.perSubUnit?.[u.id];
           if (!sub) return [];
@@ -926,7 +932,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           }];
         })
       : [];
-    const perSuOccupiedRows = showPerSuBreakdown
+    const perSuOccupiedRows = hasAnySubUnits
       ? areaSubUnits.flatMap((u) => {
           const sub = r.perSubUnit?.[u.id];
           if (!sub) return [];
@@ -938,7 +944,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           }];
         })
       : [];
-    const perSuRevenueRows = showPerSuBreakdown
+    const perSuRevenueRows = hasAnySubUnits
       ? areaSubUnits.flatMap((u) => {
           const sub = r.perSubUnit?.[u.id];
           if (!sub) return [];
@@ -970,7 +976,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
             { label: 'Rent Indexation Factor', values: r.rentIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
             {
-              label: showPerSuBreakdown
+              label: isWeightedAvg
                 ? `Indexed Rate (GLA-weighted avg, ${currency} per sqm/yr)`
                 : `Indexed Rate (${currency} per sqm/yr)`,
               values: r.indexedRatePerPeriod,
@@ -982,10 +988,10 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
             ...perSuOccupiedRows,
             {
-              label: showPerSuBreakdown ? 'Total Occupied Lease Area (sqm)' : 'Occupied Lease Area (sqm)',
+              label: 'Total Occupied Lease Area (sqm)',
               values: r.occupiedAreaPerPeriod,
               rowFmt: areaFmt,
-              kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+              kind: hasAnySubUnits ? 'subtotal' as const : undefined,
               indent: 1,
             },
           ]}
