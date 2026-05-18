@@ -488,26 +488,12 @@ export default function Module2CostOfSales(): React.JSX.Element {
                     currency={currency}
                     fmt={fmt}
                   />
-                  <PeriodTable
-                    title="Cost of Sales · Calculations"
-                    caption="CoS during construction = ∆(cum recognition × cum pre-sales) × total capex. CoS during operations = post-handover sales × total capex (same period, operating-sales convention)."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'CoS during construction (pre-sales cohort)', values: cos.cosConstructionPerPeriod, indent: 0 },
-                      { label: 'CoS during operations (post-handover sales)', values: cos.cosOperationsPerPeriod, indent: 0 },
-                      { label: 'Total Cost of Sales', values: cos.totalCosPerPeriod, isTotal: true, indent: 0 },
-                      { label: 'Cumulative CoS', values: cos.cumulativeCosPerPeriod, isTotal: true, indent: 0, totalOverride: fmt(cos.cumulativeCosPerPeriod[cos.cumulativeCosPerPeriod.length - 1] ?? 0) },
-                    ]}
-                    currency={currency}
-                    fmt={fmt}
-                  />
-                  {/* Pass 9g-E (2026-05-18): CoS vintage matrix +
-                      Inventory roll-forward. The vintage matrix shows
-                      where each year's capex dollar lands as CoS over
-                      time (rows = capex spend year, cols = CoS year).
-                      Inventory = cumulative capex - cumulative CoS (work-
-                      in-progress + completed-unsold inventory still
-                      sitting on the balance sheet). */}
+                  {/* Pass 9g-F (2026-05-18): Vintage matrix BEFORE the
+                      summary table, mirroring the Revenue Output sequence
+                      (Block 3a vintage matrix → Block 3b recognition
+                      summary). The vintage matrix shows where each year's
+                      capex dollar lands as CoS over time (rows = capex
+                      spend year, cols = CoS year). */}
                   <VintageMatrix
                     title="Cost of Sales · Vintage Matrix"
                     caption="Each row = capex spent in that year. Each column = CoS recognised in that year. Cell(i, t) = capex_i × ∆joint[t] (or × joint[i] on the spend year, collapsing missed pre-i recognition). Row sum = capex_i × cum Pre-Sales %. Diagonal highlights where capex first contributes."
@@ -519,6 +505,18 @@ export default function Module2CostOfSales(): React.JSX.Element {
                     rowTotalHeader="Capex Released"
                     rowLabelPrefix="Spent in"
                     emptyMessage="No capex spend yet. Enter cost lines on Module 1 Tab 3."
+                  />
+                  <PeriodTable
+                    title="Cost of Sales · Summary"
+                    caption="CoS during construction = ∆(cum recognition × cum pre-sales) × total capex. CoS during operations = post-handover sales × total capex (same period, operating-sales convention)."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'CoS during construction (pre-sales cohort)', values: cos.cosConstructionPerPeriod, indent: 0 },
+                      { label: 'CoS during operations (post-handover sales)', values: cos.cosOperationsPerPeriod, indent: 0 },
+                      { label: 'Total Cost of Sales', values: cos.totalCosPerPeriod, isTotal: true, indent: 0 },
+                    ]}
+                    currency={currency}
+                    fmt={fmt}
                   />
                   {(() => {
                     // Pass 9g-E-fix (2026-05-18): Inventory roll-forward
@@ -577,19 +575,74 @@ export default function Module2CostOfSales(): React.JSX.Element {
         meta={`Total capex ${currency} ${fmt(projTotals.totalCapex)}`}
         storageKey="fmp:m2:costofsales:phase:__project__:collapsed"
       >
-        <PeriodTable
-          title="Project-wide Cost of Sales"
-          caption="Sum across all Sell + Sell+Manage assets."
-          yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'CoS during construction', values: projTotals.construction },
-            { label: 'CoS during operations', values: projTotals.operations },
-            { label: 'Total Cost of Sales', values: projTotals.total, isTotal: true },
-            { label: 'Cumulative CoS', values: projTotals.cumulative, isTotal: true, totalOverride: fmt(projTotals.cumulative[projTotals.cumulative.length - 1] ?? 0) },
-          ]}
-          currency={currency}
-          fmt={fmt}
-        />
+        {(() => {
+          // Pass 9g-F (2026-05-18): mirror Revenue Output's project
+          // total shape. Strategy-grouped: Residential / Sell (covers
+          // pure Sell + Sell+Manage parents). Each row = per-asset CoS
+          // construction + operations + total; group grand row sums
+          // across assets. Hospitality / Lease groups have no CoS by
+          // strategy convention (capex stays on balance sheet, gets
+          // depreciated in M3), so they don't appear here.
+          const N = snap.axisLength;
+          const zeros = (): number[] => new Array<number>(N).fill(0);
+          const sumArr = (arrs: number[][]): number[] => {
+            const out = zeros();
+            for (const a of arrs) for (let i = 0; i < N; i++) out[i] += a[i] ?? 0;
+            return out;
+          };
+
+          // CoS during Construction view
+          const constructionRows: Row[] = [];
+          const operationsRows: Row[] = [];
+          const totalRows: Row[] = [];
+
+          constructionRows.push({ label: 'Residential / Sell', values: [], isSection: true, indent: 0 });
+          operationsRows.push({ label: 'Residential / Sell', values: [], isSection: true, indent: 0 });
+          totalRows.push({ label: 'Residential / Sell', values: [], isSection: true, indent: 0 });
+          const constrSeries: number[][] = [];
+          const opsSeries: number[][] = [];
+          const totalSeries: number[][] = [];
+          for (const row of perAsset) {
+            constructionRows.push({ label: row.asset.name || 'Sell asset', values: row.cos.cosConstructionPerPeriod, indent: 1 });
+            operationsRows.push({ label: row.asset.name || 'Sell asset', values: row.cos.cosOperationsPerPeriod, indent: 1 });
+            totalRows.push({ label: row.asset.name || 'Sell asset', values: row.cos.totalCosPerPeriod, indent: 1 });
+            constrSeries.push(row.cos.cosConstructionPerPeriod);
+            opsSeries.push(row.cos.cosOperationsPerPeriod);
+            totalSeries.push(row.cos.totalCosPerPeriod);
+          }
+          constructionRows.push({ label: 'Total Residential / Sell · CoS during construction', values: sumArr(constrSeries), isTotal: true, indent: 0 });
+          operationsRows.push({ label: 'Total Residential / Sell · CoS during operations', values: sumArr(opsSeries), isTotal: true, indent: 0 });
+          totalRows.push({ label: 'Total Residential / Sell · Cost of Sales', values: sumArr(totalSeries), isTotal: true, indent: 0 });
+
+          return (
+            <>
+              <PeriodTable
+                title="Project Cost of Sales · During Construction"
+                caption="Per-asset breakdown grouped by strategy. Construction CoS = ∆(cum recognition × cum pre-sales) × total capex. Hospitality / Lease assets carry no CoS by convention (depreciation handles their cost recovery in M3)."
+                yearLabels={snap.yearLabels}
+                rows={constructionRows}
+                currency={currency}
+                fmt={fmt}
+              />
+              <PeriodTable
+                title="Project Cost of Sales · During Operations"
+                caption="Post-handover sales × total capex (same period, operating-sales convention)."
+                yearLabels={snap.yearLabels}
+                rows={operationsRows}
+                currency={currency}
+                fmt={fmt}
+              />
+              <PeriodTable
+                title="Project Total Cost of Sales"
+                caption="Construction + Operations per asset, then summed."
+                yearLabels={snap.yearLabels}
+                rows={totalRows}
+                currency={currency}
+                fmt={fmt}
+              />
+            </>
+          );
+        })()}
       </PhaseSection>
     </div>
   );
