@@ -914,6 +914,43 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const opDaysPerYear = opCfg?.daysPerYear ?? 365;
               const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
               const opStartingADR = opCfg?.startingADR ?? 0;
+              // Pass 9b (2026-05-18): conditional F&B + Other driver rows
+              // surface the per-asset rate/percent only when the active
+              // mode uses it. Keeps Block 1 honest about which inputs
+              // actually drive Block 2 revenue.
+              const opFbMode = opCfg?.fb?.mode ?? 'percent_of_rooms';
+              const opOtherMode = opCfg?.otherRevenue?.mode ?? 'percent_of_rooms';
+              // Pass 9b: AncillaryRevenueConfig fields are number | number[].
+              // Resolve to a per-period array clamped to the project axis
+              // so the table can render either uniform (scalar) or
+              // year-specific (array) inputs.
+              const resolveAncillary = (raw: number | number[] | undefined, n: number): number[] => {
+                if (Array.isArray(raw)) {
+                  const out = new Array<number>(n).fill(0);
+                  for (let i = 0; i < n; i++) out[i] = Math.max(0, raw[i] ?? 0);
+                  return out;
+                }
+                const scalar = Math.max(0, raw ?? 0);
+                return new Array<number>(n).fill(scalar);
+              };
+              const isScalar = (raw: number | number[] | undefined): boolean => !Array.isArray(raw);
+              const N = r.adrPerPeriod.length;
+              const opFbPctOfRoomsArr = resolveAncillary(opCfg?.fb?.percentOfRooms, N);
+              const opFbRatePerGuestArr = resolveAncillary(opCfg?.fb?.ratePerGuest, N);
+              const opFbFixedArr = resolveAncillary(opCfg?.fb?.fixedAmountPerPeriod, N);
+              const opOtherPctOfRoomsArr = resolveAncillary(opCfg?.otherRevenue?.percentOfRooms, N);
+              const opOtherRatePerGuestArr = resolveAncillary(opCfg?.otherRevenue?.ratePerGuest, N);
+              const opOtherFixedArr = resolveAncillary(opCfg?.otherRevenue?.fixedAmountPerPeriod, N);
+              // Constant scalar (for the Total column override on uniform inputs).
+              const opFbPctScalar = isScalar(opCfg?.fb?.percentOfRooms) ? Math.max(0, (opCfg?.fb?.percentOfRooms as number | undefined) ?? 0) : null;
+              const opFbRatePerGuestScalar = isScalar(opCfg?.fb?.ratePerGuest) ? Math.max(0, (opCfg?.fb?.ratePerGuest as number | undefined) ?? 0) : null;
+              const opOtherPctScalar = isScalar(opCfg?.otherRevenue?.percentOfRooms) ? Math.max(0, (opCfg?.otherRevenue?.percentOfRooms as number | undefined) ?? 0) : null;
+              const opOtherRatePerGuestScalar = isScalar(opCfg?.otherRevenue?.ratePerGuest) ? Math.max(0, (opCfg?.otherRevenue?.ratePerGuest as number | undefined) ?? 0) : null;
+              // Zero outside the ops window so it looks honest in the
+              // Output (engine clamps anyway).
+              const opsMask = r.availableRoomNightsPerPeriod.map((arn) => (arn > 0 ? 1 : 0));
+              const masked = (arr: number[]): number[] => arr.map((v, i) => v * (opsMask[i] ?? 0));
+              const showGuestsPerOR = opFbMode === 'per_guest' || opOtherMode === 'per_guest';
               // Broadcast across the full project axis (or zero outside
               // the ops window, since the engine clamps anyway and these
               // rows mirror the engine's view).
@@ -946,23 +983,45 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 >
                   <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
 
-                  {/* 1. Operations Capacity (Pass 8f: merged Drivers + Calcs) */}
+                  {/* 1. Operations Capacity (Pass 8f: merged Drivers + Calcs;
+                       Pass 9b: conditional F&B + Other driver rows) */}
                   <SectionHeading n="1" title="Operations Capacity" />
                   <PeriodTable
                     title="1. Drivers + Calculations"
-                    formula="Top five rows are user inputs (broadcast or per-year). Bottom three rows are derived: Available Room Nights = Keys × Days/Year; Occupied Room Nights = ARN × Occupancy; Guests = ORN × Guests/Room."
+                    formula="Driver rows are user inputs (broadcast or per-year); only the F&B + Other inputs matching the active mode are shown. Calculations: Available Room Nights = Keys × Days/Year; Occupied Room Nights = ARN × Occupancy; Guests = ORN × Guests/Room."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Drivers', values: [], kind: 'section', indent: 0 },
+                      { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
                       { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
                       { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
                       { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
                       { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
                       { label: `ADR (${currency} per occupied room night)`, values: r.adrPerPeriod, rowFmt: fmt, totalOverride: fmt(finalAdr), indent: 1 },
-                      { label: 'Calculations', values: [], kind: 'section', indent: 0 },
+                      ...(showGuestsPerOR
+                        ? [{ label: 'Guests per Occupied Room', values: broadcastIfOps(opGuestsPerOR), rowFmt: (v: number) => (Number.isFinite(v) && v > 0 ? v.toFixed(2) : '-'), totalOverride: opGuestsPerOR.toFixed(2), indent: 1 }]
+                        : []),
+                      ...(opFbMode === 'percent_of_rooms'
+                        ? [{ label: 'F&B % of Rooms Revenue', values: masked(opFbPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opFbPctScalar !== null ? pctFmt(opFbPctScalar) : undefined, indent: 1 }]
+                        : []),
+                      ...(opFbMode === 'per_guest'
+                        ? [{ label: `F&B Rate per Guest (${currency})`, values: masked(opFbRatePerGuestArr), rowFmt: fmt, totalOverride: opFbRatePerGuestScalar !== null ? fmt(opFbRatePerGuestScalar) : undefined, indent: 1 }]
+                        : []),
+                      ...(opFbMode === 'fixed_amount'
+                        ? [{ label: `F&B Fixed Amount per Year (${currency})`, values: masked(opFbFixedArr), rowFmt: fmt, indent: 1 }]
+                        : []),
+                      ...(opOtherMode === 'percent_of_rooms'
+                        ? [{ label: 'Other % of Rooms Revenue', values: masked(opOtherPctOfRoomsArr), rowFmt: pctFmt, totalOverride: opOtherPctScalar !== null ? pctFmt(opOtherPctScalar) : undefined, indent: 1 }]
+                        : []),
+                      ...(opOtherMode === 'per_guest'
+                        ? [{ label: `Other Rate per Guest (${currency})`, values: masked(opOtherRatePerGuestArr), rowFmt: fmt, totalOverride: opOtherRatePerGuestScalar !== null ? fmt(opOtherRatePerGuestScalar) : undefined, indent: 1 }]
+                        : []),
+                      ...(opOtherMode === 'fixed_amount'
+                        ? [{ label: `Other Fixed Amount per Year (${currency})`, values: masked(opOtherFixedArr), rowFmt: fmt, indent: 1 }]
+                        : []),
+                      { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
                       { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
                       { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
-                      { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal', indent: 1 },
+                      { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal' as const, indent: 1 },
                     ]}
                     fmt={intFmt}
                   />

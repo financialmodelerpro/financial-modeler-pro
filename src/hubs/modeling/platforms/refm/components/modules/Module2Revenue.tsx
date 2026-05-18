@@ -580,18 +580,23 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const opDSO = operateConfig?.dso ?? 30;
 
   const updateOperateInline = (patch: Partial<OperateCfg>): void => {
+    // Pass 9b (2026-05-18): merge existing + patch FIRST, then coalesce
+    // each known field to a default. Spreading `operateConfig` with
+    // undefined own properties used to overwrite the default constants,
+    // which sent startingADR=undefined into the store and rendered as 0
+    // even after the user typed an ADR. Coalescing per-field guarantees
+    // every emitted snapshot is a complete, valid OperateCfg.
+    const merged: Partial<OperateCfg> = { ...(operateConfig ?? {}), ...patch };
     const next: OperateCfg = {
       assetId: asset.id,
-      daysPerYear: 365,
-      startingADR: opStartingADR,
-      adrIndexation: opADRIdx,
-      occupancyPerPeriod: paddedArray(opOccupancy, totalPeriods),
-      guestsPerOccupiedRoom: opGuestsPerOR,
-      fb: opFb,
-      otherRevenue: opOther,
-      dso: opDSO,
-      ...(operateConfig ?? {}),
-      ...patch,
+      daysPerYear: merged.daysPerYear ?? 365,
+      startingADR: merged.startingADR ?? opStartingADR,
+      adrIndexation: merged.adrIndexation ?? opADRIdx,
+      occupancyPerPeriod: paddedArray(merged.occupancyPerPeriod ?? opOccupancy, totalPeriods),
+      guestsPerOccupiedRoom: merged.guestsPerOccupiedRoom ?? opGuestsPerOR,
+      fb: merged.fb ?? opFb,
+      otherRevenue: merged.otherRevenue ?? opOther,
+      dso: merged.dso ?? opDSO,
     };
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), operate: next } });
   };

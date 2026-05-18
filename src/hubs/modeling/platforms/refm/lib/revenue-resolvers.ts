@@ -114,7 +114,12 @@ export function resolveHospitalityConfig(
     assetId: asset.id,
     keys,
     daysPerYear: cfg.daysPerYear ?? 365,
-    startingADR: cfg.startingADR,
+    // Pass 9b (2026-05-18): defensive ?? 0 fallback so undefined or
+    // missing startingADR doesn't propagate into Math.max(0, undefined)
+    // → NaN downstream. Old snapshots written before Pass 8b may have
+    // operate.startingADR === undefined when the user touched a
+    // non-ADR field first; cfg.startingADR is undefined in that case.
+    startingADR: cfg.startingADR ?? 0,
     adrIndexation: cfg.adrIndexation ?? DEFAULT_INDEXATION,
     occupancyPerPeriod: cfg.occupancyPerPeriod ?? new Array<number>(axisLength).fill(0),
     guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
