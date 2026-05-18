@@ -752,6 +752,11 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateOperateInline({ occupancyPerPeriod: next });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
+  // Pass 9g-J (2026-05-18): rental-pool enrollment knobs for Sell + Manage
+  // companions. lag = years from sale closing to a sold unit going live in
+  // the rental program; rate = fraction of sold-unit owners who enroll.
+  const setOperateEnrollmentLag = (n: number): void => updateOperateInline({ enrollmentLagYears: Math.max(0, Math.round(n)) });
+  const setOperateEnrollmentRate = (pct: number): void => updateOperateInline({ enrollmentRate: Math.max(0, Math.min(1, pct / 100)) });
   const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
   };
@@ -1238,6 +1243,58 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   )}
                 </div>
               </InlineSection>
+
+              {/* Pass 9g-J (2026-05-18): Rental pool enrollment — for
+                  Sell + Manage companions only. The pure Operate parent
+                  doesn't need these because every key is in the pool
+                  from day one (it's a hotel, not a managed rental
+                  program). For a companion (the Manage side of a Sell +
+                  Manage), the rental pool builds up as buyers enroll
+                  their units, with a lag from sale closing. */}
+              {asset.isCompanion === true && (
+                <InlineSection
+                  title="Rental pool enrollment (Sell + Manage)"
+                  hint="Lag = years from sale closing to a sold unit going live in the rental program (furnishing / OTA listing / first bookings). Rate = fraction of sold-unit owners who enroll (rest is owner-occupied or self-managed)."
+                >
+                  <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Lag</span>
+                      <div style={{ width: 70 }}>
+                        <AccountingNumberInput
+                          value={operateConfig?.enrollmentLagYears ?? 1}
+                          onChange={setOperateEnrollmentLag}
+                          scale="full"
+                          decimals={0}
+                          min={0}
+                          max={10}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-enrollment-lag`}
+                        />
+                      </div>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>years</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Rate</span>
+                      <div style={{ width: 80 }}>
+                        <PercentageInput
+                          value={(operateConfig?.enrollmentRate ?? 1) * 100}
+                          onChange={setOperateEnrollmentRate}
+                          min={0}
+                          max={100}
+                          decimals={0}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-enrollment-rate`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
+                    Engine derives effective rental-pool keys per period from the parent&apos;s cumulative units sold:<br/>
+                    <strong>effective keys[y] = cum units sold[y - lag] × enrollment rate</strong>. Defaults to lag=1 year, rate=100%.
+                    Industry typical: 60-80% participation for branded residences.
+                  </div>
+                </InlineSection>
+              )}
 
               {/* DSO (drives AR roll-forward, Pass 8d) */}
               <InlineSection

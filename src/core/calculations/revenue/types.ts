@@ -235,6 +235,22 @@ export interface HospitalityConfig {
   // every output before opsStartIdx and after opsEndIdx.
   opsStartIdx: number;
   opsEndIdx: number;
+  /**
+   * Pass 9g-J (2026-05-18): per-period keys participation factor
+   * (0..1, project-axis-indexed). Scales each sub-unit's keys per
+   * period so the engine can model a gradually-enrolling rental pool
+   * for Sell + Manage assets:
+   *   suARN[y] = suKeys × keysParticipationPerPeriod[y] × daysPerYear
+   * When undefined (the default for standalone Operate assets), every
+   * period is treated as 1.0 (full participation), matching the
+   * pre-Pass 9g-J behaviour.
+   *
+   * The resolver populates this for Sell + Manage COMPANIONS only,
+   * deriving it from the parent's cumulative units sold + the
+   * configured enrollmentLag + enrollmentRate. Pure Operate assets
+   * (standalone hotels) never see this set.
+   */
+  keysParticipationPerPeriod?: number[];
 }
 
 export interface HospitalityAssetResult {
@@ -271,6 +287,18 @@ export interface HospitalityAssetResult {
     occupiedRoomNightsPerPeriod: number[];
     roomsRevenuePerPeriod: number[];
   }>;
+  /**
+   * Pass 9g-J (2026-05-18): per-period participation factor surfaced
+   * on the result so the UI can show the effective keys ramp. Equals
+   * the input keysParticipationPerPeriod when set, all-ones otherwise.
+   */
+  keysParticipationPerPeriod: number[];
+  /**
+   * Pass 9g-J (2026-05-18): asset-level effective keys per period
+   * (= total static keys × participation[t]). Surfaced for transparency
+   * in the Output Block 1 drivers ("Effective Rental Pool Keys" row).
+   */
+  effectiveKeysPerPeriod: number[];
 }
 
 /**

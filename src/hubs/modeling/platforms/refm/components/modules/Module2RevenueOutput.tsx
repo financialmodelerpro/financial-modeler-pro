@@ -784,6 +784,17 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
             { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
             { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
+            // Pass 9g-J (2026-05-18): rental pool ramp surfaced for Sell + Manage
+            // companions. Engine drives this from the parent's cum units sold ×
+            // enrollment rate, shifted by enrollment lag. For standalone Operate
+            // assets the participation stays 1.0 across all periods and the
+            // row collapses to the static keys, so we hide it.
+            ...((a.isCompanion === true && r.keysParticipationPerPeriod.some((p) => p < 0.999))
+              ? [
+                  { label: 'Rental Pool Participation %', values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
+                  { label: 'Effective Rental Pool Keys', values: r.effectiveKeysPerPeriod, rowFmt: intFmt, totalOverride: intFmt(r.effectiveKeysPerPeriod[r.effectiveKeysPerPeriod.length - 1] ?? 0), indent: 1 },
+                ]
+              : []),
             { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
             { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },
             {

@@ -10,8 +10,10 @@
 import {
   computeSellAsset,
   computeLeaseAsset,
+  computeHospitalityAsset,
   reconcileSellAsset,
   type AssetSellConfig,
+  type HospitalityConfig,
   type LeaseConfig,
   type SubUnitMaterial,
 } from '@/src/core/calculations/revenue';
@@ -993,6 +995,80 @@ const earlyResult = computeSellAsset({
 });
 assertNear('N4: PIT custom — recognition can land BEFORE sale year (axisIdx 0 = 2025)',
   earlyResult.presalesRecognitionPerPeriod[0], totalSales, 0.5);
+
+// ─────────────────────────────────────────────────────────────────────
+// O-series: Rental pool enrollment (Pass 9g-J)
+// Hospitality engine scales each sub-unit's keys by per-period
+// keysParticipationPerPeriod, so a Sell+Manage companion gradually
+// brings sold units into the rental pool instead of cliff-switching.
+// ─────────────────────────────────────────────────────────────────────
+const hospAxis = 16;
+const baseHospConfig: HospitalityConfig = {
+  assetId: 'companion-hotel',
+  subUnits: [{ id: 'standard', keys: 100, startingADR: 500, adrIndexation: { method: 'none' } }],
+  keys: 100,
+  daysPerYear: 365,
+  startingADR: 500,
+  adrIndexation: { method: 'none' },
+  occupancyPerPeriod: (() => {
+    const arr = new Array<number>(hospAxis).fill(0);
+    for (let i = 4; i < 14; i++) arr[i] = 1.0; // 100% occupancy to isolate keys math
+    return arr;
+  })(),
+  fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+  opsStartIdx: 4,
+  opsEndIdx: 13,
+};
+
+// No participation: should produce baseline 100 keys × 365 × 1.0 × 500 each year
+const noParticipationResult = computeHospitalityAsset({ config: baseHospConfig, axisLength: hospAxis });
+assertNear('O1: No participation (undefined) → full keys (= 100 × 365 × 500 = 18,250,000)',
+  noParticipationResult.totalRevenuePerPeriod[4], 100 * 365 * 500, 1);
+assertNear('O2: No participation → participation factor stays 1.0',
+  noParticipationResult.keysParticipationPerPeriod[5], 1.0, 0.001);
+assertNear('O3: No participation → effective keys stays 100',
+  noParticipationResult.effectiveKeysPerPeriod[5], 100, 0.1);
+
+// 50% participation: half the keys × full days × full occupancy × ADR
+const halfParticipation = new Array<number>(hospAxis).fill(0);
+for (let i = 4; i < 14; i++) halfParticipation[i] = 0.5;
+const halfResult = computeHospitalityAsset({
+  config: { ...baseHospConfig, keysParticipationPerPeriod: halfParticipation },
+  axisLength: hospAxis,
+});
+assertNear('O4: 50% participation → revenue halved (= 50 × 365 × 500 = 9,125,000)',
+  halfResult.totalRevenuePerPeriod[4], 50 * 365 * 500, 1);
+assertNear('O5: 50% participation → effective keys = 50',
+  halfResult.effectiveKeysPerPeriod[4], 50, 0.1);
+assertNear('O6: 50% participation → ARN = 50 × 365 = 18,250',
+  halfResult.availableRoomNightsPerPeriod[4], 50 * 365, 1);
+
+// Ramp up: 0 → 0.5 → 0.8 → 1.0 across years 4-7
+const rampParticipation = new Array<number>(hospAxis).fill(0);
+rampParticipation[4] = 0;     // year 4: nothing yet (e.g. handover, no enrollment)
+rampParticipation[5] = 0.5;   // year 5: half enrolled
+rampParticipation[6] = 0.8;   // year 6: stabilising
+rampParticipation[7] = 1.0;   // year 7: full pool
+for (let i = 8; i < 14; i++) rampParticipation[i] = 1.0;
+const rampResult = computeHospitalityAsset({
+  config: { ...baseHospConfig, keysParticipationPerPeriod: rampParticipation },
+  axisLength: hospAxis,
+});
+assertNear('O7: Ramp 0% in year 4 → revenue 0',
+  rampResult.totalRevenuePerPeriod[4], 0, 0.5);
+assertNear('O8: Ramp 50% in year 5 → revenue = 50 × 365 × 500 = 9,125,000',
+  rampResult.totalRevenuePerPeriod[5], 50 * 365 * 500, 1);
+assertNear('O9: Ramp 80% in year 6 → revenue = 80 × 365 × 500 = 14,600,000',
+  rampResult.totalRevenuePerPeriod[6], 80 * 365 * 500, 1);
+assertNear('O10: Ramp 100% in year 7 → revenue = 100 × 365 × 500 = 18,250,000',
+  rampResult.totalRevenuePerPeriod[7], 100 * 365 * 500, 1);
+
+// Per-room ADR should NOT shift with participation (it's a rate, not a flow).
+// Static base ADR = 500. With 50% participation, the keys-weighted avg ADR
+// stays 500, but Rooms Revenue scales with effective keys.
+assertNear('O11: 50% participation → asset-level ADR stays at base 500 (rate not flow)',
+  halfResult.adrPerPeriod[4], 500, 0.5);
 
 // Report
 let pass = 0;

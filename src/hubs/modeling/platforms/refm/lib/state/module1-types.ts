@@ -835,6 +835,22 @@ export interface Asset {
       };
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
       dso?: number;
+      /**
+       * Pass 9g-J (2026-05-18): rental-pool enrollment lag for Sell +
+       * Manage companions. Years from sale closing to a sold unit
+       * being live in the developer's rental program (furnishing /
+       * OTA listing / first bookings). Default 1. Pure Operate assets
+       * (standalone hotels) ignore this field.
+       */
+      enrollmentLagYears?: number;
+      /**
+       * Pass 9g-J (2026-05-18): rental-pool enrollment rate for Sell +
+       * Manage companions. Fraction (0..1) of sold-unit owners who
+       * enroll in the rental program (rest is owner-occupied / self-
+       * managed). Default 1.0 (full pool). Industry typical 0.6-0.8
+       * for branded residences.
+       */
+      enrollmentRate?: number;
     };
     /**
      * M2 Pass 9g (2026-05-18): Retail / Office Lease config. Mirrors

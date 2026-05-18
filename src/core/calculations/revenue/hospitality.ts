@@ -127,9 +127,23 @@ export function computeHospitalityAsset(
 
   const totalKeys = subUnits.reduce((s, u) => s + Math.max(0, u.keys), 0);
 
+  // Pass 9g-J (2026-05-18): per-period participation factor. Scales
+  // each sub-unit's keys per period to model a gradually-enrolling
+  // rental pool (Sell + Manage). Undefined input → all-ones (matches
+  // pre-Pass 9g-J behaviour for standalone Operate assets).
+  const participation = new Array<number>(N).fill(1);
+  if (config.keysParticipationPerPeriod) {
+    for (let i = 0; i < N; i++) {
+      const v = config.keysParticipationPerPeriod[i] ?? 1;
+      participation[i] = Math.max(0, Math.min(1, v));
+    }
+  }
+  const effectiveKeysPerPeriod = participation.map((p) => totalKeys * p);
+
   for (let y = startIdx; y <= endIdx; y++) {
     const rawOcc = config.occupancyPerPeriod[y] ?? 0;
     const occClamped = Math.max(0, Math.min(1, rawOcc));
+    const partY = participation[y];
 
     let totalArnY = 0;
     let totalOrnY = 0;
@@ -138,7 +152,7 @@ export function computeHospitalityAsset(
     let weightedFactorSum = 0;  // sum(keys_i × factor_i)
 
     for (const su of subUnits) {
-      const suKeys = Math.max(0, su.keys);
+      const suKeys = Math.max(0, su.keys) * partY;
       const suARN = suKeys * daysPerYear;
       const suORN = suARN * occClamped;
       const idx = su.adrIndexation ?? config.adrIndexation;
@@ -167,10 +181,12 @@ export function computeHospitalityAsset(
     arn[y] = totalArnY;
     orn[y] = totalOrnY;
     occ[y] = occClamped;
-    // Keys-weighted average ADR + factor. When totalKeys=0 (degenerate
-    // empty asset) both default to 0 — no rooms revenue anyway.
-    adr[y] = totalKeys > 0 ? weightedAdrSum / totalKeys : 0;
-    adrFactor[y] = totalKeys > 0 ? weightedFactorSum / totalKeys : 0;
+    // Keys-weighted average ADR + factor uses STATIC sub-unit keys
+    // (not participation-scaled) — the weighted average should
+    // describe the per-room rate, not the pool-size shift. Pool size
+    // shows separately in effectiveKeysPerPeriod.
+    adr[y] = totalKeys > 0 ? weightedAdrSum / totalKeys / Math.max(partY, 1e-9) : 0;
+    adrFactor[y] = totalKeys > 0 ? weightedFactorSum / totalKeys / Math.max(partY, 1e-9) : 0;
     guests[y] = guestsY;
     rooms[y] = totalRoomsY;
     fb[y] = fbY;
@@ -192,5 +208,7 @@ export function computeHospitalityAsset(
     otherRevenuePerPeriod: other,
     totalRevenuePerPeriod: total,
     perSubUnit,
+    keysParticipationPerPeriod: participation,
+    effectiveKeysPerPeriod,
   };
 }
