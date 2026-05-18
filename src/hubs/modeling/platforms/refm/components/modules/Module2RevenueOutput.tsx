@@ -23,8 +23,12 @@
  *   6. Unearned Revenue (pre-sales only; SDO does not form a balance)
  *
  * Pass 7s (2026-05-18) surfaces Sales During Operation in Blocks 3 + 4
- * and at the Project Total level so the cash + recognition view mirrors
- * the Revenue (Sales Value) Pre/Post/Total breakdown in Block 2.
+ * and restructures the Project Total section into strategy-grouped
+ * per-asset breakdowns (Residential / Sell with nested Pre-Sales +
+ * Sales During Operation; Hospitality / Operations; Retail / Lease;
+ * Sell + Manage). Same structure applies to Revenue (Sales Value),
+ * Recognition, and Cash. Hospitality / Lease / Sell+Manage groups
+ * render as zero placeholders until Pass 8 / 9 / 10 wire their engines.
  *
  * Every table carries a one-line formula caption so the math is
  * documented inline. Token discipline: all styling pulls from
@@ -34,12 +38,13 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, resolveSellConfig } from '../../lib/revenue-resolvers';
+import { computeAllSellResults, resolveSellConfig, type ProjectRevenueSnapshot } from '../../lib/revenue-resolvers';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
+import type { Asset } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import {
   formatAccounting,
@@ -77,7 +82,7 @@ function makeAreaFmt(decimals: DisplayDecimals): (v: number) => string {
   };
 }
 
-type RowKind = 'data' | 'subtotal' | 'grand';
+type RowKind = 'data' | 'subtotal' | 'grand' | 'section';
 
 interface PeriodRow {
   label: string;
@@ -85,6 +90,8 @@ interface PeriodRow {
   kind?: RowKind;
   /** Optional trailing column rendered after Total (e.g. cum % of BUA). */
   trailing?: string;
+  /** Visual indent depth, applied to the label cell. */
+  indent?: number;
 }
 
 function PeriodTable({
@@ -133,15 +140,42 @@ function PeriodTable({
           </thead>
           <tbody>
             {rows.map((r, idx) => {
+              if (r.kind === 'section') {
+                const valueColCount = 1 + (trailingHeader ? 1 : 0) + yearLabels.length;
+                const indentPx = Math.max(0, (r.indent ?? 0)) * 14;
+                return (
+                  <tr key={`${r.label}-${idx}`}>
+                    <td
+                      colSpan={1 + valueColCount}
+                      style={{
+                        padding: `var(--sp-1) calc(var(--sp-2) + ${indentPx}px)`,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: 'var(--color-heading)',
+                        background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+                        borderTop: '1px solid var(--color-border)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {r.label}
+                    </td>
+                  </tr>
+                );
+              }
               const tokens = r.kind === 'grand'
                 ? ROW_GRAND_TOTAL
                 : r.kind === 'subtotal'
                   ? ROW_SUBTOTAL
                   : ROW_DATA;
               const total = r.values.reduce((s, v) => s + (v ?? 0), 0);
+              const indentPx = Math.max(0, (r.indent ?? 0)) * 14;
+              const labelStyle = indentPx > 0
+                ? { ...tokens.name, paddingLeft: `calc(${tokens.name.paddingLeft ?? 'var(--sp-2)'} + ${indentPx}px)` }
+                : tokens.name;
               return (
                 <tr key={`${r.label}-${idx}`}>
-                  <td style={tokens.name}>{r.label}</td>
+                  <td style={labelStyle}>{r.label}</td>
                   <td style={tokens.numTotal}>{fmt(total)}</td>
                   {trailingHeader && (
                     <td style={tokens.num}>{r.trailing ?? ''}</td>
@@ -214,6 +248,141 @@ function buildTotalSqmReconciledRows(
     kind: 'grand',
     trailing: `${(assetCumPct * 100).toFixed(0)}%`,
   });
+  return rows;
+}
+
+/**
+ * Pass 7s (2026-05-18): Project Total breakdown grouped by strategy.
+ *
+ * View selector picks Revenue (sales value), Recognition, or Cash. For
+ * each strategy:
+ *   - Sell: nested Pre-Sales (per asset + subtotal) + Sales During
+ *     Operation (per asset + subtotal) + strategy total.
+ *   - Operate / Lease / Sell + Manage: flat per-asset + strategy total.
+ *     Engines come online in Pass 8 / 9 / 10 — zero placeholders until
+ *     then so the user sees the structure now.
+ *
+ * Strategy groups with zero assets are skipped entirely.
+ */
+type RevenueView = 'revenue' | 'recognition' | 'cash';
+
+function pickSegment(r: SellAssetResult, view: RevenueView, segment: 'pre' | 'post'): number[] {
+  if (view === 'revenue') return segment === 'pre' ? r.presalesRevenuePerPeriod : r.postSalesRevenuePerPeriod;
+  if (view === 'recognition') return segment === 'pre' ? r.presalesRecognitionPerPeriod : r.postSalesRecognitionPerPeriod;
+  return segment === 'pre' ? r.presalesCashPerPeriod : r.postSalesCashPerPeriod;
+}
+
+function sumArrays(arrs: number[][], axisLength: number): number[] {
+  const out = new Array<number>(axisLength).fill(0);
+  for (const a of arrs) for (let i = 0; i < axisLength; i++) out[i] += a[i] ?? 0;
+  return out;
+}
+
+function buildProjectGroupedRows({
+  view,
+  assets,
+  snap,
+}: {
+  view: RevenueView;
+  assets: Asset[];
+  snap: ProjectRevenueSnapshot;
+}): PeriodRow[] {
+  const rows: PeriodRow[] = [];
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+
+  const visible = assets.filter((a) => a.visible !== false && a.isCompanion !== true);
+  const sellAssets = visible.filter((a) => a.strategy === 'Sell');
+  const operateAssets = visible.filter((a) => a.strategy === 'Operate');
+  const leaseAssets = visible.filter((a) => a.strategy === 'Lease');
+  const hybridAssets = visible.filter((a) => a.strategy === 'Sell + Manage');
+
+  if (sellAssets.length > 0) {
+    rows.push({ label: 'Residential / Sell', values: [], kind: 'section', indent: 0 });
+
+    rows.push({ label: 'Pre-Sales', values: [], kind: 'section', indent: 1 });
+    const preSeries: number[][] = [];
+    for (const a of sellAssets) {
+      const r = snap.bySellAsset.get(a.id);
+      const vals = r ? pickSegment(r, view, 'pre') : zeros();
+      rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+      preSeries.push(vals);
+    }
+    const preTotal = sumArrays(preSeries, N);
+    rows.push({ label: 'Total Pre-Sales', values: preTotal, kind: 'subtotal', indent: 1 });
+
+    rows.push({ label: 'Sales During Operation', values: [], kind: 'section', indent: 1 });
+    const postSeries: number[][] = [];
+    for (const a of sellAssets) {
+      const r = snap.bySellAsset.get(a.id);
+      const vals = r ? pickSegment(r, view, 'post') : zeros();
+      rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+      postSeries.push(vals);
+    }
+    const postTotal = sumArrays(postSeries, N);
+    rows.push({ label: 'Total Sales During Operation', values: postTotal, kind: 'subtotal', indent: 1 });
+
+    rows.push({
+      label: 'Total Residential / Sell',
+      values: preTotal.map((v, i) => v + (postTotal[i] ?? 0)),
+      kind: 'grand',
+      indent: 0,
+    });
+  }
+
+  if (operateAssets.length > 0) {
+    rows.push({ label: 'Hospitality / Operations', values: [], kind: 'section', indent: 0 });
+    const series: number[][] = [];
+    for (const a of operateAssets) {
+      // Engine wires in Pass 8 — zeros until then.
+      const vals = zeros();
+      rows.push({ label: a.name || 'Operate asset', values: vals, indent: 1 });
+      series.push(vals);
+    }
+    rows.push({
+      label: 'Total Hospitality / Operations',
+      values: sumArrays(series, N),
+      kind: 'grand',
+      indent: 0,
+    });
+  }
+
+  if (leaseAssets.length > 0) {
+    rows.push({ label: 'Retail / Lease', values: [], kind: 'section', indent: 0 });
+    const series: number[][] = [];
+    for (const a of leaseAssets) {
+      // Engine wires in Pass 9 — zeros until then.
+      const vals = zeros();
+      rows.push({ label: a.name || 'Lease asset', values: vals, indent: 1 });
+      series.push(vals);
+    }
+    rows.push({
+      label: 'Total Retail / Lease',
+      values: sumArrays(series, N),
+      kind: 'grand',
+      indent: 0,
+    });
+  }
+
+  if (hybridAssets.length > 0) {
+    rows.push({ label: 'Sell + Manage', values: [], kind: 'section', indent: 0 });
+    const series: number[][] = [];
+    for (const a of hybridAssets) {
+      // Sell parent + Operate companion bundle wires in Pass 10 — zeros
+      // until then. (Note: Sell + Manage assets aren't in bySellAsset
+      // either, since the resolver filters strategy !== 'Sell'.)
+      const vals = zeros();
+      rows.push({ label: a.name || 'Sell + Manage asset', values: vals, indent: 1 });
+      series.push(vals);
+    }
+    rows.push({
+      label: 'Total Sell + Manage',
+      values: sumArrays(series, N),
+      kind: 'grand',
+      indent: 0,
+    });
+  }
+
   return rows;
 }
 
@@ -521,48 +690,30 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       <PhaseSection
         phaseId="__project__"
         title="Project Total"
-        meta="all phases combined"
+        meta="all phases combined, grouped by strategy"
         storageKey="fmp:m2:revenue:phase:__project__:collapsed"
       >
         <PeriodTable
-          title="Project Revenue (sales value year-on-year)"
-          formula="Sum of per-asset Pre + Post Revenue across every Sell asset."
+          title="Project Revenue (Sales Value year-on-year)"
+          formula="Per-asset breakdown grouped by strategy. Sell shows Pre-Sales + Sales During Operation. Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
           yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Project Pre-Sales Revenue', values: snap.projectTotals.presalesRevenuePerPeriod },
-            { label: 'Project Sales During Operation Revenue', values: snap.projectTotals.postSalesRevenuePerPeriod },
-            {
-              label: 'Project Total Revenue',
-              values: snap.projectTotals.presalesRevenuePerPeriod.map(
-                (v, i) => v + (snap.projectTotals.postSalesRevenuePerPeriod[i] ?? 0),
-              ),
-              kind: 'grand',
-            },
-          ]}
+          rows={buildProjectGroupedRows({ view: 'revenue', assets, snap })}
           unit={currency}
           fmt={fmt}
         />
         <PeriodTable
           title="Project Revenue Recognised"
-          formula="Sum of per-asset Recognition across every Sell asset. Pre = column-sum of recognition vintage matrices. Post = post-sales revenue recognised same period (operating sales)."
+          formula="Per-asset breakdown grouped by strategy. Sell Pre-Sales = recognition profile spread; Sales During Operation = same-period (operating). Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
           yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Project Pre-Sales Recognised', values: snap.projectTotals.presalesRecognitionPerPeriod },
-            { label: 'Project Sales During Operation Recognised', values: snap.projectTotals.postSalesRecognitionPerPeriod },
-            { label: 'Project Total Revenue Recognised', values: snap.projectTotals.recognitionPerPeriod, kind: 'grand' },
-          ]}
+          rows={buildProjectGroupedRows({ view: 'recognition', assets, snap })}
           unit={currency}
           fmt={fmt}
         />
         <PeriodTable
           title="Project Cash Collected"
-          formula="Sum of per-asset Cash across every Sell asset. Pre = column-sum of cash vintage matrices. Post = post-sales revenue collected same period (operating sales)."
+          formula="Per-asset breakdown grouped by strategy. Sell Pre-Sales = cash payment profile; Sales During Operation = same-period (operating). Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
           yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Project Pre-Sales Cash', values: snap.projectTotals.presalesCashPerPeriod },
-            { label: 'Project Sales During Operation Cash', values: snap.projectTotals.postSalesCashPerPeriod },
-            { label: 'Project Total Cash Collected', values: snap.projectTotals.cashCollectedPerPeriod, kind: 'grand' },
-          ]}
+          rows={buildProjectGroupedRows({ view: 'cash', assets, snap })}
           unit={currency}
           fmt={fmt}
         />
