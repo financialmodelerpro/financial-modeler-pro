@@ -1,11 +1,23 @@
 'use client';
 
 /**
- * Module2CostOfSales.tsx (M2 Pass 7b, phase-wise + collapsible)
+ * Module2CostOfSales.tsx (M2 Pass 9e-2, rebuilt per MAAD v1.16)
  *
- * Cost of Sales matched to recognition. Identity:
- *   CoS[i] = totalCapex × (recognition[i] / totalRecognition)
- *   cumulative CoS at end of recognition = totalCapex
+ * Cost of Sales follows the MAAD Residential Cashflow v1.16 design:
+ *
+ *   CoS during construction = ∆(cum_recognition × cum_pre_sales) × total_capex
+ *   CoS during operations   = (post_handover_sales[t] / inventory) × total_capex
+ *
+ * The joint cumulative formula respects BOTH sales cohort commitment
+ * AND construction recognition progress. A unit pre-sold in year Y can
+ * only contribute to CoS once construction progress reaches it; until
+ * then it sits as inventory. After handover, remaining unsold units
+ * recognise their cost basis SAME PERIOD as the sale closes
+ * (operating-sales convention, matches Sales During Operation).
+ *
+ * The vintage matrix (capex year × recognition year) shows where each
+ * capex dollar gets released as CoS over time. Row sum (vintage i) =
+ * capex_i × pre_sales_total_pct.
  *
  * Universal UI rules per [[feedback_ui_universal_defaults]]:
  * navy headers white text, phase-then-asset, collapsible, project-setup formatting.
@@ -14,8 +26,8 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, computeAssetCapex } from '../../lib/revenue-resolvers';
-import { buildCostOfSales, type CostOfSalesResult } from '@/src/core/calculations/revenue';
+import { computeAllSellResults } from '../../lib/revenue-resolvers';
+import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
 import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import {
@@ -152,9 +164,6 @@ export default function Module2CostOfSales(): React.JSX.Element {
   const perAsset = useMemo(() => sellAssets.map((a) => {
     const r = snap.bySellAsset.get(a.id);
     const phase = state.phases.find((p) => p.id === a.phaseId);
-    // Pass 9a (2026-05-18): full capex breakdown by stage so the
-    // CoS surface can render Land / Hard / Soft / Operating as
-    // separate driver rows (v1.16 design: land IS included in CoS).
     const breakdown: AssetCostBreakdown | null = phase
       ? computeAssetCost(
           a,
@@ -169,31 +178,71 @@ export default function Module2CostOfSales(): React.JSX.Element {
           state.project.financing?.parcelFunding,
         )
       : null;
-    const capex = breakdown?.total ?? computeAssetCapex(state, a.id);
-    const cos: CostOfSalesResult = r
-      ? buildCostOfSales(r.recognitionPerPeriod, capex, snap.axisLength)
-      : buildCostOfSales(new Array<number>(snap.axisLength).fill(0), capex, snap.axisLength);
-    return { asset: a, sell: r, capex, cos, breakdown };
+    const N = snap.axisLength;
+    // Pass 9e-2 (2026-05-18): per-period capex on the project axis.
+    // Mirrors the Costs Tab Table 3 mapping (financing/capex.ts):
+    //   local i=0 (Y0 lump) -> projIdx = offset - 1
+    //   local i>=1          -> projIdx = offset + i - 1
+    // where offset = phaseStartYear - projectStartYear.
+    const capexPerPeriod = new Array<number>(N).fill(0);
+    if (phase && breakdown) {
+      const projectStartYear = snap.yearLabels[0] ?? 0;
+      const phaseStartYear = phase.startDate
+        ? new Date(phase.startDate).getUTCFullYear()
+        : projectStartYear;
+      const offset = Math.max(0, phaseStartYear - projectStartYear);
+      const perAll = breakdown.perPeriod ?? [];
+      for (let i = 0; i < perAll.length; i++) {
+        const projIdx = i === 0 ? offset - 1 : offset + i - 1;
+        if (projIdx >= 0 && projIdx < N) capexPerPeriod[projIdx] += perAll[i] ?? 0;
+      }
+    }
+    const capex = breakdown?.total ?? 0;
+    // Sales cohort + recognition profile (already resolved in the
+    // revenue engine). The engine returns per-period units AND area;
+    // we pick the same metric the revenue surface uses (units when all
+    // sub-units are unit-metric, else area).
+    const assetSubUnits = state.subUnits.filter((u) => u.assetId === a.id);
+    const allUnits = assetSubUnits.length > 0 && assetSubUnits.every((u) => u.metric === 'units');
+    const presales = r ? (allUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod) : new Array<number>(N).fill(0);
+    const postSales = r ? (allUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod) : new Array<number>(N).fill(0);
+    const totalPre = presales.reduce((s, v) => s + Math.max(0, v), 0);
+    const totalPost = postSales.reduce((s, v) => s + Math.max(0, v), 0);
+    const totalInventory = totalPre + totalPost;
+    // Recognition profile during construction. We approximate the
+    // construction recognition profile from the per-period recognition
+    // generated by the engine (handles point-in-time + over-time +
+    // handover-at-end uniformly).
+    const recognitionProfile = r?.presalesRecognitionPerPeriod ?? new Array<number>(N).fill(0);
+    const cos: CostOfSalesV2Result = buildCostOfSalesV2({
+      capexPerPeriod,
+      presalesPerPeriod: presales,
+      postSalesPerPeriod: postSales,
+      recognitionPerPeriod: recognitionProfile,
+      totalInventory,
+      axisLength: N,
+    });
+    return { asset: a, sell: r, capex, capexPerPeriod, cos, breakdown };
   }), [sellAssets, snap, state]);
 
   const projTotals = useMemo(() => {
     const N = snap.axisLength;
-    const cos = new Array<number>(N).fill(0);
+    const construction = new Array<number>(N).fill(0);
+    const operations = new Array<number>(N).fill(0);
+    const total = new Array<number>(N).fill(0);
     const cum = new Array<number>(N).fill(0);
-    const gm = new Array<number>(N).fill(0);
     let totalCapex = 0;
-    let totalRec = 0;
     for (const row of perAsset) {
       totalCapex += row.cos.totalCapex;
-      totalRec += row.cos.totalRecognition;
       for (let i = 0; i < N; i++) {
-        cos[i] += row.cos.perPeriod[i] ?? 0;
-        gm[i] += row.cos.grossMarginPerPeriod[i] ?? 0;
+        construction[i] += row.cos.cosConstructionPerPeriod[i] ?? 0;
+        operations[i] += row.cos.cosOperationsPerPeriod[i] ?? 0;
+        total[i] += row.cos.totalCosPerPeriod[i] ?? 0;
       }
     }
     let running = 0;
-    for (let i = 0; i < N; i++) { running += cos[i]; cum[i] = running; }
-    return { perPeriod: cos, cumulative: cum, grossMargin: gm, totalCapex, totalRecognition: totalRec };
+    for (let i = 0; i < N; i++) { running += total[i]; cum[i] = running; }
+    return { construction, operations, total, cumulative: cum, totalCapex };
   }, [perAsset, snap.axisLength]);
 
   if (sellAssets.length === 0) {
@@ -219,8 +268,8 @@ export default function Module2CostOfSales(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Cost of Sales matched to revenue recognition (matching principle).
-          CoS = total capex × (period recognition / total recognition). Phases and assets collapse.
+          Pass 9e-2 (MAAD v1.16): CoS during construction = ∆(cum recognition × cum pre-sales) × total capex.
+          CoS during operations = post-handover sales × total capex (same period). Phases and assets collapse.
         </p>
       </div>
 
@@ -237,19 +286,6 @@ export default function Module2CostOfSales(): React.JSX.Element {
             storageKey={`fmp:m2:costofsales:phase:${p.id}:collapsed`}
           >
             {phaseRows.map((row) => {
-              const N = snap.axisLength;
-              const recognition = row.sell?.recognitionPerPeriod ?? new Array<number>(N).fill(0);
-              const totalRec = row.cos.totalRecognition;
-              // Recognition % per period (= revenue share = CoS share
-              // under the matching principle).
-              const recPctPerPeriod = recognition.map((v) => (totalRec > 0 ? v / totalRec : 0));
-              const recCumPctPerPeriod: number[] = [];
-              let cumRec = 0;
-              for (const p of recPctPerPeriod) {
-                cumRec += p;
-                recCumPctPerPeriod.push(cumRec);
-              }
-              const broadcast = (v: number): number[] => recognition.map(() => v);
               const pctFmt = (v: number): string => {
                 if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
                 return `${(v * 100).toFixed(1)}%`;
@@ -259,36 +295,68 @@ export default function Module2CostOfSales(): React.JSX.Element {
               const stageHard = bd?.byStage.hard ?? 0;
               const stageSoft = bd?.byStage.soft ?? 0;
               const stageOperating = bd?.byStage.operating ?? 0;
+              const cos = row.cos;
+              const totalCapex = cos.totalCapex;
+              const r = row.sell;
+              const N = snap.axisLength;
+              const assetSubUnits = state.subUnits.filter((u) => u.assetId === row.asset.id);
+              const allUnits = assetSubUnits.length > 0 && assetSubUnits.every((u) => u.metric === 'units');
+              const presales = r ? (allUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod) : new Array<number>(N).fill(0);
+              const postSales = r ? (allUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod) : new Array<number>(N).fill(0);
+              const totalSold = presales.reduce((s, v) => s + Math.max(0, v), 0) + postSales.reduce((s, v) => s + Math.max(0, v), 0);
+              const denominator = totalSold > 0 ? totalSold : 1e-9;
+              const presalesPctPerPeriod = presales.map((v) => v / denominator);
+              const postSalesPctPerPeriod = postSales.map((v) => v / denominator);
+              // Last non-zero finalisers for the Total column.
+              const totalPreSalesPct = presalesPctPerPeriod.reduce((s, v) => s + v, 0);
+              const totalPostSalesPct = postSalesPctPerPeriod.reduce((s, v) => s + v, 0);
+              const cumPreFinal = cos.cumPreSalesPerPeriod[cos.cumPreSalesPerPeriod.length - 1] ?? 0;
+              const cumRecFinal = cos.cumRecognitionPerPeriod[cos.cumRecognitionPerPeriod.length - 1] ?? 0;
+              const jointFinal = cos.jointFactorPerPeriod[cos.jointFactorPerPeriod.length - 1] ?? 0;
+              const inventoryLabel = allUnits ? 'units' : 'sqm';
 
               return (
                 <AssetSection
                   key={row.asset.id}
                   assetId={row.asset.id}
                   title={row.asset.name}
-                  meta={`Total Capex (incl. Land) ${currency} ${fmt(row.capex)} · CoS recognised = capex × recognition %`}
+                  meta={`Total Capex (incl. Land) ${currency} ${fmt(totalCapex)} · CoS construction + operations per MAAD v1.16`}
                   storageKey={`fmp:m2:costofsales:asset:${row.asset.id}:collapsed`}
                 >
                   <PeriodTable
-                    title="Cost of Sales · Drivers + Calculations"
-                    caption="Drivers (top): capex breakdown from M1 + revenue recognition profile. Calculations (below): CoS matched to recognition (CoS[y] = total capex × recognition[y] / total recognition). v1.16 design: land IS included in CoS."
+                    title="Cost of Sales · Drivers"
+                    caption="Capex per year (from M1) + pre-sales cohort + post-handover sales + revenue recognition profile during construction. These four streams drive the CoS calculation below."
                     yearLabels={snap.yearLabels}
                     rows={[
-                      { label: 'Drivers — Capex from Module 1', values: [], isSection: true, indent: 0 },
-                      { label: 'Land', values: broadcast(stageLand), totalOverride: fmt(stageLand), indent: 1 },
-                      { label: 'Hard Costs (Construction + Infra + Landscaping)', values: broadcast(stageHard), totalOverride: fmt(stageHard), indent: 1 },
-                      { label: 'Soft Costs (Pre-op + Professional + Commission + Contingency)', values: broadcast(stageSoft), totalOverride: fmt(stageSoft), indent: 1 },
+                      { label: 'Capex by stage (Total Capex basis for CoS)', values: [], isSection: true, indent: 0 },
+                      { label: 'Land (total)', values: [], totalOverride: fmt(stageLand), indent: 1 },
+                      { label: 'Hard Costs (total)', values: [], totalOverride: fmt(stageHard), indent: 1 },
+                      { label: 'Soft Costs (total)', values: [], totalOverride: fmt(stageSoft), indent: 1 },
                       ...(stageOperating > 0
-                        ? [{ label: 'Operating (Operating-stage capex)', values: broadcast(stageOperating), totalOverride: fmt(stageOperating), indent: 1 }]
+                        ? [{ label: 'Operating-stage capex (total)', values: [], totalOverride: fmt(stageOperating), indent: 1 }]
                         : []),
-                      { label: 'Total Capex (incl. Land)', values: broadcast(row.capex), totalOverride: fmt(row.capex), isTotal: true, indent: 1 },
-                      { label: 'Drivers — Revenue Recognition profile', values: [], isSection: true, indent: 0 },
-                      { label: 'Revenue Recognition %', values: recPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(recPctPerPeriod.reduce((s, v) => s + v, 0)), indent: 1 },
-                      { label: 'Cumulative Revenue Recognition %', values: recCumPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(recCumPctPerPeriod[recCumPctPerPeriod.length - 1] ?? 0), indent: 1 },
-                      { label: 'Calculations', values: [], isSection: true, indent: 0 },
-                      { label: 'Revenue Recognised', values: recognition, indent: 1 },
-                      { label: 'Cost of Sales (matched)', values: row.cos.perPeriod, indent: 1 },
-                      { label: 'Gross Margin', values: row.cos.grossMarginPerPeriod, indent: 1 },
-                      { label: 'Cumulative CoS', values: row.cos.cumulativePerPeriod, isTotal: true, indent: 1, totalOverride: fmt(row.cos.cumulativePerPeriod[row.cos.cumulativePerPeriod.length - 1] ?? 0) },
+                      { label: 'Capex per period (project axis)', values: row.capexPerPeriod, totalOverride: fmt(totalCapex), isTotal: true, indent: 1 },
+                      { label: 'Sales cohort (% of total inventory sold)', values: [], isSection: true, indent: 0 },
+                      { label: `Pre-Sales % per period (${inventoryLabel})`, values: presalesPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(totalPreSalesPct), indent: 1 },
+                      { label: 'Cumulative Pre-Sales %', values: cos.cumPreSalesPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cumPreFinal), indent: 1 },
+                      { label: `Sales (post-handover) % per period`, values: postSalesPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(totalPostSalesPct), indent: 1 },
+                      { label: 'Revenue Recognition profile (during construction)', values: [], isSection: true, indent: 0 },
+                      { label: 'Cumulative Recognition %', values: cos.cumRecognitionPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cumRecFinal), indent: 1 },
+                      { label: 'Joint factor = cum Recognition × cum Pre-Sales', values: cos.jointFactorPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(jointFinal), indent: 1 },
+                      { label: '∆ Joint factor (drives CoS during construction)', values: cos.deltaJointPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cos.deltaJointPerPeriod.reduce((s, v) => s + v, 0)), indent: 1 },
+                    ]}
+                    currency={currency}
+                    fmt={fmt}
+                  />
+                  <PeriodTable
+                    title="Cost of Sales · Calculations"
+                    caption="CoS during construction = ∆(cum recognition × cum pre-sales) × total capex. CoS during operations = post-handover sales × total capex (same period, operating-sales convention)."
+                    yearLabels={snap.yearLabels}
+                    rows={[
+                      { label: 'CoS during construction (pre-sales cohort)', values: cos.cosConstructionPerPeriod, indent: 0 },
+                      { label: 'CoS during operations (post-handover sales)', values: cos.cosOperationsPerPeriod, indent: 0 },
+                      { label: 'Total Cost of Sales', values: cos.totalCosPerPeriod, isTotal: true, indent: 0 },
+                      { label: 'Cumulative CoS', values: cos.cumulativeCosPerPeriod, isTotal: true, indent: 0, totalOverride: fmt(cos.cumulativeCosPerPeriod[cos.cumulativeCosPerPeriod.length - 1] ?? 0) },
                     ]}
                     currency={currency}
                     fmt={fmt}
@@ -303,16 +371,18 @@ export default function Module2CostOfSales(): React.JSX.Element {
       <PhaseSection
         phaseId="__project__"
         title="Project Total"
-        meta={`Total capex ${currency} ${fmt(projTotals.totalCapex)} · Recognition ${currency} ${fmt(projTotals.totalRecognition)}`}
+        meta={`Total capex ${currency} ${fmt(projTotals.totalCapex)}`}
         storageKey="fmp:m2:costofsales:phase:__project__:collapsed"
       >
         <PeriodTable
           title="Project-wide Cost of Sales"
+          caption="Sum across all Sell + Sell+Manage assets."
           yearLabels={snap.yearLabels}
           rows={[
-            { label: 'Project CoS per period', values: projTotals.perPeriod, isTotal: true },
-            { label: 'Project Cumulative CoS', values: projTotals.cumulative, isTotal: true },
-            { label: 'Project Gross Margin', values: projTotals.grossMargin, isTotal: true },
+            { label: 'CoS during construction', values: projTotals.construction },
+            { label: 'CoS during operations', values: projTotals.operations },
+            { label: 'Total Cost of Sales', values: projTotals.total, isTotal: true },
+            { label: 'Cumulative CoS', values: projTotals.cumulative, isTotal: true, totalOverride: fmt(projTotals.cumulative[projTotals.cumulative.length - 1] ?? 0) },
           ]}
           currency={currency}
           fmt={fmt}

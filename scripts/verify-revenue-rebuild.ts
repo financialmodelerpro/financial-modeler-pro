@@ -762,6 +762,76 @@ assertNear('K13: empty subUnits falls back to asset-level (ARN = 200 × 365)',
 assertNear('K14: empty subUnits fallback Rooms = ORN × 500',
   resK3.roomsRevenuePerPeriod[4], ornK3 * 500, 0.5);
 
+// ───────────────────────────────────────────────────────────────
+// Fixture L (Pass 9e-2, 2026-05-18): Cost of Sales V2.
+// Reproduces the MAAD Residential Cashflow v1.16 "Branded
+// Apartments T2 & T3" worked example. Construction 2026-2029,
+// pre-sales 5/30/30/25 (sum 90%), post-sales 10% in 2030.
+// Recognition profile 30/30/30/10. Capex per year:
+// 2026: 694341.78, 2027: 328401.65, 2028: 394081.98,
+// 2029: 448022.62, 2030: 11739.69 (operating-stage clean-up).
+// Total capex = 1876587.72.
+// Expected results from MAAD Costs sheet rows 122-138.
+// ───────────────────────────────────────────────────────────────
+console.log('\n--- Fixture L: CoS V2 joint cumulative (Pass 9e-2) ---');
+
+import { buildCostOfSalesV2 } from '@/src/core/calculations/revenue';
+
+// 14-year axis. 2025 = idx 0 (project start), 2026 = idx 1, ...
+// Capex starts year 2 (idx 1) per MAAD; pre-sales also align with
+// capex years. Total inventory = 100 (% mode); pre-sales 5/30/30/25
+// post-sales 10.
+const cosLInputs = {
+  capexPerPeriod: [0, 694341.78, 328401.65, 394081.98, 448022.62, 11739.69, 0, 0, 0, 0, 0, 0, 0, 0],
+  presalesPerPeriod:    [0, 5, 30, 30, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  postSalesPerPeriod:   [0, 0,  0,  0,  0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+  recognitionPerPeriod: [0, 30, 30, 30, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  totalInventory: 100,
+  axisLength: 14,
+};
+const cosL = buildCostOfSalesV2(cosLInputs);
+
+assertNear('L1: Total capex = 1876587.72',
+  cosL.totalCapex, 1876587.72, 0.05);
+assertNear('L2: Cum pre-sales by handover (idx 4) = 0.9',
+  cosL.cumPreSalesPerPeriod[4], 0.9, 1e-6);
+assertNear('L3: Cum recognition at handover = 1.0',
+  cosL.cumRecognitionPerPeriod[4], 1.0, 1e-6);
+assertNear('L4: Joint factor at handover = 1.0 × 0.9 = 0.9',
+  cosL.jointFactorPerPeriod[4], 0.9, 1e-6);
+// Per-year construction CoS expected from MAAD r136:
+// 2026 (idx 1): 10415.13; 2027 (idx 2): 204360.99;
+// 2028 (idx 3): 614066.75; 2029 (idx 4): 849520.37
+assertNear('L5: CoS construction 2026 = 10415.13',
+  cosL.cosConstructionPerPeriod[1], 10415.13, 1.0);
+assertNear('L6: CoS construction 2027 = 204360.99',
+  cosL.cosConstructionPerPeriod[2], 204360.99, 1.0);
+assertNear('L7: CoS construction 2028 = 614066.75',
+  cosL.cosConstructionPerPeriod[3], 614066.75, 1.0);
+assertNear('L8: CoS construction 2029 = 849520.37',
+  cosL.cosConstructionPerPeriod[4], 849520.37, 1.0);
+// CoS operations: 10% × 1876587.72 = 187658.77 in 2030 (idx 5)
+assertNear('L9: CoS operations 2030 = 187658.77',
+  cosL.cosOperationsPerPeriod[5], 187658.77, 0.5);
+// Lifetime total CoS = total capex × (cum_pre + cum_post) = 1876587.72
+// (since pre + post = 100% of inventory).
+const lifetimeCos = cosL.totalCosPerPeriod.reduce((s, v) => s + v, 0);
+assertNear('L10: Lifetime CoS = total capex (100% of inventory sold)',
+  lifetimeCos, 1876587.72, 0.5);
+// Vintage matrix: row 1 (2026 capex 694341.78), col 1 (2026) = 10415.13
+assertNear('L11: Vintage[2026][2026] = 694341.78 × 0.015 = 10415.13',
+  cosL.vintageMatrix[1][1], 10415.13, 1.0);
+// Vintage[2026][2027] = 694341.78 × 0.195 = 135396.65
+assertNear('L12: Vintage[2026][2027] = 694341.78 × 0.195 = 135396.65',
+  cosL.vintageMatrix[1][2], 135396.65, 1.0);
+// Vintage[2027][2027] = 328401.65 × 0.21 = 68964.35 (collapses 2026 share)
+assertNear('L13: Vintage[2027][2027] = 328401.65 × 0.21 = 68964.35',
+  cosL.vintageMatrix[2][2], 68964.35, 1.0);
+// Vintage row sum = capex_i × cum_pre_at_handover = capex × 0.9
+const vintage2026RowSum = cosL.vintageMatrix[1].reduce((s, v) => s + v, 0);
+assertNear('L14: Vintage[2026] row sum = capex_2026 × 0.9 = 624907.60',
+  vintage2026RowSum, 624907.60, 1.0);
+
 // Report
 let pass = 0;
 let fail = 0;
