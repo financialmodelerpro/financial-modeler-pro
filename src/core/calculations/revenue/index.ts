@@ -17,6 +17,9 @@ export type {
   HospitalityAssetResult,
   HospitalityConfig,
   IndexationConfig,
+  LeaseAssetResult,
+  LeaseConfig,
+  LeaseSubUnitConfig,
   ProfileMode,
   ReconcileIdentity,
   ReconcileReport,
@@ -34,6 +37,8 @@ export { computeSellAsset, resolveHandoverYear } from './sell';
 export type { ComputeSellInputs } from './sell';
 export { computeHospitalityAsset } from './hospitality';
 export type { ComputeHospitalityInputs } from './hospitality';
+export { computeLeaseAsset } from './lease';
+export type { ComputeLeaseInputs } from './lease';
 export { reconcileSellAsset } from './reconcile';
 export { buildAccountsReceivable } from './accountsReceivable';
 export type { AccountsReceivableResult } from './accountsReceivable';

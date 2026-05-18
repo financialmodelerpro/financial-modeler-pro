@@ -23,6 +23,7 @@ import {
 import {
   computeSellAsset,
   computeHospitalityAsset,
+  computeLeaseAsset,
   resolveHandoverYear,
   buildAccountsReceivable,
   buildUnearnedRevenue,
@@ -32,6 +33,8 @@ import {
   type HospitalityAssetResult,
   type HospitalityConfig,
   type IndexationConfig,
+  type LeaseAssetResult,
+  type LeaseConfig,
   type RecognitionProfile,
   type SellAssetResult,
   type SubUnitMaterial,
@@ -181,6 +184,70 @@ export function resolveHospitalityConfig(
   };
 }
 
+/**
+ * Pass 9g (2026-05-18): build a LeaseConfig for the engine. Reads
+ * asset.revenue.lease + sums GLA across sub-units where metric='area'.
+ * Per-sub-unit base rates come from M1 SubUnit.unitPrice (acts as the
+ * "rate per sqm per year" entry for lease assets). Operations window
+ * comes from the asset's phase. Returns null when the asset has no
+ * lease config yet.
+ */
+export function resolveLeaseConfig(
+  asset: Asset,
+  phase: Phase,
+  subUnits: SubUnit[],
+  projectStartYear: number,
+  axisLength: number,
+): LeaseConfig | null {
+  const cfg = asset.revenue?.lease;
+  if (!cfg) return null;
+  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
+  // Lease assets carry their GLA on sub-units with metric='area'.
+  // Fractional areas are kept (sqm is a continuous measure unlike
+  // hospitality keys which are integer counts).
+  const totalGla = assetSubUnits
+    .filter((u) => u.metric === 'area')
+    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+  const phaseStartYear = phase.startDate
+    ? new Date(phase.startDate).getUTCFullYear()
+    : projectStartYear;
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  const op = Math.max(0, phase.operationsPeriods ?? 0);
+  const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+  const constructionStartIdx = Math.max(0, Math.min(axisLength - 1, phaseStartYear - projectStartYear));
+  const handoverYear = Math.max(constructionStartIdx, Math.min(axisLength - 1, constructionStartIdx + cp - 1));
+  const defaultOpsStartIdx = Math.max(constructionStartIdx, Math.min(axisLength - 1, handoverYear + 1 - overlap));
+  const opsStartIdx = cfg.operationsStartYearOverride != null
+    ? Math.max(constructionStartIdx, Math.min(axisLength - 1, cfg.operationsStartYearOverride - projectStartYear))
+    : defaultOpsStartIdx;
+  // Ops end stays anchored to the phase calendar end so pulling start
+  // forward never lops a year off. Mirrors the hospitality resolver.
+  const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, defaultOpsStartIdx + op - 1));
+
+  // Per-sub-unit lease rows: each metric='area' sub-unit becomes a
+  // LeaseSubUnitConfig with its own GLA + base rate. Asset-level
+  // cfg.baseRate is the fallback when a sub-unit has no unitPrice set.
+  const leaseSubUnits: LeaseConfig['subUnits'] = assetSubUnits
+    .filter((u) => u.metric === 'area')
+    .map((u) => ({
+      id: u.id,
+      gla: Math.max(0, u.metricValue),
+      baseRate: u.unitPrice > 0 ? u.unitPrice : (cfg.baseRate ?? 0),
+    }));
+
+  return {
+    assetId: asset.id,
+    subUnits: leaseSubUnits,
+    gla: totalGla,
+    baseRate: cfg.baseRate ?? 0,
+    rentIndexation: cfg.rentIndexation ?? DEFAULT_INDEXATION,
+    occupancyPerPeriod: cfg.occupancyPerPeriod ?? new Array<number>(axisLength).fill(0),
+    opsStartIdx,
+    opsEndIdx,
+    arDays: cfg.arDays ?? 30,
+  };
+}
+
 function makeSubUnitMaterial(u: SubUnit): SubUnitMaterial {
   const area = computeSubUnitArea(u);
   if (u.metric === 'units') {
@@ -203,6 +270,11 @@ export interface ProjectRevenueSnapshot {
   // operate side of a sell parent). Includes pure Operate parents.
   byHospitalityAsset: Map<string, HospitalityAssetResult>;
   hospitalityProjectTotals: HospitalityAssetResult;
+  // Pass 9g (2026-05-18): Retail / Office Lease per-asset results.
+  // One entry per Lease-strategy parent asset; companions don't apply
+  // (Sell + Manage companions go to byHospitalityAsset only).
+  byLeaseAsset: Map<string, LeaseAssetResult>;
+  leaseProjectTotals: LeaseAssetResult;
 }
 
 export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
@@ -373,6 +445,40 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     // level occupancy / ADR.
   }
 
+  // Pass 9g (2026-05-18): Retail / Office Lease compute loop. One entry
+  // per Lease-strategy parent. Companions stay in hospitality.
+  const byLeaseAsset = new Map<string, LeaseAssetResult>();
+  const leaseProjectTotals: LeaseAssetResult = {
+    assetId: '__project__',
+    axisLength: N,
+    occupiedAreaPerPeriod: emptyArr(),
+    occupancyPerPeriod: emptyArr(),
+    indexedRatePerPeriod: emptyArr(),
+    rentIndexationFactorPerPeriod: emptyArr(),
+    totalRevenuePerPeriod: emptyArr(),
+    perSubUnit: {},
+  };
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    if (a.strategy !== 'Lease') continue;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    if (!phase) continue;
+    const cfg = resolveLeaseConfig(a, phase, subUnits, projectStartYear, N);
+    if (!cfg) continue;
+    const result = computeLeaseAsset({ config: cfg, axisLength: N });
+    byLeaseAsset.set(a.id, result);
+    const accL = (key: keyof LeaseAssetResult): void => {
+      const src = result[key] as number[];
+      const dst = leaseProjectTotals[key] as number[];
+      for (let i = 0; i < N; i++) dst[i] += src[i] ?? 0;
+    };
+    accL('occupiedAreaPerPeriod');
+    accL('totalRevenuePerPeriod');
+    // occupancyPerPeriod + indexedRatePerPeriod + factor are rates, not
+    // flows — leave project totals at 0 for those, consumers should
+    // read per-asset values only.
+  }
+
   return {
     axisLength: N,
     projectStartYear,
@@ -381,6 +487,8 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     projectTotals,
     byHospitalityAsset,
     hospitalityProjectTotals,
+    byLeaseAsset,
+    leaseProjectTotals,
   };
 }
 

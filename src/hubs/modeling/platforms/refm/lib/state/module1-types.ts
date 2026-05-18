@@ -826,6 +826,36 @@ export interface Asset {
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
       dso?: number;
     };
+    /**
+     * M2 Pass 9g (2026-05-18): Retail / Office Lease config. Mirrors
+     * LeaseConfig at src/core/calculations/revenue/types.ts minus the
+     * engine-resolved fields (gla, opsStartIdx, opsEndIdx) which the
+     * resolver derives from M1 sub-units + phase windows.
+     */
+    lease?: {
+      assetId: string;
+      // Asset-level fallbacks. Resolver computes per-sub-unit gla +
+      // baseRate from M1 sub-units (metric='area'). These act as the
+      // fallback when an asset has no sub-units yet.
+      baseRate: number;
+      // Operations can start mid-construction (e.g., a retail mall
+      // opens partial floors before the asset is fully complete).
+      // When set, this absolute project year overrides the resolver's
+      // default opsStartIdx = handoverYear + 1 - overlap. Engine still
+      // respects operationsEndIdx from the phase.
+      operationsStartYearOverride?: number;
+      rentIndexation: {
+        method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+        rate?: number;
+        startYear?: number;
+        steps?: Array<{ year: number; factor: number }>;
+        growthPerPeriod?: number[];
+      };
+      // Project-axis-indexed occupancy ramp (0..1 per period).
+      occupancyPerPeriod: number[];
+      /** Days Sales Outstanding for AR roll-forward. Default 30. */
+      arDays?: number;
+    };
   };
 }
 

@@ -264,3 +264,68 @@ export interface HospitalityAssetResult {
     roomsRevenuePerPeriod: number[];
   }>;
 }
+
+/**
+ * Pass 9g (2026-05-18): per-sub-unit retail / lease row. A lease asset
+ * (mall, office tower) often has multiple sub-zones with their own
+ * GLA + base rate + indexation (anchor tenant vs. inline retail vs.
+ * F&B; ground-floor vs. upper-floor offices). Occupancy ramp + ops
+ * window stay asset-wide.
+ */
+export interface LeaseSubUnitConfig {
+  id: string;
+  // Gross Lease Area (sqm) for this sub-zone.
+  gla: number;
+  // Base rent rate (currency / sqm / year) before indexation.
+  baseRate: number;
+  // Optional per-sub-unit rent indexation override. When undefined,
+  // falls back to asset-level rentIndexation.
+  rentIndexation?: IndexationConfig;
+}
+
+export interface LeaseConfig {
+  assetId: string;
+  // Per-sub-unit GLA + base rate breakdown. Engine sums revenue
+  // across sub-units. Empty array = asset has no sub-units; engine
+  // then falls back to asset-level gla + baseRate.
+  subUnits: LeaseSubUnitConfig[];
+  // Asset-level totals (fallback path + UI summary).
+  gla: number;
+  baseRate: number;
+  // Asset-level rent escalation. Default for any sub-unit that doesn't
+  // carry its own override.
+  rentIndexation: IndexationConfig;
+  // Occupancy ramp, project-axis-indexed. 0..1 per period. Engine
+  // clamps. Values outside [opsStart, opsEnd] are ignored.
+  occupancyPerPeriod: number[];
+  // Operations window (project-axis indices, inclusive). Engine zeros
+  // every output before opsStartIdx and after opsEndIdx.
+  opsStartIdx: number;
+  opsEndIdx: number;
+  // Optional Days Sales Outstanding for AR roll-forward. Default 30.
+  arDays?: number;
+}
+
+export interface LeaseAssetResult {
+  assetId: string;
+  axisLength: number;
+  // Asset-level totals, summed across sub-units.
+  occupiedAreaPerPeriod: number[];
+  occupancyPerPeriod: number[];
+  // GLA-weighted average indexed rate per period (currency / sqm / yr).
+  // When the asset has a single sub-unit (or no sub-units), this equals
+  // that one indexed rate. With multiple sub-units carrying different
+  // rates, it's the GLA-weighted average that explains revenue / area.
+  indexedRatePerPeriod: number[];
+  // GLA-weighted indexation factor per period (×factor).
+  rentIndexationFactorPerPeriod: number[];
+  totalRevenuePerPeriod: number[];
+  // Per-sub-unit breakdown for the Output narrative.
+  perSubUnit: Record<string, {
+    gla: number;
+    occupiedAreaPerPeriod: number[];
+    indexedRatePerPeriod: number[];
+    rentIndexationFactorPerPeriod: number[];
+    revenuePerPeriod: number[];
+  }>;
+}
