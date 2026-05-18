@@ -784,16 +784,37 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             { label: 'Drivers', values: [], kind: 'section' as const, indent: 0 },
             { label: 'Total Rooms (Keys)', values: broadcastIfOps(opKeys), rowFmt: intFmt, totalOverride: intFmt(opKeys), indent: 1 },
             { label: 'Days per Year', values: broadcastIfOps(opDaysPerYear), rowFmt: intFmt, totalOverride: intFmt(opDaysPerYear), indent: 1 },
-            // Pass 9g-J (2026-05-18): rental pool ramp surfaced for Sell + Manage
-            // companions. Engine drives this from the parent's cum units sold ×
-            // enrollment rate, shifted by enrollment lag. For standalone Operate
-            // assets the participation stays 1.0 across all periods and the
-            // row collapses to the static keys, so we hide it.
-            ...((a.isCompanion === true && r.keysParticipationPerPeriod.some((p) => p < 0.999))
-              ? [
-                  { label: 'Rental Pool Participation %', values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
-                  { label: 'Effective Rental Pool Keys', values: r.effectiveKeysPerPeriod, rowFmt: intFmt, totalOverride: intFmt(r.effectiveKeysPerPeriod[r.effectiveKeysPerPeriod.length - 1] ?? 0), indent: 1 },
-                ]
+            // Pass 9g-J / 9g-M (2026-05-18): rental pool ramp surfaced
+            // for Sell + Manage companions ALWAYS (not just when <100%)
+            // so the user can audit the lag + rate math step-by-step:
+            // (1) cum units sold (parent) — upstream input
+            // (2) cum sold at y - lag — shifted by lag years
+            // (3) participation % = lagged / totalKeys × rate
+            // (4) effective keys = totalKeys × participation
+            ...((a.isCompanion === true && a.parentAssetId)
+              ? (() => {
+                  const parent = snap.bySellAsset.get(a.parentAssetId);
+                  if (!parent) return [];
+                  const lag = Math.max(0, Math.round(opCfg?.enrollmentLagYears ?? 1));
+                  const rate = Math.max(0, Math.min(1, opCfg?.enrollmentRate ?? 1));
+                  const cumSold = new Array<number>(N).fill(0);
+                  let running = 0;
+                  for (let i = 0; i < N; i++) {
+                    running += Math.max(0, parent.presalesUnitsPerPeriod[i] ?? 0)
+                      + Math.max(0, parent.postSalesUnitsPerPeriod[i] ?? 0);
+                    cumSold[i] = running;
+                  }
+                  const laggedCumSold = cumSold.map((_, i) => {
+                    const idx = i - lag;
+                    return idx >= 0 ? cumSold[idx] : 0;
+                  });
+                  return [
+                    { label: 'Cumulative Units Sold (from parent)', values: cumSold, rowFmt: intFmt, totalOverride: intFmt(cumSold[cumSold.length - 1] ?? 0), indent: 1 },
+                    { label: `Cumulative Sold at y − ${lag} (enrollment lag)`, values: laggedCumSold, rowFmt: intFmt, totalOverride: intFmt(laggedCumSold[laggedCumSold.length - 1] ?? 0), indent: 1 },
+                    { label: `Rental Pool Participation % (lagged ÷ ${opKeys.toLocaleString('en-US')} keys × ${(rate * 100).toFixed(0)}% rate)`, values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
+                    { label: 'Effective Rental Pool Keys', values: r.effectiveKeysPerPeriod, rowFmt: intFmt, totalOverride: intFmt(r.effectiveKeysPerPeriod[r.effectiveKeysPerPeriod.length - 1] ?? 0), indent: 1 },
+                  ];
+                })()
               : []),
             { label: 'Occupancy %', values: r.occupancyPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(occAvg), indent: 1 },
             { label: 'ADR Indexation Factor', values: r.adrIndexationFactorPerPeriod, rowFmt: factorFmt, totalOverride: factorFmt(finalFactor), indent: 1 },

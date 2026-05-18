@@ -1290,8 +1290,14 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
                     Engine derives effective rental-pool keys per period from the parent&apos;s cumulative units sold:<br/>
-                    <strong>effective keys[y] = cum units sold[y - lag] × enrollment rate</strong>. Defaults to lag=1 year, rate=100%.
-                    Industry typical: 60-80% participation for branded residences.
+                    <strong>effective keys[y] = cum units sold[y − lag] × enrollment rate</strong>. Defaults: lag=1 year, rate=100%.
+                    Industry typical: 60-80% participation for branded residences.<br/>
+                    <strong>Worked example</strong> (100 keys, 90% sold by 2029, 10% in 2030):<br/>
+                    &nbsp;• lag=1, rate=100% → pool = 0/90/100/100 in 2029-2032<br/>
+                    &nbsp;• lag=2, rate=100% → pool = 0/0/90/100 in 2029-2032<br/>
+                    &nbsp;• lag=1, rate=70% → pool = 0/63/70/70 in 2029-2032<br/>
+                    For a hard &quot;start in year X&quot; cliff (e.g. reference workbook), use the <em>Operations start year override</em>
+                    field below instead — it zeros revenue before X and gives 100% pool from X onwards.
                   </div>
                 </InlineSection>
               )}
