@@ -71,12 +71,8 @@ function resolveAssetOpexLines(asset: Asset): OpexLine[] {
       disabled: l.disabled,
     }));
   }
-  if (asset.strategy === 'Operate' || asset.strategy === 'Sell + Manage') {
-    return defaultHospitalityOpexLines();
-  }
-  if (asset.strategy === 'Lease') {
-    return defaultLeaseOpexLines();
-  }
+  if (asset.strategy === 'Operate') return defaultHospitalityOpexLines();
+  if (asset.strategy === 'Lease') return defaultLeaseOpexLines();
   return [];
 }
 
@@ -97,7 +93,9 @@ function buildAssetRevenueContext(
   const total = zeros(axisLength);
   const lease = zeros(axisLength);
 
-  if (asset.strategy === 'Operate' || asset.strategy === 'Sell + Manage') {
+  if (asset.strategy === 'Operate') {
+    // Includes both pure Hospitality and Sell + Manage companions
+    // (companions carry strategy='Operate' with isCompanion=true).
     const r = revenueSnap.byHospitalityAsset.get(asset.id);
     if (r) {
       for (let t = 0; t < axisLength; t++) {
@@ -116,11 +114,8 @@ function buildAssetRevenueContext(
         lease[t] = v;
       }
     }
-  } else if (asset.strategy === 'Sell') {
-    // Sell-only assets don't have ongoing opex (one-time sale +
-    // potential post-handover sales during operation). Leave streams
-    // zero; engine will return zeros.
   }
+  // Sell + Manage PARENTS and pure Sell have no ongoing opex.
 
   return {
     roomRevenuePerPeriod: room,
@@ -156,7 +151,7 @@ function resolveOpsWindow(
 
   // Lease + Hospitality both allow opsStartYearOverride
   let opsStartIdx = defaultOpsStart;
-  if (asset.strategy === 'Operate' || asset.strategy === 'Sell + Manage') {
+  if (asset.strategy === 'Operate') {
     const override = asset.revenue?.operate?.operationsStartYearOverride;
     if (typeof override === 'number') {
       opsStartIdx = Math.max(handoverIdx, override - projectStartYear);
@@ -200,8 +195,11 @@ export function computeAllOpexResults(
   };
 
   for (const a of assets) {
-    // Sell-only without companion has no ongoing opex; skip.
-    if (a.strategy === 'Sell') continue;
+    // Only Hospitality (Operate, including Sell + Manage companions
+    // whose strategy is 'Operate') and Retail/Lease carry opex.
+    // Sell + Manage PARENTS (strategy 'Sell + Manage') and pure Sell
+    // have no ongoing operations — skip.
+    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
 
     const lines = resolveAssetOpexLines(a);
     if (lines.length === 0) continue;
@@ -213,7 +211,7 @@ export function computeAllOpexResults(
     const myUnits = subUnits.filter((u) => u.assetId === a.id);
     let keys = 0;
     let leasableSqm = 0;
-    if (a.strategy === 'Operate' || a.strategy === 'Sell + Manage') {
+    if (a.strategy === 'Operate') {
       for (const u of myUnits) {
         if (u.metric === 'units') keys += Math.max(0, u.metricValue);
       }

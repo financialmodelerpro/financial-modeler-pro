@@ -214,24 +214,73 @@ function OpexLineTable({
   allowedModes,
   onChange,
   testidPrefix,
+  // Per-asset tables pass the operations window so a line can use a
+  // year-by-year inflation ramp. HQ + project templates omit this and
+  // only get None / Flat YoY % options.
+  opsYearCells,
+  axisLength,
 }: {
   lines: OpexLine[];
   allowedCategories: OpexLineCategory[];
   allowedModes: OpexLineMode[];
   onChange: (next: OpexLine[]) => void;
   testidPrefix: string;
+  opsYearCells?: Array<{ idx: number; year: number }>;
+  axisLength?: number;
 }): React.JSX.Element {
+  // Which row's per-year ramp editor is expanded. Single-open at a time.
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+
   const updateLine = (idx: number, patch: Partial<OpexLine>): void => {
     const next = lines.map((l, i) => (i === idx ? { ...l, ...patch } : l));
     onChange(next);
   };
   const removeLine = (idx: number): void => onChange(lines.filter((_, i) => i !== idx));
   const addLine = (): void => onChange([...lines, defaultLineForStrategy('Hospitality')]);
-  const updateIndexation = (idx: number, method: 'none' | 'yoy_compound', rate: number): void => {
-    const patch: Partial<OpexLine> = method === 'none'
-      ? { indexation: { method: 'none' } }
-      : { indexation: { method: 'yoy_compound', rate: Math.max(0, rate / 100), startYear: 0 } };
-    updateLine(idx, patch);
+
+  // Indexation method changes. When switching between methods, preserve
+  // intent: Off -> Flat seeds 3%; Flat -> Yearly seeds an array filled
+  // with the prior flat rate so the user keeps the same total effect
+  // and tweaks year-by-year afterward.
+  const setIndexationMethod = (
+    idx: number,
+    method: 'none' | 'yoy_compound' | 'yoy_per_period',
+  ): void => {
+    const cur = lines[idx].indexation;
+    if (method === 'none') {
+      updateLine(idx, { indexation: { method: 'none' } });
+      return;
+    }
+    if (method === 'yoy_compound') {
+      const rate = cur.method === 'yoy_compound' ? (cur.rate ?? 0.03) : 0.03;
+      updateLine(idx, { indexation: { method: 'yoy_compound', rate, startYear: 0 } });
+      return;
+    }
+    // yoy_per_period: seed growthPerPeriod with the prior flat rate so
+    // factor[t] starts equivalent to the flat case.
+    const seedRate = cur.method === 'yoy_compound' ? (cur.rate ?? 0.03) : 0.03;
+    const N = Math.max(0, axisLength ?? 0);
+    const growth = new Array<number>(N).fill(0);
+    if (opsYearCells) {
+      for (const c of opsYearCells) {
+        if (c.idx >= 0 && c.idx < N) growth[c.idx] = seedRate;
+      }
+    }
+    updateLine(idx, { indexation: { method: 'yoy_per_period', startYear: 0, growthPerPeriod: growth } });
+  };
+
+  const setFlatRate = (idx: number, pct: number): void => {
+    updateLine(idx, { indexation: { method: 'yoy_compound', rate: Math.max(0, pct / 100), startYear: 0 } });
+  };
+
+  const setPerPeriodRate = (idx: number, projectIdx: number, pct: number): void => {
+    const cur = lines[idx].indexation;
+    const N = Math.max(0, axisLength ?? 0);
+    const base = cur.method === 'yoy_per_period' ? (cur.growthPerPeriod ?? []) : [];
+    const next = new Array<number>(N).fill(0);
+    for (let i = 0; i < Math.min(base.length, N); i++) next[i] = base[i] ?? 0;
+    next[projectIdx] = Math.max(0, pct / 100);
+    updateLine(idx, { indexation: { method: 'yoy_per_period', startYear: 0, growthPerPeriod: next } });
   };
 
   // Renders a mode-aware value cell: % for pct_* / pct_of_gop, raw
@@ -280,90 +329,170 @@ function OpexLineTable({
         </thead>
         <tbody>
           {lines.map((l, idx) => {
-            const inflRate = l.indexation.method === 'yoy_compound'
+            const method = l.indexation.method === 'yoy_compound' || l.indexation.method === 'yoy_per_period'
+              ? l.indexation.method
+              : 'none';
+            const flatRate = l.indexation.method === 'yoy_compound'
               ? Math.round(((l.indexation.rate ?? 0) * 100) * 100) / 100
               : 0;
+            const supportsPerPeriod = opsYearCells && opsYearCells.length > 0;
+            const isExpanded = expandedRow === idx && method === 'yoy_per_period';
             return (
-              <tr key={l.id} style={{ borderBottom: '1px solid var(--color-border)', opacity: l.disabled ? 0.5 : 1 }}>
-                <td style={{ padding: '4px 6px' }}>
-                  <input
-                    type="text"
-                    value={l.name}
-                    onChange={(e) => updateLine(idx, { name: e.target.value })}
-                    style={{ ...FAST_INPUT, textAlign: 'left' }}
-                    data-testid={`${testidPrefix}-name-${idx}`}
-                  />
-                </td>
-                <td style={{ padding: '4px 6px' }}>
-                  <select
-                    value={l.category}
-                    onChange={(e) => updateLine(idx, { category: e.target.value as OpexLineCategory })}
-                    style={{ ...FAST_INPUT, textAlign: 'left' }}
-                    data-testid={`${testidPrefix}-cat-${idx}`}
-                  >
-                    {allowedCategories.map((c) => (
-                      <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
-                    ))}
-                  </select>
-                </td>
-                <td style={{ padding: '4px 6px' }}>
-                  <select
-                    value={l.mode}
-                    onChange={(e) => updateLine(idx, { mode: e.target.value as OpexLineMode })}
-                    style={{ ...FAST_INPUT, textAlign: 'left' }}
-                    data-testid={`${testidPrefix}-mode-${idx}`}
-                  >
-                    {allowedModes.map((m) => (
-                      <option key={m} value={m}>{MODE_LABELS[m]}</option>
-                    ))}
-                  </select>
-                </td>
-                <td style={{ padding: '4px 6px' }}>{renderValueInput(l, idx)}</td>
-                <td style={{ padding: '4px 6px' }}>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <React.Fragment key={l.id}>
+                <tr style={{ borderBottom: '1px solid var(--color-border)', opacity: l.disabled ? 0.5 : 1 }}>
+                  <td style={{ padding: '4px 6px' }}>
+                    <input
+                      type="text"
+                      value={l.name}
+                      onChange={(e) => updateLine(idx, { name: e.target.value })}
+                      style={{ ...FAST_INPUT, textAlign: 'left' }}
+                      data-testid={`${testidPrefix}-name-${idx}`}
+                    />
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>
+                    <select
+                      value={l.category}
+                      onChange={(e) => updateLine(idx, { category: e.target.value as OpexLineCategory })}
+                      style={{ ...FAST_INPUT, textAlign: 'left' }}
+                      data-testid={`${testidPrefix}-cat-${idx}`}
+                    >
+                      {allowedCategories.map((c) => (
+                        <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>
+                    <select
+                      value={l.mode}
+                      onChange={(e) => updateLine(idx, { mode: e.target.value as OpexLineMode })}
+                      style={{ ...FAST_INPUT, textAlign: 'left' }}
+                      data-testid={`${testidPrefix}-mode-${idx}`}
+                    >
+                      {allowedModes.map((m) => (
+                        <option key={m} value={m}>{MODE_LABELS[m]}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>{renderValueInput(l, idx)}</td>
+                  <td style={{ padding: '4px 6px' }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select
+                        value={method}
+                        onChange={(e) => {
+                          const m = e.target.value as 'none' | 'yoy_compound' | 'yoy_per_period';
+                          setIndexationMethod(idx, m);
+                          if (m === 'yoy_per_period') setExpandedRow(idx);
+                          else if (expandedRow === idx) setExpandedRow(null);
+                        }}
+                        style={{ ...FAST_INPUT, textAlign: 'left', width: 90 }}
+                        data-testid={`${testidPrefix}-infl-method-${idx}`}
+                      >
+                        <option value="none">Off</option>
+                        <option value="yoy_compound">Flat YoY</option>
+                        {supportsPerPeriod && <option value="yoy_per_period">Yearly</option>}
+                      </select>
+                      {method === 'yoy_compound' && (
+                        <PercentageInput
+                          value={flatRate}
+                          onChange={(n) => setFlatRate(idx, n)}
+                          min={0}
+                          max={50}
+                          decimals={2}
+                          style={{ ...FAST_INPUT, width: 60 }}
+                          data-testid={`${testidPrefix}-infl-rate-${idx}`}
+                        />
+                      )}
+                      {method === 'yoy_per_period' && supportsPerPeriod && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRow(isExpanded ? null : idx)}
+                          style={{
+                            fontSize: 10,
+                            padding: '2px 8px',
+                            background: 'var(--color-surface)',
+                            color: 'var(--color-navy)',
+                            border: '1px solid var(--color-navy)',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          data-testid={`${testidPrefix}-infl-expand-${idx}`}
+                        >
+                          {isExpanded ? '▾ Hide' : '▸ Edit yearly'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>
                     <input
                       type="checkbox"
-                      checked={l.indexation.method === 'yoy_compound'}
-                      onChange={(e) => updateIndexation(idx, e.target.checked ? 'yoy_compound' : 'none', inflRate)}
-                      data-testid={`${testidPrefix}-infl-on-${idx}`}
+                      checked={!l.disabled}
+                      onChange={(e) => updateLine(idx, { disabled: !e.target.checked })}
+                      data-testid={`${testidPrefix}-on-${idx}`}
                     />
-                    {l.indexation.method === 'yoy_compound' && (
-                      <PercentageInput
-                        value={inflRate}
-                        onChange={(n) => updateIndexation(idx, 'yoy_compound', n)}
-                        min={0}
-                        max={50}
-                        decimals={2}
-                        style={{ ...FAST_INPUT, width: 60 }}
-                        data-testid={`${testidPrefix}-infl-rate-${idx}`}
-                      />
-                    )}
-                  </div>
-                </td>
-                <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={!l.disabled}
-                    onChange={(e) => updateLine(idx, { disabled: !e.target.checked })}
-                    data-testid={`${testidPrefix}-on-${idx}`}
-                  />
-                </td>
-                <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(idx)}
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--color-danger, #b91c1c)',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 14,
-                    }}
-                    title="Remove line"
-                    data-testid={`${testidPrefix}-remove-${idx}`}
-                  >×</button>
-                </td>
-              </tr>
+                  </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(idx)}
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--color-danger, #b91c1c)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 14,
+                      }}
+                      title="Remove line"
+                      data-testid={`${testidPrefix}-remove-${idx}`}
+                    >×</button>
+                  </td>
+                </tr>
+                {isExpanded && opsYearCells && (
+                  <tr style={{ background: 'var(--color-grey-pale)' }}>
+                    <td colSpan={7} style={{ padding: '6px 12px' }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
+                        Per-year inflation % for <strong>{l.name}</strong>. factor[y] = factor[y−1] × (1 + growth[y]).
+                        Leave at 0% to freeze the factor for that year.
+                      </div>
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
+                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                              <th style={{ padding: '4px 6px', textAlign: 'left' }}>Year</th>
+                              {opsYearCells.map((c) => (
+                                <th key={c.idx} style={{ padding: '4px 6px', textAlign: 'center' }}>{c.year}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td style={{ padding: '4px 6px', fontWeight: 600 }}>Growth %</td>
+                              {opsYearCells.map((c) => {
+                                const v = l.indexation.method === 'yoy_per_period'
+                                  ? (l.indexation.growthPerPeriod?.[c.idx] ?? 0) * 100
+                                  : 0;
+                                return (
+                                  <td key={c.idx} style={{ padding: '2px 4px' }}>
+                                    <PercentageInput
+                                      value={v}
+                                      onChange={(n) => setPerPeriodRate(idx, c.idx, n)}
+                                      min={-50}
+                                      max={50}
+                                      decimals={2}
+                                      style={{ ...FAST_INPUT, width: '100%' }}
+                                      data-testid={`${testidPrefix}-infl-yr-${idx}-${c.idx}`}
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             );
           })}
         </tbody>
@@ -406,8 +535,15 @@ export default function Module3Opex(): React.JSX.Element {
   const [collapsedAssets, setCollapsedAssets] = useState<Record<string, boolean>>({});
   const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({});
 
-  // Filter to opex-relevant assets (skip Sell-only).
-  const opexAssets = useMemo(() => assets.filter((a) => a.strategy !== 'Sell'), [assets]);
+  // Filter to opex-relevant assets: Hospitality (Operate, including
+  // Sell + Manage companions whose strategy is 'Operate') and Lease.
+  // Sell + Manage PARENTS (strategy 'Sell + Manage') have no opex —
+  // their operating side lives on the companion. Pure Sell has no
+  // ongoing operations.
+  const opexAssets = useMemo(
+    () => assets.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease'),
+    [assets],
+  );
   const assetsByPhase = useMemo(() => {
     const map = new Map<string, Asset[]>();
     for (const a of opexAssets) {
@@ -436,12 +572,76 @@ export default function Module3Opex(): React.JSX.Element {
   };
 
   const seedAsset = (a: Asset): void => {
-    const seed = (a.strategy === 'Operate' || a.strategy === 'Sell + Manage')
+    const seed = a.strategy === 'Operate'
       ? defaultHospitalityOpexLines()
       : a.strategy === 'Lease'
         ? defaultLeaseOpexLines()
         : [];
     if (seed.length > 0) setAssetLines(a.id, seed);
+  };
+
+  // Compute project axis details once so per-asset ops windows can be
+  // expressed in absolute project years (lines up with engine indexing).
+  const projectStartYear = useMemo(
+    () => new Date(project.startDate ?? '2025-01-01').getUTCFullYear(),
+    [project.startDate],
+  );
+  const axisLength = useMemo(() => {
+    let maxEnd = 1;
+    for (const p of phases) {
+      const phStart = p.startDate
+        ? new Date(p.startDate).getUTCFullYear()
+        : projectStartYear;
+      const offset = Math.max(0, phStart - projectStartYear);
+      const cp = Math.max(0, p.constructionPeriods ?? 0);
+      const op = Math.max(0, p.operationsPeriods ?? 0);
+      maxEnd = Math.max(maxEnd, offset + cp + op);
+    }
+    return Math.max(1, maxEnd);
+  }, [phases, projectStartYear]);
+
+  const opsYearsForAsset = (a: Asset): Array<{ idx: number; year: number }> => {
+    const phase = phases.find((p) => p.id === a.phaseId);
+    if (!phase) return [];
+    const phStart = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const offset = Math.max(0, phStart - projectStartYear);
+    const cp = Math.max(0, phase.constructionPeriods ?? 0);
+    const op = Math.max(0, phase.operationsPeriods ?? 0);
+    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+    const handoverIdx = Math.max(0, offset + cp - 1);
+    const defaultOpsStart = Math.max(handoverIdx, handoverIdx + 1 - overlap);
+    let opsStartIdx = defaultOpsStart;
+    if (a.strategy === 'Operate') {
+      const override = a.revenue?.operate?.operationsStartYearOverride;
+      if (typeof override === 'number') opsStartIdx = Math.max(handoverIdx, override - projectStartYear);
+    } else if (a.strategy === 'Lease') {
+      const override = a.revenue?.lease?.operationsStartYearOverride;
+      if (typeof override === 'number') opsStartIdx = Math.max(handoverIdx, override - projectStartYear);
+    }
+    const opsEndIdx = Math.min(axisLength - 1, defaultOpsStart + op - 1);
+    const cells: Array<{ idx: number; year: number }> = [];
+    for (let i = opsStartIdx; i <= opsEndIdx; i++) {
+      cells.push({ idx: i, year: projectStartYear + i });
+    }
+    return cells;
+  };
+
+  // Bulk-apply: copy this asset's lines to every other asset that shares
+  // the same strategy bucket (all Hospitality OR all Retail/Lease).
+  const applyToStrategy = (sourceAsset: Asset): void => {
+    const sourceLines = sourceAsset.opex?.lines ?? [];
+    if (sourceLines.length === 0) return;
+    const isHospitality = sourceAsset.strategy === 'Operate';
+    const isLease = sourceAsset.strategy === 'Lease';
+    if (!isHospitality && !isLease) return;
+    for (const other of assets) {
+      if (other.id === sourceAsset.id) continue;
+      const matches = isHospitality ? other.strategy === 'Operate' : other.strategy === 'Lease';
+      if (!matches) continue;
+      // Fresh ids per asset so future per-asset edits don't ricochet.
+      const cloned = sourceLines.map((l) => ({ ...l, id: `${l.id}-${other.id.slice(0, 6)}` }));
+      updateAsset(other.id, { opex: { lines: cloned } });
+    }
   };
 
   const assetCategoriesFor = (a: Asset): OpexLineCategory[] =>
@@ -450,7 +650,7 @@ export default function Module3Opex(): React.JSX.Element {
     a.strategy === 'Lease' ? LEASE_MODES : HOSP_MODES;
   const strategyBadge = (a: Asset): { label: string; color: string } => {
     if (a.strategy === 'Lease') return { label: 'Retail / Lease', color: 'var(--color-warning, #92400e)' };
-    if (a.strategy === 'Sell + Manage') return { label: 'Sell + Manage', color: 'var(--color-info, #1d4ed8)' };
+    if (a.isCompanion === true) return { label: 'Hospitality (Manage side)', color: 'var(--color-info, #1d4ed8)' };
     return { label: 'Hospitality', color: 'var(--color-success, #166534)' };
   };
 
@@ -465,8 +665,10 @@ export default function Module3Opex(): React.JSX.Element {
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Operating Expenses</h2>
         <p style={{ fontSize: 12, color: 'var(--color-meta)' }}>
-          Per-asset opex line items (direct departmental, indirect undistributed, management fees, replacement reserve,
-          fixed charges). Plus project-wide HQ overheads. Engine evaluates each line over the asset&apos;s operations window.
+          Per-asset opex line items for Hospitality (Operate, including Sell + Manage companions) and Retail/Lease. Plus
+          project-wide HQ overheads. Each line carries its own inflation method (Off, Flat YoY %, or Yearly custom for
+          per-period growth). Use <em>Apply to all Hospitality / Retail</em> on any asset to push its configuration to
+          every other asset of the same strategy.
         </p>
       </div>
 
@@ -496,7 +698,7 @@ export default function Module3Opex(): React.JSX.Element {
           background: 'var(--color-grey-pale)',
           borderRadius: 'var(--radius-sm)',
         }}>
-          No operating assets yet. Add Hospitality (Operate), Lease, or Sell + Manage assets in Module 1.
+          No operating assets yet. Add Hospitality (Operate) or Retail/Lease assets in Module 1. Sell-only and Sell + Manage parents do not carry opex.
         </div>
       )}
 
@@ -550,13 +752,45 @@ export default function Module3Opex(): React.JSX.Element {
                       </button>
                     </div>
                   ) : (
-                    <OpexLineTable
-                      lines={lines}
-                      allowedCategories={assetCategoriesFor(a)}
-                      allowedModes={assetModesFor(a)}
-                      onChange={(next) => setAssetLines(a.id, next)}
-                      testidPrefix={`m3-asset-${a.id}`}
-                    />
+                    <>
+                      <OpexLineTable
+                        lines={lines}
+                        allowedCategories={assetCategoriesFor(a)}
+                        allowedModes={assetModesFor(a)}
+                        onChange={(next) => setAssetLines(a.id, next)}
+                        testidPrefix={`m3-asset-${a.id}`}
+                        opsYearCells={opsYearsForAsset(a)}
+                        axisLength={axisLength}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
+                            const ok = window.confirm(
+                              `Apply this asset's opex lines to every other ${label} asset?\n\n` +
+                              `Each ${label} asset will be overwritten with the lines configured here. ` +
+                              `This won't change HQ overheads or assets of a different strategy.`,
+                            );
+                            if (ok) applyToStrategy(a);
+                          }}
+                          style={{
+                            fontSize: 10,
+                            padding: '4px 10px',
+                            background: 'var(--color-surface)',
+                            color: 'var(--color-navy)',
+                            border: '1px solid var(--color-navy)',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          title={`Copy these lines to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
+                          data-testid={`m3-apply-strategy-${a.id}`}
+                        >
+                          Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}
+                        </button>
+                      </div>
+                    </>
                   )}
                 </AssetCard>
               );
