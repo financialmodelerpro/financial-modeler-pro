@@ -653,7 +653,13 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     // even after the user typed an ADR. Coalescing per-field guarantees
     // every emitted snapshot is a complete, valid OperateCfg.
     const merged: Partial<OperateCfg> = { ...(operateConfig ?? {}), ...patch };
+    // Pass 9e (2026-05-18): preserve every key from the merged shape so
+    // new optional fields (operationsStartYearOverride, etc.) reach the
+    // store. Required fields keep their per-field coalesce so an
+    // undefined own-property on a stale snapshot can't clobber the
+    // defaults (Pass 9b bug fix).
     const next: OperateCfg = {
+      ...merged,
       assetId: asset.id,
       daysPerYear: merged.daysPerYear ?? 365,
       startingADR: merged.startingADR ?? opStartingADR,
