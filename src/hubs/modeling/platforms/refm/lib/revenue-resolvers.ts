@@ -290,6 +290,17 @@ export function resolveLiteralRecognitionProfile(
       out[idx] = 1;
       return { profile: out, mode: 'literal' };
     }
+    // Pass 9g-H (2026-05-18): custom absolute year. 100% of recognition
+    // lumps at the user-pinned project year. Falls back to handover when
+    // the custom year is unset so the joint factor never silently zeros.
+    if (anchor === 'custom') {
+      const yr = profile.pointInTimeCustomYear;
+      const idx = yr != null
+        ? Math.max(0, Math.min(N - 1, yr - projectStartYear))
+        : Math.max(0, Math.min(N - 1, handoverYear));
+      out[idx] = 1;
+      return { profile: out, mode: 'literal' };
+    }
     return { profile: derivedFallback.slice(0, N), mode: 'derived' };
   }
 
@@ -425,6 +436,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       subUnits: subUnitMaterials,
       axisLength: N,
       handoverYear,
+      projectStartYear,
     });
     bySellAsset.set(a.id, result);
 

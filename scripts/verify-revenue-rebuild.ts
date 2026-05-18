@@ -941,6 +941,59 @@ const leaseEmptyResult = computeLeaseAsset({ config: leaseEmpty, axisLength: lea
 assertNear('M15: Empty subUnits falls back to asset-level (1000 × 500 × 0.80 = 400,000)',
   leaseEmptyResult.totalRevenuePerPeriod[4], 400000, 1);
 
+// ─────────────────────────────────────────────────────────────────────
+// N-series: PIT recognition custom year (Pass 9g-H)
+// Reproduce a minimal Sell asset and verify recognition can be pinned
+// to an arbitrary project year via pointInTimeYear='custom'.
+// ─────────────────────────────────────────────────────────────────────
+const customAxis = 10;
+const customSubUnit: SubUnitMaterial = {
+  id: 'su-1', area: 1000, count: 0, ratePerArea: 1000, ratePerUnit: 0, metric: 'area',
+};
+const customSellConfig: AssetSellConfig = {
+  assetId: 'pit-custom',
+  subUnits: [{ subUnitId: 'su-1', preSalesVelocity: [0, 0.5, 0.5, 0, 0, 0, 0, 0, 0, 0], postSalesVelocity: new Array<number>(10).fill(0) }],
+  cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
+  recognitionProfile: {
+    method: 'point_in_time',
+    pointInTimeYear: 'custom',
+    pointInTimeCustomYear: 2028, // projectStart=2025 → axisIdx=3
+  },
+  indexation: { method: 'none' },
+};
+const customResult = computeSellAsset({
+  config: customSellConfig,
+  subUnits: [customSubUnit],
+  axisLength: customAxis,
+  handoverYear: 4, // year 2029 — different from custom 2028
+  projectStartYear: 2025,
+});
+const totalSales = customResult.presalesRevenuePerPeriod.reduce((s, v) => s + v, 0);
+assertNear('N1: PIT custom — all pre-sales recognition lumps at custom year (axisIdx 3 = 2028)',
+  customResult.presalesRecognitionPerPeriod[3], totalSales, 0.5);
+assertNear('N2: PIT custom — handover year (axisIdx 4 = 2029) gets zero recognition (overridden)',
+  customResult.presalesRecognitionPerPeriod[4], 0, 0.5);
+assertNear('N3: PIT custom — sale year recognition (axisIdx 1) is zero (not handover, not sale_year)',
+  customResult.presalesRecognitionPerPeriod[1], 0, 0.5);
+// Custom year before sale (early-cliff) — engine clamps to axis bounds.
+const earlyCustomConfig: AssetSellConfig = {
+  ...customSellConfig,
+  recognitionProfile: {
+    method: 'point_in_time',
+    pointInTimeYear: 'custom',
+    pointInTimeCustomYear: 2025, // axisIdx 0
+  },
+};
+const earlyResult = computeSellAsset({
+  config: earlyCustomConfig,
+  subUnits: [customSubUnit],
+  axisLength: customAxis,
+  handoverYear: 4,
+  projectStartYear: 2025,
+});
+assertNear('N4: PIT custom — recognition can land BEFORE sale year (axisIdx 0 = 2025)',
+  earlyResult.presalesRecognitionPerPeriod[0], totalSales, 0.5);
+
 // Report
 let pass = 0;
 let fail = 0;

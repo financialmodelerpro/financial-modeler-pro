@@ -45,7 +45,15 @@ export interface CashPaymentProfile {
 export interface RecognitionProfile {
   method: 'point_in_time' | 'over_time';
   // point_in_time only:
-  pointInTimeYear?: 'handover' | 'sale_year';
+  // - 'handover'   : every cohort lumps at the asset's handover year
+  // - 'sale_year'  : each cohort lumps in its own sale year
+  // - 'custom'     : every cohort lumps at pointInTimeCustomYear (absolute
+  //   project year). Lets the user pin recognition to any specific year
+  //   the client requires (Pass 9g-H, 2026-05-18).
+  pointInTimeYear?: 'handover' | 'sale_year' | 'custom';
+  /** Absolute project year (e.g. 2030) used when pointInTimeYear='custom'.
+   *  Engine clamps to the project axis. Ignored for the other two modes. */
+  pointInTimeCustomYear?: number;
   // over_time only:
   percentages?: number[];
   positions?: number[];

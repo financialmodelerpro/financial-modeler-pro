@@ -43,10 +43,19 @@ import {
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 
+/**
+ * Pass 9g-H (2026-05-18): snap-to-zero rounding rule mirrored from
+ * Module 1 financing schedule (src/core/calculations/financing/
+ * schedule.ts:266 `if (Math.abs(bal) < 1000) bal = 0;`). Float math
+ * leaves sub-currency-unit residuals on cumulative rollups (inventory
+ * closing, AR/UR settlement, etc.). Treat any raw value smaller than
+ * 1 monetary unit as zero so the table doesn't display rounding noise.
+ */
+const ZERO_SNAP_THRESHOLD = 1;
 function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
     if (!Number.isFinite(v)) return '-';
-    if (v === 0) return '-';
+    if (Math.abs(v) < ZERO_SNAP_THRESHOLD) return '-';
     return formatAccounting(v, scale, decimals);
   };
 }
@@ -441,7 +450,13 @@ export default function Module2CostOfSales(): React.JSX.Element {
                       const cap = Math.max(0, row.capexPerPeriod[t] ?? 0);
                       const coSC = Math.max(0, cos.cosConstructionPerPeriod[t] ?? 0);
                       const coSO = Math.max(0, cos.cosOperationsPerPeriod[t] ?? 0);
-                      const close = Math.max(0, prev + cap - coSC - coSO);
+                      let close = Math.max(0, prev + cap - coSC - coSO);
+                      // Pass 9g-H (2026-05-18): snap rounding residuals
+                      // to zero (mirror financing/schedule.ts:266). Without
+                      // this, float math leaves a sub-unit residual on the
+                      // closing balance that carries forward as a fake
+                      // inventory tail after CoS fully recognises capex.
+                      if (Math.abs(close) < 1000) close = 0;
                       balance[t] = close;
                       prev = close;
                     }

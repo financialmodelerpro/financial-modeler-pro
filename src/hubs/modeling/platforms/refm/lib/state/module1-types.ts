@@ -340,7 +340,12 @@ export interface Project {
       };
       recognitionProfile: {
         method: 'point_in_time' | 'over_time';
-        pointInTimeYear?: 'handover' | 'sale_year';
+        pointInTimeYear?: 'handover' | 'sale_year' | 'custom';
+        /** Pass 9g-H (2026-05-18): absolute project year used when
+         *  pointInTimeYear === 'custom'. Lets clients pin recognition
+         *  to a contract-specified year (legal title transfer, CoC).
+         *  Engine clamps to the project axis. */
+        pointInTimeCustomYear?: number;
         percentages?: number[];
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
@@ -722,7 +727,12 @@ export interface Asset {
       };
       recognitionProfile: {
         method: 'point_in_time' | 'over_time';
-        pointInTimeYear?: 'handover' | 'sale_year';
+        pointInTimeYear?: 'handover' | 'sale_year' | 'custom';
+        /** Pass 9g-H (2026-05-18): absolute project year used when
+         *  pointInTimeYear === 'custom'. Lets clients pin recognition
+         *  to a contract-specified year (legal title transfer, CoC).
+         *  Engine clamps to the project axis. */
+        pointInTimeCustomYear?: number;
         percentages?: number[];
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';

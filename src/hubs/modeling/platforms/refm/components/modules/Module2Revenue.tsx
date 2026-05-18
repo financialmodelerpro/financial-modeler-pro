@@ -607,10 +607,30 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     });
   };
 
-  const setRecognitionAnchor = (anchor: 'handover' | 'sale_year'): void => {
+  const setRecognitionAnchor = (anchor: 'handover' | 'sale_year' | 'custom'): void => {
+    if (recProfile.method !== 'point_in_time') return;
+    // Pass 9g-H (2026-05-18): seed pointInTimeCustomYear on first switch
+    // to 'custom' so the engine has a target year (defaults to handover
+    // year, user can edit afterwards).
+    const customYear = anchor === 'custom'
+      ? recProfile.pointInTimeCustomYear ?? (yearLabels[handoverYear] ?? projectStartYear)
+      : recProfile.pointInTimeCustomYear;
+    updateSellInline({
+      recognitionProfile: {
+        ...recProfile,
+        pointInTimeYear: anchor,
+        pointInTimeCustomYear: customYear,
+      },
+    });
+  };
+  const setRecognitionCustomYear = (yr: number): void => {
     if (recProfile.method !== 'point_in_time') return;
     updateSellInline({
-      recognitionProfile: { ...recProfile, pointInTimeYear: anchor },
+      recognitionProfile: {
+        ...recProfile,
+        pointInTimeYear: 'custom',
+        pointInTimeCustomYear: yr,
+      },
     });
   };
 
@@ -1718,7 +1738,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
             {recProfile.method === 'point_in_time' && (
               <>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
                   <MethodPill
                     active={(recProfile.pointInTimeYear ?? 'handover') === 'handover'}
                     label={`At handover (${yearLabels[handoverYear] ?? '?'})`}
@@ -1729,13 +1749,42 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                     label="At sale year"
                     onClick={() => setRecognitionAnchor('sale_year')}
                   />
+                  <MethodPill
+                    active={recProfile.pointInTimeYear === 'custom'}
+                    label="At custom year"
+                    onClick={() => setRecognitionAnchor('custom')}
+                  />
+                  {recProfile.pointInTimeYear === 'custom' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Year</span>
+                      <div style={{ width: 90 }}>
+                        <input
+                          type="number"
+                          value={recProfile.pointInTimeCustomYear ?? (yearLabels[handoverYear] ?? projectStartYear)}
+                          min={projectStartYear}
+                          max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                          onChange={(e) => setRecognitionCustomYear(Number(e.target.value))}
+                          style={FAST_INPUT}
+                          data-testid={`m2-rec-${asset.id}-custom-year`}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
-                  {(recProfile.pointInTimeYear ?? 'handover') === 'handover'
-                    ? <>
-                        <strong>Rule:</strong> handover = LAST construction year (={yearLabels[handoverYear]}), not the first operations year. Every pre-sales cohort (2026-{yearLabels[handoverYear]}) lumps 100% of revenue at {yearLabels[handoverYear]}. Sales During Operation recognise in their own sale year (operating-sales convention).
-                      </>
-                    : 'Each cohort recognises 100% of revenue in the same year it is sold.'}
+                  {(recProfile.pointInTimeYear ?? 'handover') === 'handover' && (
+                    <>
+                      <strong>Rule:</strong> handover = LAST construction year (={yearLabels[handoverYear]}), not the first operations year. Every pre-sales cohort (2026-{yearLabels[handoverYear]}) lumps 100% of revenue at {yearLabels[handoverYear]}. Sales During Operation recognise in their own sale year (operating-sales convention).
+                    </>
+                  )}
+                  {recProfile.pointInTimeYear === 'sale_year' && (
+                    'Each cohort recognises 100% of revenue in the same year it is sold.'
+                  )}
+                  {recProfile.pointInTimeYear === 'custom' && (
+                    <>
+                      <strong>Rule:</strong> all pre-sales cohorts (and the CoS that matches them) recognise 100% at the year you pin above (currently <strong>{recProfile.pointInTimeCustomYear ?? (yearLabels[handoverYear] ?? projectStartYear)}</strong>). Use when the client contract specifies a recognition year different from the engineering handover (e.g. legal title transfer, certificate of occupancy).
+                    </>
+                  )}
                 </div>
               </>
             )}

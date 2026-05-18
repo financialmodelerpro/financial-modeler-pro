@@ -54,10 +54,17 @@ import {
 } from './_shared/tableStyles';
 import { PhaseSection } from './_shared/PhaseSection';
 
+/**
+ * Pass 9g-H (2026-05-18): snap-to-zero rounding threshold matching the
+ * financing schedule convention (Math.abs(bal) < 1000 → 0) and the CoS
+ * tab. Sub-unit-of-currency residuals from cumulative roll-forwards
+ * shouldn't appear in the financial-statement feed.
+ */
+const ZERO_SNAP_THRESHOLD = 1;
 function makeFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
     if (!Number.isFinite(v)) return '-';
-    if (Math.abs(v) < 0.5) return '-';
+    if (Math.abs(v) < ZERO_SNAP_THRESHOLD) return '-';
     return formatAccounting(v, scale, decimals);
   };
 }
@@ -244,12 +251,16 @@ export default function Module2Schedules(): React.JSX.Element {
       }
 
       // Per-asset inventory roll-forward, summed into project inventory.
+      // Snap rounding residuals to zero (Pass 9g-H, matches financing
+      // schedule.ts:266 convention) so a fully-amortised inventory line
+      // doesn't carry forward a sub-unit float residual.
       let prev = 0;
       for (let t = 0; t < N; t++) {
         const cap = Math.max(0, capexPerPeriod[t] ?? 0);
         const coSC = Math.max(0, cos.cosConstructionPerPeriod[t] ?? 0);
         const coSO = Math.max(0, cos.cosOperationsPerPeriod[t] ?? 0);
-        const close = Math.max(0, prev + cap - coSC - coSO);
+        let close = Math.max(0, prev + cap - coSC - coSO);
+        if (Math.abs(close) < 1000) close = 0;
         projInventory[t] += close;
         prev = close;
       }

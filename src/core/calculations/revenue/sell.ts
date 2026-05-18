@@ -14,6 +14,11 @@ export interface ComputeSellInputs {
   subUnits: SubUnitMaterial[];
   axisLength: number;
   handoverYear: number;
+  /** Absolute project start year. Required for PIT 'custom' recognition
+   *  mode so the engine can map pointInTimeCustomYear to a project-axis
+   *  index. Optional for back-compat — when omitted, custom mode falls
+   *  back to handover. (Pass 9g-H, 2026-05-18.) */
+  projectStartYear?: number;
 }
 
 /**
@@ -28,7 +33,7 @@ export interface ComputeSellInputs {
  * used to produce the vintage matrices.
  */
 export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
-  const { config, subUnits, axisLength, handoverYear } = inputs;
+  const { config, subUnits, axisLength, handoverYear, projectStartYear } = inputs;
   const N = Math.max(0, axisLength);
 
   const presalesUnits = new Array<number>(N).fill(0);
@@ -130,7 +135,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   }
 
   const cashCollectedPresales = distributeCashCollection(presalesRevenue, config.cashPaymentProfile, N);
-  const recognitionPresales = buildRecognition(presalesRevenue, config.recognitionProfile, handoverYear, N);
+  const recognitionPresales = buildRecognition(presalesRevenue, config.recognitionProfile, handoverYear, N, projectStartYear);
 
   // Pass 7f (2026-05-17): post-sales convention. Post-handover sales
   // collect and recognize in the same period (operating sales, no
