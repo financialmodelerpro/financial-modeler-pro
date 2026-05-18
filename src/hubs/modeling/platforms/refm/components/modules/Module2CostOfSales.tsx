@@ -521,35 +521,42 @@ export default function Module2CostOfSales(): React.JSX.Element {
                     emptyMessage="No capex spend yet. Enter cost lines on Module 1 Tab 3."
                   />
                   {(() => {
-                    // Inventory roll-forward: opening + capex - CoS = closing.
-                    // Capex per period feeds inventory; CoS releases inventory
-                    // to expense as it's matched to recognised revenue. Final
-                    // closing inventory tails to zero once 100% of pre-sales +
-                    // sales-during-operation have been recognised.
+                    // Pass 9g-E-fix (2026-05-18): Inventory roll-forward
+                    // per the v7.0 reference schedule:
+                    //   Opening balance
+                    //   (+) Capex
+                    //   (-) Cost of Sales during construction
+                    //   (-) Cost of Sales during operations
+                    //   Inventory balance
+                    // CoS split mirrors the engine's two streams so the
+                    // user can see where each release comes from.
                     const N = snap.axisLength;
                     const opening = new Array<number>(N).fill(0);
-                    const closing = new Array<number>(N).fill(0);
+                    const balance = new Array<number>(N).fill(0);
                     let prev = 0;
                     for (let t = 0; t < N; t++) {
                       opening[t] = prev;
                       const cap = Math.max(0, row.capexPerPeriod[t] ?? 0);
-                      const coS = Math.max(0, cos.totalCosPerPeriod[t] ?? 0);
-                      const close = Math.max(0, prev + cap - coS);
-                      closing[t] = close;
+                      const coSC = Math.max(0, cos.cosConstructionPerPeriod[t] ?? 0);
+                      const coSO = Math.max(0, cos.cosOperationsPerPeriod[t] ?? 0);
+                      const close = Math.max(0, prev + cap - coSC - coSO);
+                      balance[t] = close;
                       prev = close;
                     }
-                    const cosNeg = cos.totalCosPerPeriod.map((v) => -Math.max(0, v));
-                    const closingFinal = closing[closing.length - 1] ?? 0;
+                    const cosConstrNeg = cos.cosConstructionPerPeriod.map((v) => -Math.max(0, v));
+                    const cosOpsNeg = cos.cosOperationsPerPeriod.map((v) => -Math.max(0, v));
+                    const balanceFinal = balance[balance.length - 1] ?? 0;
                     return (
                       <PeriodTable
                         title="Inventory · Roll-Forward"
-                        caption="Inventory tracks construction-in-progress + completed-but-unsold stock on the balance sheet. Opening + Capex spent - CoS recognised = Closing. Settles to 0 once 100% of inventory has been sold + matched to CoS."
+                        caption="Inventory tracks construction-in-progress + completed-but-unsold stock on the balance sheet. Opening + Capex - CoS (construction + operations) = Inventory balance. Settles to 0 once 100% of inventory has been sold + matched to CoS."
                         yearLabels={snap.yearLabels}
                         rows={[
-                          { label: 'Opening Inventory', values: opening, indent: 0 },
-                          { label: '(+) Capex per period (build into inventory)', values: row.capexPerPeriod, indent: 0 },
-                          { label: '(-) Cost of Sales (release from inventory)', values: cosNeg, indent: 0 },
-                          { label: 'Closing Inventory', values: closing, isTotal: true, indent: 0, totalOverride: fmt(closingFinal) },
+                          { label: 'Opening balance', values: opening, indent: 0 },
+                          { label: '(+) Capex', values: row.capexPerPeriod, indent: 0 },
+                          { label: '(-) Cost of Sales during construction', values: cosConstrNeg, indent: 0 },
+                          { label: '(-) Cost of Sales during operations', values: cosOpsNeg, indent: 0 },
+                          { label: 'Inventory balance', values: balance, isTotal: true, indent: 0, totalOverride: fmt(balanceFinal) },
                         ]}
                         currency={currency}
                         fmt={fmt}
