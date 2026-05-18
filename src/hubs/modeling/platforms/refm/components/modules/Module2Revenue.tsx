@@ -235,6 +235,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     try { window.localStorage.setItem(assetCollapseKey, String(assetCollapsed)); } catch { /* noop */ }
   }, [assetCollapsed, assetCollapseKey]);
 
+  // Pass 7v (2026-05-18): velocity grid defaults to a single shared row
+  // across all sub-units. User toggles "Split per sub-unit" to expose
+  // the per-sub-unit editor when 1BR / Penthouse really do absorb at
+  // different rates. Storage stays per-sub-unit so the engine is
+  // untouched; collapsed-mode writes propagate to every sub-unit.
+  const splitVelocityKey = `fmp:m2:inputs:asset:${asset.id}:velocity:split`;
+  const readSplitVelocity = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(splitVelocityKey) === 'true'; }
+    catch { return false; }
+  };
+  const [splitVelocity, setSplitVelocity] = useState<boolean>(readSplitVelocity);
+  useEffect(() => {
+    try { window.localStorage.setItem(splitVelocityKey, String(splitVelocity)); } catch { /* noop */ }
+  }, [splitVelocity, splitVelocityKey]);
+
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
   // computeProjectTimeline returns YEARS ELAPSED (off-by-one for slot
@@ -342,6 +358,33 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       }
       const next = [...s.postSalesVelocity];
       next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+      return { ...s, postSalesVelocity: next };
+    });
+    updateSellInline({ subUnits: nextSubs });
+  };
+
+  // Pass 7v: collapsed-mode setter. Writes the same pct to every
+  // sub-unit's velocity slot for `periodIdx`. Engine still reads
+  // per-sub-unit; this just keeps every sub-unit in lockstep when the
+  // user is in "All sub-units" view.
+  const setVelocityForAllSubUnits = (periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
+    const clamped = Math.max(0, Math.min(1, pct / 100));
+    const baseSubs = subUnits.map((su) => {
+      const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
+      return {
+        subUnitId: su.id,
+        preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
+        postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
+      };
+    });
+    const nextSubs = baseSubs.map((s) => {
+      if (kind === 'pre') {
+        const next = [...s.preSalesVelocity];
+        next[periodIdx] = clamped;
+        return { ...s, preSalesVelocity: next };
+      }
+      const next = [...s.postSalesVelocity];
+      next[periodIdx] = clamped;
       return { ...s, postSalesVelocity: next };
     });
     updateSellInline({ subUnits: nextSubs });
@@ -527,6 +570,34 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       {isSell && !assetCollapsed && subUnits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
 
+          {/* Pass 7v: per-asset velocity view toggle. Default collapsed
+              (lockstep across all sub-units); opt-in split exposes the
+              per-sub-unit editor. */}
+          {subUnits.length > 1 && (constructionWindow.length > 0 || operationsWindow.length > 0) && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -2 }}>
+              <button
+                type="button"
+                onClick={() => setSplitVelocity(!splitVelocity)}
+                style={{
+                  fontSize: 10,
+                  padding: '3px 8px',
+                  background: splitVelocity ? 'var(--color-navy-pale)' : 'var(--color-surface)',
+                  color: splitVelocity ? 'var(--color-navy)' : 'var(--color-meta)',
+                  border: `1px solid ${splitVelocity ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+                data-testid={`m2-asset-${asset.id}-velocity-split-toggle`}
+                title={splitVelocity
+                  ? 'Combine: one shared schedule across all sub-units (writes propagate to every sub-unit).'
+                  : 'Split: edit a separate velocity schedule per sub-unit (1BR vs Penthouse absorb differently).'}
+              >
+                {splitVelocity ? '▾ Combine sub-units' : '▸ Split per sub-unit'}
+              </button>
+            </div>
+          )}
+
           {/* Pre-Sales velocity, scoped to construction window */}
           {constructionWindow.length > 0 && (
             <InlineSection
@@ -535,7 +606,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             >
               <InlineGrid
                 cells={constructionWindow}
-                rows={subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre')))}
+                rows={splitVelocity || subUnits.length === 1
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre')))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'))]}
               />
             </InlineSection>
           )}
@@ -548,7 +621,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             >
               <InlineGrid
                 cells={operationsWindow}
-                rows={subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post')))}
+                rows={splitVelocity || subUnits.length === 1
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post')))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'))]}
               />
             </InlineSection>
           )}
@@ -570,10 +645,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           >
             <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
               <MethodPill active={idxConfig.method === 'none'} label="None" onClick={() => setIndexationMethod('none')} />
-              <MethodPill active={idxConfig.method === 'single_rate'} label="Single-Rate" onClick={() => setIndexationMethod('single_rate')} />
               <MethodPill active={idxConfig.method === 'yoy_compound'} label="YoY Compound" onClick={() => setIndexationMethod('yoy_compound')} />
               <MethodPill active={idxConfig.method === 'step'} label="Step" onClick={() => setIndexationMethod('step')} />
-              {(idxConfig.method === 'single_rate' || idxConfig.method === 'yoy_compound') && (
+              {idxConfig.method === 'yoy_compound' && (
                 <>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
                   <div style={{ width: 80 }}>
@@ -604,11 +678,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
             {idxConfig.method !== 'none' && (
               <div style={{ marginTop: 6, padding: '6px 10px', background: 'var(--color-grey-pale)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: 10, color: 'var(--color-meta)', lineHeight: 1.5 }}>
-                {idxConfig.method === 'single_rate' && (
-                  <>
-                    <strong>Single-Rate:</strong> a one-time uplift starting on Start Year. For every year &ge; Start Year, rate = base &times; (1 + {(idxConfig.rate ?? 0) * 100}%). Years before Start Year stay at base rate.
-                  </>
-                )}
                 {idxConfig.method === 'yoy_compound' && (
                   <>
                     <strong>YoY Compound:</strong> rate compounds annually from Start Year. rate(year) = base &times; (1 + {(idxConfig.rate ?? 0) * 100}%)<sup>(year &minus; Start Year)</sup>. Year 0 from Start Year = base; each subsequent year multiplies again.
@@ -816,6 +885,49 @@ function buildVelocityRow(
     sumOver: overall,
     values,
     onChange: (idx, pct) => onChange(su.id, idx, pct),
+  };
+}
+
+// Pass 7v (2026-05-18): shared velocity row across all sub-units.
+// Reads sub-unit[0]'s schedule as the representative values and flags
+// divergence when sub-units have drifted apart (auto-detection so the
+// user knows editing in shared mode will overwrite all).
+function buildSharedVelocityRow(
+  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
+  subUnitsInAsset: SubUnit[],
+  totalPeriods: number,
+  kind: 'pre' | 'post',
+  onChange: (periodIdx: number, pct: number) => void,
+): InlineGridRow {
+  const arrays = subUnitsInAsset.map((su) => {
+    const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
+    const arr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
+    return paddedArray(arr, totalPeriods);
+  });
+  const first = arrays[0] ?? new Array<number>(totalPeriods).fill(0);
+  const divergent = arrays.length > 1
+    && arrays.some((arr) => arr.some((v, i) => Math.abs(v - first[i]) > 1e-9));
+  // Also flag divergence between pre + post sums when one would push
+  // the asset above 100% sold.
+  const preSumFirst = (kind === 'pre' ? first : (cfg?.subUnits[0]?.preSalesVelocity ?? [])).reduce((s, v) => s + v, 0);
+  const postSumFirst = (kind === 'post' ? first : (cfg?.subUnits[0]?.postSalesVelocity ?? [])).reduce((s, v) => s + v, 0);
+  const sumSelf = kind === 'pre' ? preSumFirst : postSumFirst;
+  const sumAll = preSumFirst + postSumFirst;
+  const overall = sumAll > 1 + 1e-6;
+
+  const subUnitCountLabel = `${subUnitsInAsset.length} sub-unit${subUnitsInAsset.length === 1 ? '' : 's'}`;
+  const sumHint = sumSelf > 0 ? ` · ${kind === 'pre' ? 'pre' : 'post'} ${(sumSelf * 100).toFixed(0)}%` : '';
+  const totalHint = sumAll > 0 && kind === 'pre' ? ` · total ${(sumAll * 100).toFixed(0)}%` : '';
+  const divergenceHint = divergent ? ' · sub-units differ; editing overwrites all' : '';
+
+  return {
+    id: '__shared__',
+    label: 'All sub-units',
+    priceHint: subUnitCountLabel,
+    hint: `Lockstep across every sub-unit${sumHint}${totalHint}${divergenceHint}`,
+    sumOver: overall,
+    values: first,
+    onChange: (idx, pct) => onChange(idx, pct),
   };
 }
 

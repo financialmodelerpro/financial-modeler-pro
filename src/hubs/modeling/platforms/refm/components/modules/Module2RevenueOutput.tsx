@@ -99,7 +99,6 @@ function PeriodTable({
   formula,
   yearLabels,
   rows,
-  unit,
   fmt,
   trailingHeader,
 }: {
@@ -107,7 +106,8 @@ function PeriodTable({
   formula: string;
   yearLabels: number[];
   rows: PeriodRow[];
-  unit: string;
+  /** @deprecated Pass 7u: unit suffix dropped; currency comes from tab header, area is in the title. Kept for backward compat with call sites; ignored. */
+  unit?: string;
   fmt: (v: number) => string;
   trailingHeader?: string;
 }): React.JSX.Element {
@@ -115,10 +115,7 @@ function PeriodTable({
   const nonLabelPct = nonLabelColumnPct(1 + extraCols + yearLabels.length);
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
-      <span style={TABLE_TITLE}>
-        {title}{' '}
-        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({unit})</span>
-      </span>
+      <span style={TABLE_TITLE}>{title}</span>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
         Formula: {formula}
       </div>
@@ -253,14 +250,21 @@ function buildTotalSqmReconciledRows(
 
 /**
  * Pass 7s (2026-05-18): Project Total breakdown grouped by strategy.
+ * Pass 7u (2026-05-18): Sell + Manage no longer renders as a standalone
+ * group. Its parent (the sell side) goes into Residential / Sell with
+ * the Pre-Sales + Sales During Operation nesting; its companion (the
+ * operate side) goes into Hospitality / Operations alongside pure
+ * Operate-strategy assets.
  *
  * View selector picks Revenue (sales value), Recognition, or Cash. For
  * each strategy:
- *   - Sell: nested Pre-Sales (per asset + subtotal) + Sales During
- *     Operation (per asset + subtotal) + strategy total.
- *   - Operate / Lease / Sell + Manage: flat per-asset + strategy total.
- *     Engines come online in Pass 8 / 9 / 10 — zero placeholders until
- *     then so the user sees the structure now.
+ *   - Residential / Sell (includes Sell + Manage parents): nested
+ *     Pre-Sales (per asset + subtotal) + Sales During Operation
+ *     (per asset + subtotal) + strategy total.
+ *   - Hospitality / Operations (includes Sell + Manage companions):
+ *     flat per-asset + strategy total. Engines wire in Pass 8 (Operate)
+ *     and Pass 10 (Sell + Manage companion).
+ *   - Retail / Lease: flat per-asset + strategy total. Pass 9.
  *
  * Strategy groups with zero assets are skipped entirely.
  */
@@ -291,50 +295,86 @@ function buildProjectGroupedRows({
   const N = snap.axisLength;
   const zeros = (): number[] => new Array<number>(N).fill(0);
 
-  const visible = assets.filter((a) => a.visible !== false && a.isCompanion !== true);
-  const sellAssets = visible.filter((a) => a.strategy === 'Sell');
-  const operateAssets = visible.filter((a) => a.strategy === 'Operate');
-  const leaseAssets = visible.filter((a) => a.strategy === 'Lease');
-  const hybridAssets = visible.filter((a) => a.strategy === 'Sell + Manage');
+  const visibleParents = assets.filter((a) => a.visible !== false && a.isCompanion !== true);
+  const companions = assets.filter((a) => a.visible !== false && a.isCompanion === true);
+
+  // Sell group: pure Sell + Sell + Manage parents (both have Pre-Sales
+  // + Sales During Operation phases).
+  const sellAssets = visibleParents.filter(
+    (a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage',
+  );
+  // Operate group: pure Operate + every companion (companions are the
+  // operate-side of a Sell + Manage parent).
+  const operateAssets = [
+    ...visibleParents.filter((a) => a.strategy === 'Operate'),
+    ...companions,
+  ];
+  const leaseAssets = visibleParents.filter((a) => a.strategy === 'Lease');
 
   if (sellAssets.length > 0) {
     rows.push({ label: 'Residential / Sell', values: [], kind: 'section', indent: 0 });
 
-    rows.push({ label: 'Pre-Sales', values: [], kind: 'section', indent: 1 });
-    const preSeries: number[][] = [];
-    for (const a of sellAssets) {
-      const r = snap.bySellAsset.get(a.id);
-      const vals = r ? pickSegment(r, view, 'pre') : zeros();
-      rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
-      preSeries.push(vals);
-    }
-    const preTotal = sumArrays(preSeries, N);
-    rows.push({ label: 'Total Pre-Sales', values: preTotal, kind: 'subtotal', indent: 1 });
+    if (view === 'revenue') {
+      // Pass 7u: Revenue (Sales Value) is timing-agnostic — sale value
+      // is sale value when the sale happens. Flat per-asset rows
+      // (combined Pre + Post) suffice; the Pre/Post split is reserved
+      // for Recognition + Cash where timing differs.
+      const series: number[][] = [];
+      for (const a of sellAssets) {
+        const r = snap.bySellAsset.get(a.id);
+        const pre = r ? pickSegment(r, 'revenue', 'pre') : zeros();
+        const post = r ? pickSegment(r, 'revenue', 'post') : zeros();
+        const combined = pre.map((v, i) => v + (post[i] ?? 0));
+        rows.push({ label: a.name || 'Sell asset', values: combined, indent: 1 });
+        series.push(combined);
+      }
+      rows.push({
+        label: 'Total Residential / Sell',
+        values: sumArrays(series, N),
+        kind: 'grand',
+        indent: 0,
+      });
+    } else {
+      rows.push({ label: 'Pre-Sales', values: [], kind: 'section', indent: 1 });
+      const preSeries: number[][] = [];
+      for (const a of sellAssets) {
+        const r = snap.bySellAsset.get(a.id);
+        // Sell + Manage parents are not in bySellAsset yet (resolver
+        // filters strategy !== 'Sell'); they show zero placeholders
+        // until Pass 10 wires their engine.
+        const vals = r ? pickSegment(r, view, 'pre') : zeros();
+        rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+        preSeries.push(vals);
+      }
+      const preTotal = sumArrays(preSeries, N);
+      rows.push({ label: 'Total Pre-Sales', values: preTotal, kind: 'subtotal', indent: 1 });
 
-    rows.push({ label: 'Sales During Operation', values: [], kind: 'section', indent: 1 });
-    const postSeries: number[][] = [];
-    for (const a of sellAssets) {
-      const r = snap.bySellAsset.get(a.id);
-      const vals = r ? pickSegment(r, view, 'post') : zeros();
-      rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
-      postSeries.push(vals);
-    }
-    const postTotal = sumArrays(postSeries, N);
-    rows.push({ label: 'Total Sales During Operation', values: postTotal, kind: 'subtotal', indent: 1 });
+      rows.push({ label: 'Sales During Operation', values: [], kind: 'section', indent: 1 });
+      const postSeries: number[][] = [];
+      for (const a of sellAssets) {
+        const r = snap.bySellAsset.get(a.id);
+        const vals = r ? pickSegment(r, view, 'post') : zeros();
+        rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+        postSeries.push(vals);
+      }
+      const postTotal = sumArrays(postSeries, N);
+      rows.push({ label: 'Total Sales During Operation', values: postTotal, kind: 'subtotal', indent: 1 });
 
-    rows.push({
-      label: 'Total Residential / Sell',
-      values: preTotal.map((v, i) => v + (postTotal[i] ?? 0)),
-      kind: 'grand',
-      indent: 0,
-    });
+      rows.push({
+        label: 'Total Residential / Sell',
+        values: preTotal.map((v, i) => v + (postTotal[i] ?? 0)),
+        kind: 'grand',
+        indent: 0,
+      });
+    }
   }
 
   if (operateAssets.length > 0) {
     rows.push({ label: 'Hospitality / Operations', values: [], kind: 'section', indent: 0 });
     const series: number[][] = [];
     for (const a of operateAssets) {
-      // Engine wires in Pass 8 — zeros until then.
+      // Pure Operate engine wires in Pass 8; companion (Sell + Manage
+      // operate side) engine wires in Pass 10. Zero placeholders until.
       const vals = zeros();
       rows.push({ label: a.name || 'Operate asset', values: vals, indent: 1 });
       series.push(vals);
@@ -358,25 +398,6 @@ function buildProjectGroupedRows({
     }
     rows.push({
       label: 'Total Retail / Lease',
-      values: sumArrays(series, N),
-      kind: 'grand',
-      indent: 0,
-    });
-  }
-
-  if (hybridAssets.length > 0) {
-    rows.push({ label: 'Sell + Manage', values: [], kind: 'section', indent: 0 });
-    const series: number[][] = [];
-    for (const a of hybridAssets) {
-      // Sell parent + Operate companion bundle wires in Pass 10 — zeros
-      // until then. (Note: Sell + Manage assets aren't in bySellAsset
-      // either, since the resolver filters strategy !== 'Sell'.)
-      const vals = zeros();
-      rows.push({ label: a.name || 'Sell + Manage asset', values: vals, indent: 1 });
-      series.push(vals);
-    }
-    rows.push({
-      label: 'Total Sell + Manage',
       values: sumArrays(series, N),
       kind: 'grand',
       indent: 0,
