@@ -108,25 +108,31 @@ function buildLiteralRecognitionProfile(
     return { profile: derivedFallback.slice(0, N), mode: 'derived' };
   }
 
-  // Absolute mode: place pct[k] at project-axis index (phaseOffset + positions[k]).
-  // The profile positions are construction-phase-anchored (0..cp-1) when set
-  // by the user via the construction-period builder. Anything past the axis
+  // Pass 9g-D-fix3 (2026-05-18): positions are PROJECT-AXIS-ABSOLUTE
+  // indices, not phase-local. The Revenue Inputs strip writes
+  // percentages[c.idx] where c.idx is the project-axis position
+  // (cashWindow cells), and the cohort engine compares `position`
+  // directly to `saleYear` (also project-axis). The previous code
+  // added `phaseOffset` on top, shifting every recognition row one
+  // phase-length later (user reported: Revenue showed 2026, CoS
+  // rendered 2027). Use positions / default-k directly. Overflow
   // collapses into the last in-axis slot to preserve sum=100%.
+  void phaseOffset;
   let overflow = 0;
   for (let k = 0; k < pct.length; k++) {
-    const localPos = pos[k] ?? k;
-    const axisIdx = phaseOffset + localPos;
+    const axisIdx = pos[k] ?? k;
     const value = Math.max(0, pct[k] ?? 0);
-    if (axisIdx < 0) {
-      overflow += value;
-    } else if (axisIdx >= N) {
+    if (axisIdx < 0 || axisIdx >= N) {
       overflow += value;
     } else {
       out[axisIdx] += value;
     }
   }
   if (overflow > 0) {
-    const lastIdx = Math.max(0, Math.min(N - 1, phaseOffset + cp - 1));
+    // Park overflow on the handover year so a profile that runs past
+    // the axis still sums correctly. Falls back to last axis slot
+    // when handover is outside the axis.
+    const lastIdx = Math.max(0, Math.min(N - 1, handoverYear));
     out[lastIdx] += overflow;
   }
 
