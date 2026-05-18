@@ -169,32 +169,29 @@ Remaining Module 2 passes:
 
 ## 3. Module 3 (OpEx), build plan
 
-Driven by the reference model Costs sheet structure (departmental + undistributed + management + G&A + S&M + pre-operating).
+Driven by the reference benchmark KPMG SC7 hospitality opex hierarchy (departmental directs + undistributed indirects + management + replacement reserve + rent & insurance) and the v1.16 P&L grouping (Hospitality opex per asset / Retail opex per asset / HQ Expenses).
 
-### Pass 1, Engine baseline
-- `src/core/calculations/opex/` new folder.
-- Types: `OpexLine` (id, name, category, driver, ratePerDriver, indexation, startYear, endYear, capitalize? boolean), `OpexAssetResult` (per-period per-line totals + asset total).
-- Drivers (configurable): `'percent_of_revenue'`, `'per_key_per_month'`, `'per_sqm_per_year'`, `'per_period_lump'`, `'percent_of_capex'`, `'fixed_amount'`.
-- Categories: `'departmental'`, `'undistributed'`, `'management'`, `'general_admin'`, `'sales_marketing'`, `'pre_operating'`. Pre-operating is capitalized into Capex (asks the user up-front: capitalize Y/N per line).
+### Pass 1, Engine baseline (SHIPPED 2026-05-18, commit 8884d1b)
+- `src/core/calculations/opex/` new folder, 5 files (types / assetOpex / hqOpex / defaults / index).
+- Types: `OpexLine` (id, name, category, mode, value, indexation, disabled?), `AssetOpexInputs`, `AssetOpexResult` (per-line per-period array + bucket aggregates + GOP + GOP margin + NOI), `HQOpexInputs`, `HQOpexResult`.
+- Line modes (9): `fixed_baseline`, `pct_of_room_rev`, `pct_of_fb_rev`, `pct_of_other_rev`, `pct_of_total_rev`, `pct_of_lease_rev`, `per_room_year`, `per_sqm_year`, `pct_of_gop`. Each line carries its own `IndexationConfig` (same shape as M2).
+- Line categories (19): direct_rooms / direct_fb / direct_other + indirect_ga / indirect_it / indirect_sm / indirect_pom / indirect_energy / indirect_eosb + mgmt_base / mgmt_tech / mgmt_incentive / replacement_reserve + rent_insurance / property_tax / utilities / cam + hq_payroll / hq_office / hq_professional / hq_other + other.
+- Two-pass evaluation: Pass A resolves every non-GOP line; Pass B aggregates Direct + Indirect, derives GOP = Revenue - Direct - Indirect, then fills pct_of_gop lines.
+- Default seeds (KPMG SC7 mirror): 15 hospitality lines, 5 lease lines, 4 HQ lines.
 - Pure engine, no store coupling.
 
-### Pass 2, UI Tab 1 inputs
-- 4 sub-tabs under Module 3 mirror Module 2 pattern: Inputs / Output / Capitalization / Schedules.
-- Inputs tab: phase-wise asset cards with one row per OpEx line. Default seed pulls reference-style line catalog for each strategy (Hospitality gets dept + undist + mgmt; Retail gets G&A + S&M; Sell gets only Commission + Marketing during pre-sales).
-- FAST blue inputs.
+### Pass 2, Inputs + Output UI (SHIPPED 2026-05-18, commit 8884d1b)
+- 2 sub-tabs under Module 3: Inputs + Opex Output.
+- Inputs (`Module3Opex.tsx`): phase-grouped collapsible asset cards. Per-asset OpexLineTable with mode-aware value cell (% or accounting), inflation toggle + rate, on/off checkbox, remove + add line. HQ section at the top. Seed defaults button per asset.
+- Output (`Module3OpexOutput.tsx`): per-asset Drivers -> Direct -> GOP + margin -> Indirect -> Mgmt -> Other -> NOI. HQ + Project Total tables at the bottom.
+- Resolver `lib/opex-resolvers.ts` bridges the M2 revenue snapshot into per-asset OpexRevenueContext.
 
-### Pass 3, UI Tab 2 output
-- Per-asset OpEx period tables (5 categories) + project total. Mirror Module 2 Revenue Output styling.
+### Pass 3 (NEXT), Schedules feed + Capitalization wire-back
+- Schedules feed: extend M2 Schedules with per-asset opex line items so M4 Financial Statements can compose P&L direct from the schedule rows. AP roll-forward (DPO-driven, default 90 days) lands here too.
+- Capitalization wire-back: optional `capitalize: true` toggle on selected opex lines (pre-operating) feeds back into M1 Tab 3 Costs as a synthetic auto-line "Pre-Operating (from M3)" so the user can audit the capex bridge.
 
-### Pass 4, UI Tab 3 Capitalization
-- Lines marked `capitalize: true` (pre-operating) feed back into Module 1 Tab 3 Costs as a synthetic auto-line "Pre-Operating (from M3)". User sees the flow.
-
-### Pass 5, UI Tab 4 Schedules
-- Accounts Payable schedule using DPO driver (default 90 days per the reference model BS Build).
-- AP roll-forward: opening + accrued opex + accrued capex - cash paid = closing.
-
-### Pass 6, M3 Phase 1 LOCK
-- Verifier `verify-m3-phase1.ts`. the reference model VOCO opex + Hotel 01 opex + Retail opex targets. Existing VOCO Departmental = -179,960 SAR'000, Undistributed = -141,074 SAR'000, etc. from the reference model Actual P&L.
+### Pass 4, M3 LOCK
+- Extended verifier covering more reference benchmark scenarios (operator budget seasonality, multi-year inflation interactions, mgmt incentive thresholds).
 
 ---
 
