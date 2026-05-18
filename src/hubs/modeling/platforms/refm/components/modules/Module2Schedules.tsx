@@ -479,7 +479,7 @@ export default function Module2Schedules(): React.JSX.Element {
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
-        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
+        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           Per-asset feed grouped by strategy. Only assets with non-zero values for a given line appear; zero rows are hidden so the
           feed stays compact. Flow lines (Revenue, CoS, Cash) show <strong>sum</strong> in the Total column; stock lines
           (Inventory, AR, UR) show <strong>closing balance</strong>. Schedules surfaces only raw line items here — Direct /
