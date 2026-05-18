@@ -95,12 +95,6 @@ export function resolveHospitalityConfig(
   subUnits: SubUnit[],
   projectStartYear: number,
   axisLength: number,
-  // Pass 9g-J (2026-05-18): for Sell + Manage companions, the caller
-  // passes the parent's SellAssetResult so the resolver can derive a
-  // per-period rental-pool participation factor from cumulative units
-  // sold + enrollment lag + enrollment rate. Pure Operate assets pass
-  // null (no participation scaling).
-  parentSellResult?: SellAssetResult | null,
 ): HospitalityConfig | null {
   const cfg = asset.revenue?.operate;
   if (!cfg) return null;
@@ -157,23 +151,14 @@ export function resolveHospitalityConfig(
       adrIndexation: u.hospitalityIndexation,
     }));
 
-  // Rental pool mode: 'auto_from_sales' (default for companions) ramps
-  // pool % = cum units sold by (y - 1) / total keys. 'day_one_full'
-  // skips participation so the engine uses full keys from ops start.
+  // Rental pool participation: manual %-per-period profile, decimal
+  // 0..1. Empty / undefined => engine uses full keys (no scaling).
   let keysParticipationPerPeriod: number[] | undefined;
-  if (parentSellResult && keys > 0 && cfg.rentalPoolMode !== 'day_one_full') {
-    const cumSold = new Array<number>(axisLength).fill(0);
-    let running = 0;
-    for (let t = 0; t < axisLength; t++) {
-      const pre = Math.max(0, parentSellResult.presalesUnitsPerPeriod[t] ?? 0);
-      const post = Math.max(0, parentSellResult.postSalesUnitsPerPeriod[t] ?? 0);
-      running += pre + post;
-      cumSold[t] = running;
-    }
+  if (cfg.keysParticipationProfile && cfg.keysParticipationProfile.length > 0) {
     keysParticipationPerPeriod = new Array<number>(axisLength).fill(0);
     for (let t = 0; t < axisLength; t++) {
-      const sold = t >= 1 ? cumSold[t - 1] : 0;
-      keysParticipationPerPeriod[t] = Math.max(0, Math.min(1, sold / keys));
+      const raw = cfg.keysParticipationProfile[t] ?? 0;
+      keysParticipationPerPeriod[t] = Math.max(0, Math.min(1, raw));
     }
   }
 
@@ -534,15 +519,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     if (!isOperate) continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
-    // Pass 9g-J (2026-05-18): for Sell + Manage companions, find the
-    // parent's already-computed SellAssetResult so the resolver can
-    // derive the rental-pool participation factor (cum units sold ×
-    // enrollment rate, shifted by enrollment lag). Pure Operate
-    // standalone hotels pass null and the engine defaults to full keys.
-    const parentSellResult = (a.isCompanion === true && a.parentAssetId)
-      ? bySellAsset.get(a.parentAssetId) ?? null
-      : null;
-    const cfg = resolveHospitalityConfig(a, phase, subUnits, projectStartYear, N, parentSellResult);
+    const cfg = resolveHospitalityConfig(a, phase, subUnits, projectStartYear, N);
     if (!cfg) continue;
     const result = computeHospitalityAsset({ config: cfg, axisLength: N });
     byHospitalityAsset.set(a.id, result);

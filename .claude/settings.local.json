@@ -195,7 +195,8 @@
       "Bash(awk 'NR<296 || NR>546 {print}' src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx)",
       "Bash(pip show *)",
       "Bash(awk -F'D[0-9]*=' '{print $2}')",
-      "Bash(awk -F' \\\\\\\\| ' '{print $1}')"
+      "Bash(awk -F' \\\\\\\\| ' '{print $1}')",
+      "Bash(findstr /r \"buildCostOfSales[^V]\" src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts scripts/verify-m2-pass7.ts scripts/verify-revenue-rebuild.ts)"
     ]
   }
 }

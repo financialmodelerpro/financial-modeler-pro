@@ -801,19 +801,15 @@ export interface Asset {
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
       dso?: number;
       /**
-       * Pass 9g-O (2026-05-18): rental pool mode for Sell + Manage
-       * companions. Replaces the lag + rate scalar inputs with a
-       * single toggle:
-       *   - 'auto_from_sales': sold units enter the rental pool one
-       *     year after sale closing. Pool % = cumulative units sold
-       *     by (current year - 1). Equivalent to lag=1, rate=100%.
-       *   - 'day_one_full': 100% of keys available from operations
-       *     start. Same behaviour as a standalone Operate hotel.
-       * Defaults at the resolver:
-       *   - companions: 'auto_from_sales'
-       *   - standalone Operate: 'day_one_full'
+       * Rental pool participation %, project-axis-indexed (decimal
+       * 0..1). When set, each entry scales total keys for that period:
+       * effective keys = total keys × participation. Used to model
+       * gradual buyer enrollment on a Sell + Manage companion (manual
+       * ramp up to 100%). When undefined or empty, the engine treats
+       * the pool as 100% full from operations start, the same as a
+       * standalone Operate hotel.
        */
-      rentalPoolMode?: 'auto_from_sales' | 'day_one_full';
+      keysParticipationProfile?: number[];
     };
     /**
      * M2 Pass 9g (2026-05-18): Retail / Office Lease config. Mirrors

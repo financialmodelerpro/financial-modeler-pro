@@ -752,11 +752,29 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateOperateInline({ occupancyPerPeriod: next });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
-  // Single rentalPoolMode toggle: 'auto_from_sales' = pool tracks parent's
-  // sales with a 1-year lag (sold units become available next year);
-  // 'day_one_full' = 100% of keys live from operations start.
-  const setOperateRentalPoolMode = (mode: 'auto_from_sales' | 'day_one_full'): void => {
-    updateOperateInline({ rentalPoolMode: mode });
+  // Rental pool % per period (manual ramp). decimal 0..1 in storage.
+  const opKeysParticipation: number[] = operateConfig?.keysParticipationProfile ?? new Array<number>(totalPeriods).fill(0);
+  const setOperateKeysParticipation = (projectIdx: number, pct: number): void => {
+    const base = operateConfig?.keysParticipationProfile ?? [];
+    const next = new Array<number>(totalPeriods).fill(0);
+    for (let i = 0; i < Math.min(base.length, totalPeriods); i++) next[i] = base[i] ?? 0;
+    next[projectIdx] = Math.max(0, Math.min(1, pct / 100));
+    updateOperateInline({ keysParticipationProfile: next });
+  };
+  const applyKeysParticipationRamp = (): void => {
+    const next = new Array<number>(totalPeriods).fill(0);
+    const ramp = [0.25, 0.50, 0.75, 1.00];
+    const opLen = operationsEndIdx - operationsStartIdx + 1;
+    for (let k = 0; k < opLen; k++) {
+      const idx = operationsStartIdx + k;
+      next[idx] = k < ramp.length ? ramp[k] : 1.0;
+    }
+    updateOperateInline({ keysParticipationProfile: next });
+  };
+  const applyKeysParticipationFull = (): void => {
+    const next = new Array<number>(totalPeriods).fill(0);
+    for (let idx = operationsStartIdx; idx <= operationsEndIdx; idx++) next[idx] = 1.0;
+    updateOperateInline({ keysParticipationProfile: next });
   };
   const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
@@ -1245,59 +1263,72 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                 </div>
               </InlineSection>
 
-              {/* Pass 9g-J (2026-05-18): Rental pool enrollment — for
-                  Sell + Manage companions only. The pure Operate parent
-                  doesn't need these because every key is in the pool
-                  from day one (it's a hotel, not a managed rental
-                  program). For a companion (the Manage side of a Sell +
-                  Manage), the rental pool builds up as buyers enroll
-                  their units, with a lag from sale closing. */}
-              {asset.isCompanion === true && (() => {
-                // Default for companions: 'auto_from_sales'. When a
-                // legacy snapshot has the deprecated lag/rate fields
-                // set but no rentalPoolMode, treat it as auto-link
-                // (resolver honours the explicit numbers, UI shows
-                // the toggle in the auto state).
-                const mode: 'auto_from_sales' | 'day_one_full' =
-                  operateConfig?.rentalPoolMode ?? 'auto_from_sales';
-                return (
-                  <InlineSection
-                    title="Rental pool enrollment (Sell + Manage)"
-                    hint="Choose how sold units enter the rental pool. Auto-link mirrors typical condo-hotel mechanics (next year after sale). Day 1 full mirrors a standalone hotel (every key is in the pool from operations start)."
-                  >
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <MethodPill
-                        active={mode === 'auto_from_sales'}
-                        label="Auto-link to sales"
-                        onClick={() => setOperateRentalPoolMode('auto_from_sales')}
-                      />
-                      <MethodPill
-                        active={mode === 'day_one_full'}
-                        label="Day 1 full pool"
-                        onClick={() => setOperateRentalPoolMode('day_one_full')}
-                      />
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
-                      {mode === 'auto_from_sales' ? (
-                        <>
-                          <strong>Auto-link to sales:</strong> sold units enter the rental pool one year after sale closing. Pool % per year
-                          = cumulative units sold by (y − 1) ÷ total keys. Revenue = effective keys × days × occupancy × ADR.
-                          <br/>Worked example (100 keys, 90% sold by 2029, 10% in 2030): pool = 0 / 90 / 100 / 100 in 2029-2032.
-                        </>
-                      ) : (
-                        <>
-                          <strong>Day 1 full pool:</strong> 100% of keys available from operations start, same as a standalone Operate hotel.
-                          Revenue = total keys × days × occupancy × ADR.
-                          <br/>Useful when the rental program is fully marketed before sales close, or when the unit count and pool size
-                          are decoupled from sales velocity.
-                        </>
-                      )}
-                      <br/>For a hard &quot;start in year X&quot; cliff (e.g. reference workbook), use the <em>Operations start year override</em>
-                      field below — it zeros revenue before X regardless of which mode you pick here.
-                    </div>
-                  </InlineSection>
-                );
-              })()}
+              {/* Rental pool enrollment, Sell + Manage companions only.
+                  Pure Operate (standalone hotel) skips this; keys are in
+                  the pool from day one. Companion (Manage side of Sell +
+                  Manage) lets the user enter per-year participation %
+                  manually to model the buyer enrollment ramp. */}
+              {asset.isCompanion === true && (
+                <InlineSection
+                  title="Rental pool enrollment (Sell + Manage)"
+                  hint="Manual per-year % of keys in the rental pool. Effective keys = total keys × pool %. Defaults to 100% (full pool from operations start) when left empty. Use the ramp preset to seed a typical buyer-enrollment curve, then edit individual cells."
+                  tag={(() => {
+                    const visible = operationsWindow.map((c) => opKeysParticipation[c.idx] ?? 0);
+                    const max = Math.max(0, ...visible);
+                    return `peak ${(max * 100).toFixed(0)}%`;
+                  })()}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 4 }}>
+                    <button
+                      type="button"
+                      onClick={applyKeysParticipationRamp}
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-navy)',
+                        border: '1px solid var(--color-navy)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                      title="Fill the operations window with a typical enrollment ramp: yr1 25% / yr2 50% / yr3 75% / yr4+ 100%."
+                      data-testid={`m2-asset-${asset.id}-pool-ramp`}
+                    >
+                      Apply ramp (25 → 50 → 75 → 100%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyKeysParticipationFull}
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-meta)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                      title="Set every operations year to 100% (full pool, equivalent to a standalone hotel)."
+                      data-testid={`m2-asset-${asset.id}-pool-full`}
+                    >
+                      Set 100% full
+                    </button>
+                  </div>
+                  <InlineProfileStrip
+                    cells={operationsWindow}
+                    values={opKeysParticipation}
+                    onChange={setOperateKeysParticipation}
+                    testidPrefix={`m2-asset-${asset.id}-pool`}
+                    showCumulative={false}
+                    label="Pool %"
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
+                    Revenue per year = effective keys × days × occupancy × ADR, where effective keys = total keys × pool %. Leave a year at 0%
+                    to zero out revenue before enrollment opens.
+                  </div>
+                </InlineSection>
+              )}
 
               {/* DSO (drives AR roll-forward, Pass 8d) */}
               <InlineSection
