@@ -717,6 +717,35 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           }];
         })
       : [];
+    // Pass 9e-9 (2026-05-18): per-sub-unit ARN + ORN breakdown so the
+    // user can see how many room nights each room type contributes
+    // before the asset-level total. Mirrors the ADR + Rooms Revenue
+    // breakdown above.
+    const perSuArnRows = showPerSuBreakdown
+      ? unitSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          const keysRounded = Math.round(Math.max(0, u.metricValue));
+          return [{
+            label: `${u.name} ARN (${keysRounded.toLocaleString('en-US')} keys × Days)`,
+            values: sub.availableRoomNightsPerPeriod,
+            rowFmt: intFmt,
+            indent: 2,
+          }];
+        })
+      : [];
+    const perSuOrnRows = showPerSuBreakdown
+      ? unitSubUnits.flatMap((u) => {
+          const sub = r.perSubUnit?.[u.id];
+          if (!sub) return [];
+          return [{
+            label: `${u.name} ORN (ARN × Occupancy)`,
+            values: sub.occupiedRoomNightsPerPeriod,
+            rowFmt: intFmt,
+            indent: 2,
+          }];
+        })
+      : [];
     return wrap(
       <AssetSection
         key={a.id}
@@ -769,8 +798,22 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               ? [{ label: `Other Fixed Amount per Year (${currency})`, values: masked(opOtherFixedArr), rowFmt: fmt, indent: 1 }]
               : []),
             { label: 'Calculations', values: [], kind: 'section' as const, indent: 0 },
-            { label: 'Available Room Nights', values: r.availableRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
-            { label: 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, rowFmt: intFmt, indent: 1 },
+            ...perSuArnRows,
+            {
+              label: showPerSuBreakdown ? 'Total Available Room Nights' : 'Available Room Nights',
+              values: r.availableRoomNightsPerPeriod,
+              rowFmt: intFmt,
+              kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+              indent: 1,
+            },
+            ...perSuOrnRows,
+            {
+              label: showPerSuBreakdown ? 'Total Occupied Room Nights' : 'Occupied Room Nights',
+              values: r.occupiedRoomNightsPerPeriod,
+              rowFmt: intFmt,
+              kind: showPerSuBreakdown ? 'subtotal' as const : undefined,
+              indent: 1,
+            },
             { label: `Guests per Year (× ${opGuestsPerOR.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, rowFmt: intFmt, kind: 'subtotal' as const, indent: 1 },
           ]}
           fmt={intFmt}
