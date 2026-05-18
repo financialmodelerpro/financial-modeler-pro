@@ -432,6 +432,12 @@ export default function Module2Schedules(): React.JSX.Element {
     );
   }
 
+  // Pass 9g-K (2026-05-18): only show assets that actually have
+  // non-zero values for the field in question. AR for hospitality / lease
+  // is only meaningful when the asset has revenue + DSO/arDays set; zero
+  // rows clutter the financial-statement feed.
+  const hasAnyValue = (arr: number[]): boolean => arr.some((v) => Math.abs(v) >= ZERO_SNAP_THRESHOLD);
+
   // ─ Row builders ─
   const groupedRows = (
     field: keyof PerAssetFeed,
@@ -442,9 +448,13 @@ export default function Module2Schedules(): React.JSX.Element {
     const rows: Row[] = [];
     const pushGroup = (label: string, group: PerAssetFeed[]): void => {
       if (group.length === 0) return;
+      // Filter out all-zero assets so a hotel with no revenue doesn't
+      // clutter the AR table, etc.
+      const activeAssets = group.filter((a) => hasAnyValue(a[field] as number[]));
+      if (activeAssets.length === 0) return;
       rows.push({ label, values: [], isSection: true });
       const groupSeries: number[][] = [];
-      for (const a of group) {
+      for (const a of activeAssets) {
         const vals = (a[field] as number[]).slice();
         rows.push({ label: a.name, values: vals, indent: 1, aggregation: aggForLeaf });
         groupSeries.push(vals);
@@ -460,22 +470,27 @@ export default function Module2Schedules(): React.JSX.Element {
     pushGroup('Residential / Sell', sellAssets);
     pushGroup('Hospitality / Operations', hospAssets);
     pushGroup('Retail / Lease', leaseAssets);
-    // Grand row across all assets
+    // Grand row across all assets (still uses ALL assets so totals reconcile).
     const allSeries = perAssetFeed.map((a) => a[field] as number[]);
-    rows.push({
-      label: grandLabel,
-      values: sumArrays(allSeries),
-      isTotal: true,
-      aggregation: aggForTotal,
-    });
+    const grandTotal = sumArrays(allSeries);
+    if (hasAnyValue(grandTotal)) {
+      rows.push({
+        label: grandLabel,
+        values: grandTotal,
+        isTotal: true,
+        aggregation: aggForTotal,
+      });
+    }
     return rows;
   };
 
   // For CoS we only show Sell assets (other strategies have no CoS).
+  // Filter out Sell assets that produced zero CoS (degenerate configs).
   const cosRows: Row[] = [];
-  if (sellAssets.length > 0) {
+  const activeCosSellAssets = sellAssets.filter((a) => hasAnyValue(a.totalCos));
+  if (activeCosSellAssets.length > 0) {
     cosRows.push({ label: 'Residential / Sell', values: [], isSection: true });
-    for (const a of sellAssets) {
+    for (const a of activeCosSellAssets) {
       cosRows.push({ label: `${a.name} · CoS during construction`, values: a.cosConstr, indent: 1, aggregation: 'sum' });
       cosRows.push({ label: `${a.name} · CoS during operations`, values: a.cosOps, indent: 1, aggregation: 'sum' });
       cosRows.push({ label: `${a.name} · Total Cost of Sales`, values: a.totalCos, indent: 1, isSubtotal: true, aggregation: 'sum' });
@@ -491,9 +506,10 @@ export default function Module2Schedules(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Per-asset feed grouped by strategy. Flow lines (Revenue, CoS, Cash, Δ) show <strong>lifetime sum</strong>
-          in the Total column. Stock lines (Inventory, AR, UR) show <strong>closing balance</strong>. Both Direct
-          and Indirect cash-flow methods are surfaced; Project Finance models typically run with Direct.
+          Per-asset feed grouped by strategy. Only assets with non-zero values for a given line appear; zero rows are hidden so the
+          financial-statement feed stays compact. Flow lines (Revenue, CoS, Cash, Δ) show <strong>sum</strong> in the Total
+          column. Stock lines (Inventory, AR, UR) show <strong>closing balance</strong>. Both Direct and Indirect cash-flow
+          methods are surfaced; Project Finance models typically run with Direct.
         </p>
       </div>
 
@@ -509,7 +525,7 @@ export default function Module2Schedules(): React.JSX.Element {
           yearLabels={snap.yearLabels}
           rows={groupedRows('revenue', 'sum', 'sum', 'Total Revenue')}
           currency={currency}
-          totalLabel="Lifetime Total"
+          totalLabel="Total"
           fmt={fmt}
         />
         {cosRows.length > 0 && (
@@ -519,7 +535,7 @@ export default function Module2Schedules(): React.JSX.Element {
             yearLabels={snap.yearLabels}
             rows={cosRows}
             currency={currency}
-            totalLabel="Lifetime Total"
+            totalLabel="Total"
             fmt={fmt}
           />
         )}
@@ -533,7 +549,7 @@ export default function Module2Schedules(): React.JSX.Element {
             { label: 'Gross Margin', values: grossMargin, isTotal: true, aggregation: 'sum' },
           ]}
           currency={currency}
-          totalLabel="Lifetime Total"
+          totalLabel="Total"
           fmt={fmt}
         />
       </PhaseSection>
@@ -544,19 +560,25 @@ export default function Module2Schedules(): React.JSX.Element {
         meta="Per-asset closing balances per period"
         storageKey="fmp:m2:schedules:bs:collapsed"
       >
-        <PeriodTable
-          title="Inventory (closing balances)"
-          caption="Sell-strategy work-in-progress + completed-but-unsold inventory. Settles to 0 once cumulative CoS recognises 100% of capex."
-          yearLabels={snap.yearLabels}
-          rows={sellAssets.length > 0 ? [
-            { label: 'Residential / Sell', values: [], isSection: true },
-            ...sellAssets.map((a) => ({ label: a.name, values: a.inventory, indent: 1, aggregation: 'last' as Aggregation })),
-            { label: 'Total Inventory', values: totalInventory, isTotal: true, aggregation: 'last' as Aggregation },
-          ] : [{ label: 'No Sell-strategy assets', values: [], aggregation: 'none' as Aggregation }]}
-          currency={currency}
-          totalLabel="Closing"
-          fmt={fmt}
-        />
+        {(() => {
+          const activeInvAssets = sellAssets.filter((a) => hasAnyValue(a.inventory));
+          if (activeInvAssets.length === 0) return null;
+          return (
+            <PeriodTable
+              title="Inventory (closing balances)"
+              caption="Sell-strategy work-in-progress + completed-but-unsold inventory. Settles to 0 once cumulative CoS recognises 100% of capex."
+              yearLabels={snap.yearLabels}
+              rows={[
+                { label: 'Residential / Sell', values: [], isSection: true },
+                ...activeInvAssets.map((a) => ({ label: a.name, values: a.inventory, indent: 1, aggregation: 'last' as Aggregation })),
+                { label: 'Total Inventory', values: totalInventory, isTotal: true, aggregation: 'last' as Aggregation },
+              ]}
+              currency={currency}
+              totalLabel="Closing"
+              fmt={fmt}
+            />
+          );
+        })()}
         <PeriodTable
           title="Accounts Receivable (closing balances)"
           caption="Sell AR: pre-sales sale value not yet collected. Hospitality / Lease AR: revenue × receivable-days / 365. AR settles to 0 once cumulative cash equals cumulative sale value (Sell) or revenue tails off (Hospitality / Lease)."
@@ -566,31 +588,38 @@ export default function Module2Schedules(): React.JSX.Element {
           totalLabel="Closing"
           fmt={fmt}
         />
-        <PeriodTable
-          title="Unearned Revenue (closing balances)"
-          caption="Pre-sales sale value not yet recognised. Sell-strategy only — Hospitality + Lease recognise revenue in the same period it's earned, no deferral. Settles to 0 once cumulative recognition equals cumulative sale value."
-          yearLabels={snap.yearLabels}
-          rows={sellAssets.length > 0 ? [
-            { label: 'Residential / Sell', values: [], isSection: true },
-            ...sellAssets.map((a) => ({ label: a.name, values: a.ur, indent: 1, aggregation: 'last' as Aggregation })),
-            { label: 'Total Unearned Revenue', values: totalUR, isTotal: true, aggregation: 'last' as Aggregation },
-          ] : [{ label: 'No Sell-strategy assets', values: [], aggregation: 'none' as Aggregation }]}
-          currency={currency}
-          totalLabel="Closing"
-          fmt={fmt}
-        />
-        <PeriodTable
-          title="Accounts Payable + Net Working Capital"
-          caption="AP placeholder until M3 wires supplier credit terms. NWC = (AR + Inventory) - (Unearned + AP)."
-          yearLabels={snap.yearLabels}
-          rows={[
-            { label: 'Accounts Payable (M3 placeholder)', values: totalAP, aggregation: 'last' as Aggregation },
-            { label: 'Net Working Capital', values: nwc, isTotal: true, aggregation: 'last' as Aggregation },
-          ]}
-          currency={currency}
-          totalLabel="Closing"
-          fmt={fmt}
-        />
+        {(() => {
+          const activeUrAssets = sellAssets.filter((a) => hasAnyValue(a.ur));
+          if (activeUrAssets.length === 0) return null;
+          return (
+            <PeriodTable
+              title="Unearned Revenue (closing balances)"
+              caption="Pre-sales sale value not yet recognised. Sell-strategy only — Hospitality + Lease recognise revenue in the same period it's earned, no deferral. Settles to 0 once cumulative recognition equals cumulative sale value."
+              yearLabels={snap.yearLabels}
+              rows={[
+                { label: 'Residential / Sell', values: [], isSection: true },
+                ...activeUrAssets.map((a) => ({ label: a.name, values: a.ur, indent: 1, aggregation: 'last' as Aggregation })),
+                { label: 'Total Unearned Revenue', values: totalUR, isTotal: true, aggregation: 'last' as Aggregation },
+              ]}
+              currency={currency}
+              totalLabel="Closing"
+              fmt={fmt}
+            />
+          );
+        })()}
+        {hasAnyValue(nwc) && (
+          <PeriodTable
+            title="Net Working Capital"
+            caption="NWC = (AR + Inventory) - (Unearned + AP). Accounts Payable wires in at M3 alongside supplier credit terms."
+            yearLabels={snap.yearLabels}
+            rows={[
+              { label: 'Net Working Capital', values: nwc, isTotal: true, aggregation: 'last' as Aggregation },
+            ]}
+            currency={currency}
+            totalLabel="Closing"
+            fmt={fmt}
+          />
+        )}
       </PhaseSection>
 
       <PhaseSection
@@ -605,22 +634,28 @@ export default function Module2Schedules(): React.JSX.Element {
           yearLabels={snap.yearLabels}
           rows={groupedRows('cashCollected', 'sum', 'sum', 'Total Cash from Customers')}
           currency={currency}
-          totalLabel="Lifetime Total"
+          totalLabel="Total"
           fmt={fmt}
         />
-        <PeriodTable
-          title="Capex (per Sell asset)"
-          caption="Construction capex from Module 1 cost engine, project-axis-aligned. Lease + Hospitality capex shows here too once those asset types wire in M3 (currently zero in this projection)."
-          yearLabels={snap.yearLabels}
-          rows={sellAssets.length > 0 ? [
-            { label: 'Residential / Sell', values: [], isSection: true },
-            ...sellAssets.map((a) => ({ label: `${a.name} · Capex`, values: a.capex, indent: 1, aggregation: 'sum' as Aggregation })),
-            { label: 'Total Capex', values: totalCapex, isTotal: true, aggregation: 'sum' as Aggregation },
-          ] : [{ label: 'No Sell-strategy assets', values: [], aggregation: 'none' as Aggregation }]}
-          currency={currency}
-          totalLabel="Lifetime Total"
-          fmt={fmt}
-        />
+        {(() => {
+          const activeCapexAssets = sellAssets.filter((a) => hasAnyValue(a.capex));
+          if (activeCapexAssets.length === 0) return null;
+          return (
+            <PeriodTable
+              title="Capex (per Sell asset)"
+              caption="Construction capex from Module 1 cost engine, project-axis-aligned. Lease + Hospitality capex shows here too once those asset types wire in M3 (currently zero in this projection)."
+              yearLabels={snap.yearLabels}
+              rows={[
+                { label: 'Residential / Sell', values: [], isSection: true },
+                ...activeCapexAssets.map((a) => ({ label: `${a.name} · Capex`, values: a.capex, indent: 1, aggregation: 'sum' as Aggregation })),
+                { label: 'Total Capex', values: totalCapex, isTotal: true, aggregation: 'sum' as Aggregation },
+              ]}
+              currency={currency}
+              totalLabel="Total"
+              fmt={fmt}
+            />
+          );
+        })()}
         <PeriodTable
           title="Net Operating Cash (Direct)"
           caption="Cash from customers - Capex. Project Finance models typically read the Direct method here directly."
@@ -631,7 +666,7 @@ export default function Module2Schedules(): React.JSX.Element {
             { label: 'Net Operating Cash Flow (Direct)', values: netOpCashDirect, isTotal: true, aggregation: 'sum' },
           ]}
           currency={currency}
-          totalLabel="Lifetime Total"
+          totalLabel="Total"
           fmt={fmt}
         />
       </PhaseSection>
@@ -649,19 +684,18 @@ export default function Module2Schedules(): React.JSX.Element {
           rows={[
             { label: 'Operating Activities', values: [], isSection: true },
             { label: 'Net Income (proxy: Gross Margin until M3 opex/D&A)', values: grossMargin, indent: 1, aggregation: 'sum' },
-            { label: 'Non-cash items (D&A — M3 placeholder)', values: zeros(), indent: 1, aggregation: 'sum' },
             { label: 'Working-Capital Changes', values: [], isSection: true },
-            { label: '(+) Δ Unearned Revenue', values: dUR, indent: 1, aggregation: 'sum' },
-            { label: '(+) Δ Accounts Payable', values: dAP, indent: 1, aggregation: 'sum' },
-            { label: '(-) Δ Inventory', values: dInventory.map((v) => -v), indent: 1, aggregation: 'sum' },
-            { label: '(-) Δ Accounts Receivable', values: dAR.map((v) => -v), indent: 1, aggregation: 'sum' },
+            ...(hasAnyValue(dUR) ? [{ label: '(+) Δ Unearned Revenue', values: dUR, indent: 1, aggregation: 'sum' as Aggregation }] : []),
+            ...(hasAnyValue(dAP) ? [{ label: '(+) Δ Accounts Payable', values: dAP, indent: 1, aggregation: 'sum' as Aggregation }] : []),
+            ...(hasAnyValue(dInventory) ? [{ label: '(-) Δ Inventory', values: dInventory.map((v) => -v), indent: 1, aggregation: 'sum' as Aggregation }] : []),
+            ...(hasAnyValue(dAR) ? [{ label: '(-) Δ Accounts Receivable', values: dAR.map((v) => -v), indent: 1, aggregation: 'sum' as Aggregation }] : []),
             { label: 'Cash from Operations (Indirect)', values: indirectOpsCash, isSubtotal: true, aggregation: 'sum' },
             { label: 'Investing Activities', values: [], isSection: true },
             { label: '(-) Capex', values: investingCash, indent: 1, aggregation: 'sum' },
             { label: 'Net Cash Flow', values: netCashIndirect, isTotal: true, aggregation: 'sum' },
           ]}
           currency={currency}
-          totalLabel="Lifetime Total"
+          totalLabel="Total"
           fmt={fmt}
         />
       </PhaseSection>
