@@ -98,7 +98,9 @@ function SubUnitReferenceStrip({
   // Pass 9e (2026-05-18): 'operate' surfaces SubUnit.startingAdr as
   // "ADR / night" and labels the count as "keys". 'sell' (default)
   // surfaces unitPrice as "/ unit" or "/ sqm" depending on metric.
-  mode?: 'sell' | 'operate';
+  // Pass 9g (2026-05-18): 'lease' surfaces unitPrice as "/ sqm / yr"
+  // (annual base rent rate).
+  mode?: 'sell' | 'operate' | 'lease';
 }): React.JSX.Element | null {
   if (units.length === 0) return null;
   return (
@@ -123,6 +125,10 @@ function SubUnitReferenceStrip({
         if (mode === 'operate' && isUnitsMetric) {
           const adr = su.startingAdr ?? su.unitPrice ?? 0;
           rateLabel = adr > 0 ? `${currency} ${formatAccounting(adr, 'full', 0)} / night (ADR)` : 'no ADR';
+        } else if (mode === 'lease') {
+          rateLabel = (su.unitPrice && su.unitPrice > 0)
+            ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm / yr`
+            : 'no rate';
         } else {
           rateLabel = (su.unitPrice && su.unitPrice > 0)
             ? (isUnitsMetric
@@ -372,6 +378,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // Pure Operate assets + every companion (companions are the operate
   // side of a Sell + Manage parent).
   const isHospitality = asset.strategy === 'Operate' || asset.isCompanion === true;
+  // Pass 9g (2026-05-18): Retail / Office Lease input variant.
+  const isLease = asset.strategy === 'Lease';
 
   // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
   const assetCollapseKey = `fmp:m2:inputs:asset:${asset.id}:collapsed`;
@@ -748,6 +756,62 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const setOtherRatePerGuest = (n: number): void => updateOperateInline({ otherRevenue: { ...opOther, ratePerGuest: Math.max(0, n) } });
   const setOtherFixed = (n: number): void => updateOperateInline({ otherRevenue: { ...opOther, fixedAmountPerPeriod: Math.max(0, n) } });
 
+  // ── Pass 9g (2026-05-18): Retail / Office Lease config + setters ─
+  type LeaseCfg = NonNullable<NonNullable<Asset['revenue']>['lease']>;
+  const leaseConfig = asset.revenue?.lease;
+  const leaseRentIdx = leaseConfig?.rentIndexation ?? { method: 'none' as const };
+  const leaseOccupancy = leaseConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
+  const leaseBaseRate = leaseConfig?.baseRate ?? 0;
+  const leaseArDays = leaseConfig?.arDays ?? 30;
+  const leaseOpsStartOverride = leaseConfig?.operationsStartYearOverride;
+
+  const updateLeaseInline = (patch: Partial<LeaseCfg>): void => {
+    const merged: Partial<LeaseCfg> = { ...(leaseConfig ?? {}), ...patch };
+    const next: LeaseCfg = {
+      ...merged,
+      assetId: asset.id,
+      baseRate: merged.baseRate ?? leaseBaseRate,
+      rentIndexation: merged.rentIndexation ?? leaseRentIdx,
+      occupancyPerPeriod: paddedArray(merged.occupancyPerPeriod ?? leaseOccupancy, totalPeriods),
+      arDays: merged.arDays ?? leaseArDays,
+    };
+    updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), lease: next } });
+  };
+  const setLeaseOccupancy = (idx: number, pct: number): void => {
+    const next = paddedArray(leaseOccupancy, totalPeriods);
+    next[idx] = Math.max(0, Math.min(1, pct / 100));
+    updateLeaseInline({ occupancyPerPeriod: next });
+  };
+  const applyLeaseOccupancyStabilizationPreset = (): void => {
+    // Retail / office stabilisation curve (reference v1.16 row 332):
+    // ramp 45% / 60% / 75% across years 1-3, then 90% stabilised.
+    const ramp = [0.45, 0.60, 0.75];
+    const stabilized = 0.90;
+    const next = paddedArray(leaseOccupancy, totalPeriods);
+    const opLen = operationsEndIdx - operationsStartIdx + 1;
+    for (let k = 0; k < opLen; k++) {
+      const idx = operationsStartIdx + k;
+      next[idx] = k < ramp.length ? ramp[k] : stabilized;
+    }
+    updateLeaseInline({ occupancyPerPeriod: next });
+  };
+  const setLeaseArDays = (n: number): void => updateLeaseInline({ arDays: Math.max(0, Math.round(n)) });
+  const setLeaseRentIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
+    updateLeaseInline({ rentIndexation: { ...leaseRentIdx, method } });
+  };
+  const setLeaseRentIndexationRate = (pct: number): void => {
+    updateLeaseInline({ rentIndexation: { method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, rate: Math.max(0, pct / 100), startYear: leaseRentIdx.startYear ?? operationsStartIdx } });
+  };
+  const setLeaseRentIndexationStartYear = (yearAbs: number): void => {
+    const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
+    updateLeaseInline({ rentIndexation: { method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, rate: leaseRentIdx.rate ?? 0, startYear: idx } });
+  };
+  const setLeaseRentGrowthPerYear = (periodIdx: number, pctValue: number): void => {
+    const current = paddedArray(leaseRentIdx.growthPerPeriod, totalPeriods);
+    current[periodIdx] = pctValue / 100;
+    updateLeaseInline({ rentIndexation: { ...leaseRentIdx, method: 'yoy_per_period', growthPerPeriod: current, startYear: leaseRentIdx.startYear ?? operationsStartIdx } });
+  };
+
   // Read scalar values (or pull index 0 from arrays for legacy data)
   const scalarOf = (v: number | number[] | undefined): number => {
     if (v == null) return 0;
@@ -771,7 +835,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         marginBottom: 'var(--sp-1)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: isSell && !assetCollapsed ? 'var(--sp-2)' : 0, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: (isSell || isHospitality || isLease) && !assetCollapsed ? 'var(--sp-2)' : 0, flexWrap: 'wrap' }}>
         <span
           onClick={() => setAssetCollapsed(!assetCollapsed)}
           style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-meta)', marginRight: 4 }}
@@ -1173,7 +1237,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         </div>
       )}
 
-      {!isSell && !isHospitality && !assetCollapsed && (
+      {!isSell && !isHospitality && !isLease && !assetCollapsed && (
         <div style={{
           padding: '6px 10px',
           background: 'var(--color-surface-alt, #f3f4f6)',
@@ -1184,6 +1248,221 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           fontStyle: 'italic',
         }}>
           Revenue form for {strategyMeta.label} ships in a later pass.
+        </div>
+      )}
+
+      {isLease && !assetCollapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} mode="lease" />
+
+          {operationsWindow.length === 0 ? (
+            <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              Phase has no operations periods. Set them on Module 1 Tab 1.
+            </div>
+          ) : (
+            <>
+              <InlineSection
+                title={`Rent Indexation · Operations ${operationsWindow[0].year} to ${operationsWindow[operationsWindow.length - 1].year}`}
+                hint="Per-sub-unit base rates come from Module 1 Tab 2 (Unit price per sqm/yr). Indexation escalates each sub-unit's rate from Start Year onwards."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Indexation</span>
+                  <MethodPill active={leaseRentIdx.method === 'none'} label="None" onClick={() => setLeaseRentIndexationMethod('none')} />
+                  <MethodPill active={leaseRentIdx.method === 'yoy_compound'} label="YoY Compound" onClick={() => setLeaseRentIndexationMethod('yoy_compound')} />
+                  <MethodPill active={leaseRentIdx.method === 'yoy_per_period'} label="Per-Year" onClick={() => setLeaseRentIndexationMethod('yoy_per_period')} />
+                  <MethodPill active={leaseRentIdx.method === 'step'} label="Step" onClick={() => setLeaseRentIndexationMethod('step')} />
+                  {leaseRentIdx.method === 'yoy_compound' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Rate %</span>
+                      <div style={{ width: 80 }}>
+                        <PercentageInput
+                          value={(leaseRentIdx.rate ?? 0) * 100}
+                          onChange={setLeaseRentIndexationRate}
+                          min={0}
+                          max={50}
+                          decimals={2}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-lease-rent-idx-rate`}
+                        />
+                      </div>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                      <div style={{ width: 90 }}>
+                        <input
+                          type="number"
+                          value={projectStartYear + (leaseRentIdx.startYear ?? operationsStartIdx)}
+                          min={projectStartYear}
+                          max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                          onChange={(e) => setLeaseRentIndexationStartYear(Number(e.target.value))}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-lease-rent-idx-startyear`}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {leaseRentIdx.method === 'yoy_per_period' && (
+                    <>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
+                      <div style={{ width: 90 }}>
+                        <input
+                          type="number"
+                          value={projectStartYear + (leaseRentIdx.startYear ?? operationsStartIdx)}
+                          min={projectStartYear}
+                          max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                          onChange={(e) => setLeaseRentIndexationStartYear(Number(e.target.value))}
+                          style={FAST_INPUT}
+                          data-testid={`m2-asset-${asset.id}-lease-rent-idx-pyrgrowth-start`}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+                {leaseRentIdx.method === 'yoy_per_period' && operationsWindow.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: 4 }}>
+                      Per-year growth from Start Year. Compounds cumulatively: Rate[y] = Rate[y-1] × (1 + growth[y]). Negative values allowed.
+                    </div>
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+                      <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...CELL_HEADER, textAlign: 'left', minWidth: 140 }}>Rent Growth %</th>
+                            {operationsWindow.map((c) => (
+                              <th key={c.idx} style={{ ...CELL_HEADER, minWidth: 55 }}>
+                                {c.year}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
+                              YoY growth
+                            </td>
+                            {operationsWindow.map((c) => (
+                              <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
+                                <PercentageInput
+                                  value={((leaseRentIdx.growthPerPeriod ?? [])[c.idx] ?? 0) * 100}
+                                  onChange={(n) => setLeaseRentGrowthPerYear(c.idx, n)}
+                                  min={-50}
+                                  max={100}
+                                  decimals={2}
+                                  style={FAST_INPUT}
+                                  data-testid={`m2-asset-${asset.id}-lease-rent-pyrgrowth-${c.idx}`}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </InlineSection>
+
+              <InlineSection
+                title="Operations start year"
+                hint="Defaults to the year after handover. Override to soft-open mid-construction or push to any specific year."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Start operations in</span>
+                  <div style={{ width: 90 }}>
+                    <input
+                      type="number"
+                      value={projectStartYear + operationsStartIdx}
+                      min={projectStartYear + constructionStartIdx}
+                      max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                      onChange={(e) => {
+                        const yr = Number(e.target.value);
+                        const defaultYr = projectStartYear + defaultOperationsStartIdx;
+                        updateLeaseInline({ operationsStartYearOverride: yr === defaultYr ? undefined : yr });
+                      }}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-lease-ops-start-year`}
+                    />
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}
+                  </span>
+                  {leaseOpsStartOverride != null && (
+                    <button
+                      type="button"
+                      onClick={() => updateLeaseInline({ operationsStartYearOverride: undefined })}
+                      style={{
+                        fontSize: 10,
+                        padding: '2px 8px',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-meta)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Reset to default
+                    </button>
+                  )}
+                </div>
+              </InlineSection>
+
+              <InlineSection
+                title="Occupancy ramp"
+                hint="Per-year occupancy %. Drives Occupied Lease Area = GLA × Occupancy."
+                tag={(() => {
+                  const visible = operationsWindow.map((c) => leaseOccupancy[c.idx] ?? 0);
+                  const max = Math.max(0, ...visible);
+                  return `peak ${(max * 100).toFixed(0)}%`;
+                })()}
+              >
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                  <button
+                    type="button"
+                    onClick={applyLeaseOccupancyStabilizationPreset}
+                    style={{
+                      fontSize: 10,
+                      padding: '3px 8px',
+                      background: 'var(--color-surface)',
+                      color: 'var(--color-navy)',
+                      border: '1px solid var(--color-navy)',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                    title="Fill the operations window with a typical retail / office ramp: yr1 45% / yr2 60% / yr3 75% / yr4+ stabilised 90%."
+                    data-testid={`m2-asset-${asset.id}-lease-occ-preset`}
+                  >
+                    Apply ramp (45 → 60 → 75 → 90%)
+                  </button>
+                </div>
+                <InlineProfileStrip
+                  cells={operationsWindow}
+                  values={leaseOccupancy}
+                  onChange={setLeaseOccupancy}
+                  testidPrefix={`m2-asset-${asset.id}-lease-occ`}
+                  showCumulative={false}
+                  label="Occupancy"
+                />
+              </InlineSection>
+
+              <InlineSection
+                title="Accounts Receivable Days"
+                hint="Days between revenue recognition (per-period rent earned) and cash collection. Default 30 days."
+              >
+                <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>AR days</span>
+                  <div style={{ width: 80 }}>
+                    <input
+                      type="number"
+                      value={leaseArDays}
+                      min={0}
+                      max={365}
+                      onChange={(e) => setLeaseArDays(Number(e.target.value))}
+                      style={FAST_INPUT}
+                      data-testid={`m2-asset-${asset.id}-lease-ar-days`}
+                    />
+                  </div>
+                </div>
+              </InlineSection>
+            </>
+          )}
         </div>
       )}
 
