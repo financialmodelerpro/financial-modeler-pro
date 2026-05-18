@@ -119,7 +119,12 @@ export function resolveHospitalityConfig(
   const opsStartIdx = cfg.operationsStartYearOverride != null
     ? Math.max(constructionStartIdx, Math.min(axisLength - 1, cfg.operationsStartYearOverride - projectStartYear))
     : defaultOpsStartIdx;
-  const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, opsStartIdx + op - 1));
+  // Pass 9e-8 (2026-05-18): ops end stays anchored to the phase's
+  // calendar end (defaultOpsStartIdx + op - 1) so that pulling the
+  // start FORWARD via the override doesn't lop a year off the end.
+  // Without this, override to last-construction-year shortened the
+  // window from 2030..2039 to 2029..2038.
+  const opsEndIdx = Math.max(opsStartIdx, Math.min(axisLength - 1, defaultOpsStartIdx + op - 1));
 
   // Pass 9c (2026-05-18): per-sub-unit ADR resolution. Each
   // metric='units' sub-unit becomes a HospitalitySubUnitConfig with

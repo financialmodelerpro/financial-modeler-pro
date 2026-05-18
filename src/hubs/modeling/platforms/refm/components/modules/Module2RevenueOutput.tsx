@@ -812,6 +812,24 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </p>
       </div>
 
+      {/* Pass 9e-8 (2026-05-18): strategy-first grouping per user.
+          Outer sections are Residential / Sell, Hospitality / Operations,
+          Retail / Lease. Inside each, phases are nested as smaller
+          subheadings. Asset cards (AssetSection) keep their own
+          per-card collapse, so a 10-asset, 3-phase project still feels
+          tidy. */}
+      <PhaseSection
+        phaseId="strategy-sell"
+        title="Residential / Sell"
+        meta="Sell + Sell + Manage parents across all phases"
+        countLabel={`${sellAssets.length} asset${sellAssets.length === 1 ? '' : 's'}`}
+        storageKey="fmp:m2:revenue:strategy:sell:collapsed"
+      >
+      {sellAssets.length === 0 && (
+        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+          No Sell or Sell + Manage assets configured yet.
+        </div>
+      )}
       {phases.map((p) => {
         const phaseAssets = sellAssets.filter((a) => a.phaseId === p.id);
         if (phaseAssets.length === 0) return null;
@@ -820,14 +838,12 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             + (p.constructionPeriods ?? 0) - 1 - projectStartYear));
 
         return (
-          <PhaseSection
-            key={p.id}
-            phaseId={p.id}
-            title={p.name}
-            meta={`${p.status ?? 'planning'} · handover ${snap.yearLabels[handoverYearIdx] ?? '?'}`}
-            countLabel={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
-            storageKey={`fmp:m2:revenue:phase:${p.id}:collapsed`}
-          >
+          <div key={p.id} style={{ marginBottom: 'var(--sp-2)' }}>
+            <PhaseDivider
+              title={p.name}
+              meta={`${p.status ?? 'planning'} · handover ${snap.yearLabels[handoverYearIdx] ?? '?'}`}
+              count={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
+            />
             {phaseAssets.map((a) => {
               const r = snap.bySellAsset.get(a.id);
               // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
@@ -1117,17 +1133,35 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 </AssetSection>
               );
             })}
-          </PhaseSection>
+          </div>
         );
       })}
+      </PhaseSection>
 
-      {/* Pass 8c (2026-05-18): per-asset Hospitality narrative.
-          Pass 9e-7 (2026-05-18): companions are surfaced here as
-          separate hospitality assets, mirroring the Inputs tab's
-          separate-collapsible treatment. Tower 01 (Sell + Manage)
-          renders in the Sell section above, and its Operate companion
-          renders here under Hospitality / Operations next to any
-          pure Operate hotels. */}
+      {/* Pass 9e-8 (2026-05-18): Hospitality / Operations strategy
+          section with phases nested inside. Includes pure Operate +
+          every companion (Operate-side of Sell+Manage parents). */}
+      <PhaseSection
+        phaseId="strategy-hospitality"
+        title="Hospitality / Operations"
+        meta="Operate assets + Sell + Manage operate companions across all phases"
+        countLabel={(() => {
+          const n = assets.filter((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true)).length;
+          return `${n} asset${n === 1 ? '' : 's'}`;
+        })()}
+        storageKey="fmp:m2:revenue:strategy:hospitality:collapsed"
+      >
+      {(() => {
+        const anyHosp = assets.some((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true));
+        if (!anyHosp) {
+          return (
+            <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              No Operate or Sell + Manage assets configured yet.
+            </div>
+          );
+        }
+        return null;
+      })()}
       {phases.map((p) => {
         const phaseHospitalityAssets = assets.filter((a) => {
           if (a.phaseId !== p.id || a.visible === false) return false;
@@ -1135,18 +1169,33 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         });
         if (phaseHospitalityAssets.length === 0) return null;
         return (
-          <PhaseSection
-            key={`hosp-${p.id}`}
-            phaseId={`hosp-${p.id}`}
-            title={`${p.name} · Hospitality / Operations`}
-            meta={`${p.status ?? 'planning'}`}
-            countLabel={`${phaseHospitalityAssets.length} hospitality asset${phaseHospitalityAssets.length === 1 ? '' : 's'}`}
-            storageKey={`fmp:m2:revenue:phase:hosp:${p.id}:collapsed`}
-          >
+          <div key={`hosp-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
+            <PhaseDivider
+              title={p.name}
+              meta={`${p.status ?? 'planning'}`}
+              count={`${phaseHospitalityAssets.length} hospitality asset${phaseHospitalityAssets.length === 1 ? '' : 's'}`}
+            />
             {phaseHospitalityAssets.map((a) => renderHospitalityAssetSection(a, false))}
-          </PhaseSection>
+          </div>
         );
       })}
+      </PhaseSection>
+
+      {/* Pass 9e-8: Retail / Lease placeholder. Wires in at Pass 9 / Retail engine. */}
+      <PhaseSection
+        phaseId="strategy-retail"
+        title="Retail / Lease"
+        meta="Lease assets across all phases"
+        countLabel={(() => {
+          const n = assets.filter((a) => a.visible !== false && a.strategy === 'Lease').length;
+          return `${n} asset${n === 1 ? '' : 's'}`;
+        })()}
+        storageKey="fmp:m2:revenue:strategy:retail:collapsed"
+      >
+        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+          Lease revenue engine queued. Tracked Lease assets will surface here once Module 2 Lease (Pass 9) ships.
+        </div>
+      </PhaseSection>
 
       <PhaseSection
         phaseId="__project__"
@@ -1201,6 +1250,33 @@ function SectionHeading({ n, title }: { n: string; title: string }): React.JSX.E
       }}>
         {n}. {title}
       </strong>
+    </div>
+  );
+}
+
+/**
+ * Pass 9e-8 (2026-05-18): phase divider rendered inside a strategy
+ * section. Lighter than a full PhaseSection chrome (no collapse, no
+ * navy bar) so the strategy header stays the dominant visual anchor.
+ */
+function PhaseDivider({ title, meta, count }: { title: string; meta?: string; count?: string }): React.JSX.Element {
+  return (
+    <div style={{
+      marginTop: 'var(--sp-2)',
+      marginBottom: 'var(--sp-1)',
+      padding: '6px 12px',
+      background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+      borderLeft: '3px solid var(--color-navy)',
+      borderRadius: '2px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    }}>
+      <div>
+        <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)' }}>{title}</strong>
+        {meta && <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--color-meta)' }}>{meta}</span>}
+      </div>
+      {count && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{count}</span>}
     </div>
   );
 }

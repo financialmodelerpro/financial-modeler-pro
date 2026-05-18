@@ -437,7 +437,10 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const operationsStartIdx = opsStartOverride != null
     ? Math.max(constructionStartIdx, Math.min(totalPeriods - 1, opsStartOverride - projectStartYear))
     : defaultOperationsStartIdx;
-  const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, operationsStartIdx + op - 1));
+  // Pass 9e-8 (2026-05-18): end stays anchored to the phase's
+  // calendar end (defaultOperationsStartIdx + op - 1), so the override
+  // can only pull the start in, never trim the back.
+  const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, defaultOperationsStartIdx + op - 1));
 
   const constructionWindow: WindowCell[] = cp > 0
     ? Array.from({ length: Math.max(0, handoverYear - constructionStartIdx + 1) }, (_, k) => {
