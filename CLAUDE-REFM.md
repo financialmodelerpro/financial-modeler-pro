@@ -1,5 +1,31 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-17 EoD. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue) WIP, Residential Sell flow live through Pass 7r. Verifier 32 / 32.**
+**Last updated: 2026-05-18. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue + CoS + Schedules) LOCKED at Pass 9g-O. Verifier 133 / 133.**
+
+**Module 2 final state (Pass 9g-O):**
+- **Revenue engines**: Residential Sell, Hospitality (Operate + Sell+Manage companions), Retail/Lease.
+- **PIT recognition**: handover / sale_year / custom (Pass 9g-H — pin to any project year).
+- **CoS**: `costOfSalesV2` joint-cumulative engine. Per-asset Drivers → Vintage Matrix → Summary → Inventory roll-forward. Project Total grouped by strategy.
+- **Vintage matrices**: Cash + Recognition (Revenue Output) + CoS (CoS tab) share the `VintageMatrix` component.
+- **Rental pool enrollment** (Sell+Manage companions): single toggle — Auto-link to sales (1-year lag, 100% rate, pool tracks parent's cum sales) OR Day 1 full pool.
+- **Schedules tab**: raw line-item financial-statement feed (Revenue / CoS / Gross Margin / Inventory / AR / Unearned / Cash / Capex per asset, grouped). Zero-only rows hidden. Direct/Indirect CF + NWC compose in M3.
+- **Retired**: Phase Overlap input (Pass 9g-N) → replaced by per-asset `operationsStartYearOverride`. Engine still reads legacy `phase.overlapPeriods` for back-compat.
+- **Renamed**: Module 1 tab "3. Costs" → "3. Capex" (Pass 9g-G).
+- **Snap-to-zero**: |x| < 1000 → 0 on inventory roll-forwards (matches financing/schedule.ts convention).
+
+**Engine conventions (carry into M3):**
+- Pre-sales: revenue lumps at sale year; cash via payment profile; recognition via recognition profile (or PIT anchor).
+- Post-sales (SDO): revenue = cash = recognition in same period.
+- Hospitality + Lease: revenue = cash = recognition same period; AR delay via DSO engine.
+- Project axis: `arr[0]` = first active project year.
+- YoY rounding (units or sqm) before revenue computation.
+- Sale value drives AR + UR (gross credit); cash drains AR; recognition drains UR.
+- AR/UR signatures: `buildAccountsReceivable(saleValue, cash, N)`, `buildUnearnedRevenue(recognition, saleValue, N)`.
+
+**Next module: M3 Financial Statements.** Compose P&L (Revenue - CoS - opex - D&A = NI), BS (Inventory + AR + UR + AP + Retained Earnings + Debt + Equity), CF (Direct + Indirect) from M2's per-asset line items.
+
+---
+
+**Original M2 Pass 7 build history (May 17):**
 
 **M2 Pass 7 sub-series summary (2026-05-17):**
 - **7g** (`343b56d`): removed project-wide Sell template; every asset owns own cash + recognition + indexation. `revenueTemplates` + `overrideProfile` marked @deprecated.

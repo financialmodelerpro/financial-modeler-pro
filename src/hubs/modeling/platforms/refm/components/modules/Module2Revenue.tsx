@@ -752,11 +752,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateOperateInline({ occupancyPerPeriod: next });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
-  // Pass 9g-J (2026-05-18): rental-pool enrollment knobs for Sell + Manage
-  // companions. lag = years from sale closing to a sold unit going live in
-  // the rental program; rate = fraction of sold-unit owners who enroll.
-  const setOperateEnrollmentLag = (n: number): void => updateOperateInline({ enrollmentLagYears: Math.max(0, Math.round(n)) });
-  const setOperateEnrollmentRate = (pct: number): void => updateOperateInline({ enrollmentRate: Math.max(0, Math.min(1, pct / 100)) });
+  // Pass 9g-O (2026-05-18): single rentalPoolMode toggle replaces the
+  // lag + rate scalar inputs. 'auto_from_sales' = pool tracks parent's
+  // sales with a 1-year lag (sold units become available next year).
+  // 'day_one_full' = 100% of keys live from operations start.
+  const setOperateRentalPoolMode = (mode: 'auto_from_sales' | 'day_one_full'): void => {
+    // Clear the legacy lag/rate fields when switching to the simple
+    // toggle so they can't leak in later.
+    updateOperateInline({ rentalPoolMode: mode, enrollmentLagYears: undefined, enrollmentRate: undefined });
+  };
   const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
   };
@@ -1251,56 +1255,52 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   program). For a companion (the Manage side of a Sell +
                   Manage), the rental pool builds up as buyers enroll
                   their units, with a lag from sale closing. */}
-              {asset.isCompanion === true && (
-                <InlineSection
-                  title="Rental pool enrollment (Sell + Manage)"
-                  hint="Lag = years from sale closing to a sold unit going live in the rental program (furnishing / OTA listing / first bookings). Rate = fraction of sold-unit owners who enroll (rest is owner-occupied or self-managed)."
-                >
-                  <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Lag</span>
-                      <div style={{ width: 70 }}>
-                        <AccountingNumberInput
-                          value={operateConfig?.enrollmentLagYears ?? 1}
-                          onChange={setOperateEnrollmentLag}
-                          scale="full"
-                          decimals={0}
-                          min={0}
-                          max={10}
-                          style={FAST_INPUT}
-                          data-testid={`m2-asset-${asset.id}-enrollment-lag`}
-                        />
-                      </div>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>years</span>
+              {asset.isCompanion === true && (() => {
+                // Default for companions: 'auto_from_sales'. When a
+                // legacy snapshot has the deprecated lag/rate fields
+                // set but no rentalPoolMode, treat it as auto-link
+                // (resolver honours the explicit numbers, UI shows
+                // the toggle in the auto state).
+                const mode: 'auto_from_sales' | 'day_one_full' =
+                  operateConfig?.rentalPoolMode ?? 'auto_from_sales';
+                return (
+                  <InlineSection
+                    title="Rental pool enrollment (Sell + Manage)"
+                    hint="Choose how sold units enter the rental pool. Auto-link mirrors typical condo-hotel mechanics (next year after sale). Day 1 full mirrors a standalone hotel (every key is in the pool from operations start)."
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <MethodPill
+                        active={mode === 'auto_from_sales'}
+                        label="Auto-link to sales"
+                        onClick={() => setOperateRentalPoolMode('auto_from_sales')}
+                      />
+                      <MethodPill
+                        active={mode === 'day_one_full'}
+                        label="Day 1 full pool"
+                        onClick={() => setOperateRentalPoolMode('day_one_full')}
+                      />
                     </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Rate</span>
-                      <div style={{ width: 80 }}>
-                        <PercentageInput
-                          value={(operateConfig?.enrollmentRate ?? 1) * 100}
-                          onChange={setOperateEnrollmentRate}
-                          min={0}
-                          max={100}
-                          decimals={0}
-                          style={FAST_INPUT}
-                          data-testid={`m2-asset-${asset.id}-enrollment-rate`}
-                        />
-                      </div>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
+                      {mode === 'auto_from_sales' ? (
+                        <>
+                          <strong>Auto-link to sales:</strong> sold units enter the rental pool one year after sale closing. Pool % per year
+                          = cumulative units sold by (y − 1) ÷ total keys. Revenue = effective keys × days × occupancy × ADR.
+                          <br/>Worked example (100 keys, 90% sold by 2029, 10% in 2030): pool = 0 / 90 / 100 / 100 in 2029-2032.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Day 1 full pool:</strong> 100% of keys available from operations start, same as a standalone Operate hotel.
+                          Revenue = total keys × days × occupancy × ADR.
+                          <br/>Useful when the rental program is fully marketed before sales close, or when the unit count and pool size
+                          are decoupled from sales velocity.
+                        </>
+                      )}
+                      <br/>For a hard &quot;start in year X&quot; cliff (e.g. reference workbook), use the <em>Operations start year override</em>
+                      field below — it zeros revenue before X regardless of which mode you pick here.
                     </div>
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
-                    Engine derives effective rental-pool keys per period from the parent&apos;s cumulative units sold:<br/>
-                    <strong>effective keys[y] = cum units sold[y − lag] × enrollment rate</strong>. Defaults: lag=1 year, rate=100%.
-                    Industry typical: 60-80% participation for branded residences.<br/>
-                    <strong>Worked example</strong> (100 keys, 90% sold by 2029, 10% in 2030):<br/>
-                    &nbsp;• lag=1, rate=100% → pool = 0/90/100/100 in 2029-2032<br/>
-                    &nbsp;• lag=2, rate=100% → pool = 0/0/90/100 in 2029-2032<br/>
-                    &nbsp;• lag=1, rate=70% → pool = 0/63/70/70 in 2029-2032<br/>
-                    For a hard &quot;start in year X&quot; cliff (e.g. reference workbook), use the <em>Operations start year override</em>
-                    field below instead — it zeros revenue before X and gives 100% pool from X onwards.
-                  </div>
-                </InlineSection>
-              )}
+                  </InlineSection>
+                );
+              })()}
 
               {/* DSO (drives AR roll-forward, Pass 8d) */}
               <InlineSection

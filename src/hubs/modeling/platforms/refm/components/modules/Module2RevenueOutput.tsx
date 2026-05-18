@@ -795,8 +795,19 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               ? (() => {
                   const parent = snap.bySellAsset.get(a.parentAssetId);
                   if (!parent) return [];
-                  const lag = Math.max(0, Math.round(opCfg?.enrollmentLagYears ?? 1));
-                  const rate = Math.max(0, Math.min(1, opCfg?.enrollmentRate ?? 1));
+                  // Pass 9g-O (2026-05-18): resolve effective mode +
+                  // lag/rate. New snapshots use rentalPoolMode; legacy
+                  // ones may carry enrollmentLagYears/Rate. Default for
+                  // companions = auto_from_sales (lag=1, rate=100%).
+                  const mode = opCfg?.rentalPoolMode
+                    ?? (opCfg?.enrollmentLagYears != null || opCfg?.enrollmentRate != null ? 'auto_from_sales' : 'auto_from_sales');
+                  if (mode === 'day_one_full') return [];
+                  const lag = opCfg?.rentalPoolMode === 'auto_from_sales'
+                    ? 1
+                    : Math.max(0, Math.round(opCfg?.enrollmentLagYears ?? 1));
+                  const rate = opCfg?.rentalPoolMode === 'auto_from_sales'
+                    ? 1
+                    : Math.max(0, Math.min(1, opCfg?.enrollmentRate ?? 1));
                   const cumSold = new Array<number>(N).fill(0);
                   let running = 0;
                   for (let i = 0; i < N; i++) {
@@ -808,10 +819,11 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     const idx = i - lag;
                     return idx >= 0 ? cumSold[idx] : 0;
                   });
+                  const rateLabel = rate < 1 ? ` × ${(rate * 100).toFixed(0)}% rate` : '';
                   return [
                     { label: 'Cumulative Units Sold (from parent)', values: cumSold, rowFmt: intFmt, totalOverride: intFmt(cumSold[cumSold.length - 1] ?? 0), indent: 1 },
                     { label: `Cumulative Sold at y − ${lag} (enrollment lag)`, values: laggedCumSold, rowFmt: intFmt, totalOverride: intFmt(laggedCumSold[laggedCumSold.length - 1] ?? 0), indent: 1 },
-                    { label: `Rental Pool Participation % (lagged ÷ ${opKeys.toLocaleString('en-US')} keys × ${(rate * 100).toFixed(0)}% rate)`, values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
+                    { label: `Rental Pool Participation % (lagged ÷ ${opKeys.toLocaleString('en-US')} keys${rateLabel})`, values: r.keysParticipationPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(r.keysParticipationPerPeriod[r.keysParticipationPerPeriod.length - 1] ?? 0), indent: 1 },
                     { label: 'Effective Rental Pool Keys', values: r.effectiveKeysPerPeriod, rowFmt: intFmt, totalOverride: intFmt(r.effectiveKeysPerPeriod[r.effectiveKeysPerPeriod.length - 1] ?? 0), indent: 1 },
                   ];
                 })()

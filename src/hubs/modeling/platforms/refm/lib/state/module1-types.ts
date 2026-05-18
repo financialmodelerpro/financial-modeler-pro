@@ -836,19 +836,29 @@ export interface Asset {
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
       dso?: number;
       /**
-       * Pass 9g-J (2026-05-18): rental-pool enrollment lag for Sell +
-       * Manage companions. Years from sale closing to a sold unit
-       * being live in the developer's rental program (furnishing /
-       * OTA listing / first bookings). Default 1. Pure Operate assets
-       * (standalone hotels) ignore this field.
+       * Pass 9g-O (2026-05-18): rental pool mode for Sell + Manage
+       * companions. Replaces the lag + rate scalar inputs with a
+       * single toggle:
+       *   - 'auto_from_sales': sold units enter the rental pool one
+       *     year after sale closing. Pool % = cumulative units sold
+       *     by (current year - 1). Equivalent to lag=1, rate=100%.
+       *   - 'day_one_full': 100% of keys available from operations
+       *     start. Same behaviour as a standalone Operate hotel.
+       * Defaults at the resolver:
+       *   - companions: 'auto_from_sales'
+       *   - standalone Operate: 'day_one_full'
+       */
+      rentalPoolMode?: 'auto_from_sales' | 'day_one_full';
+      /**
+       * @deprecated Pass 9g-O (2026-05-18). Replaced by rentalPoolMode.
+       * Kept for snapshot back-compat. The resolver still honours
+       * non-undefined values on snapshots written before Pass 9g-O,
+       * but new snapshots only use rentalPoolMode.
        */
       enrollmentLagYears?: number;
       /**
-       * Pass 9g-J (2026-05-18): rental-pool enrollment rate for Sell +
-       * Manage companions. Fraction (0..1) of sold-unit owners who
-       * enroll in the rental program (rest is owner-occupied / self-
-       * managed). Default 1.0 (full pool). Industry typical 0.6-0.8
-       * for branded residences.
+       * @deprecated Pass 9g-O (2026-05-18). Replaced by rentalPoolMode.
+       * Kept for snapshot back-compat.
        */
       enrollmentRate?: number;
     };
