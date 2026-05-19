@@ -188,6 +188,17 @@ export const m3Tabs = [
   { key: 'm3-output', icon: '📊', label: '2. Opex Output', step: 2 },
 ];
 
+// Universal module → sub-tabs map. Any module key that needs a sidebar
+// drop-down just registers its tabs here; Sidebar.tsx reads from this
+// map instead of hard-coding per-module branches. New modules (M4/M5/M6)
+// only need to add their tabs here — sidebar code stays untouched.
+export type SidebarSubTab = { key: string; icon: string; label: string; step: number };
+export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
+  module1: m1Tabs,
+  module2: m2Tabs,
+  module3: m3Tabs,
+};
+
 // ── Main component ────────────────────────────────────────────────────────
 export default function RealEstatePlatform(): React.JSX.Element {
   const session = useSession();
