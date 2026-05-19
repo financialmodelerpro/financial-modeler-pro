@@ -55,6 +55,7 @@ export type OpexLineCategory =
   | 'property_tax'
   | 'utilities'
   | 'cam'
+  | 'repairs_maintenance'
   // HQ / corporate (used by project-wide opex)
   | 'hq_payroll'
   | 'hq_office'
@@ -88,6 +89,23 @@ export interface OpexLine {
    *  asset-level switch propagate to every fixed-cost line while still
    *  allowing per-line overrides. */
   useAssetDefault?: boolean;
+  /** Value entry mode (Pass 4, 2026-05-19):
+   *   - 'single' (default): use line.value every year; inflation can apply.
+   *   - 'yoy': use yoyRates[t] directly for each period; inflation is
+   *     IGNORED because the user is supplying period-specific values
+   *     already. Same multiplier rules as the mode apply:
+   *       fixed_baseline       -> v(t) = yoyRates[t]
+   *       per_room_year        -> v(t) = yoyRates[t] × keys
+   *       per_sqm_year         -> v(t) = yoyRates[t] × leasableSqm
+   *       pct_*                -> v(t) = yoyRates[t] × stream(t)
+   *       pct_of_gop           -> v(t) = yoyRates[t] × gop(t)
+   */
+  rateMode?: 'single' | 'yoy';
+  /** Per-period rate array used only when rateMode === 'yoy'. Index is
+   *  project-axis (arr[0] = first active project year). Engine reads
+   *  yoyRates[t] inside [opsStartIdx, opsEndIdx]; cells outside the
+   *  ops window stay zero in the output. Missing entries default to 0. */
+  yoyRates?: number[];
   /** When true, the engine skips this line (left in the config so the
    *  user can toggle a line off without losing the values). */
   disabled?: boolean;

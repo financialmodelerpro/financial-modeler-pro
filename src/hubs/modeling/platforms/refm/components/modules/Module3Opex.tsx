@@ -76,7 +76,8 @@ const CATEGORY_LABELS: Record<OpexLineCategory, string> = {
   rent_insurance: 'Rent & insurance',
   property_tax: 'Property tax',
   utilities: 'Utilities',
-  cam: 'Common area maintenance',
+  cam: 'Service charge / CAM',
+  repairs_maintenance: 'Repairs & maintenance',
   hq_payroll: 'HQ, Payroll',
   hq_office: 'HQ, Office & overheads',
   hq_professional: 'HQ, Professional fees',
@@ -114,7 +115,9 @@ const HOSP_CATEGORIES: OpexLineCategory[] = [
   'rent_insurance', 'property_tax', 'utilities', 'other',
 ];
 const LEASE_CATEGORIES: OpexLineCategory[] = [
-  'mgmt_base', 'cam', 'utilities', 'rent_insurance', 'property_tax', 'other',
+  'mgmt_base', 'repairs_maintenance', 'rent_insurance', 'utilities',
+  'cam',
+  'property_tax', 'replacement_reserve', 'other',
 ];
 const HQ_CATEGORIES: OpexLineCategory[] = [
   'hq_payroll', 'hq_office', 'hq_professional', 'hq_other',
@@ -447,7 +450,6 @@ function OpexLineTable({
   const addLine = (): void => onChange([...lines, defaultLineForStrategy(newLineStrategy)]);
 
   const setLineMode = (idx: number, mode: OpexLineMode): void => {
-    const line = lines[idx];
     // When switching to a %-of-rev / pct_of_gop mode, clear any
     // per-line override since inflation no longer applies.
     if (!isFixedCostMode(mode)) {
@@ -473,9 +475,61 @@ function OpexLineTable({
     updateLine(idx, { indexation: next });
   };
 
-  // Renders a mode-aware value cell: % for pct_* / pct_of_gop, raw
-  // accounting number for fixed_baseline / per_room_year / per_sqm_year.
+  // Pass 4: per-line Single / YoY rate-mode toggle. When switching to
+  // YoY, seed yoyRates[t] with line.value for every ops year so the
+  // user starts from an equivalent baseline and tweaks year by year.
+  // When switching back to Single, the yoyRates array is preserved on
+  // the line (cheap), but the engine ignores it.
+  const setLineRateMode = (idx: number, next: 'single' | 'yoy'): void => {
+    const line = lines[idx];
+    if (next === 'single') {
+      updateLine(idx, { rateMode: 'single' });
+      return;
+    }
+    const N = Math.max(0, axisLength);
+    const seed = Math.max(0, line.value);
+    const arr = new Array<number>(N).fill(0);
+    for (const c of yearCells) {
+      if (c.idx >= 0 && c.idx < N) arr[c.idx] = seed;
+    }
+    // Going YoY revokes any per-line inflation override (override is
+    // meaningless when the rate is supplied per year already).
+    updateLine(idx, {
+      rateMode: 'yoy',
+      yoyRates: arr,
+      useAssetDefault: true,
+      indexation: { method: 'none' },
+    });
+  };
+
+  const setYoyCell = (idx: number, cellIdx: number, rawValue: number): void => {
+    const line = lines[idx];
+    const N = Math.max(0, axisLength);
+    const base = line.yoyRates ?? [];
+    const next = new Array<number>(N).fill(0);
+    for (let i = 0; i < Math.min(base.length, N); i++) next[i] = base[i] ?? 0;
+    if (cellIdx >= 0 && cellIdx < N) next[cellIdx] = Math.max(0, rawValue);
+    updateLine(idx, { yoyRates: next });
+  };
+
+  // Renders a mode-aware value cell. When the line is in YoY mode the
+  // single Value input collapses to a small badge — the per-period
+  // rate strip lives in the sub-row below.
   const renderValueInput = (line: OpexLine, idx: number): React.JSX.Element => {
+    if (line.rateMode === 'yoy') {
+      return (
+        <span
+          style={{
+            fontSize: 10,
+            color: 'var(--color-meta)',
+            fontStyle: 'italic',
+          }}
+          data-testid={`${testidPrefix}-value-yoy-${idx}`}
+        >
+          ↓ year-by-year
+        </span>
+      );
+    }
     const isPct = line.mode.startsWith('pct_');
     if (isPct) {
       return (
@@ -511,6 +565,7 @@ function OpexLineTable({
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 180 }}>Line item</th>
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 180 }}>Category</th>
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 180 }}>Mode</th>
+            <th style={{ padding: '6px 8px', textAlign: 'center', minWidth: 110 }}>Rate</th>
             <th style={{ padding: '6px 8px', textAlign: 'right', minWidth: 110 }}>Value</th>
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 200 }}>Inflation</th>
             <th style={{ padding: '6px 8px', textAlign: 'center', minWidth: 60 }}>On</th>
@@ -521,6 +576,8 @@ function OpexLineTable({
           {lines.map((l, idx) => {
             const fixedMode = isFixedCostMode(l.mode);
             const inheriting = l.useAssetDefault !== false;
+            const isYoy = l.rateMode === 'yoy';
+            const isPct = l.mode.startsWith('pct_');
             return (
               <React.Fragment key={l.id}>
                 <tr style={{ borderBottom: '1px solid var(--color-border)', opacity: l.disabled ? 0.5 : 1 }}>
@@ -557,6 +614,45 @@ function OpexLineTable({
                       ))}
                     </select>
                   </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', gap: 4 }}>
+                      {(['single', 'yoy'] as const).map((m) => {
+                        const active = (l.rateMode ?? 'single') === m;
+                        const disabled = m === 'yoy' && yearCells.length === 0;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setLineRateMode(idx, m)}
+                            title={
+                              disabled
+                                ? 'YoY rates need an operations window first.'
+                                : m === 'single'
+                                  ? 'One value applied every year (Asset Inflation still applies when on).'
+                                  : 'Different value each year. Engine uses your per-period rates as-is; Asset Inflation is ignored.'
+                            }
+                            style={{
+                              fontSize: 10,
+                              padding: '3px 8px',
+                              background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                              color: active
+                                ? 'var(--color-on-primary-navy)'
+                                : disabled ? 'var(--color-meta)' : 'var(--color-navy)',
+                              border: '1px solid var(--color-navy)',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: disabled ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                              opacity: disabled ? 0.5 : 1,
+                            }}
+                            data-testid={`${testidPrefix}-ratemode-${m}-${idx}`}
+                          >
+                            {m === 'single' ? 'Single' : 'YoY'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
                   <td style={{ padding: '4px 6px' }}>{renderValueInput(l, idx)}</td>
                   <td style={{ padding: '4px 6px' }}>
                     {!fixedMode ? (
@@ -570,6 +666,18 @@ function OpexLineTable({
                         data-testid={`${testidPrefix}-infl-disabled-${idx}`}
                       >
                         — auto via revenue
+                      </span>
+                    ) : isYoy ? (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: 'var(--color-meta)',
+                          fontStyle: 'italic',
+                        }}
+                        title="YoY rates already include per-year values, so the asset-level inflation is bypassed for this line."
+                        data-testid={`${testidPrefix}-infl-yoy-${idx}`}
+                      >
+                        — supplied by YoY rates
                       </span>
                     ) : inheriting ? (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -663,9 +771,9 @@ function OpexLineTable({
                     >×</button>
                   </td>
                 </tr>
-                {fixedMode && !inheriting && (
+                {fixedMode && !inheriting && !isYoy && (
                   <tr style={{ background: 'var(--color-grey-pale)' }}>
-                    <td colSpan={7} style={{ padding: '6px 12px' }}>
+                    <td colSpan={8} style={{ padding: '6px 12px' }}>
                       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
                         Override inflation for <strong>{l.name}</strong>. Engine uses this configuration instead of the asset default.
                       </div>
@@ -677,6 +785,63 @@ function OpexLineTable({
                         testidPrefix={`${testidPrefix}-infl-${idx}`}
                         compact
                       />
+                    </td>
+                  </tr>
+                )}
+                {isYoy && yearCells.length > 0 && (
+                  <tr style={{ background: 'var(--color-grey-pale)' }}>
+                    <td colSpan={8} style={{ padding: '6px 12px' }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
+                        Per-year rates for <strong>{l.name}</strong>. Engine reads each cell directly; the asset inflation is ignored.
+                        {isPct ? ' Enter as a %.' : ` Units: ${l.mode === 'per_room_year' ? 'currency per key per year' : l.mode === 'per_sqm_year' ? 'currency per sqm per year' : 'currency / year'}.`}
+                      </div>
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
+                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                              <th style={{ padding: '4px 6px', textAlign: 'left' }}>Year</th>
+                              {yearCells.map((c) => (
+                                <th key={c.idx} style={{ padding: '4px 6px', textAlign: 'center' }}>{c.year}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td style={{ padding: '4px 6px', fontWeight: 600 }}>
+                                {isPct ? 'Rate %' : 'Value'}
+                              </td>
+                              {yearCells.map((c) => {
+                                const stored = (l.yoyRates ?? [])[c.idx] ?? 0;
+                                return (
+                                  <td key={c.idx} style={{ padding: '2px 4px' }}>
+                                    {isPct ? (
+                                      <PercentageInput
+                                        value={Math.max(0, stored) * 100}
+                                        onChange={(n) => setYoyCell(idx, c.idx, Math.max(0, Math.min(1, n / 100)))}
+                                        min={0}
+                                        max={100}
+                                        decimals={2}
+                                        style={{ ...FAST_INPUT, width: '100%' }}
+                                        data-testid={`${testidPrefix}-yoy-yr-${idx}-${c.idx}`}
+                                      />
+                                    ) : (
+                                      <AccountingNumberInput
+                                        value={stored}
+                                        onChange={(n) => setYoyCell(idx, c.idx, n)}
+                                        scale="full"
+                                        decimals={0}
+                                        min={0}
+                                        style={{ ...FAST_INPUT, width: '100%' }}
+                                        data-testid={`${testidPrefix}-yoy-yr-${idx}-${c.idx}`}
+                                      />
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
                     </td>
                   </tr>
                 )}

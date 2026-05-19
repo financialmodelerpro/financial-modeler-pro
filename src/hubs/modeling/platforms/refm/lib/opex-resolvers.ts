@@ -71,6 +71,8 @@ function resolveAssetOpexLines(asset: Asset): OpexLine[] {
       value: l.value,
       indexation: l.indexation,
       useAssetDefault: l.useAssetDefault,
+      rateMode: l.rateMode,
+      yoyRates: l.yoyRates,
       disabled: l.disabled,
     }));
   }
@@ -275,6 +277,8 @@ export function computeAllOpexResults(
         value: l.value,
         indexation: l.indexation,
         useAssetDefault: l.useAssetDefault,
+        rateMode: l.rateMode,
+        yoyRates: l.yoyRates,
         disabled: l.disabled,
       }))
     : defaultHQOpexLines();

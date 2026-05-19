@@ -59,14 +59,28 @@ export function defaultHospitalityOpexLines(): OpexLine[] {
   ];
 }
 
+/**
+ * Retail / Lease lite seed (Pass 4, 2026-05-19). Mirrors a typical
+ * NNN-style mall pro forma: a small Property Operating bundle
+ * (property management, R&M, insurance, utilities), a recoverable
+ * service-charge memo, and Other Charges (property tax, reserves /
+ * sinking fund). Reuses the existing CAM category for the service
+ * charge recoverable line so the OpexLineCategory enum stays small.
+ */
 export function defaultLeaseOpexLines(): OpexLine[] {
   _id = 0;
   return [
-    { id: nid('propmgmt'), name: 'Property management fee', category: 'mgmt_base', mode: 'pct_of_lease_rev', value: 0.03, indexation: noIdx },
-    { id: nid('cam'), name: 'Common area maintenance', category: 'cam', mode: 'per_sqm_year', value: 50, indexation: noIdx, useAssetDefault: true },
-    { id: nid('utilities'), name: 'Utilities (landlord side)', category: 'utilities', mode: 'pct_of_lease_rev', value: 0.02, indexation: noIdx },
+    // Property Operating
+    { id: nid('propmgmt'), name: 'Property management', category: 'mgmt_base', mode: 'pct_of_lease_rev', value: 0.03, indexation: noIdx },
+    { id: nid('rm'), name: 'Repairs & maintenance', category: 'repairs_maintenance', mode: 'per_sqm_year', value: 30, indexation: noIdx, useAssetDefault: true },
     { id: nid('insurance'), name: 'Insurance', category: 'rent_insurance', mode: 'per_sqm_year', value: 10, indexation: noIdx, useAssetDefault: true },
+    { id: nid('utilities'), name: 'Utilities (landlord side)', category: 'utilities', mode: 'pct_of_lease_rev', value: 0.02, indexation: noIdx },
+    // Pass-Through / Recoveries (memo — usually charged back to tenants
+    // under NNN; engine still totals it so the user can see the gross.)
+    { id: nid('servchg'), name: 'Service charge recoverable', category: 'cam', mode: 'per_sqm_year', value: 50, indexation: noIdx, useAssetDefault: true },
+    // Other Charges
     { id: nid('proptax'), name: 'Property tax', category: 'property_tax', mode: 'pct_of_lease_rev', value: 0.015, indexation: noIdx },
+    { id: nid('reserves'), name: 'Reserves / sinking fund', category: 'replacement_reserve', mode: 'pct_of_lease_rev', value: 0.01, indexation: noIdx },
   ];
 }
 

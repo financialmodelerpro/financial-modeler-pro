@@ -394,6 +394,13 @@ export interface Project {
       /** When false, engine uses this line's own indexation. Otherwise
        *  the HQ defaultIndexation wins. (Pass 3, 2026-05-19.) */
       useAssetDefault?: boolean;
+      /** Value entry mode (Pass 4, 2026-05-19). 'single' = use value
+       *  every year (with inflation if any). 'yoy' = use yoyRates[t]
+       *  directly per period; engine ignores inflation. Default 'single'. */
+      rateMode?: 'single' | 'yoy';
+      /** Per-period rate array used when rateMode==='yoy'. Project-axis
+       *  indexed (arr[0] = first active project year). */
+      yoyRates?: number[];
       disabled?: boolean;
     }>;
   };
@@ -915,6 +922,13 @@ export interface Asset {
       /** When false, engine uses this line's own indexation. Otherwise
        *  the asset defaultIndexation wins. (Pass 3, 2026-05-19.) */
       useAssetDefault?: boolean;
+      /** Value entry mode (Pass 4, 2026-05-19). 'single' = use value
+       *  every year (with inflation if any). 'yoy' = use yoyRates[t]
+       *  directly per period; engine ignores inflation. Default 'single'. */
+      rateMode?: 'single' | 'yoy';
+      /** Per-period rate array used when rateMode==='yoy'. Project-axis
+       *  indexed (arr[0] = first active project year). */
+      yoyRates?: number[];
       disabled?: boolean;
     }>;
   };

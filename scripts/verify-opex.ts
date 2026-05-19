@@ -193,9 +193,18 @@ assertNear('B3: Property tax = 1.5% × 5,000,000 = 75,000',
 assertNear(`B4: Insurance at opsStart = 10 × 5000 × 1.03^${opsStart}`,
   leaseResult.perLinePerPeriod[leaseIdx.rent_insurance][opsStart], 10 * leasableSqm * bFactor, 1);
 
-// B5: Total opex (mix of indexed + non-indexed)
-const expLeaseTotal = 0.03 * leaseRev + 50 * leasableSqm * bFactor + 0.02 * leaseRev + 10 * leasableSqm * bFactor + 0.015 * leaseRev;
-assertNear('B5: Lease total opex at opsStart',
+// B5: Total opex (mix of indexed + non-indexed) under the Pass 4 retail
+// lite seed: propmgmt + R&M + insurance + utilities + service charge
+// (cam) + property tax + reserves.
+const expLeaseTotal =
+    0.03  * leaseRev                  // property management (% of lease rev)
+  + 30    * leasableSqm * bFactor     // repairs & maintenance (per sqm, indexed)
+  + 10    * leasableSqm * bFactor     // insurance            (per sqm, indexed)
+  + 0.02  * leaseRev                  // utilities            (% of lease rev)
+  + 50    * leasableSqm * bFactor     // service charge       (per sqm, indexed)
+  + 0.015 * leaseRev                  // property tax         (% of lease rev)
+  + 0.01  * leaseRev;                 // reserves             (% of lease rev)
+assertNear('B5: Lease total opex at opsStart (Pass 4 retail-lite seed)',
   leaseResult.totalOpexPerPeriod[opsStart], expLeaseTotal, 1);
 
 // B6: No lease keys means per_room_year lines stay 0, sanity check
@@ -404,6 +413,152 @@ const f6HQResult = computeHQOpex({
 });
 assertNear('F6: HQ pct_of_total_rev ignores line + HQ indexation',
   f6HQResult.perLinePerPeriod[0][opsEnd], 0.10 * 2_000_000, 1);
+
+// ─────────────────────────────────────────────────────────────────────
+// G-series: Pass 4 (2026-05-19) YoY rate mode
+//   G1: fixed_baseline rateMode='yoy' uses yoyRates[t] as-is, no inflation
+//   G2: per_room_year YoY scales by keys, no inflation
+//   G3: pct_of_total_rev YoY multiplies revenue[t] by yoyRates[t], no inflation
+//   G4: YoY line still ignores asset-level defaultIndexation
+//   G5: HQ fixed_baseline YoY ignores HQ defaultIndexation
+//   G6: pct_of_gop YoY multiplies GOP by yoyRates[t]
+// ─────────────────────────────────────────────────────────────────────
+
+// G1: fixed_baseline with per-year rates 100k, 200k, 300k across ops window.
+const g1Rates = new Array<number>(N).fill(0);
+for (let t = opsStart; t <= opsEnd; t++) g1Rates[t] = 100_000 * (1 + (t - opsStart));
+const g1Result = computeAssetOpex({
+  assetId: 'g1',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'yoy fixed', category: 'other', mode: 'fixed_baseline',
+    value: 999_999, // should be ignored
+    indexation: { method: 'none' },
+    rateMode: 'yoy',
+    yoyRates: g1Rates,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.10, startYear: 0 },
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: makeRev(() => ({ r: 0, f: 0, o: 0, tr: 0, l: 0 })),
+});
+assertNear('G1: fixed_baseline YoY (year 2) uses yoyRates directly',
+  g1Result.perLinePerPeriod[0][opsStart + 2], 300_000, 1);
+
+// G2: per_room_year YoY with 50 keys, rates 1000 / 1500 / 2000 / ...
+const g2Rates = new Array<number>(N).fill(0);
+for (let t = opsStart; t <= opsEnd; t++) g2Rates[t] = 1000 + 500 * (t - opsStart);
+const g2Result = computeAssetOpex({
+  assetId: 'g2',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'yoy per-key', category: 'mgmt_tech', mode: 'per_room_year',
+    value: 0, indexation: { method: 'none' },
+    rateMode: 'yoy', yoyRates: g2Rates,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.10, startYear: 0 },
+  keys: 50,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: makeRev(() => ({ r: 0, f: 0, o: 0, tr: 0, l: 0 })),
+});
+assertNear('G2: per_room_year YoY at opsStart+1 = 1500 × 50',
+  g2Result.perLinePerPeriod[0][opsStart + 1], 1500 * 50, 1);
+
+// G3: pct_of_total_rev YoY with revenue 10M every ops year; rates 2%, 3%, 4%.
+const g3Rates = new Array<number>(N).fill(0);
+g3Rates[opsStart] = 0.02;
+g3Rates[opsStart + 1] = 0.03;
+g3Rates[opsStart + 2] = 0.04;
+const g3Rev = makeRev((t) => (t >= opsStart && t <= opsEnd)
+  ? { r: 0, f: 0, o: 0, tr: 10_000_000, l: 0 }
+  : { r: 0, f: 0, o: 0, tr: 0, l: 0 });
+const g3Result = computeAssetOpex({
+  assetId: 'g3',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'yoy pct', category: 'indirect_ga', mode: 'pct_of_total_rev',
+    value: 0.99, indexation: { method: 'none' },
+    rateMode: 'yoy', yoyRates: g3Rates,
+  }],
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: g3Rev,
+});
+assertNear('G3: pct_of_total_rev YoY (year 2) = 4% × 10M',
+  g3Result.perLinePerPeriod[0][opsStart + 2], 0.04 * 10_000_000, 1);
+
+// G4: same as G1 but defaultIndexation set to a huge inflation; YoY must ignore it.
+const g4Result = computeAssetOpex({
+  assetId: 'g4',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'yoy ignores default', category: 'other', mode: 'fixed_baseline',
+    value: 0, indexation: { method: 'none' },
+    rateMode: 'yoy', yoyRates: g1Rates,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.50, startYear: 0 }, // 50% — would explode if applied
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: makeRev(() => ({ r: 0, f: 0, o: 0, tr: 0, l: 0 })),
+});
+assertNear('G4: YoY ignores asset defaultIndexation (year 3 still raw 400k)',
+  g4Result.perLinePerPeriod[0][opsStart + 3], 400_000, 1);
+
+// G5: HQ YoY ignores HQ default.
+const g5Rates = new Array<number>(N).fill(0);
+for (let t = 0; t < N; t++) g5Rates[t] = 250_000 + 10_000 * t;
+const g5HQ = computeHQOpex({
+  lines: [{
+    id: 'L1', name: 'yoy hq', category: 'hq_payroll', mode: 'fixed_baseline',
+    value: 0, indexation: { method: 'none' },
+    rateMode: 'yoy', yoyRates: g5Rates,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.99, startYear: 0 },
+  axisLength: N,
+  projectTotalRevenuePerPeriod: zeros(N),
+});
+assertNear('G5: HQ fixed_baseline YoY (year 5) = 250k + 5×10k = 300k',
+  g5HQ.perLinePerPeriod[0][5], 300_000, 1);
+
+// G6: pct_of_gop YoY uses yoyRates[t] × GOP(t).
+// Reuse the basic hospitality fixture: GOP at opsStart is expGOP (12,154,500).
+const g6Rates = new Array<number>(N).fill(0);
+g6Rates[opsStart] = 0.05;
+const g6Result = computeAssetOpex({
+  assetId: 'g6',
+  strategy: 'Hospitality',
+  lines: [
+    // Reuse a slim hospitality config so GOP resolves to a known value.
+    { id: 'L1', name: 'rooms dc', category: 'direct_rooms', mode: 'pct_of_room_rev', value: 0.25, indexation: { method: 'none' } },
+    { id: 'L2', name: 'fb dc', category: 'direct_fb', mode: 'pct_of_fb_rev', value: 0.65, indexation: { method: 'none' } },
+    { id: 'L3', name: 'ood dc', category: 'direct_other', mode: 'pct_of_other_rev', value: 0.50, indexation: { method: 'none' } },
+    { id: 'L4', name: 'ind', category: 'indirect_ga', mode: 'pct_of_total_rev', value: 0.25, indexation: { method: 'none' } },
+    { id: 'L5', name: 'mgmt inc yoy', category: 'mgmt_incentive', mode: 'pct_of_gop',
+      value: 0.99, indexation: { method: 'none' },
+      rateMode: 'yoy', yoyRates: g6Rates,
+    },
+  ],
+  keys: 100,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: hospRev,
+});
+assertNear('G6: pct_of_gop YoY at opsStart = 5% × known GOP',
+  g6Result.perLinePerPeriod[4][opsStart], 0.05 * expGOP, 1);
 
 // ─────────────────────────────────────────────────────────────────────
 // Done

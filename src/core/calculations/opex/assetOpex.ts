@@ -92,19 +92,23 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     if (line.mode === 'pct_of_gop') continue;
     const stream = streamForMode(line.mode, revenue);
     const idx = resolveLineIndexation(line, defaultIndexation);
+    const isYoy = line.rateMode === 'yoy';
+    const yoy = line.yoyRates ?? [];
     const out = perLine[i];
     for (let t = start; t <= end; t++) {
-      const factor = applyIndexation(1.0, t, idx);
+      // YoY: ignore inflation, use the per-period rate directly.
+      const factor = isYoy ? 1 : applyIndexation(1.0, t, idx);
+      const rate = isYoy ? Math.max(0, yoy[t] ?? 0) : Math.max(0, line.value);
       let v = 0;
       switch (line.mode) {
         case 'fixed_baseline':
-          v = Math.max(0, line.value) * factor;
+          v = rate * factor;
           break;
         case 'per_room_year':
-          v = Math.max(0, line.value) * Math.max(0, keys) * factor;
+          v = rate * Math.max(0, keys) * factor;
           break;
         case 'per_sqm_year':
-          v = Math.max(0, line.value) * Math.max(0, leasableSqm) * factor;
+          v = rate * Math.max(0, leasableSqm) * factor;
           break;
         case 'pct_of_room_rev':
         case 'pct_of_fb_rev':
@@ -112,7 +116,7 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
         case 'pct_of_total_rev':
         case 'pct_of_lease_rev': {
           const rev = stream ? Math.max(0, stream[t] ?? 0) : 0;
-          v = Math.max(0, line.value) * rev;
+          v = rate * rev;
           break;
         }
         default:
@@ -148,10 +152,13 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.disabled || line.mode !== 'pct_of_gop') continue;
+    const isYoy = line.rateMode === 'yoy';
+    const yoy = line.yoyRates ?? [];
     const out = perLine[i];
     for (let t = start; t <= end; t++) {
       const base = Math.max(0, gop[t]);
-      out[t] = Math.max(0, line.value) * base;
+      const rate = isYoy ? Math.max(0, yoy[t] ?? 0) : Math.max(0, line.value);
+      out[t] = rate * base;
     }
   }
 
