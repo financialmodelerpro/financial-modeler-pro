@@ -1,7 +1,27 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-05-19. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue + CoS + Schedules + Escrow) LOCKED through Pass 9h. Module 3 (Opex) WIP on Pass 5. Module 4 (Financial Statements) Pass 1d shipped (Fixed Assets + Depreciation engine with SL + RB methods + asset-level UI). Verifiers: revenue 133/133; opex 38/38; fixed-assets 82/82; escrow 31/31.**
 
-**Next session pointer (2026-05-19 EOD):** Ahmad will verify the latest passes in-browser. The latest commit `87f0075` ships three bundled items: (1) M2 Pass 9h Escrow sub-tab (new 5th M2 tab modelled on the reference v1.16 Escrow methodology — project + per-asset Held % + Release Year, 6 output tables, no client name anywhere); (2) Module 3 Opex Lease Revenue Breakdown shows "Lease Revenue" data row + "Total Revenue" grand-total row even with one line item (mirrors Hospitality table shape); (3) Module 4 Fixed Assets surface flipped from `soon` to `wip` with a new `Module4FixedAssets.tsx` tab that surfaces the M4 Pass 1 engine output (per-asset roll-forward: Opening NBV + Additions − Depreciation = Closing NBV + AccumDep, Land called out separately as non-depreciable). Next M4 passes: Pass 2 P&L surface (Revenue − CoS − Opex − D&A = NI) consuming the depreciation snapshot + Pass 3 BS + CF surfaces composing the schedules feed.
+**Next session pointer (2026-05-20):** finalize Module 4 Financial Statements then close the loop back to Module 1 funding. Two passes:
+
+1. **M4 Pass 2 — Financial Statements surfaces** (P&L · Balance Sheet · Cash Flow). Compose from existing snapshots:
+   - **P&L**: Revenue (M2 `computeAllSellResults` + Hospitality + Lease) − Cost of Sales (M2 `costOfSalesV2`) − Operating Expenses (M3 `computeAllOpexResults`) − Depreciation (M4 Pass 1d `computeAllFixedAssetResults.projectTotals.depreciable.depreciationPerPeriod`) − Interest (M1 financing engine) = Net Income. Group-by-asset per the v1.16 reference shape (Hospitality / Retail per asset + HQ Expenses → EBITDA → EBIT → NI).
+   - **Balance Sheet**: Assets = Cash + AR (M2 Schedules) + Inventory (M2 CoS roll-forward) + Fixed Assets (M4 Pass 1d Total = Land + Depreciable NBV); Liabilities = Unearned Revenue (M2) + Escrow Liability (M2 Pass 9h `cumulativeBalancePerPeriod`) + Debt (M1 financing); Equity = paid-in capital + Retained Earnings (cum NI from P&L). Reconciliation chip on the BS = (A − L − E within tolerance).
+   - **Cash Flow (Direct + Indirect)**. Direct = operating receipts (cash from M2) − operating payments (CoS + Opex paid) − tax. Indirect = NI + D&A + Δ working capital + Δ escrow balance ± debt draws/repayments ± equity contributions ± capex. Escrow CF Impact already wired in M2 Pass 9h (`cashFlowAdjustmentPerPeriod`); thread it through.
+   - Surfaces live under `src/hubs/modeling/platforms/refm/components/modules/Module4P&L.tsx` + `Module4BS.tsx` + `Module4CashFlow.tsx`, registered in `m4Tabs` after the existing Fixed Assets tab. Engine layer under `src/core/calculations/statements/` (P&L composer + BS composer + CF composer; all pure, take the M1+M2+M3+M4 snapshots and return per-period arrays).
+
+2. **M1 Funding Requirement based on Cash Flow** (closes the loop). Currently `computeFunding` ships Method 1 (Total Capex) live; Methods 2 + 3 stubbed pending M4. Once the CF composer above runs:
+   - **Method 2 (Net Funding)**: Total Capex − pre-sales advances + working-capital cash needs (escrow held, AR build) per period.
+   - **Method 3 (Cash Deficit)**: actual project cash deficit per period from the CF statement → debt draw + equity contribution needed to keep min cash reserve >= floor. This is the SINGLE most useful sizing method since it sizes financing against the real cash gap, not gross capex.
+   - Wire the CF deficit stream into `Module1Financing.tsx` Funding Requirement table so Methods 2 + 3 render real numbers instead of dashes.
+
+Both passes write through additive snapshot fields only; no schema breakage. Verifier scripts: `verify-statements.ts` (P&L identities + BS reconciliation + CF tie-out to BS Δ cash) + extend `verify-financing-rebuild.ts` for Methods 2 + 3.
+
+**Today (2026-05-19) shipped — commits `87f0075`, `9604902`, `1b5e9b9`, `26c221b`:**
+- M2 Pass 9h Escrow sub-tab (engine + resolver + UI + verifier 31/31)
+- M3 Lease Revenue Breakdown fix (one-line lease tables now have a Data + Total row)
+- M4 Pass 1 + 1c + 1d (Fixed Assets engine refactored for clean Land split + Reducing Balance method; asset-level UI with Method/Life/Rate inputs; 3 tables per asset + project rollup; verifier 82/82)
+- Escrow default release year fixed to handover + 1
+- Full-width universal rule saved as feedback memory.
 
 **M4 Pass 1c+d status (Land/Depreciable split + Reducing Balance, complete 2026-05-19, commit `26c221b`):**
 - **Engine refactor (Pass 1c)**: previously the engine mixed Land additions into the NBV roll-forward while opening NBV only seeded from `historicalPreCapexBuilding`, making existing-operations Land NBV invisible. Engine now handles ONLY depreciable additions + opening NBV. Resolver builds the Land roll-forward separately (opening Land + Land additions = closing Land, no depreciation) and combines for any Total Fixed Assets view. Result type exposes `land + depreciable + combinedOpening/Closing` per asset.
