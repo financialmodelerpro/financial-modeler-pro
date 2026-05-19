@@ -204,16 +204,17 @@ export default function Module2Escrow(): React.JSX.Element {
   };
 
   return (
-    <div data-testid="module2-escrow" style={{ padding: 'var(--sp-3)' }}>
+    <div data-testid="module2-escrow" style={{ padding: 'var(--sp-3)', width: '100%' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Pre-Sales Escrow</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
           {currency}
         </div>
-        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
+        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           A regulator withholds Held % of every pre-sales inflow as Inaccessible Funds. The cumulative held balance
-          releases to the developer in a single lump on the asset's Release Year (defaults to handover year). The
-          Cash Flow Impact line shows what M4 will deduct (held) and add back (release) on the corporate cash flow.
+          releases to the developer in a single lump on the asset's Release Year (defaults to handover year + 1, i.e.
+          the year AFTER construction completes). The Cash Flow Impact line shows what M4 will deduct (held) and add
+          back (release) on the corporate cash flow.
         </p>
       </div>
 
@@ -260,7 +261,7 @@ export default function Module2Escrow(): React.JSX.Element {
               value={projectDefaultReleaseYear ?? ''}
               min={projectStartYear}
               max={projectStartYear + Math.max(0, N - 1)}
-              placeholder="auto: per-asset handover"
+              placeholder="auto: handover year + 1"
               onChange={(e) => {
                 const v = e.target.value;
                 setProjectDefaultReleaseYear(v === '' ? undefined : Number(v));
@@ -269,7 +270,7 @@ export default function Module2Escrow(): React.JSX.Element {
               data-testid="m2-escrow-project-releaseyear"
             />
             <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-              Blank = each asset uses its own handover year (last construction year on the project axis).
+              Blank = each asset uses (its handover year + 1), i.e. the year AFTER construction completes.
             </div>
           </div>
         </div>

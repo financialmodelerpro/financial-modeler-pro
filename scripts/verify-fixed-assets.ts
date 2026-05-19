@@ -1,28 +1,29 @@
 /**
- * Module 4 Pass 1 — Fixed Assets + Depreciation verifier.
+ * Module 4 Pass 1b — Fixed Assets + Depreciation verifier (refactor).
  *
- * Anchors:
- *   - Reference Excel v7.0 methodology: per-period opening + addition −
- *     depreciation = closing roll-forward, straight-line over per-line
- *     useful life, Land excluded (life=0).
- *   - FMP conventions: project axis arr[0] = first active year;
- *     Hospitality default 20 yrs / Lease 25 yrs via
- *     resolveUsefulLifeYears + DEFAULT_USEFUL_LIFE_YEARS.
+ * Engine now handles ONLY depreciable additions / NBV. Land roll-
+ * forward is composed in the resolver, so the engine tests dropped
+ * the Land sub-stream and added a dedicated H-series for resolver-
+ * level Land separation.
  *
  * Sections:
  *   A — pure SL allocator unit tests
- *   B — single-asset Hospitality fresh capex roll-forward
- *   C — Land additions excluded from depreciation base
+ *   B — single-asset fresh capex (depreciable only)
+ *   C — life=0 (caller passes Land in usefulLifeYears=0 wouldn't make
+ *       sense; this case is now resolver responsibility) — kept as a
+ *       defensive engine test for usefulLifeYears = 0 → no dep
  *   D — Existing operations opening NBV roll-forward
  *   E — Vintage handling: additions after handover depreciate from
  *       their own spend year
- *   F — Identity: closing[t] = opening[t] + additions[t] − dep[t]
+ *   F — Identity: closing[t] = max(0, opening[t] + additions[t] − dep[t])
  *   G — Sell-only project produces empty snapshot
- *   H — Project totals = sum across per-asset arrays
+ *   H — Resolver: per-asset Land roll-forward separate from Depreciable
+ *   I — Resolver: project totals (Land + depreciable) = sum across assets
  */
 
 import {
   buildStraightLine,
+  buildReducingBalance,
   computeAssetFixedAssets,
 } from '@/src/core/calculations/depreciation';
 import { computeAllFixedAssetResults } from '@/src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers';
@@ -58,14 +59,13 @@ function assertEqInt(name: string, actual: number, expected: number): void {
 
 function zeros(n: number): number[] { return new Array<number>(n).fill(0); }
 
-console.log('=== Module 4 Pass 1 Fixed Assets + Depreciation verifier ===');
+console.log('=== Module 4 Pass 1b Fixed Assets + Depreciation verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
 // A — Pure SL allocator
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] Straight-line allocator');
 {
-  // A1: base 1000, life 10, start 0, N=15 → 100/yr for 10 yrs, then 0
   const sl = buildStraightLine(1000, 10, 0, 15);
   assertNear('A1: SL year 0 = base/life', sl[0], 100);
   assertNear('A1: SL year 9 = base/life', sl[9], 100);
@@ -73,9 +73,6 @@ console.log('\n[A] Straight-line allocator');
   assertNear('A1: SL sum = base', sl.reduce((s, v) => s + v, 0), 1000);
 }
 {
-  // A2: base 1000, life 10, start 5, N=10 → only 5 yrs of depreciation
-  // (life extends past axisLength; residual NBV stays at exit per the
-  // reference model's net-worth exit method).
   const sl = buildStraightLine(1000, 10, 5, 10);
   assertNear('A2: SL year 4 = 0 (pre-start)', sl[4], 0);
   assertNear('A2: SL year 5 = 100', sl[5], 100);
@@ -83,83 +80,60 @@ console.log('\n[A] Straight-line allocator');
   assertNear('A2: SL sum = 500 (5 of 10 years on axis)', sl.reduce((s, v) => s + v, 0), 500);
 }
 {
-  // A3: life=0 (Land) → all zeros
   const sl = buildStraightLine(1000, 0, 0, 5);
   assertNear('A3: life=0 returns all zeros', sl.reduce((s, v) => s + v, 0), 0);
 }
 {
-  // A4: base=0 → all zeros
   const sl = buildStraightLine(0, 10, 0, 5);
   assertNear('A4: base=0 returns all zeros', sl.reduce((s, v) => s + v, 0), 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// B — Fresh Hospitality asset, single addition at handover
-// 250M capex (depreciable), 25 yrs SL, N=30, handoverIdx=4
+// B — Fresh single-asset depreciable capex (250M over 5 years, 25 yrs SL)
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n[B] Single-asset fresh Hospitality capex (25-yr SL)');
+console.log('\n[B] Single-asset fresh depreciable capex (25-yr SL)');
 {
   const N = 30;
   const handover = 4;
-  // Even capex of 50M over construction years 0..4 (5 years × 50M = 250M)
   const additions = zeros(N);
   for (let t = 0; t <= handover; t++) additions[t] = 50_000_000;
-  const land = zeros(N); // pure depreciable
   const r = computeAssetFixedAssets({
     assetId: 'h1',
     axisLength: N,
     startIdx: handover,
     additionsPerPeriod: additions,
-    additionsLandPerPeriod: land,
     usefulLifeYears: 25,
   });
-  // At handover (t=4) every prior addition starts depreciating. Five
-  // 50M vintages each contribute 50M/25 = 2M/yr from t=4 → 10M/yr total
-  // through year handover + 25 − 1 = 28.
   assertNear('B1: dep at handover = 250M / 25 = 10M', r.depreciationPerPeriod[handover], 10_000_000);
   assertNear('B2: dep at t=20 (still in life) = 10M', r.depreciationPerPeriod[20], 10_000_000);
   assertNear('B3: dep at t=29 (after life) = 0', r.depreciationPerPeriod[29], 0);
-  assertNear('B4: total dep across axis = 250M (full base recovered)',
-    r.totalDepreciation, 250_000_000);
-  // Closing NBV at handover = sum of additions − that year's dep.
-  // Opening was 50×4 = 200M (4 prior years' WIP). Year 4 adds 50M and
-  // takes 10M dep → 200 + 50 − 10 = 240M.
+  assertNear('B4: total dep across axis = 250M', r.totalDepreciation, 250_000_000);
   assertNear('B5: closing NBV at handover = opening + add − dep', r.closingNBVPerPeriod[handover], 240_000_000);
-  // Final closing = 0 (full base depreciated within axis).
   assertNear('B6: closing NBV at end of axis = 0', r.closingNBVPerPeriod[N - 1], 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// C — Land additions excluded from depreciation base
-// 100M land + 200M building in year 0; life 20, handoverIdx=0
+// C — usefulLifeYears = 0 → no depreciation (defensive)
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n[C] Land excluded from depreciation');
+console.log('\n[C] usefulLifeYears = 0 → no depreciation');
 {
-  const N = 25;
+  const N = 10;
   const additions = zeros(N);
-  const land = zeros(N);
-  additions[0] = 300_000_000;
-  land[0] = 100_000_000;
+  additions[0] = 100_000_000;
   const r = computeAssetFixedAssets({
-    assetId: 'h2',
+    assetId: 'land-only',
     axisLength: N,
     startIdx: 0,
     additionsPerPeriod: additions,
-    additionsLandPerPeriod: land,
-    usefulLifeYears: 20,
+    usefulLifeYears: 0,
   });
-  // Only 200M depreciates over 20 years → 10M/yr; Land 100M stays as NBV.
-  assertNear('C1: dep year 0 = 200M / 20 = 10M', r.depreciationPerPeriod[0], 10_000_000);
-  assertNear('C2: dep year 19 = 10M', r.depreciationPerPeriod[19], 10_000_000);
-  assertNear('C3: dep year 20 = 0 (life exhausted)', r.depreciationPerPeriod[20], 0);
-  assertNear('C4: total dep = 200M (Land never depreciates)', r.totalDepreciation, 200_000_000);
-  // Closing NBV at end of axis = Land 100M + residual building 0 = 100M
-  assertNear('C5: closing NBV at end = land 100M', r.closingNBVPerPeriod[N - 1], 100_000_000);
+  assertNear('C1: total dep = 0 when life=0', r.totalDepreciation, 0);
+  assertNear('C2: closing NBV = opening NBV + additions',
+    r.closingNBVPerPeriod[N - 1], 100_000_000);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// D — Existing operations opening NBV (no new additions)
-// Opening NBV 100M, life 20, N=25, startIdx=0
+// D — Existing operations opening NBV
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[D] Existing operations opening NBV');
 {
@@ -169,7 +143,6 @@ console.log('\n[D] Existing operations opening NBV');
     axisLength: N,
     startIdx: 0,
     additionsPerPeriod: zeros(N),
-    additionsLandPerPeriod: zeros(N),
     usefulLifeYears: 20,
     openingNBV: 100_000_000,
   });
@@ -177,14 +150,12 @@ console.log('\n[D] Existing operations opening NBV');
   assertNear('D2: dep year 0 = 100M / 20 = 5M', r.depreciationPerPeriod[0], 5_000_000);
   assertNear('D3: dep year 19 = 5M', r.depreciationPerPeriod[19], 5_000_000);
   assertNear('D4: dep year 20 = 0 (life exhausted)', r.depreciationPerPeriod[20], 0);
-  assertNear('D5: closing year 19 = 0 (fully depreciated)', r.closingNBVPerPeriod[19], 0);
+  assertNear('D5: closing year 19 = 0', r.closingNBVPerPeriod[19], 0);
   assertNear('D6: total dep = 100M', r.totalDepreciation, 100_000_000);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// E — Vintage handling: post-handover capex depreciates from spend year
-// Year 4 handover, 100M base addition at year 0, then 50M refurb at
-// year 10. Life 25.
+// E — Vintage handling: base + refurb after handover
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[E] Vintage handling: refurb addition after handover');
 {
@@ -192,32 +163,23 @@ console.log('\n[E] Vintage handling: refurb addition after handover');
   const additions = zeros(N);
   additions[0] = 100_000_000;
   additions[10] = 50_000_000;
-  const land = zeros(N);
   const r = computeAssetFixedAssets({
     assetId: 'h3',
     axisLength: N,
     startIdx: 4,
     additionsPerPeriod: additions,
-    additionsLandPerPeriod: land,
     usefulLifeYears: 25,
   });
-  // Year 4: base vintage (100M) starts → 100M/25 = 4M; refurb not yet.
   assertNear('E1: dep year 4 = base vintage only (4M)', r.depreciationPerPeriod[4], 4_000_000);
-  // Year 9: still base only (4M).
   assertNear('E2: dep year 9 = base only (4M)', r.depreciationPerPeriod[9], 4_000_000);
-  // Year 10: refurb vintage starts (50M/25 = 2M) → total 6M.
   assertNear('E3: dep year 10 = base + refurb = 6M', r.depreciationPerPeriod[10], 6_000_000);
-  // Year 28: base vintage ran out at year 4+25-1 = 28; year 28 still in
-  // base life (year 4..28 = 25 years inclusive). Year 29 base = 0.
   assertNear('E4: dep year 29 = refurb only (2M)', r.depreciationPerPeriod[29], 2_000_000);
-  // Year 34: refurb ran out at year 10+25-1 = 34. So year 34 = 2M.
   assertNear('E5: dep year 34 = refurb final year (2M)', r.depreciationPerPeriod[34], 2_000_000);
-  // Total dep = 100M + 50M = 150M.
   assertNear('E6: total dep = 100M + 50M', r.totalDepreciation, 150_000_000);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// F — Roll-forward identity: closing = opening + additions − dep
+// F — Roll-forward identity per period
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[F] Roll-forward identity per period');
 {
@@ -229,54 +191,94 @@ console.log('\n[F] Roll-forward identity per period');
     axisLength: N,
     startIdx: 2,
     additionsPerPeriod: additions,
-    additionsLandPerPeriod: zeros(N),
     usefulLifeYears: 15,
   });
   for (let t = 0; t < N; t++) {
     const expected = (r.openingNBVPerPeriod[t] ?? 0)
       + (r.additionsPerPeriod[t] ?? 0)
       - (r.depreciationPerPeriod[t] ?? 0);
-    assertNear(`F${t + 1}: closing[${t}] = opening + add − dep`,
+    assertNear(`F${t + 1}: closing[${t}] = max(0, opening + add − dep)`,
       r.closingNBVPerPeriod[t], Math.max(0, expected));
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// G — Project resolver: Sell-only project → empty snapshot
+// G — Resolver: Sell-only project → empty snapshot
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[G] Sell-only project produces empty fixed-asset snapshot');
 {
   const state = buildSellOnlyState();
   const snap = computeAllFixedAssetResults(state);
   assertEqInt('G1: byAsset is empty', snap.byAsset.size, 0);
-  // Project totals exist but every cell is zero.
-  const totalDep = snap.projectTotals.depreciationPerPeriod.reduce((s, v) => s + v, 0);
+  const totalDep = snap.projectTotals.depreciable.depreciationPerPeriod.reduce((s, v) => s + v, 0);
   assertNear('G2: project totals depreciation = 0', totalDep, 0);
+  const totalLand = snap.projectTotals.land.totalAdditions;
+  assertNear('G3: project Land additions = 0', totalLand, 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// H — Project resolver: per-asset sum = project totals
+// H — Resolver: per-asset Land roll-forward separate from Depreciable
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n[H] Project totals = sum across per-asset arrays');
+console.log('\n[H] Resolver: Land separation per asset');
+{
+  // Existing operations Hotel with Land 80M + Building 50M opening
+  // historical basis. Useful life 20 yrs. No new additions. Land sits
+  // forever; Building drains to 0 over 20 yrs.
+  const state = buildExistingHotelState({
+    historicalLand: 80_000_000,
+    historicalBuilding: 50_000_000,
+    usefulLifeYears: 20,
+  });
+  const snap = computeAllFixedAssetResults(state);
+  const row = snap.byAsset.get('h1');
+  if (!row) { fail++; failures.push('H1: row missing'); console.log('  [FAIL] H1: row missing'); }
+  else {
+    assertNear('H1: Land opening[0] = 80M (historicalPreCapexLand)', row.land.openingPerPeriod[0], 80_000_000);
+    assertNear('H2: Land closing[0] = 80M (no additions)', row.land.closingPerPeriod[0], 80_000_000);
+    // No additions → Land closing stays 80M forever
+    assertNear('H3: Land closing at end of axis = 80M', row.land.closingPerPeriod[row.land.closingPerPeriod.length - 1], 80_000_000);
+    // Depreciable opening = 50M Building
+    assertNear('H4: Depreciable opening[0] = 50M (historicalPreCapexBuilding)', row.depreciable.openingNBVPerPeriod[0], 50_000_000);
+    // 50M / 20 = 2.5M / yr for 20 years; closing at year 19 = 0
+    assertNear('H5: depreciable closing year 19 = 0', row.depreciable.closingNBVPerPeriod[19], 0);
+    assertNear('H6: total depreciable dep = 50M', row.depreciable.totalDepreciation, 50_000_000);
+    // Combined = Land + Depreciable
+    const combinedFirst = row.combinedClosingPerPeriod[0];
+    const expected = (row.land.closingPerPeriod[0] ?? 0) + (row.depreciable.closingNBVPerPeriod[0] ?? 0);
+    assertNear('H7: combined closing[0] = land + depreciable closing', combinedFirst, expected);
+    // At end of axis: Land 80M + Depreciable 0 = 80M
+    const N = row.combinedClosingPerPeriod.length;
+    assertNear('H8: combined closing at end of axis = 80M (Land only)', row.combinedClosingPerPeriod[N - 1], 80_000_000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// I — Resolver: project totals = sum across per-asset rows
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[I] Project totals = sum across per-asset arrays');
 {
   const state = buildTwoHospitalityAssetsState();
   const snap = computeAllFixedAssetResults(state);
-  assertEqInt('H1: byAsset has 2 entries', snap.byAsset.size, 2);
+  assertEqInt('I1: byAsset has 2 entries', snap.byAsset.size, 2);
   // Sum per-asset dep across both, compare to project totals.
-  const summed = new Array<number>(snap.axisLength).fill(0);
+  const summedDep = new Array<number>(snap.axisLength).fill(0);
+  const summedLandClose = new Array<number>(snap.axisLength).fill(0);
   for (const r of snap.byAsset.values()) {
-    for (let t = 0; t < snap.axisLength; t++) summed[t] += r.depreciationPerPeriod[t] ?? 0;
+    for (let t = 0; t < snap.axisLength; t++) {
+      summedDep[t] += r.depreciable.depreciationPerPeriod[t] ?? 0;
+      summedLandClose[t] += r.land.closingPerPeriod[t] ?? 0;
+    }
   }
-  let maxDelta = 0;
+  let maxDepDelta = 0;
+  let maxLandDelta = 0;
   for (let t = 0; t < snap.axisLength; t++) {
-    const d = Math.abs(summed[t] - (snap.projectTotals.depreciationPerPeriod[t] ?? 0));
-    if (d > maxDelta) maxDelta = d;
+    const dDep = Math.abs(summedDep[t] - (snap.projectTotals.depreciable.depreciationPerPeriod[t] ?? 0));
+    const dLand = Math.abs(summedLandClose[t] - (snap.projectTotals.land.closingPerPeriod[t] ?? 0));
+    if (dDep > maxDepDelta) maxDepDelta = dDep;
+    if (dLand > maxLandDelta) maxLandDelta = dLand;
   }
-  assertNear('H2: max |perAssetSum − projectTotal| over axis', maxDelta, 0);
-  // Cumulative accumDep at end of axis = sum of totals.
-  const cumExpected = snap.projectTotals.depreciationPerPeriod.reduce((s, v) => s + v, 0);
-  assertNear('H3: project accumDep end = cum sum of dep stream',
-    snap.projectTotals.accumDepPerPeriod[snap.axisLength - 1] ?? 0, cumExpected);
+  assertNear('I2: max |perAssetSum − projectTotal| depreciation', maxDepDelta, 0);
+  assertNear('I3: max |perAssetSum − projectTotal| land closing', maxLandDelta, 0);
 }
 
 // ─── Fixtures ────────────────────────────────────────────────────────
@@ -336,6 +338,32 @@ function buildSellOnlyState(): Module1Store {
   } as unknown as Module1Store;
 }
 
+function buildExistingHotelState(opts: {
+  historicalLand: number;
+  historicalBuilding: number;
+  usefulLifeYears: number;
+}): Module1Store {
+  const project = makeBaseProject();
+  const phase = makePhase('p1', 'Phase 1', 2026, 0, 25);
+  (phase as unknown as { status: string }).status = 'operational';
+  const asset = makeAsset({
+    id: 'h1', name: 'Existing Hotel', phaseId: 'p1', strategy: 'Operate',
+    historicalPreCapexLand: opts.historicalLand,
+    historicalPreCapexBuilding: opts.historicalBuilding,
+    usefulLifeYears: opts.usefulLifeYears,
+  } as Partial<Asset> & Pick<Asset, 'id' | 'name' | 'phaseId' | 'strategy'>);
+  return {
+    project,
+    phases: [phase],
+    assets: [asset],
+    subUnits: [],
+    parcels: [],
+    costLines: [],
+    costOverrides: [],
+    landAllocationMode: 'auto',
+  } as unknown as Module1Store;
+}
+
 function buildTwoHospitalityAssetsState(): Module1Store {
   const project = makeBaseProject();
   const phase = makePhase('p1', 'Phase 1', 2026, 4, 25);
@@ -359,6 +387,98 @@ function buildTwoHospitalityAssetsState(): Module1Store {
     costOverrides: [],
     landAllocationMode: 'auto',
   } as unknown as Module1Store;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// J — Reducing balance allocator unit tests
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[J] Reducing-balance allocator');
+{
+  // base 1000, rate 10%, start 0, N=5 -> 100, 90, 81, 72.9, 65.61
+  const rb = buildReducingBalance(1000, 0.10, 0, 5);
+  assertNear('J1: RB year 0 = 100 (10% of 1000)', rb[0], 100);
+  assertNear('J2: RB year 1 = 90 (10% of 900)', rb[1], 90);
+  assertNear('J3: RB year 2 = 81', rb[2], 81);
+  assertNear('J4: RB year 3 = 72.9', rb[3], 72.9);
+  assertNear('J5: RB year 4 = 65.61', rb[4], 65.61);
+}
+{
+  // Bounded by life: stop after `life` periods
+  const rb = buildReducingBalance(1000, 0.10, 0, 10, 3);  // life=3
+  assertNear('J6: RB year 0 = 100', rb[0], 100);
+  assertNear('J7: RB year 2 = 81 (last year of capped life)', rb[2], 81);
+  assertNear('J8: RB year 3 = 0 (life exhausted)', rb[3], 0);
+}
+{
+  // Asymptote: never reaches zero
+  const rb = buildReducingBalance(1000, 0.50, 0, 20);
+  let remaining = 1000;
+  for (let t = 0; t < 20; t++) {
+    remaining -= rb[t];
+  }
+  // After 20 periods at 50% RB: NBV remaining = 1000 * 0.5^20 ~ 0.00095
+  assertNear('J9: RB never fully writes off (residual NBV > 0)',
+    remaining > 0 ? 1 : 0, 1);  // assert truthy
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// K — Engine: reducing-balance method
+// 100M base addition at year 0, handoverIdx=0, life=10, rate=2/10=20% default
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[K] Engine reducing-balance with default rate (2/life)');
+{
+  const N = 15;
+  const additions = zeros(N);
+  additions[0] = 100_000_000;
+  const r = computeAssetFixedAssets({
+    assetId: 'rb1',
+    axisLength: N,
+    startIdx: 0,
+    additionsPerPeriod: additions,
+    usefulLifeYears: 10,
+    method: 'reducing_balance',
+    // rate undefined -> defaults to 2/10 = 0.20
+  });
+  // dep[0] = 100M * 0.20 = 20M
+  assertNear('K1: dep year 0 = 20M (default rate 2/10)', r.depreciationPerPeriod[0], 20_000_000);
+  // dep[1] = 80M * 0.20 = 16M
+  assertNear('K2: dep year 1 = 16M', r.depreciationPerPeriod[1], 16_000_000);
+  // dep[2] = 64M * 0.20 = 12.8M
+  assertNear('K3: dep year 2 = 12.8M', r.depreciationPerPeriod[2], 12_800_000);
+  // Closing NBV after life=10: 100M * 0.8^10 ~ 10.74M; engine caps dep window at life
+  // closing[9] = 100M * (0.8^10) ~ 10,737,418
+  assertNear('K4: closing NBV after life=10 ~ base × 0.8^10',
+    r.closingNBVPerPeriod[9], 100_000_000 * Math.pow(0.8, 10), 1);
+  // Year 10 should have 0 dep (life exhausted)
+  assertNear('K5: dep year 10 = 0 (life exhausted)', r.depreciationPerPeriod[10], 0);
+  // Method echoed
+  assertEqInt('K6: result.method = reducing_balance',
+    r.method === 'reducing_balance' ? 1 : 0, 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// L — Engine: reducing-balance with custom rate
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[L] Engine reducing-balance with custom rate (15%)');
+{
+  const N = 10;
+  const additions = zeros(N);
+  additions[0] = 1_000_000;
+  const r = computeAssetFixedAssets({
+    assetId: 'rb2',
+    axisLength: N,
+    startIdx: 0,
+    additionsPerPeriod: additions,
+    usefulLifeYears: 25,    // life caps the window at 10 (axis end)
+    method: 'reducing_balance',
+    reducingBalanceRate: 0.15,
+  });
+  // dep[0] = 1M * 0.15 = 150k
+  assertNear('L1: dep year 0 = 150k (custom 15%)', r.depreciationPerPeriod[0], 150_000);
+  // dep[1] = 850k * 0.15 = 127.5k
+  assertNear('L2: dep year 1 = 127.5k', r.depreciationPerPeriod[1], 127_500);
+  // Effective rate echoed
+  assertNear('L3: effectiveRate = 0.15', r.effectiveRate ?? 0, 0.15);
 }
 
 console.log(`\n--- Fixed Asset verifier: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);

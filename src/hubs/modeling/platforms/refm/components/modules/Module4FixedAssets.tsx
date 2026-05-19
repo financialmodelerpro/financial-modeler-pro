@@ -1,35 +1,40 @@
 'use client';
 
 /**
- * Module4FixedAssets.tsx (M4 Pass 1 UI, 2026-05-19)
+ * Module4FixedAssets.tsx (M4 Pass 1c, 2026-05-19)
  *
- * Surfaces the depreciation engine snapshot built by
- * `computeAllFixedAssetResults` in fixed-assets-resolvers.ts.
+ * Asset-level Fixed Assets + Depreciation tab. Surface follows the
+ * universal Revenue / CoS / Opex pattern:
  *
- * Structure mirrors Module 2 Revenue / CoS:
- *   - Strategy-first outer PhaseSection (Hospitality / Operations +
- *     Retail / Lease — Sell parents are excluded because their capex
- *     flows through M2 Cost of Sales).
- *   - Nested PhaseDivider per project phase.
- *   - Collapsible AssetSection per asset with a full roll-forward:
- *       Opening NBV + Additions − Depreciation = Closing NBV
- *       (with Land additions called out separately, since Land does not
- *        depreciate but does sit on the BS).
- *   - Closing project rollup PhaseSection (phaseId=__project__):
- *       Additions / Land Additions / Depreciable Additions / Depreciation /
- *       Accumulated Depreciation / Opening NBV / Closing NBV.
+ *   Strategy section (Hospitality / Operations, Retail / Lease)
+ *     AssetSection — collapsible card per asset
+ *       Inputs panel: useful life (+ existing-ops historical Land /
+ *                     Building NBV when present)
+ *       Table 1: Land — Roll-Forward (Opening + Additions = Closing)
+ *       Table 2: Depreciable Assets — Roll-Forward (Opening + Additions
+ *                − Depreciation = Closing + Accumulated Depreciation)
+ *       Table 3: Total Fixed Assets (Land + Depreciable closing)
+ *   Project Total — same three tables aggregated across every asset.
  *
- * Methodology lives in src/core/calculations/depreciation/. Pass 1 uses
- * a coarse Land / Hard / Soft component split via `byStage`; finer
- * component lives (Capitalised Interest @ 7 yrs + Pre-Op @ 7 yrs)
- * surface in a later pass once the financing engine exposes the
- * capitalised-interest stream as its own input.
+ * Phase nesting dropped per user direction (asset level, not phase
+ * level). Strategy outer kept for consistency with the rest of the
+ * platform. Sell + Sell+Manage parents are excluded entirely (capex
+ * flows through M2 Cost of Sales).
+ *
+ * Engine handles only the depreciable roll-forward. Land is composed
+ * in fixed-assets-resolvers.ts (pure additive); both are surfaced here
+ * side-by-side so the user sees Land never depreciating.
  */
 
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllFixedAssetResults } from '../../lib/fixed-assets-resolvers';
+import {
+  computeAllFixedAssetResults,
+  type AssetFixedAssetRow,
+  type LandRollForward,
+  type ProjectFixedAssetSnapshot,
+} from '../../lib/fixed-assets-resolvers';
 import { resolveUsefulLifeYears } from '@/src/core/calculations';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -39,6 +44,17 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { PercentageInput } from '../ui/PercentageInput';
+
+const FAST_INPUT: React.CSSProperties = {
+  width: '100%',
+  padding: '4px 6px',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 8%, white))',
+  color: 'var(--color-navy)',
+  fontSize: 12,
+};
 
 interface Row {
   label: string;
@@ -120,30 +136,36 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
   );
 }
 
-function PhaseDivider({ title, meta, count }: { title: string; meta?: string; count?: string }): React.JSX.Element {
-  return (
-    <div style={{
-      marginTop: 'var(--sp-2)',
-      marginBottom: 'var(--sp-1)',
-      padding: '6px 12px',
-      background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
-      borderLeft: '3px solid var(--color-navy)',
-      borderRadius: '2px',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    }}>
-      <div>
-        <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)' }}>{title}</strong>
-        {meta && <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--color-meta)' }}>{meta}</span>}
-      </div>
-      {count && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{count}</span>}
-    </div>
-  );
+function landTableRows(land: LandRollForward): Row[] {
+  return [
+    { label: 'Opening Land', values: land.openingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: '(+) Land Additions', values: land.additionsPerPeriod, indent: 1 },
+    { label: 'Closing Land', values: land.closingPerPeriod, isTotal: true, aggregation: 'last' },
+  ];
+}
+
+function depreciableTableRows(row: AssetFixedAssetRow): Row[] {
+  const d = row.depreciable;
+  return [
+    { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+    { label: '(+) Depreciable Additions', values: d.additionsPerPeriod, indent: 1 },
+    { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1 },
+    { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
+    { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+  ];
+}
+
+function totalFATableRows(combinedOpening: number[], combinedClosing: number[], landClose: number[], depClose: number[]): Row[] {
+  return [
+    { label: 'Opening Fixed Assets (Land + Depreciable)', values: combinedOpening, indent: 1, aggregation: 'last' },
+    { label: '   of which: Land', values: landClose.map((_, i) => (i === 0 ? combinedOpening[0] - depClose[0] : combinedOpening[i] - depClose[i])), indent: 2, aggregation: 'last' },
+    { label: '   of which: Depreciable NBV', values: depClose.map((_, i) => (combinedOpening[i] - (combinedOpening[i] - depClose[i]))), indent: 2, aggregation: 'last' },
+    { label: 'Closing Fixed Assets (Land + Depreciable)', values: combinedClosing, isTotal: true, aggregation: 'last' },
+  ];
 }
 
 export default function Module4FixedAssets(): React.JSX.Element {
-  const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode } = useModule1Store(
+  const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -153,10 +175,11 @@ export default function Module4FixedAssets(): React.JSX.Element {
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,
+      updateAsset: s.updateAsset,
     })),
   );
 
-  const snap = useMemo(
+  const snap: ProjectFixedAssetSnapshot = useMemo(
     () => computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode }),
     [project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode],
   );
@@ -179,45 +202,216 @@ export default function Module4FixedAssets(): React.JSX.Element {
     [faAssets],
   );
 
+  const setAssetUsefulLife = (assetId: string, life: number): void => {
+    updateAsset(assetId, { usefulLifeYears: Math.max(0, Math.floor(life)) });
+  };
+  const setAssetMethod = (assetId: string, method: 'straight_line' | 'reducing_balance'): void => {
+    updateAsset(assetId, { depreciationMethod: method });
+  };
+  const setAssetRate = (assetId: string, rate: number | undefined): void => {
+    updateAsset(assetId, { depreciationRate: rate });
+  };
+
   const renderAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
-    const r = snap.byAsset.get(a.id);
-    if (!r) return null;
-    const usefulLife = resolveUsefulLifeYears(a);
-    const finalClose = r.closingNBVPerPeriod[N - 1] ?? 0;
+    const row = snap.byAsset.get(a.id);
+    if (!row) return null;
+    const lifeStored = a.usefulLifeYears;
+    const lifeEffective = row.usefulLifeYears;
+    const inheriting = lifeStored === undefined || lifeStored <= 0;
+    const openingLand = row.land.openingAtAxisStart;
+    const openingBuilding = row.depreciable.openingNBVPerPeriod[0] ?? 0;
+    const hasExistingOps = openingLand > 0 || openingBuilding > 0;
+    const method = a.depreciationMethod ?? 'straight_line';
+    const isRB = method === 'reducing_balance';
+    const rateStored = a.depreciationRate;
+    const defaultRBRate = lifeEffective > 0 ? 2 / lifeEffective : 0;
+    const effectiveRate = isRB ? (rateStored !== undefined ? rateStored : defaultRBRate) : 0;
+    const methodLabel = isRB
+      ? `Reducing Balance @ ${(effectiveRate * 100).toFixed(2)}%`
+      : `Straight Line ${lifeEffective} yrs`;
+
+    // Total FA rows: prefer using engine-derived openings + closings
+    // directly so we don't reconstruct Land vs Depreciable from
+    // closing balances (which can drift after a depreciation step).
+    const N_ = row.combinedClosingPerPeriod.length;
+    const totalFA: Row[] = [
+      { label: 'Opening Land', values: row.land.openingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Opening Depreciable NBV', values: row.depreciable.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Opening Fixed Assets', values: row.combinedOpeningPerPeriod, isSubtotal: true, aggregation: 'last' },
+      { label: 'Closing Land', values: row.land.closingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Closing Depreciable NBV', values: row.depreciable.closingNBVPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Closing Fixed Assets', values: row.combinedClosingPerPeriod, isTotal: true, aggregation: 'last' },
+    ];
+
     return (
       <>
+        {/* Inputs panel */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: hasExistingOps
+            ? 'repeat(5, minmax(180px, 1fr))'
+            : 'repeat(3, minmax(180px, 1fr))',
+          gap: 'var(--sp-2)',
+          padding: 'var(--sp-2)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          marginBottom: 'var(--sp-3)',
+        }}>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Method
+            </label>
+            <select
+              value={method}
+              onChange={(e) => setAssetMethod(a.id, e.target.value as 'straight_line' | 'reducing_balance')}
+              style={FAST_INPUT}
+              data-testid={`m4-asset-${a.id}-method`}
+            >
+              <option value="straight_line">Straight Line (SL)</option>
+              <option value="reducing_balance">Reducing Balance (WDV)</option>
+            </select>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              {isRB
+                ? 'Per-period dep = NBV × rate. Asymptotes toward zero; residual NBV at exit.'
+                : 'Per-period dep = base / life. Fully writes off after useful life.'}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Useful Life (years)
+            </label>
+            <input
+              type="number"
+              value={inheriting ? '' : lifeStored}
+              placeholder={`auto: ${lifeEffective} yrs (category default)`}
+              min={0}
+              max={60}
+              onChange={(e) => {
+                const v = e.target.value;
+                setAssetUsefulLife(a.id, v === '' ? 0 : Number(v));
+              }}
+              style={FAST_INPUT}
+              data-testid={`m4-asset-${a.id}-usefullife`}
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              {inheriting
+                ? `Inheriting category default ${lifeEffective} yrs.`
+                : `Overrides category default.`}
+              {isRB && ' Caps the RB depreciation window.'}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              {isRB ? 'RB Rate %' : 'Rate (auto from life)'}
+            </label>
+            {isRB ? (
+              <PercentageInput
+                value={(rateStored !== undefined ? rateStored : defaultRBRate) * 100}
+                onChange={(p) => setAssetRate(a.id, p / 100)}
+                min={0}
+                max={100}
+                decimals={2}
+                style={FAST_INPUT}
+                data-testid={`m4-asset-${a.id}-rate`}
+              />
+            ) : (
+              <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
+                {lifeEffective > 0 ? `${(100 / lifeEffective).toFixed(2)}% / yr` : '-'}
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              {isRB
+                ? (rateStored === undefined
+                    ? `Default = 2 / life = ${(defaultRBRate * 100).toFixed(2)}% (double-declining).`
+                    : 'Custom rate; clear to revert to 2 / life default.')
+                : `Equivalent rate ${(100 / Math.max(1, lifeEffective)).toFixed(2)}% per year.`}
+            </div>
+          </div>
+          {hasExistingOps && (
+            <>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+                  Opening Land (existing ops)
+                </label>
+                <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
+                  {fmt(openingLand)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+                  Read-only · edit on Module 1 Tab 4 Existing Operations
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+                  Opening Building NBV (existing ops)
+                </label>
+                <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
+                  {fmt(openingBuilding)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+                  Read-only · edit on Module 1 Tab 4 Existing Operations
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         <PeriodTable
-          title={`${a.name} — Roll-Forward`}
-          caption={`Useful life ${usefulLife} yrs · straight-line. Land additions echo through opening / closing balances but are excluded from the depreciation base.`}
+          title={`${a.name} — Land Roll-Forward`}
+          caption="Land sits on the balance sheet but never depreciates. Closing Land = Opening Land + Land Additions."
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
-          rows={[
-            { label: 'Opening NBV', values: r.openingNBVPerPeriod, indent: 1, aggregation: 'last', totalOverride: fmt(r.openingNBVPerPeriod[0] ?? 0) },
-            { label: '(+) Additions (total)', values: r.additionsPerPeriod, indent: 1 },
-            { label: '   of which: Land (non-depreciable)', values: r.additionsLandPerPeriod, indent: 2 },
-            { label: '   of which: Depreciable basis', values: r.depreciableAdditionsPerPeriod, indent: 2 },
-            { label: '(−) Depreciation', values: r.depreciationPerPeriod.map((v) => -v), indent: 1 },
-            { label: 'Closing NBV', values: r.closingNBVPerPeriod, isTotal: true, aggregation: 'last', totalOverride: fmt(finalClose) },
-            { label: 'Accumulated Depreciation', values: r.accumDepPerPeriod, indent: 1, aggregation: 'last', totalOverride: fmt(r.accumDepPerPeriod[N - 1] ?? 0) },
-          ]}
+          rows={landTableRows(row.land)}
+        />
+
+        <PeriodTable
+          title={`${a.name} — Depreciable Assets Roll-Forward`}
+          caption={`${methodLabel}. Closing NBV = Opening + Depreciable Additions − Depreciation. Accumulated Depreciation tracks the cumulative writeoff.`}
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={depreciableTableRows(row)}
+        />
+
+        <PeriodTable
+          title={`${a.name} — Total Fixed Assets (Land + Depreciable)`}
+          caption="Sum of Land closing + Depreciable closing NBV. This is the asset's Fixed Assets line on the balance sheet."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={totalFA}
         />
       </>
     );
   };
 
+  // Project totals — Land roll-forward, Depreciable roll-forward,
+  // and Combined Total Fixed Assets.
+  const projectLand = snap.projectTotals.land;
+  const projectDep = snap.projectTotals.depreciable;
+  const projectTotalRows: Row[] = [
+    { label: 'Opening Land', values: projectLand.openingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening Depreciable NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening Fixed Assets', values: snap.projectTotals.combinedOpeningPerPeriod, isSubtotal: true, aggregation: 'last' },
+    { label: 'Closing Land', values: projectLand.closingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Closing Depreciable NBV', values: projectDep.closingNBVPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Closing Fixed Assets', values: snap.projectTotals.combinedClosingPerPeriod, isTotal: true, aggregation: 'last' },
+  ];
+
   return (
-    <div data-testid="module4-fixed-assets" style={{ padding: 'var(--sp-3)' }}>
+    <div data-testid="module4-fixed-assets" style={{ padding: 'var(--sp-3)', width: '100%' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 4 · Fixed Assets &amp; Depreciation</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
           {currency}
         </div>
-        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Per-asset Fixed Asset roll-forward (Opening NBV + Additions − Depreciation = Closing NBV) using straight-line
-          over the asset's useful life. Hospitality + Retail / Lease + Sell + Manage companions depreciate here; Sell
-          and Sell + Manage parents flow through Module 2 Cost of Sales. Land additions sit on the BS but never
-          depreciate (life=0). Existing operations seed Opening NBV from the asset's historical Building basis.
+        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
+          Per-asset Land + Depreciable Asset roll-forwards. Land sits on the balance sheet but never depreciates;
+          Depreciable Assets follow straight-line over the asset's useful life. Hospitality + Retail / Lease + Sell
+          + Manage companions are tracked here; Sell and Sell + Manage parents flow through Module 2 Cost of Sales.
+          Existing operations seed Opening Land + Building NBV from Module 1 Tab 4. Project Total rolls every asset
+          up at the bottom, mirroring Revenue and Costs.
         </p>
       </div>
 
@@ -237,7 +431,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
       <PhaseSection
         phaseId="strategy-hospitality"
         title="Hospitality / Operations"
-        meta="Operate assets + Sell + Manage operate companions across all phases"
+        meta="Operate assets + Sell + Manage operate companions"
         countLabel={`${hospitalityAssets.length} asset${hospitalityAssets.length === 1 ? '' : 's'}`}
         storageKey="fmp:m4:fa:strategy:hospitality:collapsed"
       >
@@ -246,37 +440,24 @@ export default function Module4FixedAssets(): React.JSX.Element {
             No Operate or Sell + Manage assets configured yet.
           </div>
         )}
-        {phases.map((p) => {
-          const phaseAssets = hospitalityAssets.filter((a) => a.phaseId === p.id);
-          if (phaseAssets.length === 0) return null;
-          return (
-            <div key={`hosp-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
-              <PhaseDivider
-                title={p.name}
-                meta={`${p.status ?? 'planning'}`}
-                count={`${phaseAssets.length} hospitality asset${phaseAssets.length === 1 ? '' : 's'}`}
-              />
-              {phaseAssets.map((a) => (
-                <AssetSection
-                  key={a.id}
-                  assetId={a.id}
-                  title={a.name}
-                  meta={a.strategy === 'Operate' ? 'Hospitality' : a.strategy}
-                  storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
-                >
-                  {renderAssetBody(a)}
-                </AssetSection>
-              ))}
-            </div>
-          );
-        })}
+        {hospitalityAssets.map((a) => (
+          <AssetSection
+            key={a.id}
+            assetId={a.id}
+            title={a.name}
+            meta={`${a.strategy === 'Operate' ? 'Hospitality' : a.strategy} · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
+            storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
+          >
+            {renderAssetBody(a)}
+          </AssetSection>
+        ))}
       </PhaseSection>
 
       {/* Retail / Lease */}
       <PhaseSection
         phaseId="strategy-retail"
         title="Retail / Lease"
-        meta="Lease assets across all phases"
+        meta="Lease assets"
         countLabel={`${leaseAssets.length} asset${leaseAssets.length === 1 ? '' : 's'}`}
         storageKey="fmp:m4:fa:strategy:retail:collapsed"
       >
@@ -285,54 +466,55 @@ export default function Module4FixedAssets(): React.JSX.Element {
             No Lease assets configured yet.
           </div>
         )}
-        {phases.map((p) => {
-          const phaseAssets = leaseAssets.filter((a) => a.phaseId === p.id);
-          if (phaseAssets.length === 0) return null;
-          return (
-            <div key={`lease-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
-              <PhaseDivider
-                title={p.name}
-                meta={`${p.status ?? 'planning'}`}
-                count={`${phaseAssets.length} lease asset${phaseAssets.length === 1 ? '' : 's'}`}
-              />
-              {phaseAssets.map((a) => (
-                <AssetSection
-                  key={a.id}
-                  assetId={a.id}
-                  title={a.name}
-                  meta="Retail / Lease"
-                  storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
-                >
-                  {renderAssetBody(a)}
-                </AssetSection>
-              ))}
-            </div>
-          );
-        })}
+        {leaseAssets.map((a) => (
+          <AssetSection
+            key={a.id}
+            assetId={a.id}
+            title={a.name}
+            meta={`Retail / Lease · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
+            storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
+          >
+            {renderAssetBody(a)}
+          </AssetSection>
+        ))}
       </PhaseSection>
 
       {/* Project rollup */}
       <PhaseSection
         phaseId="__project__"
         title="Project Total"
-        meta="all phases combined"
+        meta="all assets combined"
         storageKey="fmp:m4:fa:phase:__project__:collapsed"
       >
         <PeriodTable
-          title="Project Fixed Assets — Roll-Forward"
-          caption="Sum of every Hospitality + Lease asset's roll-forward. Closing NBV at exit picks up residual depreciable basis + Land that has not been written off (net-worth exit convention)."
+          title="Project Land — Roll-Forward"
+          caption="Sum of every asset's Land roll-forward. Land never depreciates so closing Land = sum of all assets' opening Land + project-wide Land additions."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={landTableRows(projectLand)}
+        />
+        <PeriodTable
+          title="Project Depreciable Assets — Roll-Forward"
+          caption="Sum of every asset's depreciable roll-forward. Depreciation per period = sum of per-asset depreciation streams."
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
           rows={[
-            { label: 'Opening NBV', values: snap.projectTotals.openingNBVPerPeriod, indent: 1, aggregation: 'last', totalOverride: fmt(snap.projectTotals.openingNBVPerPeriod[0] ?? 0) },
-            { label: '(+) Additions (total)', values: snap.projectTotals.additionsPerPeriod, indent: 1 },
-            { label: '   of which: Land', values: snap.projectTotals.additionsLandPerPeriod, indent: 2 },
-            { label: '   of which: Depreciable basis', values: snap.projectTotals.depreciableAdditionsPerPeriod, indent: 2 },
-            { label: '(−) Depreciation', values: snap.projectTotals.depreciationPerPeriod.map((v) => -v), indent: 1 },
-            { label: 'Closing NBV', values: snap.projectTotals.closingNBVPerPeriod, isTotal: true, aggregation: 'last', totalOverride: fmt(snap.projectTotals.closingNBVPerPeriod[N - 1] ?? 0) },
-            { label: 'Accumulated Depreciation', values: snap.projectTotals.accumDepPerPeriod, indent: 1, aggregation: 'last', totalOverride: fmt(snap.projectTotals.accumDepPerPeriod[N - 1] ?? 0) },
+            { label: 'Opening NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+            { label: '(+) Depreciable Additions', values: projectDep.additionsPerPeriod, indent: 1 },
+            { label: '(−) Depreciation', values: projectDep.depreciationPerPeriod.map((v) => -v), indent: 1 },
+            { label: 'Closing NBV', values: projectDep.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
+            { label: 'Accumulated Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
           ]}
+        />
+        <PeriodTable
+          title="Project Total Fixed Assets (Land + Depreciable)"
+          caption="The Fixed Assets line on the project balance sheet. Equals Land closing + Depreciable closing NBV across every asset."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={projectTotalRows}
         />
       </PhaseSection>
     </div>

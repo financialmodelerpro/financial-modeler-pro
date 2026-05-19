@@ -1,61 +1,78 @@
 /**
- * Per-asset fixed-asset roll-forward (Pass 1).
+ * Per-asset depreciable roll-forward (Pass 1d, 2026-05-19).
  *
- * Layers the SL allocator over a vintage approach: every period's
- * depreciable addition opens its own straight-line stream from
- * max(t, startIdx), so a unit of capex spent in year 3 starts
- * depreciating at handover or year 3 (whichever is later). Existing-
- * operations opening NBV is treated as a vintage anchored at index 0
- * with its own `openingRemainingLife`.
+ * Engine handles ONLY depreciable additions + opening NBV. Land sits
+ * outside this engine.
  *
- * Result roll-forward (per period t):
+ * Per-vintage allocation: each period's addition opens its own
+ * depreciation stream from max(t, startIdx), routed through the
+ * configured method (straight-line or reducing-balance). Existing-
+ * operations opening NBV is a separate vintage anchored at index 0
+ * over `openingRemainingLife`.
+ *
+ * Roll-forward per period t:
  *   opening[t]   = closing[t-1]    (opening[0] = openingNBV)
  *   closing[t]   = max(0, opening[t] + additionsPerPeriod[t]
  *                            − depreciationPerPeriod[t])
  *
- * Land additions are echoed but excluded from the depreciation base.
- * They still flow through opening/closing because Land sits on the BS
- * as a non-depreciable line; the reference Excel handles this the same
- * way (Land row has life=0 and contributes to Fixed Asset/WIP balance
- * but never to the Depreciation row).
+ * Residual NBV at end of axis stays on the books (reference's
+ * net-worth exit convention).
  */
 
-import type { AssetFixedAssetConfig, AssetFixedAssetResult } from './types';
-import { buildStraightLine } from './straightLine';
+import type { AssetFixedAssetConfig, AssetFixedAssetResult, DepreciationMethod } from './types';
+import { buildStraightLine, buildReducingBalance } from './straightLine';
+
+function buildVintage(
+  base: number,
+  life: number,
+  startIdx: number,
+  axisLength: number,
+  method: DepreciationMethod,
+  rbRate: number,
+): number[] {
+  if (method === 'reducing_balance') {
+    return buildReducingBalance(base, rbRate, startIdx, axisLength, life);
+  }
+  return buildStraightLine(base, life, startIdx, axisLength);
+}
 
 export function computeAssetFixedAssets(
   config: AssetFixedAssetConfig,
 ): AssetFixedAssetResult {
   const N = Math.max(0, Math.floor(config.axisLength));
   const additions = ensureLen(config.additionsPerPeriod, N);
-  const landAdditions = ensureLen(config.additionsLandPerPeriod, N);
-  const depreciableAdditions = additions.map((v, i) => Math.max(0, v - Math.max(0, landAdditions[i] ?? 0)));
   const usefulLife = Math.max(0, config.usefulLifeYears ?? 0);
   const openingNBV = Math.max(0, config.openingNBV ?? 0);
   const openingAccumDep = Math.max(0, config.openingAccumDep ?? 0);
   const openingRemaining = Math.max(0, config.openingRemainingLife ?? usefulLife);
   const startIdx = Math.max(0, Math.floor(config.startIdx ?? 0));
+  const method: DepreciationMethod = config.method ?? 'straight_line';
 
-  // ── Per-vintage SL streams ────────────────────────────────────────
+  // Resolve effective RB rate. Default = 2/usefulLifeYears (double-
+  // declining-balance) when not specified, matching the convention
+  // every accounting textbook uses to link RB life with SL life.
+  const effectiveRate = method === 'reducing_balance'
+    ? Math.max(0, config.reducingBalanceRate ?? (usefulLife > 0 ? 2 / usefulLife : 0))
+    : undefined;
+
+  // ── Per-vintage streams ───────────────────────────────────────────
   const vintages: number[][] = [];
 
-  // Existing-operations vintage: opening NBV depreciates from idx 0
-  // over remaining life. NBV is already net of cumulative depreciation
-  // (caller subtracts openingAccumDep from gross book value before
-  // passing it in), so this stream represents the remaining writeoff.
   if (openingNBV > 0 && openingRemaining > 0) {
-    vintages.push(buildStraightLine(openingNBV, openingRemaining, 0, N));
+    vintages.push(buildVintage(
+      openingNBV, openingRemaining, 0, N, method, effectiveRate ?? 0,
+    ));
   }
 
-  // Per-period additions: each vintage starts at max(t, startIdx) so
-  // WIP cannot depreciate until handover.
   let totalDepreciableBase = openingNBV;
   for (let t = 0; t < N; t++) {
-    const add = depreciableAdditions[t] ?? 0;
+    const add = additions[t] ?? 0;
     if (add <= 0) continue;
     totalDepreciableBase += add;
     const start = Math.max(t, startIdx);
-    vintages.push(buildStraightLine(add, usefulLife, start, N));
+    vintages.push(buildVintage(
+      add, usefulLife, start, N, method, effectiveRate ?? 0,
+    ));
   }
 
   // ── Sum vintages → per-period depreciation ─────────────────────────
@@ -64,7 +81,7 @@ export function computeAssetFixedAssets(
     for (let t = 0; t < N; t++) depreciation[t] += v[t] ?? 0;
   }
 
-  // ── Roll-forward: opening / closing NBV ────────────────────────────
+  // ── Roll-forward: opening / closing NBV (depreciable only) ────────
   const openingNBVPerPeriod = new Array<number>(N).fill(0);
   const closingNBVPerPeriod = new Array<number>(N).fill(0);
   const accumDepPerPeriod = new Array<number>(N).fill(0);
@@ -85,9 +102,9 @@ export function computeAssetFixedAssets(
   return {
     assetId: config.assetId,
     axisLength: N,
+    method,
+    effectiveRate,
     additionsPerPeriod: additions,
-    additionsLandPerPeriod: landAdditions,
-    depreciableAdditionsPerPeriod: depreciableAdditions,
     depreciationPerPeriod: depreciation,
     accumDepPerPeriod,
     openingNBVPerPeriod,

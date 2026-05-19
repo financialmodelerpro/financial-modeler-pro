@@ -701,6 +701,19 @@ export interface Asset {
   // compute time so the user can leave it blank).
   managementAgreement?: ManagementAgreement;
   usefulLifeYears?: number;
+  /**
+   * M4 Pass 1d (2026-05-19): depreciation method per asset. Defaults
+   * to 'straight_line' when undefined. 'reducing_balance' uses
+   * declining-balance with rate = `depreciationRate` or fallback
+   * `2 / usefulLifeYears` (double-declining convention).
+   */
+  depreciationMethod?: 'straight_line' | 'reducing_balance';
+  /**
+   * Reducing-balance rate as a decimal (e.g. 0.10 = 10%). Only
+   * consumed when depreciationMethod === 'reducing_balance'. When
+   * undefined, engine falls back to `2 / usefulLifeYears`.
+   */
+  depreciationRate?: number;
   // M2.0e: lifecycle status pill (planned / construction / operational).
   // Defaults to 'planned' on first add. Module 2 Revenue gates revenue
   // streams off this; today the calc engine ignores it (visible flag

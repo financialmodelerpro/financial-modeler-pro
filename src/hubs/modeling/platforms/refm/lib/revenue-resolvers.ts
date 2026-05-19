@@ -741,18 +741,22 @@ export function computeEscrowSnapshot(
       : projectHeldPct;
 
     // Resolve effective release year. Order: per-asset override >
-    // project default > asset's phase handover year (last construction
-    // year on the project axis, mirroring resolveHandoverYear).
+    // project default > end of construction + 1 (= the calendar year
+    // AFTER handover). Why +1: regulators release the escrow balance
+    // back to the developer at the end of the year following project
+    // completion, not on the completion year itself. Per Ahmad
+    // 2026-05-19.
     const phase = phaseMap.get(a.phaseId);
     const phaseStartYear = phase?.startDate
       ? new Date(phase.startDate).getUTCFullYear()
       : projectStartYear;
     const cp = Math.max(0, phase?.constructionPeriods ?? 0);
     const handoverYear = phaseStartYear + Math.max(0, cp - 1);
+    const defaultReleaseYearForAsset = handoverYear + 1;
     const assetReleaseOverride = a.revenue?.sell?.escrow?.releaseYearOverride;
     const effectiveReleaseYear = assetReleaseOverride !== undefined
       ? assetReleaseOverride
-      : (projectDefaultReleaseYear !== undefined ? projectDefaultReleaseYear : handoverYear);
+      : (projectDefaultReleaseYear !== undefined ? projectDefaultReleaseYear : defaultReleaseYearForAsset);
 
     const releaseYearIdx = Math.max(0, Math.min(N - 1, effectiveReleaseYear - projectStartYear));
     const preSalesCashPerPeriod = sellResult.presalesCashPerPeriod.slice(0, N);

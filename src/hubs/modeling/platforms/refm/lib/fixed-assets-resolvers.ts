@@ -1,29 +1,31 @@
 /**
- * Module 4 Pass 1 — Fixed Assets + Depreciation resolver.
+ * Module 4 Pass 1b — Fixed Assets + Depreciation resolver (refactor).
  *
- * Bridges the M1 Zustand store (project / phases / assets / parcels /
- * costLines / costOverrides / parcelFunding / land mode) into the pure
- * depreciation engine in src/core/calculations/depreciation/.
+ * Bridges the M1 store to the depreciation engine and composes the
+ * three views the M4 UI / future P&L + BS + CF need:
  *
- * Scope (Pass 1):
- *   - Hospitality (Operate) + Retail (Lease) assets only. Sell + Sell
- *     + Manage parents are excluded entirely — their capex flows
- *     through Cost of Sales in M2 (no Fixed Assets line on the BS).
- *   - Sell + Manage companions (isCompanion === true, strategy 'Operate')
- *     do roll through here, mirroring how revenue / opex treat them.
- *   - Straight-line method with per-asset useful life via
- *     resolveUsefulLifeYears(). DEFAULT_USEFUL_LIFE_YEARS supplies the
- *     fallback (Hospitality 20 / Retail 25 / Office 25 / Residential 30).
- *   - Existing-operations opening NBV comes from
- *     asset.historicalPreCapexBuilding (the depreciable half of the
- *     Pass 56 split; Land is the non-depreciable half).
- *   - Axis: project-axis convention (`arr[0]` = first active year).
- *     Capex per-period projection mirrors aggregateProjectCapex in
- *     src/core/calculations/financing/capex.ts so Module 4 numbers
- *     reconcile column-for-column with Module 1 Tab 4 Costs.
+ *   1. Land roll-forward (pure additive; never depreciates)
+ *        opening[0] = asset.historicalPreCapexLand
+ *        opening[t] = closing[t-1]
+ *        closing[t] = opening[t] + landAdditions[t]
  *
- * Result snapshot parallels the Revenue / Opex snapshots so the M4 P&L
- * + BS + CF surfaces can consume it the same way.
+ *   2. Depreciable roll-forward (via the engine)
+ *        opening[0] = asset.historicalPreCapexBuilding
+ *        engine handles vintage SL + opening NBV writeoff over
+ *        usefulLifeYears.
+ *
+ *   3. Combined Total Fixed Assets
+ *        opening[t] = landOpening[t] + depreciableOpening[t]
+ *        closing[t] = landClosing[t] + depreciableClosing[t]
+ *
+ * Scope:
+ *   - Hospitality (Operate) + Retail (Lease) + Sell+Manage companions.
+ *   - Sell + Sell+Manage parents excluded entirely (capex flows
+ *     through M2 Cost of Sales; no Fixed Assets line).
+ *
+ * Capex per-period projection onto the project axis mirrors
+ * aggregateProjectCapex in financing/capex.ts so Module 4 reconciles
+ * column-for-column with Module 1 Tab 4.
  */
 
 import {
@@ -34,19 +36,54 @@ import {
 import {
   computeAssetFixedAssets,
   type AssetFixedAssetResult,
-  type ProjectFixedAssetTotals,
 } from '@/src/core/calculations/depreciation';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase } from './state/module1-types';
+
+export interface LandRollForward {
+  openingPerPeriod: number[];
+  additionsPerPeriod: number[];
+  closingPerPeriod: number[];
+  /** Opening at axis index 0 (= asset.historicalPreCapexLand). */
+  openingAtAxisStart: number;
+  /** Total Land additions across the axis. */
+  totalAdditions: number;
+  /** Closing at last axis idx (= openingAtAxisStart + totalAdditions). */
+  closingAtAxisEnd: number;
+}
+
+export interface AssetFixedAssetRow {
+  assetId: string;
+  asset: Asset;
+  /** Useful life resolved via resolveUsefulLifeYears(). */
+  usefulLifeYears: number;
+  land: LandRollForward;
+  depreciable: AssetFixedAssetResult;
+  /** Combined opening (Land + depreciable NBV). */
+  combinedOpeningPerPeriod: number[];
+  /** Combined closing (Land + depreciable NBV). */
+  combinedClosingPerPeriod: number[];
+}
 
 export interface ProjectFixedAssetSnapshot {
   axisLength: number;
   projectStartYear: number;
   yearLabels: number[];
-  /** Per-asset depreciation roll-forward, keyed by asset id. */
-  byAsset: Map<string, AssetFixedAssetResult>;
-  /** Project totals across every Hospitality + Lease asset. */
-  projectTotals: ProjectFixedAssetTotals;
+  /** Per-asset row, keyed by asset id. Order matches insertion order. */
+  byAsset: Map<string, AssetFixedAssetRow>;
+  /** Project totals across every asset row. */
+  projectTotals: {
+    land: LandRollForward;
+    depreciable: {
+      additionsPerPeriod: number[];
+      depreciationPerPeriod: number[];
+      accumDepPerPeriod: number[];
+      openingNBVPerPeriod: number[];
+      closingNBVPerPeriod: number[];
+    };
+    combinedOpeningPerPeriod: number[];
+    combinedClosingPerPeriod: number[];
+  };
 }
 
 type ResolverState = Pick<
@@ -63,12 +100,6 @@ type ResolverState = Pick<
 
 function zeros(n: number): number[] { return new Array<number>(n).fill(0); }
 
-/**
- * True when the asset's capex should depreciate (rather than flow
- * through CoS). Sell + Sell + Manage PARENTS are CoS. Sell + Manage
- * COMPANIONS (isCompanion === true) and pure Operate / Lease assets
- * carry Fixed Assets + D&A.
- */
 function isDepreciableAsset(a: Asset): boolean {
   if (a.visible === false) return false;
   if (a.isCompanion === true) return true; // companion strategy is always 'Operate'
@@ -76,9 +107,8 @@ function isDepreciableAsset(a: Asset): boolean {
 }
 
 /**
- * Project an asset's phase-local per-period array onto the project
- * axis using the same offset rule as
- * `src/core/calculations/financing/capex.ts::aggregateProjectCapex`:
+ * Project a phase-local per-period array onto the project axis using
+ * the same offset rule as financing/capex.ts::aggregateProjectCapex.
  *   - Local i = 0 (Y0 upfront): placed at projIdx = offset - 1; Phase 1
  *     (offset === 0) drops the Y0 lump entirely.
  *   - Local i >= 1: projIdx = offset + i - 1.
@@ -92,6 +122,30 @@ function projectOntoAxis(local: number[] | undefined, offset: number, N: number)
     out[projIdx] += local[i] ?? 0;
   }
   return out;
+}
+
+function buildLandRollForward(openingAtAxisStart: number, additionsPerPeriod: number[]): LandRollForward {
+  const N = additionsPerPeriod.length;
+  const opening = zeros(N);
+  const closing = zeros(N);
+  let prev = Math.max(0, openingAtAxisStart);
+  let total = 0;
+  for (let t = 0; t < N; t++) {
+    opening[t] = prev;
+    const add = Math.max(0, additionsPerPeriod[t] ?? 0);
+    const close = prev + add;
+    closing[t] = close;
+    prev = close;
+    total += add;
+  }
+  return {
+    openingPerPeriod: opening,
+    additionsPerPeriod,
+    closingPerPeriod: closing,
+    openingAtAxisStart: Math.max(0, openingAtAxisStart),
+    totalAdditions: total,
+    closingAtAxisEnd: closing[N - 1] ?? Math.max(0, openingAtAxisStart),
+  };
 }
 
 export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedAssetSnapshot {
@@ -110,38 +164,38 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
   const N = maxEnd;
   const yearLabels = Array.from({ length: N }, (_, i) => projectStartYear + i);
 
-  // Phase lookup
   const phaseMap = new Map<string, Phase>();
   for (const p of phases) phaseMap.set(p.id, p);
 
-  const byAsset = new Map<string, AssetFixedAssetResult>();
-  const totals: ProjectFixedAssetTotals = {
-    axisLength: N,
-    additionsPerPeriod: zeros(N),
-    additionsLandPerPeriod: zeros(N),
-    depreciableAdditionsPerPeriod: zeros(N),
-    depreciationPerPeriod: zeros(N),
-    accumDepPerPeriod: zeros(N),
-    openingNBVPerPeriod: zeros(N),
-    closingNBVPerPeriod: zeros(N),
+  const byAsset = new Map<string, AssetFixedAssetRow>();
+  const totals = {
+    land: buildLandRollForward(0, zeros(N)),  // placeholder, rebuilt below
+    depreciable: {
+      additionsPerPeriod: zeros(N),
+      depreciationPerPeriod: zeros(N),
+      accumDepPerPeriod: zeros(N),
+      openingNBVPerPeriod: zeros(N),
+      closingNBVPerPeriod: zeros(N),
+    },
+    combinedOpeningPerPeriod: zeros(N),
+    combinedClosingPerPeriod: zeros(N),
   };
+
+  // Accumulators (rebuild totals.land at the end so the running
+  // additive sum stays consistent across multi-asset projects).
+  let projectOpeningLand = 0;
+  const projectLandAdditions = zeros(N);
 
   for (const asset of assets) {
     if (!isDepreciableAsset(asset)) continue;
     const phase = phaseMap.get(asset.phaseId);
     if (!phase) continue;
 
-    // Phase offset on the project axis (same convention as
-    // aggregateProjectCapex / revenue resolvers).
     const phaseStartYear = phase.startDate
       ? new Date(phase.startDate).getUTCFullYear()
       : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
     const cp = Math.max(0, phase.constructionPeriods ?? 0);
-    // Handover index = LAST construction year on the project axis. New
-    // additions before handover sit as WIP and start depreciating from
-    // handover; additions after handover (e.g. operating-stage capex /
-    // FF&E replacement) depreciate from their own spend year.
     const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));
 
     // Per-asset capex breakdown (phase-local arrays).
@@ -158,51 +212,72 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
       project.financing?.parcelFunding,
     );
 
-    // Project onto project axis.
-    const additionsPerPeriod = projectOntoAxis(breakdown.perPeriod, offset, N);
-    const additionsLandPerPeriod = projectOntoAxis(breakdown.perPeriodLandTotal, offset, N);
+    // Project onto the project axis.
+    const additionsAll = projectOntoAxis(breakdown.perPeriod, offset, N);
+    const additionsLand = projectOntoAxis(breakdown.perPeriodLandTotal, offset, N);
+    const additionsDepreciable = additionsAll.map((v, i) => Math.max(0, v - (additionsLand[i] ?? 0)));
 
-    // Existing-operations opening NBV. The Pass 56 split keeps Land
-    // separate (Land never depreciates); only the Building portion
-    // seeds the opening NBV.
-    const openingNBV = Math.max(0, asset.historicalPreCapexBuilding ?? 0);
+    // Existing operations: Pass 56 split.
+    const openingLand = Math.max(0, asset.historicalPreCapexLand ?? 0);
+    const openingBuilding = Math.max(0, asset.historicalPreCapexBuilding ?? 0);
 
+    // Land roll-forward (pure additive).
+    const land = buildLandRollForward(openingLand, additionsLand);
+
+    // Depreciable roll-forward (engine).
     const usefulLifeYears = resolveUsefulLifeYears(asset);
-
-    const result = computeAssetFixedAssets({
+    const method = asset.depreciationMethod ?? 'straight_line';
+    const depreciable = computeAssetFixedAssets({
       assetId: asset.id,
       axisLength: N,
       startIdx: handoverIdx,
-      additionsPerPeriod,
-      additionsLandPerPeriod,
+      additionsPerPeriod: additionsDepreciable,
       usefulLifeYears,
-      openingNBV,
-      // openingAccumDep + openingRemainingLife left undefined for Pass
-      // 1; the engine treats opening NBV as fully fresh basis spread
-      // over usefulLifeYears, matching the reference model behaviour
-      // for pre-existing assets that the user enters as a single NBV
-      // line without service-life metadata.
+      openingNBV: openingBuilding,
+      method,
+      reducingBalanceRate: asset.depreciationRate,
     });
-    byAsset.set(asset.id, result);
+
+    // Combined per-period totals.
+    const combinedOpening = zeros(N);
+    const combinedClosing = zeros(N);
+    for (let t = 0; t < N; t++) {
+      combinedOpening[t] = (land.openingPerPeriod[t] ?? 0) + (depreciable.openingNBVPerPeriod[t] ?? 0);
+      combinedClosing[t] = (land.closingPerPeriod[t] ?? 0) + (depreciable.closingNBVPerPeriod[t] ?? 0);
+    }
+
+    byAsset.set(asset.id, {
+      assetId: asset.id,
+      asset,
+      usefulLifeYears,
+      land,
+      depreciable,
+      combinedOpeningPerPeriod: combinedOpening,
+      combinedClosingPerPeriod: combinedClosing,
+    });
 
     // Accumulate project totals.
+    projectOpeningLand += openingLand;
     for (let t = 0; t < N; t++) {
-      totals.additionsPerPeriod[t] += result.additionsPerPeriod[t] ?? 0;
-      totals.additionsLandPerPeriod[t] += result.additionsLandPerPeriod[t] ?? 0;
-      totals.depreciableAdditionsPerPeriod[t] += result.depreciableAdditionsPerPeriod[t] ?? 0;
-      totals.depreciationPerPeriod[t] += result.depreciationPerPeriod[t] ?? 0;
-      totals.openingNBVPerPeriod[t] += result.openingNBVPerPeriod[t] ?? 0;
-      totals.closingNBVPerPeriod[t] += result.closingNBVPerPeriod[t] ?? 0;
+      projectLandAdditions[t] += additionsLand[t] ?? 0;
+      totals.depreciable.additionsPerPeriod[t] += depreciable.additionsPerPeriod[t] ?? 0;
+      totals.depreciable.depreciationPerPeriod[t] += depreciable.depreciationPerPeriod[t] ?? 0;
+      totals.depreciable.openingNBVPerPeriod[t] += depreciable.openingNBVPerPeriod[t] ?? 0;
+      totals.depreciable.closingNBVPerPeriod[t] += depreciable.closingNBVPerPeriod[t] ?? 0;
     }
   }
 
-  // Cumulative project accumDep is derived from the project dep stream
-  // (cum-sum is associative across assets so summing per-asset
-  // accumDep matches a fresh cum-sum of the project dep stream).
+  totals.land = buildLandRollForward(projectOpeningLand, projectLandAdditions);
+  // Project accumDep is the cum-sum of the project dep stream.
   let cum = 0;
   for (let t = 0; t < N; t++) {
-    cum += totals.depreciationPerPeriod[t];
-    totals.accumDepPerPeriod[t] = cum;
+    cum += totals.depreciable.depreciationPerPeriod[t];
+    totals.depreciable.accumDepPerPeriod[t] = cum;
+  }
+  // Project combined opening / closing.
+  for (let t = 0; t < N; t++) {
+    totals.combinedOpeningPerPeriod[t] = (totals.land.openingPerPeriod[t] ?? 0) + (totals.depreciable.openingNBVPerPeriod[t] ?? 0);
+    totals.combinedClosingPerPeriod[t] = (totals.land.closingPerPeriod[t] ?? 0) + (totals.depreciable.closingNBVPerPeriod[t] ?? 0);
   }
 
   return {
