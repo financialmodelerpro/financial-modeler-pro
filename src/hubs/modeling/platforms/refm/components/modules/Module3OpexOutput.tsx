@@ -1,22 +1,25 @@
 'use client';
 
 /**
- * Module3OpexOutput.tsx (Pass 4, 2026-05-19)
+ * Module3OpexOutput.tsx (Pass 5, 2026-05-19)
  *
- * Restructured to category-wise tables. Each operating asset section
- * leads with a Revenue Breakdown table (Rooms / F&B / Other / Total
- * for hospitality, Total Revenue for retail) followed by stand-alone
- * tables per expense category:
- *   Hospitality: Direct Costs · Indirect / Undistributed Costs ·
- *                Management Fees · Reserves & Other Charges
- *   Retail:      Property Operating Costs · Pass-Through / Recoveries
- *                (memo) · Other Charges
+ * Re-skinned to mirror the Revenue / CoS output pattern: strategy-first
+ * outer `PhaseSection` (Hospitality / Operations, Retail / Lease) with
+ * a nested `PhaseDivider` per project phase, each asset wrapped in a
+ * collapsible `AssetSection`. The project rollup lives in a closing
+ * `PhaseSection phaseId="__project__"` and uses strategy-section header
+ * rows + per-asset rows + grand totals inside each per-category table,
+ * matching `Module2CostOfSales.tsx`.
+ *
+ * Per-asset surface (unchanged math): Revenue Breakdown (Rooms / F&B /
+ * Other / Total for hospitality, Total Lease Revenue for retail)
+ * followed by stand-alone category tables —
+ *   Hospitality: Direct · Indirect / Undistributed · Management Fees ·
+ *                Reserves & Other Charges
+ *   Retail:      Property Operating · Pass-Through / Recoveries (memo) ·
+ *                Other Charges
  *
  * No GOP / NOI / margin rows — those compose in M4 P&L.
- *
- * The project-total section at the bottom rolls every asset up by
- * category, one row per asset that contributes to that category, plus
- * HQ overheads and a grand total Total Project Opex.
  */
 
 import React, { useMemo } from 'react';
@@ -31,6 +34,7 @@ import {
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
   nonLabelColumnPct,
 } from './_shared/tableStyles';
+import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import type { OpexLineCategory } from '@/src/core/calculations/opex';
 
 type Aggregation = 'sum' | 'last' | 'avg' | 'none';
@@ -120,6 +124,33 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
   );
 }
 
+/**
+ * Light phase divider rendered inside a strategy `PhaseSection`. Lifted
+ * verbatim from `Module2RevenueOutput.tsx` / `Module2CostOfSales.tsx` so
+ * every output tab uses the same nesting visual.
+ */
+function PhaseDivider({ title, meta, count }: { title: string; meta?: string; count?: string }): React.JSX.Element {
+  return (
+    <div style={{
+      marginTop: 'var(--sp-2)',
+      marginBottom: 'var(--sp-1)',
+      padding: '6px 12px',
+      background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+      borderLeft: '3px solid var(--color-navy)',
+      borderRadius: '2px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    }}>
+      <div>
+        <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-heading)' }}>{title}</strong>
+        {meta && <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--color-meta)' }}>{meta}</span>}
+      </div>
+      {count && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{count}</span>}
+    </div>
+  );
+}
+
 // ─── category routing ─────────────────────────────────────────────
 // Maps each OpexLineCategory to a section bucket per strategy. The
 // project-total rollup uses the same buckets to figure out which
@@ -172,25 +203,20 @@ export default function Module3OpexOutput(): React.JSX.Element {
   const yearLabels = snap.opex.yearLabels;
   const N = yearLabels.length;
 
-  // Phase grouping for the per-asset section.
-  const phasesById = useMemo(() => {
-    const m = new Map<string, typeof phases[number]>();
-    for (const p of phases) m.set(p.id, p);
-    return m;
-  }, [phases]);
-
+  // Assets that actually have an opex engine result (Hospitality + Lease).
+  // Sell parents / pure Sell have no opex by convention.
   const opexAssets = useMemo(() => assets.filter((a) => snap.opex.byAsset.has(a.id)), [assets, snap.opex.byAsset]);
-  const phaseOrder = useMemo(() => {
-    const seen = new Set<string>();
-    const order: string[] = [];
-    for (const a of opexAssets) {
-      if (a.phaseId && !seen.has(a.phaseId)) { seen.add(a.phaseId); order.push(a.phaseId); }
-    }
-    return order;
-  }, [opexAssets]);
+  const hospitalityAssets = useMemo(
+    () => opexAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true),
+    [opexAssets],
+  );
+  const leaseAssets = useMemo(
+    () => opexAssets.filter((a) => a.strategy === 'Lease'),
+    [opexAssets],
+  );
 
-  // ─── per-asset section ───────────────────────────────────────────
-  const renderHospitalityAsset = (a: typeof assets[number]): React.JSX.Element | null => {
+  // ─── per-asset section renderers ─────────────────────────────────
+  const renderHospitalityAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
     const r = snap.opex.byAsset.get(a.id);
     if (!r) return null;
     const rev = snap.rev.byHospitalityAsset.get(a.id);
@@ -217,20 +243,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
     }
 
     return (
-      <div key={a.id} style={{ marginBottom: 'var(--sp-4)' }}>
-        <div style={{
-          background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 10%, white))',
-          border: '1px solid var(--color-navy)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '6px 12px',
-          fontWeight: 700,
-          fontSize: 13,
-          color: 'var(--color-navy)',
-          marginBottom: 'var(--sp-2)',
-        }}>
-          {a.name} <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--color-meta)' }}>({a.strategy === 'Operate' ? 'Hospitality' : a.strategy})</span>
-        </div>
-
+      <>
         <PeriodTable
           title={`${a.name} — Revenue Breakdown`}
           yearLabels={yearLabels}
@@ -290,11 +303,11 @@ export default function Module3OpexOutput(): React.JSX.Element {
               ]
             : []}
         />
-      </div>
+      </>
     );
   };
 
-  const renderLeaseAsset = (a: typeof assets[number]): React.JSX.Element | null => {
+  const renderLeaseAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
     const r = snap.opex.byAsset.get(a.id);
     if (!r) return null;
     const rev = snap.rev.byLeaseAsset.get(a.id);
@@ -321,20 +334,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
     }
 
     return (
-      <div key={a.id} style={{ marginBottom: 'var(--sp-4)' }}>
-        <div style={{
-          background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 10%, white))',
-          border: '1px solid var(--color-navy)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '6px 12px',
-          fontWeight: 700,
-          fontSize: 13,
-          color: 'var(--color-navy)',
-          marginBottom: 'var(--sp-2)',
-        }}>
-          {a.name} <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--color-meta)' }}>(Retail / Lease)</span>
-        </div>
-
+      <>
         <PeriodTable
           title={`${a.name} — Revenue Breakdown`}
           yearLabels={yearLabels}
@@ -382,14 +382,16 @@ export default function Module3OpexOutput(): React.JSX.Element {
               ]
             : []}
         />
-      </div>
+      </>
     );
   };
 
-  // ─── project total rollups, per category ─────────────────────────
-  // Helper: sum the per-line arrays for a given asset, filtered by a
-  // bucket predicate. Returns null when the asset contributes nothing
-  // to that bucket so the row drops out of the rollup table.
+  // ─── project total rollup helpers ────────────────────────────────
+  // Build rows for a per-category project rollup that mirrors the M2
+  // CoS Project Total shape: strategy section header → asset rows →
+  // section subtotal → grand total. `predicate` selects which line
+  // categories contribute; `subset` restricts the asset universe to a
+  // strategy.
   const assetSumIn = (assetId: string, predicate: (cat: OpexLineCategory) => boolean): number[] | null => {
     const a = assets.find((x) => x.id === assetId);
     const r = snap.opex.byAsset.get(assetId);
@@ -407,28 +409,55 @@ export default function Module3OpexOutput(): React.JSX.Element {
     return touched ? out : null;
   };
 
-  const rollupRows = (predicate: (cat: OpexLineCategory) => boolean, totalLabel: string): Row[] => {
+  type AssetSlice = typeof assets[number];
+  const groupedRollupRows = (groups: Array<{
+    label: string;
+    assets: AssetSlice[];
+    predicate: (cat: OpexLineCategory) => boolean;
+  }>, grandLabel: string): Row[] => {
     const rows: Row[] = [];
-    const sums: number[][] = [];
-    for (const a of opexAssets) {
-      const arr = assetSumIn(a.id, predicate);
-      if (!arr) continue;
-      rows.push({ label: a.name, values: arr, indent: 1 });
-      sums.push(arr);
+    const grandSeries: number[][] = [];
+    for (const g of groups) {
+      const groupSeries: number[][] = [];
+      const groupRows: Row[] = [];
+      for (const a of g.assets) {
+        const arr = assetSumIn(a.id, g.predicate);
+        if (!arr) continue;
+        groupRows.push({ label: a.name, values: arr, indent: 2 });
+        groupSeries.push(arr);
+      }
+      if (groupRows.length === 0) continue;
+      rows.push({ label: g.label, values: [], isSection: true, indent: 0 });
+      rows.push(...groupRows);
+      rows.push({
+        label: `Total ${g.label}`,
+        values: sumArrays(groupSeries, N),
+        isSubtotal: true,
+        indent: 1,
+      });
+      grandSeries.push(...groupSeries);
     }
     if (rows.length === 0) return [];
-    rows.push({ label: totalLabel, values: sumArrays(sums, N), isTotal: true });
+    rows.push({
+      label: grandLabel,
+      values: sumArrays(grandSeries, N),
+      isTotal: true,
+      indent: 0,
+    });
     return rows;
   };
 
   return (
-    <div data-testid="module3-opex-output">
+    <div data-testid="module3-opex-output" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Opex Output</h2>
-        <p style={{ fontSize: 12, color: 'var(--color-meta)' }}>
+        <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 3 · Opex (Output)</h1>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>
+          {currency}
+        </div>
+        <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
           Per-asset Revenue Breakdown followed by category-wise expense tables. Hospitality assets show
           Direct / Indirect / Management / Reserves; Retail assets show Property Operating / Recoveries /
-          Other Charges. No GOP / NOI rows — those compose in M4 P&L.
+          Other Charges. Phases and assets collapse. No GOP / NOI rows — those compose in M4 P&L.
         </p>
       </div>
 
@@ -444,112 +473,174 @@ export default function Module3OpexOutput(): React.JSX.Element {
         </div>
       )}
 
-      {phaseOrder.map((phaseId) => {
-        const phase = phasesById.get(phaseId);
-        if (!phase) return null;
-        const phaseAssets = opexAssets.filter((a) => a.phaseId === phaseId);
-        return (
-          <div key={phaseId} style={{ marginBottom: 'var(--sp-4)' }}>
-            <div style={{
-              background: 'var(--color-navy)',
-              color: 'var(--color-on-primary-navy)',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: 'var(--sp-2)',
-              fontWeight: 600,
-            }}>
-              {phase.name} ({phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'})
-            </div>
-            {phaseAssets.map((a) => (
-              a.strategy === 'Lease' ? renderLeaseAsset(a) : renderHospitalityAsset(a)
-            ))}
+      {/* Hospitality / Operations strategy section (pure Operate + Sell+Manage companions). */}
+      <PhaseSection
+        phaseId="strategy-hospitality"
+        title="Hospitality / Operations"
+        meta="Operate assets + Sell + Manage operate companions across all phases"
+        countLabel={`${hospitalityAssets.length} asset${hospitalityAssets.length === 1 ? '' : 's'}`}
+        storageKey="fmp:m3:opex:strategy:hospitality:collapsed"
+      >
+        {hospitalityAssets.length === 0 && (
+          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+            No Operate or Sell + Manage assets configured yet.
           </div>
-        );
-      })}
-
-      {/* HQ / project-wide */}
-      <div style={{
-        background: 'var(--color-navy)',
-        color: 'var(--color-on-primary-navy)',
-        padding: '8px 12px',
-        borderRadius: 'var(--radius-sm)',
-        marginBottom: 'var(--sp-2)',
-        fontWeight: 600,
-      }}>
-        Project rollup
-      </div>
-      <PeriodTable
-        title="HQ &amp; Corporate Overheads (project-wide)"
-        caption="Lines configured on the Inputs tab. Fixed_baseline lines inherit the HQ inflation default; pct_of_total_rev lines scale with project total revenue."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={[
-          ...(project.hqOpex?.lines ?? []).map((ln, i) => ({
-            label: ln.disabled ? `${ln.name} (off)` : ln.name,
-            values: snap.opex.hq.perLinePerPeriod[i] ?? new Array(N).fill(0),
-            indent: 1,
-          })),
-          { label: 'Total HQ Opex', values: snap.opex.hq.totalOpexPerPeriod, isTotal: true },
-        ]}
-      />
-
-      <PeriodTable
-        title="Project Total — Direct Costs"
-        caption="Hospitality assets only."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={rollupRows((c) => hospBucketFor(c) === 'direct', 'Project Total Direct Costs')}
-      />
-
-      <PeriodTable
-        title="Project Total — Indirect / Operating Costs"
-        caption="Hospitality Indirect lines and Retail Property Operating lines pooled here, one row per asset."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={rollupRows(
-          (c) => hospBucketFor(c) === 'indirect' || leaseBucketFor(c) === 'operating',
-          'Project Total Indirect / Operating Costs',
         )}
-      />
+        {phases.map((p) => {
+          const phaseAssets = hospitalityAssets.filter((a) => a.phaseId === p.id);
+          if (phaseAssets.length === 0) return null;
+          return (
+            <div key={`hosp-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
+              <PhaseDivider
+                title={p.name}
+                meta={`${p.status ?? 'planning'}`}
+                count={`${phaseAssets.length} hospitality asset${phaseAssets.length === 1 ? '' : 's'}`}
+              />
+              {phaseAssets.map((a) => (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta={a.strategy === 'Operate' ? 'Hospitality' : a.strategy}
+                  storageKey={`fmp:m3:opex:asset:${a.id}:collapsed`}
+                >
+                  {renderHospitalityAssetBody(a)}
+                </AssetSection>
+              ))}
+            </div>
+          );
+        })}
+      </PhaseSection>
 
-      <PeriodTable
-        title="Project Total — Management Fees"
-        caption="Hospitality management fee lines."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={rollupRows((c) => hospBucketFor(c) === 'mgmt', 'Project Total Management Fees')}
-      />
-
-      <PeriodTable
-        title="Project Total — Reserves & Other Charges"
-        caption="Hospitality Reserves + Retail Recoveries + Retail Other Charges, one row per contributing asset."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={rollupRows(
-          (c) => hospBucketFor(c) === 'reserves'
-            || leaseBucketFor(c) === 'recoveries'
-            || leaseBucketFor(c) === 'other_charges',
-          'Project Total Reserves & Other',
+      {/* Retail / Lease strategy section. */}
+      <PhaseSection
+        phaseId="strategy-retail"
+        title="Retail / Lease"
+        meta="Lease assets across all phases"
+        countLabel={`${leaseAssets.length} asset${leaseAssets.length === 1 ? '' : 's'}`}
+        storageKey="fmp:m3:opex:strategy:retail:collapsed"
+      >
+        {leaseAssets.length === 0 && (
+          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+            No Lease assets configured yet.
+          </div>
         )}
-      />
+        {phases.map((p) => {
+          const phaseAssets = leaseAssets.filter((a) => a.phaseId === p.id);
+          if (phaseAssets.length === 0) return null;
+          return (
+            <div key={`lease-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
+              <PhaseDivider
+                title={p.name}
+                meta={`${p.status ?? 'planning'}`}
+                count={`${phaseAssets.length} lease asset${phaseAssets.length === 1 ? '' : 's'}`}
+              />
+              {phaseAssets.map((a) => (
+                <AssetSection
+                  key={a.id}
+                  assetId={a.id}
+                  title={a.name}
+                  meta="Retail / Lease"
+                  storageKey={`fmp:m3:opex:asset:${a.id}:collapsed`}
+                >
+                  {renderLeaseAssetBody(a)}
+                </AssetSection>
+              ))}
+            </div>
+          );
+        })}
+      </PhaseSection>
 
-      <PeriodTable
-        title="Project Total Opex"
-        caption="Sum of every per-asset line plus HQ corporate overheads."
-        yearLabels={yearLabels}
-        currency={currency}
-        fmt={fmt}
-        rows={[
-          { label: 'All asset opex', values: snap.opex.projectTotals.totalOpexPerPeriod, indent: 1 },
-          { label: 'HQ overheads', values: snap.opex.hq.totalOpexPerPeriod, indent: 1 },
-          { label: 'Total Project Opex', values: snap.opex.totalOpexPerPeriodInclHQ, isTotal: true },
-        ]}
-      />
+      {/* Project Total rollup (mirrors Revenue / CoS shape). */}
+      <PhaseSection
+        phaseId="__project__"
+        title="Project Total"
+        meta="all phases combined, grouped by strategy"
+        storageKey="fmp:m3:opex:phase:__project__:collapsed"
+      >
+        <PeriodTable
+          title="HQ & Corporate Overheads (project-wide)"
+          caption="Lines configured on the Inputs tab. Fixed-cost lines inherit the HQ inflation default; %-of-revenue lines scale with project total revenue."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={[
+            ...(project.hqOpex?.lines ?? []).map((ln, i) => ({
+              label: ln.disabled ? `${ln.name} (off)` : ln.name,
+              values: snap.opex.hq.perLinePerPeriod[i] ?? new Array(N).fill(0),
+              indent: 1,
+            })),
+            { label: 'Total HQ Opex', values: snap.opex.hq.totalOpexPerPeriod, isTotal: true },
+          ]}
+        />
+
+        <PeriodTable
+          title="Project Opex · Direct Costs"
+          caption="Hospitality direct cost lines (Rooms / F&B / Other Dept). Lease assets carry no direct cost line by convention."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={groupedRollupRows(
+            [{ label: 'Hospitality / Operations', assets: hospitalityAssets, predicate: (c) => hospBucketFor(c) === 'direct' }],
+            'Project Total · Direct Costs',
+          )}
+        />
+
+        <PeriodTable
+          title="Project Opex · Indirect / Operating Costs"
+          caption="Hospitality Indirect / Undistributed lines and Retail Property Operating lines, one row per contributing asset."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={groupedRollupRows(
+            [
+              { label: 'Hospitality / Operations', assets: hospitalityAssets, predicate: (c) => hospBucketFor(c) === 'indirect' },
+              { label: 'Retail / Lease', assets: leaseAssets, predicate: (c) => leaseBucketFor(c) === 'operating' },
+            ],
+            'Project Total · Indirect / Operating',
+          )}
+        />
+
+        <PeriodTable
+          title="Project Opex · Management Fees"
+          caption="Hospitality management fee lines (base + technology + incentive)."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={groupedRollupRows(
+            [{ label: 'Hospitality / Operations', assets: hospitalityAssets, predicate: (c) => hospBucketFor(c) === 'mgmt' }],
+            'Project Total · Management Fees',
+          )}
+        />
+
+        <PeriodTable
+          title="Project Opex · Reserves & Other Charges"
+          caption="Hospitality Reserves + Retail Recoveries (memo) + Retail Other Charges, one row per contributing asset."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={groupedRollupRows(
+            [
+              { label: 'Hospitality / Operations', assets: hospitalityAssets, predicate: (c) => hospBucketFor(c) === 'reserves' },
+              { label: 'Retail / Lease', assets: leaseAssets, predicate: (c) => leaseBucketFor(c) === 'recoveries' || leaseBucketFor(c) === 'other_charges' },
+            ],
+            'Project Total · Reserves & Other',
+          )}
+        />
+
+        <PeriodTable
+          title="Project Total Opex"
+          caption="Sum of every per-asset line plus HQ corporate overheads."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={[
+            { label: 'All asset opex', values: snap.opex.projectTotals.totalOpexPerPeriod, indent: 1 },
+            { label: 'HQ overheads', values: snap.opex.hq.totalOpexPerPeriod, indent: 1 },
+            { label: 'Total Project Opex', values: snap.opex.totalOpexPerPeriodInclHQ, isTotal: true },
+          ]}
+        />
+      </PhaseSection>
     </div>
   );
 }
