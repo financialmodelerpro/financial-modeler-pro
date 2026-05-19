@@ -45,6 +45,8 @@ import Module2Revenue from './modules/Module2Revenue';
 import Module2RevenueOutput from './modules/Module2RevenueOutput';
 import Module2CostOfSales from './modules/Module2CostOfSales';
 import Module2Schedules from './modules/Module2Schedules';
+import Module2Escrow from './modules/Module2Escrow';
+import Module4FixedAssets from './modules/Module4FixedAssets';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 
@@ -169,14 +171,17 @@ export const m1Tabs = [
   { key: 'financing', icon: '🏦', label: '4. Financing', step: 4 },
 ];
 
-// ── Module 2 tabs (M2 Pass 7: 4 tabs - Inputs / Revenue / CoS / Schedules) ──
+// ── Module 2 tabs (M2 Pass 9h: 5 tabs - Inputs / Revenue / CoS / Schedules / Escrow) ──
 // Inputs reuses the Pass 5/6 phase-wise asset card surface; the other
-// three tabs are read-only output surfaces driven by the revenue engine.
+// four tabs are read-only output surfaces driven by the revenue engine.
+// Escrow added 2026-05-19 (Pass 9h): pre-sales held % + per-asset release
+// year, modelled on the reference v1.16 Escrow tab methodology.
 export const m2Tabs = [
   { key: 'm2-inputs', icon: '📝', label: '1. Inputs', step: 1 },
   { key: 'm2-revenue', icon: '💰', label: '2. Revenue', step: 2 },
   { key: 'm2-cost-of-sales', icon: '🧾', label: '3. Cost of Sales', step: 3 },
   { key: 'm2-schedules', icon: '📑', label: '4. Schedules', step: 4 },
+  { key: 'm2-escrow', icon: '🔒', label: '5. Escrow', step: 5 },
 ];
 
 // ── Module 3 tabs (Opex Pass 2: Inputs / Output) ──
@@ -188,6 +193,14 @@ export const m3Tabs = [
   { key: 'm3-output', icon: '📊', label: '2. Opex Output', step: 2 },
 ];
 
+// ── Module 4 tabs (Financial Statements; Pass 1 ships Fixed Assets only) ──
+// P&L / BS / CF surfaces land in subsequent passes. Pass 1 surfaces only
+// the Fixed Assets + Depreciation roll-forward built by the M4 engine
+// under src/core/calculations/depreciation/ + fixed-assets-resolvers.
+export const m4Tabs = [
+  { key: 'm4-fixed-assets', icon: '🏗️', label: '1. Fixed Assets & D&A', step: 1 },
+];
+
 // Universal module → sub-tabs map. Any module key that needs a sidebar
 // drop-down just registers its tabs here; Sidebar.tsx reads from this
 // map instead of hard-coding per-module branches. New modules (M4/M5/M6)
@@ -197,6 +210,7 @@ export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
   module1: m1Tabs,
   module2: m2Tabs,
   module3: m3Tabs,
+  module4: m4Tabs,
 };
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -575,6 +589,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {m2ActiveTab === 'm2-revenue' && <Module2RevenueOutput />}
           {m2ActiveTab === 'm2-cost-of-sales' && <Module2CostOfSales />}
           {m2ActiveTab === 'm2-schedules' && <Module2Schedules />}
+          {m2ActiveTab === 'm2-escrow' && <Module2Escrow />}
         </div>
       );
     }
@@ -628,6 +643,58 @@ export default function RealEstatePlatform(): React.JSX.Element {
           </div>
           {m3ActiveTab === 'm3-inputs' && <Module3Opex />}
           {m3ActiveTab === 'm3-output' && <Module3OpexOutput />}
+        </div>
+      );
+    }
+    if (activeModule === 'module4') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m4-no-project">
+            No project selected.{' '}
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            >
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      const m4ActiveTab = m4Tabs.some((t) => t.key === activeTab) ? activeTab : m4Tabs[0].key;
+      return (
+        <div data-testid="module4-shell-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--sp-1)',
+              borderBottom: '1px solid var(--color-border)',
+              marginBottom: 'var(--sp-3)',
+            }}
+            data-testid="m4-tab-row"
+          >
+            {m4Tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`m4-tab-${tab.key}`}
+                style={{
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  background: m4ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
+                  color: m4ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-small)',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          {m4ActiveTab === 'm4-fixed-assets' && <Module4FixedAssets />}
         </div>
       );
     }

@@ -315,9 +315,13 @@ export default function Module3OpexOutput(): React.JSX.Element {
 
     // M2 Lease engine surfaces only Total Revenue per asset; the
     // breakdown (Gross Rent / Service Charge / Other) is a future M2
-    // refinement. Show what we have today.
+    // refinement. Still render as line row + Total row for consistency
+    // with the Hospitality / Direct / Indirect tables — a single-line
+    // table without a header data row visually breaks the rhythm.
+    const leaseRevenue = rev?.totalRevenuePerPeriod ?? zeros();
     const revRows: Row[] = [
-      { label: 'Total Lease Revenue', values: rev?.totalRevenuePerPeriod ?? zeros(), isTotal: true },
+      { label: 'Lease Revenue', values: leaseRevenue, indent: 1 },
+      { label: 'Total Revenue', values: leaseRevenue, isTotal: true },
     ];
 
     const linesByBucket: Record<NonNullable<LeaseBucket>, Row[]> = { operating: [], recoveries: [], other_charges: [] };

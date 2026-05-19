@@ -75,9 +75,8 @@ export const MODULES: readonly ModuleConfig[] = [
     longLabel: 'Financial Statements',
     featureKey: 'module_4',
     requiredPlan: 'free',
-    status: 'soon',
-    disabled: true,
-    disabledReason: 'Coming soon',
+    status: 'wip',
+    disabled: false,
   },
   {
     num: 5,

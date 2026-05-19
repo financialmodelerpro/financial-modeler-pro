@@ -47,3 +47,5 @@ export { buildCostOfSales } from './costOfSales';
 export type { CostOfSalesResult } from './costOfSales';
 export { buildCostOfSalesV2 } from './costOfSalesV2';
 export type { CostOfSalesV2Inputs, CostOfSalesV2Result } from './costOfSalesV2';
+export { computeEscrow } from './escrow';
+export type { EscrowConfig, EscrowAssetResult } from './escrow';

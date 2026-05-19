@@ -362,6 +362,23 @@ export interface Project {
     lease?: Record<string, unknown>;    // M2 Pass 9 lease template
   };
   /**
+   * M2 Pass 9h (2026-05-19): project-wide pre-sales escrow defaults.
+   * A regulator (e.g. RERA / RECC) withholds a percentage of every
+   * pre-sales inflow as Inaccessible Funds, released back to the
+   * developer at a defined milestone (typically asset handover). All
+   * fields optional; heldPct = 0 disables escrow entirely.
+   */
+  escrow?: {
+    /** Project-wide held fraction as a decimal (e.g. 0.04 = 4%). Used
+     *  as the default for every Sell / Sell+Manage asset unless that
+     *  asset overrides via revenue.sell.escrow.heldPctOverride. */
+    heldPct?: number;
+    /** Optional project-wide release-year override (absolute calendar
+     *  year). Each asset falls back to its own phase handover year
+     *  when neither this nor a per-asset override is set. */
+    defaultReleaseYear?: number;
+  };
+  /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
    * on Asset.opex.
@@ -788,6 +805,18 @@ export interface Asset {
         growthPerPeriod?: number[];
       };
       handoverYearOverride?: number;
+      /**
+       * M2 Pass 9h (2026-05-19): per-asset escrow override. Either
+       * field can be set independently; unset fields fall back to the
+       * project default (Project.escrow.heldPct / defaultReleaseYear)
+       * which itself defaults to 0 / handover-year respectively.
+       */
+      escrow?: {
+        /** Override the project-wide held fraction for this asset. */
+        heldPctOverride?: number;
+        /** Override the release-year (absolute calendar year). */
+        releaseYearOverride?: number;
+      };
     };
     /**
      * M2 Pass 8b (2026-05-18): Hospitality (Operate-strategy) config.

@@ -651,3 +651,156 @@ export function computeAssetScheduleBundle(
   const cos = buildCostOfSales(result.recognitionPerPeriod, capex, N);
   return { assetId: result.assetId, ar, unearned, cos };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// M2 Pass 9h (2026-05-19): Pre-Sales Escrow snapshot.
+//
+// Composes the existing per-asset Sell results' presalesCashPerPeriod
+// into a project-wide escrow schedule per asset + project totals.
+// Reads Project.escrow.heldPct / defaultReleaseYear and per-asset
+// Asset.revenue.sell.escrow overrides; falls back to handover year for
+// each asset's release event when no override is set.
+//
+// Sell + Manage parents are included (they have pre-sales cash).
+// Lease + pure Hospitality assets do not appear (no pre-sales cash).
+// ────────────────────────────────────────────────────────────────────
+
+import { computeEscrow, type EscrowAssetResult } from '@/src/core/calculations/revenue';
+
+export interface EscrowAssetRow {
+  assetId: string;
+  assetName: string;
+  phaseId: string;
+  /** Resolved held % actually used (per-asset override > project default > 0). */
+  effectiveHeldPct: number;
+  /** Resolved release year (absolute calendar year). */
+  effectiveReleaseYear: number;
+  /** Project-axis index for the release year. */
+  releaseYearIdx: number;
+  preSalesCashPerPeriod: number[];
+  result: EscrowAssetResult;
+}
+
+export interface ProjectEscrowSnapshot {
+  axisLength: number;
+  projectStartYear: number;
+  yearLabels: number[];
+  /** Per-asset escrow row (only assets with pre-sales cash). */
+  byAsset: Map<string, EscrowAssetRow>;
+  /** Project totals across every asset row. */
+  projectTotals: {
+    preSalesCashPerPeriod: number[];
+    heldPerPeriod: number[];
+    releasePerPeriod: number[];
+    cumulativeBalancePerPeriod: number[];
+    netMovementPerPeriod: number[];
+    cashFlowAdjustmentPerPeriod: number[];
+    totalHeld: number;
+    totalReleased: number;
+  };
+}
+
+export function computeEscrowSnapshot(
+  state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>,
+  revenueSnap: ProjectRevenueSnapshot,
+): ProjectEscrowSnapshot {
+  const { project, phases, assets } = state;
+  const N = revenueSnap.axisLength;
+  const projectStartYear = revenueSnap.projectStartYear;
+  const yearLabels = revenueSnap.yearLabels;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+
+  const projectHeldPct = Math.max(0, project.escrow?.heldPct ?? 0);
+  const projectDefaultReleaseYear = project.escrow?.defaultReleaseYear;
+
+  const phaseMap = new Map<string, typeof phases[number]>();
+  for (const p of phases) phaseMap.set(p.id, p);
+
+  const byAsset = new Map<string, EscrowAssetRow>();
+  const totals = {
+    preSalesCashPerPeriod: zeros(),
+    heldPerPeriod: zeros(),
+    releasePerPeriod: zeros(),
+    cumulativeBalancePerPeriod: zeros(),
+    netMovementPerPeriod: zeros(),
+    cashFlowAdjustmentPerPeriod: zeros(),
+    totalHeld: 0,
+    totalReleased: 0,
+  };
+
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    if (a.strategy !== 'Sell' && a.strategy !== 'Sell + Manage') continue;
+    const sellResult = revenueSnap.bySellAsset.get(a.id);
+    if (!sellResult) continue;
+
+    // Resolve effective held % (asset override > project default > 0).
+    const assetHeldOverride = a.revenue?.sell?.escrow?.heldPctOverride;
+    const effectiveHeldPct = assetHeldOverride !== undefined && assetHeldOverride >= 0
+      ? assetHeldOverride
+      : projectHeldPct;
+
+    // Resolve effective release year. Order: per-asset override >
+    // project default > asset's phase handover year (last construction
+    // year on the project axis, mirroring resolveHandoverYear).
+    const phase = phaseMap.get(a.phaseId);
+    const phaseStartYear = phase?.startDate
+      ? new Date(phase.startDate).getUTCFullYear()
+      : projectStartYear;
+    const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+    const handoverYear = phaseStartYear + Math.max(0, cp - 1);
+    const assetReleaseOverride = a.revenue?.sell?.escrow?.releaseYearOverride;
+    const effectiveReleaseYear = assetReleaseOverride !== undefined
+      ? assetReleaseOverride
+      : (projectDefaultReleaseYear !== undefined ? projectDefaultReleaseYear : handoverYear);
+
+    const releaseYearIdx = Math.max(0, Math.min(N - 1, effectiveReleaseYear - projectStartYear));
+    const preSalesCashPerPeriod = sellResult.presalesCashPerPeriod.slice(0, N);
+
+    const result = computeEscrow({
+      axisLength: N,
+      heldPct: effectiveHeldPct,
+      releaseYearIdx,
+      preSalesCashPerPeriod,
+    });
+
+    byAsset.set(a.id, {
+      assetId: a.id,
+      assetName: a.name,
+      phaseId: a.phaseId,
+      effectiveHeldPct,
+      effectiveReleaseYear,
+      releaseYearIdx,
+      preSalesCashPerPeriod,
+      result,
+    });
+
+    for (let t = 0; t < N; t++) {
+      totals.preSalesCashPerPeriod[t] += preSalesCashPerPeriod[t] ?? 0;
+      totals.heldPerPeriod[t] += result.heldPerPeriod[t] ?? 0;
+      totals.releasePerPeriod[t] += result.releasePerPeriod[t] ?? 0;
+      totals.netMovementPerPeriod[t] += result.netMovementPerPeriod[t] ?? 0;
+      totals.cashFlowAdjustmentPerPeriod[t] += result.cashFlowAdjustmentPerPeriod[t] ?? 0;
+    }
+    totals.totalHeld += result.totalHeld;
+    totals.totalReleased += result.totalReleased;
+  }
+
+  // Cumulative balance from the totals net-movement stream (mirrors the
+  // reference v1.16 row 29: cumulative locked balance summed across
+  // every asset's held - released stream).
+  let running = 0;
+  for (let t = 0; t < N; t++) {
+    running += totals.netMovementPerPeriod[t];
+    if (running < 0) running = 0;
+    totals.cumulativeBalancePerPeriod[t] = running;
+  }
+
+  return {
+    axisLength: N,
+    projectStartYear,
+    yearLabels,
+    byAsset,
+    projectTotals: totals,
+  };
+}
