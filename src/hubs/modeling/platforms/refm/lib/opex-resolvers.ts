@@ -18,6 +18,7 @@ import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  defaultOpexIndexation,
   type AssetOpexInputs,
   type AssetOpexResult,
   type HQOpexInputs,
@@ -25,6 +26,7 @@ import {
   type OpexLine,
   type OpexRevenueContext,
 } from '@/src/core/calculations/opex';
+import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, Project } from './state/module1-types';
 import type { ProjectRevenueSnapshot } from './revenue-resolvers';
@@ -68,12 +70,24 @@ function resolveAssetOpexLines(asset: Asset): OpexLine[] {
       mode: l.mode,
       value: l.value,
       indexation: l.indexation,
+      useAssetDefault: l.useAssetDefault,
       disabled: l.disabled,
     }));
   }
   if (asset.strategy === 'Operate') return defaultHospitalityOpexLines();
   if (asset.strategy === 'Lease') return defaultLeaseOpexLines();
   return [];
+}
+
+/** Resolve the asset-level inflation default. Stored config wins; when
+ *  absent (legacy snapshots / fresh assets) we seed with the same 3%
+ *  YoY compound the engine has always used for fixed-cost lines. */
+function resolveAssetDefaultIndexation(asset: Asset): IndexationConfig {
+  const stored = asset.opex?.defaultIndexation;
+  if (stored && stored.method) {
+    return stored as IndexationConfig;
+  }
+  return defaultOpexIndexation();
 }
 
 /**
@@ -227,6 +241,7 @@ export function computeAllOpexResults(
       assetId: a.id,
       strategy: a.strategy as AssetOpexInputs['strategy'],
       lines,
+      defaultIndexation: resolveAssetDefaultIndexation(a),
       keys,
       leasableSqm,
       opsStartIdx,
@@ -259,9 +274,12 @@ export function computeAllOpexResults(
         mode: l.mode,
         value: l.value,
         indexation: l.indexation,
+        useAssetDefault: l.useAssetDefault,
         disabled: l.disabled,
       }))
     : defaultHQOpexLines();
+  const hqDefaultIdx: IndexationConfig = (project.hqOpex?.defaultIndexation as IndexationConfig | undefined)
+    ?? defaultOpexIndexation();
 
   // Project total revenue for pct_of_total_rev HQ lines.
   const projectTR = zeros(N);
@@ -275,6 +293,7 @@ export function computeAllOpexResults(
 
   const hqInputs: HQOpexInputs = {
     lines: hqLines,
+    defaultIndexation: hqDefaultIdx,
     axisLength: N,
     projectTotalRevenuePerPeriod: projectTR,
   };

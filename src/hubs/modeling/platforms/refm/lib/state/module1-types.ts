@@ -367,6 +367,17 @@ export interface Project {
    * on Asset.opex.
    */
   hqOpex?: {
+    /** HQ-wide inflation default. Applies to every fixed_baseline HQ
+     *  line that does not opt out via useAssetDefault === false.
+     *  pct_of_total_rev lines auto-escalate through revenue and ignore
+     *  this. (Pass 3, 2026-05-19.) */
+    defaultIndexation?: {
+      method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+      rate?: number;
+      startYear?: number;
+      steps?: Array<{ year: number; factor: number }>;
+      growthPerPeriod?: number[];
+    };
     lines: Array<{
       id: string;
       name: string;
@@ -380,6 +391,9 @@ export interface Project {
         steps?: Array<{ year: number; factor: number }>;
         growthPerPeriod?: number[];
       };
+      /** When false, engine uses this line's own indexation. Otherwise
+       *  the HQ defaultIndexation wins. (Pass 3, 2026-05-19.) */
+      useAssetDefault?: boolean;
       disabled?: boolean;
     }>;
   };
@@ -872,6 +886,18 @@ export interface Asset {
    * first Module 3 visit.
    */
   opex?: {
+    /** Asset-wide inflation default. Applies to every fixed-cost line
+     *  (fixed_baseline / per_room_year / per_sqm_year) that does not
+     *  opt out via useAssetDefault === false. %-of-revenue + pct_of_gop
+     *  lines never index; their auto-escalation comes from the revenue
+     *  stream itself. (Pass 3, 2026-05-19.) */
+    defaultIndexation?: {
+      method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
+      rate?: number;
+      startYear?: number;
+      steps?: Array<{ year: number; factor: number }>;
+      growthPerPeriod?: number[];
+    };
     /** Flat list of line items; engine evaluates each over the ops window. */
     lines: Array<{
       id: string;
@@ -886,6 +912,9 @@ export interface Asset {
         steps?: Array<{ year: number; factor: number }>;
         growthPerPeriod?: number[];
       };
+      /** When false, engine uses this line's own indexation. Otherwise
+       *  the asset defaultIndexation wins. (Pass 3, 2026-05-19.) */
+      useAssetDefault?: boolean;
       disabled?: boolean;
     }>;
   };

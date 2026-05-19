@@ -17,6 +17,7 @@
  */
 
 import { applyIndexation } from '@/src/core/calculations/revenue/indexation';
+import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import type {
   AssetOpexInputs,
   AssetOpexResult,
@@ -32,6 +33,32 @@ const INDIRECT_CATEGORIES: OpexLineCategory[] = [
 const MGMT_CATEGORIES: OpexLineCategory[] = [
   'mgmt_base', 'mgmt_tech', 'mgmt_incentive', 'replacement_reserve',
 ];
+
+// %-of-revenue + pct_of_gop modes auto-escalate through the revenue
+// stream itself; the engine MUST NOT apply line-level indexation to
+// them or the inflation gets double-counted. Only fixed-cost modes
+// (fixed_baseline / per_room_year / per_sqm_year) accept inflation.
+const FIXED_COST_MODES: ReadonlyArray<OpexLine['mode']> = [
+  'fixed_baseline', 'per_room_year', 'per_sqm_year',
+];
+
+function isFixedCostMode(mode: OpexLine['mode']): boolean {
+  return FIXED_COST_MODES.indexOf(mode) >= 0;
+}
+
+/** Resolve which indexation config drives this line:
+ *   - %-of-rev / pct_of_gop -> always none (auto-escalates via revenue)
+ *   - fixed-cost + useAssetDefault !== false + asset has a default -> asset default
+ *   - otherwise -> line's own indexation
+ */
+function resolveLineIndexation(
+  line: OpexLine,
+  assetDefault: IndexationConfig | undefined,
+): IndexationConfig {
+  if (!isFixedCostMode(line.mode)) return { method: 'none' };
+  if (line.useAssetDefault !== false && assetDefault) return assetDefault;
+  return line.indexation ?? { method: 'none' };
+}
 
 function inCategory(cat: OpexLineCategory, set: OpexLineCategory[]): boolean {
   return set.indexOf(cat) >= 0;
@@ -49,7 +76,7 @@ function streamForMode(mode: OpexLine['mode'], rev: OpexRevenueContext): number[
 }
 
 export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
-  const { assetId, lines, keys, leasableSqm, opsStartIdx, opsEndIdx, axisLength, revenue } = inputs;
+  const { assetId, lines, defaultIndexation, keys, leasableSqm, opsStartIdx, opsEndIdx, axisLength, revenue } = inputs;
   const N = Math.max(0, axisLength);
   const start = Math.max(0, Math.min(N - 1, opsStartIdx));
   const end = Math.max(start, Math.min(N - 1, opsEndIdx));
@@ -64,9 +91,10 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     if (line.disabled) continue;
     if (line.mode === 'pct_of_gop') continue;
     const stream = streamForMode(line.mode, revenue);
+    const idx = resolveLineIndexation(line, defaultIndexation);
     const out = perLine[i];
     for (let t = start; t <= end; t++) {
-      const factor = applyIndexation(1.0, t, line.indexation);
+      const factor = applyIndexation(1.0, t, idx);
       let v = 0;
       switch (line.mode) {
         case 'fixed_baseline':
@@ -84,7 +112,7 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
         case 'pct_of_total_rev':
         case 'pct_of_lease_rev': {
           const rev = stream ? Math.max(0, stream[t] ?? 0) : 0;
-          v = Math.max(0, line.value) * rev * factor;
+          v = Math.max(0, line.value) * rev;
           break;
         }
         default:
@@ -116,14 +144,14 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     gop[t] = tr - directCosts[t] - indirectCosts[t];
   }
 
+  // pct_of_gop lines: factor 1.0 — they ride on the already-inflated GOP.
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.disabled || line.mode !== 'pct_of_gop') continue;
     const out = perLine[i];
     for (let t = start; t <= end; t++) {
-      const factor = applyIndexation(1.0, t, line.indexation);
       const base = Math.max(0, gop[t]);
-      out[t] = Math.max(0, line.value) * base * factor;
+      out[t] = Math.max(0, line.value) * base;
     }
   }
 

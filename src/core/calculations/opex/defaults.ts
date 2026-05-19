@@ -9,12 +9,23 @@
  * Default % values are sensible mid-market hospitality benchmarks.
  * Users can edit every line; the engine treats this as a starting
  * point, not a hard-coded rule.
+ *
+ * Pass 3 (2026-05-19): the 3% YoY inflation seed moved off per-line
+ * configs and onto an asset-level default (see defaultOpexIndexation
+ * below). Every fixed-cost line is born with useAssetDefault: true so
+ * a single asset-level pill drives them all; %-of-revenue + pct_of_gop
+ * lines never index regardless of config.
  */
 
+import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import type { OpexLine } from './types';
 
 const noIdx = { method: 'none' as const };
-const defaultInflation = { method: 'yoy_compound' as const, rate: 0.03, startYear: 0 };
+
+/** Asset/HQ-level default inflation seed: 3% YoY compound from year 0. */
+export function defaultOpexIndexation(): IndexationConfig {
+  return { method: 'yoy_compound', rate: 0.03, startYear: 0 };
+}
 
 let _id = 0;
 const nid = (prefix: string): string => `${prefix}-${++_id}-${Math.random().toString(36).slice(2, 8)}`;
@@ -22,12 +33,12 @@ const nid = (prefix: string): string => `${prefix}-${++_id}-${Math.random().toSt
 export function defaultHospitalityOpexLines(): OpexLine[] {
   _id = 0;
   return [
-    // Direct departmental
+    // Direct departmental — auto-escalate via revenue, never index.
     { id: nid('rooms'), name: 'Rooms direct cost', category: 'direct_rooms', mode: 'pct_of_room_rev', value: 0.25, indexation: noIdx },
     { id: nid('fb'), name: 'F&B direct cost', category: 'direct_fb', mode: 'pct_of_fb_rev', value: 0.65, indexation: noIdx },
     { id: nid('ood'), name: 'Other dept. direct cost', category: 'direct_other', mode: 'pct_of_other_rev', value: 0.50, indexation: noIdx },
 
-    // Indirect (undistributed)
+    // Indirect (undistributed) — % of TR, auto-escalate via revenue.
     { id: nid('ga'), name: 'General & administrative', category: 'indirect_ga', mode: 'pct_of_total_rev', value: 0.08, indexation: noIdx },
     { id: nid('it'), name: 'IT', category: 'indirect_it', mode: 'pct_of_total_rev', value: 0.02, indexation: noIdx },
     { id: nid('sm'), name: 'Sales & marketing', category: 'indirect_sm', mode: 'pct_of_total_rev', value: 0.06, indexation: noIdx },
@@ -37,12 +48,13 @@ export function defaultHospitalityOpexLines(): OpexLine[] {
 
     // Management fee + reserve
     { id: nid('mgmtbase'), name: 'Base management fee', category: 'mgmt_base', mode: 'pct_of_total_rev', value: 0.03, indexation: noIdx },
-    { id: nid('mgmttech'), name: 'Technology service fee', category: 'mgmt_tech', mode: 'per_room_year', value: 1200, indexation: defaultInflation },
+    // Per-key fixed: inherits asset-level default inflation by default.
+    { id: nid('mgmttech'), name: 'Technology service fee', category: 'mgmt_tech', mode: 'per_room_year', value: 1200, indexation: noIdx, useAssetDefault: true },
     { id: nid('mgmtinc'), name: 'Incentive management fee', category: 'mgmt_incentive', mode: 'pct_of_gop', value: 0.08, indexation: noIdx },
     { id: nid('reserve'), name: 'Replacement reserve', category: 'replacement_reserve', mode: 'pct_of_total_rev', value: 0.04, indexation: noIdx },
 
     // Fixed charges
-    { id: nid('rentins'), name: 'Rent & insurance', category: 'rent_insurance', mode: 'per_room_year', value: 5000, indexation: defaultInflation },
+    { id: nid('rentins'), name: 'Rent & insurance', category: 'rent_insurance', mode: 'per_room_year', value: 5000, indexation: noIdx, useAssetDefault: true },
     { id: nid('proptax'), name: 'Property tax', category: 'property_tax', mode: 'pct_of_total_rev', value: 0.005, indexation: noIdx },
   ];
 }
@@ -51,9 +63,9 @@ export function defaultLeaseOpexLines(): OpexLine[] {
   _id = 0;
   return [
     { id: nid('propmgmt'), name: 'Property management fee', category: 'mgmt_base', mode: 'pct_of_lease_rev', value: 0.03, indexation: noIdx },
-    { id: nid('cam'), name: 'Common area maintenance', category: 'cam', mode: 'per_sqm_year', value: 50, indexation: defaultInflation },
+    { id: nid('cam'), name: 'Common area maintenance', category: 'cam', mode: 'per_sqm_year', value: 50, indexation: noIdx, useAssetDefault: true },
     { id: nid('utilities'), name: 'Utilities (landlord side)', category: 'utilities', mode: 'pct_of_lease_rev', value: 0.02, indexation: noIdx },
-    { id: nid('insurance'), name: 'Insurance', category: 'rent_insurance', mode: 'per_sqm_year', value: 10, indexation: defaultInflation },
+    { id: nid('insurance'), name: 'Insurance', category: 'rent_insurance', mode: 'per_sqm_year', value: 10, indexation: noIdx, useAssetDefault: true },
     { id: nid('proptax'), name: 'Property tax', category: 'property_tax', mode: 'pct_of_lease_rev', value: 0.015, indexation: noIdx },
   ];
 }
@@ -61,9 +73,9 @@ export function defaultLeaseOpexLines(): OpexLine[] {
 export function defaultHQOpexLines(): OpexLine[] {
   _id = 0;
   return [
-    { id: nid('payroll'), name: 'HQ payroll', category: 'hq_payroll', mode: 'fixed_baseline', value: 5_000_000, indexation: defaultInflation },
-    { id: nid('office'), name: 'HQ office & overheads', category: 'hq_office', mode: 'fixed_baseline', value: 1_500_000, indexation: defaultInflation },
-    { id: nid('professional'), name: 'Professional fees (legal, audit, advisory)', category: 'hq_professional', mode: 'fixed_baseline', value: 800_000, indexation: defaultInflation },
+    { id: nid('payroll'), name: 'HQ payroll', category: 'hq_payroll', mode: 'fixed_baseline', value: 5_000_000, indexation: noIdx, useAssetDefault: true },
+    { id: nid('office'), name: 'HQ office & overheads', category: 'hq_office', mode: 'fixed_baseline', value: 1_500_000, indexation: noIdx, useAssetDefault: true },
+    { id: nid('professional'), name: 'Professional fees (legal, audit, advisory)', category: 'hq_professional', mode: 'fixed_baseline', value: 800_000, indexation: noIdx, useAssetDefault: true },
     { id: nid('hqother'), name: 'Other corporate opex', category: 'hq_other', mode: 'pct_of_total_rev', value: 0.005, indexation: noIdx },
   ];
 }

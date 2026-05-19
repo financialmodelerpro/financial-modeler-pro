@@ -12,7 +12,7 @@ import { applyIndexation } from '@/src/core/calculations/revenue/indexation';
 import type { HQOpexInputs, HQOpexResult } from './types';
 
 export function computeHQOpex(inputs: HQOpexInputs): HQOpexResult {
-  const { lines, axisLength, projectTotalRevenuePerPeriod } = inputs;
+  const { lines, defaultIndexation, axisLength, projectTotalRevenuePerPeriod } = inputs;
   const N = Math.max(0, axisLength);
   const start = Math.max(0, Math.min(N - 1, inputs.opsStartIdx ?? 0));
   const end = Math.max(start, Math.min(N - 1, inputs.opsEndIdx ?? N - 1));
@@ -25,14 +25,23 @@ export function computeHQOpex(inputs: HQOpexInputs): HQOpexResult {
     const line = lines[i];
     if (line.disabled) continue;
     const out = perLine[i];
+    // Fixed_baseline HQ lines: inherit asset (HQ) default unless line
+    // opts out. pct_of_total_rev escalates through the revenue stream,
+    // so no per-line / HQ indexation is applied (matches the asset rule).
+    const isFixed = line.mode === 'fixed_baseline';
+    const idx = !isFixed
+      ? { method: 'none' as const }
+      : (line.useAssetDefault !== false && defaultIndexation
+          ? defaultIndexation
+          : (line.indexation ?? { method: 'none' as const }));
     for (let t = start; t <= end; t++) {
-      const factor = applyIndexation(1.0, t, line.indexation);
+      const factor = applyIndexation(1.0, t, idx);
       let v = 0;
       if (line.mode === 'fixed_baseline') {
         v = Math.max(0, line.value) * factor;
       } else if (line.mode === 'pct_of_total_rev') {
         const rev = Math.max(0, projectTotalRevenuePerPeriod[t] ?? 0);
-        v = Math.max(0, line.value) * rev * factor;
+        v = Math.max(0, line.value) * rev;
       }
       out[t] = v;
       total[t] += v;

@@ -16,6 +16,7 @@ import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  defaultOpexIndexation,
 } from '@/src/core/calculations/opex';
 import type { OpexRevenueContext } from '@/src/core/calculations/opex';
 
@@ -79,6 +80,7 @@ const hospResult = computeAssetOpex({
   assetId: 'h1',
   strategy: 'Hospitality',
   lines: hospLines,
+  defaultIndexation: defaultOpexIndexation(),
   keys: 100,
   leasableSqm: 0,
   opsStartIdx: opsStart,
@@ -162,6 +164,7 @@ const leaseResult = computeAssetOpex({
   assetId: 'r1',
   strategy: 'Lease',
   lines: leaseLines,
+  defaultIndexation: defaultOpexIndexation(),
   keys: 0,
   leasableSqm,
   opsStartIdx: opsStart,
@@ -224,6 +227,7 @@ const disabledResult = computeAssetOpex({
   assetId: 'h2',
   strategy: 'Hospitality',
   lines: disabledLines,
+  defaultIndexation: defaultOpexIndexation(),
   keys: 100,
   leasableSqm: 0,
   opsStartIdx: opsStart,
@@ -246,6 +250,7 @@ const projectTR = new Array<number>(N).fill(0);
 for (let t = opsStart; t <= opsEnd; t++) projectTR[t] = totalRev;
 const hqResult = computeHQOpex({
   lines: hqLines,
+  defaultIndexation: defaultOpexIndexation(),
   axisLength: N,
   projectTotalRevenuePerPeriod: projectTR,
 });
@@ -269,6 +274,136 @@ assertNear('E4: HQ total opex (year 0 of axis, ops year)',
   // fixed lines compound from year 0 forward. Use the inflation factor.
   (5_000_000 + 1_500_000 + 800_000) * Math.pow(1.03, opsStart) + 0.005 * totalRev,
   1);
+
+// ─────────────────────────────────────────────────────────────────────
+// F-series: Pass 3 (2026-05-19) inflation rules
+//   F1: %-of-revenue line ignores any line.indexation it carries
+//   F2: pct_of_gop line ignores any line.indexation it carries
+//   F3: fixed-cost line with useAssetDefault !== false uses asset
+//       default (even when line.indexation is 'none')
+//   F4: fixed-cost line with useAssetDefault === false uses its own
+//       indexation, ignoring the asset default
+//   F5: HQ fixed_baseline line inherits HQ defaultIndexation
+//   F6: HQ pct_of_total_rev line ignores any per-line indexation
+// ─────────────────────────────────────────────────────────────────────
+
+// F1: %-of-rev line carries a 99% YoY indexation but engine MUST ignore it.
+const f1Rev = makeRev((t) => (t >= opsStart && t <= opsEnd)
+  ? { r: 0, f: 0, o: 0, tr: 1_000_000, l: 0 }
+  : { r: 0, f: 0, o: 0, tr: 0, l: 0 });
+const f1Result = computeAssetOpex({
+  assetId: 'f1',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'noisy %', category: 'indirect_ga', mode: 'pct_of_total_rev',
+    value: 0.1, indexation: { method: 'yoy_compound', rate: 0.99, startYear: 0 },
+  }],
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: f1Rev,
+});
+assertNear('F1: %-of-rev ignores line.indexation (no compounding)',
+  f1Result.perLinePerPeriod[0][opsEnd], 0.1 * 1_000_000, 1);
+
+// F2: pct_of_gop ignores any per-line indexation.
+const f2Rev = makeRev((t) => (t >= opsStart && t <= opsEnd)
+  ? { r: 0, f: 0, o: 0, tr: 1_000_000, l: 0 }
+  : { r: 0, f: 0, o: 0, tr: 0, l: 0 });
+const f2Result = computeAssetOpex({
+  assetId: 'f2',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'mgmt inc', category: 'mgmt_incentive', mode: 'pct_of_gop',
+    value: 0.1, indexation: { method: 'yoy_compound', rate: 0.5, startYear: 0 },
+  }],
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: f2Rev,
+});
+// GOP = 1,000,000 (no direct/indirect lines), mgmt incentive = 10% of GOP
+// each year, with NO compounding.
+assertNear('F2: pct_of_gop ignores line.indexation',
+  f2Result.perLinePerPeriod[0][opsEnd], 0.1 * 1_000_000, 1);
+
+// F3: fixed-cost line inherits asset default.
+const f3Result = computeAssetOpex({
+  assetId: 'f3',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'baseline', category: 'other', mode: 'fixed_baseline',
+    value: 100_000, indexation: { method: 'none' }, useAssetDefault: true,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.05, startYear: 0 },
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: makeRev(() => ({ r: 0, f: 0, o: 0, tr: 0, l: 0 })),
+});
+assertNear('F3: fixed_baseline inherits asset default (5% compound)',
+  f3Result.perLinePerPeriod[0][opsStart + 2],
+  100_000 * Math.pow(1.05, opsStart + 2),
+  1);
+
+// F4: per-line override beats asset default.
+const f4Result = computeAssetOpex({
+  assetId: 'f4',
+  strategy: 'Hospitality',
+  lines: [{
+    id: 'L1', name: 'baseline', category: 'other', mode: 'fixed_baseline',
+    value: 100_000,
+    indexation: { method: 'yoy_compound', rate: 0.10, startYear: 0 },
+    useAssetDefault: false,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.05, startYear: 0 },
+  keys: 0,
+  leasableSqm: 0,
+  opsStartIdx: opsStart,
+  opsEndIdx: opsEnd,
+  axisLength: N,
+  revenue: makeRev(() => ({ r: 0, f: 0, o: 0, tr: 0, l: 0 })),
+});
+assertNear('F4: override beats default (10% compound, not 5%)',
+  f4Result.perLinePerPeriod[0][opsStart + 2],
+  100_000 * Math.pow(1.10, opsStart + 2),
+  1);
+
+// F5: HQ fixed_baseline inherits HQ defaultIndexation.
+const f5HQResult = computeHQOpex({
+  lines: [{
+    id: 'L1', name: 'payroll', category: 'hq_payroll', mode: 'fixed_baseline',
+    value: 1_000_000, indexation: { method: 'none' }, useAssetDefault: true,
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.04, startYear: 0 },
+  axisLength: N,
+  projectTotalRevenuePerPeriod: zeros(N),
+});
+assertNear('F5: HQ fixed_baseline inherits HQ default (4% compound)',
+  f5HQResult.perLinePerPeriod[0][3],
+  1_000_000 * Math.pow(1.04, 3),
+  1);
+
+// F6: HQ pct_of_total_rev never indexes.
+const f6TR = zeros(N);
+for (let t = opsStart; t <= opsEnd; t++) f6TR[t] = 2_000_000;
+const f6HQResult = computeHQOpex({
+  lines: [{
+    id: 'L1', name: 'other', category: 'hq_other', mode: 'pct_of_total_rev',
+    value: 0.10, indexation: { method: 'yoy_compound', rate: 0.99, startYear: 0 },
+  }],
+  defaultIndexation: { method: 'yoy_compound', rate: 0.04, startYear: 0 },
+  axisLength: N,
+  projectTotalRevenuePerPeriod: f6TR,
+});
+assertNear('F6: HQ pct_of_total_rev ignores line + HQ indexation',
+  f6HQResult.perLinePerPeriod[0][opsEnd], 0.10 * 2_000_000, 1);
 
 // ─────────────────────────────────────────────────────────────────────
 // Done

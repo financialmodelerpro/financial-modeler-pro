@@ -3,12 +3,18 @@
 /**
  * Module3Opex.tsx
  *
- * Per-asset Operating Expense inputs. Layout mirrors M2 Module 2
- * Revenue: phase-grouped collapsible asset cards. Each asset that runs
- * operations (Hospitality, Lease, Sell + Manage companions) carries a
- * flat list of opex line items, each with: name + category + mode +
- * value + indexation. A separate HQ section at the top holds project-
- * wide corporate overheads.
+ * Per-asset Operating Expense inputs. Each asset card carries an
+ * asset-level Inflation panel (Off / Flat / Compound / Per-Year) plus
+ * a flat list of line items. The asset-level inflation drives every
+ * fixed-cost line (fixed_baseline / per_room_year / per_sqm_year)
+ * that has not opted out via an individual override. %-of-revenue
+ * + pct_of_gop lines never index: their auto-escalation comes from
+ * the underlying revenue stream so any inflation on top would be
+ * double-counted.
+ *
+ * Pass 3 (2026-05-19): inflation moved off per-line config and onto
+ * an asset-level default with per-line override. HQ section follows
+ * the same pattern (project-wide default + per-line override).
  */
 
 import React, { useMemo, useState } from 'react';
@@ -19,10 +25,12 @@ import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  defaultOpexIndexation,
   type OpexLine,
   type OpexLineCategory,
   type OpexLineMode,
 } from '@/src/core/calculations/opex';
+import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 
@@ -112,6 +120,17 @@ const HQ_CATEGORIES: OpexLineCategory[] = [
   'hq_payroll', 'hq_office', 'hq_professional', 'hq_other',
 ];
 
+// Fixed-cost modes are the ONLY ones that take inflation. %-of-rev
+// and pct_of_gop modes escalate automatically through the revenue
+// stream itself, so the UI hides inflation controls for them and the
+// engine ignores any indexation config they may carry.
+const FIXED_COST_MODES: ReadonlyArray<OpexLineMode> = [
+  'fixed_baseline', 'per_room_year', 'per_sqm_year',
+];
+function isFixedCostMode(m: OpexLineMode): boolean {
+  return FIXED_COST_MODES.indexOf(m) >= 0;
+}
+
 // ─── utilities ────────────────────────────────────────────────────
 function nid(): string {
   return `opex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -135,7 +154,8 @@ function defaultLineForStrategy(strategy: 'Hospitality' | 'Lease' | 'HQ'): OpexL
       category: 'hq_other',
       mode: 'fixed_baseline',
       value: 100000,
-      indexation: { method: 'yoy_compound', rate: 0.03, startYear: 0 },
+      indexation: { method: 'none' },
+      useAssetDefault: true,
     };
   }
   return {
@@ -146,6 +166,193 @@ function defaultLineForStrategy(strategy: 'Hospitality' | 'Lease' | 'HQ'): OpexL
     value: 0.01,
     indexation: { method: 'none' },
   };
+}
+
+// ─── inflation method helpers ─────────────────────────────────────
+type InflationMethod = 'none' | 'single_rate' | 'yoy_compound' | 'yoy_per_period';
+
+function methodOf(config: IndexationConfig | undefined): InflationMethod {
+  const m = config?.method;
+  if (m === 'single_rate' || m === 'yoy_compound' || m === 'yoy_per_period') return m;
+  return 'none';
+}
+
+function methodLabel(m: InflationMethod): string {
+  if (m === 'none') return 'Off';
+  if (m === 'single_rate') return 'Flat';
+  if (m === 'yoy_compound') return 'Compound';
+  return 'Per-Year';
+}
+
+function buildIndexationConfig(
+  method: InflationMethod,
+  prev: IndexationConfig | undefined,
+  axisLength: number,
+  yearCells: Array<{ idx: number; year: number }>,
+): IndexationConfig {
+  if (method === 'none') return { method: 'none' };
+  const prevRate = (prev?.method === 'single_rate' || prev?.method === 'yoy_compound') ? (prev.rate ?? 0.03) : 0.03;
+  if (method === 'single_rate') return { method: 'single_rate', rate: prevRate, startYear: 0 };
+  if (method === 'yoy_compound') return { method: 'yoy_compound', rate: prevRate, startYear: 0 };
+  // yoy_per_period — seed every ops year with the prior flat rate so
+  // the user starts from an equivalent baseline.
+  const N = Math.max(0, axisLength);
+  const growth = new Array<number>(N).fill(0);
+  for (const c of yearCells) {
+    if (c.idx >= 0 && c.idx < N) growth[c.idx] = prevRate;
+  }
+  return { method: 'yoy_per_period', startYear: 0, growthPerPeriod: growth };
+}
+
+/** Short summary string used inside the "Inherits" badge. */
+function summarizeIndexation(cfg: IndexationConfig | undefined): string {
+  const m = methodOf(cfg);
+  if (m === 'none') return 'Off';
+  if (m === 'single_rate' || m === 'yoy_compound') {
+    const pct = ((cfg?.rate ?? 0) * 100).toFixed(2).replace(/\.00$/, '');
+    return `${methodLabel(m)} ${pct}%`;
+  }
+  return 'Per-Year';
+}
+
+// ─── reusable Inflation panel ─────────────────────────────────────
+function InflationPanel({
+  config,
+  onChange,
+  axisLength,
+  yearCells,
+  testidPrefix,
+  leftLabel,
+  showPerYear = true,
+  compact = false,
+}: {
+  config: IndexationConfig | undefined;
+  onChange: (next: IndexationConfig) => void;
+  axisLength: number;
+  yearCells: Array<{ idx: number; year: number }>;
+  testidPrefix: string;
+  leftLabel?: string;
+  showPerYear?: boolean;
+  compact?: boolean;
+}): React.JSX.Element {
+  const method = methodOf(config);
+  const set = (m: InflationMethod): void => {
+    onChange(buildIndexationConfig(m, config, axisLength, yearCells));
+  };
+
+  const setRate = (pct: number): void => {
+    const m: InflationMethod = method === 'single_rate' ? 'single_rate' : 'yoy_compound';
+    onChange({ method: m, rate: Math.max(0, pct / 100), startYear: 0 });
+  };
+
+  const setPerYear = (cellIdx: number, pct: number): void => {
+    const N = Math.max(0, axisLength);
+    const base = config?.method === 'yoy_per_period' ? (config.growthPerPeriod ?? []) : [];
+    const next = new Array<number>(N).fill(0);
+    for (let i = 0; i < Math.min(base.length, N); i++) next[i] = base[i] ?? 0;
+    if (cellIdx >= 0 && cellIdx < N) next[cellIdx] = Math.max(-0.99, pct / 100);
+    onChange({ method: 'yoy_per_period', startYear: 0, growthPerPeriod: next });
+  };
+
+  const methods: InflationMethod[] = showPerYear
+    ? ['none', 'single_rate', 'yoy_compound', 'yoy_per_period']
+    : ['none', 'single_rate', 'yoy_compound'];
+
+  return (
+    <div data-testid={testidPrefix}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        {leftLabel && (
+          <span style={{ fontSize: compact ? 10 : 11, color: 'var(--color-meta)', fontWeight: 600 }}>{leftLabel}</span>
+        )}
+        {methods.map((m) => {
+          const active = method === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => set(m)}
+              style={{
+                fontSize: compact ? 10 : 11,
+                padding: compact ? '3px 8px' : '4px 10px',
+                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                color: active ? 'var(--color-on-primary-navy)' : 'var(--color-navy)',
+                border: '1px solid var(--color-navy)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+              data-testid={`${testidPrefix}-method-${m}`}
+            >
+              {methodLabel(m)}
+            </button>
+          );
+        })}
+        {(method === 'single_rate' || method === 'yoy_compound') && (
+          <>
+            <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 4 }}>Rate %</span>
+            <div style={{ width: 80 }}>
+              <PercentageInput
+                value={(config?.rate ?? 0) * 100}
+                onChange={setRate}
+                min={0}
+                max={50}
+                decimals={2}
+                style={FAST_INPUT}
+                data-testid={`${testidPrefix}-rate`}
+              />
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+              {method === 'single_rate'
+                ? 'Single uplift held flat thereafter'
+                : 'Compounds: value × (1 + r) every year'}
+            </span>
+          </>
+        )}
+      </div>
+      {method === 'yoy_per_period' && showPerYear && yearCells.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 4 }}>
+            Per-year inflation %. factor[y] = factor[y−1] × (1 + growth[y]). Negative values allowed.
+          </div>
+          <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
+            <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={{ padding: '4px 6px', textAlign: 'left' }}>Year</th>
+                  {yearCells.map((c) => (
+                    <th key={c.idx} style={{ padding: '4px 6px', textAlign: 'center' }}>{c.year}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '4px 6px', fontWeight: 600 }}>Growth %</td>
+                  {yearCells.map((c) => {
+                    const v = config?.method === 'yoy_per_period'
+                      ? (config.growthPerPeriod?.[c.idx] ?? 0) * 100
+                      : 0;
+                    return (
+                      <td key={c.idx} style={{ padding: '2px 4px' }}>
+                        <PercentageInput
+                          value={v}
+                          onChange={(n) => setPerYear(c.idx, n)}
+                          min={-50}
+                          max={50}
+                          decimals={2}
+                          style={{ ...FAST_INPUT, width: '100%' }}
+                          data-testid={`${testidPrefix}-yr-${c.idx}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── shared "section card" wrapper ────────────────────────────────
@@ -214,70 +421,56 @@ function OpexLineTable({
   allowedModes,
   onChange,
   testidPrefix,
-  // Per-asset tables pass the operations window so a line can use a
-  // year-by-year inflation ramp. HQ + project templates omit this and
-  // only get None / Flat YoY % options.
-  opsYearCells,
+  defaultIndexation,
+  // Per-asset tables pass the ops window so per-line overrides can use
+  // a year-by-year strip. HQ uses a full-axis cell list so HQ overrides
+  // still get a strip.
+  yearCells,
   axisLength,
+  newLineStrategy,
 }: {
   lines: OpexLine[];
   allowedCategories: OpexLineCategory[];
   allowedModes: OpexLineMode[];
   onChange: (next: OpexLine[]) => void;
   testidPrefix: string;
-  opsYearCells?: Array<{ idx: number; year: number }>;
-  axisLength?: number;
+  defaultIndexation: IndexationConfig;
+  yearCells: Array<{ idx: number; year: number }>;
+  axisLength: number;
+  newLineStrategy: 'Hospitality' | 'Lease' | 'HQ';
 }): React.JSX.Element {
   const updateLine = (idx: number, patch: Partial<OpexLine>): void => {
     const next = lines.map((l, i) => (i === idx ? { ...l, ...patch } : l));
     onChange(next);
   };
   const removeLine = (idx: number): void => onChange(lines.filter((_, i) => i !== idx));
-  const addLine = (): void => onChange([...lines, defaultLineForStrategy('Hospitality')]);
+  const addLine = (): void => onChange([...lines, defaultLineForStrategy(newLineStrategy)]);
 
-  // Indexation method changes. When switching between methods, preserve
-  // intent: Off -> Flat seeds 3%; Flat -> Yearly seeds an array filled
-  // with the prior flat rate so the user keeps the same total effect
-  // and tweaks year-by-year afterward.
-  const setIndexationMethod = (
-    idx: number,
-    method: 'none' | 'yoy_compound' | 'yoy_per_period',
-  ): void => {
-    const cur = lines[idx].indexation;
-    if (method === 'none') {
-      updateLine(idx, { indexation: { method: 'none' } });
-      return;
+  const setLineMode = (idx: number, mode: OpexLineMode): void => {
+    const line = lines[idx];
+    // When switching to a %-of-rev / pct_of_gop mode, clear any
+    // per-line override since inflation no longer applies.
+    if (!isFixedCostMode(mode)) {
+      updateLine(idx, { mode, useAssetDefault: true, indexation: { method: 'none' } });
+    } else {
+      updateLine(idx, { mode });
     }
-    if (method === 'yoy_compound') {
-      const rate = cur.method === 'yoy_compound' ? (cur.rate ?? 0.03) : 0.03;
-      updateLine(idx, { indexation: { method: 'yoy_compound', rate, startYear: 0 } });
-      return;
-    }
-    // yoy_per_period: seed growthPerPeriod with the prior flat rate so
-    // factor[t] starts equivalent to the flat case.
-    const seedRate = cur.method === 'yoy_compound' ? (cur.rate ?? 0.03) : 0.03;
-    const N = Math.max(0, axisLength ?? 0);
-    const growth = new Array<number>(N).fill(0);
-    if (opsYearCells) {
-      for (const c of opsYearCells) {
-        if (c.idx >= 0 && c.idx < N) growth[c.idx] = seedRate;
-      }
-    }
-    updateLine(idx, { indexation: { method: 'yoy_per_period', startYear: 0, growthPerPeriod: growth } });
   };
 
-  const setFlatRate = (idx: number, pct: number): void => {
-    updateLine(idx, { indexation: { method: 'yoy_compound', rate: Math.max(0, pct / 100), startYear: 0 } });
+  const enableOverride = (idx: number): void => {
+    // Seed the line's own indexation from the asset default so the
+    // override starts at the same effective rate the user was inheriting.
+    updateLine(idx, {
+      useAssetDefault: false,
+      indexation: { ...defaultIndexation },
+    });
+  };
+  const revertToInherit = (idx: number): void => {
+    updateLine(idx, { useAssetDefault: true, indexation: { method: 'none' } });
   };
 
-  const setPerPeriodRate = (idx: number, projectIdx: number, pct: number): void => {
-    const cur = lines[idx].indexation;
-    const N = Math.max(0, axisLength ?? 0);
-    const base = cur.method === 'yoy_per_period' ? (cur.growthPerPeriod ?? []) : [];
-    const next = new Array<number>(N).fill(0);
-    for (let i = 0; i < Math.min(base.length, N); i++) next[i] = base[i] ?? 0;
-    next[projectIdx] = Math.max(0, pct / 100);
-    updateLine(idx, { indexation: { method: 'yoy_per_period', startYear: 0, growthPerPeriod: next } });
+  const setLineIndexation = (idx: number, next: IndexationConfig): void => {
+    updateLine(idx, { indexation: next });
   };
 
   // Renders a mode-aware value cell: % for pct_* / pct_of_gop, raw
@@ -319,20 +512,15 @@ function OpexLineTable({
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 180 }}>Category</th>
             <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 180 }}>Mode</th>
             <th style={{ padding: '6px 8px', textAlign: 'right', minWidth: 110 }}>Value</th>
-            <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 130 }}>Inflation</th>
+            <th style={{ padding: '6px 8px', textAlign: 'left', minWidth: 200 }}>Inflation</th>
             <th style={{ padding: '6px 8px', textAlign: 'center', minWidth: 60 }}>On</th>
             <th style={{ padding: '6px 8px', textAlign: 'center', minWidth: 40 }}></th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l, idx) => {
-            const method = l.indexation.method === 'yoy_compound' || l.indexation.method === 'yoy_per_period'
-              ? l.indexation.method
-              : 'none';
-            const flatRate = l.indexation.method === 'yoy_compound'
-              ? Math.round(((l.indexation.rate ?? 0) * 100) * 100) / 100
-              : 0;
-            const supportsPerPeriod = opsYearCells && opsYearCells.length > 0;
+            const fixedMode = isFixedCostMode(l.mode);
+            const inheriting = l.useAssetDefault !== false;
             return (
               <React.Fragment key={l.id}>
                 <tr style={{ borderBottom: '1px solid var(--color-border)', opacity: l.disabled ? 0.5 : 1 }}>
@@ -360,7 +548,7 @@ function OpexLineTable({
                   <td style={{ padding: '4px 6px' }}>
                     <select
                       value={l.mode}
-                      onChange={(e) => updateLine(idx, { mode: e.target.value as OpexLineMode })}
+                      onChange={(e) => setLineMode(idx, e.target.value as OpexLineMode)}
                       style={{ ...FAST_INPUT, textAlign: 'left' }}
                       data-testid={`${testidPrefix}-mode-${idx}`}
                     >
@@ -371,54 +559,85 @@ function OpexLineTable({
                   </td>
                   <td style={{ padding: '4px 6px' }}>{renderValueInput(l, idx)}</td>
                   <td style={{ padding: '4px 6px' }}>
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {(['none', 'yoy_compound', 'yoy_per_period'] as const).map((m) => {
-                        const active = method === m;
-                        const disabled = m === 'yoy_per_period' && !supportsPerPeriod;
-                        const label = m === 'none' ? 'Off' : m === 'yoy_compound' ? 'Flat' : 'Yearly';
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => setIndexationMethod(idx, m)}
-                            title={disabled ? 'Yearly inflation is per-asset only (not available on HQ).' : ''}
-                            style={{
-                              fontSize: 10,
-                              padding: '3px 8px',
-                              background: active ? 'var(--color-navy)' : 'var(--color-surface)',
-                              color: active
-                                ? 'var(--color-on-primary-navy)'
-                                : disabled ? 'var(--color-meta)' : 'var(--color-navy)',
-                              border: '1px solid var(--color-navy)',
-                              borderRadius: 'var(--radius-sm)',
-                              cursor: disabled ? 'not-allowed' : 'pointer',
-                              fontWeight: 600,
-                              opacity: disabled ? 0.5 : 1,
-                            }}
-                            data-testid={`${testidPrefix}-infl-${m}-${idx}`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                      {method === 'yoy_compound' && (
-                        <PercentageInput
-                          value={flatRate}
-                          onChange={(n) => setFlatRate(idx, n)}
-                          min={0}
-                          max={50}
-                          decimals={2}
-                          style={{ ...FAST_INPUT, width: 60 }}
-                          data-testid={`${testidPrefix}-infl-rate-${idx}`}
-                        />
-                      )}
-                      {method === 'yoy_per_period' && supportsPerPeriod && (
-                        <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic' }}>
-                          ↓ per-year strip below
+                    {!fixedMode ? (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: 'var(--color-meta)',
+                          fontStyle: 'italic',
+                        }}
+                        title="% of revenue (and % of GOP) auto-escalate through the revenue stream itself. Adding inflation on top would double-count."
+                        data-testid={`${testidPrefix}-infl-disabled-${idx}`}
+                      >
+                        — auto via revenue
+                      </span>
+                    ) : inheriting ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)',
+                            color: 'var(--color-navy)',
+                          }}
+                          title="Inherits the asset-level inflation set at the top of this card."
+                        >
+                          Inherits: {summarizeIndexation(defaultIndexation)}
                         </span>
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => enableOverride(idx)}
+                          style={{
+                            fontSize: 10,
+                            padding: '3px 8px',
+                            background: 'var(--color-surface)',
+                            color: 'var(--color-navy)',
+                            border: '1px solid var(--color-navy)',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          data-testid={`${testidPrefix}-infl-override-${idx}`}
+                        >
+                          Override
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'color-mix(in srgb, var(--color-warning, #92400e) 16%, transparent)',
+                            color: 'var(--color-warning, #92400e)',
+                          }}
+                          title="This line is using its own inflation config and ignoring the asset-level default."
+                        >
+                          Override active: {summarizeIndexation(l.indexation)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => revertToInherit(idx)}
+                          style={{
+                            fontSize: 10,
+                            padding: '3px 8px',
+                            background: 'var(--color-surface)',
+                            color: 'var(--color-navy)',
+                            border: '1px solid var(--color-navy)',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          data-testid={`${testidPrefix}-infl-revert-${idx}`}
+                        >
+                          Use asset default
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '4px 6px', textAlign: 'center' }}>
                     <input
@@ -444,48 +663,20 @@ function OpexLineTable({
                     >×</button>
                   </td>
                 </tr>
-                {method === 'yoy_per_period' && supportsPerPeriod && opsYearCells && (
+                {fixedMode && !inheriting && (
                   <tr style={{ background: 'var(--color-grey-pale)' }}>
                     <td colSpan={7} style={{ padding: '6px 12px' }}>
                       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
-                        Per-year inflation % for <strong>{l.name}</strong>. factor[y] = factor[y−1] × (1 + growth[y]).
-                        Leave at 0% to freeze the factor for that year.
+                        Override inflation for <strong>{l.name}</strong>. Engine uses this configuration instead of the asset default.
                       </div>
-                      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
-                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                              <th style={{ padding: '4px 6px', textAlign: 'left' }}>Year</th>
-                              {opsYearCells.map((c) => (
-                                <th key={c.idx} style={{ padding: '4px 6px', textAlign: 'center' }}>{c.year}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              <td style={{ padding: '4px 6px', fontWeight: 600 }}>Growth %</td>
-                              {opsYearCells.map((c) => {
-                                const v = l.indexation.method === 'yoy_per_period'
-                                  ? (l.indexation.growthPerPeriod?.[c.idx] ?? 0) * 100
-                                  : 0;
-                                return (
-                                  <td key={c.idx} style={{ padding: '2px 4px' }}>
-                                    <PercentageInput
-                                      value={v}
-                                      onChange={(n) => setPerPeriodRate(idx, c.idx, n)}
-                                      min={-50}
-                                      max={50}
-                                      decimals={2}
-                                      style={{ ...FAST_INPUT, width: '100%' }}
-                                      data-testid={`${testidPrefix}-infl-yr-${idx}-${c.idx}`}
-                                    />
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                      <InflationPanel
+                        config={l.indexation}
+                        onChange={(next) => setLineIndexation(idx, next)}
+                        axisLength={axisLength}
+                        yearCells={yearCells}
+                        testidPrefix={`${testidPrefix}-infl-${idx}`}
+                        compact
+                      />
                     </td>
                   </tr>
                 )}
@@ -551,21 +742,45 @@ export default function Module3Opex(): React.JSX.Element {
     return map;
   }, [opexAssets]);
 
-  // HQ lines: seeded with defaults on first read so the user sees a
-  // sensible starting point. Saving only writes when the user edits.
+  // HQ lines + default: seeded with defaults on first read so the user
+  // sees a sensible starting point. Saving only writes when the user edits.
   const hqLines: OpexLine[] = useMemo(() => {
     if (project.hqOpex?.lines && project.hqOpex.lines.length > 0) {
       return project.hqOpex.lines.map((l) => ({ ...l }));
     }
     return defaultHQOpexLines();
   }, [project.hqOpex]);
+  const hqDefaultIndexation: IndexationConfig = useMemo(() => {
+    const stored = project.hqOpex?.defaultIndexation as IndexationConfig | undefined;
+    return stored && stored.method ? stored : defaultOpexIndexation();
+  }, [project.hqOpex]);
 
   const setHqLines = (next: OpexLine[]): void => {
-    setProject({ hqOpex: { lines: next } });
+    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: [] }), defaultIndexation: hqDefaultIndexation, lines: next } });
+  };
+  const setHqDefaultIndexation = (next: IndexationConfig): void => {
+    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: hqLines }), defaultIndexation: next, lines: hqLines } });
   };
 
   const setAssetLines = (assetId: string, next: OpexLine[]): void => {
-    updateAsset(assetId, { opex: { lines: next } });
+    const a = assets.find((x) => x.id === assetId);
+    const curDefault: IndexationConfig | undefined = a?.opex?.defaultIndexation as IndexationConfig | undefined;
+    updateAsset(assetId, { opex: { defaultIndexation: curDefault ?? defaultOpexIndexation(), lines: next } });
+  };
+  const setAssetDefaultIndexation = (assetId: string, next: IndexationConfig): void => {
+    const a = assets.find((x) => x.id === assetId);
+    const lines = a?.opex?.lines && a.opex.lines.length > 0
+      ? a.opex.lines.map((l) => ({ ...l }))
+      : (a?.strategy === 'Operate'
+          ? defaultHospitalityOpexLines()
+          : a?.strategy === 'Lease'
+            ? defaultLeaseOpexLines()
+            : []);
+    updateAsset(assetId, { opex: { defaultIndexation: next, lines } });
+  };
+  const assetDefaultIndexation = (a: Asset): IndexationConfig => {
+    const stored = a.opex?.defaultIndexation as IndexationConfig | undefined;
+    return stored && stored.method ? stored : defaultOpexIndexation();
   };
 
   const seedAsset = (a: Asset): void => {
@@ -574,7 +789,9 @@ export default function Module3Opex(): React.JSX.Element {
       : a.strategy === 'Lease'
         ? defaultLeaseOpexLines()
         : [];
-    if (seed.length > 0) setAssetLines(a.id, seed);
+    if (seed.length > 0) {
+      updateAsset(a.id, { opex: { defaultIndexation: defaultOpexIndexation(), lines: seed } });
+    }
   };
 
   // Compute project axis details once so per-asset ops windows can be
@@ -596,6 +813,13 @@ export default function Module3Opex(): React.JSX.Element {
     }
     return Math.max(1, maxEnd);
   }, [phases, projectStartYear]);
+
+  // Full-axis cell list used for HQ Per-Year strips (HQ has no ops window).
+  const fullAxisCells = useMemo<Array<{ idx: number; year: number }>>(() => {
+    const out: Array<{ idx: number; year: number }> = [];
+    for (let i = 0; i < axisLength; i++) out.push({ idx: i, year: projectStartYear + i });
+    return out;
+  }, [axisLength, projectStartYear]);
 
   const opsYearsForAsset = (a: Asset): Array<{ idx: number; year: number }> => {
     const phase = phases.find((p) => p.id === a.phaseId);
@@ -623,21 +847,23 @@ export default function Module3Opex(): React.JSX.Element {
     return cells;
   };
 
-  // Bulk-apply: copy this asset's lines to every other asset that shares
-  // the same strategy bucket (all Hospitality OR all Retail/Lease).
+  // Bulk-apply: copy this asset's lines + asset-level default inflation
+  // to every other asset that shares the same strategy bucket (all
+  // Hospitality OR all Retail/Lease).
   const applyToStrategy = (sourceAsset: Asset): void => {
     const sourceLines = sourceAsset.opex?.lines ?? [];
     if (sourceLines.length === 0) return;
     const isHospitality = sourceAsset.strategy === 'Operate';
     const isLease = sourceAsset.strategy === 'Lease';
     if (!isHospitality && !isLease) return;
+    const sourceDefault = assetDefaultIndexation(sourceAsset);
     for (const other of assets) {
       if (other.id === sourceAsset.id) continue;
       const matches = isHospitality ? other.strategy === 'Operate' : other.strategy === 'Lease';
       if (!matches) continue;
       // Fresh ids per asset so future per-asset edits don't ricochet.
       const cloned = sourceLines.map((l) => ({ ...l, id: `${l.id}-${other.id.slice(0, 6)}` }));
-      updateAsset(other.id, { opex: { lines: cloned } });
+      updateAsset(other.id, { opex: { defaultIndexation: { ...sourceDefault }, lines: cloned } });
     }
   };
 
@@ -662,10 +888,10 @@ export default function Module3Opex(): React.JSX.Element {
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Operating Expenses</h2>
         <p style={{ fontSize: 12, color: 'var(--color-meta)' }}>
-          Per-asset opex line items for Hospitality (Operate, including Sell + Manage companions) and Retail/Lease. Plus
-          project-wide HQ overheads. Each line carries its own inflation method (Off, Flat YoY %, or Yearly custom for
-          per-period growth). Use <em>Apply to all Hospitality / Retail</em> on any asset to push its configuration to
-          every other asset of the same strategy.
+          Each asset card holds a top-level <strong>Inflation</strong> control (Off / Flat / Compound / Per-Year)
+          that drives every fixed-cost line below it. <em>% of revenue</em> and <em>% of GOP</em> lines auto-escalate
+          through the revenue stream, so they show <em>— auto via revenue</em>. Any fixed-cost line can
+          <em> Override</em> the asset default. HQ overheads use the same pattern at the project level.
         </p>
       </div>
 
@@ -677,12 +903,34 @@ export default function Module3Opex(): React.JSX.Element {
         collapsed={hqCollapsed}
         onToggle={() => setHqCollapsed((v) => !v)}
       >
+        <div
+          style={{
+            marginBottom: 'var(--sp-2)',
+            padding: '6px 10px',
+            background: 'var(--color-grey-pale)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          <InflationPanel
+            config={hqDefaultIndexation}
+            onChange={setHqDefaultIndexation}
+            axisLength={axisLength}
+            yearCells={fullAxisCells}
+            testidPrefix="m3-hq-default-infl"
+            leftLabel="HQ Inflation"
+          />
+        </div>
         <OpexLineTable
           lines={hqLines}
           allowedCategories={HQ_CATEGORIES}
           allowedModes={HQ_MODES}
           onChange={setHqLines}
           testidPrefix="m3-hq"
+          defaultIndexation={hqDefaultIndexation}
+          yearCells={fullAxisCells}
+          axisLength={axisLength}
+          newLineStrategy="HQ"
         />
       </AssetCard>
 
@@ -716,6 +964,8 @@ export default function Module3Opex(): React.JSX.Element {
               const lines = a.opex?.lines ?? [];
               const hasLines = lines.length > 0;
               const sb = strategyBadge(a);
+              const yearCells = opsYearsForAsset(a);
+              const assetDefault = assetDefaultIndexation(a);
               return (
                 <AssetCard
                   key={a.id}
@@ -750,14 +1000,34 @@ export default function Module3Opex(): React.JSX.Element {
                     </div>
                   ) : (
                     <>
+                      <div
+                        style={{
+                          marginBottom: 'var(--sp-2)',
+                          padding: '6px 10px',
+                          background: 'var(--color-grey-pale)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border)',
+                        }}
+                      >
+                        <InflationPanel
+                          config={assetDefault}
+                          onChange={(next) => setAssetDefaultIndexation(a.id, next)}
+                          axisLength={axisLength}
+                          yearCells={yearCells}
+                          testidPrefix={`m3-asset-${a.id}-default-infl`}
+                          leftLabel="Asset Inflation"
+                        />
+                      </div>
                       <OpexLineTable
                         lines={lines}
                         allowedCategories={assetCategoriesFor(a)}
                         allowedModes={assetModesFor(a)}
                         onChange={(next) => setAssetLines(a.id, next)}
                         testidPrefix={`m3-asset-${a.id}`}
-                        opsYearCells={opsYearsForAsset(a)}
+                        defaultIndexation={assetDefault}
+                        yearCells={yearCells}
                         axisLength={axisLength}
+                        newLineStrategy={a.strategy === 'Lease' ? 'Lease' : 'Hospitality'}
                       />
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
                         <button
@@ -765,8 +1035,8 @@ export default function Module3Opex(): React.JSX.Element {
                           onClick={() => {
                             const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
                             const ok = window.confirm(
-                              `Apply this asset's opex lines to every other ${label} asset?\n\n` +
-                              `Each ${label} asset will be overwritten with the lines configured here. ` +
+                              `Apply this asset's opex lines + asset inflation to every other ${label} asset?\n\n` +
+                              `Each ${label} asset will be overwritten with the lines AND the asset-level inflation configured here. ` +
                               `This won't change HQ overheads or assets of a different strategy.`,
                             );
                             if (ok) applyToStrategy(a);
@@ -781,7 +1051,7 @@ export default function Module3Opex(): React.JSX.Element {
                             cursor: 'pointer',
                             fontWeight: 600,
                           }}
-                          title={`Copy these lines to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
+                          title={`Copy these lines + asset inflation to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
                           data-testid={`m3-apply-strategy-${a.id}`}
                         >
                           Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}

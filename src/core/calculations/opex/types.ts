@@ -76,7 +76,18 @@ export interface OpexLine {
    *   - pct_of_gop: decimal 0..1
    */
   value: number;
+  /** Per-line indexation. Only honoured for fixed-cost modes
+   *  (fixed_baseline / per_room_year / per_sqm_year) AND only when
+   *  useAssetDefault === false. %-of-revenue + pct_of_gop modes never
+   *  index: their auto-escalation comes through the revenue stream. */
   indexation: IndexationConfig;
+  /** When false, the engine uses this line's own `indexation`. When
+   *  undefined or true, the engine uses the asset-level
+   *  defaultIndexation passed in inputs (and falls back to the line's
+   *  own indexation only if no asset default is supplied). Lets one
+   *  asset-level switch propagate to every fixed-cost line while still
+   *  allowing per-line overrides. */
+  useAssetDefault?: boolean;
   /** When true, the engine skips this line (left in the config so the
    *  user can toggle a line off without losing the values). */
   disabled?: boolean;
@@ -101,6 +112,12 @@ export interface AssetOpexInputs {
   strategy: 'Hospitality' | 'Lease' | 'Sell' | 'Sell + Manage';
   /** Per-asset line items. */
   lines: OpexLine[];
+  /** Asset-level inflation default. Applied to every fixed-cost line
+   *  (fixed_baseline / per_room_year / per_sqm_year) that does NOT
+   *  carry useAssetDefault === false. %-of-rev + pct_of_gop lines
+   *  ignore this. When omitted, fixed-cost lines fall back to their
+   *  own line.indexation. */
+  defaultIndexation?: IndexationConfig;
   /** Total keys (Hospitality drivers). 0 for non-hospitality. */
   keys: number;
   /** Leasable area in sqm (Lease drivers). 0 for non-lease. */
@@ -143,6 +160,10 @@ export interface AssetOpexResult {
  */
 export interface HQOpexInputs {
   lines: OpexLine[];
+  /** HQ-wide inflation default. Applied to fixed_baseline HQ lines
+   *  that do NOT carry useAssetDefault === false. pct_of_total_rev
+   *  ignores this; its escalation comes from project revenue. */
+  defaultIndexation?: IndexationConfig;
   axisLength: number;
   /** Project total revenue per period (used when any line is pct_of_total_rev). */
   projectTotalRevenuePerPeriod: number[];

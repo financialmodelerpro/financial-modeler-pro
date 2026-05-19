@@ -25,4 +25,5 @@ export {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  defaultOpexIndexation,
 } from './defaults';
