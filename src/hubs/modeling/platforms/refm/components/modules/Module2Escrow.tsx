@@ -15,7 +15,6 @@
  *   3. Escrow Balance Roll-Forward: Opening Balance / Additions
  *      (per-asset rows + total) / Less Release / Closing Balance.
  *   4. Cash Flow Impact (project totals: Less Held / Add Release / Net).
- *   5. Per-Asset Detail (collapsible roll-forward per asset).
  *
  * Math lives in src/core/calculations/revenue/escrow.ts. The resolver
  * in revenue-resolvers.ts threads project + per-asset overrides through.
@@ -36,7 +35,7 @@ import {
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
   nonLabelColumnPct,
 } from './_shared/tableStyles';
-import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { PhaseSection } from './_shared/PhaseSection';
 import { PercentageInput } from '../ui/PercentageInput';
 
 const FAST_INPUT: React.CSSProperties = {
@@ -525,46 +524,6 @@ export default function Module2Escrow(): React.JSX.Element {
         )}
       </PhaseSection>
 
-      {/* Per-asset detail (collapsible) */}
-      {escrowAssetRows.length > 0 && (
-        <PhaseSection
-          phaseId="escrow-perasset"
-          title="3. Per-Asset Detail"
-          meta="full roll-forward for each Sell asset"
-          storageKey="fmp:m2:escrow:perasset:collapsed"
-          defaultOpen={false}
-        >
-          {escrowAssetRows.map((ar) => (
-            <AssetSection
-              key={ar.assetId}
-              assetId={ar.assetId}
-              title={ar.assetName}
-              meta={`Held ${(ar.effectiveHeldPct * 100).toFixed(2)}% · Until ${ar.effectiveHeldUntilYear} · Release ${ar.effectiveReleaseYear}`}
-              storageKey={`fmp:m2:escrow:asset:${ar.assetId}:collapsed`}
-              defaultOpen={false}
-            >
-              <PeriodTable
-                title={`${ar.assetName} — Roll-Forward`}
-                yearLabels={yearLabels}
-                currency={currency}
-                fmt={fmt}
-                rows={[
-                  { label: 'Pre-Sales Cash', values: ar.preSalesCashPerPeriod, indent: 1 },
-                  { label: 'Held this period', values: ar.result.heldPerPeriod, indent: 1 },
-                  { label: 'Released this period', values: ar.result.releasePerPeriod, indent: 1 },
-                  { label: 'Net Movement', values: ar.result.netMovementPerPeriod, isSubtotal: true },
-                  {
-                    label: 'Cumulative Locked Balance',
-                    values: ar.result.cumulativeBalancePerPeriod,
-                    isTotal: true,
-                    totalOverride: fmt(ar.result.cumulativeBalancePerPeriod[N - 1] ?? 0),
-                  },
-                ]}
-              />
-            </AssetSection>
-          ))}
-        </PhaseSection>
-      )}
     </div>
   );
 }
