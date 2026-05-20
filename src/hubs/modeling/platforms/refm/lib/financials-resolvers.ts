@@ -188,6 +188,11 @@ export interface ProjectBS {
   // Check
   totalLiabilitiesAndEquityPerPeriod: number[];
   bsDifferencePerPeriod: number[];
+  // M4 Pass 2M-A1 (2026-05-20): opening cash carried into the model at
+  // axis start (sum of phase.historicalBaseline.historicalOpeningCash).
+  // Used to populate the BS Cash prior-year column + as the seed
+  // balance for the Direct CF.
+  historicalOpeningCashTotal: number;
 }
 
 /**
@@ -742,10 +747,18 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     cashFromFin[t] = equityDraws[t] + debtDraws[t] - debtRepays[t] - interestPaidArr[t];
   }
 
+  // M4 Pass 2M-A1 (2026-05-20): seed runningCash with the sum of
+  // per-phase historicalOpeningCash on operational phases. Captures
+  // pre-existing cash that balances opening Debt + Equity vs Pre-Capex
+  // at t=0 so the BS check at project Y0 reconciles.
+  const historicalOpeningCashTotal = phases.reduce(
+    (s, p) => s + Math.max(0, p.historicalBaseline?.historicalOpeningCash ?? 0),
+    0,
+  );
   const netCf = zeros(N);
   const openingCash = zeros(N);
   const closingCash = zeros(N);
-  let runningCash = 0;
+  let runningCash = historicalOpeningCashTotal;
   for (let t = 0; t < N; t++) {
     netCf[t] = cashFromOps[t] + cashFromInv[t] + cashFromFin[t];
     openingCash[t] = runningCash;
@@ -930,6 +943,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     totalEquityPerPeriod: totalEquity,
     totalLiabilitiesAndEquityPerPeriod: totalLandE,
     bsDifferencePerPeriod: bsDiff,
+    historicalOpeningCashTotal,
   };
 
   const idcSnapshot: ProjectIDCSnapshot = {

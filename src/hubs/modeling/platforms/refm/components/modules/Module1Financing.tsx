@@ -1122,6 +1122,13 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
             const phaseAssetsTotDebt = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalDebtAmount ?? 0), 0);
             const phaseAssetsTotEq = trancheePhaseAssets.reduce((s, a) => s + Math.max(0, a.historicalEquityAmount ?? 0), 0);
             const balancesOk = Math.abs(phaseAssetsTotPre - (phaseAssetsTotDebt + phaseAssetsTotEq)) < 1;
+            // M4 Pass 2M-A1: Opening Cash identity at phase level.
+            // PreCapex + OpeningCash should equal Debt + Equity. Any
+            // excess D+E that does not capitalise into existing assets
+            // is captured in Opening Cash so the BS balances at t=0.
+            const phaseOpeningCash = Math.max(0, b?.historicalOpeningCash ?? 0);
+            const openingDiff = (phaseAssetsTotPre + phaseOpeningCash) - (phaseAssetsTotDebt + phaseAssetsTotEq);
+            const openingOk = Math.abs(openingDiff) < 1;
             return (
               <div style={{
                 marginTop: 'var(--sp-2)',
@@ -1135,7 +1142,7 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                 </div>
 
                 {/* Per-phase opening BS row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 'var(--sp-2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 'var(--sp-2)' }}>
                   <div>
                     <FieldLabel>Cumulative Depreciation</FieldLabel>
                     <AccountingNumberInput
@@ -1157,6 +1164,18 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                     <AccountingNumberInput
                       value={b?.existingRetainedEarnings ?? 0}
                       onChange={(v) => updatePhase(ph.id, { historicalBaseline: { ...seedBaseline(), existingRetainedEarnings: Math.max(0, v) } })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    {/* M4 Pass 2M-A1 (2026-05-20): opening cash balance.
+                     *  Closes the BS imbalance at t=0 when the phase
+                     *  carries pre-existing debt + equity that exceed
+                     *  pre-capex. Flows to BS Cash[0] via the composer. */}
+                    <FieldLabel>Opening Cash (Y0)</FieldLabel>
+                    <AccountingNumberInput
+                      value={b?.historicalOpeningCash ?? 0}
+                      onChange={(v) => updatePhase(ph.id, { historicalBaseline: { ...seedBaseline(), historicalOpeningCash: Math.max(0, v) } })}
                       style={inputStyle}
                     />
                   </div>
@@ -1276,6 +1295,27 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
                 {!balancesOk && trancheePhaseAssets.length > 0 && (
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-danger, #b91c1c)', background: 'color-mix(in srgb, var(--color-danger, #b91c1c) 10%, transparent)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginTop: 6 }}>
                     Pre-Capex {fmt(phaseAssetsTotPre)} != Debt {fmt(phaseAssetsTotDebt)} + Equity {fmt(phaseAssetsTotEq)}. Per-asset balances do not reconcile.
+                  </div>
+                )}
+                {/* M4 Pass 2M-A1: Opening Cash identity chip. */}
+                {trancheePhaseAssets.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: openingOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                      background: openingOk
+                        ? 'color-mix(in srgb, var(--color-success, #166534) 10%, transparent)'
+                        : 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      marginTop: 6,
+                    }}
+                    title="Pre-Capex + Opening Cash should equal Debt + Equity. Opening Cash captures excess financing not yet deployed into fixed assets."
+                  >
+                    Pre-Capex {fmt(phaseAssetsTotPre)} + Opening Cash {fmt(phaseOpeningCash)} = {fmt(phaseAssetsTotPre + phaseOpeningCash)}{' '}
+                    {openingOk ? '=' : 'vs'} Debt {fmt(phaseAssetsTotDebt)} + Equity {fmt(phaseAssetsTotEq)} = {fmt(phaseAssetsTotDebt + phaseAssetsTotEq)}
+                    {!openingOk && ` (off ${fmt(Math.abs(openingDiff))})`}
                   </div>
                 )}
               </div>

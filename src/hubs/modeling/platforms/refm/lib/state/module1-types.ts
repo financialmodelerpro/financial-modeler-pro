@@ -545,6 +545,15 @@ export interface PhaseHistoricalBaseline {
   // equity contributions. Captured on Tab 4 (Financing) under the
   // Existing Operations Summary card.
   existingRetainedEarnings?: number;
+  // M4 Pass 2M-A1 (2026-05-20): opening cash balance at project Y0 for
+  // operational phases. Closes the BS Check imbalance at t=0 when the
+  // phase carries pre-existing debt + equity without a matching cash
+  // line. Captured on Tab 1 (Project & Phases) under the Historical
+  // Baseline section that already exists for operational phases. The
+  // BS composer adds this to Cash[0] + the prior column. Validation
+  // chip: historicalPreCapex + historicalOpeningCash should equal
+  // historicalDebt + historicalEquity (user-confirmed identity).
+  historicalOpeningCash?: number;
   /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
   last12MonthsRevenue: number;
   /** @deprecated since Pass 38. Will move to Historical Financials panel under Financials module. */
