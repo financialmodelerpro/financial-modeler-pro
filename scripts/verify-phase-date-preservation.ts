@@ -438,6 +438,78 @@ console.log('\n[F] Long percentagesByPhase does not zero out the matrix (lockste
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// G: data recovery when percentagesByPhase was truncated by Pass 9k
+//    but legacy percentages still holds the user's original data.
+//    The resolver must MERGE both rather than pick one source.
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[G] Truncated percentagesByPhase + intact legacy = full schedule recovered');
+{
+  const project = {
+    name: 'data-recovery',
+    currency: 'SAR',
+    modelType: 'annual' as const,
+    startDate: '2026-01-01',
+    status: 'Draft' as const,
+    location: '',
+    country: 'Saudi Arabia',
+  } as unknown as Project;
+  // Phase: cp=4, op=0 (handover at year 3). Pass 9k truncated
+  // percentagesByPhase to length cp + op - overlap = 4. A second
+  // phase extends the project axis so the full 8-year schedule
+  // has somewhere to land.
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 4, operationsPeriods: 0, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const phaseExt: Phase = { id: 'p2', name: 'P2', startDate: '2031-01-01', constructionPeriods: 2, operationsPeriods: 3, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p1', name: 'Tower', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{
+          subUnitId: 'su1',
+          preSalesVelocityByPhase: [1.0, 0, 0, 0],
+          postSalesVelocityByPhase: [],
+          preSalesVelocity: [], postSalesVelocity: [],
+        }],
+        cashPaymentProfile: {
+          // Legacy: full 8-year schedule (axis 0..7 = 2026..2033).
+          // 10% per year, sum = 80%. The remaining 20% sits in the
+          // cohort matrix as catchup at sale year.
+          percentages: [0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0, 0],
+          // ByPhase: truncated to cp+op-overlap = 4 by Pass 9k. The
+          // last 4 entries (post-handover) are lost in storage.
+          percentagesByPhase: [0.10, 0.10, 0.10, 0.10],
+          profileMode: 'absolute_with_catchup',
+        },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
+    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
+  } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase, phaseExt], assets: [asset], subUnits: [subUnit] });
+  const sell = res.bySellAsset.get('a1');
+  if (!sell) {
+    console.log('  [FAIL] G-pre: no sell result');
+    fail++;
+  } else {
+    // Cohort sells 100M in 2026. Schedule 10% × 8 years => 10M at each
+    // of 2026..2033 (axis 0..7). 80M total collected, 20M unhandled
+    // catchup sits at sale year (2026): cohort gets 10M + 20M catchup
+    // for the 0..0 catchup = no actually no catchup at sale year since
+    // pos 0 == saleYear, just 10M. So 80M total over 8 years.
+    assertNear('G1: cash at axis 0 (2026) = 10M', sell.cashCollectedPerPeriod[0] ?? 0, 10_000_000, 10);
+    assertNear('G2: cash at axis 3 (2029, last truncated slot) = 10M', sell.cashCollectedPerPeriod[3] ?? 0, 10_000_000, 10);
+    assertNear('G3: cash at axis 4 (2030, post-truncation slot from legacy) = 10M', sell.cashCollectedPerPeriod[4] ?? 0, 10_000_000, 10);
+    assertNear('G4: cash at axis 7 (2033) = 10M', sell.cashCollectedPerPeriod[7] ?? 0, 10_000_000, 10);
+    assertNear('G5: total collected over 8 years = 80M', sell.cashCollectedPerPeriod.slice(0, 8).reduce((s, v) => s + v, 0), 80_000_000, 10);
+  }
+}
+
 console.log(`\n--- Phase-date preservation: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);
 if (fail > 0) {
   console.error('\nFAILURES:');

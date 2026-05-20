@@ -559,42 +559,69 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       cashPaymentProfile: (() => {
         const cpp = cfgRaw.cashPaymentProfile;
         const sCpp = storedSell?.cashPaymentProfile;
-        // M2 Pass 9k-Fix (2026-05-20):
-        // 1) When percentagesByPhase is the source of truth, its index
-        //    k is PHASE-LOCAL — k=0 means the phase start year. The
-        //    cohort engine expects positions in ABSOLUTE project-axis
-        //    years, so we ALWAYS rebuild positions by adding
-        //    phaseOffset. Without this, Phase 2+ cash schedules landed
-        //    on the wrong project years (Phase 1 only worked because
-        //    phaseOffset = 0).
-        // 2) buildCohortMatrix early-returns with an empty matrix when
-        //    pos.length !== pct.length, so pct + pos MUST stay
-        //    lockstep. Drop the prior in-resolver filter that pruned
-        //    pos but left pct intact — the cohort engine already
-        //    handles `position < N` internally, so out-of-range
-        //    positions are safe to pass through.
-        if (sCpp?.percentagesByPhase !== undefined) {
-          const newPct = sCpp.percentagesByPhase;
-          const localPos = sCpp.positionsByPhase ?? newPct.map((_, k) => k);
-          const newPos = localPos.map((p) => p + phaseOffset);
-          return { ...cpp, percentages: newPct, positions: newPos };
+        // M2 Pass 9k-Fix #3 (2026-05-20): MERGE legacy + percentagesByPhase
+        // instead of picking one.
+        //
+        // Background: Pass 2h dual-wrote cash percentages to both the
+        // legacy axis-indexed `percentages` (full project-axis length,
+        // every setter writes here) and to `percentagesByPhase`
+        // (phase-local, length cp+op-overlap pre-Fix #1). The early
+        // resolver preferred percentagesByPhase whenever it existed,
+        // which silently masked legacy entries past the truncated tail.
+        // For users whose snapshots passed through Pass 9k truncation,
+        // the engine then saw only the truncated phase-local slice and
+        // collected 100% of every cohort by handover (catchup logic),
+        // wiping post-handover cash from the vintage matrix.
+        //
+        // Merge rule: start from legacy axis-indexed, overlay any
+        // non-zero phase-local entries (after phaseOffset shift). Both
+        // legacy and ByPhase carry user intent depending on when the
+        // edit happened; non-destructive merge guarantees no loss.
+        // Positions are the simple axis-indexed [0..N-1].
+        const axisPct = new Array<number>(N).fill(0);
+        if (Array.isArray(sCpp?.percentages)) {
+          for (let i = 0; i < Math.min(sCpp.percentages.length, N); i++) {
+            axisPct[i] = sCpp.percentages[i] ?? 0;
+          }
+        } else if (Array.isArray(cpp.percentages)) {
+          for (let i = 0; i < Math.min(cpp.percentages.length, N); i++) {
+            axisPct[i] = cpp.percentages[i] ?? 0;
+          }
         }
-        return { ...cpp, percentages: cpp.percentages ?? [], positions: cpp.positions };
+        if (Array.isArray(sCpp?.percentagesByPhase)) {
+          for (let k = 0; k < sCpp.percentagesByPhase.length; k++) {
+            const axisIdx = phaseOffset + k;
+            const v = sCpp.percentagesByPhase[k] ?? 0;
+            if (axisIdx >= 0 && axisIdx < N && v !== 0) axisPct[axisIdx] = v;
+          }
+        }
+        const positions = axisPct.map((_, i) => i);
+        return { ...cpp, percentages: axisPct, positions };
       })(),
       recognitionProfile: (() => {
         const rp = cfgRaw.recognitionProfile;
         const sRp = storedSell?.recognitionProfile;
         if (rp.method !== 'over_time') return rp;
-        // M2 Pass 9k-Fix (2026-05-20): same phase-offset fix as cash,
-        // and no in-resolver position filter (would create the
-        // pct/pos length mismatch that empties the matrix).
-        if (sRp?.percentagesByPhase !== undefined) {
-          const newPct = sRp.percentagesByPhase;
-          const localPos = sRp.positionsByPhase ?? newPct.map((_, k) => k);
-          const newPos = localPos.map((p) => p + phaseOffset);
-          return { ...rp, percentages: newPct, positions: newPos };
+        // Same merge rule as cash; see comment above.
+        const axisPct = new Array<number>(N).fill(0);
+        if (Array.isArray(sRp?.percentages)) {
+          for (let i = 0; i < Math.min(sRp.percentages.length, N); i++) {
+            axisPct[i] = sRp.percentages[i] ?? 0;
+          }
+        } else if (Array.isArray(rp.percentages)) {
+          for (let i = 0; i < Math.min(rp.percentages.length, N); i++) {
+            axisPct[i] = rp.percentages[i] ?? 0;
+          }
         }
-        return { ...rp, percentages: rp.percentages, positions: rp.positions };
+        if (Array.isArray(sRp?.percentagesByPhase)) {
+          for (let k = 0; k < sRp.percentagesByPhase.length; k++) {
+            const axisIdx = phaseOffset + k;
+            const v = sRp.percentagesByPhase[k] ?? 0;
+            if (axisIdx >= 0 && axisIdx < N && v !== 0) axisPct[axisIdx] = v;
+          }
+        }
+        const positions = axisPct.map((_, i) => i);
+        return { ...rp, percentages: axisPct, positions };
       })(),
       indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N),
     };
