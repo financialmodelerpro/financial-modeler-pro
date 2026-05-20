@@ -457,7 +457,12 @@ export interface Project {
       rate?: number;
       startYear?: number;
       steps?: Array<{ year: number; factor: number }>;
+      /** @deprecated M4 Pass 2h: project-axis-indexed. */
       growthPerPeriod?: number[];
+      /** M4 Pass 2h: year-keyed (HQ has no owning phase). Key is the
+       *  absolute calendar year as a string, value is the growth rate
+       *  for that year. */
+      growthPerPeriodByYear?: Record<string, number>;
     };
     lines: Array<{
       id: string;
@@ -470,7 +475,10 @@ export interface Project {
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
+        /** M4 Pass 2h: year-keyed (HQ). */
+        growthPerPeriodByYear?: Record<string, number>;
       };
       /** When false, engine uses this line's own indexation. Otherwise
        *  the HQ defaultIndexation wins. (Pass 3, 2026-05-19.) */
@@ -479,9 +487,10 @@ export interface Project {
        *  every year (with inflation if any). 'yoy' = use yoyRates[t]
        *  directly per period; engine ignores inflation. Default 'single'. */
       rateMode?: 'single' | 'yoy';
-      /** Per-period rate array used when rateMode==='yoy'. Project-axis
-       *  indexed (arr[0] = first active project year). */
+      /** @deprecated M4 Pass 2h: project-axis-indexed. */
       yoyRates?: number[];
+      /** M4 Pass 2h: year-keyed per-period rates (HQ has no phase). */
+      yoyRatesByYear?: Record<string, number>;
       disabled?: boolean;
     }>;
   };
@@ -854,13 +863,28 @@ export interface Asset {
       assetId: string;
       subUnits: Array<{
         subUnitId: string;
+        /** @deprecated M4 Pass 2h (2026-05-20): project-axis-indexed.
+         *  Use preSalesVelocityByPhase. Kept for legacy snapshots; the
+         *  hydration migration converts this to the new field. */
         preSalesVelocity: number[];
+        /** @deprecated M4 Pass 2h (2026-05-20): project-axis-indexed. */
         postSalesVelocity: number[];
+        /** M4 Pass 2h (2026-05-20): phase-local indexed (arr[0] = first
+         *  year of the OWNING PHASE, mirrors the CostLine.startPeriod
+         *  convention). Survives project axis origin moves. */
+        preSalesVelocityByPhase?: number[];
+        postSalesVelocityByPhase?: number[];
       }>;
       cashPaymentProfile: {
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         percentages: number[];
+        /** @deprecated M4 Pass 2h: absolute project axis positions. */
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+        /** M4 Pass 2h: phase-local percentages (arr[k] paid at phase
+         *  period positionsByPhase[k]). */
+        percentagesByPhase?: number[];
+        positionsByPhase?: number[];
       };
       recognitionProfile: {
         method: 'point_in_time' | 'over_time';
@@ -870,16 +894,24 @@ export interface Asset {
          *  to a contract-specified year (legal title transfer, CoC).
          *  Engine clamps to the project axis. */
         pointInTimeCustomYear?: number;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         percentages?: number[];
+        /** @deprecated M4 Pass 2h: absolute project axis positions. */
         positions?: number[];
         profileMode?: 'absolute_with_catchup' | 'relative_to_sale';
+        /** M4 Pass 2h: phase-local recognition profile. */
+        percentagesByPhase?: number[];
+        positionsByPhase?: number[];
       };
       indexation: {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
+        /** M4 Pass 2h: phase-local indexed. */
+        growthPerPeriodByPhase?: number[];
       };
       handoverYearOverride?: number;
       /**
@@ -919,49 +951,67 @@ export interface Asset {
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
+        /** M4 Pass 2h: phase-local. */
+        growthPerPeriodByPhase?: number[];
       };
-      // Project-axis-indexed occupancy ramp (0..1 per period).
+      /** @deprecated M4 Pass 2h: project-axis-indexed occupancy ramp. */
       occupancyPerPeriod: number[];
+      /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
+      occupancyPerPeriodByPhase?: number[];
       guestsPerOccupiedRoom?: number;
       fb: {
         mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
+        /** @deprecated M4 Pass 2h: project-axis-indexed when array. */
         percentOfRooms?: number | number[];
         ratePerGuest?: number | number[];
         fixedAmountPerPeriod?: number | number[];
+        /** M4 Pass 2h: phase-local variants. */
+        percentOfRoomsByPhase?: number[];
+        ratePerGuestByPhase?: number[];
+        fixedAmountPerPeriodByPhase?: number[];
         indexation?: {
           method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
           steps?: Array<{ year: number; factor: number }>;
+          /** @deprecated M4 Pass 2h: project-axis-indexed. */
           growthPerPeriod?: number[];
+          /** M4 Pass 2h: phase-local. */
+          growthPerPeriodByPhase?: number[];
         };
       };
       otherRevenue: {
         mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
+        /** @deprecated M4 Pass 2h: project-axis-indexed when array. */
         percentOfRooms?: number | number[];
         ratePerGuest?: number | number[];
         fixedAmountPerPeriod?: number | number[];
+        /** M4 Pass 2h: phase-local variants. */
+        percentOfRoomsByPhase?: number[];
+        ratePerGuestByPhase?: number[];
+        fixedAmountPerPeriodByPhase?: number[];
         indexation?: {
           method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
           steps?: Array<{ year: number; factor: number }>;
+          /** @deprecated M4 Pass 2h: project-axis-indexed. */
           growthPerPeriod?: number[];
+          /** M4 Pass 2h: phase-local. */
+          growthPerPeriodByPhase?: number[];
         };
       };
       /** Days Sales Outstanding for AR roll-forward (Pass 8d). Default 30. */
       dso?: number;
       /**
        * Rental pool participation %, project-axis-indexed (decimal
-       * 0..1). When set, each entry scales total keys for that period:
-       * effective keys = total keys × participation. Used to model
-       * gradual buyer enrollment on a Sell + Manage companion (manual
-       * ramp up to 100%). When undefined or empty, the engine treats
-       * the pool as 100% full from operations start, the same as a
-       * standalone Operate hotel.
+       * 0..1). @deprecated M4 Pass 2h: use keysParticipationProfileByPhase.
        */
       keysParticipationProfile?: number[];
+      /** M4 Pass 2h: phase-local rental pool participation %. */
+      keysParticipationProfileByPhase?: number[];
     };
     /**
      * M2 Pass 9g (2026-05-18): Retail / Office Lease config. Mirrors
@@ -986,10 +1036,15 @@ export interface Asset {
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
+        /** M4 Pass 2h: phase-local. */
+        growthPerPeriodByPhase?: number[];
       };
-      // Project-axis-indexed occupancy ramp (0..1 per period).
+      /** @deprecated M4 Pass 2h: project-axis-indexed occupancy ramp. */
       occupancyPerPeriod: number[];
+      /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
+      occupancyPerPeriodByPhase?: number[];
       /** Days Sales Outstanding for AR roll-forward. Default 30. */
       arDays?: number;
     };
@@ -1012,7 +1067,10 @@ export interface Asset {
       rate?: number;
       startYear?: number;
       steps?: Array<{ year: number; factor: number }>;
+      /** @deprecated M4 Pass 2h: project-axis-indexed. */
       growthPerPeriod?: number[];
+      /** M4 Pass 2h: phase-local. */
+      growthPerPeriodByPhase?: number[];
     };
     /** Flat list of line items; engine evaluates each over the ops window. */
     lines: Array<{
@@ -1026,7 +1084,10 @@ export interface Asset {
         rate?: number;
         startYear?: number;
         steps?: Array<{ year: number; factor: number }>;
+        /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
+        /** M4 Pass 2h: phase-local. */
+        growthPerPeriodByPhase?: number[];
       };
       /** When false, engine uses this line's own indexation. Otherwise
        *  the asset defaultIndexation wins. (Pass 3, 2026-05-19.) */
@@ -1035,9 +1096,10 @@ export interface Asset {
        *  every year (with inflation if any). 'yoy' = use yoyRates[t]
        *  directly per period; engine ignores inflation. Default 'single'. */
       rateMode?: 'single' | 'yoy';
-      /** Per-period rate array used when rateMode==='yoy'. Project-axis
-       *  indexed (arr[0] = first active project year). */
+      /** @deprecated M4 Pass 2h: project-axis-indexed. */
       yoyRates?: number[];
+      /** M4 Pass 2h: phase-local per-period rates. */
+      yoyRatesByPhase?: number[];
       disabled?: boolean;
     }>;
     /** M4 Pass 2a (2026-05-20): override the project Days Payable
@@ -1631,19 +1693,29 @@ export interface FinancingTranche {
    * still use this switch.
    */
   drawdownMethod: DrawdownMethod;
+  /** @deprecated M4 Pass 2h: project-axis-indexed. Use drawdownDistributionByYear. */
   drawdownDistribution?: number[];     // manual only
+  /** M4 Pass 2h: year-keyed drawdown weights (key = absolute year). */
+  drawdownDistributionByYear?: Record<string, number>;
   drawdownIncludeLand?: boolean;       // capex_minus_presales: include land in net
   drawdownMinCashFloor?: number;       // min_cash_floor only
-  // M2.0L (2026-05-11): per-period absolute amounts for custom_schedule
+  /** @deprecated M4 Pass 2h: project-axis-indexed absolute amounts. */
   drawdownCustomSchedule?: number[];
+  /** M4 Pass 2h: year-keyed custom drawdown absolute amounts. */
+  drawdownCustomScheduleByYear?: Record<string, number>;
   // Repayment
   repaymentMethod: RepaymentMethod;
   repaymentPeriods: number;
+  /** @deprecated M4 Pass 2h: project-axis-indexed. */
   repaymentManualDistribution?: number[]; // manual only
+  /** M4 Pass 2h: year-keyed repayment weights. */
+  repaymentManualDistributionByYear?: Record<string, number>;
   sweepStartPeriod?: number;              // cashsweep_from_period
   sweepMinCashFloor?: number;             // cashsweep_min_cash
-  // M2.0L: per-period absolute amounts for repayment custom_schedule
+  /** @deprecated M4 Pass 2h: project-axis-indexed absolute amounts. */
   repaymentCustomSchedule?: number[];
+  /** M4 Pass 2h: year-keyed custom repayment absolute amounts. */
+  repaymentCustomScheduleByYear?: Record<string, number>;
   // IDC capitalization (interest during construction goes to principal,
   // not paid in cash). When false, interest is expensed during
   // construction and reduces equity contribution.
