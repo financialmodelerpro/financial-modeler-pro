@@ -34,16 +34,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
-
-const FAST_INPUT: React.CSSProperties = {
-  width: '100%',
-  padding: '4px 6px',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 8%, white))',
-  color: 'var(--color-navy)',
-  fontSize: 12,
-};
+import { FAST_INPUT } from './_shared/inputStyles';
 
 export default function Module4BalanceSheet(): React.JSX.Element {
   const state = useModule1Store(

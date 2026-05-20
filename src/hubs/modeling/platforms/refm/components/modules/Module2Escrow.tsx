@@ -37,16 +37,7 @@ import {
 } from './_shared/tableStyles';
 import { PhaseSection } from './_shared/PhaseSection';
 import { PercentageInput } from '../ui/PercentageInput';
-
-const FAST_INPUT: React.CSSProperties = {
-  width: '100%',
-  padding: '4px 6px',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 8%, white))',
-  color: 'var(--color-navy)',
-  fontSize: 12,
-};
+import { FAST_INPUT } from './_shared/inputStyles';
 
 interface Row {
   label: string;

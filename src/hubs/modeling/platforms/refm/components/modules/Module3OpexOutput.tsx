@@ -35,6 +35,7 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { FAST_INPUT } from './_shared/inputStyles';
 import type { OpexLineCategory } from '@/src/core/calculations/opex';
 
 type Aggregation = 'sum' | 'last' | 'avg' | 'none';
@@ -455,15 +456,6 @@ export default function Module3OpexOutput(): React.JSX.Element {
   };
 
   // ── M4 Pass 2a (2026-05-20): Accounts Payable schedule ──────────
-  const FAST_INPUT: React.CSSProperties = {
-    width: '100%',
-    padding: '4px 6px',
-    border: '1px solid var(--color-border)',
-    borderRadius: 'var(--radius-sm)',
-    background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 8%, white))',
-    color: 'var(--color-navy)',
-    fontSize: 12,
-  };
 
   const setProjectDefaultApDays = (days: number | undefined): void => {
     setProject({
