@@ -89,11 +89,18 @@ export default function Module4PL(): React.JSX.Element {
     state.setProject({ financialTerminology: mode });
   };
 
-  // Project P&L rows, detailed per-asset (M4 Pass 2k + 2L 2026-05-20).
-  // Mirrors the reference v1.16 layout: each strategy block lists its
-  // asset rows, then a strategy subtotal. Strategy groups are
-  // collapsible (totals visible by default). Each row carries its
-  // phaseLabel for the Phase column. Phase filter narrows asset rows.
+  // Project P&L rows, detailed per-asset (M4 Pass 2k + 2L + 2M-Fix
+  // 2026-05-20). Mirrors the reference v1.16 layout: each strategy
+  // block lists its asset rows, then a strategy subtotal. Strategy
+  // groups are collapsible (totals visible by default). Each row
+  // carries its phaseLabel for the Phase column.
+  //
+  // Pass 2M-Fix (2026-05-20): when phase filter is active, every
+  // subtotal + finance cost + D&A + tax line recomputes from the
+  // FILTERED slices so an existing-operations Phase 1 loan doesn't
+  // bleed into Phase 2's P&L view. Tranches filter by tranche.phaseId.
+  // HQ Opex stays project-level (no phase ownership) and is tagged
+  // (project) when filtered.
   const buildProjectPLRows = (): M4Row[] => {
     const p = snap.pl;
     const rows: M4Row[] = [];
@@ -103,6 +110,94 @@ export default function Module4PL(): React.JSX.Element {
     const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
     const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
     const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
+    const phaseFiltered = filterPhaseId !== '__all__';
+    const projTag = phaseFiltered ? ' (project)' : '';
+
+    // Helpers to sum per-asset slices.
+    const zerosN = (): number[] => new Array<number>(N).fill(0);
+    const sumAssetsSeries = (
+      assets: Array<{ id: string }>,
+      key: 'revenuePerPeriod' | 'cosPerPeriod' | 'opexPerPeriod',
+    ): number[] => {
+      const out = zerosN();
+      for (const a of assets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl) continue;
+        for (let t = 0; t < N; t++) out[t] += pl[key][t] ?? 0;
+      }
+      return out;
+    };
+
+    // Per-strategy revenue, CoS, Opex subtotals. When unfiltered these
+    // equal p.residentialRevenuePerPeriod etc.; under filter they
+    // re-sum the visible assets.
+    const resRev = phaseFiltered ? sumAssetsSeries(residentialAssets, 'revenuePerPeriod') : p.residentialRevenuePerPeriod;
+    const hospRev = phaseFiltered ? sumAssetsSeries(hospitalityAssets, 'revenuePerPeriod') : p.hospitalityRevenuePerPeriod;
+    const retailRev = phaseFiltered ? sumAssetsSeries(retailAssets, 'revenuePerPeriod') : p.retailRevenuePerPeriod;
+    const totalRev = phaseFiltered
+      ? resRev.map((v, i) => v + hospRev[i] + retailRev[i])
+      : p.totalRevenuePerPeriod;
+    const cosTotal = phaseFiltered ? sumAssetsSeries(residentialAssets, 'cosPerPeriod') : p.cosPerPeriod;
+    const hospOpex = phaseFiltered ? sumAssetsSeries(hospitalityAssets, 'opexPerPeriod') : p.hospitalityOpexPerPeriod;
+    const retailOpex = phaseFiltered ? sumAssetsSeries(retailAssets, 'opexPerPeriod') : p.retailOpexPerPeriod;
+    // HQ Opex: project-only — no phase ownership.
+    const hqOpex = p.hqOpexPerPeriod;
+    const totalOpex = hospOpex.map((v, i) => v + retailOpex[i] + hqOpex[i]);
+
+    // D&A: per-asset depreciation + IDC NBV depreciation. IDC dep is
+    // project-only; under filter allocate by phase land-sqm share
+    // (mirrors composer's IDC allocation rule, same approach as the
+    // BS phase filter).
+    const daAssets = zerosN();
+    if (phaseFiltered) {
+      const phaseAssetIds = new Set(
+        [...residentialAssets, ...hospitalityAssets, ...retailAssets].map((a) => a.id),
+      );
+      for (const id of phaseAssetIds) {
+        const fa = snap.fixedAssets.byAsset.get(id);
+        if (!fa) continue;
+        const dep = fa.depreciable.depreciationPerPeriod;
+        for (let t = 0; t < N; t++) daAssets[t] += dep[t] ?? 0;
+      }
+      // IDC dep share.
+      const totalLandSqm = Math.max(0, snap.idc.totalLandSqm);
+      let phaseLandSqm = 0;
+      for (const id of phaseAssetIds) phaseLandSqm += snap.idc.byAsset.get(id)?.landSqm ?? 0;
+      const idcShare = totalLandSqm > 0 ? phaseLandSqm / totalLandSqm : 0;
+      const idcDep = snap.idc.idcDepreciationPerPeriod;
+      for (let t = 0; t < N; t++) daAssets[t] += (idcDep[t] ?? 0) * idcShare;
+    }
+    const da = phaseFiltered ? daAssets : p.daPerPeriod;
+
+    // Interest expense: filter facilities by tranche.phaseId. Engine
+    // emits `interestAccrued` (total) and `interestCapitalized` (IDC
+    // capitalised portion, doesn't hit P&L). Expense = accrued -
+    // capitalised. Existing-phase loans no longer bleed into other
+    // phases under filter.
+    const interestExpense = zerosN();
+    if (phaseFiltered) {
+      const trancheIds = new Set(
+        state.financingTranches.filter((t) => t.phaseId === filterPhaseId).map((t) => t.id),
+      );
+      for (const id of trancheIds) {
+        const fac = snap.financing.facilities.get(id);
+        if (!fac) continue;
+        for (let t = 0; t < N; t++) {
+          const accrued = fac.interestAccrued[t + 1] ?? 0;
+          const capitalised = fac.interestCapitalized[t + 1] ?? 0;
+          interestExpense[t] += Math.max(0, accrued - capitalised);
+        }
+      }
+    } else {
+      for (let t = 0; t < N; t++) interestExpense[t] = p.interestExpensePerPeriod[t] ?? 0;
+    }
+
+    // Recompute EBITDA / EBIT / PBT / Tax / PAT from the filtered lines.
+    const ebitda = totalRev.map((v, i) => v - (cosTotal[i] ?? 0) - (totalOpex[i] ?? 0));
+    const ebit = ebitda.map((v, i) => v - (da[i] ?? 0));
+    const pbt = ebit.map((v, i) => v - (interestExpense[i] ?? 0));
+    const taxArr = pbt.map((v) => Math.max(0, v) * p.taxRate);
+    const pat = pbt.map((v, i) => v - (taxArr[i] ?? 0));
 
     // ── REVENUE ────────────────────────────────────────────────────
     rows.push({ label: 'REVENUE', values: [], isSection: true });
@@ -121,58 +216,58 @@ export default function Module4PL(): React.JSX.Element {
       });
     };
 
-    if (residentialAssets.length > 0 && p.residentialRevenuePerPeriod.some((v) => v !== 0)) {
+    if (residentialAssets.length > 0 && resRev.some((v) => v !== 0)) {
       rows.push({ label: 'Residential Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: true });
       for (const a of residentialAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-res');
-      rows.push({ label: 'Total Residential Revenue', values: p.residentialRevenuePerPeriod, isSubtotal: true, indent: 1 });
+      rows.push({ label: 'Total Residential Revenue', values: resRev, isSubtotal: true, indent: 1 });
     }
-    if (hospitalityAssets.length > 0 && p.hospitalityRevenuePerPeriod.some((v) => v !== 0)) {
+    if (hospitalityAssets.length > 0 && hospRev.some((v) => v !== 0)) {
       rows.push({ label: 'Hospitality Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: true });
       for (const a of hospitalityAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-hosp');
-      rows.push({ label: 'Total Hospitality Revenue', values: p.hospitalityRevenuePerPeriod, isSubtotal: true, indent: 1 });
+      rows.push({ label: 'Total Hospitality Revenue', values: hospRev, isSubtotal: true, indent: 1 });
     }
-    if (retailAssets.length > 0 && p.retailRevenuePerPeriod.some((v) => v !== 0)) {
+    if (retailAssets.length > 0 && retailRev.some((v) => v !== 0)) {
       rows.push({ label: 'Retail Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: true });
       for (const a of retailAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-ret');
-      rows.push({ label: 'Total Retail Revenue', values: p.retailRevenuePerPeriod, isSubtotal: true, indent: 1 });
+      rows.push({ label: 'Total Retail Revenue', values: retailRev, isSubtotal: true, indent: 1 });
     }
-    rows.push({ label: 'Total Revenue', values: p.totalRevenuePerPeriod, isTotal: true });
+    rows.push({ label: 'Total Revenue', values: totalRev, isTotal: true });
 
     // ── COST OF SALES ─────────────────────────────────────────────
-    if (p.cosPerPeriod.some((v) => v !== 0)) {
+    if (cosTotal.some((v) => v !== 0)) {
       rows.push({ label: 'COST OF SALES', values: [], isSection: true });
       rows.push({ label: 'Residential cost of sales', values: [], isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: true });
       for (const a of residentialAssets) pushAssetPL(a, 'cosPerPeriod', 'pl-cos', -1);
-      rows.push({ label: 'Total Cost of Sales', values: negArr(p.cosPerPeriod), isSubtotal: true });
+      rows.push({ label: 'Total Cost of Sales', values: negArr(cosTotal), isSubtotal: true });
     }
 
     // ── OPERATING EXPENSES ────────────────────────────────────────
     rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
-    if (hospitalityAssets.length > 0 && p.hospitalityOpexPerPeriod.some((v) => v !== 0)) {
+    if (hospitalityAssets.length > 0 && hospOpex.some((v) => v !== 0)) {
       rows.push({ label: 'Hospitality operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: true });
       for (const a of hospitalityAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-hosp', -1);
     }
-    if (retailAssets.length > 0 && p.retailOpexPerPeriod.some((v) => v !== 0)) {
+    if (retailAssets.length > 0 && retailOpex.some((v) => v !== 0)) {
       rows.push({ label: 'Retail operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: true });
       for (const a of retailAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-ret', -1);
     }
-    if (p.hqOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'HQ Expenses', values: negArr(p.hqOpexPerPeriod), indent: 1 });
+    if (hqOpex.some((v) => v !== 0)) {
+      rows.push({ label: `HQ Expenses${projTag}`, values: negArr(hqOpex), indent: 1 });
     }
-    rows.push({ label: 'Total Operating Expenses', values: negArr(p.totalOpexPerPeriod), isSubtotal: true });
+    rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
 
-    rows.push({ label: labels.ebitda, values: p.ebitdaPerPeriod, isTotal: true });
-    rows.push({ label: 'Depreciation & Amortization', values: negArr(p.daPerPeriod), indent: 1 });
-    rows.push({ label: labels.ebit, values: p.ebitPerPeriod, isSubtotal: true });
+    rows.push({ label: labels.ebitda, values: ebitda, isTotal: true });
+    rows.push({ label: 'Depreciation & Amortization', values: negArr(da), indent: 1 });
+    rows.push({ label: labels.ebit, values: ebit, isSubtotal: true });
 
-    rows.push({ label: 'Interest & financing cost', values: negArr(p.interestExpensePerPeriod), indent: 1 });
+    rows.push({ label: 'Interest & financing cost', values: negArr(interestExpense), indent: 1 });
     if (p.interestIncomePerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'Interest income / other', values: p.interestIncomePerPeriod, indent: 1 });
     }
-    rows.push({ label: labels.pbt, values: p.pbtPerPeriod, isSubtotal: true });
+    rows.push({ label: labels.pbt, values: pbt, isSubtotal: true });
 
-    rows.push({ label: `${labels.tax} (${(p.taxRate * 100).toFixed(2)}%)`, values: negArr(p.taxPerPeriod), indent: 1 });
-    rows.push({ label: labels.pat, values: p.patPerPeriod, isTotal: true });
+    rows.push({ label: `${labels.tax} (${(p.taxRate * 100).toFixed(2)}%)`, values: negArr(taxArr), indent: 1 });
+    rows.push({ label: labels.pat, values: pat, isTotal: true });
 
     return rows;
   };
