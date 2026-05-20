@@ -510,6 +510,23 @@ console.log('\n[G] Truncated percentagesByPhase + intact legacy = full schedule 
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// H: expandPhaseLocalToAxis merges legacy + byPhase so the last
+//    operations year still produces revenue when byPhase is shorter
+//    than the project axis (axis-extension scenario where ByPhase was
+//    seeded by an earlier-narrower hydration).
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[H] expandPhaseLocalToAxis legacy fills byPhase tail');
+{
+  // Axis = 5 (project 2026..2030). byPhase has only 3 entries.
+  // Legacy carries the missing tail (year 2029, year 2030).
+  const v = expandPhaseLocalToAxis([0.5, 0.6, 0.7], [0.5, 0.6, 0.7, 0.8, 0.9], 0, 5);
+  assertEq('H1: byPhase covers idx 0-2, legacy fills idx 3-4', v, [0.5, 0.6, 0.7, 0.8, 0.9]);
+  // Phase offset case: byPhase covers axis idx 2-4, legacy fills 0-1.
+  const v2 = expandPhaseLocalToAxis([0.1, 0.2, 0.3], [0.7, 0.8, 0.9, 0.0, 0.0], 2, 5);
+  assertEq('H2: phaseOffset=2 + byPhase covers idx 2-4', v2, [0.7, 0.8, 0.1, 0.2, 0.3]);
+}
+
 console.log(`\n--- Phase-date preservation: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);
 if (fail > 0) {
   console.error('\nFAILURES:');

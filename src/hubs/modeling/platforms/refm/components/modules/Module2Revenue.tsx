@@ -975,8 +975,20 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const setOperateADR = (n: number): void => updateOperateInline({ startingADR: Math.max(0, n) });
   const setOperateOccupancy = (idx: number, pct: number): void => {
     const next = paddedArray(opOccupancy, totalPeriods);
-    next[idx] = Math.max(0, Math.min(1, pct / 100));
-    updateOperateInline({ occupancyPerPeriod: next });
+    const value = Math.max(0, Math.min(1, pct / 100));
+    next[idx] = value;
+    // M2 Fix (2026-05-20): dual-write to occupancyPerPeriodByPhase so
+    // the engine (which prefers ByPhase via expandPhaseLocalToAxis)
+    // sees the edit. Without this every legacy-only write was
+    // shadowed by the migration-seeded ByPhase snapshot, which is
+    // also why occupancy at the last operations year showed 0 after
+    // a project-axis extension.
+    const localIdx = idx - phaseOffset;
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const existingByPhase = operateConfig?.occupancyPerPeriodByPhase;
+    const nextByPhase = paddedArray(existingByPhase, phaseLen);
+    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase });
   };
   const setOperateGuestsPerOR = (n: number): void => updateOperateInline({ guestsPerOccupiedRoom: Math.max(0, n) });
   // Pass 8e (2026-05-18): typical hospitality stabilization curve.
@@ -992,17 +1004,37 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       const idx = operationsStartIdx + k;
       next[idx] = k < ramp.length ? ramp[k] : stabilized;
     }
-    updateOperateInline({ occupancyPerPeriod: next });
+    // M2 Fix (2026-05-20): dual-write to ByPhase (see setOperateOccupancy).
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const nextByPhase = paddedArray(undefined, phaseLen);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      nextByPhase[i] = next[axisIdx] ?? 0;
+    }
+    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
   // Rental pool % per period (manual ramp). decimal 0..1 in storage.
   const opKeysParticipation: number[] = operateConfig?.keysParticipationProfile ?? new Array<number>(totalPeriods).fill(0);
+  // M2 Fix (2026-05-20): mirror writes to keysParticipationProfileByPhase.
+  const buildKeysParticipationByPhase = (axisArr: number[]): number[] => {
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const out = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      out[i] = axisArr[axisIdx] ?? 0;
+    }
+    return out;
+  };
   const setOperateKeysParticipation = (projectIdx: number, pct: number): void => {
     const base = operateConfig?.keysParticipationProfile ?? [];
     const next = new Array<number>(totalPeriods).fill(0);
     for (let i = 0; i < Math.min(base.length, totalPeriods); i++) next[i] = base[i] ?? 0;
     next[projectIdx] = Math.max(0, Math.min(1, pct / 100));
-    updateOperateInline({ keysParticipationProfile: next });
+    updateOperateInline({
+      keysParticipationProfile: next,
+      keysParticipationProfileByPhase: buildKeysParticipationByPhase(next),
+    });
   };
   const applyKeysParticipationRamp = (): void => {
     const next = new Array<number>(totalPeriods).fill(0);
@@ -1012,12 +1044,18 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       const idx = operationsStartIdx + k;
       next[idx] = k < ramp.length ? ramp[k] : 1.0;
     }
-    updateOperateInline({ keysParticipationProfile: next });
+    updateOperateInline({
+      keysParticipationProfile: next,
+      keysParticipationProfileByPhase: buildKeysParticipationByPhase(next),
+    });
   };
   const applyKeysParticipationFull = (): void => {
     const next = new Array<number>(totalPeriods).fill(0);
     for (let idx = operationsStartIdx; idx <= operationsEndIdx; idx++) next[idx] = 1.0;
-    updateOperateInline({ keysParticipationProfile: next });
+    updateOperateInline({
+      keysParticipationProfile: next,
+      keysParticipationProfileByPhase: buildKeysParticipationByPhase(next),
+    });
   };
   const setOperateADRIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
     updateOperateInline({ adrIndexation: { ...opADRIdx, method } });
@@ -1071,10 +1109,21 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     };
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), lease: next } });
   };
+  // M2 Fix (2026-05-20): mirror writes to occupancyPerPeriodByPhase
+  // for the same reason as setOperateOccupancy (engine reads ByPhase).
+  const buildLeaseOccupancyByPhase = (axisArr: number[]): number[] => {
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const out = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      out[i] = axisArr[axisIdx] ?? 0;
+    }
+    return out;
+  };
   const setLeaseOccupancy = (idx: number, pct: number): void => {
     const next = paddedArray(leaseOccupancy, totalPeriods);
     next[idx] = Math.max(0, Math.min(1, pct / 100));
-    updateLeaseInline({ occupancyPerPeriod: next });
+    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next) });
   };
   const applyLeaseOccupancyStabilizationPreset = (): void => {
     // Retail / office stabilisation curve (reference v1.16 row 332):
@@ -1087,7 +1136,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       const idx = operationsStartIdx + k;
       next[idx] = k < ramp.length ? ramp[k] : stabilized;
     }
-    updateLeaseInline({ occupancyPerPeriod: next });
+    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next) });
   };
   const setLeaseArDays = (n: number): void => updateLeaseInline({ arDays: Math.max(0, Math.round(n)) });
   const setLeaseRentIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {

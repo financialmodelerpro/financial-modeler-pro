@@ -82,10 +82,38 @@ export function expandPhaseLocalToAxis(
 ): number[] {
   const N = Math.max(0, axisLength);
   const out = new Array<number>(N).fill(0);
+  // M2 Fix (2026-05-20): byPhase authoritative WHERE IT COVERS, legacy
+  // fills the indices it doesn't cover.
+  //
+  // Problem: several operate / lease setters write ONLY to the legacy
+  // axis-indexed field (occupancyPerPeriod, keysParticipationProfile,
+  // F&B arrays). The hydration migration seeded byPhase from legacy
+  // once, after which the engine started reading byPhase exclusively.
+  // If the project axis later extended (new phase added, operations
+  // years increased), byPhase stayed one or more entries short of the
+  // new axis — producing 0 at the last operations year(s) even though
+  // the user-facing UI showed an occupancy value (read from legacy).
+  //
+  // Merge rule:
+  //   1. Apply byPhase at its phase-local indices (authoritative
+  //      where it has an entry).
+  //   2. For any axis index NOT covered by a byPhase entry, fall back
+  //      to legacy.
+  //
+  // This preserves byPhase as the source of truth where it carries
+  // data (phase-date preservation still works), while letting legacy
+  // fill axis tails it doesn't reach.
   if (byPhase !== undefined) {
     for (let i = 0; i < byPhase.length; i++) {
       const axisIdx = phaseOffset + i;
       if (axisIdx >= 0 && axisIdx < N) out[axisIdx] = byPhase[i] ?? 0;
+    }
+    if (Array.isArray(legacy)) {
+      for (let i = 0; i < Math.min(legacy.length, N); i++) {
+        const phaseLocalIdx = i - phaseOffset;
+        const coveredByByPhase = phaseLocalIdx >= 0 && phaseLocalIdx < byPhase.length;
+        if (!coveredByByPhase) out[i] = legacy[i] ?? 0;
+      }
     }
     return out;
   }
