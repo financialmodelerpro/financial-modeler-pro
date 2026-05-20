@@ -216,7 +216,7 @@ export function computeAllOpexResults(
     // Only Hospitality (Operate, including Sell + Manage companions
     // whose strategy is 'Operate') and Retail/Lease carry opex.
     // Sell + Manage PARENTS (strategy 'Sell + Manage') and pure Sell
-    // have no ongoing operations — skip.
+    // have no ongoing operations, skip.
     if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
 
     const lines = resolveAssetOpexLines(a);
@@ -326,7 +326,7 @@ export function computeAllOpexResults(
 //
 // Composes the existing per-asset + HQ opex streams into a DPO-driven
 // AP roll-forward. Per-asset apDays override > project default > 0.
-// HQ uses the project default (no per-line HQ override yet — HQ is a
+// HQ uses the project default (no per-line HQ override yet, HQ is a
 // single bucket).
 // ────────────────────────────────────────────────────────────────────
 

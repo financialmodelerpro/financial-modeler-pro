@@ -376,7 +376,7 @@ export default function Module2Schedules(): React.JSX.Element {
   const totalAP = zeros();   // M3 placeholder
 
   // Pass 9g-L (2026-05-18): Direct + Indirect CF reconciliation and
-  // Net Working Capital removed — those derivations belong in Module 3
+  // Net Working Capital removed, those derivations belong in Module 3
   // (Financial Statements). Schedules is a raw line-item feed only.
   // totalAP retained as a project-total placeholder so future M3
   // supplier-terms work has a hook.
@@ -474,7 +474,7 @@ export default function Module2Schedules(): React.JSX.Element {
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           Per-asset feed grouped by strategy. Only assets with non-zero values for a given line appear; zero rows are hidden so the
           feed stays compact. Flow lines (Revenue, CoS, Cash) show <strong>sum</strong> in the Total column; stock lines
-          (Inventory, AR, UR) show <strong>closing balance</strong>. Schedules surfaces only raw line items here — Direct /
+          (Inventory, AR, UR) show <strong>closing balance</strong>. Schedules surfaces only raw line items here, Direct /
           Indirect cash-flow reconciliation, Net Working Capital, and the full P&amp;L / BS / CF statements compose in Module 3.
         </p>
       </div>
@@ -560,7 +560,7 @@ export default function Module2Schedules(): React.JSX.Element {
           return (
             <PeriodTable
               title="Unearned Revenue (closing balances)"
-              caption="Pre-sales sale value not yet recognised. Sell-strategy only — Hospitality + Lease recognise revenue in the same period it's earned, no deferral. Settles to 0 once cumulative recognition equals cumulative sale value."
+              caption="Pre-sales sale value not yet recognised. Sell-strategy only, Hospitality + Lease recognise revenue in the same period it's earned, no deferral. Settles to 0 once cumulative recognition equals cumulative sale value."
               yearLabels={snap.yearLabels}
               rows={[
                 { label: 'Residential / Sell', values: [], isSection: true },
@@ -578,14 +578,14 @@ export default function Module2Schedules(): React.JSX.Element {
       {/* Pass 9g-L (2026-05-18): Cash Flow Feed reduced to the two
           input streams (cash collected per asset + capex per Sell
           asset). The Direct / Indirect reconciliation tables were
-          removed — those derivations belong in Module 3 (Financial
+          removed, those derivations belong in Module 3 (Financial
           Statements) where Net Income, D&A, opex, and working-
           capital movement compose the full CF statement. Schedules
           stays a raw line-item feed only. */}
       <PhaseSection
         phaseId="m2-schedules-cf"
         title="Cash Flow Feed"
-        meta="Cash collected + Capex per asset — composed into the full CF statement in Module 3"
+        meta="Cash collected + Capex per asset, composed into the full CF statement in Module 3"
         storageKey="fmp:m2:schedules:cf:collapsed"
       >
         <PeriodTable

@@ -1,5 +1,5 @@
 /**
- * M2 Pass 9h — Pre-Sales Escrow engine verifier.
+ * M2 Pass 9h: Pre-Sales Escrow engine verifier.
  *
  * Methodology mirrors the reference Cashflow v1.16 Escrow tab:
  *   - Held[t]    = preSalesCash[t] x heldPct
@@ -8,15 +8,15 @@
  *   - CF adj[t]  = release[t] - held[t]
  *
  * Sections:
- *   A — engine zeros when heldPct = 0 (escrow disabled)
- *   B — held = preSalesCash x heldPct per period
- *   C — release lumps on the configured release year
- *   D — cumulative balance falls to zero after release
- *   E — totals: totalHeld = totalReleased (escrow is a wash)
- *   F — CF adjustment sign (negative during hold, positive on release)
- *   G — releaseYearIdx beyond the held window still releases the
+ *   A: engine zeros when heldPct = 0 (escrow disabled)
+ *   B: held = preSalesCash x heldPct per period
+ *   C: release lumps on the configured release year
+ *   D: cumulative balance falls to zero after release
+ *   E: totals: totalHeld = totalReleased (escrow is a wash)
+ *   F: CF adjustment sign (negative during hold, positive on release)
+ *   G: releaseYearIdx beyond the held window still releases the
  *       cumulative-to-that-period balance
- *   H — heldUntilIdx: pre-sales cash arriving AFTER heldUntilIdx is
+ *   H: heldUntilIdx: pre-sales cash arriving AFTER heldUntilIdx is
  *       not withheld; release lump = sum of held through heldUntilIdx
  */
 
@@ -41,7 +41,7 @@ function assertNear(name: string, actual: number, expected: number, tol = 0.01):
 console.log('=== M2 Pass 9h Escrow verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
-// A — heldPct = 0 → all zeros
+// A: heldPct = 0 → all zeros
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] Disabled escrow (heldPct = 0)');
 {
@@ -58,7 +58,7 @@ console.log('\n[A] Disabled escrow (heldPct = 0)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// B — Held math: 4% of pre-sales cash per period
+// B: Held math: 4% of pre-sales cash per period
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[B] Held = pre-sales cash × heldPct');
 {
@@ -81,7 +81,7 @@ console.log('\n[B] Held = pre-sales cash × heldPct');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// C — Release lump on the configured release year
+// C: Release lump on the configured release year
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[C] Release lump on releaseYearIdx');
 {
@@ -100,7 +100,7 @@ console.log('\n[C] Release lump on releaseYearIdx');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// D — Cumulative balance roll-forward + reset on release
+// D: Cumulative balance roll-forward + reset on release
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[D] Cumulative locked balance');
 {
@@ -123,7 +123,7 @@ console.log('\n[D] Cumulative locked balance');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// E — Totals identity: total held = total released
+// E: Totals identity: total held = total released
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[E] Wash identity (total held = total released)');
 {
@@ -141,7 +141,7 @@ console.log('\n[E] Wash identity (total held = total released)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// F — Cash flow adjustment sign
+// F: Cash flow adjustment sign
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[F] CF adjustment = release − held');
 {
@@ -166,7 +166,7 @@ console.log('\n[F] CF adjustment = release − held');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// G — releaseYearIdx beyond cash window
+// G: releaseYearIdx beyond cash window
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[G] Release year clamped to axis');
 {
@@ -185,7 +185,7 @@ console.log('\n[G] Release year clamped to axis');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// H — heldUntilIdx: hold window stops at construction end by default
+// H: heldUntilIdx: hold window stops at construction end by default
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[H] heldUntilIdx caps the hold window');
 {
@@ -205,7 +205,7 @@ console.log('\n[H] heldUntilIdx caps the hold window');
   assertNear('H2: held[4] (handover) = 400k × 4% = 16k', r.heldPerPeriod[4], 16_000);
   // Held outside the window (operating years): zero
   assertNear('H3: held[5] (post-construction) = 0', r.heldPerPeriod[5], 0);
-  assertNear('H4: held[7] (operating catch-up) = 0 — NOT 50k × 4%', r.heldPerPeriod[7], 0);
+  assertNear('H4: held[7] (operating catch-up) = 0, NOT 50k × 4%', r.heldPerPeriod[7], 0);
   // Total held = 4k+8k+12k+16k = 40k (NOT 42k that includes the operating cash)
   assertNear('H5: totalHeld = 40k (only construction-window cash)', r.totalHeld, 40_000);
   // Release lump = totalHeld on releaseYearIdx
@@ -218,7 +218,7 @@ console.log('\n[H] heldUntilIdx caps the hold window');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// I — heldUntilIdx omitted: legacy behaviour (withhold over full axis)
+// I: heldUntilIdx omitted: legacy behaviour (withhold over full axis)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[I] heldUntilIdx undefined → full-axis hold (legacy)');
 {
@@ -236,7 +236,7 @@ console.log('\n[I] heldUntilIdx undefined → full-axis hold (legacy)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// J — heldUntilIdx > releaseYearIdx: release still fires on its year
+// J: heldUntilIdx > releaseYearIdx: release still fires on its year
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[J] heldUntilIdx after releaseYearIdx');
 {

@@ -16,7 +16,7 @@ export interface ComputeSellInputs {
   handoverYear: number;
   /** Absolute project start year. Required for PIT 'custom' recognition
    *  mode so the engine can map pointInTimeCustomYear to a project-axis
-   *  index. Optional for back-compat — when omitted, custom mode falls
+   *  index. Optional for back-compat, when omitted, custom mode falls
    *  back to handover. (Pass 9g-H, 2026-05-18.) */
   projectStartYear?: number;
 }

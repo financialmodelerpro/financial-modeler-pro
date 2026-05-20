@@ -2,9 +2,9 @@
  * Per-asset Opex engine.
  *
  * Two-pass evaluation:
- *   Pass A — compute every line whose mode does NOT depend on GOP
+ *   Pass A, compute every line whose mode does NOT depend on GOP
  *            (fixed_baseline / pct_of_* / per_room / per_sqm).
- *   Pass B — compute Direct + Indirect aggregates, then GOP, then any
+ *   Pass B, compute Direct + Indirect aggregates, then GOP, then any
  *            'pct_of_gop' lines.
  *
  * GOP convention (matches KPMG SC7 hospitality hierarchy):
@@ -148,7 +148,7 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     gop[t] = tr - directCosts[t] - indirectCosts[t];
   }
 
-  // pct_of_gop lines: factor 1.0 — they ride on the already-inflated GOP.
+  // pct_of_gop lines: factor 1.0, they ride on the already-inflated GOP.
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.disabled || line.mode !== 'pct_of_gop') continue;

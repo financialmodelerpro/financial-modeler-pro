@@ -1,5 +1,5 @@
 /**
- * M4 Pass 2a — Accounts Payable (Opex) engine verifier.
+ * M4 Pass 2a: Accounts Payable (Opex) engine verifier.
  *
  * Methodology mirrors the DSO-driven AR builder in revenue:
  *   AP_closing[y] = OpexIncurred[y] × (dpo / 365)
@@ -8,13 +8,13 @@
  *   CashPaid[y]   = OpexIncurred[y] - ΔAP[y]
  *
  * Sections:
- *   A — DPO = 0: cash paid = opex incurred (no AP carry)
- *   B — DPO = 365: full year's opex unpaid at year-end
- *   C — Mid-range DPO (60 days)
- *   D — Wash identity: sum(opex incurred) = sum(cash paid) + closing AP at end
- *   E — Roll-forward identity: opening[y] = closing[y-1]
- *   F — Custom daysPerYear basis
- *   G — Zero opex period — AP rolls down from prior carry
+ *   A: DPO = 0: cash paid = opex incurred (no AP carry)
+ *   B: DPO = 365: full year's opex unpaid at year-end
+ *   C: Mid-range DPO (60 days)
+ *   D: Wash identity: sum(opex incurred) = sum(cash paid) + closing AP at end
+ *   E: Roll-forward identity: opening[y] = closing[y-1]
+ *   F: Custom daysPerYear basis
+ *   G: Zero opex period, AP rolls down from prior carry
  */
 
 import { buildAccountsPayable } from '@/src/core/calculations/opex';
@@ -38,7 +38,7 @@ function assertNear(name: string, actual: number, expected: number, tol = 0.01):
 console.log('=== M4 Pass 2a Accounts Payable verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
-// A — DPO = 0 → cash basis (no AP)
+// A: DPO = 0 → cash basis (no AP)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] DPO = 0 (cash basis)');
 {
@@ -55,7 +55,7 @@ console.log('\n[A] DPO = 0 (cash basis)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// B — DPO = 365 → all unpaid at year-end
+// B: DPO = 365 → all unpaid at year-end
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[B] DPO = 365 (entire year on the books)');
 {
@@ -75,7 +75,7 @@ console.log('\n[B] DPO = 365 (entire year on the books)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// C — Mid-range DPO (60 days)
+// C: Mid-range DPO (60 days)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[C] DPO = 60 days');
 {
@@ -100,7 +100,7 @@ console.log('\n[C] DPO = 60 days');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// D — Wash identity: sum incurred = sum paid + final closing AP
+// D: Wash identity: sum incurred = sum paid + final closing AP
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[D] Wash identity (sum incurred = sum paid + final AP)');
 {
@@ -119,7 +119,7 @@ console.log('\n[D] Wash identity (sum incurred = sum paid + final AP)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// E — Roll-forward identity: opening[y] = closing[y-1]
+// E: Roll-forward identity: opening[y] = closing[y-1]
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[E] Roll-forward identity (opening = prior closing)');
 {
@@ -136,7 +136,7 @@ console.log('\n[E] Roll-forward identity (opening = prior closing)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// F — Custom daysPerYear basis (e.g. 360-day year)
+// F: Custom daysPerYear basis (e.g. 360-day year)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[F] Custom daysPerYear (360)');
 {
@@ -152,7 +152,7 @@ console.log('\n[F] Custom daysPerYear (360)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// G — Zero opex year drains carry
+// G: Zero opex year drains carry
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[G] Zero-opex year drains prior AP');
 {

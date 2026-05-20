@@ -1,8 +1,8 @@
 /**
- * Fixed Asset + Depreciation engine — types (Pass 1d, 2026-05-19).
+ * Fixed Asset + Depreciation engine: types (Pass 1d, 2026-05-19).
  *
  * Engine handles ONLY the depreciable roll-forward. Land sits outside
- * the engine — resolver builds a separate Land roll-forward.
+ * the engine, resolver builds a separate Land roll-forward.
  *
  * Methods (Pass 1d, 2026-05-19):
  *   - 'straight_line' (SL): equal per-period charge until fully

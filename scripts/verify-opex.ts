@@ -505,7 +505,7 @@ const g4Result = computeAssetOpex({
     value: 0, indexation: { method: 'none' },
     rateMode: 'yoy', yoyRates: g1Rates,
   }],
-  defaultIndexation: { method: 'yoy_compound', rate: 0.50, startYear: 0 }, // 50% — would explode if applied
+  defaultIndexation: { method: 'yoy_compound', rate: 0.50, startYear: 0 }, // 50%, would explode if applied
   keys: 0,
   leasableSqm: 0,
   opsStartIdx: opsStart,

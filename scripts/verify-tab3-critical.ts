@@ -220,7 +220,7 @@ console.log('\n[7/7] Em-dash sweep on touched files');
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
     const t3Lines = txt.split(/\r?\n/).filter((l) => l.includes('T3-render') || l.includes('T3-companion') || l.includes('T3-defaults Fix 4') || l.includes('tab3-render') || l.includes('verify-tab3-critical'));
-    const offending = t3Lines.filter((l) => l.includes('—'));
+    const offending = t3Lines.filter((l) => l.includes(', '));
     if (offending.length === 0) pass(`${rel}: no em-dashes in T3 lines`);
     else fail(`${rel}: em-dashes`, `T3 lines: ${offending.length}`);
   }

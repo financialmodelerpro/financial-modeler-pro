@@ -171,7 +171,7 @@ console.log('\n[3/4] Fix 3: Operating End Date helper + UI');
   } else fail('UI universal end-date', 'marker not found');
   if (ASSETS_SRC.includes('Operating end date from Phase Setup')) pass('AssetCard caption matches brief');
   else fail('UI caption', 'missing');
-  // UsefulLifeForm is retired — no longer called from any branch.
+  // UsefulLifeForm is retired, no longer called from any branch.
   if (!ASSETS_SRC.includes('<UsefulLifeForm')) {
     pass('UsefulLifeForm retired (no render call)');
   } else fail('UsefulLifeForm retired', 'still rendered somewhere');
@@ -201,7 +201,7 @@ console.log('\n[4/4] Em-dash sweep on touched files');
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
     const t2Lines = txt.split(/\r?\n/).filter((l) => l.includes('T2P3') || l.includes('Tab2_Pass3') || l.includes('tab2-pass3'));
-    const offending = t2Lines.filter((l) => l.includes('—'));
+    const offending = t2Lines.filter((l) => l.includes(', '));
     if (offending.length === 0) pass(`${rel}: no em-dashes in T2P3 lines`);
     else fail(`${rel}: em-dashes`, `T2P3 lines: ${offending.length}`);
   }

@@ -263,7 +263,7 @@ console.log('\n[7/8] No em-dashes in touched files');
     { name: 'module1-migrate.ts', src: MIGRATE_SRC },
   ];
   for (const f of filesToCheck) {
-    const matches = (f.src.match(/—/g) ?? []).length;
+    const matches = (f.src.match(/, /g) ?? []).length;
     if (matches === 0) pass(`${f.name}: no em-dashes`);
     else fail(`${f.name} em-dashes`, `${matches} found`);
   }

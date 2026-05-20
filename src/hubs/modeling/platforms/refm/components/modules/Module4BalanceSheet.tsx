@@ -104,7 +104,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   rows.push({ label: 'Land', values: bs.landPerPeriod, indent: 1, totalOverride: fmt(bs.landPerPeriod[N - 1] ?? 0) });
   rows.push({ label: 'WIP / Fixed Assets (NBV)', values: bs.nbvPerPeriod, indent: 1, totalOverride: fmt(bs.nbvPerPeriod[N - 1] ?? 0) });
   // M4 Pass 2f: IDC NBV is the capitalised-interest portion of Fixed Assets
-  // (Operate / Lease assets only — Sell IDC flows through Inventory and CoS).
+  // (Operate / Lease assets only, Sell IDC flows through Inventory and CoS).
   if (snap.idc.idcNbvPerPeriod.some((v) => v !== 0)) {
     rows.push({
       label: 'Capitalised Interest (IDC) NBV',
@@ -279,7 +279,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
       </PhaseSection>
 
       <M4PeriodTable
-        title="Balance Sheet — Project"
+        title="Balance Sheet: Project"
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}

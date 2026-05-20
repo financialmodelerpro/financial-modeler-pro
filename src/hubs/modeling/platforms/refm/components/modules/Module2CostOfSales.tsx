@@ -208,7 +208,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
     // entered in Revenue Inputs (project-axis-anchored, sums to 100%)
     // rather than the cohort-weighted presalesRecognitionPerPeriod
     // stream. The CoS joint factor (cum_rec × cum_pre) is conceptually
-    // project-axis-anchored — mixing in cohort weighting double-counts
+    // project-axis-anchored, mixing in cohort weighting double-counts
     // the velocity ramp on the recognition side. Falls back to the
     // derived stream for relative_to_sale profiles where no single
     // project-axis % shape exists.
@@ -342,7 +342,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
               const totalRecPct = recognitionPctPerPeriod.reduce((s, v) => s + v, 0);
               const profileSourceCaption = row.profileMode === 'literal'
                 ? undefined
-                : 'Recognition profile is relative-to-sale — % shown is the cohort-weighted projection.';
+                : 'Recognition profile is relative-to-sale, % shown is the cohort-weighted projection.';
 
               return (
                 <AssetSection

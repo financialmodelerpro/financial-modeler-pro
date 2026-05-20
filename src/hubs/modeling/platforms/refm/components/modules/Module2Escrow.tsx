@@ -429,7 +429,7 @@ export default function Module2Escrow(): React.JSX.Element {
       >
         {escrowAssetRows.length === 0 ? (
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-            Nothing to schedule yet — no Sell / Sell + Manage assets with pre-sales inflows.
+            Nothing to schedule yet, no Sell / Sell + Manage assets with pre-sales inflows.
           </div>
         ) : (
           <>

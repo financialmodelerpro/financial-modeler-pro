@@ -4,7 +4,7 @@
  * Most jurisdictions use the international FRS / IFRS terminology
  * (EBITDA, EBIT, PBT, PAT, Tax). Saudi Arabia uses Zakat-flavour
  * terminology (EBIZDA, EBIZ, PBZ, PAZ, Zakat). The shape of every
- * statement is identical — only the row labels change — so a single
+ * statement is identical, only the row labels change, so a single
  * source-of-truth label set keeps the engines clean and the UI
  * consistent.
  *
@@ -15,19 +15,19 @@
 export type FinancialTerminologyMode = 'standard' | 'saudi';
 
 export interface FinancialLabels {
-  /** EBITDA / EBIZDA — earnings before interest, tax, D&A. */
+  /** EBITDA / EBIZDA: earnings before interest, tax, D&A. */
   ebitda: string;
-  /** EBIT / EBIZ — earnings before interest and tax. */
+  /** EBIT / EBIZ: earnings before interest and tax. */
   ebit: string;
-  /** PBT / PBZ — profit before tax. */
+  /** PBT / PBZ: profit before tax. */
   pbt: string;
-  /** PAT / PAZ — profit after tax. */
+  /** PAT / PAZ: profit after tax. */
   pat: string;
-  /** Tax / Zakat — direct tax charge on PBT. */
+  /** Tax / Zakat: direct tax charge on PBT. */
   tax: string;
-  /** "Tax Paid" / "Zakat Paid" — cash-flow line. */
+  /** "Tax Paid" / "Zakat Paid": cash-flow line. */
   taxPaid: string;
-  /** "Tax Rate" / "Zakat Rate" — input label. */
+  /** "Tax Rate" / "Zakat Rate": input label. */
   taxRate: string;
   /** "Income Statement" / "P&L" headline. Saudi keeps "Income Statement". */
   incomeStatementTitle: string;

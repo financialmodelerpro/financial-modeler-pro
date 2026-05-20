@@ -369,7 +369,7 @@ console.log('\n[10/10] Em-dash sweep + deferred fixes documented');
     const fp = resolve(REPO_ROOT, file);
     if (!existsSync(fp)) continue;
     const content = readFileSync(fp, 'utf8');
-    const matches = content.match(/—/g);
+    const matches = content.match(/, /g);
     if (matches) emDashCount += matches.length;
   }
   if (emDashCount === 0) pass('no em-dashes in any touched Pass 10 file');

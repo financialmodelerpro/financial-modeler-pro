@@ -104,7 +104,7 @@ export function computeLeaseAsset(inputs: ComputeLeaseInputs): LeaseAssetResult 
     occupiedArea[y] = totalOccupiedY;
     occ[y] = occClamped;
     // GLA-weighted average rate + factor. When totalGla=0 (degenerate
-    // empty asset) both default to 0 — no revenue anyway.
+    // empty asset) both default to 0, no revenue anyway.
     indexedRate[y] = totalGla > 0 ? weightedRateSum / totalGla : 0;
     rentFactor[y] = totalGla > 0 ? weightedFactorSum / totalGla : 0;
     revenue[y] = totalRevenueY;

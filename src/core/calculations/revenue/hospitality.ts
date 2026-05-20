@@ -182,7 +182,7 @@ export function computeHospitalityAsset(
     orn[y] = totalOrnY;
     occ[y] = occClamped;
     // Keys-weighted average ADR + factor uses STATIC sub-unit keys
-    // (not participation-scaled) — the weighted average should
+    // (not participation-scaled), the weighted average should
     // describe the per-room rate, not the pool-size shift. Pool size
     // shows separately in effectiveKeysPerPeriod.
     adr[y] = totalKeys > 0 ? weightedAdrSum / totalKeys / Math.max(partY, 1e-9) : 0;

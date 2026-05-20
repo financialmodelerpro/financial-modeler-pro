@@ -274,7 +274,7 @@ export function resolveLeaseConfig(
  *     100%.
  *   - 'point_in_time': 100% at handover year.
  *   - 'relative_to_sale': can't be flattened to a project-axis profile
- *     without a single sale year — falls back to the cohort-weighted
+ *     without a single sale year, falls back to the cohort-weighted
  *     derivedFallback stream.
  */
 export function resolveLiteralRecognitionProfile(
@@ -571,7 +571,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     accL('occupiedAreaPerPeriod');
     accL('totalRevenuePerPeriod');
     // occupancyPerPeriod + indexedRatePerPeriod + factor are rates, not
-    // flows — leave project totals at 0 for those, consumers should
+    // flows, leave project totals at 0 for those, consumers should
     // read per-asset values only.
   }
 

@@ -228,7 +228,7 @@ let emDashFails = 0;
 for (const f of emDashFiles) {
   if (!existsSync(join(REPO_ROOT, f))) continue;
   const src = readFileSync(join(REPO_ROOT, f), 'utf8');
-  if (src.includes('—')) {
+  if (src.includes(', ')) {
     emDashFails++;
     console.log(`  FAIL  em-dash in ${f}`);
   }

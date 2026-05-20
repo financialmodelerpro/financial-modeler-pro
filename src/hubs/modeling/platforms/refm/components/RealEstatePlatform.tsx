@@ -212,7 +212,7 @@ export const m4Tabs = [
 // Universal module → sub-tabs map. Any module key that needs a sidebar
 // drop-down just registers its tabs here; Sidebar.tsx reads from this
 // map instead of hard-coding per-module branches. New modules (M4/M5/M6)
-// only need to add their tabs here — sidebar code stays untouched.
+// only need to add their tabs here, sidebar code stays untouched.
 export type SidebarSubTab = { key: string; icon: string; label: string; step: number };
 export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
   module1: m1Tabs,

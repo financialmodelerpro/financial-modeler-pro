@@ -197,7 +197,11 @@
       "Bash(awk -F'D[0-9]*=' '{print $2}')",
       "Bash(awk -F' \\\\\\\\| ' '{print $1}')",
       "Bash(findstr /r \"buildCostOfSales[^V]\" src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts scripts/verify-m2-pass7.ts scripts/verify-revenue-rebuild.ts)",
-      "Bash(awk 'NR==555' CLAUDE-ROUTES.md)"
+      "Bash(awk 'NR==555' CLAUDE-ROUTES.md)",
+      "PowerShell(Out-Null *)",
+      "PowerShell(powershell.exe -ExecutionPolicy Bypass -File \"D:\\\\FMP\\\\financial-modeler-pro\\\\scripts\\\\inspect-ref-depreciation.ps1\" 2>&1 | Select-Object -First 200)",
+      "PowerShell(Out-File *)",
+      "Bash(sort -t: -k2 -rn)"
     ]
   }
 }

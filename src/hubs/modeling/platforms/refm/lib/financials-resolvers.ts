@@ -8,7 +8,7 @@
  *
  * Engines stay pure; this resolver is the glue between the M1 Zustand
  * store and the four M4 UI surfaces. No M4 surface reaches into M1 /
- * M2 / M3 engines directly — they all go through here, which keeps
+ * M2 / M3 engines directly, they all go through here, which keeps
  * the asset-filter logic and the strategy-grouping in one place.
  */
 
@@ -88,7 +88,7 @@ export interface AssetCF {
   revenueReceivedPerPeriod: number[];
   opexPaidPerPeriod: number[];
   capexPerPeriod: number[];
-  /** Residential WIP inventory — Sell strategies only (else zeros). */
+  /** Residential WIP inventory: Sell strategies only (else zeros). */
   inventoryPerPeriod: number[];
 }
 
@@ -150,7 +150,7 @@ export interface ProjectIndirectCF {
   changeInInventoryPerPeriod: number[];    // -ΔInv
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
-  changeInEscrowPerPeriod: number[];       // +ΔEscrow (liability — restricted cash sits on the books)
+  changeInEscrowPerPeriod: number[];       // +ΔEscrow (liability, restricted cash sits on the books)
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
@@ -605,7 +605,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (let t = 0; t < N; t++) totalOpex[t] = hospOpex[t] + retailOpex[t] + hqOpex[t];
 
   // Project D&A = base depreciation + IDC-derived depreciation
-  // (Operate/Lease assets only — Sell assets recover IDC via CoS instead).
+  // (Operate/Lease assets only, Sell assets recover IDC via CoS instead).
   const da = fixedAssets.projectTotals.depreciable.depreciationPerPeriod.slice(0, N);
   for (let t = 0; t < N; t++) da[t] += idcDeprecProject[t] ?? 0;
   // Interest expense = combined interest expensed (excludes capitalized IDC which lives on BS)
@@ -651,7 +651,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
 
   // 4b. Operating AR via DSO (M4 Pass 2g, 2026-05-20).
   // Hospitality + Lease revenue is days-driven (AR closing = revenue ×
-  // DSO / 365) — not milestone-driven like residential. Cash received
+  // DSO / 365), not milestone-driven like residential. Cash received
   // for operating revenue = revenue − ΔAR. Residential receivables stay
   // on the M2 milestone-driven path (byAssetSchedules[id].ar).
   const operatingRevenuePerPeriod = zeros(N);

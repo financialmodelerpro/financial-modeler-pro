@@ -196,7 +196,7 @@ interface PeriodRow {
   /**
    * Pass 8f (2026-05-18): per-row formatter overriding the table's fmt
    * prop. Lets a single PeriodTable mix currency / integer / % / decimal
-   * factor rows — e.g., Hospitality Block 1 walking from Rooms (int) ->
+   * factor rows, e.g., Hospitality Block 1 walking from Rooms (int) ->
    * Days (int) -> Occupancy (%) -> ADR Factor (×) -> ADR (currency) ->
    * ARN/ORN/Guests (int).
    */
@@ -440,7 +440,7 @@ function buildProjectGroupedRows({
     rows.push({ label: 'Residential / Sell', values: [], kind: 'section', indent: 0 });
 
     if (view === 'revenue') {
-      // Pass 7u: Revenue (Sales Value) is timing-agnostic — sale value
+      // Pass 7u: Revenue (Sales Value) is timing-agnostic, sale value
       // is sale value when the sale happens. Flat per-asset rows
       // (combined Pre + Post) suffice; the Pre/Post split is reserved
       // for Recognition + Cash where timing differs.
@@ -589,7 +589,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   //   1. The standalone Hospitality phase section (pure Operate
   //      assets + Operate companions of non-Sell-Manage parents).
   //   2. Inline under each Sell + Manage parent, immediately after
-  //      the parent's Sell narrative — so the user sees Tower 01's
+  //      the parent's Sell narrative, so the user sees Tower 01's
   //      Sell blocks and its Manage / Operate blocks together in
   //      one continuous asset narrative.
   // The `inline` flag wraps the section in a left-border + label
@@ -651,7 +651,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     // Pass 9e-4 (2026-05-18): ADR + per-guest rates are per-night /
     // per-guest figures, NOT period flow amounts. The project-level
     // display scale (typically 'thousands') would render 1,200 SAR as
-    // "1" — wrong for rate fields. Force 'full' scale.
+    // "1", wrong for rate fields. Force 'full' scale.
     // Pass 9e-10 (2026-05-18): use the project's decimals (min 1) so
     // ADR rows show 1,200.00 (or .0) instead of "1,200".
     const adrDecimals = Math.max(1, decimals) as DisplayDecimals;
@@ -896,7 +896,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       if (!Number.isFinite(v) || Math.abs(v) < 1e-9) return '-';
       return `${v.toFixed(4)}×`;
     };
-    // Lease rate is per-sqm-per-year, not per-period flow — force 'full'
+    // Lease rate is per-sqm-per-year, not per-period flow, force 'full'
     // scale (same convention as hospitality ADR) so 3,500 SAR/sqm does
     // not render as "4" under a thousands-scaled project.
     const rateDecimals = Math.max(1, decimals) as DisplayDecimals;
@@ -907,7 +907,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     // Pass 9g-D-fix2 (2026-05-18): always render per-sub-unit calculated
     // rows above the grand total, even with a single sub-unit. The
     // breakdown (rate / occupied area / revenue) is the work-shown for
-    // the total — without it the table is just a single grand row.
+    // the total, without it the table is just a single grand row.
     // weighted-avg label still kicks in only when there are 2+ zones.
     const hasAnySubUnits = areaSubUnits.length > 0;
     const isWeightedAvg = areaSubUnits.length > 1;
@@ -1065,7 +1065,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
               // no revenue.sell config yet, render a placeholder so the
               // asset still appears in the Sell section. The companion
-              // is no longer nested here — it shows in the standalone
+              // is no longer nested here, it shows in the standalone
               // Hospitality / Operations section per user direction
               // (same treatment as other hospitality assets).
               if (!r) {

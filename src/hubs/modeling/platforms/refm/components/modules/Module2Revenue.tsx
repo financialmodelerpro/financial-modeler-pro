@@ -284,8 +284,7 @@ function PhaseSection({ phase, assets, allAssets, subUnits, project, phases }: P
             // inputs as a SIBLING card so the user has somewhere to
             // enter ADR / occupancy / F&B / Other for the manage half.
             // Pass 9e-6 (2026-05-18): per user feedback, the companion
-            // is no longer visually nested inside the parent's card —
-            // it renders as its own collapsible sibling, with a small
+            // is no longer visually nested inside the parent's card, // it renders as its own collapsible sibling, with a small
             // "Linked to {parent}" reference chip on top to preserve
             // the relationship.
             const companion = a.strategy === 'Sell + Manage'
@@ -925,8 +924,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
             </div>
           ) : (
             <>
-              {/* ADR (Pass 9e: asset-level Starting ADR input removed —
-                  per-sub-unit ADR comes from Module 1 Tab 2 startingAdr.
+              {/* ADR (Pass 9e: asset-level Starting ADR input removed, per-sub-unit ADR comes from Module 1 Tab 2 startingAdr.
                   Indexation pills + Per-Year strip remain at the asset
                   level since they apply uniformly to all room types
                   unless overridden via SubUnit.hospitalityIndexation.) */}
@@ -2137,7 +2135,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
   const HEADER_LABEL: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', minWidth: 140 };
   const stripTotal = cells.reduce((s, c) => s + (values[c.idx] ?? 0), 0);
   const stripTotalPct = `${(stripTotal * 100).toFixed(1)}%`;
-  // Pass 8f: per-year rates (occupancy) — show average instead of sum
+  // Pass 8f: per-year rates (occupancy), show average instead of sum
   // since summing % across years is meaningless. Visible non-zero years
   // only so a sparse ramp doesn't dilute toward zero.
   const nonZeroCount = cells.reduce((s, c) => s + ((values[c.idx] ?? 0) > 0 ? 1 : 0), 0);

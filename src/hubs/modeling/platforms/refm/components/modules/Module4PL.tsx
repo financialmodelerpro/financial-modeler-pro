@@ -8,7 +8,7 @@
  * → Tax → PAT) with an asset-filter dropdown at the top so the
  * user can see either project totals or one asset's contribution.
  *
- * Terminology is driven by Project.financialTerminology — Saudi
+ * Terminology is driven by Project.financialTerminology, Saudi
  * mode renders EBIZDA/EBIZ/PBZ/PAZ/Zakat; standard mode renders
  * EBITDA/EBIT/PBT/PAT/Tax.
  *
@@ -233,14 +233,14 @@ export default function Module4PL(): React.JSX.Element {
           <option value="__project__">Project (all assets)</option>
           {visibleAssets.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name} — {a.strategy}
+              {a.name}, {a.strategy}
             </option>
           ))}
         </select>
       </div>
 
       <M4PeriodTable
-        title={filterAssetId === '__project__' ? `${labels.incomeStatementTitle} — Project` : `${labels.incomeStatementTitle} — ${state.assets.find((a) => a.id === filterAssetId)?.name ?? ''}`}
+        title={filterAssetId === '__project__' ? `${labels.incomeStatementTitle}: Project` : `${labels.incomeStatementTitle}: ${state.assets.find((a) => a.id === filterAssetId)?.name ?? ''}`}
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}

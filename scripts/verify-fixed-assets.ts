@@ -1,5 +1,5 @@
 /**
- * Module 4 Pass 1b — Fixed Assets + Depreciation verifier (refactor).
+ * Module 4 Pass 1b: Fixed Assets + Depreciation verifier (refactor).
  *
  * Engine now handles ONLY depreciable additions / NBV. Land roll-
  * forward is composed in the resolver, so the engine tests dropped
@@ -7,18 +7,18 @@
  * level Land separation.
  *
  * Sections:
- *   A — pure SL allocator unit tests
- *   B — single-asset fresh capex (depreciable only)
- *   C — life=0 (caller passes Land in usefulLifeYears=0 wouldn't make
- *       sense; this case is now resolver responsibility) — kept as a
+ *   A: pure SL allocator unit tests
+ *   B: single-asset fresh capex (depreciable only)
+ *   C: life=0 (caller passes Land in usefulLifeYears=0 wouldn't make
+ *       sense; this case is now resolver responsibility), kept as a
  *       defensive engine test for usefulLifeYears = 0 → no dep
- *   D — Existing operations opening NBV roll-forward
- *   E — Vintage handling: additions after handover depreciate from
+ *   D: Existing operations opening NBV roll-forward
+ *   E: Vintage handling: additions after handover depreciate from
  *       their own spend year
- *   F — Identity: closing[t] = max(0, opening[t] + additions[t] − dep[t])
- *   G — Sell-only project produces empty snapshot
- *   H — Resolver: per-asset Land roll-forward separate from Depreciable
- *   I — Resolver: project totals (Land + depreciable) = sum across assets
+ *   F: Identity: closing[t] = max(0, opening[t] + additions[t] − dep[t])
+ *   G: Sell-only project produces empty snapshot
+ *   H: Resolver: per-asset Land roll-forward separate from Depreciable
+ *   I: Resolver: project totals (Land + depreciable) = sum across assets
  */
 
 import {
@@ -62,7 +62,7 @@ function zeros(n: number): number[] { return new Array<number>(n).fill(0); }
 console.log('=== Module 4 Pass 1b Fixed Assets + Depreciation verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
-// A — Pure SL allocator
+// A: Pure SL allocator
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] Straight-line allocator');
 {
@@ -89,7 +89,7 @@ console.log('\n[A] Straight-line allocator');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// B — Fresh single-asset depreciable capex (250M over 5 years, 25 yrs SL)
+// B: Fresh single-asset depreciable capex (250M over 5 years, 25 yrs SL)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[B] Single-asset fresh depreciable capex (25-yr SL)');
 {
@@ -113,7 +113,7 @@ console.log('\n[B] Single-asset fresh depreciable capex (25-yr SL)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// C — usefulLifeYears = 0 → no depreciation (defensive)
+// C: usefulLifeYears = 0 → no depreciation (defensive)
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[C] usefulLifeYears = 0 → no depreciation');
 {
@@ -133,7 +133,7 @@ console.log('\n[C] usefulLifeYears = 0 → no depreciation');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// D — Existing operations opening NBV
+// D: Existing operations opening NBV
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[D] Existing operations opening NBV');
 {
@@ -155,7 +155,7 @@ console.log('\n[D] Existing operations opening NBV');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// E — Vintage handling: base + refurb after handover
+// E: Vintage handling: base + refurb after handover
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[E] Vintage handling: refurb addition after handover');
 {
@@ -179,7 +179,7 @@ console.log('\n[E] Vintage handling: refurb addition after handover');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// F — Roll-forward identity per period
+// F: Roll-forward identity per period
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[F] Roll-forward identity per period');
 {
@@ -203,7 +203,7 @@ console.log('\n[F] Roll-forward identity per period');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// G — Resolver: Sell-only project → empty snapshot
+// G: Resolver: Sell-only project → empty snapshot
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[G] Sell-only project produces empty fixed-asset snapshot');
 {
@@ -217,7 +217,7 @@ console.log('\n[G] Sell-only project produces empty fixed-asset snapshot');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// H — Resolver: per-asset Land roll-forward separate from Depreciable
+// H: Resolver: per-asset Land roll-forward separate from Depreciable
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[H] Resolver: Land separation per asset');
 {
@@ -253,7 +253,7 @@ console.log('\n[H] Resolver: Land separation per asset');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// I — Resolver: project totals = sum across per-asset rows
+// I: Resolver: project totals = sum across per-asset rows
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[I] Project totals = sum across per-asset arrays');
 {
@@ -390,7 +390,7 @@ function buildTwoHospitalityAssetsState(): Module1Store {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// J — Reducing balance allocator unit tests
+// J: Reducing balance allocator unit tests
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[J] Reducing-balance allocator');
 {
@@ -422,7 +422,7 @@ console.log('\n[J] Reducing-balance allocator');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// K — Engine: reducing-balance method
+// K: Engine: reducing-balance method
 // 100M base addition at year 0, handoverIdx=0, life=10, rate=2/10=20% default
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[K] Engine reducing-balance with default rate (2/life)');
@@ -457,7 +457,7 @@ console.log('\n[K] Engine reducing-balance with default rate (2/life)');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// L — Engine: reducing-balance with custom rate
+// L: Engine: reducing-balance with custom rate
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[L] Engine reducing-balance with custom rate (15%)');
 {

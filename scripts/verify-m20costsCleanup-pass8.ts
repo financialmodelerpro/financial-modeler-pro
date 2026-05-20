@@ -272,7 +272,7 @@ console.log('\n[10/10] Em-dash sweep + design note');
     { name: 'module1-types.ts', src: TYPES_SRC },
   ];
   for (const f of filesToCheck) {
-    const matches = (f.src.match(/—/g) ?? []).length;
+    const matches = (f.src.match(/, /g) ?? []).length;
     if (matches === 0) pass(`${f.name}: no em-dashes`);
     else fail(`${f.name} em-dashes`, `${matches} found`);
   }

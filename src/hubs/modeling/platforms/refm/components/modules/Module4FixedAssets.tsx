@@ -7,14 +7,14 @@
  * universal Revenue / CoS / Opex pattern:
  *
  *   Strategy section (Hospitality / Operations, Retail / Lease)
- *     AssetSection — collapsible card per asset
+ *     AssetSection, collapsible card per asset
  *       Inputs panel: useful life (+ existing-ops historical Land /
  *                     Building NBV when present)
- *       Table 1: Land — Roll-Forward (Opening + Additions = Closing)
- *       Table 2: Depreciable Assets — Roll-Forward (Opening + Additions
+ *       Table 1: Land, Roll-Forward (Opening + Additions = Closing)
+ *       Table 2: Depreciable Assets, Roll-Forward (Opening + Additions
  *                − Depreciation = Closing + Accumulated Depreciation)
  *       Table 3: Total Fixed Assets (Land + Depreciable closing)
- *   Project Total — same three tables aggregated across every asset.
+ *   Project Total, same three tables aggregated across every asset.
  *
  * Phase nesting dropped per user direction (asset level, not phase
  * level). Strategy outer kept for consistency with the rest of the
@@ -357,7 +357,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         </div>
 
         <PeriodTable
-          title={`${a.name} — Land Roll-Forward`}
+          title={`${a.name}: Land Roll-Forward`}
           caption="Land sits on the balance sheet but never depreciates. Closing Land = Opening Land + Land Additions."
           yearLabels={yearLabels}
           currency={currency}
@@ -366,7 +366,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Depreciable Assets Roll-Forward`}
+          title={`${a.name}: Depreciable Assets Roll-Forward`}
           caption={`${methodLabel}. Closing NBV = Opening + Depreciable Additions − Depreciation. Accumulated Depreciation tracks the cumulative writeoff.`}
           yearLabels={yearLabels}
           currency={currency}
@@ -375,7 +375,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Total Fixed Assets (Land + Depreciable)`}
+          title={`${a.name}: Total Fixed Assets (Land + Depreciable)`}
           caption="Sum of Land closing + Depreciable closing NBV. This is the asset's Fixed Assets line on the balance sheet."
           yearLabels={yearLabels}
           currency={currency}
@@ -386,7 +386,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
     );
   };
 
-  // Project totals — Land roll-forward, Depreciable roll-forward,
+  // Project totals, Land roll-forward, Depreciable roll-forward,
   // and Combined Total Fixed Assets.
   const projectLand = snap.projectTotals.land;
   const projectDep = snap.projectTotals.depreciable;
@@ -487,7 +487,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         storageKey="fmp:m4:fa:phase:__project__:collapsed"
       >
         <PeriodTable
-          title="Project Land — Roll-Forward"
+          title="Project Land: Roll-Forward"
           caption="Sum of every asset's Land roll-forward. Land never depreciates so closing Land = sum of all assets' opening Land + project-wide Land additions."
           yearLabels={yearLabels}
           currency={currency}
@@ -495,7 +495,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           rows={landTableRows(projectLand)}
         />
         <PeriodTable
-          title="Project Depreciable Assets — Roll-Forward"
+          title="Project Depreciable Assets: Roll-Forward"
           caption="Sum of every asset's depreciable roll-forward. Depreciation per period = sum of per-asset depreciation streams."
           yearLabels={yearLabels}
           currency={currency}

@@ -422,8 +422,7 @@ function Step2({
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-startdate">Phase Start Date</th>
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-construction">Construction ({periodUnit})</th>
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-operations">Operations ({periodUnit})</th>
-            {/* Pass 9g-N (2026-05-18): Overlap input removed —
-                soft-open lives on asset.revenue.operate.operations
+            {/* Pass 9g-N (2026-05-18): Overlap input removed, soft-open lives on asset.revenue.operate.operations
                 StartYearOverride (per-asset, end-anchored). New phases
                 created from the wizard default overlapPeriods=0 for
                 schema back-compat; engine still reads the value on

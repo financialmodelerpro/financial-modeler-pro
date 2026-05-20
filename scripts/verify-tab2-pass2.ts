@@ -136,7 +136,7 @@ console.log('\n[2/5] Fix 1: computeAssetLandSqm per-phase data ownership (refere
   if (Math.abs(soloSqm - 16348) < 1) pass(`Phase 1 lone asset equal-share = ${soloSqm.toFixed(0)} sqm (full parcel)`);
   else fail('Phase 1 equal-share', `expected 16348, got ${soloSqm.toFixed(0)}`);
 
-  // Crit: Phase 1 with parcel but NO assets at all — any phantom call returns 0.
+  // Crit: Phase 1 with parcel but NO assets at all, any phantom call returns 0.
   // Simulate by querying an asset in a phase with NO peer in the asset list.
   const phantomNoPeers: Asset = {
     id: 'phantom', phaseId: 'phase-x', name: 'Phantom', type: '', strategy: 'Sell', visible: true,
@@ -197,7 +197,7 @@ console.log('\n[5/5] Em-dash sweep on touched files');
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
     const t2Lines = txt.split(/\r?\n/).filter((l) => l.includes('T2P2') || l.includes('Tab2_Pass2') || l.includes('tab2-pass2'));
-    const offending = t2Lines.filter((l) => l.includes('—'));
+    const offending = t2Lines.filter((l) => l.includes(', '));
     if (offending.length === 0) pass(`${rel}: no em-dashes in T2P2 lines`);
     else fail(`${rel}: em-dashes`, `T2P2 lines: ${offending.length}`);
   }

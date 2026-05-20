@@ -279,7 +279,7 @@ console.log('\n[10/10] No em-dashes in touched files');
     { name: 'core/formatters/index.ts', src: FORMATTERS_SRC },
   ];
   for (const f of filesToCheck) {
-    const matches = (f.src.match(/—/g) ?? []).length;
+    const matches = (f.src.match(/, /g) ?? []).length;
     if (matches === 0) pass(`${f.name}: no em-dashes`);
     else fail(`${f.name} em-dashes`, `${matches} found`);
   }

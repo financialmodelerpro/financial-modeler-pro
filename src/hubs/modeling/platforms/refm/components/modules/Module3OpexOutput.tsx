@@ -13,13 +13,13 @@
  *
  * Per-asset surface (unchanged math): Revenue Breakdown (Rooms / F&B /
  * Other / Total for hospitality, Total Lease Revenue for retail)
- * followed by stand-alone category tables —
+ * followed by stand-alone category tables.
  *   Hospitality: Direct · Indirect / Undistributed · Management Fees ·
  *                Reserves & Other Charges
  *   Retail:      Property Operating · Pass-Through / Recoveries (memo) ·
  *                Other Charges
  *
- * No GOP / NOI / margin rows — those compose in M4 P&L.
+ * No GOP / NOI / margin rows, those compose in M4 P&L.
  */
 
 import React, { useMemo } from 'react';
@@ -248,7 +248,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
     return (
       <>
         <PeriodTable
-          title={`${a.name} — Revenue Breakdown`}
+          title={`${a.name}: Revenue Breakdown`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -256,7 +256,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Direct Costs`}
+          title={`${a.name}: Direct Costs`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -269,7 +269,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Indirect / Undistributed Costs`}
+          title={`${a.name}: Indirect / Undistributed Costs`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -282,7 +282,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Management Fees`}
+          title={`${a.name}: Management Fees`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -295,7 +295,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Reserves & Other Charges`}
+          title={`${a.name}: Reserves & Other Charges`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -319,7 +319,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
     // M2 Lease engine surfaces only Total Revenue per asset; the
     // breakdown (Gross Rent / Service Charge / Other) is a future M2
     // refinement. Still render as line row + Total row for consistency
-    // with the Hospitality / Direct / Indirect tables — a single-line
+    // with the Hospitality / Direct / Indirect tables, a single-line
     // table without a header data row visually breaks the rhythm.
     const leaseRevenue = rev?.totalRevenuePerPeriod ?? zeros();
     const revRows: Row[] = [
@@ -343,7 +343,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
     return (
       <>
         <PeriodTable
-          title={`${a.name} — Revenue Breakdown`}
+          title={`${a.name}: Revenue Breakdown`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -351,7 +351,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Property Operating Costs`}
+          title={`${a.name}: Property Operating Costs`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -364,7 +364,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Pass-Through / Recoveries (memo)`}
+          title={`${a.name}: Pass-Through / Recoveries (memo)`}
           caption="Service charges typically recovered from tenants under NNN leases; shown gross for transparency."
           yearLabels={yearLabels}
           currency={currency}
@@ -378,7 +378,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         />
 
         <PeriodTable
-          title={`${a.name} — Other Charges`}
+          title={`${a.name}: Other Charges`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -493,7 +493,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
       <PhaseSection
         phaseId="__opex-ap__"
         title="Accounts Payable (Opex)"
-        meta="DPO-driven AP roll-forward — feeds BS current liabilities + CF cash paid for opex"
+        meta="DPO-driven AP roll-forward, feeds BS current liabilities + CF cash paid for opex"
         storageKey="fmp:m3:opex:ap:collapsed"
       >
         {/* Inputs panel */}
@@ -598,7 +598,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
 
         {apAssetRows.length === 0 ? (
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-            No opex assets configured yet — AP schedule will populate once Hospitality or Lease assets are added.
+            No opex assets configured yet, AP schedule will populate once Hospitality or Lease assets are added.
           </div>
         ) : (
           <>
@@ -613,7 +613,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
                 defaultOpen={false}
               >
                 <PeriodTable
-                  title={`${ar.assetName} — AP Roll-Forward`}
+                  title={`${ar.assetName}: AP Roll-Forward`}
                   yearLabels={yearLabels}
                   currency={currency}
                   fmt={fmt}
@@ -646,7 +646,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
               defaultOpen={false}
             >
               <PeriodTable
-                title="HQ — AP Roll-Forward"
+                title="HQ: AP Roll-Forward"
                 yearLabels={yearLabels}
                 currency={currency}
                 fmt={fmt}
@@ -671,7 +671,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
 
             {/* Project totals */}
             <PeriodTable
-              title="Project Total — AP Roll-Forward"
+              title="Project Total: AP Roll-Forward"
               caption="Sum across every asset + HQ. Feeds Balance Sheet current liabilities. Cash Paid = Opex Incurred − ΔAP."
               yearLabels={yearLabels}
               currency={currency}
@@ -709,7 +709,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
           Per-asset Revenue Breakdown followed by category-wise expense tables. Hospitality assets show
           Direct / Indirect / Management / Reserves; Retail assets show Property Operating / Recoveries /
-          Other Charges. Phases and assets collapse. No GOP / NOI rows — those compose in M4 P&L.
+          Other Charges. Phases and assets collapse. No GOP / NOI rows, those compose in M4 P&L.
         </p>
       </div>
 

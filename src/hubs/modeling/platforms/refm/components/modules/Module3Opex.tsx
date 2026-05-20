@@ -189,7 +189,7 @@ function buildIndexationConfig(
   const prevRate = (prev?.method === 'single_rate' || prev?.method === 'yoy_compound') ? (prev.rate ?? 0.03) : 0.03;
   if (method === 'single_rate') return { method: 'single_rate', rate: prevRate, startYear: 0 };
   if (method === 'yoy_compound') return { method: 'yoy_compound', rate: prevRate, startYear: 0 };
-  // yoy_per_period — seed every ops year with the prior flat rate so
+  // yoy_per_period, seed every ops year with the prior flat rate so
   // the user starts from an equivalent baseline.
   const N = Math.max(0, axisLength);
   const growth = new Array<number>(N).fill(0);
@@ -505,7 +505,7 @@ function OpexLineTable({
   };
 
   // Renders a mode-aware value cell. When the line is in YoY mode the
-  // single Value input collapses to a small badge — the per-period
+  // single Value input collapses to a small badge, the per-period
   // rate strip lives in the sub-row below.
   const renderValueInput = (line: OpexLine, idx: number): React.JSX.Element => {
     if (line.rateMode === 'yoy') {
@@ -656,8 +656,7 @@ function OpexLineTable({
                         }}
                         title="% of revenue (and % of GOP) auto-escalate through the revenue stream itself. Adding inflation on top would double-count."
                         data-testid={`${testidPrefix}-infl-disabled-${idx}`}
-                      >
-                        — auto via revenue
+                      >, auto via revenue
                       </span>
                     ) : isYoy ? (
                       <span
@@ -668,8 +667,7 @@ function OpexLineTable({
                         }}
                         title="YoY rates already include per-year values, so the asset-level inflation is bypassed for this line."
                         data-testid={`${testidPrefix}-infl-yoy-${idx}`}
-                      >
-                        — supplied by YoY rates
+                      >, supplied by YoY rates
                       </span>
                     ) : inheriting ? (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -881,10 +879,9 @@ export default function Module3Opex(): React.JSX.Element {
 
   // Filter to opex-relevant assets: Hospitality (Operate, including
   // Sell + Manage companions whose strategy is 'Operate') and Lease.
-  // Sell + Manage PARENTS (strategy 'Sell + Manage') have no opex —
-  // their operating side lives on the companion. Pure Sell has no
+  // Sell + Manage PARENTS (strategy 'Sell + Manage') have no opex, // their operating side lives on the companion. Pure Sell has no
   // ongoing operations. Pass 5b (2026-05-20): listed flat by asset,
-  // not grouped by phase — the phase name shows on each card so users
+  // not grouped by phase, the phase name shows on each card so users
   // still see context.
   const opexAssets = useMemo(
     () => assets.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease'),
@@ -1037,7 +1034,7 @@ export default function Module3Opex(): React.JSX.Element {
         <p style={{ fontSize: 12, color: 'var(--color-meta)' }}>
           Each asset card holds a top-level <strong>Inflation</strong> control (Off / Flat / Compound / Per-Year)
           that drives every fixed-cost line below it. <em>% of revenue</em> and <em>% of GOP</em> lines auto-escalate
-          through the revenue stream, so they show <em>— auto via revenue</em>. Any fixed-cost line can
+          through the revenue stream, so they show <em>,  auto via revenue</em>. Any fixed-cost line can
           <em> Override</em> the asset default. HQ overheads use the same pattern at the project level.
         </p>
       </div>
@@ -1081,7 +1078,7 @@ export default function Module3Opex(): React.JSX.Element {
         />
       </AssetCard>
 
-      {/* Per-asset opex (flat list — phase shown on each card as a tag) */}
+      {/* Per-asset opex (flat list, phase shown on each card as a tag) */}
       {opexAssets.length === 0 && (
         <div style={{
           padding: 'var(--sp-3)',

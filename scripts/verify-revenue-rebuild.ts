@@ -643,7 +643,7 @@ assertNear('J5: factor at idx 8 = unchanged (growth 0 at 8)',
 assertNear('J6: factor before startYear (idx 3) = base',
   applyIndexation(500, 3, cfgJ), 500, 0.01);
 
-// J7: integrate with hospitality engine — ADR escalates per-year.
+// J7: integrate with hospitality engine, ADR escalates per-year.
 const hospJ = computeHospitalityAsset({
   config: {
     assetId: 'asset-J',
@@ -965,17 +965,17 @@ const customResult = computeSellAsset({
   config: customSellConfig,
   subUnits: [customSubUnit],
   axisLength: customAxis,
-  handoverYear: 4, // year 2029 — different from custom 2028
+  handoverYear: 4, // year 2029, different from custom 2028
   projectStartYear: 2025,
 });
 const totalSales = customResult.presalesRevenuePerPeriod.reduce((s, v) => s + v, 0);
-assertNear('N1: PIT custom — all pre-sales recognition lumps at custom year (axisIdx 3 = 2028)',
+assertNear('N1: PIT custom, all pre-sales recognition lumps at custom year (axisIdx 3 = 2028)',
   customResult.presalesRecognitionPerPeriod[3], totalSales, 0.5);
-assertNear('N2: PIT custom — handover year (axisIdx 4 = 2029) gets zero recognition (overridden)',
+assertNear('N2: PIT custom, handover year (axisIdx 4 = 2029) gets zero recognition (overridden)',
   customResult.presalesRecognitionPerPeriod[4], 0, 0.5);
-assertNear('N3: PIT custom — sale year recognition (axisIdx 1) is zero (not handover, not sale_year)',
+assertNear('N3: PIT custom, sale year recognition (axisIdx 1) is zero (not handover, not sale_year)',
   customResult.presalesRecognitionPerPeriod[1], 0, 0.5);
-// Custom year before sale (early-cliff) — engine clamps to axis bounds.
+// Custom year before sale (early-cliff), engine clamps to axis bounds.
 const earlyCustomConfig: AssetSellConfig = {
   ...customSellConfig,
   recognitionProfile: {
@@ -991,7 +991,7 @@ const earlyResult = computeSellAsset({
   handoverYear: 4,
   projectStartYear: 2025,
 });
-assertNear('N4: PIT custom — recognition can land BEFORE sale year (axisIdx 0 = 2025)',
+assertNear('N4: PIT custom, recognition can land BEFORE sale year (axisIdx 0 = 2025)',
   earlyResult.presalesRecognitionPerPeriod[0], totalSales, 0.5);
 
 // ─────────────────────────────────────────────────────────────────────

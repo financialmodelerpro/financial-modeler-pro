@@ -33,12 +33,12 @@ const nid = (prefix: string): string => `${prefix}-${++_id}-${Math.random().toSt
 export function defaultHospitalityOpexLines(): OpexLine[] {
   _id = 0;
   return [
-    // Direct departmental — auto-escalate via revenue, never index.
+    // Direct departmental, auto-escalate via revenue, never index.
     { id: nid('rooms'), name: 'Rooms direct cost', category: 'direct_rooms', mode: 'pct_of_room_rev', value: 0.25, indexation: noIdx },
     { id: nid('fb'), name: 'F&B direct cost', category: 'direct_fb', mode: 'pct_of_fb_rev', value: 0.65, indexation: noIdx },
     { id: nid('ood'), name: 'Other dept. direct cost', category: 'direct_other', mode: 'pct_of_other_rev', value: 0.50, indexation: noIdx },
 
-    // Indirect (undistributed) — % of TR, auto-escalate via revenue.
+    // Indirect (undistributed), % of TR, auto-escalate via revenue.
     { id: nid('ga'), name: 'General & administrative', category: 'indirect_ga', mode: 'pct_of_total_rev', value: 0.08, indexation: noIdx },
     { id: nid('it'), name: 'IT', category: 'indirect_it', mode: 'pct_of_total_rev', value: 0.02, indexation: noIdx },
     { id: nid('sm'), name: 'Sales & marketing', category: 'indirect_sm', mode: 'pct_of_total_rev', value: 0.06, indexation: noIdx },
@@ -75,7 +75,7 @@ export function defaultLeaseOpexLines(): OpexLine[] {
     { id: nid('rm'), name: 'Repairs & maintenance', category: 'repairs_maintenance', mode: 'per_sqm_year', value: 30, indexation: noIdx, useAssetDefault: true },
     { id: nid('insurance'), name: 'Insurance', category: 'rent_insurance', mode: 'per_sqm_year', value: 10, indexation: noIdx, useAssetDefault: true },
     { id: nid('utilities'), name: 'Utilities (landlord side)', category: 'utilities', mode: 'pct_of_lease_rev', value: 0.02, indexation: noIdx },
-    // Pass-Through / Recoveries (memo — usually charged back to tenants
+    // Pass-Through / Recoveries (memo, usually charged back to tenants
     // under NNN; engine still totals it so the user can see the gross.)
     { id: nid('servchg'), name: 'Service charge recoverable', category: 'cam', mode: 'per_sqm_year', value: 50, indexation: noIdx, useAssetDefault: true },
     // Other Charges

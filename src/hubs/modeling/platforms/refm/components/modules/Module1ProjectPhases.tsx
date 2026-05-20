@@ -349,7 +349,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               <th style={tableHeaderStyle}>
                 <InputLabel label={`Operations (${'years'})`} help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
               </th>
-              {/* Pass 9g-N (2026-05-18): Overlap input removed — soft
+              {/* Pass 9g-N (2026-05-18): Overlap input removed, soft
                   open / mid-construction operations now lives on
                   asset.revenue.operate.operationsStartYearOverride
                   (per-asset, more flexible, end-anchored). Schema +

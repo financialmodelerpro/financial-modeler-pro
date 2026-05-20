@@ -286,7 +286,7 @@ export function createModule1Store() {
     // Both bugs manifested to the user as "my revenue / opex inputs are
     // changing or zeroing out when I edit a phase date." The safe fix is
     // to NOT touch any asset arrays on phase-date change. The user's
-    // inputs stay verbatim — what they entered is what they get back.
+    // inputs stay verbatim, what they entered is what they get back.
     //
     // Trade-off: axis-indexed arrays (preSalesVelocity, occupancyPerPeriod
     // etc.) are still indexed by project axis position, so if the user

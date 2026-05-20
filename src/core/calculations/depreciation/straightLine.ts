@@ -7,7 +7,7 @@
  *
  * `buildReducingBalance(base, rate, startIdx, N)` allocates
  * `rate × remaining NBV` each period. Asymptotes toward zero without
- * ever fully writing off — the residual NBV at end of axis is the
+ * ever fully writing off, the residual NBV at end of axis is the
  * uncharged tail (also matches a net-worth exit).
  *
  * Sentinel values (both functions):
@@ -55,7 +55,7 @@ export function buildStraightLine(
  * straight-line.
  *
  * The `life` parameter is optional and only used to cap the
- * depreciation window — when `life > 0`, depreciation stops after
+ * depreciation window, when `life > 0`, depreciation stops after
  * `life` periods (matching the asset's useful-life horizon). Pass
  * `life = 0` (default) for an unbounded RB schedule that runs to the
  * end of the axis.

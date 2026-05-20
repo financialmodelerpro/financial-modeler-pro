@@ -271,7 +271,7 @@ console.log('\n[9/9] Em-dash sweep on touched files');
     // contexts. The repo retains legacy em-dashes; sweep checks just
     // the new T2-Fix markers / docs.
     const t2Lines = txt.split(/\r?\n/).filter((l) => l.includes('T2-Fix'));
-    const offending = t2Lines.filter((l) => l.includes('—'));
+    const offending = t2Lines.filter((l) => l.includes(', '));
     if (offending.length === 0) pass(`${rel}: no em-dashes in T2-Fix lines`);
     else fail(`${rel}: em-dashes`, `T2 lines: ${offending.length}`);
   }

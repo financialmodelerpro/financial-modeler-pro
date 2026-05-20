@@ -43,7 +43,7 @@ export interface CostOfSalesV2Inputs {
   postSalesPerPeriod: number[];
   /** Construction recognition profile per period. Engine normalises to
    *  sum=1 internally so callers can pass either fractional (0..1) or
-   *  percentage (0..100) inputs — only the relative weights matter. */
+   *  percentage (0..100) inputs, only the relative weights matter. */
   recognitionPerPeriod: number[];
   /** Total sellable inventory (units or area). Used as the denominator
    *  for cumulative pre-sales + post-sales %. When 0, engine falls back

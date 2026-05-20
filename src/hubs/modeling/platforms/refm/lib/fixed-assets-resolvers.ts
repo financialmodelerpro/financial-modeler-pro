@@ -1,5 +1,5 @@
 /**
- * Module 4 Pass 1b — Fixed Assets + Depreciation resolver (refactor).
+ * Module 4 Pass 1b: Fixed Assets + Depreciation resolver (refactor).
  *
  * Bridges the M1 store to the depreciation engine and composes the
  * three views the M4 UI / future P&L + BS + CF need:

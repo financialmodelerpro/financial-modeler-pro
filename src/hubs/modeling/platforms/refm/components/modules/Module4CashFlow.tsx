@@ -75,7 +75,7 @@ export default function Module4CashFlow(): React.JSX.Element {
   const [filterAssetId, setFilterAssetId] = useState<string>('__project__');
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
 
-  // Direct CF rows — project totals
+  // Direct CF rows, project totals
   const buildDirectProjectRows = (): M4Row[] => {
     const d = snap.directCF;
     const rows: M4Row[] = [];
@@ -119,7 +119,7 @@ export default function Module4CashFlow(): React.JSX.Element {
     return rows;
   };
 
-  // Direct CF rows — asset filtered (Operations only; Investment + Financing stay project-level)
+  // Direct CF rows, asset filtered (Operations only; Investment + Financing stay project-level)
   const buildDirectAssetRows = (assetId: string): M4Row[] => {
     const cf = snap.perAssetCF.get(assetId);
     if (!cf) return [];
@@ -141,7 +141,7 @@ export default function Module4CashFlow(): React.JSX.Element {
     return rows;
   };
 
-  // Indirect CF rows — project level only
+  // Indirect CF rows, project level only
   const buildIndirectRows = (): M4Row[] => {
     const ic = snap.indirectCF;
     const rows: M4Row[] = [];
@@ -191,7 +191,7 @@ export default function Module4CashFlow(): React.JSX.Element {
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           Direct CF mirrors the reference v1.16 layout (literal cash in/out). Indirect CF reconstructs cash from
           {' '}{labels.pat} via D&A and working-capital changes. Both views end with the same Net Cash Flow per
-          period — if they diverge there's a working-capital line missing in the bridge.
+          period, if they diverge there's a working-capital line missing in the bridge.
         </p>
       </div>
 
@@ -234,7 +234,7 @@ export default function Module4CashFlow(): React.JSX.Element {
             >
               <option value="__project__">Project (all assets + financing)</option>
               {visibleAssets.map((a) => (
-                <option key={a.id} value={a.id}>{a.name} — {a.strategy}</option>
+                <option key={a.id} value={a.id}>{a.name}, {a.strategy}</option>
               ))}
             </select>
           </>
@@ -243,8 +243,8 @@ export default function Module4CashFlow(): React.JSX.Element {
 
       <M4PeriodTable
         title={view === 'direct'
-          ? (filterAssetId === '__project__' ? 'Cash Flow — Direct Method (project)' : `Cash Flow — Direct Method (${state.assets.find((a) => a.id === filterAssetId)?.name ?? ''})`)
-          : 'Cash Flow — Indirect Method (project)'}
+          ? (filterAssetId === '__project__' ? 'Cash Flow, Direct Method (project)' : `Cash Flow, Direct Method (${state.assets.find((a) => a.id === filterAssetId)?.name ?? ''})`)
+          : 'Cash Flow, Indirect Method (project)'}
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}

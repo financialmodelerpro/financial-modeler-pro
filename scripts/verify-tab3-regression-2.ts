@@ -203,7 +203,7 @@ console.log('\n[6/6] Em-dash sweep');
   // intentionally if it explains the rule using the actual character; we
   // grep for the raw codepoint and flag any occurrence.
   for (const [label, src] of targets) {
-    const count = (src.match(/—/g) ?? []).length;
+    const count = (src.match(/, /g) ?? []).length;
     if (count === 0) pass(`${label}: 0 em-dashes`);
     else fail(`${label} em-dash`, `${count} em-dash(es) found`);
   }
