@@ -64,6 +64,13 @@ export default function Module4BSFeeders(): React.JSX.Element {
   const yearLabels = snap.yearLabels;
   const zeros = (): number[] => new Array<number>(N).fill(0);
 
+  // M4 Pass 2j (2026-05-20): prior-year column = projectStartYear - 1.
+  // Stock lines pick up opening balances from financing.existing;
+  // working-capital roll-forwards start at 0.
+  const priorYear = snap.projectStartYear - 1;
+  const priorDebt = snap.financing.existing.debtOutstandingTotal;
+  const priorEquity = snap.financing.existing.equityTotal;
+
   // Section-divider row helper.
   const sectionRow = (label: string): M4Row => ({ label, values: [], isSection: true });
 
@@ -86,6 +93,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const opening = zeros(), billed = zeros(), collected = zeros(), closing = zeros();
             for (const [assetId, bundle] of snap.byAssetSchedules) {
@@ -115,6 +123,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const operatingRev = snap.pl.hospitalityRevenuePerPeriod.map((v, i) => v + (snap.pl.retailRevenuePerPeriod[i] ?? 0));
             const closing = snap.bs.arPerPeriod;
@@ -138,6 +147,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const closing = zeros();
             for (const cf of snap.perAssetCF.values()) {
@@ -169,11 +179,12 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={[
-            { label: 'Opening AP', values: snap.ap.projectTotals.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(snap.ap.projectTotals.openingApPerPeriod[0] ?? 0) },
-            { label: '(+) Opex incurred', values: snap.ap.projectTotals.opexIncurredPerPeriod, indent: 1 },
-            { label: '(−) Cash paid', values: snap.ap.projectTotals.cashPaidPerPeriod.map((v) => -v), indent: 1 },
-            { label: 'Closing AP', values: snap.ap.projectTotals.closingApPerPeriod, isTotal: true, totalOverride: fmt(snap.ap.projectTotals.closingApPerPeriod[N - 1] ?? 0) },
+            { label: 'Opening AP', values: snap.ap.projectTotals.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(snap.ap.projectTotals.openingApPerPeriod[0] ?? 0), priorValue: 0 },
+            { label: '(+) Opex incurred', values: snap.ap.projectTotals.opexIncurredPerPeriod, indent: 1, priorValue: 0 },
+            { label: '(−) Cash paid', values: snap.ap.projectTotals.cashPaidPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
+            { label: 'Closing AP', values: snap.ap.projectTotals.closingApPerPeriod, isTotal: true, totalOverride: fmt(snap.ap.projectTotals.closingApPerPeriod[N - 1] ?? 0), priorValue: 0 },
           ]}
         />
 
@@ -184,6 +195,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
             for (const [assetId, bundle] of snap.byAssetSchedules) {
@@ -212,6 +224,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
             const opening = zeros();
@@ -232,18 +245,26 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const rows: M4Row[] = [];
             const totalOut = zeros();
+            let totalPrior = 0;
             for (const t of state.financingTranches) {
               const f = snap.financing.facilities.get(t.id);
               if (!f) continue;
               const outRow = f.outstanding.slice(1, 1 + N);
               while (outRow.length < N) outRow.push(0);
-              rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0) });
+              // M4 Pass 2j: facility prior-column opening balance.
+              // facility.outstanding[0] is the engine's "prior column"
+              // for existing facilities (opening balance carried into
+              // year 0). New facilities have 0 here.
+              const facPrior = f.outstanding[0] ?? 0;
+              rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
               for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
+              totalPrior += facPrior;
             }
-            rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0) });
+            rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
             return rows;
           })()}
         />
@@ -258,20 +279,24 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const draws = snap.directCF.equityDrawdownPerPeriod;
             const closing = zeros();
             const opening = zeros();
-            let running = 0;
+            // M4 Pass 2j: seed cumulative equity from existing equity at
+            // axis start. Opening[0] carries the existing equity total
+            // forward into year 0 so the BS share capital reconciles.
+            let running = priorEquity;
             for (let t = 0; t < N; t++) {
               opening[t] = running;
               running += draws[t] ?? 0;
               closing[t] = running;
             }
             return [
-              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Equity drawdown', values: draws, indent: 1 },
-              { label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: priorEquity },
+              { label: '(+) Equity drawdown', values: draws, indent: 1, priorValue: 0 },
+              { label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorEquity },
             ];
           })()}
         />
@@ -286,6 +311,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={(() => {
             const rows: M4Row[] = [];
             const idcAssetRows = Array.from(snap.idc.byAsset.values()).filter((r) => r.totalIdc > 0);

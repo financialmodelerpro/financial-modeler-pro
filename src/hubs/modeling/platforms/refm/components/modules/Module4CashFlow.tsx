@@ -248,6 +248,7 @@ export default function Module4CashFlow(): React.JSX.Element {
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
         rows={rows.length > 0 ? rows : [{ label: 'No data', values: new Array<number>(N).fill(0) }]}
       />
     </div>

@@ -244,6 +244,7 @@ export default function Module4PL(): React.JSX.Element {
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
         rows={filteredRows.length > 0 ? filteredRows : [{ label: 'No data for this selection', values: new Array<number>(N).fill(0) }]}
       />
     </div>

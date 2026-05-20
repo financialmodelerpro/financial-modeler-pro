@@ -97,12 +97,22 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     });
   };
 
+  // M4 Pass 2j (2026-05-20): prior-year column shows opening balances at
+  // axis start. Stock lines pick up existing-operations history from
+  // financing.existing + fixed-assets snapshot; flow lines stay at 0.
+  const priorYear = snap.projectStartYear - 1;
+  const priorLand = snap.fixedAssets.projectTotals.land.openingAtAxisStart;
+  const priorBuilding = snap.fixedAssets.projectTotals.depreciable.openingNBVPerPeriod[0] ?? 0;
+  const priorFA = priorLand + priorBuilding;
+  const priorDebt = snap.financing.existing.debtOutstandingTotal;
+  const priorEquity = snap.financing.existing.equityTotal;
+
   const rows: M4Row[] = [];
   rows.push({ label: 'ASSETS', values: [], isSection: true });
 
   rows.push({ label: 'Fixed Assets', values: [], isSection: true });
-  rows.push({ label: 'Land', values: bs.landPerPeriod, indent: 1, totalOverride: fmt(bs.landPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'WIP / Fixed Assets (NBV)', values: bs.nbvPerPeriod, indent: 1, totalOverride: fmt(bs.nbvPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Land', values: bs.landPerPeriod, indent: 1, totalOverride: fmt(bs.landPerPeriod[N - 1] ?? 0), priorValue: priorLand });
+  rows.push({ label: 'WIP / Fixed Assets (NBV)', values: bs.nbvPerPeriod, indent: 1, totalOverride: fmt(bs.nbvPerPeriod[N - 1] ?? 0), priorValue: priorBuilding });
   // M4 Pass 2f: IDC NBV is the capitalised-interest portion of Fixed Assets
   // (Operate / Lease assets only, Sell IDC flows through Inventory and CoS).
   if (snap.idc.idcNbvPerPeriod.some((v) => v !== 0)) {
@@ -111,44 +121,45 @@ export default function Module4BalanceSheet(): React.JSX.Element {
       values: snap.idc.idcNbvPerPeriod,
       indent: 1,
       totalOverride: fmt(snap.idc.idcNbvPerPeriod[N - 1] ?? 0),
+      priorValue: 0,
     });
   }
-  rows.push({ label: 'Total Fixed Assets', values: bs.totalFixedAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalFixedAssetsPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Total Fixed Assets', values: bs.totalFixedAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalFixedAssetsPerPeriod[N - 1] ?? 0), priorValue: priorFA });
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
-  rows.push({ label: 'Cash', values: bs.cashPerPeriod, indent: 1, totalOverride: fmt(bs.cashPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Cash', values: bs.cashPerPeriod, indent: 1, totalOverride: fmt(bs.cashPerPeriod[N - 1] ?? 0), priorValue: 0 });
   if (bs.arPerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: 'Accounts Receivable (Operating)', values: bs.arPerPeriod, indent: 1, totalOverride: fmt(bs.arPerPeriod[N - 1] ?? 0) });
+    rows.push({ label: 'Accounts Receivable (Operating)', values: bs.arPerPeriod, indent: 1, totalOverride: fmt(bs.arPerPeriod[N - 1] ?? 0), priorValue: 0 });
   }
-  rows.push({ label: 'Residential Sales Receivables', values: bs.residentialReceivablesPerPeriod, indent: 1, totalOverride: fmt(bs.residentialReceivablesPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Inventory (Residential WIP)', values: bs.inventoryPerPeriod, indent: 1, totalOverride: fmt(bs.inventoryPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Total Current Assets', values: bs.totalCurrentAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentAssetsPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Residential Sales Receivables', values: bs.residentialReceivablesPerPeriod, indent: 1, totalOverride: fmt(bs.residentialReceivablesPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Inventory (Residential WIP)', values: bs.inventoryPerPeriod, indent: 1, totalOverride: fmt(bs.inventoryPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Current Assets', values: bs.totalCurrentAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentAssetsPerPeriod[N - 1] ?? 0), priorValue: 0 });
 
-  rows.push({ label: 'TOTAL ASSETS', values: bs.totalAssetsPerPeriod, isTotal: true, totalOverride: fmt(bs.totalAssetsPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'TOTAL ASSETS', values: bs.totalAssetsPerPeriod, isTotal: true, totalOverride: fmt(bs.totalAssetsPerPeriod[N - 1] ?? 0), priorValue: priorFA });
 
   rows.push({ label: 'LIABILITIES', values: [], isSection: true });
   rows.push({ label: 'Current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Accounts Payable', values: bs.apPerPeriod, indent: 1, totalOverride: fmt(bs.apPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: bs.unearnedRevenuePerPeriod, indent: 1, totalOverride: fmt(bs.unearnedRevenuePerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Escrow Locked Funds', values: bs.escrowLiabilityPerPeriod, indent: 1, totalOverride: fmt(bs.escrowLiabilityPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Total Current Liabilities', values: bs.totalCurrentLiabilitiesPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentLiabilitiesPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Accounts Payable', values: bs.apPerPeriod, indent: 1, totalOverride: fmt(bs.apPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: bs.unearnedRevenuePerPeriod, indent: 1, totalOverride: fmt(bs.unearnedRevenuePerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Escrow Locked Funds', values: bs.escrowLiabilityPerPeriod, indent: 1, totalOverride: fmt(bs.escrowLiabilityPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Current Liabilities', values: bs.totalCurrentLiabilitiesPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentLiabilitiesPerPeriod[N - 1] ?? 0), priorValue: 0 });
 
   rows.push({ label: 'Non-current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Debt (long-term)', values: bs.debtOutstandingPerPeriod, indent: 1, totalOverride: fmt(bs.debtOutstandingPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'TOTAL LIABILITIES', values: bs.totalLiabilitiesPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Debt (long-term)', values: bs.debtOutstandingPerPeriod, indent: 1, totalOverride: fmt(bs.debtOutstandingPerPeriod[N - 1] ?? 0), priorValue: priorDebt });
+  rows.push({ label: 'TOTAL LIABILITIES', values: bs.totalLiabilitiesPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesPerPeriod[N - 1] ?? 0), priorValue: priorDebt });
 
   rows.push({ label: 'SHAREHOLDERS EQUITY', values: [], isSection: true });
-  rows.push({ label: 'Share Capital', values: bs.shareCapitalPerPeriod, indent: 1, totalOverride: fmt(bs.shareCapitalPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Statutory Reserve', values: bs.statutoryReservePerPeriod, indent: 1, totalOverride: fmt(bs.statutoryReservePerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Retained Earnings', values: bs.retainedEarningsPerPeriod, indent: 1, totalOverride: fmt(bs.retainedEarningsPerPeriod[N - 1] ?? 0) });
-  rows.push({ label: 'Total Equity', values: bs.totalEquityPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalEquityPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'Share Capital', values: bs.shareCapitalPerPeriod, indent: 1, totalOverride: fmt(bs.shareCapitalPerPeriod[N - 1] ?? 0), priorValue: priorEquity });
+  rows.push({ label: 'Statutory Reserve', values: bs.statutoryReservePerPeriod, indent: 1, totalOverride: fmt(bs.statutoryReservePerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Retained Earnings', values: bs.retainedEarningsPerPeriod, indent: 1, totalOverride: fmt(bs.retainedEarningsPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Equity', values: bs.totalEquityPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalEquityPerPeriod[N - 1] ?? 0), priorValue: priorEquity });
 
-  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: bs.totalLiabilitiesAndEquityPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesAndEquityPerPeriod[N - 1] ?? 0) });
+  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: bs.totalLiabilitiesAndEquityPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesAndEquityPerPeriod[N - 1] ?? 0), priorValue: priorDebt + priorEquity });
 
   // BS Check
   const maxAbsDiff = Math.max(...bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
   const balances = maxAbsDiff < 0.5;
-  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bs.bsDifferencePerPeriod, isTotal: true, totalOverride: fmt(maxAbsDiff) });
+  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bs.bsDifferencePerPeriod, isTotal: true, totalOverride: fmt(maxAbsDiff), priorValue: priorFA - (priorDebt + priorEquity) });
 
   return (
     <div data-testid="module4-balancesheet" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -284,6 +295,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         currency={currency}
         fmt={fmt}
         rows={rows}
+        priorYearLabel={priorYear}
       />
 
       {!balances && (
