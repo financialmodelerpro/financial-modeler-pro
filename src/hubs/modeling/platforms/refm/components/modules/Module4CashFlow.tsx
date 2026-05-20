@@ -296,41 +296,162 @@ export default function Module4CashFlow(): React.JSX.Element {
     return rows;
   };
 
-  // Indirect CF rows, project level only
+  // M4 Pass 2M-B2 (2026-05-20): Indirect CF gets phase column + phase
+  // filter for parity with Direct + P&L. Per-asset-summable bridge
+  // lines (Inventory change, AP change, Unearned change, Escrow
+  // change, Capex) decompose to phase via the same per-asset slices
+  // we use in the BS phase view. Per-tranche financing decomposes by
+  // tranche.phaseId. PAT, D&A, Interest expense add-back, Operating
+  // AR change, Cash interest paid, and Equity drawdown stay
+  // project-level and carry a (project) tag under filter. The Net
+  // Cash Flow subtotal may drift vs the Direct view under filter
+  // because the project-level rows don't decompose cleanly.
   const buildIndirectRows = (): M4Row[] => {
     const ic = snap.indirectCF;
+    const filtered = filterPhaseId !== '__all__';
+    const projTag = filtered ? ' (project)' : '';
+
+    const zerosN = (): number[] => new Array<number>(N).fill(0);
+    const sumAssets = (pick: (assetId: string) => number[] | undefined): number[] => {
+      const out = zerosN();
+      const assetIds = filtered
+        ? visibleAssets.filter((a) => a.phaseId === filterPhaseId).map((a) => a.id)
+        : visibleAssets.map((a) => a.id);
+      for (const id of assetIds) {
+        const v = pick(id);
+        if (!v) continue;
+        for (let t = 0; t < N; t++) out[t] += v[t] ?? 0;
+      }
+      return out;
+    };
+    const periodChange = (arr: number[]): number[] => {
+      const out = zerosN();
+      for (let t = 0; t < N; t++) out[t] = (arr[t] ?? 0) - (t === 0 ? 0 : arr[t - 1] ?? 0);
+      return out;
+    };
+
+    // Per-asset summable bridge lines.
+    const inventoryClosingPhase = sumAssets((id) => snap.perAssetCF.get(id)?.inventoryPerPeriod);
+    const changeInInventory = periodChange(inventoryClosingPhase);
+    const apClosingPhase = sumAssets((id) => snap.ap.byAsset.get(id)?.result.perPeriod);
+    const changeInAp = periodChange(apClosingPhase);
+    const unearnedClosingPhase = sumAssets((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
+    const changeInUnearned = periodChange(unearnedClosingPhase);
+    const escrowClosingPhase = sumAssets((id) => snap.escrow.byAsset.get(id)?.result.cumulativeBalancePerPeriod);
+    const changeInEscrow = periodChange(escrowClosingPhase);
+    const capexFiltered = (() => {
+      const out = zerosN();
+      const assets = filtered
+        ? visibleAssets.filter((a) => a.phaseId === filterPhaseId)
+        : visibleAssets;
+      for (const a of assets) {
+        const cf = snap.perAssetCF.get(a.id);
+        if (!cf) continue;
+        for (let t = 0; t < N; t++) out[t] += -(cf.capexPerPeriod[t] ?? 0);
+      }
+      return out;
+    })();
+
+    // Per-tranche financing flows under filter.
+    const trancheIds = new Set(
+      filtered
+        ? state.financingTranches.filter((t) => t.phaseId === filterPhaseId).map((t) => t.id)
+        : state.financingTranches.map((t) => t.id),
+    );
+    const debtDrawFiltered = zerosN();
+    const debtRepayFiltered = zerosN();
+    const interestPaidFiltered = zerosN();
+    for (const tr of state.financingTranches) {
+      if (!trancheIds.has(tr.id)) continue;
+      const fac = snap.financing.facilities.get(tr.id);
+      if (!fac) continue;
+      for (let t = 0; t < N; t++) {
+        debtDrawFiltered[t] += fac.drawSchedule[t + 1] ?? 0;
+        debtRepayFiltered[t] += -(fac.principalRepaid[t + 1] ?? 0);
+        interestPaidFiltered[t] += -(fac.interestPaid[t + 1] ?? 0);
+      }
+    }
+
+    // Project-only lines stay project-level.
+    const patPhase = ic.patPerPeriod;
+    const daPhase = ic.daPerPeriod;
+    const intExpPhase = ic.interestExpensePerPeriod;
+    const changeArPhase = ic.changeInArPerPeriod;
+    const interestPaidProjPhase = ic.interestPaidPerPeriod;
+    const equityDrawPhase = ic.equityDrawdownPerPeriod;
+
+    // Recomputed subtotals when filtered; otherwise fall back to the snapshot.
+    const cfoFiltered = zerosN();
+    const cfiFiltered = capexFiltered.slice();
+    const cffFiltered = zerosN();
+    for (let t = 0; t < N; t++) {
+      cfoFiltered[t] = (patPhase[t] ?? 0)
+        + (daPhase[t] ?? 0)
+        + (intExpPhase[t] ?? 0)
+        - (changeArPhase[t] ?? 0)
+        - changeInInventory[t]
+        + changeInAp[t]
+        + changeInUnearned[t]
+        + changeInEscrow[t]
+        - (interestPaidProjPhase[t] ?? 0);
+      cffFiltered[t] = (equityDrawPhase[t] ?? 0)
+        + debtDrawFiltered[t]
+        + debtRepayFiltered[t]
+        + interestPaidFiltered[t];
+    }
+    const netCfFiltered = zerosN();
+    for (let t = 0; t < N; t++) netCfFiltered[t] = cfoFiltered[t] + cfiFiltered[t] + cffFiltered[t];
+
+    const cfo = filtered ? cfoFiltered : ic.cashFromOperationsPerPeriod;
+    const cfi = filtered ? cfiFiltered : ic.cashFromInvestmentPerPeriod;
+    const cff = filtered ? cffFiltered : ic.cashFromFinancingPerPeriod;
+    const netCf = filtered ? netCfFiltered : ic.netCashFlowPerPeriod;
+    const inv = filtered ? changeInInventory : ic.changeInInventoryPerPeriod;
+    const ap = filtered ? changeInAp : ic.changeInApPerPeriod;
+    const un = filtered ? changeInUnearned : ic.changeInUnearnedPerPeriod;
+    const esc = filtered ? changeInEscrow : ic.changeInEscrowPerPeriod;
+    const cpx = filtered ? capexFiltered : ic.capexPerPeriod;
+    const debtDraw = filtered ? debtDrawFiltered : ic.debtDrawdownPerPeriod;
+    const debtRepay = filtered ? debtRepayFiltered : ic.debtRepaymentPerPeriod;
+    const intPaidFin = filtered ? interestPaidFiltered : ic.interestPaidPerPeriod;
+
+    const phaseLbl = (id: string): string => phaseShort(id);
+
     const rows: M4Row[] = [];
     rows.push({ label: 'CASH FROM OPERATIONS (INDIRECT)', values: [], isSection: true });
-    rows.push({ label: labels.pat, values: ic.patPerPeriod, indent: 1 });
-    rows.push({ label: '(+) Depreciation & Amortization', values: ic.daPerPeriod, indent: 1 });
-    rows.push({ label: '(+) Interest expense (add back)', values: ic.interestExpensePerPeriod, indent: 1 });
-    rows.push({ label: '(−) Change in AR', values: ic.changeInArPerPeriod, indent: 1 });
-    rows.push({ label: '(−) Change in Inventory', values: ic.changeInInventoryPerPeriod, indent: 1 });
-    rows.push({ label: '(+) Change in AP', values: ic.changeInApPerPeriod, indent: 1 });
-    rows.push({ label: '(+) Change in Unearned Revenue', values: ic.changeInUnearnedPerPeriod, indent: 1 });
-    rows.push({ label: '(+) Change in Escrow balance', values: ic.changeInEscrowPerPeriod, indent: 1 });
-    rows.push({ label: '(−) Cash interest paid', values: ic.interestPaidPerPeriod, indent: 1 });
-    rows.push({ label: 'Cash Flow from Operations', values: ic.cashFromOperationsPerPeriod, isSubtotal: true });
+    rows.push({ label: `${labels.pat}${projTag}`, values: patPhase, indent: 1 });
+    rows.push({ label: `(+) Depreciation & Amortization${projTag}`, values: daPhase, indent: 1 });
+    rows.push({ label: `(+) Interest expense (add back)${projTag}`, values: intExpPhase, indent: 1 });
+    rows.push({ label: `(−) Change in AR${projTag}`, values: changeArPhase, indent: 1 });
+    rows.push({ label: '(−) Change in Inventory', values: inv, indent: 1 });
+    rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
+    rows.push({ label: '(+) Change in Unearned Revenue', values: un, indent: 1 });
+    rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
+    rows.push({ label: `(−) Cash interest paid${projTag}`, values: interestPaidProjPhase, indent: 1 });
+    rows.push({ label: 'Cash Flow from Operations', values: cfo, isSubtotal: true });
 
     rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
-    rows.push({ label: 'Capital expenditure', values: ic.capexPerPeriod, indent: 1 });
-    rows.push({ label: 'Cash Flow from Investment', values: ic.cashFromInvestmentPerPeriod, isSubtotal: true });
+    rows.push({ label: 'Capital expenditure', values: cpx, indent: 1 });
+    rows.push({ label: 'Cash Flow from Investment', values: cfi, isSubtotal: true });
 
     rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
-    if (ic.equityDrawdownPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Equity drawdown', values: ic.equityDrawdownPerPeriod, indent: 1 });
+    if (equityDrawPhase.some((v) => v !== 0)) {
+      rows.push({ label: `Equity drawdown${projTag}`, values: equityDrawPhase, indent: 1 });
     }
-    if (ic.debtDrawdownPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt drawdown', values: ic.debtDrawdownPerPeriod, indent: 1 });
+    if (debtDraw.some((v) => v !== 0)) {
+      rows.push({ label: 'Debt drawdown', values: debtDraw, indent: 1 });
     }
-    if (ic.debtRepaymentPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt repayment', values: ic.debtRepaymentPerPeriod, indent: 1 });
+    if (debtRepay.some((v) => v !== 0)) {
+      rows.push({ label: 'Debt repayment', values: debtRepay, indent: 1 });
     }
-    if (ic.interestPaidPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance cost paid', values: ic.interestPaidPerPeriod, indent: 1 });
+    if (intPaidFin.some((v) => v !== 0)) {
+      rows.push({ label: 'Finance cost paid', values: intPaidFin, indent: 1 });
     }
-    rows.push({ label: 'Cash Flow from Financing', values: ic.cashFromFinancingPerPeriod, isSubtotal: true });
-    rows.push({ label: 'Net Cash Flow', values: ic.netCashFlowPerPeriod, isTotal: true });
+    rows.push({ label: 'Cash Flow from Financing', values: cff, isSubtotal: true });
+    rows.push({ label: 'Net Cash Flow', values: netCf, isTotal: true });
+    // Avoid unused-variable lint warning while the per-tranche detail
+    // is folded into aggregate lines.
+    void phaseLbl;
     return rows;
   };
 
@@ -376,7 +497,7 @@ export default function Module4CashFlow(): React.JSX.Element {
             );
           })}
         </div>
-        {view === 'direct' && (
+        {(view === 'direct' || view === 'indirect') && (
           <>
             <label style={{ fontSize: 12, color: 'var(--color-meta)', fontWeight: 600, marginLeft: 16 }}>Phase:</label>
             <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }} data-testid="m4-cf-phase-filter">
@@ -411,7 +532,7 @@ export default function Module4CashFlow(): React.JSX.Element {
       <M4PeriodTable
         title={view === 'direct'
           ? (filterPhaseId === '__all__' ? 'Cash Flow, Direct Method (project)' : `Cash Flow, Direct Method (${phaseLabelFor(filterPhaseId)})`)
-          : 'Cash Flow, Indirect Method (project)'}
+          : (filterPhaseId === '__all__' ? 'Cash Flow, Indirect Method (project)' : `Cash Flow, Indirect Method (${phaseLabelFor(filterPhaseId)})`)}
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}
