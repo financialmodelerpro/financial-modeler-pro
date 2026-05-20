@@ -159,7 +159,18 @@ export function computeFacilitySchedule(
   const method = tranche.repaymentMethod;
   const repBudget = new Array<number>(N).fill(0);
   if (method === 'manual') {
-    const dist = tranche.repaymentManualDistribution ?? [];
+    // M4 Pass 2h: prefer the year-keyed sibling when present; expand
+    // to an axis-indexed array for the engine. Fall back to the legacy
+    // axis-indexed array for back-compat.
+    let dist: number[];
+    if (tranche.repaymentManualDistributionByYear !== undefined) {
+      dist = new Array<number>(N).fill(0);
+      for (let i = 0; i < N; i++) {
+        dist[i] = tranche.repaymentManualDistributionByYear[String(projectStartYear + i)] ?? 0;
+      }
+    } else {
+      dist = tranche.repaymentManualDistribution ?? [];
+    }
     const dsum = dist.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
     if (dsum > 0) {
       for (let i = 0; i < N; i++) {

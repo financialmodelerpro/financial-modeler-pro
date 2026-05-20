@@ -64,6 +64,85 @@ export const DEFAULT_SELL_TEMPLATE = {
   indexation: DEFAULT_INDEXATION,
 } as const;
 
+// ────────────────────────────────────────────────────────────────────
+// M4 Pass 2h (2026-05-20): expansion helpers.
+// Engine types still expect project-axis-indexed arrays. Storage uses
+// phase-local (ByPhase) or year-keyed (ByYear) shapes. These helpers
+// expand the storage shape into axis arrays before the engine sees them.
+// New ByPhase / ByYear fields are preferred; legacy axis-indexed arrays
+// are read as a fallback so back-compat is preserved for any snapshot
+// that hasn't yet been touched by the hydration migration.
+// ────────────────────────────────────────────────────────────────────
+
+export function expandPhaseLocalToAxis(
+  byPhase: number[] | undefined,
+  legacy: number[] | undefined,
+  phaseOffset: number,
+  axisLength: number,
+): number[] {
+  const N = Math.max(0, axisLength);
+  const out = new Array<number>(N).fill(0);
+  if (byPhase !== undefined) {
+    for (let i = 0; i < byPhase.length; i++) {
+      const axisIdx = phaseOffset + i;
+      if (axisIdx >= 0 && axisIdx < N) out[axisIdx] = byPhase[i] ?? 0;
+    }
+    return out;
+  }
+  if (Array.isArray(legacy)) {
+    for (let i = 0; i < Math.min(legacy.length, N); i++) out[i] = legacy[i] ?? 0;
+  }
+  return out;
+}
+
+export function expandYearKeyedToAxis(
+  byYear: Record<string, number> | undefined,
+  legacy: number[] | undefined,
+  projectStartYear: number,
+  axisLength: number,
+): number[] {
+  const N = Math.max(0, axisLength);
+  const out = new Array<number>(N).fill(0);
+  if (byYear !== undefined) {
+    for (let i = 0; i < N; i++) {
+      const v = byYear[String(projectStartYear + i)] ?? 0;
+      out[i] = v;
+    }
+    return out;
+  }
+  if (Array.isArray(legacy)) {
+    for (let i = 0; i < Math.min(legacy.length, N); i++) out[i] = legacy[i] ?? 0;
+  }
+  return out;
+}
+
+/** Indexation config helper: returns a new IndexationConfig where
+ *  growthPerPeriod is the expanded axis-indexed array. Preserves all
+ *  other fields (method, rate, startYear, steps). */
+function expandIndexationToAxis(
+  ix: IndexationConfig | undefined,
+  byPhase: number[] | undefined,
+  phaseOffset: number,
+  axisLength: number,
+): IndexationConfig {
+  if (!ix) return { method: 'none' };
+  if (ix.method !== 'yoy_per_period') return ix;
+  const growthPerPeriod = expandPhaseLocalToAxis(byPhase, ix.growthPerPeriod, phaseOffset, axisLength);
+  return { ...ix, growthPerPeriod };
+}
+
+function expandIndexationFromYearKeyed(
+  ix: IndexationConfig | undefined,
+  byYear: Record<string, number> | undefined,
+  projectStartYear: number,
+  axisLength: number,
+): IndexationConfig {
+  if (!ix) return { method: 'none' };
+  if (ix.method !== 'yoy_per_period') return ix;
+  const growthPerPeriod = expandYearKeyedToAxis(byYear, ix.growthPerPeriod, projectStartYear, axisLength);
+  return { ...ix, growthPerPeriod };
+}
+
 /**
  * Build an AssetSellConfig for the engine. Pass 7g: reads cash +
  * recognition + indexation directly from the asset; defaults fill
@@ -151,16 +230,46 @@ export function resolveHospitalityConfig(
       adrIndexation: u.hospitalityIndexation,
     }));
 
+  // M4 Pass 2h: expand phase-local arrays into project-axis arrays.
+  const phaseOffset = phaseStartYear - projectStartYear;
+
   // Rental pool participation: manual %-per-period profile, decimal
   // 0..1. Empty / undefined => engine uses full keys (no scaling).
   let keysParticipationPerPeriod: number[] | undefined;
-  if (cfg.keysParticipationProfile && cfg.keysParticipationProfile.length > 0) {
-    keysParticipationPerPeriod = new Array<number>(axisLength).fill(0);
-    for (let t = 0; t < axisLength; t++) {
-      const raw = cfg.keysParticipationProfile[t] ?? 0;
-      keysParticipationPerPeriod[t] = Math.max(0, Math.min(1, raw));
-    }
+  const kppExpanded = cfg.keysParticipationProfileByPhase !== undefined || cfg.keysParticipationProfile !== undefined
+    ? expandPhaseLocalToAxis(cfg.keysParticipationProfileByPhase, cfg.keysParticipationProfile, phaseOffset, axisLength)
+    : undefined;
+  if (kppExpanded !== undefined) {
+    keysParticipationPerPeriod = kppExpanded.map((v) => Math.max(0, Math.min(1, v)));
   }
+
+  // F&B array variants (when stored as array, not scalar) and indexation.
+  const fbExpanded: HospitalityConfig['fb'] = {
+    mode: cfg.fb.mode,
+    percentOfRooms: cfg.fb.percentOfRoomsByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.fb.percentOfRoomsByPhase, Array.isArray(cfg.fb.percentOfRooms) ? cfg.fb.percentOfRooms : undefined, phaseOffset, axisLength)
+      : cfg.fb.percentOfRooms,
+    ratePerGuest: cfg.fb.ratePerGuestByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.fb.ratePerGuestByPhase, Array.isArray(cfg.fb.ratePerGuest) ? cfg.fb.ratePerGuest : undefined, phaseOffset, axisLength)
+      : cfg.fb.ratePerGuest,
+    fixedAmountPerPeriod: cfg.fb.fixedAmountPerPeriodByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.fb.fixedAmountPerPeriodByPhase, Array.isArray(cfg.fb.fixedAmountPerPeriod) ? cfg.fb.fixedAmountPerPeriod : undefined, phaseOffset, axisLength)
+      : cfg.fb.fixedAmountPerPeriod,
+    indexation: expandIndexationToAxis(cfg.fb.indexation, cfg.fb.indexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+  };
+  const orExpanded: HospitalityConfig['otherRevenue'] = {
+    mode: cfg.otherRevenue.mode,
+    percentOfRooms: cfg.otherRevenue.percentOfRoomsByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.otherRevenue.percentOfRoomsByPhase, Array.isArray(cfg.otherRevenue.percentOfRooms) ? cfg.otherRevenue.percentOfRooms : undefined, phaseOffset, axisLength)
+      : cfg.otherRevenue.percentOfRooms,
+    ratePerGuest: cfg.otherRevenue.ratePerGuestByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.otherRevenue.ratePerGuestByPhase, Array.isArray(cfg.otherRevenue.ratePerGuest) ? cfg.otherRevenue.ratePerGuest : undefined, phaseOffset, axisLength)
+      : cfg.otherRevenue.ratePerGuest,
+    fixedAmountPerPeriod: cfg.otherRevenue.fixedAmountPerPeriodByPhase !== undefined
+      ? expandPhaseLocalToAxis(cfg.otherRevenue.fixedAmountPerPeriodByPhase, Array.isArray(cfg.otherRevenue.fixedAmountPerPeriod) ? cfg.otherRevenue.fixedAmountPerPeriod : undefined, phaseOffset, axisLength)
+      : cfg.otherRevenue.fixedAmountPerPeriod,
+    indexation: expandIndexationToAxis(cfg.otherRevenue.indexation, cfg.otherRevenue.indexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+  };
 
   return {
     assetId: asset.id,
@@ -173,23 +282,11 @@ export function resolveHospitalityConfig(
     // operate.startingADR === undefined when the user touched a
     // non-ADR field first; cfg.startingADR is undefined in that case.
     startingADR: cfg.startingADR ?? 0,
-    adrIndexation: cfg.adrIndexation ?? DEFAULT_INDEXATION,
-    occupancyPerPeriod: cfg.occupancyPerPeriod ?? new Array<number>(axisLength).fill(0),
+    adrIndexation: expandIndexationToAxis(cfg.adrIndexation, cfg.adrIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+    occupancyPerPeriod: expandPhaseLocalToAxis(cfg.occupancyPerPeriodByPhase, cfg.occupancyPerPeriod, phaseOffset, axisLength),
     guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
-    fb: {
-      mode: cfg.fb.mode,
-      percentOfRooms: cfg.fb.percentOfRooms,
-      ratePerGuest: cfg.fb.ratePerGuest,
-      fixedAmountPerPeriod: cfg.fb.fixedAmountPerPeriod,
-      indexation: cfg.fb.indexation,
-    },
-    otherRevenue: {
-      mode: cfg.otherRevenue.mode,
-      percentOfRooms: cfg.otherRevenue.percentOfRooms,
-      ratePerGuest: cfg.otherRevenue.ratePerGuest,
-      fixedAmountPerPeriod: cfg.otherRevenue.fixedAmountPerPeriod,
-      indexation: cfg.otherRevenue.indexation,
-    },
+    fb: fbExpanded,
+    otherRevenue: orExpanded,
     opsStartIdx,
     opsEndIdx,
     keysParticipationPerPeriod,
@@ -247,13 +344,16 @@ export function resolveLeaseConfig(
       baseRate: u.unitPrice > 0 ? u.unitPrice : (cfg.baseRate ?? 0),
     }));
 
+  // M4 Pass 2h: expand phase-local arrays.
+  const phaseOffset = phaseStartYear - projectStartYear;
+
   return {
     assetId: asset.id,
     subUnits: leaseSubUnits,
     gla: totalGla,
     baseRate: cfg.baseRate ?? 0,
-    rentIndexation: cfg.rentIndexation ?? DEFAULT_INDEXATION,
-    occupancyPerPeriod: cfg.occupancyPerPeriod ?? new Array<number>(axisLength).fill(0),
+    rentIndexation: expandIndexationToAxis(cfg.rentIndexation, cfg.rentIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+    occupancyPerPeriod: expandPhaseLocalToAxis(cfg.occupancyPerPeriodByPhase, cfg.occupancyPerPeriod, phaseOffset, axisLength),
     opsStartIdx,
     opsEndIdx,
     arDays: cfg.arDays ?? 30,
@@ -425,21 +525,59 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     // companion (operate side) wires in at Pass 10 and lives in
     // Hospitality / Operations.
     if (a.strategy !== 'Sell' && a.strategy !== 'Sell + Manage') continue;
-    const cfg = resolveSellConfig(a, project);
-    if (!cfg) continue;
+    const cfgRaw = resolveSellConfig(a, project);
+    if (!cfgRaw) continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
 
     const phaseStartYear = phase.startDate
       ? new Date(phase.startDate).getUTCFullYear()
       : projectStartYear;
+    const phaseOffset = phaseStartYear - projectStartYear;
     const handoverYear = resolveHandoverYear(
       N,
       phaseStartYear,
       phase.constructionPeriods ?? 0,
       projectStartYear,
-      cfg.handoverYearOverride,
+      cfgRaw.handoverYearOverride,
     );
+
+    // M4 Pass 2h: expand new phase-local fields into axis-indexed arrays
+    // before the engine sees them. The engine type still expects
+    // project-axis arrays; storage holds phase-local now.
+    const storedSell = a.revenue?.sell;
+    const cfg: AssetSellConfig = {
+      ...cfgRaw,
+      subUnits: cfgRaw.subUnits.map((su, idx) => {
+        const stored = storedSell?.subUnits?.[idx];
+        return {
+          subUnitId: su.subUnitId,
+          preSalesVelocity: expandPhaseLocalToAxis(stored?.preSalesVelocityByPhase, stored?.preSalesVelocity, phaseOffset, N),
+          postSalesVelocity: expandPhaseLocalToAxis(stored?.postSalesVelocityByPhase, stored?.postSalesVelocity, phaseOffset, N),
+        };
+      }),
+      cashPaymentProfile: (() => {
+        const cpp = cfgRaw.cashPaymentProfile;
+        const sCpp = storedSell?.cashPaymentProfile;
+        const newPct = sCpp?.percentagesByPhase ?? cpp.percentages;
+        const newPos = sCpp?.positionsByPhase !== undefined
+          ? sCpp.positionsByPhase.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N)
+          : cpp.positions;
+        return { ...cpp, percentages: newPct ?? [], positions: newPos };
+      })(),
+      recognitionProfile: (() => {
+        const rp = cfgRaw.recognitionProfile;
+        const sRp = storedSell?.recognitionProfile;
+        if (rp.method !== 'over_time') return rp;
+        const newPct = sRp?.percentagesByPhase ?? rp.percentages;
+        const newPos = sRp?.positionsByPhase !== undefined
+          ? sRp.positionsByPhase.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N)
+          : rp.positions;
+        return { ...rp, percentages: newPct, positions: newPos };
+      })(),
+      indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N),
+    };
+
     const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
     const subUnitMaterials = assetSubUnits.map(makeSubUnitMaterial);
 

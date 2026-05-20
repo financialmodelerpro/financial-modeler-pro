@@ -31,7 +31,11 @@ import {
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, Project } from './state/module1-types';
-import type { ProjectRevenueSnapshot } from './revenue-resolvers';
+import {
+  expandPhaseLocalToAxis,
+  expandYearKeyedToAxis,
+  type ProjectRevenueSnapshot,
+} from './revenue-resolvers';
 
 export interface ProjectOpexSnapshot {
   axisLength: number;
@@ -219,10 +223,37 @@ export function computeAllOpexResults(
     // have no ongoing operations, skip.
     if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
 
-    const lines = resolveAssetOpexLines(a);
-    if (lines.length === 0) continue;
+    const linesRaw = resolveAssetOpexLines(a);
+    if (linesRaw.length === 0) continue;
 
     const { opsStartIdx, opsEndIdx } = resolveOpsWindow(a, project, phaseMap, N);
+
+    // M4 Pass 2h: expand phase-local opex line arrays to axis-indexed.
+    const phaseForAsset = phaseMap.get(a.phaseId);
+    const phaseStartYear = phaseForAsset?.startDate
+      ? new Date(phaseForAsset.startDate).getUTCFullYear()
+      : new Date(project.startDate).getUTCFullYear();
+    const phaseOffset = phaseStartYear - new Date(project.startDate).getUTCFullYear();
+    const storedLines = a.opex?.lines ?? [];
+    const lines: OpexLine[] = linesRaw.map((line, idx) => {
+      const stored = storedLines[idx];
+      const next = { ...line };
+      if (stored?.yoyRatesByPhase !== undefined || stored?.yoyRates !== undefined) {
+        next.yoyRates = expandPhaseLocalToAxis(stored?.yoyRatesByPhase, stored?.yoyRates, phaseOffset, N);
+      }
+      if (line.indexation?.method === 'yoy_per_period') {
+        next.indexation = {
+          ...line.indexation,
+          growthPerPeriod: expandPhaseLocalToAxis(
+            stored?.indexation?.growthPerPeriodByPhase,
+            line.indexation.growthPerPeriod,
+            phaseOffset,
+            N,
+          ),
+        };
+      }
+      return next;
+    });
 
     // Driver quantities: total keys for hospitality, total leasable
     // sqm for lease. Pull from M1 sub-units of this asset.
@@ -241,11 +272,26 @@ export function computeAllOpexResults(
 
     const revenue = buildAssetRevenueContext(a, revenueSnap, N);
 
+    // M4 Pass 2h: expand asset-level defaultIndexation growthPerPeriod.
+    const rawDefaultIdx = resolveAssetDefaultIndexation(a);
+    const storedDefaultIdx = a.opex?.defaultIndexation as { growthPerPeriodByPhase?: number[]; growthPerPeriod?: number[] } | undefined;
+    const defaultIdx: IndexationConfig = rawDefaultIdx.method === 'yoy_per_period'
+      ? {
+          ...rawDefaultIdx,
+          growthPerPeriod: expandPhaseLocalToAxis(
+            storedDefaultIdx?.growthPerPeriodByPhase,
+            rawDefaultIdx.growthPerPeriod,
+            phaseOffset,
+            N,
+          ),
+        }
+      : rawDefaultIdx;
+
     const inputs: AssetOpexInputs = {
       assetId: a.id,
       strategy: a.strategy as AssetOpexInputs['strategy'],
       lines,
-      defaultIndexation: resolveAssetDefaultIndexation(a),
+      defaultIndexation: defaultIdx,
       keys,
       leasableSqm,
       opsStartIdx,
@@ -270,22 +316,54 @@ export function computeAllOpexResults(
 
   // HQ opex: project-wide line list. Empty config means no HQ opex
   // (some projects don't carry HQ costs at all).
+  // M4 Pass 2h: HQ uses year-keyed storage (no owning phase).
+  const projectStartYearHq = new Date(project.startDate).getUTCFullYear();
   const hqLines: OpexLine[] = project.hqOpex?.lines && project.hqOpex.lines.length > 0
-    ? project.hqOpex.lines.map((l) => ({
-        id: l.id,
-        name: l.name,
-        category: l.category,
-        mode: l.mode,
-        value: l.value,
-        indexation: l.indexation,
-        useAssetDefault: l.useAssetDefault,
-        rateMode: l.rateMode,
-        yoyRates: l.yoyRates,
-        disabled: l.disabled,
-      }))
+    ? project.hqOpex.lines.map((l) => {
+        const next: OpexLine = {
+          id: l.id,
+          name: l.name,
+          category: l.category,
+          mode: l.mode,
+          value: l.value,
+          indexation: l.indexation,
+          useAssetDefault: l.useAssetDefault,
+          rateMode: l.rateMode,
+          yoyRates: l.yoyRates,
+          disabled: l.disabled,
+        };
+        const storedHq = l as { yoyRatesByYear?: Record<string, number>; indexation?: { growthPerPeriodByYear?: Record<string, number> } };
+        if (storedHq.yoyRatesByYear !== undefined || l.yoyRates !== undefined) {
+          next.yoyRates = expandYearKeyedToAxis(storedHq.yoyRatesByYear, l.yoyRates, projectStartYearHq, N);
+        }
+        if (l.indexation?.method === 'yoy_per_period') {
+          next.indexation = {
+            ...l.indexation,
+            growthPerPeriod: expandYearKeyedToAxis(
+              storedHq.indexation?.growthPerPeriodByYear,
+              l.indexation.growthPerPeriod,
+              projectStartYearHq,
+              N,
+            ),
+          };
+        }
+        return next;
+      })
     : defaultHQOpexLines();
-  const hqDefaultIdx: IndexationConfig = (project.hqOpex?.defaultIndexation as IndexationConfig | undefined)
+  const hqDefaultIdxRaw: IndexationConfig = (project.hqOpex?.defaultIndexation as IndexationConfig | undefined)
     ?? defaultOpexIndexation();
+  const hqDefaultIdxStored = project.hqOpex?.defaultIndexation as { growthPerPeriodByYear?: Record<string, number>; growthPerPeriod?: number[] } | undefined;
+  const hqDefaultIdx: IndexationConfig = hqDefaultIdxRaw.method === 'yoy_per_period'
+    ? {
+        ...hqDefaultIdxRaw,
+        growthPerPeriod: expandYearKeyedToAxis(
+          hqDefaultIdxStored?.growthPerPeriodByYear,
+          hqDefaultIdxRaw.growthPerPeriod,
+          projectStartYearHq,
+          N,
+        ),
+      }
+    : hqDefaultIdxRaw;
 
   // Project total revenue for pct_of_total_rev HQ lines.
   const projectTR = zeros(N);
