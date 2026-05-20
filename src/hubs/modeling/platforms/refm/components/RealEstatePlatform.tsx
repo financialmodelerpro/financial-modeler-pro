@@ -47,11 +47,10 @@ import Module2CostOfSales from './modules/Module2CostOfSales';
 import Module2Schedules from './modules/Module2Schedules';
 import Module2Escrow from './modules/Module2Escrow';
 import Module4FixedAssets from './modules/Module4FixedAssets';
-// M4 Pass 2 in progress — paused while fixing a phase-date bug.
-// import Module4Schedules from './modules/Module4Schedules';
-// import Module4PL from './modules/Module4PL';
-// import Module4CashFlow from './modules/Module4CashFlow';
-// import Module4BalanceSheet from './modules/Module4BalanceSheet';
+import Module4Schedules from './modules/Module4Schedules';
+import Module4PL from './modules/Module4PL';
+import Module4CashFlow from './modules/Module4CashFlow';
+import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 
@@ -198,12 +197,16 @@ export const m3Tabs = [
   { key: 'm3-output', icon: '📊', label: '2. Opex Output', step: 2 },
 ];
 
-// ── Module 4 tabs (Financial Statements; Pass 1 ships Fixed Assets only) ──
-// P&L / BS / CF surfaces land in subsequent passes. Pass 1 surfaces only
-// the Fixed Assets + Depreciation roll-forward built by the M4 engine
-// under src/core/calculations/depreciation/ + fixed-assets-resolvers.
+// ── Module 4 tabs (Financial Statements) ────────────────────────────
+// Pass 1 shipped Fixed Assets + Depreciation. Pass 2 (2026-05-20)
+// fills in the full financial statements: Schedules (BS feeders),
+// P&L, Cash Flow, Balance Sheet.
 export const m4Tabs = [
   { key: 'm4-fixed-assets', icon: '🏗️', label: '1. Fixed Assets & D&A', step: 1 },
+  { key: 'm4-schedules', icon: '📑', label: '2. BS Schedules', step: 2 },
+  { key: 'm4-pl', icon: '📈', label: '3. P&L', step: 3 },
+  { key: 'm4-cashflow', icon: '💵', label: '4. Cash Flow', step: 4 },
+  { key: 'm4-balancesheet', icon: '⚖️', label: '5. Balance Sheet', step: 5 },
 ];
 
 // Universal module → sub-tabs map. Any module key that needs a sidebar
@@ -700,6 +703,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
             ))}
           </div>
           {m4ActiveTab === 'm4-fixed-assets' && <Module4FixedAssets />}
+          {m4ActiveTab === 'm4-schedules' && <Module4Schedules />}
+          {m4ActiveTab === 'm4-pl' && <Module4PL />}
+          {m4ActiveTab === 'm4-cashflow' && <Module4CashFlow />}
+          {m4ActiveTab === 'm4-balancesheet' && <Module4BalanceSheet />}
         </div>
       );
     }
