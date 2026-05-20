@@ -372,6 +372,72 @@ console.log('\n[E] Cash schedule extends past phaseLen');
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// F: percentagesByPhase longer than project axis must NOT empty the
+//    cash vintage matrix. buildCohortMatrix early-returns when pct
+//    and pos arrays disagree in length, so the resolver must pass
+//    them through in lockstep (don't filter pos, the engine drops
+//    out-of-range positions internally).
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[F] Long percentagesByPhase does not zero out the matrix (lockstep pct/pos)');
+{
+  const project = {
+    name: 'long-by-phase',
+    currency: 'SAR',
+    modelType: 'annual' as const,
+    startDate: '2026-01-01',
+    status: 'Draft' as const,
+    location: '',
+    country: 'Saudi Arabia',
+  } as unknown as Project;
+  // Project axis is 5 years (2026..2030) driven by phases.
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 3, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p1', name: 'Tower', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{
+          subUnitId: 'su1',
+          preSalesVelocityByPhase: [1.0, 0],
+          postSalesVelocityByPhase: [],
+          preSalesVelocity: [], postSalesVelocity: [],
+        }],
+        cashPaymentProfile: {
+          percentages: [],
+          profileMode: 'absolute_with_catchup',
+          // Length 10 (longer than the 5-year axis). The cohort engine
+          // must drop positions 5-9 internally without breaking the
+          // pct/pos length-equality guard.
+          percentagesByPhase: [0.2, 0.2, 0.2, 0.2, 0.2, 0, 0, 0, 0, 0],
+        },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
+    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
+  } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] });
+  const sell = res.bySellAsset.get('a1');
+  if (!sell) {
+    console.log('  [FAIL] F-pre: no sell result');
+    fail++;
+  } else {
+    // Contract value 100M sold in 2026. Cash 20% × 5 years = 100M total.
+    assertNear('F1: cash at axis 0 (2026) = 20M', sell.cashCollectedPerPeriod[0] ?? 0, 20_000_000, 10);
+    assertNear('F2: cash at axis 2 (2028) = 20M (matrix not empty)', sell.cashCollectedPerPeriod[2] ?? 0, 20_000_000, 10);
+    assertNear('F3: cash at axis 4 (2030) = 20M', sell.cashCollectedPerPeriod[4] ?? 0, 20_000_000, 10);
+    assertNear('F4: total cash = 100M (all collected within axis)', sell.cashCollectedPerPeriod.reduce((s, v) => s + v, 0), 100_000_000, 10);
+    // Vintage matrix must be populated, not zeroed.
+    const matrixSum = sell.cashVintageMatrix.reduce((s, row) => s + row.reduce((a, b) => a + b, 0), 0);
+    assertNear('F5: vintage matrix sum = 100M (NOT empty)', matrixSum, 100_000_000, 10);
+  }
+}
+
 console.log(`\n--- Phase-date preservation: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);
 if (fail > 0) {
   console.error('\nFAILURES:');

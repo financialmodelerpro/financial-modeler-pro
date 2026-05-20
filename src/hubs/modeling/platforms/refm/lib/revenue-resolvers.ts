@@ -559,19 +559,24 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       cashPaymentProfile: (() => {
         const cpp = cfgRaw.cashPaymentProfile;
         const sCpp = storedSell?.cashPaymentProfile;
-        // M2 Pass 9k-Fix (2026-05-20): when percentagesByPhase is the
-        // source of truth, its index k is PHASE-LOCAL — k=0 means the
-        // phase start year. The cohort engine expects positions in
-        // ABSOLUTE project-axis years, so we ALWAYS rebuild positions
-        // by adding phaseOffset, regardless of whether positionsByPhase
-        // was set. Without this, Phase 2+ cash schedules landed on the
-        // wrong project years (Phase 1 happened to work because
-        // phaseOffset = 0). cpp.positions (legacy) is only honoured
-        // when the asset has never been migrated to ByPhase.
+        // M2 Pass 9k-Fix (2026-05-20):
+        // 1) When percentagesByPhase is the source of truth, its index
+        //    k is PHASE-LOCAL — k=0 means the phase start year. The
+        //    cohort engine expects positions in ABSOLUTE project-axis
+        //    years, so we ALWAYS rebuild positions by adding
+        //    phaseOffset. Without this, Phase 2+ cash schedules landed
+        //    on the wrong project years (Phase 1 only worked because
+        //    phaseOffset = 0).
+        // 2) buildCohortMatrix early-returns with an empty matrix when
+        //    pos.length !== pct.length, so pct + pos MUST stay
+        //    lockstep. Drop the prior in-resolver filter that pruned
+        //    pos but left pct intact — the cohort engine already
+        //    handles `position < N` internally, so out-of-range
+        //    positions are safe to pass through.
         if (sCpp?.percentagesByPhase !== undefined) {
           const newPct = sCpp.percentagesByPhase;
           const localPos = sCpp.positionsByPhase ?? newPct.map((_, k) => k);
-          const newPos = localPos.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N);
+          const newPos = localPos.map((p) => p + phaseOffset);
           return { ...cpp, percentages: newPct, positions: newPos };
         }
         return { ...cpp, percentages: cpp.percentages ?? [], positions: cpp.positions };
@@ -580,11 +585,13 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
         const rp = cfgRaw.recognitionProfile;
         const sRp = storedSell?.recognitionProfile;
         if (rp.method !== 'over_time') return rp;
-        // M2 Pass 9k-Fix (2026-05-20): same phase-offset fix as cash.
+        // M2 Pass 9k-Fix (2026-05-20): same phase-offset fix as cash,
+        // and no in-resolver position filter (would create the
+        // pct/pos length mismatch that empties the matrix).
         if (sRp?.percentagesByPhase !== undefined) {
           const newPct = sRp.percentagesByPhase;
           const localPos = sRp.positionsByPhase ?? newPct.map((_, k) => k);
-          const newPos = localPos.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N);
+          const newPos = localPos.map((p) => p + phaseOffset);
           return { ...rp, percentages: newPct, positions: newPos };
         }
         return { ...rp, percentages: rp.percentages, positions: rp.positions };
