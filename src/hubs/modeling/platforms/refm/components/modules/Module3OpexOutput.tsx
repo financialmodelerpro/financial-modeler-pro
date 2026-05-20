@@ -26,7 +26,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
-import { computeAllOpexResults } from '../../lib/opex-resolvers';
+import { computeAllOpexResults, computeOpexApSnapshot } from '../../lib/opex-resolvers';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import {
@@ -181,19 +181,22 @@ function sumArrays(arrs: number[][], N: number): number[] {
 }
 
 export default function Module3OpexOutput(): React.JSX.Element {
-  const { project, phases, assets, subUnits } = useModule1Store(
+  const { project, phases, assets, subUnits, setProject, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
       assets: s.assets,
       subUnits: s.subUnits,
+      setProject: s.setProject,
+      updateAsset: s.updateAsset,
     })),
   );
 
   const snap = useMemo(() => {
     const rev = computeAllSellResults({ project, phases, assets, subUnits });
     const opex = computeAllOpexResults({ project, phases, assets, subUnits }, rev);
-    return { rev, opex };
+    const ap = computeOpexApSnapshot({ project, assets }, opex);
+    return { rev, opex, ap };
   }, [project, phases, assets, subUnits]);
 
   const scale: DisplayScale = (project.displayScale ?? 'thousands');
@@ -451,6 +454,251 @@ export default function Module3OpexOutput(): React.JSX.Element {
     return rows;
   };
 
+  // ── M4 Pass 2a (2026-05-20): Accounts Payable schedule ──────────
+  const FAST_INPUT: React.CSSProperties = {
+    width: '100%',
+    padding: '4px 6px',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--color-navy-pale, color-mix(in srgb, var(--color-navy) 8%, white))',
+    color: 'var(--color-navy)',
+    fontSize: 12,
+  };
+
+  const setProjectDefaultApDays = (days: number | undefined): void => {
+    setProject({
+      opexAp: {
+        ...(project.opexAp ?? {}),
+        defaultApDays: days,
+      },
+    });
+  };
+
+  const setAssetApDaysOverride = (assetId: string, days: number | undefined): void => {
+    const a = assets.find((x) => x.id === assetId);
+    if (!a) return;
+    const prev = a.opex;
+    const nextOpex = prev
+      ? { ...prev, apDaysOverride: days }
+      : { lines: [], apDaysOverride: days };
+    updateAsset(assetId, { opex: nextOpex });
+  };
+
+  const renderAccountsPayableSection = (): React.JSX.Element => {
+    const apAssetRows = Array.from(snap.ap.byAsset.values());
+    const projectDefaultApDays = project.opexAp?.defaultApDays;
+    const projectTotalAp = snap.ap.projectTotals;
+
+    return (
+      <PhaseSection
+        phaseId="__opex-ap__"
+        title="Accounts Payable (Opex)"
+        meta="DPO-driven AP roll-forward — feeds BS current liabilities + CF cash paid for opex"
+        storageKey="fmp:m3:opex:ap:collapsed"
+      >
+        {/* Inputs panel */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
+          gap: 'var(--sp-2)',
+          padding: 'var(--sp-2)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          marginBottom: 'var(--sp-3)',
+        }}>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Project Default DPO (days)
+            </label>
+            <input
+              type="number"
+              value={projectDefaultApDays ?? ''}
+              min={0}
+              max={365}
+              placeholder="0 (cash basis)"
+              onChange={(e) => {
+                const v = e.target.value;
+                setProjectDefaultApDays(v === '' ? undefined : Math.max(0, Number(v)));
+              }}
+              style={FAST_INPUT}
+              data-testid="m3-ap-project-defaultdpo"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days Payable Outstanding. AP closing = Opex × (DPO / 365). Blank or 0 = pay on incurrence (no AP).
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Days basis
+            </label>
+            <input
+              type="number"
+              value={project.opexAp?.daysPerYear ?? 365}
+              min={1}
+              max={400}
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(400, Number(e.target.value) || 365));
+                setProject({ opexAp: { ...(project.opexAp ?? {}), daysPerYear: v } });
+              }}
+              style={FAST_INPUT}
+              data-testid="m3-ap-days-per-year"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days per year for DPO ratio. Standard = 365.
+            </div>
+          </div>
+        </div>
+
+        {/* Per-asset override table */}
+        {apAssetRows.length > 0 && (
+          <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--sp-3)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={CELL_HEADER}>Asset</th>
+                  <th style={CELL_HEADER}>Effective DPO (days)</th>
+                  <th style={CELL_HEADER}>DPO Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                {apAssetRows.map((ar) => {
+                  const a = assets.find((x) => x.id === ar.assetId);
+                  const override = a?.opex?.apDaysOverride;
+                  return (
+                    <tr key={ar.assetId}>
+                      <td style={{ ...ROW_DATA.name }}>{ar.assetName}</td>
+                      <td style={{ ...ROW_DATA.num }}>{ar.effectiveApDays}</td>
+                      <td style={{ ...ROW_DATA.num }}>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                          <div style={{ width: 100 }}>
+                            <input
+                              type="number"
+                              value={override ?? ''}
+                              placeholder="inherit"
+                              min={0}
+                              max={365}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAssetApDaysOverride(ar.assetId, v === '' ? undefined : Math.max(0, Number(v)));
+                              }}
+                              style={FAST_INPUT}
+                              data-testid={`m3-ap-asset-${ar.assetId}-dpo`}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {apAssetRows.length === 0 ? (
+          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+            No opex assets configured yet — AP schedule will populate once Hospitality or Lease assets are added.
+          </div>
+        ) : (
+          <>
+            {/* Per-asset AP roll-forward */}
+            {apAssetRows.map((ar) => (
+              <AssetSection
+                key={ar.assetId}
+                assetId={ar.assetId}
+                title={ar.assetName}
+                meta={`DPO ${ar.effectiveApDays} days`}
+                storageKey={`fmp:m3:opex:ap:asset:${ar.assetId}:collapsed`}
+                defaultOpen={false}
+              >
+                <PeriodTable
+                  title={`${ar.assetName} — AP Roll-Forward`}
+                  yearLabels={yearLabels}
+                  currency={currency}
+                  fmt={fmt}
+                  rows={[
+                    {
+                      label: 'Opening AP',
+                      values: ar.result.openingPerPeriod,
+                      isSubtotal: true,
+                      totalOverride: fmt(ar.result.openingPerPeriod[0] ?? 0),
+                    },
+                    { label: 'Opex Incurred', values: ar.opexIncurredPerPeriod, indent: 1 },
+                    { label: 'Less: Cash Paid', values: ar.result.cashPaidPerPeriod.map((v) => -v), indent: 1 },
+                    {
+                      label: 'Closing AP',
+                      values: ar.result.perPeriod,
+                      isTotal: true,
+                      totalOverride: fmt(ar.result.perPeriod[N - 1] ?? 0),
+                    },
+                  ]}
+                />
+              </AssetSection>
+            ))}
+
+            {/* HQ AP roll-forward */}
+            <AssetSection
+              assetId="__hq-ap__"
+              title="HQ &amp; Corporate Overheads"
+              meta={`DPO ${snap.ap.hq.apDays} days`}
+              storageKey="fmp:m3:opex:ap:hq:collapsed"
+              defaultOpen={false}
+            >
+              <PeriodTable
+                title="HQ — AP Roll-Forward"
+                yearLabels={yearLabels}
+                currency={currency}
+                fmt={fmt}
+                rows={[
+                  {
+                    label: 'Opening AP',
+                    values: snap.ap.hq.result.openingPerPeriod,
+                    isSubtotal: true,
+                    totalOverride: fmt(snap.ap.hq.result.openingPerPeriod[0] ?? 0),
+                  },
+                  { label: 'HQ Opex Incurred', values: snap.ap.hq.opexIncurredPerPeriod, indent: 1 },
+                  { label: 'Less: Cash Paid', values: snap.ap.hq.result.cashPaidPerPeriod.map((v) => -v), indent: 1 },
+                  {
+                    label: 'Closing AP',
+                    values: snap.ap.hq.result.perPeriod,
+                    isTotal: true,
+                    totalOverride: fmt(snap.ap.hq.result.perPeriod[N - 1] ?? 0),
+                  },
+                ]}
+              />
+            </AssetSection>
+
+            {/* Project totals */}
+            <PeriodTable
+              title="Project Total — AP Roll-Forward"
+              caption="Sum across every asset + HQ. Feeds Balance Sheet current liabilities. Cash Paid = Opex Incurred − ΔAP."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={[
+                {
+                  label: 'Opening AP',
+                  values: projectTotalAp.openingApPerPeriod,
+                  isSubtotal: true,
+                  totalOverride: fmt(projectTotalAp.openingApPerPeriod[0] ?? 0),
+                },
+                { label: 'Opex Incurred', values: projectTotalAp.opexIncurredPerPeriod, indent: 1 },
+                { label: 'Less: Cash Paid', values: projectTotalAp.cashPaidPerPeriod.map((v) => -v), indent: 1 },
+                {
+                  label: 'Closing AP',
+                  values: projectTotalAp.closingApPerPeriod,
+                  isTotal: true,
+                  totalOverride: fmt(projectTotalAp.closingApPerPeriod[N - 1] ?? 0),
+                },
+              ]}
+            />
+          </>
+        )}
+      </PhaseSection>
+    );
+  };
+
   return (
     <div data-testid="module3-opex-output" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -645,6 +893,11 @@ export default function Module3OpexOutput(): React.JSX.Element {
           ]}
         />
       </PhaseSection>
+
+      {/* M4 Pass 2a (2026-05-20): Accounts Payable roll-forward. Feeds
+       *  the Balance Sheet (current liabilities) + Cash Flow (cash
+       *  paid for opex). Per-asset + HQ rows + project totals. */}
+      {renderAccountsPayableSection()}
     </div>
   );
 }

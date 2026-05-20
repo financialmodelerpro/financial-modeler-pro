@@ -384,6 +384,17 @@ export interface Project {
     defaultHeldUntilYear?: number;
   };
   /**
+   * M4 Pass 2a (2026-05-20): project-wide Accounts Payable defaults.
+   * Drives DPO-based AP roll-forward on all opex (per-asset + HQ).
+   * Per-asset override lives on Asset.opex.apDaysOverride.
+   */
+  opexAp?: {
+    /** Project-wide Days Payable Outstanding default (calendar days). */
+    defaultApDays?: number;
+    /** Days basis for the DPO ratio. Defaults to 365. */
+    daysPerYear?: number;
+  };
+  /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
    * on Asset.opex.
@@ -981,6 +992,9 @@ export interface Asset {
       yoyRates?: number[];
       disabled?: boolean;
     }>;
+    /** M4 Pass 2a (2026-05-20): override the project Days Payable
+     *  Outstanding default for this asset. Blank = inherit project. */
+    apDaysOverride?: number;
   };
 }
 

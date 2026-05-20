@@ -27,3 +27,8 @@ export {
   defaultHQOpexLines,
   defaultOpexIndexation,
 } from './defaults';
+export { buildAccountsPayable } from './accountsPayable';
+export type {
+  AccountsPayableResult,
+  BuildAccountsPayableInputs,
+} from './accountsPayable';

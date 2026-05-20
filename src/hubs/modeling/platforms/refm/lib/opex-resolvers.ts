@@ -13,12 +13,14 @@
  */
 
 import {
+  buildAccountsPayable,
   computeAssetOpex,
   computeHQOpex,
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
   defaultOpexIndexation,
+  type AccountsPayableResult,
   type AssetOpexInputs,
   type AssetOpexResult,
   type HQOpexInputs,
@@ -316,5 +318,122 @@ export function computeAllOpexResults(
     projectTotals,
     hq,
     totalOpexPerPeriodInclHQ: totalInclHQ,
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// M4 Pass 2a (2026-05-20): Accounts Payable snapshot.
+//
+// Composes the existing per-asset + HQ opex streams into a DPO-driven
+// AP roll-forward. Per-asset apDays override > project default > 0.
+// HQ uses the project default (no per-line HQ override yet — HQ is a
+// single bucket).
+// ────────────────────────────────────────────────────────────────────
+
+export interface OpexApAssetRow {
+  assetId: string;
+  assetName: string;
+  effectiveApDays: number;
+  opexIncurredPerPeriod: number[];
+  result: AccountsPayableResult;
+}
+
+export interface ProjectOpexApSnapshot {
+  axisLength: number;
+  projectStartYear: number;
+  yearLabels: number[];
+  /** Project default DPO actually used (after fallback). */
+  projectDefaultApDays: number;
+  /** Per-asset AP roll-forward. */
+  byAsset: Map<string, OpexApAssetRow>;
+  /** HQ AP roll-forward (single bucket). */
+  hq: {
+    opexIncurredPerPeriod: number[];
+    apDays: number;
+    result: AccountsPayableResult;
+  };
+  /** Project totals across every asset row + HQ. */
+  projectTotals: {
+    opexIncurredPerPeriod: number[];
+    openingApPerPeriod: number[];
+    closingApPerPeriod: number[];
+    changeApPerPeriod: number[];
+    cashPaidPerPeriod: number[];
+  };
+}
+
+export function computeOpexApSnapshot(
+  state: Pick<Module1Store, 'project' | 'assets'>,
+  opexSnap: ProjectOpexSnapshot,
+): ProjectOpexApSnapshot {
+  const { project, assets } = state;
+  const N = opexSnap.axisLength;
+  const daysPerYear = Math.max(1, project.opexAp?.daysPerYear ?? 365);
+  const projectDefaultApDays = Math.max(0, project.opexAp?.defaultApDays ?? 0);
+
+  const byAsset = new Map<string, OpexApAssetRow>();
+  const totals = {
+    opexIncurredPerPeriod: zeros(N),
+    openingApPerPeriod: zeros(N),
+    closingApPerPeriod: zeros(N),
+    changeApPerPeriod: zeros(N),
+    cashPaidPerPeriod: zeros(N),
+  };
+
+  for (const a of assets) {
+    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
+    const r = opexSnap.byAsset.get(a.id);
+    if (!r) continue;
+    const override = a.opex?.apDaysOverride;
+    const effectiveApDays = override !== undefined && override >= 0
+      ? override
+      : projectDefaultApDays;
+    const opexIncurred = r.totalOpexPerPeriod.slice(0, N);
+    const ap = buildAccountsPayable({
+      opexIncurredPerPeriod: opexIncurred,
+      dpoDays: effectiveApDays,
+      daysPerYear,
+      axisLength: N,
+    });
+    byAsset.set(a.id, {
+      assetId: a.id,
+      assetName: a.name,
+      effectiveApDays,
+      opexIncurredPerPeriod: opexIncurred,
+      result: ap,
+    });
+    for (let t = 0; t < N; t++) {
+      totals.opexIncurredPerPeriod[t] += opexIncurred[t];
+      totals.openingApPerPeriod[t] += ap.openingPerPeriod[t];
+      totals.closingApPerPeriod[t] += ap.perPeriod[t];
+      totals.changeApPerPeriod[t] += ap.changePerPeriod[t];
+      totals.cashPaidPerPeriod[t] += ap.cashPaidPerPeriod[t];
+    }
+  }
+
+  // HQ AP: uses the project default DPO (no HQ-specific override yet).
+  const hqIncurred = opexSnap.hq.totalOpexPerPeriod.slice(0, N);
+  const hqAp = buildAccountsPayable({
+    opexIncurredPerPeriod: hqIncurred,
+    dpoDays: projectDefaultApDays,
+    daysPerYear,
+    axisLength: N,
+  });
+  for (let t = 0; t < N; t++) {
+    totals.opexIncurredPerPeriod[t] += hqIncurred[t];
+    totals.openingApPerPeriod[t] += hqAp.openingPerPeriod[t];
+    totals.closingApPerPeriod[t] += hqAp.perPeriod[t];
+    totals.changeApPerPeriod[t] += hqAp.changePerPeriod[t];
+    totals.cashPaidPerPeriod[t] += hqAp.cashPaidPerPeriod[t];
+  }
+
+  return {
+    axisLength: N,
+    projectStartYear: opexSnap.projectStartYear,
+    yearLabels: opexSnap.yearLabels,
+    projectDefaultApDays,
+    byAsset,
+    hq: { opexIncurredPerPeriod: hqIncurred, apDays: projectDefaultApDays, result: hqAp },
+    projectTotals: totals,
   };
 }
