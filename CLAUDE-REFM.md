@@ -1,20 +1,29 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-19. Module 1 LOCKED at M2.0 Pass 58. Module 2 (Revenue + CoS + Schedules + Escrow) LOCKED through Pass 9h. Module 3 (Opex) WIP on Pass 5. Module 4 (Financial Statements) Pass 1d shipped (Fixed Assets + Depreciation engine with SL + RB methods + asset-level UI). Verifiers: revenue 133/133; opex 38/38; fixed-assets 82/82; escrow 31/31.**
+**Last updated: 2026-05-20. Module 1 LOCKED at M2.0 Pass 58. Module 2 LOCKED at Pass 9k. Module 3 LOCKED at Pass 5c. Module 4 WIP at Pass 2L (Financial Statements shipped, polish in flight). Verifiers: revenue 133/133; escrow 46/46; opex 38/38; opex-ap 24/24; fixed-assets 82/82; phase-date-preservation 16/16 — 339 sections green.**
 
-**Next session pointer (2026-05-20):** finalize Module 4 Financial Statements then close the loop back to Module 1 funding. Two passes:
+**Current state (2026-05-20):**
 
-1. **M4 Pass 2 — Financial Statements surfaces** (P&L · Balance Sheet · Cash Flow). Compose from existing snapshots:
-   - **P&L**: Revenue (M2 `computeAllSellResults` + Hospitality + Lease) − Cost of Sales (M2 `costOfSalesV2`) − Operating Expenses (M3 `computeAllOpexResults`) − Depreciation (M4 Pass 1d `computeAllFixedAssetResults.projectTotals.depreciable.depreciationPerPeriod`) − Interest (M1 financing engine) = Net Income. Group-by-asset per the v1.16 reference shape (Hospitality / Retail per asset + HQ Expenses → EBITDA → EBIT → NI).
-   - **Balance Sheet**: Assets = Cash + AR (M2 Schedules) + Inventory (M2 CoS roll-forward) + Fixed Assets (M4 Pass 1d Total = Land + Depreciable NBV); Liabilities = Unearned Revenue (M2) + Escrow Liability (M2 Pass 9h `cumulativeBalancePerPeriod`) + Debt (M1 financing); Equity = paid-in capital + Retained Earnings (cum NI from P&L). Reconciliation chip on the BS = (A − L − E within tolerance).
-   - **Cash Flow (Direct + Indirect)**. Direct = operating receipts (cash from M2) − operating payments (CoS + Opex paid) − tax. Indirect = NI + D&A + Δ working capital + Δ escrow balance ± debt draws/repayments ± equity contributions ± capex. Escrow CF Impact already wired in M2 Pass 9h (`cashFlowAdjustmentPerPeriod`); thread it through.
-   - Surfaces live under `src/hubs/modeling/platforms/refm/components/modules/Module4P&L.tsx` + `Module4BS.tsx` + `Module4CashFlow.tsx`, registered in `m4Tabs` after the existing Fixed Assets tab. Engine layer under `src/core/calculations/statements/` (P&L composer + BS composer + CF composer; all pure, take the M1+M2+M3+M4 snapshots and return per-period arrays).
+- **Module 4 (Financial Statements)** is composing live. `computeFinancialsSnapshot` in `src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts` pulls every upstream engine (revenue / opex / AP / escrow / fixed assets / financing) and produces P&L + Direct CF + Indirect CF + BS + IDC allocation. Module 4 sidebar has 4 tabs: **Schedules** (parent shell with Fixed Assets & D&A + BS Schedules sub-tabs) / **P&L** / **Cash Flow** / **Balance Sheet**.
+- **M4 Pass 2 sub-passes shipped today**: 2a (AP), 2b (BS Schedules), 2c (P&L), 2d (CF), 2e (BS), 2f (IDC by land share), 2g (DSO + active-construction IDC), 2h (phase-local storage with 5-commit migration), 2i (Schedules tab consolidation + FA inputs at top), 2j (prior-year column), 2k (detailed per-asset rows), 2L (collapsibility + phase filter buttons + per-tranche financing detail). Full audit captured in [[project_audit_2026-05-20]].
+- **M2 + M3 polish**: M2 Pass 9h-1/2/3 simplified the Escrow output to 3 tables with held-window capping at handover; M2 Pass 9i + M3 Pass 5c grouped Inputs by strategy bucket (Residential / Hospitality / Retail) with phase as a small tag per asset card; M2 Pass 9j fixed the velocity-row hidden-% bug at the hint layer; M2 Pass 9k pruned stale phase-local entries at the setter + hydration migration layer.
 
-2. **M1 Funding Requirement based on Cash Flow** (closes the loop). Currently `computeFunding` ships Method 1 (Total Capex) live; Methods 2 + 3 stubbed pending M4. Once the CF composer above runs:
-   - **Method 2 (Net Funding)**: Total Capex − pre-sales advances + working-capital cash needs (escrow held, AR build) per period.
-   - **Method 3 (Cash Deficit)**: actual project cash deficit per period from the CF statement → debt draw + equity contribution needed to keep min cash reserve >= floor. This is the SINGLE most useful sizing method since it sizes financing against the real cash gap, not gross capex.
-   - Wire the CF deficit stream into `Module1Financing.tsx` Funding Requirement table so Methods 2 + 3 render real numbers instead of dashes.
+**Open follow-ups (in priority order):**
 
-Both passes write through additive snapshot fields only; no schema breakage. Verifier scripts: `verify-statements.ts` (P&L identities + BS reconciliation + CF tie-out to BS Δ cash) + extend `verify-financing-rebuild.ts` for Methods 2 + 3.
+1. **BS phase filter**: P&L + Direct CF have the filter (Pass 2L); BS does not. Either decompose BS lines per phase in the composer or remove the dropdown for parity.
+2. **Finance Cost split** by IDC-window vs Operations-window per tranche. v1.16 shows two lines per tranche; FMP shows one.
+3. **Opening Cash input** for projects with pre-existing equity / debt to fix BS Check at t=0.
+4. **Indirect CF parity** (phase column + filter on Indirect view).
+5. **Per-tranche equity drawdowns** in CF financing (currently one project total).
+6. **M1 Funding Methods 2 + 3** (cash-deficit driven) — sized against the real CF deficit from M4. Method 1 (Total Capex) is live; 2 + 3 stay stubbed pending users testing the M4 statements first.
+
+**M2 lock conventions** (apply to M3 + M4 unless overridden):
+- The reference Excel at repo root is the verification benchmark, not a behavioural spec. Every reference-specific behaviour stays configurable; never hard-code currency, locale, escrow, or DSO defaults into engine paths.
+- Engine storage today is HYBRID per [[project_m4_pass2h_period_data_fix]]: asset-scoped per-period fields are PHASE-LOCAL (`ByPhase: number[]`, `arr[0]` = first year of owning phase); HQ + financing year-keyed (`ByYear: Record<string, number>`). Legacy axis-indexed `number[]` fields remain on schema but marked `@deprecated` and zeroed by hydration migrations.
+- Vintage matrices (cohort year × cash year, cohort year × recognition year, capex year × CoS year) are the canonical mechanic for both recognition and cash distribution.
+- PIT recognition handover = LAST construction year (`phaseStart + cp − 1 − projectStart`), NOT first operations year. Verifier A2-1..A2-5 pin this.
+- INPUTS group by strategy bucket; OUTPUTS group by phase. Inputs flat by asset list, phase shown as a small tag per card.
+- Every UI setter writing to a phase-local array MUST prune out-of-window indices on save. Pattern: pass `validPhaseIndices: Set<number>` into the write helper.
+- See [[project_audit_2026-05-20]] for the full current state.
 
 **Today (2026-05-19) shipped — commits `87f0075`, `9604902`, `1b5e9b9`, `26c221b`:**
 - M2 Pass 9h Escrow sub-tab (engine + resolver + UI + verifier 31/31)
