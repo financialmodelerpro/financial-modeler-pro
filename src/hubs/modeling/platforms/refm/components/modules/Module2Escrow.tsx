@@ -1,26 +1,24 @@
 'use client';
 
 /**
- * Module2Escrow.tsx (M2 Pass 9h, 2026-05-19)
+ * Module2Escrow.tsx (M2 Pass 9h, simplified 2026-05-20)
  *
- * Pre-sales Escrow sub-tab. A regulator (e.g. RERA / RECC) withholds a
- * configured percentage of every pre-sales cash inflow as Inaccessible
- * Funds until a defined Release Year (typically asset handover). The
- * tab provides:
+ * Pre-sales Escrow sub-tab. A regulator withholds a configured % of every
+ * pre-sales cash inflow as Inaccessible Funds. By default the withholding
+ * stops at the asset's handover year (= construction completion); the user
+ * can extend it. The cumulative held balance releases in a single lump on
+ * the configured release year (defaults to the year after handover).
  *
- *   1. Inputs: project-wide Held % + per-asset release-year override.
- *   2. Outputs (mirror of the reference v1.16 Escrow tab):
- *      A. Pre-Sales Inflows by Asset (per-asset rows + project total)
- *      B. Inaccessible Funds Held per Asset
- *      C. Release of Locked Funds per Asset
- *      D. Cumulative Locked Balance + Net Movement (project-wide)
- *      E. Cash Flow Impact (-Held + Release = Net adjustment)
+ * Layout:
+ *   1. Inputs: project defaults (Held %, Held Until Year, Release Year) +
+ *      per-asset override table (Held %, Held Until Year, Release Year).
+ *   2. Escrow Roll-Forward: single project-level table with six lines
+ *      (Pre-Sales Cash, Less: Held, Add: Release, Net Movement, Cumulative
+ *      Balance, Net CF Adjustment).
+ *   3. Per-Asset Detail (collapsible).
  *
- * All math lives in src/core/calculations/revenue/escrow.ts.
- * The resolver in revenue-resolvers.ts threads project + per-asset
- * overrides through to the engine. No client / model name appears
- * anywhere (the engine is generic; the reference Excel was used only
- * as a methodology benchmark).
+ * Math lives in src/core/calculations/revenue/escrow.ts. The resolver
+ * in revenue-resolvers.ts threads project + per-asset overrides through.
  */
 
 import React, { useMemo } from 'react';
@@ -29,7 +27,6 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   computeAllSellResults,
   computeEscrowSnapshot,
-  type EscrowAssetRow,
 } from '../../lib/revenue-resolvers';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -158,12 +155,16 @@ export default function Module2Escrow(): React.JSX.Element {
 
   const projectHeldPct = project.escrow?.heldPct ?? 0;
   const projectDefaultReleaseYear = project.escrow?.defaultReleaseYear;
+  const projectDefaultHeldUntilYear = project.escrow?.defaultHeldUntilYear;
 
   const setProjectHeldPct = (pct: number): void => {
     setProject({ escrow: { ...(project.escrow ?? {}), heldPct: Math.max(0, pct) } });
   };
   const setProjectDefaultReleaseYear = (yr: number | undefined): void => {
     setProject({ escrow: { ...(project.escrow ?? {}), defaultReleaseYear: yr } });
+  };
+  const setProjectDefaultHeldUntilYear = (yr: number | undefined): void => {
+    setProject({ escrow: { ...(project.escrow ?? {}), defaultHeldUntilYear: yr } });
   };
   const setAssetHeldOverride = (assetId: string, pct: number | undefined): void => {
     const a = assets.find((x) => x.id === assetId);
@@ -185,22 +186,15 @@ export default function Module2Escrow(): React.JSX.Element {
     else escrow.releaseYearOverride = yr;
     updateAsset(assetId, { revenue: { ...(a.revenue ?? {}), sell: { ...prev, escrow } } });
   };
-
-  // Build the per-asset asset-row data for the output tables.
-  const buildAssetRow = (
-    label: string,
-    pick: (row: EscrowAssetRow) => number[],
-  ): Row[] => {
-    if (escrowAssetRows.length === 0) return [];
-    const rows: Row[] = [];
-    const sumSeries = new Array<number>(N).fill(0);
-    for (const ar of escrowAssetRows) {
-      const vals = pick(ar);
-      rows.push({ label: ar.assetName || 'Sell asset', values: vals, indent: 1 });
-      for (let t = 0; t < N; t++) sumSeries[t] += vals[t] ?? 0;
-    }
-    rows.push({ label, values: sumSeries, isTotal: true, indent: 0 });
-    return rows;
+  const setAssetHeldUntilOverride = (assetId: string, yr: number | undefined): void => {
+    const a = assets.find((x) => x.id === assetId);
+    if (!a) return;
+    const prev = a.revenue?.sell;
+    if (!prev) return;
+    const escrow = { ...(prev.escrow ?? {}) };
+    if (yr === undefined) delete escrow.heldUntilYearOverride;
+    else escrow.heldUntilYearOverride = yr;
+    updateAsset(assetId, { revenue: { ...(a.revenue ?? {}), sell: { ...prev, escrow } } });
   };
 
   return (
@@ -211,10 +205,11 @@ export default function Module2Escrow(): React.JSX.Element {
           {currency}
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
-          A regulator withholds Held % of every pre-sales inflow as Inaccessible Funds. The cumulative held balance
-          releases to the developer in a single lump on the asset's Release Year (defaults to handover year + 1, i.e.
-          the year AFTER construction completes). The Cash Flow Impact line shows what M4 will deduct (held) and add
-          back (release) on the corporate cash flow.
+          A regulator withholds Held % of every pre-sales cash inflow as Inaccessible Funds. Withholding runs from
+          project start through Held Until Year (defaults to each asset's handover year, i.e. construction completion).
+          Pre-sales cash arriving in later operating years is not locked. The cumulative held balance releases to the
+          developer as a single lump on Release Year (defaults to handover year + 1). The Net CF Adjustment line is
+          what Module 4 will deduct (held) and add back (release) on the corporate cash flow.
         </p>
       </div>
 
@@ -222,12 +217,12 @@ export default function Module2Escrow(): React.JSX.Element {
       <PhaseSection
         phaseId="escrow-inputs"
         title="1. Escrow Inputs"
-        meta="Project-wide held % + per-asset release year overrides"
+        meta="Project-wide held % + held-until + release-year defaults; per-asset overrides"
         storageKey="fmp:m2:escrow:inputs:collapsed"
       >
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(3, minmax(200px, 1fr))',
           gap: 'var(--sp-2)',
           padding: 'var(--sp-2)',
           background: 'var(--color-surface)',
@@ -250,6 +245,27 @@ export default function Module2Escrow(): React.JSX.Element {
             />
             <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
               Default fraction withheld from every pre-sales inflow. Per-asset overrides win.
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Default Held Until Year (optional)
+            </label>
+            <input
+              type="number"
+              value={projectDefaultHeldUntilYear ?? ''}
+              min={projectStartYear}
+              max={projectStartYear + Math.max(0, N - 1)}
+              placeholder="auto: handover year"
+              onChange={(e) => {
+                const v = e.target.value;
+                setProjectDefaultHeldUntilYear(v === '' ? undefined : Number(v));
+              }}
+              style={FAST_INPUT}
+              data-testid="m2-escrow-project-helduntilyear"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Blank = withhold only through each asset's handover year (= end of construction). Pre-sales cash after this year passes through untouched.
             </div>
           </div>
           <div>
@@ -288,6 +304,8 @@ export default function Module2Escrow(): React.JSX.Element {
                   <th style={CELL_HEADER}>Asset</th>
                   <th style={CELL_HEADER}>Effective Held %</th>
                   <th style={CELL_HEADER}>Held % Override</th>
+                  <th style={CELL_HEADER}>Effective Held Until</th>
+                  <th style={CELL_HEADER}>Held Until Override</th>
                   <th style={CELL_HEADER}>Effective Release Year</th>
                   <th style={CELL_HEADER}>Release Year Override</th>
                 </tr>
@@ -297,6 +315,7 @@ export default function Module2Escrow(): React.JSX.Element {
                   const a = assets.find((x) => x.id === ar.assetId);
                   const override = a?.revenue?.sell?.escrow?.heldPctOverride;
                   const releaseOverride = a?.revenue?.sell?.escrow?.releaseYearOverride;
+                  const heldUntilOverride = a?.revenue?.sell?.escrow?.heldUntilYearOverride;
                   return (
                     <tr key={ar.assetId}>
                       <td style={{ ...ROW_DATA.name }}>{ar.assetName}</td>
@@ -332,6 +351,26 @@ export default function Module2Escrow(): React.JSX.Element {
                           </button>
                         </div>
                       </td>
+                      <td style={{ ...ROW_DATA.num }}>{ar.effectiveHeldUntilYear}</td>
+                      <td style={{ ...ROW_DATA.num }}>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                          <div style={{ width: 100 }}>
+                            <input
+                              type="number"
+                              value={heldUntilOverride ?? ''}
+                              placeholder="auto"
+                              min={projectStartYear}
+                              max={projectStartYear + Math.max(0, N - 1)}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAssetHeldUntilOverride(ar.assetId, v === '' ? undefined : Number(v));
+                              }}
+                              style={FAST_INPUT}
+                              data-testid={`m2-escrow-asset-${ar.assetId}-helduntilyear`}
+                            />
+                          </div>
+                        </div>
+                      </td>
                       <td style={{ ...ROW_DATA.num }}>{ar.effectiveReleaseYear}</td>
                       <td style={{ ...ROW_DATA.num }}>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -361,11 +400,11 @@ export default function Module2Escrow(): React.JSX.Element {
         )}
       </PhaseSection>
 
-      {/* ── 2. Output tables ─────────────────────────────────────── */}
+      {/* ── 2. Escrow Roll-Forward (project-level, single table) ─── */}
       <PhaseSection
         phaseId="escrow-outputs"
-        title="2. Escrow Schedules"
-        meta="per-asset rows + project totals"
+        title="2. Escrow Roll-Forward"
+        meta="Single project-level schedule (per-asset detail below)"
         storageKey="fmp:m2:escrow:outputs:collapsed"
       >
         {escrowAssetRows.length === 0 ? (
@@ -373,84 +412,43 @@ export default function Module2Escrow(): React.JSX.Element {
             Nothing to schedule yet — no Sell / Sell + Manage assets with pre-sales inflows.
           </div>
         ) : (
-          <>
-            <PeriodTable
-              title="A. Pre-Sales Inflows by Asset (subject to escrow)"
-              caption="Pre-sales cash collected per period, per asset. Drives the Held calculation below: Held[t] = Pre-Sales Cash[t] × effective held %."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Total Pre-Sales (subject to escrow)', (ar) => ar.preSalesCashPerPeriod)}
-            />
-
-            <PeriodTable
-              title="B. Inaccessible Funds Held per Asset"
-              caption="Funds withheld each period by the regulator. Held[t] = Pre-Sales Cash[t] × effective held %. Locked until the asset's release year."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Total Held (all assets, this period)', (ar) => ar.result.heldPerPeriod)}
-            />
-
-            <PeriodTable
-              title="C. Release of Locked Funds per Asset"
-              caption="Cumulative held balance released as a single lump on each asset's release year (per-asset override → project default → handover year)."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Total Release (all assets, this period)', (ar) => ar.result.releasePerPeriod)}
-            />
-
-            <PeriodTable
-              title="D. Net Movement (Held − Release)"
-              caption="Positive during accumulation, negative on the release lump. Project totals net to zero at the end of the schedule."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Net Movement (all assets)', (ar) => ar.result.netMovementPerPeriod)}
-            />
-
-            <PeriodTable
-              title="E. Cumulative Locked Balance (project-wide)"
-              caption="Running sum of Net Movement across all assets. Should fall to zero once every asset has released."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={[
-                {
-                  label: 'Cumulative Locked Balance',
-                  values: snap.escrow.projectTotals.cumulativeBalancePerPeriod,
-                  isTotal: true,
-                  totalOverride: fmt(snap.escrow.projectTotals.cumulativeBalancePerPeriod[N - 1] ?? 0),
-                },
-              ]}
-            />
-
-            <PeriodTable
-              title="F. Cash Flow Impact (project-wide)"
-              caption="Linked to Module 4 Cash Flow once it wires in. Less: Held (deduct from developer cash). Add: Release (re-add on release year). Net = Release − Held."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={[
-                {
-                  label: 'Less: Inaccessible Funds Locked',
-                  values: snap.escrow.projectTotals.heldPerPeriod.map((v) => -v),
-                  indent: 1,
-                },
-                {
-                  label: 'Add: Release of Inaccessible Funds',
-                  values: snap.escrow.projectTotals.releasePerPeriod,
-                  indent: 1,
-                },
-                {
-                  label: 'Net Cash Flow Adjustment',
-                  values: snap.escrow.projectTotals.cashFlowAdjustmentPerPeriod,
-                  isTotal: true,
-                },
-              ]}
-            />
-          </>
+          <PeriodTable
+            title="Escrow Roll-Forward (project totals)"
+            caption="Held[t] = Pre-Sales Cash[t] × effective held %, only through each asset's Held Until Year (= handover year by default). Release[t] = cumulative held released as a lump on each asset's Release Year. Net CF Adjustment = Release − Held; sum over the axis = 0 (escrow is a wash)."
+            yearLabels={yearLabels}
+            currency={currency}
+            fmt={fmt}
+            rows={[
+              {
+                label: 'Pre-Sales Cash (subject to escrow)',
+                values: snap.escrow.projectTotals.preSalesCashPerPeriod,
+              },
+              {
+                label: 'Less: Held (regulator lock)',
+                values: snap.escrow.projectTotals.heldPerPeriod.map((v) => -v),
+              },
+              {
+                label: 'Add: Release of locked funds',
+                values: snap.escrow.projectTotals.releasePerPeriod,
+              },
+              {
+                label: 'Net Movement (Held − Release)',
+                values: snap.escrow.projectTotals.netMovementPerPeriod,
+                isSubtotal: true,
+              },
+              {
+                label: 'Cumulative Locked Balance',
+                values: snap.escrow.projectTotals.cumulativeBalancePerPeriod,
+                isSubtotal: true,
+                totalOverride: fmt(snap.escrow.projectTotals.cumulativeBalancePerPeriod[N - 1] ?? 0),
+              },
+              {
+                label: 'Net Cash Flow Adjustment (to M4)',
+                values: snap.escrow.projectTotals.cashFlowAdjustmentPerPeriod,
+                isTotal: true,
+              },
+            ]}
+          />
         )}
       </PhaseSection>
 
@@ -468,7 +466,7 @@ export default function Module2Escrow(): React.JSX.Element {
               key={ar.assetId}
               assetId={ar.assetId}
               title={ar.assetName}
-              meta={`Held ${(ar.effectiveHeldPct * 100).toFixed(2)}% · Release ${ar.effectiveReleaseYear}`}
+              meta={`Held ${(ar.effectiveHeldPct * 100).toFixed(2)}% · Until ${ar.effectiveHeldUntilYear} · Release ${ar.effectiveReleaseYear}`}
               storageKey={`fmp:m2:escrow:asset:${ar.assetId}:collapsed`}
               defaultOpen={false}
             >

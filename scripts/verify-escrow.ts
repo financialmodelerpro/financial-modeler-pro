@@ -16,6 +16,8 @@
  *   F — CF adjustment sign (negative during hold, positive on release)
  *   G — releaseYearIdx beyond the held window still releases the
  *       cumulative-to-that-period balance
+ *   H — heldUntilIdx: pre-sales cash arriving AFTER heldUntilIdx is
+ *       not withheld; release lump = sum of held through heldUntilIdx
  */
 
 import { computeEscrow } from '@/src/core/calculations/revenue';
@@ -180,6 +182,82 @@ console.log('\n[G] Release year clamped to axis');
   assertNear('G1: release lump at last axis idx', r.releasePerPeriod[4], 12_000);
   // Balance returns to 0
   assertNear('G2: final balance = 0', r.cumulativeBalancePerPeriod[4], 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// H — heldUntilIdx: hold window stops at construction end by default
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[H] heldUntilIdx caps the hold window');
+{
+  // Cash flows through year 7 (e.g. handover-year pickup + a stray
+  // operating-year pre-sale catch-up). With heldUntilIdx = 4 (handover
+  // year = end of construction), only [0..4] should be withheld.
+  const cash = [0, 100_000, 200_000, 300_000, 400_000, 0, 0, 50_000];
+  const r = computeEscrow({
+    axisLength: cash.length,
+    heldPct: 0.04,
+    releaseYearIdx: 5,
+    heldUntilIdx: 4,
+    preSalesCashPerPeriod: cash,
+  });
+  // Held inside the window
+  assertNear('H1: held[1] = 100k × 4% = 4k', r.heldPerPeriod[1], 4_000);
+  assertNear('H2: held[4] (handover) = 400k × 4% = 16k', r.heldPerPeriod[4], 16_000);
+  // Held outside the window (operating years): zero
+  assertNear('H3: held[5] (post-construction) = 0', r.heldPerPeriod[5], 0);
+  assertNear('H4: held[7] (operating catch-up) = 0 — NOT 50k × 4%', r.heldPerPeriod[7], 0);
+  // Total held = 4k+8k+12k+16k = 40k (NOT 42k that includes the operating cash)
+  assertNear('H5: totalHeld = 40k (only construction-window cash)', r.totalHeld, 40_000);
+  // Release lump = totalHeld on releaseYearIdx
+  assertNear('H6: release[5] = 40k', r.releasePerPeriod[5], 40_000);
+  // Wash still holds
+  assertNear('H7: totalReleased = totalHeld', r.totalReleased, r.totalHeld);
+  // CF adj sum across axis = 0 (wash)
+  const sumAdj = r.cashFlowAdjustmentPerPeriod.reduce((s, v) => s + v, 0);
+  assertNear('H8: sum(CF adj) = 0', sumAdj, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// I — heldUntilIdx omitted: legacy behaviour (withhold over full axis)
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[I] heldUntilIdx undefined → full-axis hold (legacy)');
+{
+  const cash = [0, 100_000, 0, 0, 0, 50_000];  // post-construction inflow
+  const r = computeEscrow({
+    axisLength: cash.length,
+    heldPct: 0.10,
+    releaseYearIdx: 5,
+    preSalesCashPerPeriod: cash,
+    // heldUntilIdx intentionally omitted
+  });
+  assertNear('I1: held[1] = 10k', r.heldPerPeriod[1], 10_000);
+  assertNear('I2: held[5] = 5k (legacy, no cap)', r.heldPerPeriod[5], 5_000);
+  assertNear('I3: totalHeld = 15k', r.totalHeld, 15_000);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// J — heldUntilIdx > releaseYearIdx: release still fires on its year
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[J] heldUntilIdx after releaseYearIdx');
+{
+  // Held window runs through idx 7, but release fires on idx 4. Only the
+  // amount held by idx 4 releases (later held amounts continue to sit on
+  // the books until exit; the engine does not model a second release).
+  const cash = [0, 100_000, 200_000, 300_000, 0, 100_000, 100_000, 0];
+  const r = computeEscrow({
+    axisLength: cash.length,
+    heldPct: 0.10,
+    releaseYearIdx: 4,
+    heldUntilIdx: 7,
+    preSalesCashPerPeriod: cash,
+  });
+  // Release[4] = cum held through idx 4 = 10k+20k+30k+0 = 60k
+  assertNear('J1: release[4] = 60k (cum through release year)', r.releasePerPeriod[4], 60_000);
+  // Held after release still accrues
+  assertNear('J2: held[5] = 10k (still within hold window)', r.heldPerPeriod[5], 10_000);
+  assertNear('J3: held[6] = 10k', r.heldPerPeriod[6], 10_000);
+  // Final balance = held[5] + held[6] still on the books (no second release)
+  assertNear('J4: final balance = 20k (unreleased late holds)', r.cumulativeBalancePerPeriod[7], 20_000);
 }
 
 console.log(`\n--- Escrow verifier: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);

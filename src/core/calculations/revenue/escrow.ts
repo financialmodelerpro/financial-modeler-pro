@@ -41,6 +41,15 @@ export interface EscrowConfig {
   releaseYearIdx: number;
   /** Pre-sales cash inflow per project-axis period (length = axisLength). */
   preSalesCashPerPeriod: number[];
+  /**
+   * Last project-axis index where escrow withholds funds (inclusive). Pre-sales
+   * cash arriving AFTER this index passes through to the developer untouched
+   * (post-handover catch-up payments are not regulator-locked once construction
+   * is complete). Defaults to axisLength - 1 (= withhold over the entire axis,
+   * legacy behaviour) when omitted. Resolvers should pass the handover year
+   * index so the user sees the typical "held during construction only" pattern.
+   */
+  heldUntilIdx?: number;
 }
 
 export interface EscrowAssetResult {
@@ -62,6 +71,9 @@ export function computeEscrow(config: EscrowConfig): EscrowAssetResult {
   const N = Math.max(0, Math.floor(config.axisLength));
   const heldPct = Math.max(0, config.heldPct);
   const releaseIdx = clamp(Math.floor(config.releaseYearIdx), 0, Math.max(0, N - 1));
+  const heldUntilIdx = config.heldUntilIdx === undefined
+    ? Math.max(0, N - 1)
+    : clamp(Math.floor(config.heldUntilIdx), 0, Math.max(0, N - 1));
 
   const held = EMPTY(N);
   const release = EMPTY(N);
@@ -82,9 +94,13 @@ export function computeEscrow(config: EscrowConfig): EscrowAssetResult {
     };
   }
 
-  // Pass 1: compute per-period held off the pre-sales cash stream.
+  // Pass 1: compute per-period held off the pre-sales cash stream. Held
+  // only accrues through heldUntilIdx (typically the asset's handover
+  // year): pre-sales cash arriving AFTER construction completes is not
+  // regulator-locked, it passes straight through to the developer.
   let cumHeld = 0;
   for (let t = 0; t < N; t++) {
+    if (t > heldUntilIdx) { held[t] = 0; continue; }
     const inflow = Math.max(0, config.preSalesCashPerPeriod[t] ?? 0);
     const h = inflow * heldPct;
     held[t] = h;

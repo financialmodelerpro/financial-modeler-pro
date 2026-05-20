@@ -377,6 +377,11 @@ export interface Project {
      *  year). Each asset falls back to its own phase handover year
      *  when neither this nor a per-asset override is set. */
     defaultReleaseYear?: number;
+    /** Optional project-wide "held until" year (absolute calendar year).
+     *  Pre-sales cash arriving after this year is NOT withheld. Each
+     *  asset falls back to its own handover year when neither this nor
+     *  a per-asset override is set. */
+    defaultHeldUntilYear?: number;
   };
   /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
@@ -829,6 +834,9 @@ export interface Asset {
         heldPctOverride?: number;
         /** Override the release-year (absolute calendar year). */
         releaseYearOverride?: number;
+        /** Override the "held until" year (absolute calendar year). Pre-sales
+         *  cash arriving after this year is not withheld. */
+        heldUntilYearOverride?: number;
       };
     };
     /**

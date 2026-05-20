@@ -677,6 +677,12 @@ export interface EscrowAssetRow {
   effectiveReleaseYear: number;
   /** Project-axis index for the release year. */
   releaseYearIdx: number;
+  /** Resolved "held until" year (absolute calendar year). Pre-sales cash
+   *  arriving after this year is not withheld. Defaults to the asset's
+   *  handover year (last construction year). */
+  effectiveHeldUntilYear: number;
+  /** Project-axis index for heldUntil. */
+  heldUntilIdx: number;
   preSalesCashPerPeriod: number[];
   result: EscrowAssetResult;
 }
@@ -712,6 +718,7 @@ export function computeEscrowSnapshot(
 
   const projectHeldPct = Math.max(0, project.escrow?.heldPct ?? 0);
   const projectDefaultReleaseYear = project.escrow?.defaultReleaseYear;
+  const projectDefaultHeldUntilYear = project.escrow?.defaultHeldUntilYear;
 
   const phaseMap = new Map<string, typeof phases[number]>();
   for (const p of phases) phaseMap.set(p.id, p);
@@ -759,12 +766,25 @@ export function computeEscrowSnapshot(
       : (projectDefaultReleaseYear !== undefined ? projectDefaultReleaseYear : defaultReleaseYearForAsset);
 
     const releaseYearIdx = Math.max(0, Math.min(N - 1, effectiveReleaseYear - projectStartYear));
+
+    // Resolve "held until" year. Order: per-asset override > project
+    // default > handover year (= end of construction). Per Ahmad
+    // 2026-05-20: default escrow withholding stops at construction
+    // completion; pre-sales cash arriving in operating years is not
+    // regulator-locked unless the user explicitly extends the window.
+    const assetHeldUntilOverride = a.revenue?.sell?.escrow?.heldUntilYearOverride;
+    const effectiveHeldUntilYear = assetHeldUntilOverride !== undefined
+      ? assetHeldUntilOverride
+      : (projectDefaultHeldUntilYear !== undefined ? projectDefaultHeldUntilYear : handoverYear);
+    const heldUntilIdx = Math.max(0, Math.min(N - 1, effectiveHeldUntilYear - projectStartYear));
+
     const preSalesCashPerPeriod = sellResult.presalesCashPerPeriod.slice(0, N);
 
     const result = computeEscrow({
       axisLength: N,
       heldPct: effectiveHeldPct,
       releaseYearIdx,
+      heldUntilIdx,
       preSalesCashPerPeriod,
     });
 
@@ -775,6 +795,8 @@ export function computeEscrowSnapshot(
       effectiveHeldPct,
       effectiveReleaseYear,
       releaseYearIdx,
+      effectiveHeldUntilYear,
+      heldUntilIdx,
       preSalesCashPerPeriod,
       result,
     });
