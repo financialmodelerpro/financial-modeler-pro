@@ -239,6 +239,139 @@ console.log('\n[C] expandYearKeyedToAxis maps by absolute year');
   assertEq('C3: project=2028 only 2028/2029 visible (2026/2027 orphan)', v3, [0.30, 0.40, 0, 0]);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// D: cash payment profile phase-offset behaviour (M2 Pass 9k-Fix).
+//    percentagesByPhase[k] is phase-LOCAL slot k; the resolver must
+//    offset positions by phaseOffset so cohorts pay at the correct
+//    absolute project years.
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[D] Cash payment profile picks up phaseOffset for Phase 2+');
+{
+  // Phase 2 starts 2031 (phaseOffset = 5). Phase-local cash slot 1 =
+  // year 2032; slot 2 = 2033; slot 3 = 2034. Pre-sale of 100 units at
+  // year 2031 (phase-local 0): 50% at booking (slot 0 = 2031), 50% at
+  // slot 1 (= 2032).
+  const project = {
+    name: 'cash-phase-offset',
+    currency: 'SAR',
+    modelType: 'annual' as const,
+    startDate: '2026-01-01',
+    status: 'Draft' as const,
+    location: '',
+    country: 'Saudi Arabia',
+  } as unknown as Project;
+  const phase1: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 5, operationsPeriods: 0, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const phase2: Phase = { id: 'p2', name: 'P2', startDate: '2031-01-01', constructionPeriods: 4, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p2', name: 'P2 Tower', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{
+          subUnitId: 'su1',
+          preSalesVelocityByPhase: [1.0, 0, 0, 0], // sell 100% in phase-local year 0 (2031)
+          postSalesVelocityByPhase: [],
+          preSalesVelocity: [], postSalesVelocity: [],
+        }],
+        cashPaymentProfile: {
+          percentages: [],
+          profileMode: 'absolute_with_catchup',
+          // Phase-local cash schedule: 50% slot 0 (2031), 50% slot 1 (2032).
+          percentagesByPhase: [0.5, 0.5, 0, 0],
+        },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
+    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
+  } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase1, phase2], assets: [asset], subUnits: [subUnit] });
+  const sell = res.bySellAsset.get('a1');
+  if (!sell) {
+    console.log('  [FAIL] D-pre: no sell result');
+    fail++;
+  } else {
+    // Total contract value = 100 × 1M = 100M, all sold in 2031.
+    // Cash 50% in 2031 (axis idx 5), 50% in 2032 (axis idx 6).
+    assertNear('D1: cash in 2026 (axis 0) = 0 (Phase 1 has no asset)', sell.cashCollectedPerPeriod[0] ?? 0, 0, 1);
+    assertNear('D2: cash in 2030 (axis 4) = 0 (before Phase 2)', sell.cashCollectedPerPeriod[4] ?? 0, 0, 1);
+    assertNear('D3: cash in 2031 (axis 5) = 50M', sell.cashCollectedPerPeriod[5] ?? 0, 50_000_000, 10);
+    assertNear('D4: cash in 2032 (axis 6) = 50M', sell.cashCollectedPerPeriod[6] ?? 0, 50_000_000, 10);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// E: cash schedule can extend past phase construction + operations.
+//    A long payment plan running into post-phase years should still
+//    deliver cash (M2 Pass 9k-Fix removes the aggressive truncation
+//    to cp + op - overlap).
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[E] Cash schedule extends past phaseLen');
+{
+  const project = {
+    name: 'long-pay-plan',
+    currency: 'SAR',
+    modelType: 'annual' as const,
+    startDate: '2026-01-01',
+    status: 'Draft' as const,
+    location: '',
+    country: 'Saudi Arabia',
+  } as unknown as Project;
+  // Phase: cp=2, op=2 → phaseLen = 4. A second phase extends the
+  // project axis to 10 years so the long pay plan has room to land.
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 2, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const phaseExt: Phase = { id: 'p2', name: 'P2', startDate: '2032-01-01', constructionPeriods: 2, operationsPeriods: 2, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p1', name: 'Long-pay tower', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{
+          subUnitId: 'su1',
+          preSalesVelocityByPhase: [1.0, 0], // sell 100% in phase-local year 0 (2026)
+          postSalesVelocityByPhase: [],
+          preSalesVelocity: [], postSalesVelocity: [],
+        }],
+        cashPaymentProfile: {
+          percentages: [],
+          profileMode: 'absolute_with_catchup',
+          // 10% per phase-local slot for 6 years (extends 2 years past phaseLen).
+          percentagesByPhase: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+        },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
+    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
+  } as unknown as SubUnit;
+  // Total inventory present, set project endpoints to keep total revenue at 60M (6 × 10%).
+  void subUnit;
+  const res = computeAllSellResults({ project, phases: [phase, phaseExt], assets: [asset], subUnits: [subUnit] });
+  const sell = res.bySellAsset.get('a1');
+  if (!sell) {
+    console.log('  [FAIL] E-pre: no sell result');
+    fail++;
+  } else {
+    // Total contract = 100 × 1M = 100M sold in 2026 (axis 0).
+    // Cash 10M per year for 6 years (2026..2031), axis 0..5.
+    // Cumulative collected = 60M (60% of contract). The remaining 40%
+    // stays uncollected since the schedule only sums to 60%.
+    assertNear('E1: cash at axis 0 (2026) = 10M', sell.cashCollectedPerPeriod[0] ?? 0, 10_000_000, 100);
+    assertNear('E2: cash at axis 3 (2029, still within phaseLen) = 10M', sell.cashCollectedPerPeriod[3] ?? 0, 10_000_000, 100);
+    assertNear('E3: cash at axis 4 (2030, post-phaseLen) = 10M', sell.cashCollectedPerPeriod[4] ?? 0, 10_000_000, 100);
+    assertNear('E4: cash at axis 5 (2031, post-phaseLen) = 10M', sell.cashCollectedPerPeriod[5] ?? 0, 10_000_000, 100);
+    assertNear('E5: cumulative cash through axis 5 = 60M', sell.cashCollectedPerPeriod.slice(0, 6).reduce((s, v) => s + v, 0), 60_000_000, 100);
+  }
+}
+
 console.log(`\n--- Phase-date preservation: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);
 if (fail > 0) {
   console.error('\nFAILURES:');

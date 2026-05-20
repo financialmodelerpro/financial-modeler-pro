@@ -2443,20 +2443,17 @@ export function migrateM2Pass9kPruneByPhase(snap: HydrateSnapshot): HydrateSnaps
           sell.subUnits = newSubs;
           sellChanged = true;
         }
-        if (sell.cashPaymentProfile?.percentagesByPhase) {
-          const p = _pruneToWindow(sell.cashPaymentProfile.percentagesByPhase, fullWindow);
-          if (p !== sell.cashPaymentProfile.percentagesByPhase) {
-            sell.cashPaymentProfile = { ...sell.cashPaymentProfile, percentagesByPhase: p };
-            sellChanged = true;
-          }
-        }
-        if (sell.recognitionProfile?.percentagesByPhase) {
-          const p = _pruneToWindow(sell.recognitionProfile.percentagesByPhase, fullWindow);
-          if (p !== sell.recognitionProfile.percentagesByPhase) {
-            sell.recognitionProfile = { ...sell.recognitionProfile, percentagesByPhase: p };
-            sellChanged = true;
-          }
-        }
+        // M2 Pass 9k-Fix (2026-05-20): do NOT prune the cash + recognition
+        // profile percentagesByPhase arrays here. They are multi-cohort
+        // payment / recognition TEMPLATES whose slots can legitimately
+        // extend past the phase's construction + operations window when
+        // the developer's payment plan runs long. Pruning them to
+        // fullWindow wiped legitimate late-stage cash collections from
+        // already-saved projects. They remain phase-local indexed (slot
+        // k = phase year k) and the resolver applies phaseOffset before
+        // handing positions to the engine.
+        void fullWindow; // (kept reference to silence linter; window still
+                         //  used by velocity / occupancy below)
         if (sell.indexation?.growthPerPeriodByPhase) {
           const p = _pruneToWindow(sell.indexation.growthPerPeriodByPhase, fullWindow);
           if (p !== sell.indexation.growthPerPeriodByPhase) {

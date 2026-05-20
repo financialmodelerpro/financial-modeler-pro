@@ -788,25 +788,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const next = paddedArray(cashProfile.percentages, totalPeriods);
     next[periodIdx] = value;
     // M4 Pass 2h: dual-write to phase-local sibling.
-    // M2 Pass 9k (2026-05-20): prune to phase length on every write.
-    // Anything past (cp + op - overlap) is invalid for this asset's
-    // schedule and gets zeroed so stale data can't haunt the engine.
+    // M2 Pass 9k-Fix (2026-05-20): the cash payment profile is a
+    // TEMPLATE that distributes each cohort's revenue across multiple
+    // years, NOT a single-year per-phase setting. The schedule can
+    // legitimately extend past the phase's construction + operations
+    // window (long payment plans). Use the full remaining-axis window
+    // from phase start, not cp + op - overlap.
     const localIdx = periodIdx - phaseOffset;
-    const cpLen = Math.max(0, phase.constructionPeriods ?? 0);
-    const opLen = Math.max(0, phase.operationsPeriods ?? 0);
-    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
-    const phaseLen = Math.max(0, cpLen + opLen - overlap);
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
     const nextByPhase = paddedArray(cashProfile.percentagesByPhase, phaseLen);
-    // Truncate / extend to exactly phaseLen.
-    const truncated = nextByPhase.slice(0, phaseLen);
-    while (truncated.length < phaseLen) truncated.push(0);
-    if (localIdx >= 0 && localIdx < truncated.length) truncated[localIdx] = value;
+    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
     updateSellInline({
       cashPaymentProfile: {
         percentages: next,
         positions: cashProfile.positions,
         profileMode: cashProfile.profileMode ?? 'absolute_with_catchup',
-        percentagesByPhase: truncated,
+        percentagesByPhase: nextByPhase,
         positionsByPhase: cashProfile.positionsByPhase,
       },
     });
@@ -837,22 +834,18 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const value = Math.max(0, Math.min(1, pct / 100));
     const next = paddedArray(recProfile.percentages, totalPeriods);
     next[periodIdx] = value;
-    // M4 Pass 2h + 9k: dual-write to phase-local sibling, pruned to
-    // phase length on every write.
+    // M4 Pass 2h + 9k-Fix (2026-05-20): recognition profile is a
+    // template applied to every cohort, NOT a single-year per-phase
+    // setting. Use the full remaining-axis window from phase start.
     const localIdx = periodIdx - phaseOffset;
-    const cpLen = Math.max(0, phase.constructionPeriods ?? 0);
-    const opLen = Math.max(0, phase.operationsPeriods ?? 0);
-    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
-    const phaseLen = Math.max(0, cpLen + opLen - overlap);
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
     const nextByPhase = paddedArray(recProfile.percentagesByPhase, phaseLen);
-    const truncated = nextByPhase.slice(0, phaseLen);
-    while (truncated.length < phaseLen) truncated.push(0);
-    if (localIdx >= 0 && localIdx < truncated.length) truncated[localIdx] = value;
+    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
     updateSellInline({
       recognitionProfile: {
         ...recProfile,
         percentages: next,
-        percentagesByPhase: truncated,
+        percentagesByPhase: nextByPhase,
       },
     });
   };

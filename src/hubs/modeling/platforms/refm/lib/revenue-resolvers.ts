@@ -559,21 +559,35 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       cashPaymentProfile: (() => {
         const cpp = cfgRaw.cashPaymentProfile;
         const sCpp = storedSell?.cashPaymentProfile;
-        const newPct = sCpp?.percentagesByPhase ?? cpp.percentages;
-        const newPos = sCpp?.positionsByPhase !== undefined
-          ? sCpp.positionsByPhase.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N)
-          : cpp.positions;
-        return { ...cpp, percentages: newPct ?? [], positions: newPos };
+        // M2 Pass 9k-Fix (2026-05-20): when percentagesByPhase is the
+        // source of truth, its index k is PHASE-LOCAL — k=0 means the
+        // phase start year. The cohort engine expects positions in
+        // ABSOLUTE project-axis years, so we ALWAYS rebuild positions
+        // by adding phaseOffset, regardless of whether positionsByPhase
+        // was set. Without this, Phase 2+ cash schedules landed on the
+        // wrong project years (Phase 1 happened to work because
+        // phaseOffset = 0). cpp.positions (legacy) is only honoured
+        // when the asset has never been migrated to ByPhase.
+        if (sCpp?.percentagesByPhase !== undefined) {
+          const newPct = sCpp.percentagesByPhase;
+          const localPos = sCpp.positionsByPhase ?? newPct.map((_, k) => k);
+          const newPos = localPos.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N);
+          return { ...cpp, percentages: newPct, positions: newPos };
+        }
+        return { ...cpp, percentages: cpp.percentages ?? [], positions: cpp.positions };
       })(),
       recognitionProfile: (() => {
         const rp = cfgRaw.recognitionProfile;
         const sRp = storedSell?.recognitionProfile;
         if (rp.method !== 'over_time') return rp;
-        const newPct = sRp?.percentagesByPhase ?? rp.percentages;
-        const newPos = sRp?.positionsByPhase !== undefined
-          ? sRp.positionsByPhase.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N)
-          : rp.positions;
-        return { ...rp, percentages: newPct, positions: newPos };
+        // M2 Pass 9k-Fix (2026-05-20): same phase-offset fix as cash.
+        if (sRp?.percentagesByPhase !== undefined) {
+          const newPct = sRp.percentagesByPhase;
+          const localPos = sRp.positionsByPhase ?? newPct.map((_, k) => k);
+          const newPos = localPos.map((p) => p + phaseOffset).filter((p) => p >= 0 && p < N);
+          return { ...rp, percentages: newPct, positions: newPos };
+        }
+        return { ...rp, percentages: rp.percentages, positions: rp.positions };
       })(),
       indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N),
     };
