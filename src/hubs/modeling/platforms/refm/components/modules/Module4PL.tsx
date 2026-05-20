@@ -80,49 +80,98 @@ export default function Module4PL(): React.JSX.Element {
     state.setProject({ financialTerminology: mode });
   };
 
-  // Project P&L rows
+  // Project P&L rows, detailed per-asset (M4 Pass 2k, 2026-05-20)
+  // Mirrors the reference v1.16 layout: each strategy block (Residential
+  // / Hospitality / Retail) lists its individual asset rows, then a
+  // strategy subtotal, then the project Total Revenue. Same structure
+  // for Cost of Sales and Operating Expenses.
   const buildProjectPLRows = (): M4Row[] => {
     const p = snap.pl;
     const rows: M4Row[] = [];
+    const negArr = (arr: number[]): number[] => arr.map((v) => -v);
+
+    // Partition visible assets by P&L bucket.
+    const residentialAssets = visibleAssets.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
+    const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true);
+    const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
+
+    // ── REVENUE ────────────────────────────────────────────────────
     rows.push({ label: 'REVENUE', values: [], isSection: true });
-    if (p.residentialRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Residential Revenue', values: p.residentialRevenuePerPeriod, indent: 1 });
+    if (residentialAssets.length > 0 && p.residentialRevenuePerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Residential Revenue', values: [], isSection: true });
+      for (const a of residentialAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
+      }
+      rows.push({ label: 'Total Residential Revenue', values: p.residentialRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
-    if (p.hospitalityRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality Revenue', values: p.hospitalityRevenuePerPeriod, indent: 1 });
+    if (hospitalityAssets.length > 0 && p.hospitalityRevenuePerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Hospitality Revenue', values: [], isSection: true });
+      for (const a of hospitalityAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
+      }
+      rows.push({ label: 'Total Hospitality Revenue', values: p.hospitalityRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
-    if (p.retailRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail Revenue', values: p.retailRevenuePerPeriod, indent: 1 });
+    if (retailAssets.length > 0 && p.retailRevenuePerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Retail Revenue', values: [], isSection: true });
+      for (const a of retailAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
+      }
+      rows.push({ label: 'Total Retail Revenue', values: p.retailRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
-    rows.push({ label: 'Total Revenue', values: p.totalRevenuePerPeriod, isSubtotal: true });
+    rows.push({ label: 'Total Revenue', values: p.totalRevenuePerPeriod, isTotal: true });
 
-    rows.push({ label: 'COST OF SALES', values: [], isSection: true });
-    rows.push({ label: 'Cost of Sales', values: p.cosPerPeriod.map((v) => -v), indent: 1 });
-    rows.push({ label: 'Total Cost of Sales', values: p.cosPerPeriod.map((v) => -v), isSubtotal: true });
+    // ── COST OF SALES ─────────────────────────────────────────────
+    if (p.cosPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'COST OF SALES', values: [], isSection: true });
+      rows.push({ label: 'Residential cost of sales', values: [], isSection: true });
+      for (const a of residentialAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.cosPerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: negArr(pl.cosPerPeriod), indent: 2 });
+      }
+      rows.push({ label: 'Total Cost of Sales', values: negArr(p.cosPerPeriod), isSubtotal: true });
+    }
 
+    // ── OPERATING EXPENSES ────────────────────────────────────────
     rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
-    if (p.hospitalityOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality operating expenses', values: p.hospitalityOpexPerPeriod.map((v) => -v), indent: 1 });
+    if (hospitalityAssets.length > 0 && p.hospitalityOpexPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Hospitality operating expenses', values: [], isSection: true });
+      for (const a of hospitalityAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.opexPerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: negArr(pl.opexPerPeriod), indent: 2 });
+      }
     }
-    if (p.retailOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail operating expenses', values: p.retailOpexPerPeriod.map((v) => -v), indent: 1 });
+    if (retailAssets.length > 0 && p.retailOpexPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Retail operating expenses', values: [], isSection: true });
+      for (const a of retailAssets) {
+        const pl = snap.perAssetPL.get(a.id);
+        if (!pl || pl.opexPerPeriod.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: negArr(pl.opexPerPeriod), indent: 2 });
+      }
     }
     if (p.hqOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'HQ Expenses', values: p.hqOpexPerPeriod.map((v) => -v), indent: 1 });
+      rows.push({ label: 'HQ Expenses', values: negArr(p.hqOpexPerPeriod), indent: 1 });
     }
-    rows.push({ label: 'Total Operating Expenses', values: p.totalOpexPerPeriod.map((v) => -v), isSubtotal: true });
+    rows.push({ label: 'Total Operating Expenses', values: negArr(p.totalOpexPerPeriod), isSubtotal: true });
 
     rows.push({ label: labels.ebitda, values: p.ebitdaPerPeriod, isTotal: true });
-    rows.push({ label: 'Depreciation & Amortization', values: p.daPerPeriod.map((v) => -v), indent: 1 });
+    rows.push({ label: 'Depreciation & Amortization', values: negArr(p.daPerPeriod), indent: 1 });
     rows.push({ label: labels.ebit, values: p.ebitPerPeriod, isSubtotal: true });
 
-    rows.push({ label: 'Interest & financing cost', values: p.interestExpensePerPeriod.map((v) => -v), indent: 1 });
+    rows.push({ label: 'Interest & financing cost', values: negArr(p.interestExpensePerPeriod), indent: 1 });
     if (p.interestIncomePerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'Interest income / other', values: p.interestIncomePerPeriod, indent: 1 });
     }
     rows.push({ label: labels.pbt, values: p.pbtPerPeriod, isSubtotal: true });
 
-    rows.push({ label: `${labels.tax} (${(p.taxRate * 100).toFixed(2)}%)`, values: p.taxPerPeriod.map((v) => -v), indent: 1 });
+    rows.push({ label: `${labels.tax} (${(p.taxRate * 100).toFixed(2)}%)`, values: negArr(p.taxPerPeriod), indent: 1 });
     rows.push({ label: labels.pat, values: p.patPerPeriod, isTotal: true });
 
     return rows;

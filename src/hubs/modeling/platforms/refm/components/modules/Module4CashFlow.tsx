@@ -75,29 +75,93 @@ export default function Module4CashFlow(): React.JSX.Element {
   const [filterAssetId, setFilterAssetId] = useState<string>('__project__');
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
 
-  // Direct CF rows, project totals
+  // Direct CF rows, project view (M4 Pass 2k 2026-05-20): per-asset
+  // rows for Revenue Received, Opex Paid, Capex, plus per-tranche
+  // financing lines. Mirrors the reference v1.16 CF layout.
   const buildDirectProjectRows = (): M4Row[] => {
     const d = snap.directCF;
     const rows: M4Row[] = [];
+    const residentialAssets = visibleAssets.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
+    const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true);
+    const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
+
+    // ── CASH FROM OPERATIONS ──────────────────────────────────────
     rows.push({ label: 'CASH FROM OPERATIONS', values: [], isSection: true });
-    rows.push({ label: 'Revenue received', values: d.revenueReceivedPerPeriod, indent: 1 });
+
+    // Revenue received, per-asset by strategy
+    rows.push({ label: 'Revenue received', values: [], isSection: true });
+    const residentialRev = new Array<number>(N).fill(0);
+    for (const a of residentialAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.revenueReceivedPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.revenueReceivedPerPeriod, indent: 2 });
+      for (let t = 0; t < N; t++) residentialRev[t] += cf.revenueReceivedPerPeriod[t];
+    }
+    const hospitalityRev = new Array<number>(N).fill(0);
+    for (const a of hospitalityAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.revenueReceivedPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.revenueReceivedPerPeriod, indent: 2 });
+      for (let t = 0; t < N; t++) hospitalityRev[t] += cf.revenueReceivedPerPeriod[t];
+    }
+    const retailRev = new Array<number>(N).fill(0);
+    for (const a of retailAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.revenueReceivedPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.revenueReceivedPerPeriod, indent: 2 });
+      for (let t = 0; t < N; t++) retailRev[t] += cf.revenueReceivedPerPeriod[t];
+    }
+    rows.push({ label: 'Total Revenue Received', values: d.revenueReceivedPerPeriod, isSubtotal: true });
+
     if (d.escrowHeldPerPeriod.some((v) => v !== 0) || d.escrowReleasePerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'Less: Inaccessible Funds Locked', values: d.escrowHeldPerPeriod, indent: 1 });
       rows.push({ label: 'Add: Release of Inaccessible Funds', values: d.escrowReleasePerPeriod, indent: 1 });
     }
-    rows.push({ label: 'Operating expenses paid', values: d.opexPaidPerPeriod, indent: 1 });
-    if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'HQ expenses paid', values: d.hqOpexPaidPerPeriod, indent: 1 });
+
+    // Operating expenses paid, per-asset by strategy
+    rows.push({ label: 'Operating expenses paid', values: [], isSection: true });
+    for (const a of hospitalityAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.opexPaidPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.opexPaidPerPeriod.map((v) => -v), indent: 2 });
     }
+    for (const a of retailAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.opexPaidPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.opexPaidPerPeriod.map((v) => -v), indent: 2 });
+    }
+    if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'HQ expenses paid', values: d.hqOpexPaidPerPeriod, indent: 2 });
+    }
+    rows.push({ label: 'Total Operating Expenses Paid', values: d.opexPaidPerPeriod.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0)), isSubtotal: true });
+
     if (d.taxPaidPerPeriod.some((v) => v !== 0)) {
       rows.push({ label: `${labels.taxPaid}`, values: d.taxPaidPerPeriod, indent: 1 });
     }
-    rows.push({ label: 'Cash Flow from Operations', values: d.cashFromOperationsPerPeriod, isSubtotal: true });
+    rows.push({ label: 'Cash Flow from Operations', values: d.cashFromOperationsPerPeriod, isTotal: true });
 
+    // ── CASH FROM INVESTMENT ──────────────────────────────────────
     rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
-    rows.push({ label: 'Capital expenditure', values: d.capexPerPeriod, indent: 1 });
-    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isSubtotal: true });
+    rows.push({ label: 'Capital expenditure', values: [], isSection: true });
+    for (const a of residentialAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.capexPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.capexPerPeriod.map((v) => -v), indent: 2 });
+    }
+    for (const a of hospitalityAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.capexPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.capexPerPeriod.map((v) => -v), indent: 2 });
+    }
+    for (const a of retailAssets) {
+      const cf = snap.perAssetCF.get(a.id);
+      if (!cf || cf.capexPerPeriod.every((v) => v === 0)) continue;
+      rows.push({ label: a.name, values: cf.capexPerPeriod.map((v) => -v), indent: 2 });
+    }
+    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true });
+    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true });
 
+    // ── CASH FROM FINANCING ───────────────────────────────────────
     rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
     if (d.equityDrawdownPerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'Equity drawdown', values: d.equityDrawdownPerPeriod, indent: 1 });
