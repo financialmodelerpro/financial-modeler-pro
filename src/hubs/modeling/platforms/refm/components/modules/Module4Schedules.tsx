@@ -71,8 +71,8 @@ export default function Module4Schedules(): React.JSX.Element {
         </p>
       </div>
 
-      {/* 1. Accounts Receivable */}
-      <PhaseSection phaseId="m4-sch-ar" title="1. Accounts Receivable" meta="Residential milestone-driven (M2 Pass 7q)" storageKey="fmp:m4:sch:ar:collapsed">
+      {/* 1a. Residential Receivables (milestone) */}
+      <PhaseSection phaseId="m4-sch-ar" title="1a. Residential Sales Receivables" meta="Milestone-driven (M2 Pass 7q)" storageKey="fmp:m4:sch:ar:collapsed">
         <M4PeriodTable
           title="Residential Sales Receivables — Roll-Forward (project)"
           caption="Opening + Revenue billed − Cash collected = Closing. Driven by M2 Sell asset milestone schedule (pre-sales + sales-during-operation)."
@@ -95,6 +95,31 @@ export default function Module4Schedules(): React.JSX.Element {
               { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
               { label: '(+) Revenue billed', values: billed, indent: 1 },
               { label: '(−) Cash collected', values: collected.map((v) => -v), indent: 1 },
+              { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+            ];
+          })()}
+        />
+      </PhaseSection>
+
+      {/* 1b. Operating Receivables (DSO-driven, M4 Pass 2g) */}
+      <PhaseSection phaseId="m4-sch-ar-op" title="1b. Operating Receivables" meta="DSO-driven (hospitality + lease)" storageKey="fmp:m4:sch:ar-op:collapsed">
+        <M4PeriodTable
+          title="Operating AR — Roll-Forward (project)"
+          caption="Closing AR = Operating revenue × DSO / 365. Cash received = Revenue − ΔAR. Set DSO in Module 4 Balance Sheet → Working Capital Inputs."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={(() => {
+            const operatingRev = snap.pl.hospitalityRevenuePerPeriod.map((v, i) => v + (snap.pl.retailRevenuePerPeriod[i] ?? 0));
+            const closing = snap.bs.arPerPeriod;
+            const opening = zeros();
+            for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+            const change = closing.map((v, i) => v - (opening[i] ?? 0));
+            const cash = operatingRev.map((v, i) => v - (change[i] ?? 0));
+            return [
+              { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+              { label: '(+) Operating revenue billed', values: operatingRev, indent: 1 },
+              { label: '(−) Cash collected', values: cash.map((v) => -v), indent: 1 },
               { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
             ];
           })()}

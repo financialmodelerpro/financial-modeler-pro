@@ -88,6 +88,15 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     state.setProject({ shareCapital: v });
   };
 
+  // M4 Pass 2g: operating DSO control. Drives the AR closing balance
+  // for hospitality + lease revenue (residential receivables stay on
+  // the M2 milestone path).
+  const setOperatingDsoDays = (v: number | undefined): void => {
+    state.setProject({
+      operatingAr: { ...(project.operatingAr ?? {}), dsoDays: v },
+    });
+  };
+
   const rows: M4Row[] = [];
   rows.push({ label: 'ASSETS', values: [], isSection: true });
 
@@ -108,6 +117,9 @@ export default function Module4BalanceSheet(): React.JSX.Element {
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
   rows.push({ label: 'Cash', values: bs.cashPerPeriod, indent: 1, totalOverride: fmt(bs.cashPerPeriod[N - 1] ?? 0) });
+  if (bs.arPerPeriod.some((v) => v !== 0)) {
+    rows.push({ label: 'Accounts Receivable (Operating)', values: bs.arPerPeriod, indent: 1, totalOverride: fmt(bs.arPerPeriod[N - 1] ?? 0) });
+  }
   rows.push({ label: 'Residential Sales Receivables', values: bs.residentialReceivablesPerPeriod, indent: 1, totalOverride: fmt(bs.residentialReceivablesPerPeriod[N - 1] ?? 0) });
   rows.push({ label: 'Inventory (Residential WIP)', values: bs.inventoryPerPeriod, indent: 1, totalOverride: fmt(bs.inventoryPerPeriod[N - 1] ?? 0) });
   rows.push({ label: 'Total Current Assets', values: bs.totalCurrentAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentAssetsPerPeriod[N - 1] ?? 0) });
@@ -149,6 +161,47 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           ~0 each period; if it drifts, a working-capital line is missing on one side of the bridge.
         </p>
       </div>
+
+      <PhaseSection
+        phaseId="m4-bs-wc-inputs"
+        title="Working Capital Inputs"
+        meta="Operating AR Days (hospitality + lease)"
+        storageKey="fmp:m4:bs:wc-inputs:collapsed"
+      >
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(220px, 1fr)',
+          gap: 'var(--sp-2)',
+          padding: 'var(--sp-2)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          marginBottom: 'var(--sp-3)',
+        }}>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Operating AR Days (DSO)
+            </label>
+            <input
+              type="number"
+              value={project.operatingAr?.dsoDays ?? ''}
+              min={0}
+              max={365}
+              placeholder="0 (cash basis)"
+              onChange={(e) => {
+                const v = e.target.value;
+                setOperatingDsoDays(v === '' ? undefined : Math.max(0, Number(v)));
+              }}
+              style={FAST_INPUT}
+              data-testid="m4-bs-operating-dso"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days Sales Outstanding for hospitality + lease revenue. Reference v1.16 default is 60 days. Residential
+              receivables stay on the M2 milestone-driven path regardless of this input.
+            </div>
+          </div>
+        </div>
+      </PhaseSection>
 
       <PhaseSection
         phaseId="m4-bs-inputs"

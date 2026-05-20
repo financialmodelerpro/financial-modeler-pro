@@ -37,7 +37,9 @@ import {
   type AssetFixedAssetResult,
 } from '@/src/core/calculations/depreciation';
 import {
+  buildAccountsReceivableDSO,
   buildCostOfSales,
+  type AccountsReceivableDSOResult,
   type CostOfSalesResult,
 } from '@/src/core/calculations/revenue';
 import {
@@ -295,36 +297,92 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const totalIdcPerPeriod = idcSource.slice(1, 1 + N);
   while (totalIdcPerPeriod.length < N) totalIdcPerPeriod.push(0);
 
+  // M4 Pass 2g (2026-05-20): allocate IDC per period using ACTIVE-
+  // construction land share, not total land share. Assets that finished
+  // construction in earlier periods no longer accrue IDC; the share
+  // collapses to the assets still under construction in period t. This
+  // matters for multi-phase projects where Phase 3 is still drawing
+  // debt while Phase 1 is already operating.
   const assetLand = new Map<string, number>();
   let totalLandSqm = 0;
+  // Per-asset construction window [startIdx, endIdx] on the project axis.
+  const constructionWindow = new Map<string, { startIdx: number; endIdx: number }>();
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
     const sqm = Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
     assetLand.set(a.id, sqm);
     totalLandSqm += sqm;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+    const offset = Math.max(0, phaseStartYear - projectStartYear);
+    constructionWindow.set(a.id, {
+      startIdx: Math.max(0, Math.min(N - 1, offset)),
+      endIdx: Math.max(0, Math.min(N - 1, offset + cp - 1)),
+    });
   }
 
+  // Two-pass allocation: pass 1 distributes IDC during each asset's
+  // construction window; pass 2 catches any "stray" IDC outside all
+  // construction windows (e.g. post-handover finance cost on existing
+  // debt that's still capitalising) and falls back to the static
+  // land-share split so no IDC is dropped on the floor.
   const byAssetIDC = new Map<string, AssetIDCRow>();
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
-    const sqm = assetLand.get(a.id) ?? 0;
-    const share = totalLandSqm > 0 ? sqm / totalLandSqm : 0;
-    const idcRow = totalIdcPerPeriod.map((v) => v * share);
-    const cum = zeros(N);
-    let running = 0;
-    for (let t = 0; t < N; t++) {
-      running += idcRow[t];
-      cum[t] = running;
-    }
     byAssetIDC.set(a.id, {
       assetId: a.id,
       assetName: a.name,
-      landSqm: sqm,
-      shareOfTotalLand: share,
-      idcPerPeriod: idcRow,
-      cumulativeIdcPerPeriod: cum,
-      totalIdc: running,
+      landSqm: assetLand.get(a.id) ?? 0,
+      shareOfTotalLand: totalLandSqm > 0 ? (assetLand.get(a.id) ?? 0) / totalLandSqm : 0,
+      idcPerPeriod: zeros(N),
+      cumulativeIdcPerPeriod: zeros(N),
+      totalIdc: 0,
     });
+  }
+
+  for (let t = 0; t < N; t++) {
+    const idcAtT = totalIdcPerPeriod[t] ?? 0;
+    if (idcAtT === 0) continue;
+    // Determine active-construction land at t.
+    let activeLand = 0;
+    const activeIds: string[] = [];
+    for (const [assetId, win] of constructionWindow) {
+      if (t < win.startIdx || t > win.endIdx) continue;
+      const sqm = assetLand.get(assetId) ?? 0;
+      if (sqm <= 0) continue;
+      activeLand += sqm;
+      activeIds.push(assetId);
+    }
+    if (activeLand <= 0) {
+      // Fallback: no construction-active asset has land at t -> split
+      // by total land share (Pass 2f behaviour). Keeps IDC totals
+      // reconciled even in edge cases (e.g. existing facilities with
+      // post-operational IDC capitalisation).
+      if (totalLandSqm <= 0) continue;
+      for (const [assetId, row] of byAssetIDC) {
+        const sqm = assetLand.get(assetId) ?? 0;
+        const slice = idcAtT * (sqm / totalLandSqm);
+        row.idcPerPeriod[t] += slice;
+      }
+    } else {
+      for (const assetId of activeIds) {
+        const sqm = assetLand.get(assetId) ?? 0;
+        const slice = idcAtT * (sqm / activeLand);
+        const row = byAssetIDC.get(assetId);
+        if (row) row.idcPerPeriod[t] += slice;
+      }
+    }
+  }
+
+  // Finalize cumulative + totals
+  for (const row of byAssetIDC.values()) {
+    let running = 0;
+    for (let t = 0; t < N; t++) {
+      running += row.idcPerPeriod[t] ?? 0;
+      row.cumulativeIdcPerPeriod[t] = running;
+    }
+    row.totalIdc = running;
   }
 
   // 2b. Per-asset Cost-of-Sales + AR + Unearned bundles (Sell strategies).
@@ -591,15 +649,43 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     patPerPeriod: pat,
   };
 
+  // 4b. Operating AR via DSO (M4 Pass 2g, 2026-05-20).
+  // Hospitality + Lease revenue is days-driven (AR closing = revenue ×
+  // DSO / 365) — not milestone-driven like residential. Cash received
+  // for operating revenue = revenue − ΔAR. Residential receivables stay
+  // on the M2 milestone-driven path (byAssetSchedules[id].ar).
+  const operatingRevenuePerPeriod = zeros(N);
+  for (let t = 0; t < N; t++) {
+    operatingRevenuePerPeriod[t] = (pl.hospitalityRevenuePerPeriod[t] ?? 0) + (pl.retailRevenuePerPeriod[t] ?? 0);
+  }
+  const operatingArDays = Math.max(0, project.operatingAr?.dsoDays ?? 0);
+  const operatingArDaysPerYear = Math.max(1, project.operatingAr?.daysPerYear ?? 365);
+  const operatingAR: AccountsReceivableDSOResult = buildAccountsReceivableDSO({
+    revenuePerPeriod: operatingRevenuePerPeriod,
+    dsoDays: operatingArDays,
+    daysPerYear: operatingArDaysPerYear,
+    axisLength: N,
+  });
+
   // 5. Direct Cash Flow
   // Revenue received = sum of M2 cash arrays (Sell + Hospitality + Lease)
-  // Per the v1.16 layout: revenue received is gross, then escrow held subtracted, release added.
+  // For Hospitality / Lease, replace the cash-on-receipt approximation
+  // with the DSO-adjusted cash (revenue − ΔAR). Residential cash stays
+  // as the M2 milestone-driven series.
   const revRcvProject = zeros(N);
   for (const a of assets) {
     if (a.visible === false) continue;
     const cf = perAssetCF.get(a.id);
     if (!cf) continue;
+    // For Operate / Lease assets, replace asset-level revenue received
+    // with their cash basis approximation; the project-level DSO
+    // adjustment below corrects the operating-side cash.
+    if (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true) continue;
     for (let t = 0; t < N; t++) revRcvProject[t] += cf.revenueReceivedPerPeriod[t];
+  }
+  // Add DSO-adjusted operating revenue cash (hospitality + lease).
+  for (let t = 0; t < N; t++) {
+    revRcvProject[t] += operatingAR.cashReceivedPerPeriod[t] ?? 0;
   }
   const escrowHeld = escrow.projectTotals.heldPerPeriod.slice(0, N);
   const escrowRelease = escrow.projectTotals.releasePerPeriod.slice(0, N);
@@ -694,8 +780,10 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (let t = 0; t < N; t++) {
     inventoryChange[t] = inventoryClosingProject[t] - (t === 0 ? 0 : inventoryClosingProject[t - 1]);
   }
-  // Operating AR currently approximated as zero (DSO not configured yet at project level for revenue).
-  // M4 will surface a project DSO input in Pass 2c-Fix if needed; today operating revenue = cash.
+  // Operating AR change for the Indirect CF bridge (Pass 2g).
+  for (let t = 0; t < N; t++) {
+    arOperatingChange[t] = operatingAR.changePerPeriod[t] ?? 0;
+  }
   const apChange = ap.projectTotals.changeApPerPeriod.slice(0, N);
   // Escrow change: cumulative balance increases = cash held (effectively a liability sitting on the BS)
   const escrowBalance = escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
@@ -733,7 +821,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   // 7. Balance Sheet
   // Assets
   const cashPerPeriod = closingCash;
-  const arPerPeriod = zeros(N); // operating AR (currently 0; future DSO config)
+  const arPerPeriod = operatingAR.perPeriod.slice(0, N);
   const residentialReceivables = zeros(N);
   const inventoryArr = inventoryClosingProject;
   for (const bundle of byAssetSchedules.values()) {

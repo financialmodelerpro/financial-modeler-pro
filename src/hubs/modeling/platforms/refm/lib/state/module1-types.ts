@@ -400,6 +400,20 @@ export interface Project {
     daysPerYear?: number;
   };
   /**
+   * M4 Pass 2g (2026-05-20): project-wide operating Accounts Receivable
+   * defaults. DSO-driven AR roll-forward on hospitality + lease
+   * revenue (residential receivables stay on the milestone-driven
+   * M2 Pass 7q path because they're contract-driven, not days-driven).
+   * Reference v1.16 default: DSO 60 days. FMP defaults DSO to 0 (cash
+   * basis) so existing snapshots show no behaviour change.
+   */
+  operatingAr?: {
+    /** Project-wide Days Sales Outstanding default (calendar days). */
+    dsoDays?: number;
+    /** Days basis for the DSO ratio. Defaults to 365. */
+    daysPerYear?: number;
+  };
+  /**
    * M4 Pass 2c (2026-05-20): direct-tax charge on PBT.
    * Configurable so projects in different jurisdictions can set their
    * own rate (Saudi Zakat 2.5%, UAE corporate tax 9%, etc.).
