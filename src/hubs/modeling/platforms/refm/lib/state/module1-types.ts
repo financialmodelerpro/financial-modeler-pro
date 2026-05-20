@@ -274,6 +274,11 @@ export interface Project {
   // and the rate_per_nda / rate_per_roads cost methods. Both default
   // to undefined / 0 so existing v5 snapshots keep working.
   country?: string;          // free-text country, used by requiresCountry filter
+  /** M4 Pass 2b (2026-05-20): financial-statement terminology. 'saudi'
+   *  swaps in Zakat / EBIZDA / EBIZ / PBZ / PAZ labels throughout the
+   *  P&L, CF and BS surfaces. 'standard' uses Tax / EBITDA / EBIT /
+   *  PBT / PAT. Defaults to 'standard'. */
+  financialTerminology?: 'standard' | 'saudi';
   projectRoadsPct?: number;  // 0..100, fraction of TOTAL land used for roads
   // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA deduction. When
   // projectNdaEnabled is true, calc engine applies (projectRoadsPct +
@@ -394,6 +399,35 @@ export interface Project {
     /** Days basis for the DPO ratio. Defaults to 365. */
     daysPerYear?: number;
   };
+  /**
+   * M4 Pass 2c (2026-05-20): direct-tax charge on PBT.
+   * Configurable so projects in different jurisdictions can set their
+   * own rate (Saudi Zakat 2.5%, UAE corporate tax 9%, etc.).
+   * Defaults to 0 = no tax charge (cash-basis tax).
+   */
+  tax?: {
+    /** Decimal tax rate applied to PBT (e.g. 0.025 = 2.5%). */
+    rate?: number;
+    /** Tax paid timing in days from incurrence. 0 = same-year (cash basis). */
+    paymentDays?: number;
+  };
+  /**
+   * M4 Pass 2e (2026-05-20): statutory reserve transfer (Saudi
+   * Companies Law: 10% of PAT each year, capped at 30% of Share
+   * Capital). Off by default; jurisdictions without this rule keep
+   * the rate at 0.
+   */
+  statutoryReserve?: {
+    /** Transfer rate as fraction of PAT. 0 = disabled. */
+    transferRate?: number;
+    /** Cap as fraction of Share Capital. 0 = no cap. */
+    capOfShareCapital?: number;
+  };
+  /**
+   * M4 Pass 2e (2026-05-20): explicit Share Capital. When unset, the
+   * BS engine uses cumulative equity drawdowns as Share Capital.
+   */
+  shareCapital?: number;
   /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives

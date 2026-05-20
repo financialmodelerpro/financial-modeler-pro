@@ -47,6 +47,11 @@ import Module2CostOfSales from './modules/Module2CostOfSales';
 import Module2Schedules from './modules/Module2Schedules';
 import Module2Escrow from './modules/Module2Escrow';
 import Module4FixedAssets from './modules/Module4FixedAssets';
+// M4 Pass 2 in progress — paused while fixing a phase-date bug.
+// import Module4Schedules from './modules/Module4Schedules';
+// import Module4PL from './modules/Module4PL';
+// import Module4CashFlow from './modules/Module4CashFlow';
+// import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 

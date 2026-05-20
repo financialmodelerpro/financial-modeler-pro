@@ -41,113 +41,17 @@ import {
 } from './module1-types';
 
 // ── Project-axis array shift helpers ────────────────────────────────────────
-// When a phase startDate changes (or the project axis origin shifts because
-// the earliest phase moved), per-period arrays stored on assets need to slide
-// so the user's data stays anchored to the same calendar years. Positive
-// delta shifts values forward (later years); negative shifts backward.
-function shiftArray(arr: number[] | undefined, delta: number): number[] | undefined {
-  if (!arr || delta === 0) return arr;
-  const out = new Array<number>(arr.length).fill(0);
-  for (let i = 0; i < arr.length; i++) {
-    const src = i - delta;
-    if (src >= 0 && src < arr.length) out[i] = arr[src];
-  }
-  return out;
-}
-function shiftIfArray<T extends { growthPerPeriod?: number[] } | undefined>(
-  cfg: T,
-  delta: number,
-): T {
-  if (!cfg) return cfg;
-  if (!cfg.growthPerPeriod) return cfg;
-  return { ...cfg, growthPerPeriod: shiftArray(cfg.growthPerPeriod, delta) };
-}
-function shiftAssetPerPeriodArrays(asset: Asset, delta: number): Asset {
-  if (delta === 0) return asset;
-  const next: Asset = { ...asset };
-  const rev = asset.revenue;
-  if (rev) {
-    const nextRev: NonNullable<Asset['revenue']> = { ...rev };
-    if (rev.sell) {
-      nextRev.sell = {
-        ...rev.sell,
-        subUnits: rev.sell.subUnits.map((u) => ({
-          ...u,
-          preSalesVelocity: shiftArray(u.preSalesVelocity, delta) ?? u.preSalesVelocity,
-          postSalesVelocity: shiftArray(u.postSalesVelocity, delta) ?? u.postSalesVelocity,
-        })),
-        cashPaymentProfile: {
-          ...rev.sell.cashPaymentProfile,
-          percentages: shiftArray(rev.sell.cashPaymentProfile.percentages, delta)
-            ?? rev.sell.cashPaymentProfile.percentages,
-        },
-        recognitionProfile: {
-          ...rev.sell.recognitionProfile,
-          percentages: shiftArray(rev.sell.recognitionProfile.percentages, delta),
-        },
-        indexation: shiftIfArray(rev.sell.indexation, delta),
-      };
-    }
-    if (rev.operate) {
-      const op = rev.operate;
-      const fb = op.fb
-        ? {
-            ...op.fb,
-            percentOfRooms: Array.isArray(op.fb.percentOfRooms)
-              ? (shiftArray(op.fb.percentOfRooms, delta) ?? op.fb.percentOfRooms)
-              : op.fb.percentOfRooms,
-            ratePerGuest: Array.isArray(op.fb.ratePerGuest)
-              ? (shiftArray(op.fb.ratePerGuest, delta) ?? op.fb.ratePerGuest)
-              : op.fb.ratePerGuest,
-            fixedAmountPerPeriod: Array.isArray(op.fb.fixedAmountPerPeriod)
-              ? (shiftArray(op.fb.fixedAmountPerPeriod, delta) ?? op.fb.fixedAmountPerPeriod)
-              : op.fb.fixedAmountPerPeriod,
-            indexation: shiftIfArray(op.fb.indexation, delta),
-          }
-        : op.fb;
-      const other = op.otherRevenue
-        ? {
-            ...op.otherRevenue,
-            percentOfRooms: Array.isArray(op.otherRevenue.percentOfRooms)
-              ? (shiftArray(op.otherRevenue.percentOfRooms, delta) ?? op.otherRevenue.percentOfRooms)
-              : op.otherRevenue.percentOfRooms,
-            ratePerGuest: Array.isArray(op.otherRevenue.ratePerGuest)
-              ? (shiftArray(op.otherRevenue.ratePerGuest, delta) ?? op.otherRevenue.ratePerGuest)
-              : op.otherRevenue.ratePerGuest,
-            fixedAmountPerPeriod: Array.isArray(op.otherRevenue.fixedAmountPerPeriod)
-              ? (shiftArray(op.otherRevenue.fixedAmountPerPeriod, delta) ?? op.otherRevenue.fixedAmountPerPeriod)
-              : op.otherRevenue.fixedAmountPerPeriod,
-            indexation: shiftIfArray(op.otherRevenue.indexation, delta),
-          }
-        : op.otherRevenue;
-      nextRev.operate = {
-        ...op,
-        adrIndexation: shiftIfArray(op.adrIndexation, delta),
-        occupancyPerPeriod: shiftArray(op.occupancyPerPeriod, delta) ?? op.occupancyPerPeriod,
-        keysParticipationProfile: shiftArray(op.keysParticipationProfile, delta),
-        fb,
-        otherRevenue: other,
-      };
-    }
-    if (rev.lease) {
-      nextRev.lease = {
-        ...rev.lease,
-        rentIndexation: shiftIfArray(rev.lease.rentIndexation, delta),
-        occupancyPerPeriod: shiftArray(rev.lease.occupancyPerPeriod, delta) ?? rev.lease.occupancyPerPeriod,
-      };
-    }
-    next.revenue = nextRev;
-  }
-  if (asset.opex?.lines) {
-    next.opex = {
-      lines: asset.opex.lines.map((l) => ({
-        ...l,
-        indexation: shiftIfArray(l.indexation, delta),
-      })),
-    };
-  }
-  return next;
-}
+// REMOVED 2026-05-20: the per-phase-date-change cascade was disabled because
+// it caused two data-corruption bugs:
+//   (1) lossy shifts clobbered the first N entries of axis-indexed arrays;
+//   (2) opex line YoY rates + opex defaultIndexation + Pass 2a apDaysOverride
+//       were never covered by the shift, so they ended up half-aligned to
+//       the old axis origin while the rest of the model aligned to the new.
+// The cascade helpers (shiftArray / shiftIfArray / shiftAssetPerPeriodArrays)
+// have been deleted along with the cascade call site in updatePhase below.
+// User inputs are now preserved verbatim on phase-date change; if a future
+// pass adds a "Re-align inputs to new calendar" feature, it should be an
+// explicit opt-in (button + diff preview), not an implicit setter cascade.
 
 // ── Store shape ─────────────────────────────────────────────────────────────
 export interface Module1Store {
@@ -364,19 +268,39 @@ export function createModule1Store() {
 
     setPhases: (phases) => set({ phases }),
     addPhase: (phase) => set((s) => ({ phases: [...s.phases, phase] })),
-    // 2026-05-18: when a phase's startDate changes, slide per-period
-    // arrays so each asset's data stays anchored to its phase's calendar
-    // years. The project axis origin is min(phase startYears); moving the
-    // earliest phase shifts the origin, which would otherwise misalign
-    // every OTHER phase's data in absolute terms. Cascade:
-    //   1. Compute phaseDelta = newPhaseYear - oldPhaseYear.
-    //   2. Compute originDelta = newProjectOrigin - oldProjectOrigin.
-    //   3. For assets in the changed phase: shift by (phaseDelta - originDelta)
-    //      so they end up at the phase's new absolute years.
-    //   4. For assets in OTHER phases: shift by (-originDelta) to compensate
-    //      for the axis origin moving under them (their phase didn't move).
-    //   5. Sync project.startDate to the new origin so downstream readers
-    //      that consume it directly stay consistent.
+    // 2026-05-20: phase-date cascade disabled.
+    //
+    // History: an earlier version of this setter "intelligently" shifted
+    // every asset's per-period array when a phase's startDate changed,
+    // attempting to keep user inputs anchored to their original calendar
+    // years. That cascade caused two production bugs:
+    //   1. Lossy shifts: a backward shift of N periods clobbered the
+    //      first N entries of every axis-indexed array (preSalesVelocity,
+    //      occupancyPerPeriod, ratePerGuest etc.).
+    //   2. Incomplete coverage: opex line YoY rates, opex defaultIndexation
+    //      growth arrays, and several other per-period arrays added after
+    //      the cascade was written were never shifted, leaving them
+    //      half-anchored to the old origin while the rest of the model
+    //      anchored to the new origin.
+    //
+    // Both bugs manifested to the user as "my revenue / opex inputs are
+    // changing or zeroing out when I edit a phase date." The safe fix is
+    // to NOT touch any asset arrays on phase-date change. The user's
+    // inputs stay verbatim — what they entered is what they get back.
+    //
+    // Trade-off: axis-indexed arrays (preSalesVelocity, occupancyPerPeriod
+    // etc.) are still indexed by project axis position, so if the user
+    // moves the earliest phase and the axis origin shifts, those arrays
+    // now represent different calendar years. We accept this because:
+    //   (a) inputs are preserved (no data loss);
+    //   (b) the effect is visible (the user sees the same numbers under
+    //       different year columns and can manually re-align);
+    //   (c) a future Pass can offer an explicit "Re-align inputs to new
+    //       calendar" button if users want the old auto-shift behaviour.
+    //
+    // project.startDate stays in sync with the new earliest-phase year
+    // so any surface that reads it directly (not via computeProjectTimeline)
+    // still sees the same axis origin the engine sees.
     updatePhase: (id, patch) => set((s) => {
       const before = s.phases.find((p) => p.id === id);
       if (!before) return {};
@@ -388,7 +312,6 @@ export function createModule1Store() {
       if (oldYear == null || newYear == null || oldYear === newYear) {
         return { phases: nextPhases };
       }
-      const phaseDelta = newYear - oldYear;
 
       const yearOf = (p: Phase, fallback: number): number =>
         p.startDate ? new Date(p.startDate).getUTCFullYear() : fallback;
@@ -399,22 +322,11 @@ export function createModule1Store() {
       const newOrigin = Math.min(...nextPhases.map((p) => yearOf(p, projectOriginFallback)));
       const originDelta = newOrigin - oldOrigin;
 
-      const changedPhaseShift = phaseDelta - originDelta;
-      const otherPhaseShift = -originDelta;
-
-      const nextAssets = s.assets.map((a) => {
-        const shift = a.phaseId === id ? changedPhaseShift : otherPhaseShift;
-        return shift === 0 ? a : shiftAssetPerPeriodArrays(a, shift);
-      });
-
-      // Keep project.startDate in sync with the new origin so any
-      // surface that reads it directly (not via computeProjectTimeline)
-      // sees the same axis the engine sees.
       const nextProject = originDelta !== 0
         ? { ...s.project, startDate: `${newOrigin}-01-01` }
         : s.project;
 
-      return { phases: nextPhases, assets: nextAssets, project: nextProject };
+      return { phases: nextPhases, project: nextProject };
     }),
     removePhase: (id) => set((s) => {
       // Cascade: drop assets / subUnits / parcels / costLines / tranches /
