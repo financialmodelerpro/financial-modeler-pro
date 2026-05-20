@@ -53,26 +53,23 @@ Use one of these instead, depending on intent:
 - "and" or "or" or "and/or", when joining alternatives.
 - A period plus new sentence, when the second clause stands alone.
 
-The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept out under M1.11. Do not introduce new ones.
+Em-dash sweep across `src/` + `scripts/` is complete (zero remaining as of 2026-05-20). Do not introduce new ones.
 
 ### Scoping: Read ONLY the files for your task domain
 
-| Task | Read ONLY these paths + MDs |
-|------|------------------------------|
-| Training auth (login / register / confirm) | `app/training/signin/` `app/training/register/` `app/training/confirm-email/` `app/training/forgot/` `app/api/training/validate/` `app/api/training/register/` `app/api/training/confirm-email/` `app/api/training/device-verify/` `app/api/training/resend-confirmation/` `src/lib/training/training-session.ts` `src/lib/shared/` |
-| Training dashboard / course content | `app/training/dashboard/` `app/training/[courseId]/` `src/components/training/dashboard/` `app/api/training/` |
-| Training assessment / quiz | `app/training/assessment/` `app/training/[courseId]/assessment/` `app/api/training/[courseId]/assessment/` `app/api/training/submit-assessment/` |
-| Certificate / transcript | `app/training/certificate/` `app/training/certificates/` `app/training/transcript/` `src/components/training/dashboard/CertificateImageCard.tsx` `src/lib/training/certifier.ts` `src/lib/training/certificateLayout.ts` `app/api/training/certificate/` `app/api/training/certificate-image/` `app/api/t/[token]/pdf/` |
-| Modeling Hub auth | `app/modeling/signin/` `app/modeling/confirm-email/` `app/api/auth/` `src/lib/shared/auth.ts` `src/lib/shared/deviceTrust.ts` `src/lib/shared/emailConfirmation.ts` `src/lib/shared/captcha.ts` |
-| Modeling Hub wrapper (sidebar, platform list, admin sync) | + read **CLAUDE-MODELING-HUB.md**. Paths: `app/admin/platform-modules/` `app/api/platforms/` `app/api/admin/platform-module-pages/` `src/lib/modeling/platform-modules/` `src/components/refm/` `src/hubs/modeling/` `app/modeling-hub/` |
-| REFM platform (Module 1, Real Estate) | + read **CLAUDE-MODELING-HUB.md** + **CLAUDE-REFM.md**. Paths: `app/refm/` `app/modeling/` `src/components/refm/` `src/lib/modeling/` `src/hubs/modeling/platforms/refm/` `src/core/calculations/` (REFM bits) |
+| Task | Read these paths + MDs |
+|------|------------------------|
+| Training (auth / dashboard / assessment / certificate) | `app/training/` `app/api/training/` `app/api/t/` `src/lib/training/` `src/components/training/` |
+| Modeling Hub auth | `app/modeling/signin/` `app/modeling/confirm-email/` `app/api/auth/` `src/lib/shared/` |
+| Modeling Hub wrapper (sidebar, platform catalog, admin sync) | **+ CLAUDE-MODELING-HUB.md.** `app/admin/platform-modules/` `app/api/platforms/` `app/api/admin/platform-module-pages/` `src/lib/modeling/platform-modules/` `src/components/refm/` `src/hubs/modeling/` `app/modeling-hub/` |
+| REFM platform (Real Estate, Modules 1-4) | **+ CLAUDE-MODELING-HUB.md + CLAUDE-REFM.md.** `app/refm/` `app/modeling/` `src/components/refm/` `src/lib/modeling/` `src/hubs/modeling/platforms/refm/` `src/core/calculations/` |
 | Admin panel | `app/admin/` `src/components/admin/` `app/api/admin/` |
 | Email system | `src/shared/email/` |
-| Shared utilities | `src/lib/shared/` `src/core/` |
-| Navbar / layout | `src/components/layout/` |
 | Landing pages / CMS | `app/(portal)/` `app/about/` `app/articles/` `app/pricing/` `src/components/landing/` `app/api/cms/` |
+| Shared (auth / formatters / device trust) | `src/lib/shared/` `src/core/` |
+| Navbar / layout | `src/components/layout/` |
 
-**Never** read files outside the task domain. **When a task spans two domains**, read only those two folders, nothing else. Per-platform MD only loads when working on that platform; the global CLAUDE.md stays lean.
+Read only the rows your task touches. Per-platform MD loads only when working on that platform; the global CLAUDE.md stays lean.
 
 ### End-of-session rule
 **ALWAYS update CLAUDE.md files at the end of every session** to reflect:
@@ -109,175 +106,36 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 
 ## Tech Stack
 
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Framework | Next.js (App Router) | ^16.2.1 |
-| Language | TypeScript strict mode | ^5 |
-| Styling | Tailwind CSS 4 + CSS custom properties | ^4 |
-| State | Zustand | ^5.0.11 |
-| Charts | Recharts | ^3.8.0 |
-| Database | Supabase (`@supabase/supabase-js`) | ^2.99.1 |
-| Auth, Modeling Hub | NextAuth.js (JWT, 1hr session) | ^4.24.13 |
-| Auth, Training Hub | Custom (httpOnly cookie + localStorage) |, |
-| Forms | react-hook-form + zod + @hookform/resolvers | ^7 / ^4 / ^5 |
-| Icons | lucide-react | ^0.577.0 |
-| Utilities | clsx, tailwind-merge |, |
-| AI | @anthropic-ai/sdk | ^0.78.0 |
-| Email | Brevo (`@getbrevo/brevo`) | ^5.0.4 |
-| Export | exceljs + @react-pdf/renderer | ^4.4.0 / ^4.3.2 |
-| Captcha | @hcaptcha/react-hcaptcha | ^2.0.2 |
-| QR Codes | qrcode | ^1.5.4 |
-| PDF Generation | pdf-lib | ^1.17.1 |
-| Image Processing | sharp | ^0.33.5 |
-| Rich Text | @tiptap/react + starter-kit + image + text-align + link | 2.27.2 |
-| Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
-| SVG Text Rendering | satori | latest |
-| Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
-| Toast | react-hot-toast | ^2.6.0 |
-| Sanitization | isomorphic-dompurify | ^3.3.0 |
-| Image Crop | react-easy-crop | latest |
+Next.js 16 (App Router) + TypeScript strict + Tailwind 4 + Supabase. State Zustand, charts Recharts, NextAuth (Modeling Hub) + custom session (Training Hub), Brevo email, hCaptcha, Anthropic SDK, ExcelJS + react-pdf for exports. Full version pinning in `package.json` + extended detail in [ARCHITECTURE.md](ARCHITECTURE.md).
 
----
+## Authentication (summary)
 
-## External Services
+Two independent stacks. Full per-flow detail (sign-in / register / OTP / device trust / admin bypass) in [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md).
 
-| Service | Purpose | Config |
-|---------|---------|--------|
-| **Supabase** | Database | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
-| **Brevo** | Transactional email (migrated from Resend 2026-05-11, commit `166a8ec`) | `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY` |
-| **Google Apps Script** | Training registration + attendance source of truth | URL in `training_settings` table |
-| **hCaptcha** | Spam protection on signup forms (both hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
-| **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
-| **Vercel** | Hosting + edge middleware | Auto-deploy on `main` push |
-
----
-
-## Authentication Systems
-
-### Training Hub (learn.financialmodelerpro.com)
-- **Source of truth**: Google Apps Script (student roster + Registration IDs)
-- **Password storage**: `training_passwords` table (bcrypt hashed)
-- **Session**: httpOnly cookie `training_session` (1-hour TTL) + localStorage mirror
-- **Sign-in flow**: email+password -> `POST /api/training/validate` -> check pending/unconfirmed -> check device trust -> set session cookie
-- **Registration flow**: form -> hCaptcha -> insert `training_pending_registrations` -> confirm email -> Apps Script -> `training_registrations_meta` confirmed
-- **Device trust**: `fmp-trusted-device` cookie -> `trusted_devices` table (30-day TTL)
-- **New device OTP**: `training_email_otps` table, 6-digit code, 10-min expiry
-- **Inactivity logout**: 1-hour `useInactivityLogout` hook -> `POST /api/training/logout`
-- **email_confirmed null handling**: Pre-migration-027 students have `email_confirmed = null`. `validate/route.ts` treats `null` as confirmed (`!== false`). Do NOT use `=== true` or these users will be blocked
-- **Resend confirmation**: `resend-confirmation/route.ts` sends for `email_confirmed !== true` (covers both `false` and `null`)
-- **Key files**: `src/lib/training/training-session.ts`, `app/api/training/validate/route.ts`, `app/api/training/register/route.ts`
-
-### Modeling Hub (app.financialmodelerpro.com)
-- **Auth provider**: NextAuth.js Credentials (JWT strategy, 1-hour maxAge)
-- **Password storage**: `users.password_hash` (scrypt via Node `crypto.scrypt`)
-- **Session**: NextAuth JWT cookie
-- **Sign-in flow**: email+password -> NextAuth `authorize()` -> check `email_confirmed` -> check device trust -> JWT issued
-- **Registration flow**: form -> hCaptcha -> insert `users` (email_confirmed=false) -> confirm email -> `email_confirmed=true` -> signin
-- **Device trust**: `fmp-trusted-device` cookie -> `trusted_devices` table (30-day TTL)
-- **New device OTP**: `modeling_email_otps` table, 6-digit code, 10-min expiry
-- **Device trust identifier**: `trusted_devices.identifier` stores `email` (not user UUID). Do NOT change to `user.id`
-- **Admin bypass**: In `auth.ts` `authorize()`, admin role skips BOTH `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED` checks
-- **Admin login flow**: `/admin` (public) -> `/admin/login` (form, excluded from middleware) -> `/admin/dashboard` -> `/admin/cms`
-- **Admin layout guard**: `AdminGuard` uses child `AdminProtected` to isolate `useRequireAdmin` hook
-- **Non-admin redirect**: `useRequireAdmin` redirects non-admins to `/` (not `/refm`)
-- **Key files**: `src/lib/shared/auth.ts`, `app/api/auth/register/route.ts`, `app/api/auth/confirm-email/route.ts`
-
----
+- **Training Hub** (learn.): custom session `training_session` cookie + bcrypt password in `training_passwords`. Source of truth = Google Apps Script roster. `email_confirmed` is `!== false`-truthy (null counts as confirmed for pre-migration-027 students).
+- **Modeling Hub** (app.): NextAuth.js Credentials JWT (1hr) + scrypt password in `users.password_hash`. Admin role bypasses both EmailNotConfirmed + DEVICE_VERIFICATION_REQUIRED checks.
+- **Device trust**: shared `fmp-trusted-device` cookie + `trusted_devices` table (30-day, keyed by email not UUID).
 
 ## Subdomain Routing (`next.config.ts`)
 
-- `learn.financialmodelerpro.com/` -> rewrites to `/training` (URL unchanged)
-- `app.financialmodelerpro.com/` -> rewrites to `/modeling` (URL unchanged)
-- Main-site paths on learn. or app. -> redirect to `financialmodelerpro.com`
-- `/training/*` on main domain -> redirect to `learn.financialmodelerpro.com`
-- `/modeling/*` or `/refm/*` on main domain -> redirect to `app.financialmodelerpro.com`
+- `learn.fmp.com/` -> rewrites to `/training`. `app.fmp.com/` -> rewrites to `/modeling`. URL unchanged in both.
+- Clean auth URLs `/signin`, `/register`, `/forgot` resolve per-subdomain to the matching training / modeling page.
+- Cross-domain main-site paths redirect to `financialmodelerpro.com`.
 
-### Clean Auth URLs
-| Subdomain | Clean URL | Served from |
-|-----------|-----------|-------------|
-| learn. | `/signin` | `/training/signin` |
-| learn. | `/register` | `/training/register` |
-| learn. | `/forgot` | `/training/forgot` |
-| app. | `/signin` | `/modeling/signin` |
-| app. | `/register` | `/modeling/register` |
+Navbar uses plain `<a>` with absolute URLs via `NavbarServer.absolutizeHref()` + file-level `APP_URL` / `LEARN_URL` constants (never raw `process.env`).
 
-Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
+## Design System
 
-**Critical**: Navbar uses plain `<a>` tags with absolute URLs. NavbarServer `absolutizeHref()` converts DB hrefs.
+Single source of truth: `app/globals.css`. Tokens: `--color-primary*`, `--sp-1..5` (8px grid), `--font-h1..micro`. Component classes: `.card`, `.kpi-card`, `.btn-primary`, `.table-standard`, `.input-assumption` (yellow assumption cells). Per-platform input variants documented in the platform's MD (REFM FAST navy-pale input lives in `src/hubs/modeling/platforms/refm/components/modules/_shared/inputStyles.ts`). Never use Tailwind utility classes for layout tokens.
 
-**Navbar auth links**: Use file-level constants `APP_URL` and `LEARN_URL` with `??` fallbacks, never raw `process.env` without fallback.
+## Deployment + Health
 
----
+Vercel auto-deploys on push to `main`. Environment variables documented in `.env.example` + the Vercel dashboard. Key ones: `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `NEXTAUTH_SECRET` / `NEXTAUTH_URL` / `BREVO_API_KEY` / `HCAPTCHA_SECRET_KEY` / `ANTHROPIC_API_KEY` / `CRON_SECRET`.
 
-## Design System (DO NOT CHANGE)
-
-- **Single source of truth**: `app/globals.css`
-- Colors: `--color-primary`, `--color-primary-dark`, etc.
-- Spacing: 8px grid, `--sp-1` (8px) through `--sp-5` (48px)
-- Typography: `--font-h1` through `--font-micro`
-- Component classes: `.card`, `.kpi-card`, `.btn-primary`, `.table-standard`
-- Financial inputs (Training Hub + admin): `.input-assumption` class (yellow bg `--color-warning-bg`)
-- **Per-platform input styles** (e.g. REFM's FAST input blue) are documented in the relevant `CLAUDE-{platform}.md`. The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside platform overrides.
-- **Do NOT use Tailwind utility classes for layout tokens**
-
----
-
-## Deployment, Vercel
-
-### Environment Variables
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Claude AI API key |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Supabase anon key (server alias) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role (server only) |
-| `NEXTAUTH_SECRET` | NextAuth JWT signing secret |
-| `NEXTAUTH_URL` | `https://app.financialmodelerpro.com` |
-| `NEXT_PUBLIC_APP_URL` | `https://app.financialmodelerpro.com` |
-| `NEXT_PUBLIC_MAIN_URL` | `https://financialmodelerpro.com` |
-| `NEXT_PUBLIC_LEARN_URL` | `https://learn.financialmodelerpro.com` |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL (client-safe) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client-safe) |
-| `BREVO_API_KEY` | Brevo email service key (replaced `RESEND_API_KEY` on 2026-05-11) |
-| `EMAIL_FROM_TRAINING` | Training sender address |
-| `EMAIL_FROM_NOREPLY` | No-reply sender address |
-| `HCAPTCHA_SECRET_KEY` | hCaptcha server-side secret |
-| `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
-| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/certificates`) |
-
-### Generic Scripts
 ```bash
-npm run type-check   # tsc --noEmit, must be zero errors
+npm run type-check   # tsc --noEmit (zero errors required)
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
 ```
 
-**Per-platform verifier scripts + per-phase verification workflow** live in the relevant `CLAUDE-{platform}.md` (e.g. CLAUDE-REFM.md for REFM Module 1).
-
-### Health Check
-`GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', timestamp }`
-
----
-
-## Modeling Hub & Platforms
-
-For the platform catalog, P-Sync admin sync conventions, and per-platform MD index see **[CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md)**. Live platforms have their own MD:
-- **REFM (Real Estate)**: [CLAUDE-REFM.md](CLAUDE-REFM.md), currently on M2.0 Costs Cleanup Pass 9
-
----
-
-## Key Architectural Notes
-
-### certificateEngine.ts
-- PDF generation uses scaleX/scaleY (editor 1240x877 -> PDF points) and per-font ascent correction
-- Badge generation reads BadgeLayout from cms_content (section: badge_layout)
-- Exports: BadgeLayout, BadgeTextField, DEFAULT_BADGE_LAYOUT, loadBadgeLayout()
-
-### videoTimer.ts
-- `getTimerStatus()` accepts optional `timerBypassed` param (from training_settings DB key: `timer_bypass_enabled`)
-
-### sheets.ts
-- `normalizeProgressObject()` handles both bestScore/score field names and passed/status detection with score >= 70 fallback
-
-### `/api/branding`
-- GET is public (no auth), PATCH requires admin
+`GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', timestamp }`. Per-platform verifier scripts live in the platform's MD (REFM = `npx tsx scripts/verify-*.ts`, currently 465/465 sections green across 11 scripts).

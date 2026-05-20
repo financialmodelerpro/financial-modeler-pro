@@ -408,7 +408,7 @@ export function computeAllOpexResults(
 // single bucket).
 // ────────────────────────────────────────────────────────────────────
 
-export interface OpexApAssetRow {
+interface OpexApAssetRow {
   assetId: string;
   assetName: string;
   effectiveApDays: number;

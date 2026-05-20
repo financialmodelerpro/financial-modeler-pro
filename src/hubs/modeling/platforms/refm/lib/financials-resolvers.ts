@@ -207,7 +207,7 @@ export interface ProjectBS {
  *     and depreciates over the asset's useful life via a thin extra
  *     computeAssetFixedAssets call.
  */
-export interface AssetIDCRow {
+interface AssetIDCRow {
   assetId: string;
   assetName: string;
   landSqm: number;

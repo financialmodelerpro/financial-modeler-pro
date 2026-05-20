@@ -28,40 +28,39 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 
 ---
 
-## Not Started, REFM Modules
+## REFM Module Status (2026-05-20)
 
-> Module 1 ships production-ready on the v8 schema. Current REFM status (M2.0 Pass 9, 2026-05-12) lives in CLAUDE-REFM.md. Next phase is **M2.1 Revenue Analysis**, which consumes the v8 HydrateSnapshot. Pattern decisions for downstream modules are codified in the "Module 1 Conventions" block in CLAUDE-REFM.md.
+Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md) + memory `project_*` files.
 
 | Module | Name | Status |
 |--------|------|--------|
-| Module 2 | Revenue Analysis | Stub only (next up; reads v8 HydrateSnapshot, asset.status gates revenue per period, rate-unit drives revenue stream) |
-| Module 3 | Operating Expenses | Stub only |
-| Module 4 | Returns & Valuation | Stub only |
-| Module 5 | Financial Statements | Stub only (consumes `classifyAssetCapex` + `computeCashFlowImpact` from M2.0d unchanged) |
-| Module 6 | Reports & Visualizations | Stub only |
-| Modules 7-11 | (various) | Placeholder stubs |
+| Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58. Funding Methods 2 + 3 still on backlog. |
+| Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9k. 133/133 + 46/46 verifier sections green. |
+| Module 3 | Operating Expenses | **LOCKED** at Pass 5c. 38/38 + 24/24 verifier sections green. |
+| Module 4 | Financial Statements | WIP at Pass 2M. Schedules / P&L / CF / BS surfaces shipped. |
+| Module 5 | Returns & Valuation | Not started. |
+| Module 6 | Reports & Visualizations | Not started. |
 
-**Deferred from M2.0 / M2.0g (carried forward):**
-- Module 2 Revenue: cohort collection (Sell + Sell+Manage), hospitality USAH (Operate + count), retail NOI (Lease + area), mixed strategy. Asset.status drives revenue gating (`planned` no revenue, `construction` pre-sale only, `operational` full).
-- Module 3 Cashflow: real surplus-driven cash sweep math (today straight-lines outstanding balance).
-- Module 5 Statements: full IDC schedule breakdown (capitalised vs paid in cash post-construction).
-- Excel + PDF exports: stub modal in M2.0; rebuild against v8 in M2.1+.
-- Wizard polish: type bank auto-pre-fills GFA/BUA defaults from sub-unit metric; preset templates ("Saudi mixed-use", "Branded residences", "Hotel-led resort") seed Tab 2 with industry-typical asset mixes.
+## Remaining backlog
 
-**Deferred from M2.0L / M2.0M Financing (carried forward):**
-- DSCR breach alerts (Module 5 dependency).
-- Equity waterfall + IRR hurdle math (Module 4 dependency).
-- Cash-sweep with full operating cashflow (Module 5 dependency; capex-only proxy ships today).
-- Sharia Murabaha / Ijara product templates.
-- Multi-currency facilities.
-- Refinancing flows.
+**Module 1 financing:**
+- Funding Method 2 (line-item application) + Method 3 (net-of-revenue) full calc-engine wiring. Inputs persist today; calc completes when M4 CF deficit feed is finalised.
 - True per-asset financing schedule breakdown across multi-asset phases.
-- Methods 2-4 full calc-engine wiring (Method 2 line-item application, Method 3 net-of-revenue, Method 4 period-by-period deficit math). Inputs persist today; calc completes when upstream Revenue + CF engines ship via the FinancingDataHooks contract.
-- Real `getClosingCashBalance` from M3 Cash Flow engine (today walks a local sim).
+- DSCR breach alerts (M5 dependency).
+- Sharia Murabaha / Ijara product templates, multi-currency, refinancing flows.
 
-**Deferred from M2.0M Pass 7 (carried forward):**
-- Dedicated Project Common Costs section above asset pills (allocated lines still attach to the first visible asset; promotion deferred pending user feedback).
-- Playwright e2e for the per-asset Costs Inputs surface (verifier + manual smoke cover today).
+**Module 4 financial statements:**
+- Per-asset capex non-uniform spread (today uniform within each asset's construction window; project totals stay exact via financing engine).
+- Manual reconciliation surface against the reference v1.16 BS Build before further automation.
+
+**Module 5 returns:**
+- Equity waterfall + IRR hurdle math.
+- Cash-sweep with full operating cashflow (capex-only proxy ships today as Method 4 placeholder).
+
+**Cross-module:**
+- Excel + PDF exports rebuilt against the locked v8 schema.
+- Project type-bank presets ("Saudi mixed-use", "Branded residences", "Hotel-led resort") seeded into Tab 2.
+- Playwright e2e for the per-asset Costs Inputs surface.
 
 ---
 
