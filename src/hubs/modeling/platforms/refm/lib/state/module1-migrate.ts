@@ -203,7 +203,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -221,7 +221,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))))));
+  )))))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -244,7 +244,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -262,7 +262,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))))));
+  )))))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1996,4 +1996,353 @@ export function migrateM20pass56SplitPreCapex(snap: HydrateSnapshot): HydrateSna
     return { ...a, historicalPreCapexLand: 0, historicalPreCapexBuilding: legacy };
   });
   return changed ? { ...snap, assets: next } : snap;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// M4 Pass 2h (2026-05-20): convert legacy project-axis-indexed
+// per-period arrays to phase-local (asset-scoped) or year-keyed (HQ +
+// financing). Idempotent: if the new ByPhase / ByYear field is already
+// present (non-undefined), skip. If only the legacy array is present,
+// derive the new field using project.startDate at hydration time as the
+// anchor. Legacy fields are kept on the schema for one release; engine
+// consumers prefer the new fields.
+//
+// Why this exists: the prior storage shape (project-axis-indexed
+// number[]) silently shifted user data whenever the earliest phase's
+// startDate moved (the project axis origin moved with it). Phase-local
+// arrays mirror the CostLine.startPeriod convention which has always
+// been safe.
+// ────────────────────────────────────────────────────────────────────
+
+function _projectStartYear(snap: HydrateSnapshot): number {
+  const project = snap.project as { startDate?: string } | undefined;
+  if (!project?.startDate) return new Date().getUTCFullYear();
+  const d = new Date(project.startDate);
+  return Number.isNaN(d.getTime()) ? new Date().getUTCFullYear() : d.getUTCFullYear();
+}
+
+function _phaseOffsetForAsset(snap: HydrateSnapshot, assetPhaseId: string | undefined, projectStartYear: number): number {
+  if (!assetPhaseId) return 0;
+  const phases = (snap.phases as Array<{ id: string; startDate?: string }> | undefined) ?? [];
+  const phase = phases.find((p) => p.id === assetPhaseId);
+  if (!phase?.startDate) return 0;
+  const d = new Date(phase.startDate);
+  if (Number.isNaN(d.getTime())) return 0;
+  return d.getUTCFullYear() - projectStartYear;
+}
+
+/** Slice an axis-indexed array into a phase-local array starting at
+ *  axis index `phaseOffset`. Leading entries before the phase are
+ *  dropped (legacy data lived in calendar years before the phase
+ *  existed; that was always meaningless). */
+function _axisToPhaseLocal(arr: number[] | undefined, phaseOffset: number): number[] | undefined {
+  if (!Array.isArray(arr) || arr.length === 0) return undefined;
+  if (phaseOffset <= 0) return arr.slice();
+  if (phaseOffset >= arr.length) return [];
+  return arr.slice(phaseOffset);
+}
+
+/** Convert axis-indexed array to a year-keyed Record. Skips zero
+ *  entries to keep the map sparse. */
+function _axisToYearMap(arr: number[] | undefined, projectStartYear: number): Record<string, number> | undefined {
+  if (!Array.isArray(arr) || arr.length === 0) return undefined;
+  const out: Record<string, number> = {};
+  let nonZero = false;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i] ?? 0;
+    if (v === 0) continue;
+    out[String(projectStartYear + i)] = v;
+    nonZero = true;
+  }
+  return nonZero ? out : {};
+}
+
+function _migrateIndexationToPhase(
+  obj: { method?: string; growthPerPeriod?: number[]; growthPerPeriodByPhase?: number[] } | undefined,
+  phaseOffset: number,
+): { changed: boolean; next: typeof obj } {
+  if (!obj) return { changed: false, next: obj };
+  if (obj.growthPerPeriodByPhase !== undefined) return { changed: false, next: obj };
+  const converted = _axisToPhaseLocal(obj.growthPerPeriod, phaseOffset);
+  if (converted === undefined) return { changed: false, next: obj };
+  return { changed: true, next: { ...obj, growthPerPeriodByPhase: converted } };
+}
+
+function _migrateIndexationToYear(
+  obj: { method?: string; growthPerPeriod?: number[]; growthPerPeriodByYear?: Record<string, number> } | undefined,
+  projectStartYear: number,
+): { changed: boolean; next: typeof obj } {
+  if (!obj) return { changed: false, next: obj };
+  if (obj.growthPerPeriodByYear !== undefined) return { changed: false, next: obj };
+  const converted = _axisToYearMap(obj.growthPerPeriod, projectStartYear);
+  if (converted === undefined) return { changed: false, next: obj };
+  return { changed: true, next: { ...obj, growthPerPeriodByYear: converted } };
+}
+
+export function migrateM4Pass2hPeriodArrays(snap: HydrateSnapshot): HydrateSnapshot {
+  const projectStartYear = _projectStartYear(snap);
+  let touched = false;
+
+  // ── Assets: phase-local conversion ───────────────────────────────
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  const nextAssets = assets.map((a) => {
+    const phaseOffset = _phaseOffsetForAsset(snap, a.phaseId, projectStartYear);
+    let assetChanged = false;
+    const next: Asset = { ...a };
+
+    // Revenue
+    if (a.revenue) {
+      const rev = { ...a.revenue };
+      let revChanged = false;
+
+      // Sell
+      if (rev.sell) {
+        const sell = { ...rev.sell };
+        let sellChanged = false;
+
+        // Sub-units (preSalesVelocity, postSalesVelocity)
+        const newSubs = sell.subUnits.map((su) => {
+          let suChanged = false;
+          const out = { ...su };
+          if (su.preSalesVelocityByPhase === undefined) {
+            const v = _axisToPhaseLocal(su.preSalesVelocity, phaseOffset);
+            if (v !== undefined) { out.preSalesVelocityByPhase = v; suChanged = true; }
+          }
+          if (su.postSalesVelocityByPhase === undefined) {
+            const v = _axisToPhaseLocal(su.postSalesVelocity, phaseOffset);
+            if (v !== undefined) { out.postSalesVelocityByPhase = v; suChanged = true; }
+          }
+          return suChanged ? out : su;
+        });
+        if (newSubs.some((su, i) => su !== sell.subUnits[i])) {
+          sell.subUnits = newSubs;
+          sellChanged = true;
+        }
+
+        // cashPaymentProfile
+        const cpp = sell.cashPaymentProfile;
+        if (cpp && cpp.percentagesByPhase === undefined) {
+          const v = _axisToPhaseLocal(cpp.percentages, phaseOffset);
+          if (v !== undefined) {
+            const positionsByPhase = cpp.positions !== undefined
+              ? cpp.positions.map((p) => p - phaseOffset).filter((p) => p >= 0)
+              : undefined;
+            sell.cashPaymentProfile = { ...cpp, percentagesByPhase: v, positionsByPhase };
+            sellChanged = true;
+          }
+        }
+
+        // recognitionProfile
+        const rp = sell.recognitionProfile;
+        if (rp && rp.percentages !== undefined && rp.percentagesByPhase === undefined) {
+          const v = _axisToPhaseLocal(rp.percentages, phaseOffset);
+          if (v !== undefined) {
+            const positionsByPhase = rp.positions !== undefined
+              ? rp.positions.map((p) => p - phaseOffset).filter((p) => p >= 0)
+              : undefined;
+            sell.recognitionProfile = { ...rp, percentagesByPhase: v, positionsByPhase };
+            sellChanged = true;
+          }
+        }
+
+        // indexation
+        const ix = _migrateIndexationToPhase(sell.indexation, phaseOffset);
+        if (ix.changed) { sell.indexation = ix.next as typeof sell.indexation; sellChanged = true; }
+
+        if (sellChanged) { rev.sell = sell; revChanged = true; }
+      }
+
+      // Operate (Hospitality)
+      if (rev.operate) {
+        const op = { ...rev.operate };
+        let opChanged = false;
+
+        const adr = _migrateIndexationToPhase(op.adrIndexation, phaseOffset);
+        if (adr.changed) { op.adrIndexation = adr.next as typeof op.adrIndexation; opChanged = true; }
+
+        if (op.occupancyPerPeriodByPhase === undefined) {
+          const v = _axisToPhaseLocal(op.occupancyPerPeriod, phaseOffset);
+          if (v !== undefined) { op.occupancyPerPeriodByPhase = v; opChanged = true; }
+        }
+        if (op.keysParticipationProfileByPhase === undefined) {
+          const v = _axisToPhaseLocal(op.keysParticipationProfile, phaseOffset);
+          if (v !== undefined) { op.keysParticipationProfileByPhase = v; opChanged = true; }
+        }
+
+        // F&B
+        if (op.fb) {
+          const fb = { ...op.fb };
+          let fbChanged = false;
+          if (fb.percentOfRoomsByPhase === undefined && Array.isArray(fb.percentOfRooms)) {
+            const v = _axisToPhaseLocal(fb.percentOfRooms, phaseOffset);
+            if (v !== undefined) { fb.percentOfRoomsByPhase = v; fbChanged = true; }
+          }
+          if (fb.ratePerGuestByPhase === undefined && Array.isArray(fb.ratePerGuest)) {
+            const v = _axisToPhaseLocal(fb.ratePerGuest, phaseOffset);
+            if (v !== undefined) { fb.ratePerGuestByPhase = v; fbChanged = true; }
+          }
+          if (fb.fixedAmountPerPeriodByPhase === undefined && Array.isArray(fb.fixedAmountPerPeriod)) {
+            const v = _axisToPhaseLocal(fb.fixedAmountPerPeriod, phaseOffset);
+            if (v !== undefined) { fb.fixedAmountPerPeriodByPhase = v; fbChanged = true; }
+          }
+          const fbIx = _migrateIndexationToPhase(fb.indexation, phaseOffset);
+          if (fbIx.changed) { fb.indexation = fbIx.next as typeof fb.indexation; fbChanged = true; }
+          if (fbChanged) { op.fb = fb; opChanged = true; }
+        }
+        // Other revenue
+        if (op.otherRevenue) {
+          const or = { ...op.otherRevenue };
+          let orChanged = false;
+          if (or.percentOfRoomsByPhase === undefined && Array.isArray(or.percentOfRooms)) {
+            const v = _axisToPhaseLocal(or.percentOfRooms, phaseOffset);
+            if (v !== undefined) { or.percentOfRoomsByPhase = v; orChanged = true; }
+          }
+          if (or.ratePerGuestByPhase === undefined && Array.isArray(or.ratePerGuest)) {
+            const v = _axisToPhaseLocal(or.ratePerGuest, phaseOffset);
+            if (v !== undefined) { or.ratePerGuestByPhase = v; orChanged = true; }
+          }
+          if (or.fixedAmountPerPeriodByPhase === undefined && Array.isArray(or.fixedAmountPerPeriod)) {
+            const v = _axisToPhaseLocal(or.fixedAmountPerPeriod, phaseOffset);
+            if (v !== undefined) { or.fixedAmountPerPeriodByPhase = v; orChanged = true; }
+          }
+          const orIx = _migrateIndexationToPhase(or.indexation, phaseOffset);
+          if (orIx.changed) { or.indexation = orIx.next as typeof or.indexation; orChanged = true; }
+          if (orChanged) { op.otherRevenue = or; opChanged = true; }
+        }
+
+        if (opChanged) { rev.operate = op; revChanged = true; }
+      }
+
+      // Lease
+      if (rev.lease) {
+        const ls = { ...rev.lease };
+        let lsChanged = false;
+        const rix = _migrateIndexationToPhase(ls.rentIndexation, phaseOffset);
+        if (rix.changed) { ls.rentIndexation = rix.next as typeof ls.rentIndexation; lsChanged = true; }
+        if (ls.occupancyPerPeriodByPhase === undefined) {
+          const v = _axisToPhaseLocal(ls.occupancyPerPeriod, phaseOffset);
+          if (v !== undefined) { ls.occupancyPerPeriodByPhase = v; lsChanged = true; }
+        }
+        if (lsChanged) { rev.lease = ls; revChanged = true; }
+      }
+
+      if (revChanged) { next.revenue = rev; assetChanged = true; }
+    }
+
+    // Opex
+    if (a.opex) {
+      const ox = { ...a.opex };
+      let oxChanged = false;
+
+      const di = _migrateIndexationToPhase(ox.defaultIndexation, phaseOffset);
+      if (di.changed) { ox.defaultIndexation = di.next as typeof ox.defaultIndexation; oxChanged = true; }
+
+      const newLines = ox.lines.map((ln) => {
+        let lnChanged = false;
+        const out = { ...ln };
+        const lix = _migrateIndexationToPhase(ln.indexation, phaseOffset);
+        if (lix.changed) { out.indexation = lix.next as typeof ln.indexation; lnChanged = true; }
+        if (ln.yoyRatesByPhase === undefined) {
+          const v = _axisToPhaseLocal(ln.yoyRates, phaseOffset);
+          if (v !== undefined) { out.yoyRatesByPhase = v; lnChanged = true; }
+        }
+        return lnChanged ? out : ln;
+      });
+      if (newLines.some((ln, i) => ln !== ox.lines[i])) {
+        ox.lines = newLines;
+        oxChanged = true;
+      }
+
+      if (oxChanged) { next.opex = ox; assetChanged = true; }
+    }
+
+    if (assetChanged) { touched = true; return next; }
+    return a;
+  });
+  if (nextAssets.some((a, i) => a !== assets[i])) {
+    snap = { ...snap, assets: nextAssets } as HydrateSnapshot;
+  }
+
+  // ── HQ Opex: year-keyed conversion ──────────────────────────────
+  const project = snap.project as { hqOpex?: { defaultIndexation?: unknown; lines?: Array<unknown> } } | undefined;
+  if (project?.hqOpex) {
+    const hq = { ...project.hqOpex };
+    let hqChanged = false;
+
+    const dix = _migrateIndexationToYear(
+      hq.defaultIndexation as Parameters<typeof _migrateIndexationToYear>[0],
+      projectStartYear,
+    );
+    if (dix.changed) { hq.defaultIndexation = dix.next; hqChanged = true; }
+
+    const hqLines = (hq.lines ?? []) as Array<{
+      indexation?: Parameters<typeof _migrateIndexationToYear>[0];
+      yoyRates?: number[];
+      yoyRatesByYear?: Record<string, number>;
+    }>;
+    const newHqLines = hqLines.map((ln) => {
+      let lnChanged = false;
+      const out = { ...ln };
+      const lix = _migrateIndexationToYear(ln.indexation, projectStartYear);
+      if (lix.changed) { out.indexation = lix.next; lnChanged = true; }
+      if (ln.yoyRatesByYear === undefined) {
+        const v = _axisToYearMap(ln.yoyRates, projectStartYear);
+        if (v !== undefined) { out.yoyRatesByYear = v; lnChanged = true; }
+      }
+      return lnChanged ? out : ln;
+    });
+    if (newHqLines.some((ln, i) => ln !== hqLines[i])) {
+      hq.lines = newHqLines;
+      hqChanged = true;
+    }
+
+    if (hqChanged) {
+      snap = {
+        ...snap,
+        project: { ...(snap.project as unknown as Record<string, unknown>), hqOpex: hq },
+      } as HydrateSnapshot;
+      touched = true;
+    }
+  }
+
+  // ── Financing tranches: year-keyed conversion ───────────────────
+  const tranches = (snap.financingTranches as Array<{
+    drawdownDistribution?: number[];
+    drawdownDistributionByYear?: Record<string, number>;
+    drawdownCustomSchedule?: number[];
+    drawdownCustomScheduleByYear?: Record<string, number>;
+    repaymentManualDistribution?: number[];
+    repaymentManualDistributionByYear?: Record<string, number>;
+    repaymentCustomSchedule?: number[];
+    repaymentCustomScheduleByYear?: Record<string, number>;
+  }> | undefined) ?? [];
+  if (tranches.length > 0) {
+    const newTranches = tranches.map((t) => {
+      let changed = false;
+      const out = { ...t };
+      if (t.drawdownDistributionByYear === undefined) {
+        const v = _axisToYearMap(t.drawdownDistribution, projectStartYear);
+        if (v !== undefined) { out.drawdownDistributionByYear = v; changed = true; }
+      }
+      if (t.drawdownCustomScheduleByYear === undefined) {
+        const v = _axisToYearMap(t.drawdownCustomSchedule, projectStartYear);
+        if (v !== undefined) { out.drawdownCustomScheduleByYear = v; changed = true; }
+      }
+      if (t.repaymentManualDistributionByYear === undefined) {
+        const v = _axisToYearMap(t.repaymentManualDistribution, projectStartYear);
+        if (v !== undefined) { out.repaymentManualDistributionByYear = v; changed = true; }
+      }
+      if (t.repaymentCustomScheduleByYear === undefined) {
+        const v = _axisToYearMap(t.repaymentCustomSchedule, projectStartYear);
+        if (v !== undefined) { out.repaymentCustomScheduleByYear = v; changed = true; }
+      }
+      return changed ? out : t;
+    });
+    if (newTranches.some((t, i) => t !== tranches[i])) {
+      snap = { ...snap, financingTranches: newTranches } as HydrateSnapshot;
+      touched = true;
+    }
+  }
+
+  return touched ? snap : snap;
 }
