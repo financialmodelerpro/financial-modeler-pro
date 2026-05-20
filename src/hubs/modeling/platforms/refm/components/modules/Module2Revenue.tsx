@@ -686,23 +686,53 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // the legacy field keeps in-place renderers backward-compat during
   // the transition. Converts axis periodIdx -> phase-local idx for the
   // ByPhase write.
+  //
+  // M2 Pass 9k (2026-05-20): every write also PRUNES the byPhase array
+  // to keep only the phase-local indices in the relevant window
+  // (construction for pre, operations for post). Stale entries that
+  // fell inside the window before a phase-date change but no longer
+  // do are zeroed out, so the engine never sees "hidden %" outside
+  // the displayed cells. Self-healing: any subsequent edit cleans up
+  // legacy stale data automatically.
+  const buildVelocityValidWindow = (kind: 'pre' | 'post'): Set<number> => {
+    const out = new Set<number>();
+    const cpLen = Math.max(0, phase.constructionPeriods ?? 0);
+    const opLen = Math.max(0, phase.operationsPeriods ?? 0);
+    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+    if (kind === 'pre') {
+      for (let i = 0; i < cpLen; i++) out.add(i);
+    } else {
+      const opStart = Math.max(0, cpLen - overlap);
+      for (let i = 0; i < opLen; i++) out.add(opStart + i);
+    }
+    return out;
+  };
+
   const dualWriteVelocity = (
     legacyArr: number[],
     byPhaseArr: number[] | undefined,
     periodIdx: number,
     value: number,
+    validPhaseIndices: Set<number>,
   ): { legacy: number[]; byPhase: number[] } => {
     const legacy = [...legacyArr];
     legacy[periodIdx] = value;
     const localIdx = periodIdx - phaseOffset;
     const phaseLen = Math.max(0, totalPeriods - phaseOffset);
     const byPhase = paddedArray(byPhaseArr, phaseLen);
-    if (localIdx >= 0 && localIdx < byPhase.length) byPhase[localIdx] = value;
+    // Prune: zero out every phase-local index outside the valid window.
+    for (let i = 0; i < byPhase.length; i++) {
+      if (!validPhaseIndices.has(i)) byPhase[i] = 0;
+    }
+    if (localIdx >= 0 && localIdx < byPhase.length && validPhaseIndices.has(localIdx)) {
+      byPhase[localIdx] = value;
+    }
     return { legacy, byPhase };
   };
 
   const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
     const value = Math.max(0, Math.min(1, pct / 100));
+    const valid = buildVelocityValidWindow(kind);
     const baseSubs = subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
@@ -716,10 +746,10 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const nextSubs = baseSubs.map((s) => {
       if (s.subUnitId !== subUnitId) return s;
       if (kind === 'pre') {
-        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value);
+        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value, valid);
         return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
       }
-      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value);
+      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value, valid);
       return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
     });
     updateSellInline({ subUnits: nextSubs });
@@ -731,6 +761,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // user is in "All sub-units" view.
   const setVelocityForAllSubUnits = (periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
     const value = Math.max(0, Math.min(1, pct / 100));
+    const valid = buildVelocityValidWindow(kind);
     const baseSubs = subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
@@ -743,10 +774,10 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     });
     const nextSubs = baseSubs.map((s) => {
       if (kind === 'pre') {
-        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value);
+        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value, valid);
         return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
       }
-      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value);
+      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value, valid);
       return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
     });
     updateSellInline({ subUnits: nextSubs });
@@ -757,16 +788,25 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const next = paddedArray(cashProfile.percentages, totalPeriods);
     next[periodIdx] = value;
     // M4 Pass 2h: dual-write to phase-local sibling.
+    // M2 Pass 9k (2026-05-20): prune to phase length on every write.
+    // Anything past (cp + op - overlap) is invalid for this asset's
+    // schedule and gets zeroed so stale data can't haunt the engine.
     const localIdx = periodIdx - phaseOffset;
-    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const cpLen = Math.max(0, phase.constructionPeriods ?? 0);
+    const opLen = Math.max(0, phase.operationsPeriods ?? 0);
+    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+    const phaseLen = Math.max(0, cpLen + opLen - overlap);
     const nextByPhase = paddedArray(cashProfile.percentagesByPhase, phaseLen);
-    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    // Truncate / extend to exactly phaseLen.
+    const truncated = nextByPhase.slice(0, phaseLen);
+    while (truncated.length < phaseLen) truncated.push(0);
+    if (localIdx >= 0 && localIdx < truncated.length) truncated[localIdx] = value;
     updateSellInline({
       cashPaymentProfile: {
         percentages: next,
         positions: cashProfile.positions,
         profileMode: cashProfile.profileMode ?? 'absolute_with_catchup',
-        percentagesByPhase: nextByPhase,
+        percentagesByPhase: truncated,
         positionsByPhase: cashProfile.positionsByPhase,
       },
     });
@@ -797,16 +837,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const value = Math.max(0, Math.min(1, pct / 100));
     const next = paddedArray(recProfile.percentages, totalPeriods);
     next[periodIdx] = value;
-    // M4 Pass 2h: dual-write to phase-local sibling.
+    // M4 Pass 2h + 9k: dual-write to phase-local sibling, pruned to
+    // phase length on every write.
     const localIdx = periodIdx - phaseOffset;
-    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const cpLen = Math.max(0, phase.constructionPeriods ?? 0);
+    const opLen = Math.max(0, phase.operationsPeriods ?? 0);
+    const overlap = Math.max(0, phase.overlapPeriods ?? 0);
+    const phaseLen = Math.max(0, cpLen + opLen - overlap);
     const nextByPhase = paddedArray(recProfile.percentagesByPhase, phaseLen);
-    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    const truncated = nextByPhase.slice(0, phaseLen);
+    while (truncated.length < phaseLen) truncated.push(0);
+    if (localIdx >= 0 && localIdx < truncated.length) truncated[localIdx] = value;
     updateSellInline({
       recognitionProfile: {
         ...recProfile,
         percentages: next,
-        percentagesByPhase: nextByPhase,
+        percentagesByPhase: truncated,
       },
     });
   };
