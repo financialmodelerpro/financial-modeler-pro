@@ -909,17 +909,84 @@ export default function Module3Opex(): React.JSX.Element {
     return stored && stored.method ? stored : defaultOpexIndexation();
   }, [project.hqOpex]);
 
+  // M2 Fix (2026-05-20): regenerate ByPhase / ByYear siblings on every
+  // opex setter call so the engine (which reads ByPhase / ByYear with
+  // priority) stays in sync with legacy axis-indexed writes from the
+  // line table UI. Without this, every YoY rate or yoy_per_period
+  // growth edit was silently shadowed by the migration-seeded ByPhase
+  // / ByYear snapshot.
+  // Core types lack the ByPhase / ByYear siblings — storage schema (in
+  // module1-types.ts) adds them as optional fields. Use `as` casts at
+  // assignment so we can synthesise them without polluting core types.
+  const syncIndexationByPhase = (ix: IndexationConfig | undefined, phaseOffset: number): IndexationConfig | undefined => {
+    if (!ix || ix.method !== 'yoy_per_period' || !Array.isArray(ix.growthPerPeriod)) return ix;
+    const phaseLen = Math.max(0, axisLength - phaseOffset);
+    const byPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) byPhase[i] = ix.growthPerPeriod[i + phaseOffset] ?? 0;
+    return { ...ix, growthPerPeriodByPhase: byPhase } as IndexationConfig;
+  };
+  const syncIndexationByYear = (ix: IndexationConfig | undefined): IndexationConfig | undefined => {
+    if (!ix || ix.method !== 'yoy_per_period' || !Array.isArray(ix.growthPerPeriod)) return ix;
+    const byYear: Record<string, number> = {};
+    for (let i = 0; i < ix.growthPerPeriod.length; i++) {
+      const v = ix.growthPerPeriod[i] ?? 0;
+      if (v !== 0) byYear[String(projectStartYear + i)] = v;
+    }
+    return { ...ix, growthPerPeriodByYear: byYear } as IndexationConfig;
+  };
+  const syncLinesByPhase = (lines: OpexLine[], phaseOffset: number): OpexLine[] => {
+    const phaseLen = Math.max(0, axisLength - phaseOffset);
+    return lines.map((ln) => {
+      let next: OpexLine = { ...ln };
+      if (Array.isArray(ln.yoyRates)) {
+        const byPhase = new Array<number>(phaseLen).fill(0);
+        for (let i = 0; i < phaseLen; i++) byPhase[i] = ln.yoyRates[i + phaseOffset] ?? 0;
+        next = { ...next, yoyRatesByPhase: byPhase } as OpexLine;
+      }
+      if (ln.indexation) {
+        next = { ...next, indexation: syncIndexationByPhase(ln.indexation, phaseOffset) ?? ln.indexation };
+      }
+      return next;
+    });
+  };
+  const syncLinesByYear = (lines: OpexLine[]): OpexLine[] => {
+    return lines.map((ln) => {
+      let next: OpexLine = { ...ln };
+      if (Array.isArray(ln.yoyRates)) {
+        const byYear: Record<string, number> = {};
+        for (let i = 0; i < ln.yoyRates.length; i++) {
+          const v = ln.yoyRates[i] ?? 0;
+          if (v !== 0) byYear[String(projectStartYear + i)] = v;
+        }
+        next = { ...next, yoyRatesByYear: byYear } as OpexLine;
+      }
+      if (ln.indexation) {
+        next = { ...next, indexation: syncIndexationByYear(ln.indexation) ?? ln.indexation };
+      }
+      return next;
+    });
+  };
+  const phaseOffsetForAsset = (assetId: string): number => {
+    const a = assets.find((x) => x.id === assetId);
+    if (!a) return 0;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    if (!phase || !phase.startDate) return 0;
+    return Math.max(0, new Date(phase.startDate).getUTCFullYear() - projectStartYear);
+  };
+
   const setHqLines = (next: OpexLine[]): void => {
-    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: [] }), defaultIndexation: hqDefaultIndexation, lines: next } });
+    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: [] }), defaultIndexation: hqDefaultIndexation, lines: syncLinesByYear(next) } });
   };
   const setHqDefaultIndexation = (next: IndexationConfig): void => {
-    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: hqLines }), defaultIndexation: next, lines: hqLines } });
+    const synced = syncIndexationByYear(next) ?? next;
+    setProject({ hqOpex: { ...(project.hqOpex ?? { lines: hqLines }), defaultIndexation: synced, lines: hqLines } });
   };
 
   const setAssetLines = (assetId: string, next: OpexLine[]): void => {
     const a = assets.find((x) => x.id === assetId);
     const curDefault: IndexationConfig | undefined = a?.opex?.defaultIndexation as IndexationConfig | undefined;
-    updateAsset(assetId, { opex: { defaultIndexation: curDefault ?? defaultOpexIndexation(), lines: next } });
+    const phaseOffset = phaseOffsetForAsset(assetId);
+    updateAsset(assetId, { opex: { defaultIndexation: curDefault ?? defaultOpexIndexation(), lines: syncLinesByPhase(next, phaseOffset) } });
   };
   const setAssetDefaultIndexation = (assetId: string, next: IndexationConfig): void => {
     const a = assets.find((x) => x.id === assetId);
@@ -930,7 +997,9 @@ export default function Module3Opex(): React.JSX.Element {
           : a?.strategy === 'Lease'
             ? defaultLeaseOpexLines()
             : []);
-    updateAsset(assetId, { opex: { defaultIndexation: next, lines } });
+    const phaseOffset = phaseOffsetForAsset(assetId);
+    const synced = syncIndexationByPhase(next, phaseOffset) ?? next;
+    updateAsset(assetId, { opex: { defaultIndexation: synced, lines: syncLinesByPhase(lines, phaseOffset) } });
   };
   const assetDefaultIndexation = (a: Asset): IndexationConfig => {
     const stored = a.opex?.defaultIndexation as IndexationConfig | undefined;

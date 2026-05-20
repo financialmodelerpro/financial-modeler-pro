@@ -1070,10 +1070,24 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // Pass 8e (2026-05-18): per-year ADR growth setter. Allows negative
   // values (e.g., -2% in a recession year). Engine clamps growth ≥ -99%
   // so factor cannot collapse to 0.
+  // M2 Fix (2026-05-20): dual-write ADR growth to ByPhase sibling so
+  // the engine (which prefers ByPhase) picks up the user's edit
+  // regardless of whether the migration seeded a stale ByPhase.
   const setOperateADRGrowthPerYear = (periodIdx: number, pctValue: number): void => {
     const current = paddedArray(opADRIdx.growthPerPeriod, totalPeriods);
     current[periodIdx] = pctValue / 100;
-    updateOperateInline({ adrIndexation: { ...opADRIdx, method: 'yoy_per_period', growthPerPeriod: current, startYear: opADRIdx.startYear ?? operationsStartIdx } });
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const byPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) byPhase[i] = current[i + phaseOffset] ?? 0;
+    updateOperateInline({
+      adrIndexation: {
+        ...opADRIdx,
+        method: 'yoy_per_period',
+        growthPerPeriod: current,
+        growthPerPeriodByPhase: byPhase,
+        startYear: opADRIdx.startYear ?? operationsStartIdx,
+      },
+    });
   };
   const setFbMode = (mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount'): void => {
     updateOperateInline({ fb: { ...opFb, mode } });
@@ -1149,10 +1163,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
     updateLeaseInline({ rentIndexation: { method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, rate: leaseRentIdx.rate ?? 0, startYear: idx } });
   };
+  // M2 Fix (2026-05-20): dual-write lease rent growth to ByPhase.
   const setLeaseRentGrowthPerYear = (periodIdx: number, pctValue: number): void => {
     const current = paddedArray(leaseRentIdx.growthPerPeriod, totalPeriods);
     current[periodIdx] = pctValue / 100;
-    updateLeaseInline({ rentIndexation: { ...leaseRentIdx, method: 'yoy_per_period', growthPerPeriod: current, startYear: leaseRentIdx.startYear ?? operationsStartIdx } });
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const byPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) byPhase[i] = current[i + phaseOffset] ?? 0;
+    updateLeaseInline({
+      rentIndexation: {
+        ...leaseRentIdx,
+        method: 'yoy_per_period',
+        growthPerPeriod: current,
+        growthPerPeriodByPhase: byPhase,
+        startYear: leaseRentIdx.startYear ?? operationsStartIdx,
+      },
+    });
   };
 
   // Read scalar values (or pull index 0 from arrays for legacy data)
