@@ -203,7 +203,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -221,7 +221,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))))));
+  ))))))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -244,7 +244,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -262,7 +262,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))))));
+  ))))))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -2344,5 +2344,240 @@ export function migrateM4Pass2hPeriodArrays(snap: HydrateSnapshot): HydrateSnaps
     }
   }
 
+  return touched ? snap : snap;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// M2 Pass 9k (2026-05-20): prune stale entries from every phase-local
+// (byPhase) array on hydration. The user reported "hidden %" appearing
+// in sum hints after phase-date changes: stale data from the prior
+// axis lived in array slots outside the current display window. The
+// engine still consumed those stale values.
+//
+// This migration walks every asset and zeroes out byPhase indices
+// outside the relevant valid window per field:
+//   preSalesVelocityByPhase       -> indices [0, cp-1]
+//   postSalesVelocityByPhase      -> indices [cp-overlap, cp-overlap+op-1]
+//   cashPaymentProfile.percentagesByPhase / positionsByPhase
+//                                 -> indices [0, cp+op-overlap-1]
+//   recognitionProfile.percentagesByPhase / positionsByPhase  same
+//   sell/operate/lease indexation.growthPerPeriodByPhase     same
+//   operate.occupancyPerPeriodByPhase / keysParticipationProfileByPhase
+//                                 -> indices [cp-overlap, cp-overlap+op-1]
+//   operate.fb.* / operate.otherRevenue.* PerPeriodByPhase / indexation
+//                                 -> same as occupancy
+//   lease.occupancyPerPeriodByPhase  -> same as operate
+//   opex.defaultIndexation.growthPerPeriodByPhase   -> ops window
+//   opex.lines[].indexation.growthPerPeriodByPhase  -> ops window
+//   opex.lines[].yoyRatesByPhase                    -> ops window
+//
+// Idempotent: re-running on already-clean data is a no-op.
+// ────────────────────────────────────────────────────────────────────
+
+function _pruneToWindow(arr: number[] | undefined, validIndices: Set<number>): number[] | undefined {
+  if (!Array.isArray(arr) || arr.length === 0) return arr;
+  let changed = false;
+  const out = arr.map((v, i) => {
+    if (validIndices.has(i)) return v;
+    if (v !== 0) changed = true;
+    return 0;
+  });
+  return changed ? out : arr;
+}
+
+function _phaseWindows(phase: { constructionPeriods?: number; operationsPeriods?: number; overlapPeriods?: number } | undefined): {
+  preWindow: Set<number>; postWindow: Set<number>; phaseLen: number;
+} {
+  const cpLen = Math.max(0, phase?.constructionPeriods ?? 0);
+  const opLen = Math.max(0, phase?.operationsPeriods ?? 0);
+  const overlap = Math.max(0, phase?.overlapPeriods ?? 0);
+  const opStart = Math.max(0, cpLen - overlap);
+  const preWindow = new Set<number>();
+  for (let i = 0; i < cpLen; i++) preWindow.add(i);
+  const postWindow = new Set<number>();
+  for (let i = 0; i < opLen; i++) postWindow.add(opStart + i);
+  const phaseLen = Math.max(0, cpLen + opLen - overlap);
+  return { preWindow, postWindow, phaseLen };
+}
+
+function _phaseLenWindow(phaseLen: number): Set<number> {
+  const out = new Set<number>();
+  for (let i = 0; i < phaseLen; i++) out.add(i);
+  return out;
+}
+
+export function migrateM2Pass9kPruneByPhase(snap: HydrateSnapshot): HydrateSnapshot {
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  if (assets.length === 0) return snap;
+  const phases = (snap.phases as Array<{ id: string; constructionPeriods?: number; operationsPeriods?: number; overlapPeriods?: number }> | undefined) ?? [];
+  const phaseById = new Map(phases.map((p) => [p.id, p] as const));
+
+  let touched = false;
+  const nextAssets = assets.map((a) => {
+    const phase = phaseById.get(a.phaseId);
+    if (!phase) return a;
+    const { preWindow, postWindow, phaseLen } = _phaseWindows(phase);
+    const fullWindow = _phaseLenWindow(phaseLen);
+    let assetChanged = false;
+    const next: Asset = { ...a };
+
+    // Revenue
+    if (a.revenue) {
+      const rev = { ...a.revenue };
+      let revChanged = false;
+
+      // Sell
+      if (rev.sell) {
+        const sell = { ...rev.sell };
+        let sellChanged = false;
+        const newSubs = sell.subUnits.map((su) => {
+          const out = { ...su };
+          let suChanged = false;
+          const pre = _pruneToWindow(su.preSalesVelocityByPhase, preWindow);
+          if (pre !== su.preSalesVelocityByPhase) { out.preSalesVelocityByPhase = pre; suChanged = true; }
+          const post = _pruneToWindow(su.postSalesVelocityByPhase, postWindow);
+          if (post !== su.postSalesVelocityByPhase) { out.postSalesVelocityByPhase = post; suChanged = true; }
+          return suChanged ? out : su;
+        });
+        if (newSubs.some((su, i) => su !== sell.subUnits[i])) {
+          sell.subUnits = newSubs;
+          sellChanged = true;
+        }
+        if (sell.cashPaymentProfile?.percentagesByPhase) {
+          const p = _pruneToWindow(sell.cashPaymentProfile.percentagesByPhase, fullWindow);
+          if (p !== sell.cashPaymentProfile.percentagesByPhase) {
+            sell.cashPaymentProfile = { ...sell.cashPaymentProfile, percentagesByPhase: p };
+            sellChanged = true;
+          }
+        }
+        if (sell.recognitionProfile?.percentagesByPhase) {
+          const p = _pruneToWindow(sell.recognitionProfile.percentagesByPhase, fullWindow);
+          if (p !== sell.recognitionProfile.percentagesByPhase) {
+            sell.recognitionProfile = { ...sell.recognitionProfile, percentagesByPhase: p };
+            sellChanged = true;
+          }
+        }
+        if (sell.indexation?.growthPerPeriodByPhase) {
+          const p = _pruneToWindow(sell.indexation.growthPerPeriodByPhase, fullWindow);
+          if (p !== sell.indexation.growthPerPeriodByPhase) {
+            sell.indexation = { ...sell.indexation, growthPerPeriodByPhase: p };
+            sellChanged = true;
+          }
+        }
+        if (sellChanged) { rev.sell = sell; revChanged = true; }
+      }
+
+      // Operate (Hospitality)
+      if (rev.operate) {
+        const op = { ...rev.operate };
+        let opChanged = false;
+        if (op.occupancyPerPeriodByPhase) {
+          const p = _pruneToWindow(op.occupancyPerPeriodByPhase, postWindow);
+          if (p !== op.occupancyPerPeriodByPhase) { op.occupancyPerPeriodByPhase = p; opChanged = true; }
+        }
+        if (op.keysParticipationProfileByPhase) {
+          const p = _pruneToWindow(op.keysParticipationProfileByPhase, postWindow);
+          if (p !== op.keysParticipationProfileByPhase) { op.keysParticipationProfileByPhase = p; opChanged = true; }
+        }
+        if (op.adrIndexation?.growthPerPeriodByPhase) {
+          const p = _pruneToWindow(op.adrIndexation.growthPerPeriodByPhase, postWindow);
+          if (p !== op.adrIndexation.growthPerPeriodByPhase) {
+            op.adrIndexation = { ...op.adrIndexation, growthPerPeriodByPhase: p };
+            opChanged = true;
+          }
+        }
+        const pruneRevSubObj = (sub: typeof op.fb | typeof op.otherRevenue): typeof sub => {
+          if (!sub) return sub;
+          const next = { ...sub };
+          let changed = false;
+          if (next.percentOfRoomsByPhase) {
+            const p = _pruneToWindow(next.percentOfRoomsByPhase, postWindow);
+            if (p !== next.percentOfRoomsByPhase) { next.percentOfRoomsByPhase = p; changed = true; }
+          }
+          if (next.ratePerGuestByPhase) {
+            const p = _pruneToWindow(next.ratePerGuestByPhase, postWindow);
+            if (p !== next.ratePerGuestByPhase) { next.ratePerGuestByPhase = p; changed = true; }
+          }
+          if (next.fixedAmountPerPeriodByPhase) {
+            const p = _pruneToWindow(next.fixedAmountPerPeriodByPhase, postWindow);
+            if (p !== next.fixedAmountPerPeriodByPhase) { next.fixedAmountPerPeriodByPhase = p; changed = true; }
+          }
+          if (next.indexation?.growthPerPeriodByPhase) {
+            const p = _pruneToWindow(next.indexation.growthPerPeriodByPhase, postWindow);
+            if (p !== next.indexation.growthPerPeriodByPhase) {
+              next.indexation = { ...next.indexation, growthPerPeriodByPhase: p };
+              changed = true;
+            }
+          }
+          return changed ? next : sub;
+        };
+        const newFb = pruneRevSubObj(op.fb);
+        if (newFb !== op.fb) { op.fb = newFb; opChanged = true; }
+        const newOr = pruneRevSubObj(op.otherRevenue);
+        if (newOr !== op.otherRevenue) { op.otherRevenue = newOr; opChanged = true; }
+        if (opChanged) { rev.operate = op; revChanged = true; }
+      }
+
+      // Lease
+      if (rev.lease) {
+        const ls = { ...rev.lease };
+        let lsChanged = false;
+        if (ls.occupancyPerPeriodByPhase) {
+          const p = _pruneToWindow(ls.occupancyPerPeriodByPhase, postWindow);
+          if (p !== ls.occupancyPerPeriodByPhase) { ls.occupancyPerPeriodByPhase = p; lsChanged = true; }
+        }
+        if (ls.rentIndexation?.growthPerPeriodByPhase) {
+          const p = _pruneToWindow(ls.rentIndexation.growthPerPeriodByPhase, postWindow);
+          if (p !== ls.rentIndexation.growthPerPeriodByPhase) {
+            ls.rentIndexation = { ...ls.rentIndexation, growthPerPeriodByPhase: p };
+            lsChanged = true;
+          }
+        }
+        if (lsChanged) { rev.lease = ls; revChanged = true; }
+      }
+
+      if (revChanged) { next.revenue = rev; assetChanged = true; }
+    }
+
+    // Opex
+    if (a.opex) {
+      const ox = { ...a.opex };
+      let oxChanged = false;
+      if (ox.defaultIndexation?.growthPerPeriodByPhase) {
+        const p = _pruneToWindow(ox.defaultIndexation.growthPerPeriodByPhase, postWindow);
+        if (p !== ox.defaultIndexation.growthPerPeriodByPhase) {
+          ox.defaultIndexation = { ...ox.defaultIndexation, growthPerPeriodByPhase: p };
+          oxChanged = true;
+        }
+      }
+      const newLines = ox.lines.map((ln) => {
+        const out = { ...ln };
+        let changed = false;
+        if (ln.indexation?.growthPerPeriodByPhase) {
+          const p = _pruneToWindow(ln.indexation.growthPerPeriodByPhase, postWindow);
+          if (p !== ln.indexation.growthPerPeriodByPhase) {
+            out.indexation = { ...ln.indexation, growthPerPeriodByPhase: p };
+            changed = true;
+          }
+        }
+        if (ln.yoyRatesByPhase) {
+          const p = _pruneToWindow(ln.yoyRatesByPhase, postWindow);
+          if (p !== ln.yoyRatesByPhase) { out.yoyRatesByPhase = p; changed = true; }
+        }
+        return changed ? out : ln;
+      });
+      if (newLines.some((ln, i) => ln !== ox.lines[i])) {
+        ox.lines = newLines;
+        oxChanged = true;
+      }
+      if (oxChanged) { next.opex = ox; assetChanged = true; }
+    }
+
+    if (assetChanged) { touched = true; return next; }
+    return a;
+  });
+  if (nextAssets.some((a, i) => a !== assets[i])) {
+    snap = { ...snap, assets: nextAssets } as HydrateSnapshot;
+  }
   return touched ? snap : snap;
 }
