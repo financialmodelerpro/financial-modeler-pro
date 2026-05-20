@@ -213,8 +213,28 @@ export default function Module4CashFlow(): React.JSX.Element {
     // Repayment, Finance Cost Paid as separate rows. Equity stays as
     // one aggregate line (engine doesn't break equity per tranche).
     rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
+    // M4 Pass 2M-A3 (2026-05-20): equity decomposition.
+    // The engine emits a single project-level equity cash array; the
+    // store carries an EquityContribution[] with per-contribution
+    // amount + phase + name. Display-only decomposition: pro-rate each
+    // period's equity cash by contribution amount weight. Totals stay
+    // identical to the aggregate. If only one contribution (or no
+    // contributions), keep the aggregate row.
     if (d.equityDrawdownPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Equity Drawdown', values: d.equityDrawdownPerPeriod, indent: 1 });
+      const contribs = state.equityContributions ?? [];
+      const totalAmount = contribs.reduce((s, c) => s + Math.max(0, c.amount ?? 0), 0);
+      if (contribs.length >= 2 && totalAmount > 0) {
+        rows.push({ label: 'Equity Drawdown (Total)', values: d.equityDrawdownPerPeriod, indent: 1, isSubtotal: true, collapseGroup: 'cf-equity', collapseRole: 'header' });
+        for (const c of contribs) {
+          const w = Math.max(0, c.amount ?? 0) / totalAmount;
+          if (w <= 0) continue;
+          const perPeriod = d.equityDrawdownPerPeriod.map((v) => v * w);
+          const phaseLabel = phaseShort(c.phaseId);
+          rows.push({ label: `Equity Drawdown, ${c.name || 'Equity'}`, values: perPeriod, indent: 2, phaseLabel, collapseGroup: 'cf-equity', collapseRole: 'member' });
+        }
+      } else {
+        rows.push({ label: 'Equity Drawdown', values: d.equityDrawdownPerPeriod, indent: 1 });
+      }
     }
     // Per-tranche debt detail.
     // M4 Pass 2M-A2 (2026-05-20): split Finance Cost Paid into two
