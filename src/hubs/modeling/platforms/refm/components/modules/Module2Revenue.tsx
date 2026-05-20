@@ -206,22 +206,183 @@ export default function Module2Revenue(): React.JSX.Element {
         </div>
       )}
 
-      {phases.map((p) => (
-        <PhaseSection
-          key={p.id}
-          phase={p}
-          assets={visibleAssets.filter((a) => a.phaseId === p.id)}
-          allAssets={assets}
-          subUnits={subUnits}
-          project={project}
-          phases={phases}
-        />
-      ))}
+      {/* M2 Pass 9i (2026-05-20): grouped by strategy (Residential ->
+       *  Hospitality -> Retail) instead of by phase. Each asset shows
+       *  its phase as a small badge on the card. Sell + Manage parents
+       *  keep their companion sibling adjacent. Companions don't appear
+       *  in Hospitality at the top level because they render with
+       *  their parent in the Residential bucket. */}
+      {(() => {
+        const residentialAssets = visibleAssets.filter(
+          (a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && a.isCompanion !== true,
+        );
+        const hospitalityAssets = visibleAssets.filter(
+          (a) => a.strategy === 'Operate' && a.isCompanion !== true,
+        );
+        const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
+        return (
+          <>
+            {residentialAssets.length > 0 && (
+              <StrategyGroup
+                strategyKey="residential"
+                title="Residential"
+                assets={residentialAssets}
+                allAssets={assets}
+                subUnits={subUnits}
+                project={project}
+                phases={phases}
+              />
+            )}
+            {hospitalityAssets.length > 0 && (
+              <StrategyGroup
+                strategyKey="hospitality"
+                title="Hospitality"
+                assets={hospitalityAssets}
+                allAssets={assets}
+                subUnits={subUnits}
+                project={project}
+                phases={phases}
+              />
+            )}
+            {retailAssets.length > 0 && (
+              <StrategyGroup
+                strategyKey="retail"
+                title="Retail / Lease"
+                assets={retailAssets}
+                allAssets={assets}
+                subUnits={subUnits}
+                project={project}
+                phases={phases}
+              />
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
 
-// ── Phase section ─────────────────────────────────────────────────────
+// ── Strategy group section (M2 Pass 9i, 2026-05-20) ──────────────────
+// Replaces the legacy phase-grouped layout. Each strategy bucket
+// (Residential / Hospitality / Retail) renders as a single collapsible
+// section, with the assets in entry order. Each asset card carries a
+// small "Phase X" badge so the user can still see phase context.
+
+interface StrategyGroupProps {
+  strategyKey: 'residential' | 'hospitality' | 'retail';
+  title: string;
+  assets: Asset[];
+  allAssets: Asset[];
+  subUnits: SubUnit[];
+  project: Project;
+  phases: Phase[];
+}
+
+function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, project, phases }: StrategyGroupProps): React.JSX.Element {
+  const collapseKey = `fmp:m2:inputs:strategy:${strategyKey}:collapsed`;
+  const readCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(collapseKey) === 'true'; }
+    catch { return false; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, collapseKey]);
+
+  const phaseById = new Map(phases.map((p) => [p.id, p] as const));
+
+  return (
+    <div data-testid={`m2-strategy-${strategyKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
+      <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
+        <div>
+          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</strong>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`m2-strategy-${strategyKey}-asset-count`}>
+            {assets.length} asset{assets.length === 1 ? '' : 's'}
+          </span>
+          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <>
+          {assets.map((a) => {
+            // Pass 9d (2026-05-18): Sell + Manage parents surface their
+            // operate companion as a sibling card below the parent.
+            const companion = a.strategy === 'Sell + Manage'
+              ? allAssets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
+              : undefined;
+            const phase = phaseById.get(a.phaseId);
+            if (!phase) return null;
+            const companionPhase = companion ? (phaseById.get(companion.phaseId) ?? phase) : phase;
+            return (
+              <React.Fragment key={a.id}>
+                {companion && (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--color-info, #1d4ed8)',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      padding: '4px 10px',
+                      background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
+                      borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                      borderTopLeftRadius: 'var(--radius-sm)',
+                      borderTopRightRadius: 'var(--radius-sm)',
+                      marginBottom: 0,
+                    }}
+                  >
+                    ↑ Sell · linked to {companion.name} (Manage / Operate companion below)
+                  </div>
+                )}
+                <AssetCard
+                  asset={a}
+                  subUnits={subUnits.filter((u) => u.assetId === a.id)}
+                  phase={phase}
+                  project={project}
+                  phases={phases}
+                />
+                {companion && (
+                  <div style={{ marginBottom: 'var(--sp-2)' }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--color-info, #1d4ed8)',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        padding: '4px 10px',
+                        background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
+                        borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                        borderTopLeftRadius: 'var(--radius-sm)',
+                        borderTopRightRadius: 'var(--radius-sm)',
+                        marginBottom: 0,
+                      }}
+                    >
+                      ↳ Manage / Operate · linked to {a.name} (Sell side above)
+                    </div>
+                    <AssetCard
+                      asset={companion}
+                      subUnits={subUnits.filter((u) => u.assetId === companion.id)}
+                      phase={companionPhase}
+                      project={project}
+                      phases={phases}
+                    />
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Phase section (legacy, kept for back-compat if anyone imports it) ──
 
 interface PhaseSectionProps {
   phase: Phase;
@@ -952,6 +1113,21 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           borderRadius: 'var(--radius-sm)',
         }}>
           {strategyMeta.label}
+        </span>
+        {/* M2 Pass 9i (2026-05-20): phase tag so the user sees phase
+         *  context now that the outer grouping is by strategy. */}
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '2px 6px',
+            background: 'color-mix(in srgb, var(--color-meta) 12%, transparent)',
+            color: 'var(--color-meta)',
+            borderRadius: 'var(--radius-sm)',
+          }}
+          title="Phase the asset belongs to (set in Module 1)"
+        >
+          {phase.name}
         </span>
         <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
           {subUnitSummary(subUnits)}

@@ -883,10 +883,14 @@ export default function Module3Opex(): React.JSX.Element {
   // ongoing operations. Pass 5b (2026-05-20): listed flat by asset,
   // not grouped by phase, the phase name shows on each card so users
   // still see context.
-  const opexAssets = useMemo(
-    () => assets.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease'),
-    [assets],
-  );
+  // M3 Pass 5c (2026-05-20): sort by strategy bucket so the user sees
+  // all Hospitality assets first, then all Retail / Lease assets.
+  // Within each bucket the order matches Module 1 entry order.
+  const opexAssets = useMemo(() => {
+    const operate = assets.filter((a) => a.strategy === 'Operate');
+    const lease = assets.filter((a) => a.strategy === 'Lease');
+    return [...operate, ...lease];
+  }, [assets]);
   const phaseNameForAsset = (a: Asset): string => {
     const p = phases.find((x) => x.id === a.phaseId);
     return p?.name ?? '';
