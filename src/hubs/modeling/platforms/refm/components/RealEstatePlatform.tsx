@@ -46,7 +46,6 @@ import Module2RevenueOutput from './modules/Module2RevenueOutput';
 import Module2CostOfSales from './modules/Module2CostOfSales';
 import Module2Schedules from './modules/Module2Schedules';
 import Module2Escrow from './modules/Module2Escrow';
-import Module4FixedAssets from './modules/Module4FixedAssets';
 import Module4Schedules from './modules/Module4Schedules';
 import Module4PL from './modules/Module4PL';
 import Module4CashFlow from './modules/Module4CashFlow';
@@ -198,15 +197,17 @@ export const m3Tabs = [
 ];
 
 // ── Module 4 tabs (Financial Statements) ────────────────────────────
-// Pass 1 shipped Fixed Assets + Depreciation. Pass 2 (2026-05-20)
-// fills in the full financial statements: Schedules (BS feeders),
-// P&L, Cash Flow, Balance Sheet.
+// Pass 1 shipped Fixed Assets + Depreciation; Pass 2 added the full
+// financial statements (P&L, CF, BS). Pass 2i (2026-05-20) merges the
+// former "Fixed Assets & D&A" and "BS Schedules" entries under a single
+// "Schedules" tab with an internal sub-tab toggle. The shell component
+// lives in Module4Schedules and switches between Module4FixedAssets and
+// Module4BSFeeders.
 export const m4Tabs = [
-  { key: 'm4-fixed-assets', icon: '🏗️', label: '1. Fixed Assets & D&A', step: 1 },
-  { key: 'm4-schedules', icon: '📑', label: '2. BS Schedules', step: 2 },
-  { key: 'm4-pl', icon: '📈', label: '3. P&L', step: 3 },
-  { key: 'm4-cashflow', icon: '💵', label: '4. Cash Flow', step: 4 },
-  { key: 'm4-balancesheet', icon: '⚖️', label: '5. Balance Sheet', step: 5 },
+  { key: 'm4-schedules', icon: '📑', label: '1. Schedules', step: 1 },
+  { key: 'm4-pl', icon: '📈', label: '2. P&L', step: 2 },
+  { key: 'm4-cashflow', icon: '💵', label: '3. Cash Flow', step: 3 },
+  { key: 'm4-balancesheet', icon: '⚖️', label: '4. Balance Sheet', step: 4 },
 ];
 
 // Universal module → sub-tabs map. Any module key that needs a sidebar
@@ -702,7 +703,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
               </button>
             ))}
           </div>
-          {m4ActiveTab === 'm4-fixed-assets' && <Module4FixedAssets />}
           {m4ActiveTab === 'm4-schedules' && <Module4Schedules />}
           {m4ActiveTab === 'm4-pl' && <Module4PL />}
           {m4ActiveTab === 'm4-cashflow' && <Module4CashFlow />}

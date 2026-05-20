@@ -215,12 +215,10 @@ export default function Module4FixedAssets(): React.JSX.Element {
   const renderAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
     const row = snap.byAsset.get(a.id);
     if (!row) return null;
-    const lifeStored = a.usefulLifeYears;
+    // M4 Pass 2i (2026-05-20): per-asset inputs panel removed from the
+    // card body and consolidated into a single inputs table at the top
+    // of the tab. Body now renders only the three roll-forward tables.
     const lifeEffective = row.usefulLifeYears;
-    const inheriting = lifeStored === undefined || lifeStored <= 0;
-    const openingLand = row.land.openingAtAxisStart;
-    const openingBuilding = row.depreciable.openingNBVPerPeriod[0] ?? 0;
-    const hasExistingOps = openingLand > 0 || openingBuilding > 0;
     const method = a.depreciationMethod ?? 'straight_line';
     const isRB = method === 'reducing_balance';
     const rateStored = a.depreciationRate;
@@ -233,7 +231,6 @@ export default function Module4FixedAssets(): React.JSX.Element {
     // Total FA rows: prefer using engine-derived openings + closings
     // directly so we don't reconstruct Land vs Depreciable from
     // closing balances (which can drift after a depreciation step).
-    const N_ = row.combinedClosingPerPeriod.length;
     const totalFA: Row[] = [
       { label: 'Opening Land', values: row.land.openingPerPeriod, indent: 1, aggregation: 'last' },
       { label: 'Opening Depreciable NBV', values: row.depreciable.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
@@ -245,117 +242,6 @@ export default function Module4FixedAssets(): React.JSX.Element {
 
     return (
       <>
-        {/* Inputs panel */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: hasExistingOps
-            ? 'repeat(5, minmax(180px, 1fr))'
-            : 'repeat(3, minmax(180px, 1fr))',
-          gap: 'var(--sp-2)',
-          padding: 'var(--sp-2)',
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          marginBottom: 'var(--sp-3)',
-        }}>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Method
-            </label>
-            <select
-              value={method}
-              onChange={(e) => setAssetMethod(a.id, e.target.value as 'straight_line' | 'reducing_balance')}
-              style={FAST_INPUT}
-              data-testid={`m4-asset-${a.id}-method`}
-            >
-              <option value="straight_line">Straight Line (SL)</option>
-              <option value="reducing_balance">Reducing Balance (WDV)</option>
-            </select>
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-              {isRB
-                ? 'Per-period dep = NBV × rate. Asymptotes toward zero; residual NBV at exit.'
-                : 'Per-period dep = base / life. Fully writes off after useful life.'}
-            </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Useful Life (years)
-            </label>
-            <input
-              type="number"
-              value={inheriting ? '' : lifeStored}
-              placeholder={`auto: ${lifeEffective} yrs (category default)`}
-              min={0}
-              max={60}
-              onChange={(e) => {
-                const v = e.target.value;
-                setAssetUsefulLife(a.id, v === '' ? 0 : Number(v));
-              }}
-              style={FAST_INPUT}
-              data-testid={`m4-asset-${a.id}-usefullife`}
-            />
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-              {inheriting
-                ? `Inheriting category default ${lifeEffective} yrs.`
-                : `Overrides category default.`}
-              {isRB && ' Caps the RB depreciation window.'}
-            </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              {isRB ? 'RB Rate %' : 'Rate (auto from life)'}
-            </label>
-            {isRB ? (
-              <PercentageInput
-                value={(rateStored !== undefined ? rateStored : defaultRBRate) * 100}
-                onChange={(p) => setAssetRate(a.id, p / 100)}
-                min={0}
-                max={100}
-                decimals={2}
-                style={FAST_INPUT}
-                data-testid={`m4-asset-${a.id}-rate`}
-              />
-            ) : (
-              <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
-                {lifeEffective > 0 ? `${(100 / lifeEffective).toFixed(2)}% / yr` : '-'}
-              </div>
-            )}
-            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-              {isRB
-                ? (rateStored === undefined
-                    ? `Default = 2 / life = ${(defaultRBRate * 100).toFixed(2)}% (double-declining).`
-                    : 'Custom rate; clear to revert to 2 / life default.')
-                : `Equivalent rate ${(100 / Math.max(1, lifeEffective)).toFixed(2)}% per year.`}
-            </div>
-          </div>
-          {hasExistingOps && (
-            <>
-              <div>
-                <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-                  Opening Land (existing ops)
-                </label>
-                <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
-                  {fmt(openingLand)}
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-                  Read-only · edit on Module 1 Tab 4 Existing Operations
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-                  Opening Building NBV (existing ops)
-                </label>
-                <div style={{ ...FAST_INPUT, background: 'var(--color-grey-pale)', color: 'var(--color-meta)' }}>
-                  {fmt(openingBuilding)}
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
-                  Read-only · edit on Module 1 Tab 4 Existing Operations
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
         <PeriodTable
           title={`${a.name}: Land Roll-Forward`}
           caption="Land sits on the balance sheet but never depreciates. Closing Land = Opening Land + Land Additions."
@@ -425,6 +311,114 @@ export default function Module4FixedAssets(): React.JSX.Element {
         }}>
           No depreciable assets in this project. Sell-only projects route capex through Cost of Sales (Module 2 Tab 3) instead.
         </div>
+      )}
+
+      {/* M4 Pass 2i (2026-05-20): consolidated Inputs table at the top
+       *  of the tab. Per Ahmad: every asset's Method / Useful Life /
+       *  Rate should be edited in one place at the top, not buried
+       *  inside each asset card. Opening Land + Building NBV shown as
+       *  read-only memos when the asset carries existing-ops history.
+       */}
+      {faAssets.length > 0 && (
+        <PhaseSection
+          phaseId="m4-fa-inputs"
+          title="Depreciation Inputs (all assets)"
+          meta="Method, useful life, and rate per asset, edited in one place"
+          storageKey="fmp:m4:fa:inputs:collapsed"
+        >
+          <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={CELL_HEADER}>Asset</th>
+                  <th style={CELL_HEADER}>Strategy</th>
+                  <th style={CELL_HEADER}>Method</th>
+                  <th style={CELL_HEADER}>Useful Life (yrs)</th>
+                  <th style={CELL_HEADER}>Rate</th>
+                  <th style={CELL_HEADER}>Opening Land</th>
+                  <th style={CELL_HEADER}>Opening Bldg NBV</th>
+                </tr>
+              </thead>
+              <tbody>
+                {faAssets.map((a) => {
+                  const row = snap.byAsset.get(a.id);
+                  if (!row) return null;
+                  const lifeStored = a.usefulLifeYears;
+                  const lifeEffective = row.usefulLifeYears;
+                  const inheriting = lifeStored === undefined || lifeStored <= 0;
+                  const openingLand = row.land.openingAtAxisStart;
+                  const openingBuilding = row.depreciable.openingNBVPerPeriod[0] ?? 0;
+                  const method = a.depreciationMethod ?? 'straight_line';
+                  const isRB = method === 'reducing_balance';
+                  const rateStored = a.depreciationRate;
+                  const defaultRBRate = lifeEffective > 0 ? 2 / lifeEffective : 0;
+                  const strategyLabel = a.strategy === 'Operate'
+                    ? (a.isCompanion ? 'Hospitality (Manage)' : 'Hospitality')
+                    : a.strategy === 'Lease' ? 'Retail / Lease' : a.strategy;
+                  return (
+                    <tr key={a.id}>
+                      <td style={{ ...ROW_DATA.name }}>{a.name}</td>
+                      <td style={{ ...ROW_DATA.name, color: 'var(--color-meta)', fontSize: 11 }}>{strategyLabel}</td>
+                      <td style={{ ...ROW_DATA.num, textAlign: 'left' }}>
+                        <select
+                          value={method}
+                          onChange={(e) => setAssetMethod(a.id, e.target.value as 'straight_line' | 'reducing_balance')}
+                          style={{ ...FAST_INPUT, textAlign: 'left' }}
+                          data-testid={`m4-fa-inputs-method-${a.id}`}
+                        >
+                          <option value="straight_line">Straight Line (SL)</option>
+                          <option value="reducing_balance">Reducing Balance (WDV)</option>
+                        </select>
+                      </td>
+                      <td style={{ ...ROW_DATA.num }}>
+                        <input
+                          type="number"
+                          value={inheriting ? '' : lifeStored}
+                          placeholder={`auto: ${lifeEffective}`}
+                          min={0}
+                          max={60}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAssetUsefulLife(a.id, v === '' ? 0 : Number(v));
+                          }}
+                          style={FAST_INPUT}
+                          data-testid={`m4-fa-inputs-life-${a.id}`}
+                        />
+                      </td>
+                      <td style={{ ...ROW_DATA.num }}>
+                        {isRB ? (
+                          <PercentageInput
+                            value={(rateStored !== undefined ? rateStored : defaultRBRate) * 100}
+                            onChange={(p) => setAssetRate(a.id, p / 100)}
+                            min={0}
+                            max={100}
+                            decimals={2}
+                            style={FAST_INPUT}
+                            data-testid={`m4-fa-inputs-rate-${a.id}`}
+                          />
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+                            {lifeEffective > 0 ? `${(100 / lifeEffective).toFixed(2)}% / yr` : '-'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ ...ROW_DATA.num, color: openingLand > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: openingLand > 0 ? 'normal' : 'italic' }}>
+                        {openingLand > 0 ? fmt(openingLand) : '-'}
+                      </td>
+                      <td style={{ ...ROW_DATA.num, color: openingBuilding > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: openingBuilding > 0 ? 'normal' : 'italic' }}>
+                        {openingBuilding > 0 ? fmt(openingBuilding) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6, fontStyle: 'italic' }}>
+            Useful Life blank = inherits the asset's category default. RB Rate blank = 2 / life (double-declining).
+            Opening Land + Building NBV are read-only memos sourced from Module 1 Tab 4 Existing Operations.
+          </div>
+        </PhaseSection>
       )}
 
       {/* Hospitality / Operations */}

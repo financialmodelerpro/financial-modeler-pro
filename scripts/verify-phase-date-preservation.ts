@@ -18,9 +18,9 @@
  *     field via the resolver's expand step).
  *
  * Sections:
- *   A: Storage shape sanity — preSalesVelocityByPhase carries the
+ *   A: Storage shape sanity:preSalesVelocityByPhase carries the
  *      user's intent verbatim regardless of project axis origin.
- *   B: Engine read end-to-end — computeAllSellResults produces the
+ *   B: Engine read end-to-end:computeAllSellResults produces the
  *      same pre-sales revenue per calendar year before and after the
  *      project axis shifts.
  *   C: Year-keyed financing tranche distribution (sanity that the
@@ -73,7 +73,7 @@ function assertNear(name: string, actual: number, expected: number, tol = 0.5): 
 console.log('=== M4 Pass 2h phase-date preservation verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
-// A: expand helpers — phase-local round trip
+// A: expand helpers:phase-local round trip
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] expandPhaseLocalToAxis preserves intent');
 {
@@ -94,7 +94,7 @@ console.log('\n[A] expandPhaseLocalToAxis preserves intent');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// B: end-to-end — engine result for 2026 stays at 0.05 before and after
+// B: end-to-end:engine result for 2026 stays at 0.05 before and after
 //    a Phase 1 startDate move to 2025.
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[B] Engine result for Phase 2 stays anchored when Phase 1 moves');
