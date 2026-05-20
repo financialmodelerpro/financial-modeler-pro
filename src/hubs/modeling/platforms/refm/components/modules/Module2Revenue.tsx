@@ -1861,8 +1861,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={constructionWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset)]}
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
           )}
@@ -1876,8 +1876,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={operationsWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset)]}
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
           )}
@@ -2144,6 +2144,8 @@ function buildVelocityRow(
   kind: 'pre' | 'post',
   onChange: (subUnitId: string, periodIdx: number, pct: number) => void,
   phaseOffset = 0,
+  preWindow: WindowCell[] = [],
+  postWindow: WindowCell[] = [],
 ): InlineGridRow {
   const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
   // M4 Pass 2h: prefer ByPhase (phase-local) when present; expand to
@@ -2160,11 +2162,28 @@ function buildVelocityRow(
         return axis;
       })()
     : paddedArray(legacyArr, totalPeriods);
-  // Sums roll up over BOTH arrays' contributions; ByPhase wins when set.
-  const preArr = cfgSU?.preSalesVelocityByPhase ?? cfgSU?.preSalesVelocity ?? [];
-  const postArr = cfgSU?.postSalesVelocityByPhase ?? cfgSU?.postSalesVelocity ?? [];
-  const preSum = preArr.reduce((s, v) => s + v, 0);
-  const postSum = postArr.reduce((s, v) => s + v, 0);
+  // M2 Pass 9j-Fix (2026-05-20): sums roll up ONLY over the cells the
+  // user can see in each row. Anything at indices outside the
+  // construction window (for pre) or operations window (for post)
+  // would otherwise show as a "hidden %" that doesn't appear in any
+  // visible cell. Previous implementation reduced the whole array.
+  const expandToAxis = (arr: number[] | undefined): number[] => {
+    if (!arr) return new Array<number>(totalPeriods).fill(0);
+    const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+    for (let i = 0; i < arr.length; i++) {
+      const j = phaseOffset + i;
+      if (j >= 0 && j < axis.length) axis[j] = arr[i] ?? 0;
+    }
+    return axis;
+  };
+  const preAxis = cfgSU?.preSalesVelocityByPhase !== undefined
+    ? expandToAxis(cfgSU.preSalesVelocityByPhase)
+    : paddedArray(cfgSU?.preSalesVelocity, totalPeriods);
+  const postAxis = cfgSU?.postSalesVelocityByPhase !== undefined
+    ? expandToAxis(cfgSU.postSalesVelocityByPhase)
+    : paddedArray(cfgSU?.postSalesVelocity, totalPeriods);
+  const preSum = preWindow.reduce((s, c) => s + (preAxis[c.idx] ?? 0), 0);
+  const postSum = postWindow.reduce((s, c) => s + (postAxis[c.idx] ?? 0), 0);
   const sumSelf = kind === 'pre' ? preSum : postSum;
   const sumAll = preSum + postSum;
   const overall = sumAll > 1 + 1e-6;
@@ -2200,28 +2219,41 @@ function buildSharedVelocityRow(
   kind: 'pre' | 'post',
   onChange: (periodIdx: number, pct: number) => void,
   phaseOffset = 0,
+  preWindow: WindowCell[] = [],
+  postWindow: WindowCell[] = [],
 ): InlineGridRow {
+  const expandToAxis = (arr: number[] | undefined): number[] => {
+    if (!arr) return new Array<number>(totalPeriods).fill(0);
+    const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+    for (let i = 0; i < arr.length; i++) {
+      const j = phaseOffset + i;
+      if (j >= 0 && j < axis.length) axis[j] = arr[i] ?? 0;
+    }
+    return axis;
+  };
   const arrays = subUnitsInAsset.map((su) => {
     const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
     const byPhaseArr = kind === 'pre' ? cfgSU?.preSalesVelocityByPhase : cfgSU?.postSalesVelocityByPhase;
     const legacyArr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
-    if (byPhaseArr !== undefined) {
-      const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
-      for (let i = 0; i < byPhaseArr.length; i++) {
-        const j = phaseOffset + i;
-        if (j >= 0 && j < axis.length) axis[j] = byPhaseArr[i] ?? 0;
-      }
-      return axis;
-    }
+    if (byPhaseArr !== undefined) return expandToAxis(byPhaseArr);
     return paddedArray(legacyArr, totalPeriods);
   });
   const first = arrays[0] ?? new Array<number>(totalPeriods).fill(0);
   const divergent = arrays.length > 1
     && arrays.some((arr) => arr.some((v, i) => Math.abs(v - first[i]) > 1e-9));
-  // Also flag divergence between pre + post sums when one would push
-  // the asset above 100% sold.
-  const preSumFirst = (kind === 'pre' ? first : (cfg?.subUnits[0]?.preSalesVelocity ?? [])).reduce((s, v) => s + v, 0);
-  const postSumFirst = (kind === 'post' ? first : (cfg?.subUnits[0]?.postSalesVelocity ?? [])).reduce((s, v) => s + v, 0);
+  // M2 Pass 9j-Fix (2026-05-20): sums use the row's visible window
+  // cells only, so the hint can never show a value that doesn't appear
+  // in some cell on the row. Pre uses preWindow, post uses postWindow.
+  // Reads from sub-unit[0] which is the lockstep representative.
+  const su0 = cfg?.subUnits[0];
+  const preFirstAxis = su0?.preSalesVelocityByPhase !== undefined
+    ? expandToAxis(su0.preSalesVelocityByPhase)
+    : paddedArray(su0?.preSalesVelocity, totalPeriods);
+  const postFirstAxis = su0?.postSalesVelocityByPhase !== undefined
+    ? expandToAxis(su0.postSalesVelocityByPhase)
+    : paddedArray(su0?.postSalesVelocity, totalPeriods);
+  const preSumFirst = preWindow.reduce((s, c) => s + (preFirstAxis[c.idx] ?? 0), 0);
+  const postSumFirst = postWindow.reduce((s, c) => s + (postFirstAxis[c.idx] ?? 0), 0);
   const sumSelf = kind === 'pre' ? preSumFirst : postSumFirst;
   const sumAll = preSumFirst + postSumFirst;
   const overall = sumAll > 1 + 1e-6;
