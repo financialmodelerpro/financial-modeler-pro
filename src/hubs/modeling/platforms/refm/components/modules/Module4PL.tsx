@@ -67,8 +67,17 @@ export default function Module4PL(): React.JSX.Element {
   const terminology = project.financialTerminology ?? defaultTerminologyForCountry(project.country);
   const labels = getFinancialLabels(terminology);
 
-  const [filterAssetId, setFilterAssetId] = useState<string>('__project__');
+  // M4 Pass 2L (2026-05-20): phase filter replaces asset filter per
+  // Ahmad. Buttons not dropdown.
+  const [filterPhaseId, setFilterPhaseId] = useState<string>('__all__');
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
+  const phaseById = new Map(state.phases.map((p) => [p.id, p] as const));
+  const phaseLabelFor = (phaseId: string): string => phaseById.get(phaseId)?.name ?? '';
+  const phaseShort = (phaseId: string): string => {
+    const name = phaseLabelFor(phaseId);
+    const m = name.match(/(\d+)/);
+    return m ? m[1] : name.slice(0, 4);
+  };
 
   // Tax rate (configurable, default 0). The label is currency-agnostic
   // ("Tax Rate" / "Zakat Rate" via the terminology helper).
@@ -80,48 +89,51 @@ export default function Module4PL(): React.JSX.Element {
     state.setProject({ financialTerminology: mode });
   };
 
-  // Project P&L rows, detailed per-asset (M4 Pass 2k, 2026-05-20)
-  // Mirrors the reference v1.16 layout: each strategy block (Residential
-  // / Hospitality / Retail) lists its individual asset rows, then a
-  // strategy subtotal, then the project Total Revenue. Same structure
-  // for Cost of Sales and Operating Expenses.
+  // Project P&L rows, detailed per-asset (M4 Pass 2k + 2L 2026-05-20).
+  // Mirrors the reference v1.16 layout: each strategy block lists its
+  // asset rows, then a strategy subtotal. Strategy groups are
+  // collapsible (totals visible by default). Each row carries its
+  // phaseLabel for the Phase column. Phase filter narrows asset rows.
   const buildProjectPLRows = (): M4Row[] => {
     const p = snap.pl;
     const rows: M4Row[] = [];
     const negArr = (arr: number[]): number[] => arr.map((v) => -v);
-
-    // Partition visible assets by P&L bucket.
-    const residentialAssets = visibleAssets.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
-    const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true);
-    const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
+    const matchesPhase = (a: { phaseId: string }): boolean =>
+      filterPhaseId === '__all__' || a.phaseId === filterPhaseId;
+    const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
+    const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
+    const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
 
     // ── REVENUE ────────────────────────────────────────────────────
     rows.push({ label: 'REVENUE', values: [], isSection: true });
+    const pushAssetPL = (a: { id: string; name: string; phaseId: string }, key: 'revenuePerPeriod' | 'cosPerPeriod' | 'opexPerPeriod', group: string, sign = 1): void => {
+      const pl = snap.perAssetPL.get(a.id);
+      if (!pl) return;
+      const series = pl[key];
+      if (series.every((v) => v === 0)) return;
+      rows.push({
+        label: a.name,
+        values: sign === 1 ? series : negArr(series),
+        indent: 2,
+        phaseLabel: phaseShort(a.phaseId),
+        collapseGroup: group,
+        collapseRole: 'member',
+      });
+    };
+
     if (residentialAssets.length > 0 && p.residentialRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Residential Revenue', values: [], isSection: true });
-      for (const a of residentialAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
-      }
+      rows.push({ label: 'Residential Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of residentialAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-res');
       rows.push({ label: 'Total Residential Revenue', values: p.residentialRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
     if (hospitalityAssets.length > 0 && p.hospitalityRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality Revenue', values: [], isSection: true });
-      for (const a of hospitalityAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
-      }
+      rows.push({ label: 'Hospitality Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of hospitalityAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-hosp');
       rows.push({ label: 'Total Hospitality Revenue', values: p.hospitalityRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
     if (retailAssets.length > 0 && p.retailRevenuePerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail Revenue', values: [], isSection: true });
-      for (const a of retailAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.revenuePerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: pl.revenuePerPeriod, indent: 2 });
-      }
+      rows.push({ label: 'Retail Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of retailAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-ret');
       rows.push({ label: 'Total Retail Revenue', values: p.retailRevenuePerPeriod, isSubtotal: true, indent: 1 });
     }
     rows.push({ label: 'Total Revenue', values: p.totalRevenuePerPeriod, isTotal: true });
@@ -129,32 +141,20 @@ export default function Module4PL(): React.JSX.Element {
     // ── COST OF SALES ─────────────────────────────────────────────
     if (p.cosPerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'COST OF SALES', values: [], isSection: true });
-      rows.push({ label: 'Residential cost of sales', values: [], isSection: true });
-      for (const a of residentialAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.cosPerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: negArr(pl.cosPerPeriod), indent: 2 });
-      }
+      rows.push({ label: 'Residential cost of sales', values: [], isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of residentialAssets) pushAssetPL(a, 'cosPerPeriod', 'pl-cos', -1);
       rows.push({ label: 'Total Cost of Sales', values: negArr(p.cosPerPeriod), isSubtotal: true });
     }
 
     // ── OPERATING EXPENSES ────────────────────────────────────────
     rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
     if (hospitalityAssets.length > 0 && p.hospitalityOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality operating expenses', values: [], isSection: true });
-      for (const a of hospitalityAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.opexPerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: negArr(pl.opexPerPeriod), indent: 2 });
-      }
+      rows.push({ label: 'Hospitality operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of hospitalityAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-hosp', -1);
     }
     if (retailAssets.length > 0 && p.retailOpexPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail operating expenses', values: [], isSection: true });
-      for (const a of retailAssets) {
-        const pl = snap.perAssetPL.get(a.id);
-        if (!pl || pl.opexPerPeriod.every((v) => v === 0)) continue;
-        rows.push({ label: a.name, values: negArr(pl.opexPerPeriod), indent: 2 });
-      }
+      rows.push({ label: 'Retail operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: true });
+      for (const a of retailAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-ret', -1);
     }
     if (p.hqOpexPerPeriod.some((v) => v !== 0)) {
       rows.push({ label: 'HQ Expenses', values: negArr(p.hqOpexPerPeriod), indent: 1 });
@@ -199,9 +199,11 @@ export default function Module4PL(): React.JSX.Element {
     return rows;
   };
 
-  const filteredRows = filterAssetId === '__project__'
-    ? buildProjectPLRows()
-    : buildAssetPLRows(filterAssetId);
+  // M4 Pass 2L: phase filter narrows asset rows; project totals stay.
+  const filteredRows = buildProjectPLRows();
+  // Asset-filtered view is reserved for a future drill-down per asset;
+  // the function stays here for back-compat and tests.
+  void buildAssetPLRows;
 
   return (
     <div data-testid="module4-pl" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -270,30 +272,45 @@ export default function Module4PL(): React.JSX.Element {
         </div>
       </PhaseSection>
 
-      {/* Asset filter */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-2)' }}>
-        <label style={{ fontSize: 12, color: 'var(--color-meta)', fontWeight: 600 }}>View:</label>
-        <select
-          value={filterAssetId}
-          onChange={(e) => setFilterAssetId(e.target.value)}
-          style={SELECT_STYLE}
-          data-testid="m4-pl-asset-filter"
-        >
-          <option value="__project__">Project (all assets)</option>
-          {visibleAssets.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}, {a.strategy}
-            </option>
-          ))}
-        </select>
+      {/* M4 Pass 2L: phase filter buttons (replacing the asset dropdown). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, color: 'var(--color-meta)', fontWeight: 600 }}>Phase:</label>
+        <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }} data-testid="m4-pl-phase-filter">
+          {[{ id: '__all__', name: 'All' } as const, ...state.phases.map((p) => ({ id: p.id, name: p.name }))].map((opt) => {
+            const active = filterPhaseId === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setFilterPhaseId(opt.id)}
+                style={{
+                  fontSize: 11,
+                  padding: '6px 12px',
+                  background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                  color: active ? 'var(--color-on-primary-navy)' : 'var(--color-navy)',
+                  border: '1px solid var(--color-navy)',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+                data-testid={`m4-pl-phase-filter-${opt.id}`}
+              >
+                {opt.name}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <M4PeriodTable
-        title={filterAssetId === '__project__' ? `${labels.incomeStatementTitle}: Project` : `${labels.incomeStatementTitle}: ${state.assets.find((a) => a.id === filterAssetId)?.name ?? ''}`}
+        title={filterPhaseId === '__all__'
+          ? `${labels.incomeStatementTitle}: Project`
+          : `${labels.incomeStatementTitle}: ${phaseLabelFor(filterPhaseId)}`}
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}
         priorYearLabel={snap.projectStartYear - 1}
+        showPhaseColumn
         rows={filteredRows.length > 0 ? filteredRows : [{ label: 'No data for this selection', values: new Array<number>(N).fill(0) }]}
       />
     </div>

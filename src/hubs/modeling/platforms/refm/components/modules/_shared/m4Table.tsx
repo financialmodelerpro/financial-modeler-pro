@@ -5,9 +5,16 @@
  * Module 4 surfaces (Schedules / P&L / CF / BS). Extracted to one
  * place so the four new module files stay focused on their content
  * rather than re-declaring the same table renderer four times.
+ *
+ * Pass 2L (2026-05-20): added collapsible groups + an optional Phase
+ * column. Each row may declare a `collapseGroup` + `collapseRole`:
+ *   - 'header': clickable; toggles whether members in the same group show.
+ *   - 'member': hidden when the group is collapsed.
+ * Rows with no collapseGroup are always shown. Phase column renders
+ * row.phaseLabel between Line and Total when showPhaseColumn is true.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS,
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
@@ -23,25 +30,60 @@ export interface M4Row {
   indent?: number;
   totalOverride?: string;
   rowFmt?: (v: number) => string;
-  /** M4 Pass 2j (2026-05-20): optional value for the prior-year column
-   *  (shown when the table is rendered with priorYearLabel). For stock
-   *  lines (cash, AR, NBV, debt, equity), this is the opening balance
-   *  at axis start. For flow lines (revenue, opex, capex, draws), this
-   *  is 0. */
+  /** M4 Pass 2j: prior-year column value for stock lines. */
   priorValue?: number;
+  /** M4 Pass 2L (2026-05-20): collapsible group key. Header + members
+   *  share the same key; toggling the header hides/shows the members. */
+  collapseGroup?: string;
+  /** 'header' = clickable toggle row; 'member' = hidden on collapse. */
+  collapseRole?: 'header' | 'member';
+  /** Whether the group starts collapsed. Only consulted on the header
+   *  row's first render. Defaults to true (collapsed) so the table
+   *  initially shows totals only. */
+  defaultCollapsed?: boolean;
+  /** M4 Pass 2L: Phase column value (shown only when showPhaseColumn). */
+  phaseLabel?: string;
 }
 
-export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYearLabel }: {
+export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYearLabel, showPhaseColumn }: {
   title: string; caption?: string; yearLabels: number[]; rows: M4Row[]; currency: string;
   fmt: (v: number) => string;
   /** M4 Pass 2j: when set, an extra "Prior" column is rendered between
    *  Total and the first year. Use Row.priorValue to populate per row. */
   priorYearLabel?: number;
+  /** M4 Pass 2L: when true, a "Phase" column appears between Line and
+   *  Total. Per-row data comes from row.phaseLabel. */
+  showPhaseColumn?: boolean;
 }): React.JSX.Element {
+  // Track which collapse groups are currently collapsed.
+  // Initialise from rows' defaultCollapsed flag on first render. Per
+  // Ahmad's request: totals visible by default, click to expand.
+  const initialCollapsed = (): Set<string> => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (r.collapseRole === 'header' && r.collapseGroup) {
+        if (r.defaultCollapsed !== false) s.add(r.collapseGroup);
+      }
+    }
+    return s;
+  };
+  const [collapsed, setCollapsed] = useState<Set<string>>(initialCollapsed);
+  const toggleGroup = (key: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   if (rows.length === 0) return <></>;
   const hasPrior = priorYearLabel !== undefined;
-  const totalCols = 1 + (hasPrior ? 1 : 0) + yearLabels.length;
+  const hasPhase = showPhaseColumn === true;
+  const totalCols = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
   const nonLabelPct = nonLabelColumnPct(totalCols);
+  const phaseColWidth = hasPhase ? '60px' : undefined;
+
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span></span>
@@ -52,6 +94,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
         <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
+            {hasPhase && (<col style={{ width: phaseColWidth }} />)}
             <col style={{ width: nonLabelPct }} />
             {hasPrior && (<col style={{ width: nonLabelPct }} />)}
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
@@ -59,6 +102,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line</th>
+              {hasPhase && (<th style={{ ...CELL_HEADER, textAlign: 'center', fontSize: 10 }}>Phase</th>)}
               <th style={CELL_HEADER_TOTAL}>Total</th>
               {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{priorYearLabel}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
@@ -66,11 +110,18 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
           </thead>
           <tbody>
             {rows.map((r, idx) => {
-              const colSpan = 2 + (hasPrior ? 1 : 0) + yearLabels.length;
+              // Hide member rows when their group is collapsed.
+              if (r.collapseRole === 'member' && r.collapseGroup && collapsed.has(r.collapseGroup)) {
+                return null;
+              }
+              const colSpan = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
               if (r.isSection) {
+                const isCollapsibleHeader = r.collapseRole === 'header' && r.collapseGroup;
+                const isCollapsed = isCollapsibleHeader && collapsed.has(r.collapseGroup!);
                 return (
                   <tr key={`section-${idx}`}>
                     <td colSpan={colSpan}
+                      onClick={isCollapsibleHeader ? () => toggleGroup(r.collapseGroup!) : undefined}
                       style={{
                         padding: '8px 10px 4px',
                         fontSize: 11,
@@ -80,8 +131,18 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                         color: 'var(--color-navy)',
                         background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)',
                         borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)',
+                        cursor: isCollapsibleHeader ? 'pointer' : 'default',
+                        userSelect: 'none',
                       }}
-                    >{r.label}</td>
+                      data-testid={isCollapsibleHeader ? `m4-collapse-toggle-${r.collapseGroup}` : undefined}
+                    >
+                      {isCollapsibleHeader && (
+                        <span style={{ marginRight: 8, fontSize: 10, color: 'var(--color-meta)' }}>
+                          {isCollapsed ? '▶' : '▼'}
+                        </span>
+                      )}
+                      {r.label}
+                    </td>
                   </tr>
                 );
               }
@@ -93,6 +154,11 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
               return (
                 <tr key={r.label + idx}>
                   <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px` }}>{r.label}</td>
+                  {hasPhase && (
+                    <td style={{ ...tokens.num, textAlign: 'center', fontSize: 10, color: 'var(--color-meta)' }}>
+                      {r.phaseLabel ?? ''}
+                    </td>
+                  )}
                   <td style={tokens.numTotal}>{total}</td>
                   {hasPrior && (<td style={priorCellStyle}>{cellFmt(r.priorValue ?? 0)}</td>)}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{cellFmt(v ?? 0)}</td>))}
