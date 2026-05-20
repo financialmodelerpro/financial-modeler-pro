@@ -1,21 +1,21 @@
 'use client';
 
 /**
- * Module2Escrow.tsx (M2 Pass 9h, simplified 2026-05-20)
+ * Module2Escrow.tsx (M2 Pass 9h-2, asset-wise layout 2026-05-20)
  *
  * Pre-sales Escrow sub-tab. A regulator withholds a configured % of every
- * pre-sales cash inflow as Inaccessible Funds. By default the withholding
- * stops at the asset's handover year (= construction completion); the user
- * can extend it. The cumulative held balance releases in a single lump on
- * the configured release year (defaults to the year after handover).
+ * pre-sales cash inflow as Inaccessible Funds. Withholding stops at the
+ * asset's handover year by default; the user can extend it. The cumulative
+ * held balance releases as a single lump on the configured release year.
  *
- * Layout:
+ * Layout (mirrors the reference v1.16 Escrow tab top-to-bottom):
  *   1. Inputs: project defaults (Held %, Held Until Year, Release Year) +
- *      per-asset override table (Held %, Held Until Year, Release Year).
- *   2. Escrow Roll-Forward: single project-level table with six lines
- *      (Pre-Sales Cash, Less: Held, Add: Release, Net Movement, Cumulative
- *      Balance, Net CF Adjustment).
- *   3. Per-Asset Detail (collapsible).
+ *      per-asset override table.
+ *   2. Pre-Sales Cash by Asset (rows = each Sell / Sell+Manage asset).
+ *   3. Inaccessible Funds Held by Asset.
+ *   4. Release of Locked Funds by Asset.
+ *   5. Cash Flow Impact (project totals: Less Held / Add Release / Net).
+ *   6. Per-Asset Detail (collapsible roll-forward per asset).
  *
  * Math lives in src/core/calculations/revenue/escrow.ts. The resolver
  * in revenue-resolvers.ts threads project + per-asset overrides through.
@@ -27,6 +27,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   computeAllSellResults,
   computeEscrowSnapshot,
+  type EscrowAssetRow,
 } from '../../lib/revenue-resolvers';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -195,6 +196,26 @@ export default function Module2Escrow(): React.JSX.Element {
     if (yr === undefined) delete escrow.heldUntilYearOverride;
     else escrow.heldUntilYearOverride = yr;
     updateAsset(assetId, { revenue: { ...(a.revenue ?? {}), sell: { ...prev, escrow } } });
+  };
+
+  // Builds per-asset rows for an output table: one row per asset, plus
+  // a Total footer row aggregating the same series across all assets.
+  // Mirrors the reference v1.16 layout where every output schedule lists
+  // each asset on its own line.
+  const buildAssetRow = (
+    totalLabel: string,
+    pick: (row: EscrowAssetRow) => number[],
+  ): Row[] => {
+    if (escrowAssetRows.length === 0) return [];
+    const rows: Row[] = [];
+    const sumSeries = new Array<number>(N).fill(0);
+    for (const ar of escrowAssetRows) {
+      const vals = pick(ar);
+      rows.push({ label: ar.assetName || 'Sell asset', values: vals, indent: 1 });
+      for (let t = 0; t < N; t++) sumSeries[t] += vals[t] ?? 0;
+    }
+    rows.push({ label: totalLabel, values: sumSeries, isTotal: true });
+    return rows;
   };
 
   return (
@@ -400,11 +421,11 @@ export default function Module2Escrow(): React.JSX.Element {
         )}
       </PhaseSection>
 
-      {/* ── 2. Escrow Roll-Forward (project-level, single table) ─── */}
+      {/* ── 2. Output schedules (v1.16 asset-wise layout) ────────── */}
       <PhaseSection
         phaseId="escrow-outputs"
-        title="2. Escrow Roll-Forward"
-        meta="Single project-level schedule (per-asset detail below)"
+        title="2. Escrow Schedules"
+        meta="Pre-Sales → Held → Release → Cash Flow Impact (per-asset rows)"
         storageKey="fmp:m2:escrow:outputs:collapsed"
       >
         {escrowAssetRows.length === 0 ? (
@@ -412,43 +433,59 @@ export default function Module2Escrow(): React.JSX.Element {
             Nothing to schedule yet — no Sell / Sell + Manage assets with pre-sales inflows.
           </div>
         ) : (
-          <PeriodTable
-            title="Escrow Roll-Forward (project totals)"
-            caption="Held[t] = Pre-Sales Cash[t] × effective held %, only through each asset's Held Until Year (= handover year by default). Release[t] = cumulative held released as a lump on each asset's Release Year. Net CF Adjustment = Release − Held; sum over the axis = 0 (escrow is a wash)."
-            yearLabels={yearLabels}
-            currency={currency}
-            fmt={fmt}
-            rows={[
-              {
-                label: 'Pre-Sales Cash (subject to escrow)',
-                values: snap.escrow.projectTotals.preSalesCashPerPeriod,
-              },
-              {
-                label: 'Less: Held (regulator lock)',
-                values: snap.escrow.projectTotals.heldPerPeriod.map((v) => -v),
-              },
-              {
-                label: 'Add: Release of locked funds',
-                values: snap.escrow.projectTotals.releasePerPeriod,
-              },
-              {
-                label: 'Net Movement (Held − Release)',
-                values: snap.escrow.projectTotals.netMovementPerPeriod,
-                isSubtotal: true,
-              },
-              {
-                label: 'Cumulative Locked Balance',
-                values: snap.escrow.projectTotals.cumulativeBalancePerPeriod,
-                isSubtotal: true,
-                totalOverride: fmt(snap.escrow.projectTotals.cumulativeBalancePerPeriod[N - 1] ?? 0),
-              },
-              {
-                label: 'Net Cash Flow Adjustment (to M4)',
-                values: snap.escrow.projectTotals.cashFlowAdjustmentPerPeriod,
-                isTotal: true,
-              },
-            ]}
-          />
+          <>
+            <PeriodTable
+              title="A. Pre-Sales Cash by Asset (subject to escrow)"
+              caption="Pre-sales cash collected per period, per asset. Drives the Held calculation below: Held[t] = Pre-Sales Cash[t] × effective held %, only through each asset's Held Until Year."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={buildAssetRow('Total Pre-Sales Cash (all assets)', (ar) => ar.preSalesCashPerPeriod)}
+            />
+
+            <PeriodTable
+              title="B. Inaccessible Funds Held by Asset"
+              caption="Funds withheld each period by the regulator. Locked until each asset's release year. Pre-sales cash arriving after the Held Until Year is not withheld."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={buildAssetRow('Total Held (all assets)', (ar) => ar.result.heldPerPeriod)}
+            />
+
+            <PeriodTable
+              title="C. Release of Locked Funds by Asset"
+              caption="Cumulative held balance released as a single lump on each asset's release year (per-asset override → project default → handover year + 1)."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={buildAssetRow('Total Release (all assets)', (ar) => ar.result.releasePerPeriod)}
+            />
+
+            <PeriodTable
+              title="D. Cash Flow Impact (project totals)"
+              caption="What Module 4 will deduct (held) and add back (release) on the corporate cash flow. Net = Release − Held; sums to zero over the axis (escrow is a wash)."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={[
+                {
+                  label: 'Less: Inaccessible Funds Locked',
+                  values: snap.escrow.projectTotals.heldPerPeriod.map((v) => -v),
+                  indent: 1,
+                },
+                {
+                  label: 'Add: Release of Inaccessible Funds',
+                  values: snap.escrow.projectTotals.releasePerPeriod,
+                  indent: 1,
+                },
+                {
+                  label: 'Net Cash Flow Adjustment (to M4)',
+                  values: snap.escrow.projectTotals.cashFlowAdjustmentPerPeriod,
+                  isTotal: true,
+                },
+              ]}
+            />
+          </>
         )}
       </PhaseSection>
 
