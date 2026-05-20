@@ -315,10 +315,25 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     const phase = phases.find((p) => p.id === a.phaseId);
     const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+    // M4 Pass 2g-Fix (2026-05-20): existing operational assets (cp = 0)
+    // do not have a construction window, so they must not appear in the
+    // active-construction set at all. Previously endIdx = max(0, -1) = 0
+    // made cp=0 assets falsely active at period 0, charging them a slice
+    // of IDC that economically belongs to the assets actually drawing
+    // construction debt. Per Ahmad 2026-05-20: "you charged IDC to
+    // Phase 1 which is already operational, why charged to that."
+    //
+    // Asset still participates in `assetLand` (used by the
+    // no-active-asset fallback below) so projects with only existing
+    // operational facilities still get IDC distributed sensibly.
+    if (cp <= 0) continue;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
+    const startIdx = Math.max(0, Math.min(N - 1, offset));
+    const endIdxRaw = offset + cp - 1;
+    if (endIdxRaw < startIdx) continue;
     constructionWindow.set(a.id, {
-      startIdx: Math.max(0, Math.min(N - 1, offset)),
-      endIdx: Math.max(0, Math.min(N - 1, offset + cp - 1)),
+      startIdx,
+      endIdx: Math.min(N - 1, endIdxRaw),
     });
   }
 
