@@ -12,10 +12,10 @@
  *   1. Inputs: project defaults (Held %, Held Until Year, Release Year) +
  *      per-asset override table.
  *   2. Pre-Sales Cash by Asset (rows = each Sell / Sell+Manage asset).
- *   3. Inaccessible Funds Held by Asset.
- *   4. Release of Locked Funds by Asset.
- *   5. Cash Flow Impact (project totals: Less Held / Add Release / Net).
- *   6. Per-Asset Detail (collapsible roll-forward per asset).
+ *   3. Escrow Balance Roll-Forward: Opening Balance / Additions
+ *      (per-asset rows + total) / Less Release / Closing Balance.
+ *   4. Cash Flow Impact (project totals: Less Held / Add Release / Net).
+ *   5. Per-Asset Detail (collapsible roll-forward per asset).
  *
  * Math lives in src/core/calculations/revenue/escrow.ts. The resolver
  * in revenue-resolvers.ts threads project + per-asset overrides through.
@@ -443,26 +443,62 @@ export default function Module2Escrow(): React.JSX.Element {
               rows={buildAssetRow('Total Pre-Sales Cash (all assets)', (ar) => ar.preSalesCashPerPeriod)}
             />
 
-            <PeriodTable
-              title="B. Inaccessible Funds Held by Asset"
-              caption="Funds withheld each period by the regulator. Locked until each asset's release year. Pre-sales cash arriving after the Held Until Year is not withheld."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Total Held (all assets)', (ar) => ar.result.heldPerPeriod)}
-            />
+            {(() => {
+              // Build Escrow Balance Roll-Forward table:
+              //   Opening Balance = previous period's closing balance
+              //                   = projectTotals.cumulativeBalance[t-1] (zero at t=0)
+              //   Additions       = per-asset held rows + total
+              //   Less Release    = project total release
+              //   Closing Balance = projectTotals.cumulativeBalance[t]
+              const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod;
+              const opening = new Array<number>(N).fill(0);
+              for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+              const totalAdditions = snap.escrow.projectTotals.heldPerPeriod;
+              const release = snap.escrow.projectTotals.releasePerPeriod;
+              const rollForwardRows: Row[] = [
+                {
+                  label: 'Opening Balance',
+                  values: opening,
+                  isSubtotal: true,
+                  totalOverride: fmt(opening[0] ?? 0),
+                },
+                { label: 'Additions:', values: [], isSection: true },
+                ...escrowAssetRows.map((ar) => ({
+                  label: ar.assetName || 'Sell asset',
+                  values: ar.result.heldPerPeriod,
+                  indent: 1,
+                })),
+                {
+                  label: 'Total Additions',
+                  values: totalAdditions,
+                  isSubtotal: true,
+                },
+                {
+                  label: 'Less: Release of Locked Funds',
+                  values: release.map((v) => -v),
+                  isSubtotal: true,
+                },
+                {
+                  label: 'Closing Balance',
+                  values: closing,
+                  isTotal: true,
+                  totalOverride: fmt(closing[N - 1] ?? 0),
+                },
+              ];
+              return (
+                <PeriodTable
+                  title="B. Escrow Balance Roll-Forward"
+                  caption="Opening + Additions (each asset's held per period) − Release = Closing. Additions stop at each asset's Held Until Year (handover year by default). Release lumps on each asset's Release Year. Closing should return to zero once every asset has released."
+                  yearLabels={yearLabels}
+                  currency={currency}
+                  fmt={fmt}
+                  rows={rollForwardRows}
+                />
+              );
+            })()}
 
             <PeriodTable
-              title="C. Release of Locked Funds by Asset"
-              caption="Cumulative held balance released as a single lump on each asset's release year (per-asset override → project default → handover year + 1)."
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              rows={buildAssetRow('Total Release (all assets)', (ar) => ar.result.releasePerPeriod)}
-            />
-
-            <PeriodTable
-              title="D. Cash Flow Impact (project totals)"
+              title="C. Cash Flow Impact (project totals)"
               caption="What Module 4 will deduct (held) and add back (release) on the corporate cash flow. Net = Release − Held; sums to zero over the axis (escrow is a wash)."
               yearLabels={yearLabels}
               currency={currency}
