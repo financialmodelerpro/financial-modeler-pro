@@ -26,7 +26,7 @@
  * Law default = 10% transfer, 30% of SC cap).
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
@@ -97,6 +97,117 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     });
   };
 
+  // M4 Pass 2M-B1 (2026-05-20): Phase filter buttons. When a phase is
+  // selected, per-asset-summable BS lines (Land, NBV, AR, Inventory,
+  // Residential Receivables, AP, Unearned, Escrow) are decomposed to
+  // that phase's share by summing per-asset slices in the snapshot.
+  // Debt is per-tranche.phaseId. Project-level lines (Cash, Share
+  // Capital, Reserve, Retained, Operating AR) remain project-level
+  // and carry a (project) tag in the row label since they cannot be
+  // cleanly decomposed without a per-phase composer pass.
+  const [filterPhaseId, setFilterPhaseId] = useState<string>('__all__');
+  const phaseFiltered = filterPhaseId !== '__all__';
+  const assetIdsInPhase = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of state.assets) {
+      if (a.visible === false) continue;
+      if (a.phaseId === filterPhaseId) ids.add(a.id);
+    }
+    return ids;
+  }, [state.assets, filterPhaseId]);
+  const trancheIdsInPhase = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of state.financingTranches) {
+      if (t.phaseId === filterPhaseId) ids.add(t.id);
+    }
+    return ids;
+  }, [state.financingTranches, filterPhaseId]);
+  const phaseLabelFor = (id: string): string => state.phases.find((p) => p.id === id)?.name ?? '';
+
+  // ── Helpers: sum per-period arrays from the snapshot ───────────────
+  const N_ = N;
+  const zerosN = (): number[] => new Array<number>(N_).fill(0);
+  const addInto = (acc: number[], src: number[] | undefined): void => {
+    if (!src) return;
+    for (let t = 0; t < N_; t++) acc[t] += src[t] ?? 0;
+  };
+  const sumAssetsBy = (pick: (assetId: string) => number[] | undefined): number[] => {
+    const out = zerosN();
+    if (phaseFiltered) {
+      for (const id of assetIdsInPhase) addInto(out, pick(id));
+    } else {
+      for (const a of state.assets) {
+        if (a.visible === false) continue;
+        addInto(out, pick(a.id));
+      }
+    }
+    return out;
+  };
+
+  // Per-asset slices.
+  const landFiltered = sumAssetsBy((id) => snap.fixedAssets.byAsset.get(id)?.land.closingPerPeriod);
+  const nbvFiltered = sumAssetsBy((id) => snap.fixedAssets.byAsset.get(id)?.depreciable.closingNBVPerPeriod);
+  const inventoryFiltered = sumAssetsBy((id) => snap.perAssetCF.get(id)?.inventoryPerPeriod);
+  const resReceivablesFiltered = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.ar.perPeriod);
+  const unearnedFiltered = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
+  const apFiltered = sumAssetsBy((id) => snap.ap.byAsset.get(id)?.result.perPeriod);
+  const escrowFiltered = sumAssetsBy((id) => snap.escrow.byAsset.get(id)?.result.cumulativeBalancePerPeriod);
+
+  // IDC NBV decomposition: project-only field. When filtered, allocate
+  // by phase share of land sqm (mirrors composer's IDC allocation).
+  const totalLandSqm = Math.max(0, snap.idc.totalLandSqm);
+  const phaseLandSqm = (() => {
+    if (!phaseFiltered) return totalLandSqm;
+    let s = 0;
+    for (const id of assetIdsInPhase) s += snap.idc.byAsset.get(id)?.landSqm ?? 0;
+    return s;
+  })();
+  const phaseShareOfLand = totalLandSqm > 0 ? phaseLandSqm / totalLandSqm : 0;
+  const idcNbvFiltered = phaseFiltered
+    ? snap.idc.idcNbvPerPeriod.map((v) => v * phaseShareOfLand)
+    : snap.idc.idcNbvPerPeriod;
+
+  // Debt: per-tranche outstanding aligned to project axis.
+  const debtFiltered = (() => {
+    if (!phaseFiltered) return bs.debtOutstandingPerPeriod;
+    const out = zerosN();
+    for (const t of state.financingTranches) {
+      if (!trancheIdsInPhase.has(t.id)) continue;
+      const fac = snap.financing.facilities.get(t.id);
+      if (!fac) continue;
+      for (let i = 0; i < N_; i++) out[i] += fac.outstanding[i + 1] ?? 0;
+    }
+    return out;
+  })();
+
+  // Project-level lines stay project-level (annotated when filtered).
+  const cashFiltered = bs.cashPerPeriod;
+  const arOperatingFiltered = bs.arPerPeriod;
+  const shareCapitalFiltered = bs.shareCapitalPerPeriod;
+  const reserveFiltered = bs.statutoryReservePerPeriod;
+  const retainedFiltered = bs.retainedEarningsPerPeriod;
+  const projTag = phaseFiltered ? ' (project)' : '';
+
+  // Subtotals.
+  const totalFAFiltered = zerosN();
+  const totalCAFiltered = zerosN();
+  const totalAssetsFiltered = zerosN();
+  const totalCLFiltered = zerosN();
+  const totalLiabFiltered = zerosN();
+  const totalEquityFiltered = zerosN();
+  const totalLandEFiltered = zerosN();
+  const bsDiffFiltered = zerosN();
+  for (let t = 0; t < N_; t++) {
+    totalFAFiltered[t] = landFiltered[t] + nbvFiltered[t] + idcNbvFiltered[t];
+    totalCAFiltered[t] = cashFiltered[t] + arOperatingFiltered[t] + resReceivablesFiltered[t] + inventoryFiltered[t];
+    totalAssetsFiltered[t] = totalFAFiltered[t] + totalCAFiltered[t];
+    totalCLFiltered[t] = apFiltered[t] + unearnedFiltered[t] + escrowFiltered[t];
+    totalLiabFiltered[t] = totalCLFiltered[t] + debtFiltered[t];
+    totalEquityFiltered[t] = shareCapitalFiltered[t] + reserveFiltered[t] + retainedFiltered[t];
+    totalLandEFiltered[t] = totalLiabFiltered[t] + totalEquityFiltered[t];
+    bsDiffFiltered[t] = totalAssetsFiltered[t] - totalLandEFiltered[t];
+  }
+
   // M4 Pass 2j (2026-05-20): prior-year column shows opening balances at
   // axis start. Stock lines pick up existing-operations history from
   // financing.existing + fixed-assets snapshot; flow lines stay at 0.
@@ -117,55 +228,53 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   rows.push({ label: 'ASSETS', values: [], isSection: true });
 
   rows.push({ label: 'Fixed Assets', values: [], isSection: true });
-  rows.push({ label: 'Land', values: bs.landPerPeriod, indent: 1, totalOverride: fmt(bs.landPerPeriod[N - 1] ?? 0), priorValue: priorLand });
-  rows.push({ label: 'WIP / Fixed Assets (NBV)', values: bs.nbvPerPeriod, indent: 1, totalOverride: fmt(bs.nbvPerPeriod[N - 1] ?? 0), priorValue: priorBuilding });
-  // M4 Pass 2f: IDC NBV is the capitalised-interest portion of Fixed Assets
-  // (Operate / Lease assets only, Sell IDC flows through Inventory and CoS).
-  if (snap.idc.idcNbvPerPeriod.some((v) => v !== 0)) {
+  rows.push({ label: 'Land', values: landFiltered, indent: 1, totalOverride: fmt(landFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorLand });
+  rows.push({ label: 'WIP / Fixed Assets (NBV)', values: nbvFiltered, indent: 1, totalOverride: fmt(nbvFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorBuilding });
+  if (idcNbvFiltered.some((v) => v !== 0)) {
     rows.push({
       label: 'Capitalised Interest (IDC) NBV',
-      values: snap.idc.idcNbvPerPeriod,
+      values: idcNbvFiltered,
       indent: 1,
-      totalOverride: fmt(snap.idc.idcNbvPerPeriod[N - 1] ?? 0),
+      totalOverride: fmt(idcNbvFiltered[N - 1] ?? 0),
       priorValue: 0,
     });
   }
-  rows.push({ label: 'Total Fixed Assets', values: bs.totalFixedAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalFixedAssetsPerPeriod[N - 1] ?? 0), priorValue: priorFA });
+  rows.push({ label: 'Total Fixed Assets', values: totalFAFiltered, isSubtotal: true, totalOverride: fmt(totalFAFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorFA });
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
-  rows.push({ label: 'Cash', values: bs.cashPerPeriod, indent: 1, totalOverride: fmt(bs.cashPerPeriod[N - 1] ?? 0), priorValue: priorCash });
-  if (bs.arPerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: 'Accounts Receivable (Operating)', values: bs.arPerPeriod, indent: 1, totalOverride: fmt(bs.arPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: `Cash${projTag}`, values: cashFiltered, indent: 1, totalOverride: fmt(cashFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorCash });
+  if (arOperatingFiltered.some((v) => v !== 0)) {
+    rows.push({ label: `Accounts Receivable (Operating)${projTag}`, values: arOperatingFiltered, indent: 1, totalOverride: fmt(arOperatingFiltered[N - 1] ?? 0), priorValue: 0 });
   }
-  rows.push({ label: 'Residential Sales Receivables', values: bs.residentialReceivablesPerPeriod, indent: 1, totalOverride: fmt(bs.residentialReceivablesPerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Inventory (Residential WIP)', values: bs.inventoryPerPeriod, indent: 1, totalOverride: fmt(bs.inventoryPerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Total Current Assets', values: bs.totalCurrentAssetsPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentAssetsPerPeriod[N - 1] ?? 0), priorValue: priorCA });
+  rows.push({ label: 'Residential Sales Receivables', values: resReceivablesFiltered, indent: 1, totalOverride: fmt(resReceivablesFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Inventory (Residential WIP)', values: inventoryFiltered, indent: 1, totalOverride: fmt(inventoryFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Current Assets', values: totalCAFiltered, isSubtotal: true, totalOverride: fmt(totalCAFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorCA });
 
-  rows.push({ label: 'TOTAL ASSETS', values: bs.totalAssetsPerPeriod, isTotal: true, totalOverride: fmt(bs.totalAssetsPerPeriod[N - 1] ?? 0), priorValue: priorTotalAssets });
+  rows.push({ label: 'TOTAL ASSETS', values: totalAssetsFiltered, isTotal: true, totalOverride: fmt(totalAssetsFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorTotalAssets });
 
   rows.push({ label: 'LIABILITIES', values: [], isSection: true });
   rows.push({ label: 'Current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Accounts Payable', values: bs.apPerPeriod, indent: 1, totalOverride: fmt(bs.apPerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: bs.unearnedRevenuePerPeriod, indent: 1, totalOverride: fmt(bs.unearnedRevenuePerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Escrow Locked Funds', values: bs.escrowLiabilityPerPeriod, indent: 1, totalOverride: fmt(bs.escrowLiabilityPerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Total Current Liabilities', values: bs.totalCurrentLiabilitiesPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalCurrentLiabilitiesPerPeriod[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Accounts Payable', values: apFiltered, indent: 1, totalOverride: fmt(apFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: unearnedFiltered, indent: 1, totalOverride: fmt(unearnedFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Escrow Locked Funds', values: escrowFiltered, indent: 1, totalOverride: fmt(escrowFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Current Liabilities', values: totalCLFiltered, isSubtotal: true, totalOverride: fmt(totalCLFiltered[N - 1] ?? 0), priorValue: 0 });
 
   rows.push({ label: 'Non-current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Debt (long-term)', values: bs.debtOutstandingPerPeriod, indent: 1, totalOverride: fmt(bs.debtOutstandingPerPeriod[N - 1] ?? 0), priorValue: priorDebt });
-  rows.push({ label: 'TOTAL LIABILITIES', values: bs.totalLiabilitiesPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesPerPeriod[N - 1] ?? 0), priorValue: priorDebt });
+  rows.push({ label: 'Debt (long-term)', values: debtFiltered, indent: 1, totalOverride: fmt(debtFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorDebt });
+  rows.push({ label: 'TOTAL LIABILITIES', values: totalLiabFiltered, isTotal: true, totalOverride: fmt(totalLiabFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorDebt });
 
   rows.push({ label: 'SHAREHOLDERS EQUITY', values: [], isSection: true });
-  rows.push({ label: 'Share Capital', values: bs.shareCapitalPerPeriod, indent: 1, totalOverride: fmt(bs.shareCapitalPerPeriod[N - 1] ?? 0), priorValue: priorEquity });
-  rows.push({ label: 'Statutory Reserve', values: bs.statutoryReservePerPeriod, indent: 1, totalOverride: fmt(bs.statutoryReservePerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Retained Earnings', values: bs.retainedEarningsPerPeriod, indent: 1, totalOverride: fmt(bs.retainedEarningsPerPeriod[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Total Equity', values: bs.totalEquityPerPeriod, isSubtotal: true, totalOverride: fmt(bs.totalEquityPerPeriod[N - 1] ?? 0), priorValue: priorEquity });
+  rows.push({ label: `Share Capital${projTag}`, values: shareCapitalFiltered, indent: 1, totalOverride: fmt(shareCapitalFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorEquity });
+  rows.push({ label: `Statutory Reserve${projTag}`, values: reserveFiltered, indent: 1, totalOverride: fmt(reserveFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: `Retained Earnings${projTag}`, values: retainedFiltered, indent: 1, totalOverride: fmt(retainedFiltered[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Equity', values: totalEquityFiltered, isSubtotal: true, totalOverride: fmt(totalEquityFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorEquity });
 
-  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: bs.totalLiabilitiesAndEquityPerPeriod, isTotal: true, totalOverride: fmt(bs.totalLiabilitiesAndEquityPerPeriod[N - 1] ?? 0), priorValue: priorLandE });
+  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: totalLandEFiltered, isTotal: true, totalOverride: fmt(totalLandEFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorLandE });
 
   // BS Check
-  const maxAbsDiff = Math.max(...bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  const maxAbsDiff = Math.max(...bsDiffFiltered.map((v) => Math.abs(v)));
   const balances = maxAbsDiff < 0.5;
-  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bs.bsDifferencePerPeriod, isTotal: true, totalOverride: fmt(maxAbsDiff), priorValue: priorTotalAssets - priorLandE });
+  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bsDiffFiltered, isTotal: true, totalOverride: fmt(maxAbsDiff), priorValue: phaseFiltered ? 0 : (priorTotalAssets - priorLandE) });
 
   return (
     <div data-testid="module4-balancesheet" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -295,8 +404,41 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         </div>
       </PhaseSection>
 
+      {/* M4 Pass 2M-B1 (2026-05-20): phase filter buttons. */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
+        <span style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>View:</span>
+        {[{ id: '__all__', name: 'All' } as const, ...state.phases.map((p) => ({ id: p.id, name: p.name }))].map((opt) => {
+          const active = filterPhaseId === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setFilterPhaseId(opt.id)}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                border: '1px solid',
+                borderColor: active ? 'var(--color-navy)' : 'var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                color: active ? 'white' : 'var(--color-text)',
+                cursor: 'pointer',
+              }}
+            >
+              {opt.name}
+            </button>
+          );
+        })}
+        {phaseFiltered && (
+          <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginLeft: 'var(--sp-1)' }}>
+            Project-level rows (Cash, AR Operating, Share Capital, Reserve, Retained) tagged (project); BS Check may drift when filtered.
+          </span>
+        )}
+      </div>
+
       <M4PeriodTable
-        title="Balance Sheet: Project"
+        title={phaseFiltered ? `Balance Sheet: ${phaseLabelFor(filterPhaseId)}` : 'Balance Sheet: Project'}
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}
