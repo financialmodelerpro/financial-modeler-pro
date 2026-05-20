@@ -430,6 +430,11 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     [totalPeriods, projectStartYear],
   );
   const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+  // M4 Pass 2h (2026-05-20): phase offset on the project axis. Used by
+  // every per-period setter / reader so user inputs anchor to the
+  // owning phase, not the project axis origin. Mirrors the CostLine
+  // convention that has always worked.
+  const phaseOffset = Math.max(0, phaseStartYear - projectStartYear);
   const cp = Math.max(0, phase.constructionPeriods ?? 0);
   const op = Math.max(0, phase.operationsPeriods ?? 0);
   const overlap = Math.max(0, phase.overlapPeriods ?? 0);
@@ -515,25 +520,46 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), sell: nextSell } });
   };
 
+  // M4 Pass 2h: write a value to BOTH the legacy axis-indexed array
+  // AND the new phase-local array. The new field is what engines read;
+  // the legacy field keeps in-place renderers backward-compat during
+  // the transition. Converts axis periodIdx -> phase-local idx for the
+  // ByPhase write.
+  const dualWriteVelocity = (
+    legacyArr: number[],
+    byPhaseArr: number[] | undefined,
+    periodIdx: number,
+    value: number,
+  ): { legacy: number[]; byPhase: number[] } => {
+    const legacy = [...legacyArr];
+    legacy[periodIdx] = value;
+    const localIdx = periodIdx - phaseOffset;
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const byPhase = paddedArray(byPhaseArr, phaseLen);
+    if (localIdx >= 0 && localIdx < byPhase.length) byPhase[localIdx] = value;
+    return { legacy, byPhase };
+  };
+
   const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
+    const value = Math.max(0, Math.min(1, pct / 100));
     const baseSubs = subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
         subUnitId: su.id,
         preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
         postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
+        preSalesVelocityByPhase: existing?.preSalesVelocityByPhase,
+        postSalesVelocityByPhase: existing?.postSalesVelocityByPhase,
       };
     });
     const nextSubs = baseSubs.map((s) => {
       if (s.subUnitId !== subUnitId) return s;
       if (kind === 'pre') {
-        const next = [...s.preSalesVelocity];
-        next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
-        return { ...s, preSalesVelocity: next };
+        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value);
+        return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
       }
-      const next = [...s.postSalesVelocity];
-      next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
-      return { ...s, postSalesVelocity: next };
+      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value);
+      return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
     });
     updateSellInline({ subUnits: nextSubs });
   };
@@ -543,36 +569,44 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // per-sub-unit; this just keeps every sub-unit in lockstep when the
   // user is in "All sub-units" view.
   const setVelocityForAllSubUnits = (periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
-    const clamped = Math.max(0, Math.min(1, pct / 100));
+    const value = Math.max(0, Math.min(1, pct / 100));
     const baseSubs = subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
         subUnitId: su.id,
         preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
         postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
+        preSalesVelocityByPhase: existing?.preSalesVelocityByPhase,
+        postSalesVelocityByPhase: existing?.postSalesVelocityByPhase,
       };
     });
     const nextSubs = baseSubs.map((s) => {
       if (kind === 'pre') {
-        const next = [...s.preSalesVelocity];
-        next[periodIdx] = clamped;
-        return { ...s, preSalesVelocity: next };
+        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value);
+        return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
       }
-      const next = [...s.postSalesVelocity];
-      next[periodIdx] = clamped;
-      return { ...s, postSalesVelocity: next };
+      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value);
+      return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
     });
     updateSellInline({ subUnits: nextSubs });
   };
 
   const setCashPct = (periodIdx: number, pct: number): void => {
+    const value = Math.max(0, Math.min(1, pct / 100));
     const next = paddedArray(cashProfile.percentages, totalPeriods);
-    next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+    next[periodIdx] = value;
+    // M4 Pass 2h: dual-write to phase-local sibling.
+    const localIdx = periodIdx - phaseOffset;
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const nextByPhase = paddedArray(cashProfile.percentagesByPhase, phaseLen);
+    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
     updateSellInline({
       cashPaymentProfile: {
         percentages: next,
         positions: cashProfile.positions,
         profileMode: cashProfile.profileMode ?? 'absolute_with_catchup',
+        percentagesByPhase: nextByPhase,
+        positionsByPhase: cashProfile.positionsByPhase,
       },
     });
   };
@@ -599,10 +633,20 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
   const setRecognitionPct = (periodIdx: number, pct: number): void => {
     if (recProfile.method !== 'over_time') return;
+    const value = Math.max(0, Math.min(1, pct / 100));
     const next = paddedArray(recProfile.percentages, totalPeriods);
-    next[periodIdx] = Math.max(0, Math.min(1, pct / 100));
+    next[periodIdx] = value;
+    // M4 Pass 2h: dual-write to phase-local sibling.
+    const localIdx = periodIdx - phaseOffset;
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const nextByPhase = paddedArray(recProfile.percentagesByPhase, phaseLen);
+    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
     updateSellInline({
-      recognitionProfile: { ...recProfile, percentages: next },
+      recognitionProfile: {
+        ...recProfile,
+        percentages: next,
+        percentagesByPhase: nextByPhase,
+      },
     });
   };
 
@@ -1641,8 +1685,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={constructionWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre')))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'))]}
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset)]}
               />
             </InlineSection>
           )}
@@ -1656,8 +1700,8 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={operationsWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post')))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'))]}
+                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset)]}
               />
             </InlineSection>
           )}
@@ -1918,17 +1962,33 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 // so the user knows there is one canonical place to edit it.
 function buildVelocityRow(
   su: SubUnit,
-  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
+  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[] }> } | undefined,
   currency: string,
   totalPeriods: number,
   kind: 'pre' | 'post',
   onChange: (subUnitId: string, periodIdx: number, pct: number) => void,
+  phaseOffset = 0,
 ): InlineGridRow {
   const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
-  const arr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
-  const values = paddedArray(arr, totalPeriods);
-  const preSum = (cfgSU?.preSalesVelocity ?? []).reduce((s, v) => s + v, 0);
-  const postSum = (cfgSU?.postSalesVelocity ?? []).reduce((s, v) => s + v, 0);
+  // M4 Pass 2h: prefer ByPhase (phase-local) when present; expand to
+  // axis view for the grid. Fall back to legacy axis-indexed array.
+  const byPhaseArr = kind === 'pre' ? cfgSU?.preSalesVelocityByPhase : cfgSU?.postSalesVelocityByPhase;
+  const legacyArr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
+  const values = byPhaseArr !== undefined
+    ? (() => {
+        const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+        for (let i = 0; i < byPhaseArr.length; i++) {
+          const j = phaseOffset + i;
+          if (j >= 0 && j < axis.length) axis[j] = byPhaseArr[i] ?? 0;
+        }
+        return axis;
+      })()
+    : paddedArray(legacyArr, totalPeriods);
+  // Sums roll up over BOTH arrays' contributions; ByPhase wins when set.
+  const preArr = cfgSU?.preSalesVelocityByPhase ?? cfgSU?.preSalesVelocity ?? [];
+  const postArr = cfgSU?.postSalesVelocityByPhase ?? cfgSU?.postSalesVelocity ?? [];
+  const preSum = preArr.reduce((s, v) => s + v, 0);
+  const postSum = postArr.reduce((s, v) => s + v, 0);
   const sumSelf = kind === 'pre' ? preSum : postSum;
   const sumAll = preSum + postSum;
   const overall = sumAll > 1 + 1e-6;
@@ -1958,16 +2018,26 @@ function buildVelocityRow(
 // divergence when sub-units have drifted apart (auto-detection so the
 // user knows editing in shared mode will overwrite all).
 function buildSharedVelocityRow(
-  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[] }> } | undefined,
+  cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[] }> } | undefined,
   subUnitsInAsset: SubUnit[],
   totalPeriods: number,
   kind: 'pre' | 'post',
   onChange: (periodIdx: number, pct: number) => void,
+  phaseOffset = 0,
 ): InlineGridRow {
   const arrays = subUnitsInAsset.map((su) => {
     const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
-    const arr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
-    return paddedArray(arr, totalPeriods);
+    const byPhaseArr = kind === 'pre' ? cfgSU?.preSalesVelocityByPhase : cfgSU?.postSalesVelocityByPhase;
+    const legacyArr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
+    if (byPhaseArr !== undefined) {
+      const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+      for (let i = 0; i < byPhaseArr.length; i++) {
+        const j = phaseOffset + i;
+        if (j >= 0 && j < axis.length) axis[j] = byPhaseArr[i] ?? 0;
+      }
+      return axis;
+    }
+    return paddedArray(legacyArr, totalPeriods);
   });
   const first = arrays[0] ?? new Array<number>(totalPeriods).fill(0);
   const divergent = arrays.length > 1
