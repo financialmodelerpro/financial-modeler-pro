@@ -217,6 +217,13 @@ export default function Module4CashFlow(): React.JSX.Element {
       rows.push({ label: 'Equity Drawdown', values: d.equityDrawdownPerPeriod, indent: 1 });
     }
     // Per-tranche debt detail.
+    // M4 Pass 2M-A2 (2026-05-20): split Finance Cost Paid into two
+    // window-scoped lines per tranche so the user sees IDC-window
+    // (construction) interest separately from Operations-window cash
+    // interest. Window is derived from the tranche's phase: IDC =
+    // [phaseOffset, phaseOffset + cp); Operations = [phaseOffset + cp,
+    // N). The split mirrors v1.16's two-row finance-cost layout.
+    const projectStartYearForSplit = snap.projectStartYear;
     for (const t of state.financingTranches) {
       const f = snap.financing.facilities.get(t.id);
       if (!f) continue;
@@ -232,6 +239,19 @@ export default function Module4CashFlow(): React.JSX.Element {
       while (intPaid.length < N) intPaid.push(0);
       const phaseLabel = phaseShort(t.phaseId);
 
+      const ph = phaseById.get(t.phaseId);
+      const phaseStartYear = ph?.startDate ? new Date(ph.startDate).getUTCFullYear() : projectStartYearForSplit;
+      const phaseOffset = Math.max(0, phaseStartYear - projectStartYearForSplit);
+      const cp = Math.max(0, ph?.constructionPeriods ?? 0);
+      const idcEnd = Math.min(N, phaseOffset + cp);
+      const intPaidIdc: number[] = new Array(N).fill(0);
+      const intPaidOps: number[] = new Array(N).fill(0);
+      for (let i = 0; i < N; i++) {
+        if (i < phaseOffset) continue;
+        if (i < idcEnd) intPaidIdc[i] = intPaid[i] ?? 0;
+        else intPaidOps[i] = intPaid[i] ?? 0;
+      }
+
       if (drawCapex.some((v) => v !== 0)) {
         rows.push({ label: `Debt Drawdown, ${t.name}`, values: drawCapex, indent: 1, phaseLabel });
       }
@@ -241,8 +261,11 @@ export default function Module4CashFlow(): React.JSX.Element {
       if (repaid.some((v) => v !== 0)) {
         rows.push({ label: `Debt Repayment, ${t.name}`, values: repaid.map((v) => -v), indent: 1, phaseLabel });
       }
-      if (intPaid.some((v) => v !== 0)) {
-        rows.push({ label: `Finance Cost Paid, ${t.name}`, values: intPaid.map((v) => -v), indent: 1, phaseLabel });
+      if (intPaidIdc.some((v) => v !== 0)) {
+        rows.push({ label: `Finance Cost Paid (IDC), ${t.name}`, values: intPaidIdc.map((v) => -v), indent: 1, phaseLabel });
+      }
+      if (intPaidOps.some((v) => v !== 0)) {
+        rows.push({ label: `Finance Cost Paid (Operations), ${t.name}`, values: intPaidOps.map((v) => -v), indent: 1, phaseLabel });
       }
     }
     rows.push({ label: 'Cash Flow from Financing', values: d.cashFromFinancingPerPeriod, isSubtotal: true });
