@@ -201,6 +201,49 @@ export default function Module4Schedules(): React.JSX.Element {
         />
       </PhaseSection>
 
+      {/* 5b. IDC Allocation (M4 Pass 2f) */}
+      <PhaseSection
+        phaseId="m4-sch-idc"
+        title="5b. Capitalised Interest (IDC) Allocation"
+        meta="Allocated by land-area share — Sell IDC -> CoS, Operate/Lease IDC -> D&A"
+        storageKey="fmp:m4:sch:idc:collapsed"
+      >
+        <M4PeriodTable
+          title="IDC by Asset — Allocation (project)"
+          caption="Total IDC per period from the financing engine, distributed across visible non-companion assets by land-sqm share. Sell / Sell+Manage assets capitalise IDC to inventory (released to CoS via the recognition profile). Operate / Lease assets capitalise IDC to Fixed Assets (depreciated over useful life)."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          rows={(() => {
+            const rows: M4Row[] = [];
+            const idcAssetRows = Array.from(snap.idc.byAsset.values()).filter((r) => r.totalIdc > 0);
+            if (idcAssetRows.length === 0) {
+              return [
+                { label: 'Total IDC (project)', values: snap.idc.totalIdcPerPeriod, isTotal: true },
+                { label: 'No allocation — set project land area on assets or check financing tranches for capitalised interest.', values: zeros(), isSection: true },
+              ];
+            }
+            rows.push({ label: 'IDC capitalised this period:', values: [], isSection: true });
+            for (const r of idcAssetRows) {
+              rows.push({
+                label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
+                values: r.idcPerPeriod,
+                indent: 1,
+              });
+            }
+            rows.push({ label: 'Total IDC (project)', values: snap.idc.totalIdcPerPeriod, isTotal: true });
+            rows.push({ label: 'Operate/Lease IDC depreciation', values: snap.idc.idcDepreciationPerPeriod.map((v) => -v), indent: 1 });
+            rows.push({
+              label: 'Operate/Lease IDC NBV (closing)',
+              values: snap.idc.idcNbvPerPeriod,
+              isSubtotal: true,
+              totalOverride: fmt(snap.idc.idcNbvPerPeriod[N - 1] ?? 0),
+            });
+            return rows;
+          })()}
+        />
+      </PhaseSection>
+
       {/* 6. Fixed Assets */}
       <PhaseSection phaseId="m4-sch-fa" title="6. Fixed Assets (NBV)" meta="M4 Pass 1 depreciation roll-forward" storageKey="fmp:m4:sch:fa:collapsed">
         <M4PeriodTable
