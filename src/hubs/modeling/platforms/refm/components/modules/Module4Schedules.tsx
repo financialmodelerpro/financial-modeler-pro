@@ -80,21 +80,27 @@ export default function Module4Schedules(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           rows={(() => {
+            // M4 Pass 2h-Fix (2026-05-20): include BOTH pre-sales and
+            // post-sales (SDO) sale value in the billed line so it
+            // reconciles with the total cash collected. Previously only
+            // pre-sales sale value was shown, causing a billed-vs-cash
+            // total mismatch by the amount of post-sales activity.
             const opening = zeros(), billed = zeros(), collected = zeros(), closing = zeros();
             for (const [assetId, bundle] of snap.byAssetSchedules) {
               const sell = snap.revenue.bySellAsset.get(assetId);
               if (!sell) continue;
               for (let t = 0; t < N; t++) {
                 opening[t] += bundle.ar.openingPerPeriod[t] ?? 0;
-                billed[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+                billed[t] += (sell.presalesSalesValuePerPeriod[t] ?? 0)
+                  + (sell.postSalesRevenuePerPeriod[t] ?? 0);
                 collected[t] += sell.cashCollectedPerPeriod[t] ?? 0;
                 closing[t] += bundle.ar.perPeriod[t] ?? 0;
               }
             }
             return [
               { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Revenue billed', values: billed, indent: 1 },
-              { label: '(−) Cash collected', values: collected.map((v) => -v), indent: 1 },
+              { label: '(+) Revenue billed (pre-sales + SDO)', values: billed, indent: 1 },
+              { label: '(−) Cash collected (pre-sales + SDO)', values: collected.map((v) => -v), indent: 1 },
               { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
             ];
           })()}
@@ -166,21 +172,26 @@ export default function Module4Schedules(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           rows={(() => {
-            const opening = zeros(), cash = zeros(), recognized = zeros(), closing = zeros();
+            // M4 Pass 2h-Fix (2026-05-20): engine builds unearned revenue
+            // from (sale value contracted - recognition). The label
+            // previously said "Cash collected" which was misleading; the
+            // mechanic is contract sale value treated as a liability
+            // until revenue is recognized at handover.
+            const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
             for (const [assetId, bundle] of snap.byAssetSchedules) {
               const sell = snap.revenue.bySellAsset.get(assetId);
               if (!sell) continue;
               for (let t = 0; t < N; t++) {
                 opening[t] += bundle.unearned.openingPerPeriod[t] ?? 0;
-                cash[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+                saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
                 recognized[t] += sell.presalesRecognitionPerPeriod[t] ?? 0;
                 closing[t] += bundle.unearned.perPeriod[t] ?? 0;
               }
             }
             return [
               { label: 'Opening unearned revenue', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Cash collected', values: cash, indent: 1 },
-              { label: '(−) Revenue recognized', values: recognized.map((v) => -v), indent: 1 },
+              { label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 },
+              { label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 },
               { label: 'Closing unearned revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
             ];
           })()}
