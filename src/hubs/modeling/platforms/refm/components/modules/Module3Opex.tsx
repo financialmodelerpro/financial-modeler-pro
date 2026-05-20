@@ -20,7 +20,7 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { Asset, Phase } from '../../lib/state/module1-types';
+import type { Asset } from '../../lib/state/module1-types';
 import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
@@ -46,18 +46,6 @@ const FAST_INPUT: React.CSSProperties = {
   fontFamily: 'inherit',
   width: '100%',
 };
-const phaseHeaderStyle: React.CSSProperties = {
-  background: 'var(--color-navy)',
-  color: 'var(--color-on-primary-navy)',
-  padding: 'var(--sp-2) var(--sp-3)',
-  borderRadius: 'var(--radius-sm)',
-  marginBottom: 'var(--sp-2)',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  cursor: 'pointer',
-};
-
 // ─── category / mode catalogs ─────────────────────────────────────
 const CATEGORY_LABELS: Record<OpexLineCategory, string> = {
   direct_rooms: 'Direct, Rooms',
@@ -117,6 +105,10 @@ const HOSP_CATEGORIES: OpexLineCategory[] = [
 const LEASE_CATEGORIES: OpexLineCategory[] = [
   'mgmt_base', 'repairs_maintenance', 'rent_insurance', 'utilities',
   'cam',
+  // Lease assets can also carry G&A when the owner wants to allocate
+  // a portion of indirect overheads to the property (per Ahmad
+  // 2026-05-20).
+  'indirect_ga',
   'property_tax', 'replacement_reserve', 'other',
 ];
 const HQ_CATEGORIES: OpexLineCategory[] = [
@@ -886,26 +878,22 @@ export default function Module3Opex(): React.JSX.Element {
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);
   const [collapsedAssets, setCollapsedAssets] = useState<Record<string, boolean>>({});
-  const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({});
 
   // Filter to opex-relevant assets: Hospitality (Operate, including
   // Sell + Manage companions whose strategy is 'Operate') and Lease.
   // Sell + Manage PARENTS (strategy 'Sell + Manage') have no opex —
   // their operating side lives on the companion. Pure Sell has no
-  // ongoing operations.
+  // ongoing operations. Pass 5b (2026-05-20): listed flat by asset,
+  // not grouped by phase — the phase name shows on each card so users
+  // still see context.
   const opexAssets = useMemo(
     () => assets.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease'),
     [assets],
   );
-  const assetsByPhase = useMemo(() => {
-    const map = new Map<string, Asset[]>();
-    for (const a of opexAssets) {
-      const arr = map.get(a.phaseId) ?? [];
-      arr.push(a);
-      map.set(a.phaseId, arr);
-    }
-    return map;
-  }, [opexAssets]);
+  const phaseNameForAsset = (a: Asset): string => {
+    const p = phases.find((x) => x.id === a.phaseId);
+    return p?.name ?? '';
+  };
 
   // HQ lines + default: seeded with defaults on first read so the user
   // sees a sensible starting point. Saving only writes when the user edits.
@@ -1042,12 +1030,6 @@ export default function Module3Opex(): React.JSX.Element {
     return { label: 'Hospitality', color: 'var(--color-success, #166534)' };
   };
 
-  // Visible phases = phases with at least one opex-relevant asset.
-  const visiblePhases: Phase[] = useMemo(
-    () => phases.filter((p) => (assetsByPhase.get(p.id)?.length ?? 0) > 0),
-    [phases, assetsByPhase],
-  );
-
   return (
     <div data-testid="module3-opex">
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1099,8 +1081,8 @@ export default function Module3Opex(): React.JSX.Element {
         />
       </AssetCard>
 
-      {/* Per-phase per-asset opex */}
-      {visiblePhases.length === 0 && (
+      {/* Per-asset opex (flat list — phase shown on each card as a tag) */}
+      {opexAssets.length === 0 && (
         <div style={{
           padding: 'var(--sp-3)',
           textAlign: 'center',
@@ -1112,122 +1094,125 @@ export default function Module3Opex(): React.JSX.Element {
         </div>
       )}
 
-      {visiblePhases.map((phase) => {
-        const phaseAssets = assetsByPhase.get(phase.id) ?? [];
-        const phaseCollapsed = collapsedPhases[phase.id] === true;
+      {opexAssets.map((a) => {
+        const collapsed = collapsedAssets[a.id] === true;
+        const lines = a.opex?.lines ?? [];
+        const hasLines = lines.length > 0;
+        const sb = strategyBadge(a);
+        const yearCells = opsYearsForAsset(a);
+        const assetDefault = assetDefaultIndexation(a);
+        const phaseName = phaseNameForAsset(a);
         return (
-          <div key={phase.id} style={{ marginBottom: 'var(--sp-3)' }}>
-            <div
-              style={phaseHeaderStyle}
-              onClick={() => setCollapsedPhases((s) => ({ ...s, [phase.id]: !s[phase.id] }))}
-              data-testid={`m3-phase-header-${phase.id}`}
-            >
-              <span>{phaseCollapsed ? '▶' : '▼'} {phase.name} ({phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'})</span>
-            </div>
-            {!phaseCollapsed && phaseAssets.map((a) => {
-              const collapsed = collapsedAssets[a.id] === true;
-              const lines = a.opex?.lines ?? [];
-              const hasLines = lines.length > 0;
-              const sb = strategyBadge(a);
-              const yearCells = opsYearsForAsset(a);
-              const assetDefault = assetDefaultIndexation(a);
-              return (
-                <AssetCard
-                  key={a.id}
-                  title={<span>{a.name}</span>}
-                  badge={sb.label}
-                  badgeColor={sb.color}
-                  collapsed={collapsed}
-                  onToggle={() => setCollapsedAssets((s) => ({ ...s, [a.id]: !s[a.id] }))}
+          <AssetCard
+            key={a.id}
+            title={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span>{a.name}</span>
+                {phaseName && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'color-mix(in srgb, var(--color-meta) 14%, transparent)',
+                      color: 'var(--color-meta)',
+                    }}
+                    title="Phase the asset belongs to (set in Module 1)."
+                  >{phaseName}</span>
+                )}
+              </span>
+            }
+            badge={sb.label}
+            badgeColor={sb.color}
+            collapsed={collapsed}
+            onToggle={() => setCollapsedAssets((s) => ({ ...s, [a.id]: !s[a.id] }))}
+          >
+            {!hasLines ? (
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 'var(--sp-2)', background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)' }}>
+                <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+                  No opex configured yet for this asset.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => seedAsset(a)}
+                  style={{
+                    fontSize: 10,
+                    padding: '4px 10px',
+                    background: 'var(--color-navy)',
+                    color: 'var(--color-on-primary-navy)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                  data-testid={`m3-seed-${a.id}`}
                 >
-                  {!hasLines ? (
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 'var(--sp-2)', background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)' }}>
-                      <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-                        No opex configured yet for this asset.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => seedAsset(a)}
-                        style={{
-                          fontSize: 10,
-                          padding: '4px 10px',
-                          background: 'var(--color-navy)',
-                          color: 'var(--color-on-primary-navy)',
-                          border: 'none',
-                          borderRadius: 'var(--radius-sm)',
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                        }}
-                        data-testid={`m3-seed-${a.id}`}
-                      >
-                        Seed default {a.strategy === 'Lease' ? 'Lease' : 'Hospitality'} lines
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        style={{
-                          marginBottom: 'var(--sp-2)',
-                          padding: '6px 10px',
-                          background: 'var(--color-grey-pale)',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border)',
-                        }}
-                      >
-                        <InflationPanel
-                          config={assetDefault}
-                          onChange={(next) => setAssetDefaultIndexation(a.id, next)}
-                          axisLength={axisLength}
-                          yearCells={yearCells}
-                          testidPrefix={`m3-asset-${a.id}-default-infl`}
-                          leftLabel="Asset Inflation"
-                        />
-                      </div>
-                      <OpexLineTable
-                        lines={lines}
-                        allowedCategories={assetCategoriesFor(a)}
-                        allowedModes={assetModesFor(a)}
-                        onChange={(next) => setAssetLines(a.id, next)}
-                        testidPrefix={`m3-asset-${a.id}`}
-                        defaultIndexation={assetDefault}
-                        yearCells={yearCells}
-                        axisLength={axisLength}
-                        newLineStrategy={a.strategy === 'Lease' ? 'Lease' : 'Hospitality'}
-                      />
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
-                            const ok = window.confirm(
-                              `Apply this asset's opex lines + asset inflation to every other ${label} asset?\n\n` +
-                              `Each ${label} asset will be overwritten with the lines AND the asset-level inflation configured here. ` +
-                              `This won't change HQ overheads or assets of a different strategy.`,
-                            );
-                            if (ok) applyToStrategy(a);
-                          }}
-                          style={{
-                            fontSize: 10,
-                            padding: '4px 10px',
-                            background: 'var(--color-surface)',
-                            color: 'var(--color-navy)',
-                            border: '1px solid var(--color-navy)',
-                            borderRadius: 'var(--radius-sm)',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                          }}
-                          title={`Copy these lines + asset inflation to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
-                          data-testid={`m3-apply-strategy-${a.id}`}
-                        >
-                          Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </AssetCard>
-              );
-            })}
-          </div>
+                  Seed default {a.strategy === 'Lease' ? 'Lease' : 'Hospitality'} lines
+                </button>
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    marginBottom: 'var(--sp-2)',
+                    padding: '6px 10px',
+                    background: 'var(--color-grey-pale)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <InflationPanel
+                    config={assetDefault}
+                    onChange={(next) => setAssetDefaultIndexation(a.id, next)}
+                    axisLength={axisLength}
+                    yearCells={yearCells}
+                    testidPrefix={`m3-asset-${a.id}-default-infl`}
+                    leftLabel="Asset Inflation"
+                  />
+                </div>
+                <OpexLineTable
+                  lines={lines}
+                  allowedCategories={assetCategoriesFor(a)}
+                  allowedModes={assetModesFor(a)}
+                  onChange={(next) => setAssetLines(a.id, next)}
+                  testidPrefix={`m3-asset-${a.id}`}
+                  defaultIndexation={assetDefault}
+                  yearCells={yearCells}
+                  axisLength={axisLength}
+                  newLineStrategy={a.strategy === 'Lease' ? 'Lease' : 'Hospitality'}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
+                      const ok = window.confirm(
+                        `Apply this asset's opex lines + asset inflation to every other ${label} asset?\n\n` +
+                        `Each ${label} asset will be overwritten with the lines AND the asset-level inflation configured here. ` +
+                        `This won't change HQ overheads or assets of a different strategy.`,
+                      );
+                      if (ok) applyToStrategy(a);
+                    }}
+                    style={{
+                      fontSize: 10,
+                      padding: '4px 10px',
+                      background: 'var(--color-surface)',
+                      color: 'var(--color-navy)',
+                      border: '1px solid var(--color-navy)',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                    title={`Copy these lines + asset inflation to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
+                    data-testid={`m3-apply-strategy-${a.id}`}
+                  >
+                    Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}
+                  </button>
+                </div>
+              </>
+            )}
+          </AssetCard>
         );
       })}
     </div>
