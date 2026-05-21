@@ -66,6 +66,7 @@ import {
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 import { makePctFmt } from './_shared/numberFmt';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 
 function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -632,6 +633,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         <AssetSection
           key={a.id}
           assetId={a.id}
+          domId={`m2-out-asset-${a.id}`}
           title={a.name}
           meta={a.type ? `${a.type}` : undefined}
           storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
@@ -765,6 +767,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       <AssetSection
         key={a.id}
         assetId={a.id}
+        domId={`m2-out-asset-${a.id}`}
         title={a.name}
         meta={a.type ? `${a.type}` : undefined}
         storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
@@ -880,6 +883,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         <AssetSection
           key={a.id}
           assetId={a.id}
+          domId={`m2-out-asset-${a.id}`}
           title={a.name}
           meta={a.type ? `${a.type}` : undefined}
           storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
@@ -961,6 +965,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       <AssetSection
         key={a.id}
         assetId={a.id}
+        domId={`m2-out-asset-${a.id}`}
         title={a.name}
         meta={a.type ? `${a.type}` : undefined}
         storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
@@ -1028,6 +1033,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </p>
       </div>
 
+      {/* M2 Pass 9M (2026-05-21): asset quick-nav strip at top of Output. */}
+      <AssetQuickNav assets={assets} idPrefix="m2-out-asset" testidPrefix="m2-out-nav" />
+
       {/* Pass 9e-8 (2026-05-18): strategy-first grouping per user.
           Outer sections are Residential / Sell, Hospitality / Operations,
           Retail / Lease. Inside each, phases are nested as smaller
@@ -1074,6 +1082,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     <AssetSection
                       key={a.id}
                       assetId={a.id}
+                      domId={`m2-out-asset-${a.id}`}
                       title={a.name}
                       meta={a.type ? `${a.type}` : undefined}
                       storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
@@ -1147,6 +1156,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 <AssetSection
                   key={a.id}
                   assetId={a.id}
+                  domId={`m2-out-asset-${a.id}`}
                   title={a.name}
                   meta={a.type ? `${a.type}` : undefined}
                   storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}

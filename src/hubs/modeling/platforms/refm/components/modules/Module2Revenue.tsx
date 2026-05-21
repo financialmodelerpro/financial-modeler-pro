@@ -31,6 +31,7 @@ import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -205,6 +206,12 @@ export default function Module2Revenue(): React.JSX.Element {
           No assets yet. Add assets on Module 1 · Tab 2 (Assets &amp; Sub-units), then come back to configure their revenue.
         </div>
       )}
+
+      {/* M2 Pass 9M (2026-05-21): quick-nav strip at top of Inputs.
+       *  Pills grouped by strategy bucket scroll the page to the
+       *  matching asset card so users don't have to hunt for a
+       *  specific asset in long projects. */}
+      <AssetQuickNav assets={assets} idPrefix="m2-input-asset" testidPrefix="m2-input-nav" />
 
       {/* M2 Pass 9i (2026-05-20) + Pass 9L (2026-05-21): grouped by
        *  strategy (Residential -> Hospitality -> Retail) instead of by
@@ -1194,6 +1201,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
   return (
     <div
+      id={`m2-input-asset-${asset.id}`}
       data-testid={`m2-asset-${asset.id}`}
       style={{
         background: 'var(--color-surface)',
@@ -1201,6 +1209,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         borderRadius: 'var(--radius-sm)',
         padding: 'var(--sp-2)',
         marginBottom: 'var(--sp-1)',
+        scrollMarginTop: '70px',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: (isSell || isHospitality || isLease) && !assetCollapsed ? 'var(--sp-2)' : 0, flexWrap: 'wrap' }}>

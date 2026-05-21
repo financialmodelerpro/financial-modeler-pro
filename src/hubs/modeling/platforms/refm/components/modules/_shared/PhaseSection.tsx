@@ -90,10 +90,12 @@ interface AssetSectionProps {
   meta?: string;
   storageKey?: string;
   defaultOpen?: boolean;
+  /** Optional DOM id for quick-nav scroll targets. When unset no id is rendered. */
+  domId?: string;
   children: React.ReactNode;
 }
 
-export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = true, children }: AssetSectionProps): React.JSX.Element {
+export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = true, domId, children }: AssetSectionProps): React.JSX.Element {
   const key = storageKey ?? `fmp:m2:asset:${assetId}:collapsed`;
   const read = (): boolean => {
     if (typeof window === 'undefined') return !defaultOpen;
@@ -106,7 +108,11 @@ export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = t
   }, [collapsed, key]);
 
   return (
-    <div data-testid={`asset-section-${assetId}`} style={{ marginBottom: 'var(--sp-2)' }}>
+    <div
+      id={domId}
+      data-testid={`asset-section-${assetId}`}
+      style={{ marginBottom: 'var(--sp-2)', scrollMarginTop: domId ? '70px' : undefined }}
+    >
       <div style={assetHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
         <div>
           <strong style={{ fontSize: 12 }}>{title}</strong>
