@@ -206,19 +206,24 @@ export default function Module2Revenue(): React.JSX.Element {
         </div>
       )}
 
-      {/* M2 Pass 9i (2026-05-20): grouped by strategy (Residential ->
-       *  Hospitality -> Retail) instead of by phase. Each asset shows
-       *  its phase as a small badge on the card. Sell + Manage parents
-       *  keep their companion sibling adjacent. Companions don't appear
-       *  in Hospitality at the top level because they render with
-       *  their parent in the Residential bucket. */}
+      {/* M2 Pass 9i (2026-05-20) + Pass 9L (2026-05-21): grouped by
+       *  strategy (Residential -> Hospitality -> Retail) instead of by
+       *  phase. Each asset shows its phase as a small badge on the
+       *  card. Sell + Manage PARENTS stay in Residential with their
+       *  Sell-side inputs; their Operate COMPANIONS render in
+       *  Hospitality (with a "linked to {parent}" chip) so each
+       *  strategy bucket only carries inputs for that strategy. */}
       {(() => {
         const residentialAssets = visibleAssets.filter(
           (a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && a.isCompanion !== true,
         );
-        const hospitalityAssets = visibleAssets.filter(
-          (a) => a.strategy === 'Operate' && a.isCompanion !== true,
+        const operateCompanions = assets.filter(
+          (a) => a.visible !== false && a.isCompanion === true && a.strategy === 'Operate',
         );
+        const hospitalityAssets = [
+          ...visibleAssets.filter((a) => a.strategy === 'Operate' && a.isCompanion !== true),
+          ...operateCompanions,
+        ];
         const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
         return (
           <>
@@ -309,17 +314,18 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
       {!collapsed && (
         <>
           {assets.map((a) => {
-            // Pass 9d (2026-05-18): Sell + Manage parents surface their
-            // operate companion as a sibling card below the parent.
-            const companion = a.strategy === 'Sell + Manage'
-              ? allAssets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
-              : undefined;
             const phase = phaseById.get(a.phaseId);
             if (!phase) return null;
-            const companionPhase = companion ? (phaseById.get(companion.phaseId) ?? phase) : phase;
+            // Pass 9L (2026-05-21): companions (Operate side of a Sell +
+            // Manage parent) now render in the Hospitality bucket. Show
+            // a small "linked to {parent}" chip so the relationship to
+            // the Sell side (in Residential) stays visible.
+            const parent = a.isCompanion === true && a.parentAssetId
+              ? allAssets.find((p) => p.id === a.parentAssetId)
+              : undefined;
             return (
               <React.Fragment key={a.id}>
-                {companion && (
+                {parent && (
                   <div
                     style={{
                       fontSize: 10,
@@ -335,7 +341,7 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
                       marginBottom: 0,
                     }}
                   >
-                    ↑ Sell · linked to {companion.name} (Manage / Operate companion below)
+                    ↳ Manage / Operate · linked to {parent.name} (Sell side in Residential)
                   </div>
                 )}
                 <AssetCard
@@ -345,34 +351,6 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
                   project={project}
                   phases={phases}
                 />
-                {companion && (
-                  <div style={{ marginBottom: 'var(--sp-2)' }}>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: 'var(--color-info, #1d4ed8)',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        padding: '4px 10px',
-                        background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
-                        borderLeft: '3px solid var(--color-info, #1d4ed8)',
-                        borderTopLeftRadius: 'var(--radius-sm)',
-                        borderTopRightRadius: 'var(--radius-sm)',
-                        marginBottom: 0,
-                      }}
-                    >
-                      ↳ Manage / Operate · linked to {a.name} (Sell side above)
-                    </div>
-                    <AssetCard
-                      asset={companion}
-                      subUnits={subUnits.filter((u) => u.assetId === companion.id)}
-                      phase={companionPhase}
-                      project={project}
-                      phases={phases}
-                    />
-                  </div>
-                )}
               </React.Fragment>
             );
           })}
