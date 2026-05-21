@@ -1,11 +1,22 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-20. Module 1 LOCKED at M2.0 Pass 58. Module 2 LOCKED at Pass 9k. Module 3 LOCKED at Pass 5c. Module 4 WIP at Pass 2M (Financial Statements shipped, BS / P&L / CF phase filters decomposed, hospitality + lease last-year fix, M2/M3 per-period setters all dual-write to ByPhase / ByYear). Verifiers: revenue 133/133; escrow 46/46; opex 38/38; opex-ap 24/24; fixed-assets 82/82; phase-date-preservation 37/37; phase-date-scenarios 4/4; cost-of-sales-v2 21/21; idc-depreciation 22/22; asset-cost-allocation 14/14; m4-bs-reconciliation 44/44 — 465 sections green across 11 scripts.**
+**Last updated: 2026-05-21. Module 1 LOCKED at M2.0 Pass 58. Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP at Pass 2N-Fix (financing slice off-by-one + BS share-capital priorEquity + AR/Unearned mirror + CF financing consolidated + cohort tail-catchup + UI polish). Verifiers: revenue 133/133; escrow 46/46; opex 38/38; opex-ap 24/24; fixed-assets 82/82; phase-date-preservation 37/37; phase-date-scenarios 7/7; cost-of-sales-v2 24/24; idc-depreciation 22/22; asset-cost-allocation 14/14; m4-bs-reconciliation 59/59 — 486 sections green across 11 scripts.**
 
-**Current state (2026-05-20):**
+**Current state (2026-05-21):**
 
-- **Module 4 (Financial Statements)** is composing live. `computeFinancialsSnapshot` in `src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts` pulls every upstream engine (revenue / opex / AP / escrow / fixed assets / financing) and produces P&L + Direct CF + Indirect CF + BS + IDC allocation. Module 4 sidebar has 4 tabs: **Schedules** (parent shell with Fixed Assets & D&A + BS Schedules sub-tabs) / **P&L** / **Cash Flow** / **Balance Sheet**. Phase filter buttons on all 4 surfaces; under filter, every aggregate (subtotals + D&A + Interest + Tax + Equity) recomputes from per-asset / per-tranche slices so existing-operations phase loans don't bleed into other phases.
-- **Pass 2M Platform Fix** closed every audit gap: A1 Opening Cash, A2 Finance Cost IDC/Ops split, A3 per-contribution Equity, B1 BS phase filter, B2 Indirect CF parity, B3 shared `FAST_INPUT`. Pass 2M-Fix added P&L phase decomposition for finance cost + D&A + tax (commit `ba558b9`). Hospitality + lease "last operations year missing" bug closed by `expandPhaseLocalToAxis` legacy-fallback merge + dual-write sweep across every M2/M3 per-period setter (commits `2411aa3`, `7eefea0`).
-- **Cash payment profile + recognition profile** stabilised across three fixes (`1df58d2`, `716a80c`, `bdb5c72`): phase-offset shift always applied when reading `percentagesByPhase`; no in-resolver position filter (preserves `pct.length === pos.length` invariant); legacy + ByPhase merge recovers data truncated by Pass 9k self-healing prune.
+- **Module 4 (Financial Statements)** is composing live. `computeFinancialsSnapshot` in `src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts` pulls every upstream engine (revenue / opex / AP / escrow / fixed assets / financing) and produces P&L + Direct CF + Indirect CF + BS + IDC allocation. Module 4 sidebar has 4 tabs: **Schedules** (parent shell with Fixed Assets & D&A + BS Schedules sub-tabs) / **P&L** / **Cash Flow** / **Balance Sheet**. Phase filter buttons on all 4 surfaces.
+- **Pass 2N-Fix series** closed every off-by-one slice + BS imbalance + AR settlement bug raised in the user audit:
+  - **Debt outstanding off-by-one** (commit `cc301ed`): composer + BS Feeders + BS surface all read `fac.outstanding[t]` (length-N, year-t closing). Previous `.slice(1, 1+N)` was dropping year-0 closing and zeroing the last year. New `FacilityResult.openingBalance` exposes pre-axis balance for the BS prior column.
+  - **Financing slice off-by-one across 11 sites** (commit `89fb5db`): IDC capitalised, interest expensed, capex, equity / debt draws, debt repays, interest paid — all changed to `.slice(0, N)`. Stale "+1" docstring in `financing/types.ts` updated.
+  - **BS Share Capital seeded with priorEquity** (commits `89fb5db`, `035cfb3`): includes pre-axis equity opening (`priorEquity + cumulative new draws`). Equity engine's `existingEquityPerPeriod` lump removed from composer's `equityDraws` to avoid double-count through `cashFromFin → netCf → closingCash`.
+  - **A1 AR + L2 Unearned literal per-asset mirrors** (commit `035cfb3`): drops SDO-inclusive billed/collected rows; each surface now shows opening + pre-sales sale value − pre-sales cash collected = closing PLUS a per-asset closing breakdown beneath. Project total = literal sum of per-asset rows.
+  - **CF financing consolidated by origin** (commit `da83c06`): Existing / New buckets instead of per-tranche detail. Phase tag dropped. Prior column seeded with existing equity / debt opening / pre-capex.
+  - **Cohort tail-catchup** (commit `47ab734`): cash payment profile positions past axis end (e.g. 5-year cohort with cash to year 7) used to be silently dropped, leaving AR stuck at the un-collected residual forever. Now any percentage at `position >= N` settles at the last axis year (N-1), so every cohort row sums to 100% of cohortValue and AR closes to 0. Applies to both `absolute_with_catchup` and `relative_to_sale` modes.
+  - **M2 CoS Capex by stage now includes IDC** (commit `89fb5db`): per-asset IDC pulled from `finSnap.idc.byAsset`, added to `capexPerPeriod` so CoS unwinds IDC alongside base capex.
+  - **CF UI polish** (commits `dece8f9`, `47ab734`): P&L + Direct CF strategy buckets show subtotal inline on dropdown header (no separate Total row). Total column +25% width. Pre-Capex row above Total Capex when historical pre-capex > 0. Finance Cost (Capitalised via IDC drawdown) memo per origin so the user sees finance cost being "paid" during construction via debt drawdown.
+- **M2 Pass 9L** (commit `0e7e1d3`): Sell+Manage companion (Operate side) moves from Residential to Hospitality bucket on Revenue Inputs. Each strategy bucket now carries only inputs for that strategy; companion gets "linked to {parent}" chip.
+- **M2 Pass 9L-Fix** (commit `dafa40a`): every dual-write setter (velocity / cash / recognition / occupancy) rebuilds byPhase from the full updated legacy axis instead of `paddedArray(existingByPhase, phaseLen)` + single-index assign. The previous pattern produced an empty byPhase covering the full phase window that SHADOWED legacy values entered in prior sessions, wiping historical entries the user hadn't re-typed. Hydration migration `migrateM2Pass9LBackfillByPhase` auto-repairs existing snapshots on load.
+- **M2 Pass 9M + M3 Pass 5d** (commits `eea1fa6`, `18caaa0`, `7893eb8`, `b8d042e`): sticky asset quick-nav strip on every per-asset M2 / M3 / M4 surface. `AssetQuickNav` lives in `_shared/`. Click a pill → expand the parent section + smooth-scroll to the asset card with an outline pulse. Selective expand (only the target asset's section, not all).
+- **Excel-style trace-to-source scaffolding** (commit `47ab734`): `M4Row.trace` field + ⤴ icon dispatches `fmp:trace-to`. `RealEstatePlatform` listens, flips active module + tab, scrolls. Foundation for wiring P&L Finance Cost → BS L4 Debt, etc.
 
 **Open follow-ups (in priority order):**
 
@@ -124,7 +135,7 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 
 ## REFM Verifier Scripts
 
-Active engine + composer coverage (run all on every meaningful change). **465 / 465 sections green, 2026-05-20.**
+Active engine + composer coverage (run all on every meaningful change). **486 / 486 sections green, 2026-05-21.**
 
 ```bash
 # M2 / M3 / M4 (current focus)
@@ -133,12 +144,12 @@ npx tsx scripts/verify-escrow.ts                  # M2 Pass 9h escrow + Pass 9h-
 npx tsx scripts/verify-opex.ts                    # M3 asset + HQ opex engine                    ( 38/ 38)
 npx tsx scripts/verify-opex-ap.ts                 # M4 Pass 2a Accounts Payable                  ( 24/ 24)
 npx tsx scripts/verify-fixed-assets.ts            # M4 Pass 1 SL + Reducing Balance depreciation ( 82/ 82)
-npx tsx scripts/verify-cost-of-sales-v2.ts        # M2 Pass 9e CoS v2 vintage matrices           ( 21/ 21)
+npx tsx scripts/verify-cost-of-sales-v2.ts        # M2 Pass 9e + Pass 9N cohort tail-catchup    ( 24/ 24)
 npx tsx scripts/verify-idc-depreciation.ts        # M4 Pass 2f IDC additions feeding D&A         ( 22/ 22)
 npx tsx scripts/verify-asset-cost-allocation.ts   # M1 computeAssetCost allocation               ( 14/ 14)
-npx tsx scripts/verify-m4-bs-reconciliation.ts    # M4 composer BS identities                    ( 44/ 44)
+npx tsx scripts/verify-m4-bs-reconciliation.ts    # M4 BS identities + Pass 2N debt/share-cap   ( 59/ 59)
 npx tsx scripts/verify-phase-date-preservation.ts # M4 Pass 2h hybrid storage + Pass 9k-Fix      ( 37/ 37)
-npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write to ByPhase/ByYear   (  4/  4)
+npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + Pass 9L-Fix       (  7/  7)
 
 # Module 1 historical (LOCKED; run only when touching M1 code)
 npx tsx scripts/verify-tab3-regression-2.ts       # Tab 3 Critical Regressions Round 2
