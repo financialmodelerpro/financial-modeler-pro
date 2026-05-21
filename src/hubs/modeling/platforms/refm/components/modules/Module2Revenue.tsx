@@ -301,13 +301,24 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
   useEffect(() => {
     try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, collapseKey]);
-  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click so the
-  // target asset card is rendered before the scroll lookup runs.
+  // M4 Pass 2N-Fix (2026-05-21): expand only if the clicked asset
+  // belongs to this strategy bucket.
+  const ownAssetIds = useMemo(
+    () => new Set([
+      ...assets.map((a) => a.id),
+      // also cover companions when the bucket renders a Sell+Manage parent.
+      ...allAssets.filter((a) => a.isCompanion === true && assets.some((p) => p.id === a.parentAssetId)).map((a) => a.id),
+    ]),
+    [assets, allAssets],
+  );
   useEffect(() => {
-    const handler = (): void => setCollapsed(false);
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
-  }, []);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (detail?.assetId && ownAssetIds.has(detail.assetId)) setCollapsed(false);
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
+  }, [ownAssetIds]);
 
   const phaseById = new Map(phases.map((p) => [p.id, p] as const));
 
@@ -544,13 +555,16 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   useEffect(() => {
     try { window.localStorage.setItem(assetCollapseKey, String(assetCollapsed)); } catch { /* noop */ }
   }, [assetCollapsed, assetCollapseKey]);
-  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click so users land
-  // on the full input panel, not the collapsed header.
+  // M4 Pass 2N-Fix (2026-05-21): expand only when THIS asset is the
+  // quick-nav target. Other asset cards keep their collapse state.
   useEffect(() => {
-    const handler = (): void => setAssetCollapsed(false);
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
-  }, []);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (detail?.assetId === asset.id) setAssetCollapsed(false);
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
+  }, [asset.id]);
 
   // Pass 7v (2026-05-18): velocity grid defaults to a single shared row
   // across all sub-units. User toggles "Split per sub-unit" to expose

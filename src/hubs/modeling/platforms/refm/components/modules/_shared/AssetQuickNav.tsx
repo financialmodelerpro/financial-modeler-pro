@@ -52,13 +52,13 @@ export function AssetQuickNav({ assets, idPrefix, testidPrefix = 'm2-asset-nav' 
   const scrollToAsset = (assetId: string): void => {
     const targetId = `${idPrefix}-${assetId}`;
     if (typeof document === 'undefined') return;
-    // M4 Pass 2N (2026-05-21): nav clicks dispatch a custom event so
-    // every collapsible section wrapper (PhaseSection / AssetSection /
-    // StrategyGroup / StrategyBucket) expands itself before we look up
-    // the target. Without this, a quick-nav click on an asset inside a
-    // collapsed strategy section finds nothing in the DOM and silently
-    // does nothing.
-    window.dispatchEvent(new CustomEvent('fmp:asset-nav-expand-all'));
+    // M4 Pass 2N-Fix (2026-05-21): event carries the target asset id so
+    // only the parent section containing this asset AND only this asset
+    // card expand themselves. Other strategy sections and other asset
+    // cards keep their existing collapse state.
+    window.dispatchEvent(new CustomEvent('fmp:asset-nav-expand', {
+      detail: { assetId },
+    }));
     // Defer the lookup + scroll one tick so React's re-render
     // (triggered by the event handlers above) flushes first and the
     // target element is in the DOM.

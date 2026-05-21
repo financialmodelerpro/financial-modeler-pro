@@ -881,12 +881,22 @@ export default function Module3Opex(): React.JSX.Element {
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);
   const [collapsedAssets, setCollapsedAssets] = useState<Record<string, boolean>>({});
-  // M4 Pass 2N (2026-05-21): expand every asset card on AssetQuickNav
-  // click so the target's full opex panel is visible after scroll.
+  // M4 Pass 2N-Fix (2026-05-21): expand only the specific asset card
+  // that the user clicked in the nav strip; other asset cards keep
+  // their collapse state.
   useEffect(() => {
-    const handler = (): void => setCollapsedAssets({});
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (!detail?.assetId) return;
+      setCollapsedAssets((s) => {
+        if (s[detail.assetId!] !== true) return s;
+        const next = { ...s };
+        delete next[detail.assetId!];
+        return next;
+      });
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
   }, []);
 
   // Filter to opex-relevant assets: Hospitality (Operate, including
@@ -1344,12 +1354,12 @@ export default function Module3Opex(): React.JSX.Element {
         return (
           <>
             {hospitalityAssets.length > 0 && (
-              <StrategyBucket strategyKey="hospitality" title="Hospitality" count={hospitalityAssets.length}>
+              <StrategyBucket strategyKey="hospitality" title="Hospitality" count={hospitalityAssets.length} assetIds={hospitalityAssets.map((a) => a.id)}>
                 {hospitalityAssets.map((a) => renderAssetCard(a))}
               </StrategyBucket>
             )}
             {leaseAssets.length > 0 && (
-              <StrategyBucket strategyKey="retail" title="Retail / Lease" count={leaseAssets.length}>
+              <StrategyBucket strategyKey="retail" title="Retail / Lease" count={leaseAssets.length} assetIds={leaseAssets.map((a) => a.id)}>
                 {leaseAssets.map((a) => renderAssetCard(a))}
               </StrategyBucket>
             )}
@@ -1367,11 +1377,13 @@ function StrategyBucket({
   strategyKey,
   title,
   count,
+  assetIds,
   children,
 }: {
   strategyKey: 'hospitality' | 'retail';
   title: string;
   count: number;
+  assetIds?: string[];
   children: React.ReactNode;
 }): React.JSX.Element {
   const collapseKey = `fmp:m3:inputs:strategy:${strategyKey}:collapsed`;
@@ -1384,12 +1396,19 @@ function StrategyBucket({
   useEffect(() => {
     try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, collapseKey]);
-  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click.
+  // M4 Pass 2N-Fix (2026-05-21): expand only if the clicked asset is
+  // inside this bucket.
+  const assetIdsKey = (assetIds ?? []).join(',');
   useEffect(() => {
-    const handler = (): void => setCollapsed(false);
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
-  }, []);
+    if (!assetIds || assetIds.length === 0) return;
+    const ids = new Set(assetIds);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (detail?.assetId && ids.has(detail.assetId)) setCollapsed(false);
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
+  }, [assetIdsKey]);
   return (
     <div data-testid={`m3-strategy-${strategyKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
       <div

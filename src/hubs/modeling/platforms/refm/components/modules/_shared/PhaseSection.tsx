@@ -44,10 +44,14 @@ interface PhaseSectionProps {
   countLabel?: string;
   storageKey?: string;
   defaultOpen?: boolean;
+  /** Asset ids contained inside this section. When AssetQuickNav fires
+   *  for one of these ids, this section auto-expands. Unset means the
+   *  section ignores quick-nav events. */
+  assetIds?: string[];
   children: React.ReactNode;
 }
 
-export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, defaultOpen = true, children }: PhaseSectionProps): React.JSX.Element {
+export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, defaultOpen = true, assetIds, children }: PhaseSectionProps): React.JSX.Element {
   // Default key uses the fmp:m2 namespace per [[feedback_ui_universal_defaults]].
   // Callers should pass storageKey explicitly with the surface name baked in
   // (e.g. `fmp:m2:revenue:phase:${id}:collapsed`) so tabs keep independent
@@ -62,14 +66,21 @@ export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, def
   useEffect(() => {
     try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, key]);
-  // M4 Pass 2N (2026-05-21): AssetQuickNav dispatches a global expand-
-  // all event when the user clicks a pill. Expand so the target DOM
-  // node is rendered before the scroll lookup runs.
+  // M4 Pass 2N-Fix (2026-05-21): AssetQuickNav dispatches an event with
+  // the target asset id. Only expand if this section contains that
+  // asset (via the assetIds prop). Sections without an assetIds prop
+  // ignore quick-nav events and keep their existing collapse state.
+  const assetIdsKey = (assetIds ?? []).join(',');
   useEffect(() => {
-    const handler = (): void => setCollapsed(false);
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
-  }, []);
+    if (!assetIds || assetIds.length === 0) return;
+    const ids = new Set(assetIds);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (detail?.assetId && ids.has(detail.assetId)) setCollapsed(false);
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
+  }, [assetIdsKey]);
 
   return (
     <div data-testid={`phase-section-${phaseId}`} style={{ marginBottom: 'var(--sp-3)' }}>
@@ -114,12 +125,16 @@ export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = t
   useEffect(() => {
     try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, key]);
-  // M4 Pass 2N (2026-05-21): expand when AssetQuickNav fires.
+  // M4 Pass 2N-Fix (2026-05-21): expand ONLY when the AssetQuickNav
+  // event names this specific asset.
   useEffect(() => {
-    const handler = (): void => setCollapsed(false);
-    window.addEventListener('fmp:asset-nav-expand-all', handler);
-    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
-  }, []);
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ assetId?: string }>).detail;
+      if (detail?.assetId === assetId) setCollapsed(false);
+    };
+    window.addEventListener('fmp:asset-nav-expand', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand', handler);
+  }, [assetId]);
 
   return (
     <div

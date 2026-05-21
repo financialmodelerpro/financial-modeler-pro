@@ -423,6 +423,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         meta="Operate assets + Sell + Manage operate companions"
         countLabel={`${hospitalityAssets.length} asset${hospitalityAssets.length === 1 ? '' : 's'}`}
         storageKey="fmp:m4:fa:strategy:hospitality:collapsed"
+        assetIds={hospitalityAssets.map((a) => a.id)}
       >
         {hospitalityAssets.length === 0 && (
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -450,6 +451,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         meta="Lease assets"
         countLabel={`${leaseAssets.length} asset${leaseAssets.length === 1 ? '' : 's'}`}
         storageKey="fmp:m4:fa:strategy:retail:collapsed"
+        assetIds={leaseAssets.map((a) => a.id)}
       >
         {leaseAssets.length === 0 && (
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>

@@ -1048,6 +1048,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         meta="Sell + Sell + Manage parents across all phases"
         countLabel={`${sellAssets.length} asset${sellAssets.length === 1 ? '' : 's'}`}
         storageKey="fmp:m2:revenue:strategy:sell:collapsed"
+        assetIds={sellAssets.map((a) => a.id)}
       >
       {sellAssets.length === 0 && (
         <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -1376,6 +1377,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           return `${n} asset${n === 1 ? '' : 's'}`;
         })()}
         storageKey="fmp:m2:revenue:strategy:hospitality:collapsed"
+        assetIds={assets.filter((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true)).map((a) => a.id)}
       >
       {(() => {
         const anyHosp = assets.some((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true));
@@ -1419,6 +1421,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           return `${n} asset${n === 1 ? '' : 's'}`;
         })()}
         storageKey="fmp:m2:revenue:strategy:retail:collapsed"
+        assetIds={assets.filter((a) => a.visible !== false && a.strategy === 'Lease').map((a) => a.id)}
       >
         {(() => {
           const anyLease = assets.some((a) => a.visible !== false && a.strategy === 'Lease');

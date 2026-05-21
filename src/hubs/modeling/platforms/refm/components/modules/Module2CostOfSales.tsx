@@ -294,6 +294,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
         meta="Sell + Sell + Manage parents across all phases"
         countLabel={`${perAsset.length} asset${perAsset.length === 1 ? '' : 's'}`}
         storageKey="fmp:m2:costofsales:strategy:sell:collapsed"
+        assetIds={perAsset.map((row) => row.asset.id)}
       >
       {perAsset.length === 0 && (
         <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
