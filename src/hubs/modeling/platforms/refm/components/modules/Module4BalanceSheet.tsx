@@ -159,6 +159,10 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     : snap.idc.idcNbvPerPeriod;
 
   // Debt: per-tranche outstanding aligned to project axis.
+  // M4 Pass 2N-Fix (2026-05-21): fac.outstanding[i] is the CLOSING
+  // balance at end of year i. The previous +1 shift dropped the
+  // last-year debt to 0 and showed year-t+1 closing in the year-t
+  // column, driving the BS imbalance.
   const debtFiltered = (() => {
     if (!phaseFiltered) return bs.debtOutstandingPerPeriod;
     const out = zerosN();
@@ -166,7 +170,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
       if (!trancheIdsInPhase.has(t.id)) continue;
       const fac = snap.financing.facilities.get(t.id);
       if (!fac) continue;
-      for (let i = 0; i < N_; i++) out[i] += fac.outstanding[i + 1] ?? 0;
+      for (let i = 0; i < N_; i++) out[i] += fac.outstanding[i] ?? 0;
     }
     return out;
   })();

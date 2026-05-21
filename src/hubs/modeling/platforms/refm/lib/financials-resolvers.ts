@@ -879,7 +879,14 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const escrowLiab = escrowBalance;
   const debtOutstanding = zeros(N);
   for (const fac of financing.facilities.values()) {
-    for (let t = 0; t < N; t++) debtOutstanding[t] += fac.outstanding[t + 1] ?? 0;
+    // M4 Pass 2N-Fix (2026-05-21): fac.outstanding is project-axis-
+    // indexed (length = N), where outstanding[t] is the CLOSING balance
+    // at end of year t. The previous code read outstanding[t + 1],
+    // assuming a [prior, year0, year1, ..., yearN-1] shape that the
+    // engine never produced. That shifted every BS year one slot to the
+    // left and zeroed the last year (out-of-bounds read), driving the
+    // 2,969,006 BS imbalance the user reported.
+    for (let t = 0; t < N; t++) debtOutstanding[t] += fac.outstanding[t] ?? 0;
   }
   const totalCL = zeros(N);
   for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t] + escrowLiab[t];

@@ -283,6 +283,7 @@ export function computeFacilitySchedule(
     sharePct,
     drawSchedule,
     outstanding,
+    openingBalance,
     interestAccrued,
     interestCapitalized,
     interestPaid,

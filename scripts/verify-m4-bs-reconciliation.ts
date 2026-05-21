@@ -168,6 +168,62 @@ console.log('\n[H] Direct vs Indirect Net Cash Flow parity');
 // ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
+// I: M4 Pass 2N-Fix (2026-05-21) — debt outstanding off-by-one regression
+// pin. The previous composer / BS surfaces read fac.outstanding[t + 1],
+// which (a) showed year-t+1 closing balance in the year-t column, and
+// (b) zeroed out the last year (out-of-bounds read), driving a large
+// BS imbalance whenever debt was NOT fully repaid by the end of axis.
+// This section pins: BS debt at year t == sum of facility.outstanding[t]
+// per tranche, AND last-year debt > 0 when the tranche carries a
+// balance past the axis.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[I] Pass 2N-Fix: BS debt mirrors facility.outstanding[t] exactly (no shift, no last-year drop)');
+{
+  // Build a project with an EXISTING debt tranche carrying a 10M
+  // opening balance + long-tail repayment past the axis end. The
+  // pre-fix code read fac.outstanding[t + 1], dropping the last-year
+  // closing balance to 0 (out-of-bounds). The fix reads
+  // fac.outstanding[t] directly so the BS surfaces the actual closing
+  // balance at every year, including the last.
+  const base = buildSimpleResidentialState();
+  const project: Project = { ...base.project, startDate: '2026-01-01' };
+  const phase: Phase = { ...base.phases[0], constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 };
+  const asset: Asset = base.assets[0];
+  const tranche = {
+    id: 'tr1', name: 'Existing Loan', phaseId: 'p1', sharePct: 100,
+    origin: 'existing', openingBalance: 10_000_000,
+    interestRatePct: 5, interbankRatePct: 0, creditSpreadPct: 5,
+    repaymentMethod: 'straight_line', repaymentPeriods: 30,
+    remainingRepaymentPeriods: 30, repaymentStartYear: 2026,
+    interestStartYear: 2026, drawdownPattern: 'pari_passu',
+  } as unknown as Parameters<typeof computeFinancialsSnapshot>[0]['financingTranches'][number];
+  const state: Parameters<typeof computeFinancialsSnapshot>[0] = {
+    project, phases: [phase], assets: [asset], subUnits: [], parcels: [], costLines: [],
+    costOverrides: [], landAllocationMode: 'autoByBua',
+    financingTranches: [tranche], equityContributions: [],
+  };
+  const snap = computeFinancialsSnapshot(state);
+  const facs = Array.from(snap.financing.facilities.values());
+  if (facs.length === 0) {
+    fail++;
+    failures.push('I-setup: facility not created');
+    console.log('  [FAIL] I-setup: facility not created');
+  } else {
+    const fac = facs[0];
+    for (let t = 0; t < snap.axisLength; t++) {
+      assertNear(`I[t=${t}]: BS debt = facility.outstanding[${t}]`, snap.bs.debtOutstandingPerPeriod[t], fac.outstanding[t]);
+    }
+    // I-shape: pre-fix code read outstanding[t + 1], so the year-0 BS
+    // showed year-1 closing (one-year-later balance). This pins that
+    // BS year-0 matches the year-0 closing balance, NOT year-1.
+    assertNear('I-shape: BS year-0 debt == facility.outstanding[0] (year-0 closing, not year-1)', snap.bs.debtOutstandingPerPeriod[0], fac.outstanding[0]);
+    // I-opening: openingBalance field on FacilityResult should equal
+    // the tranche's openingBalance (existing tranches carry pre-axis balance).
+    assertNear('I-opening: fac.openingBalance == tranche.openingBalance (existing)', fac.openingBalance, 10_000_000);
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');

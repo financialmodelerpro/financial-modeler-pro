@@ -253,13 +253,14 @@ export default function Module4BSFeeders(): React.JSX.Element {
             for (const t of state.financingTranches) {
               const f = snap.financing.facilities.get(t.id);
               if (!f) continue;
-              const outRow = f.outstanding.slice(1, 1 + N);
+              // M4 Pass 2N-Fix (2026-05-21): f.outstanding is length N
+              // where outstanding[i] = closing balance at end of year i.
+              // The prior-column opening balance is f.openingBalance
+              // (existing facilities carry their pre-axis balance; new
+              // facilities + raised-inside-axis facilities are 0).
+              const outRow = f.outstanding.slice(0, N);
               while (outRow.length < N) outRow.push(0);
-              // M4 Pass 2j: facility prior-column opening balance.
-              // facility.outstanding[0] is the engine's "prior column"
-              // for existing facilities (opening balance carried into
-              // year 0). New facilities have 0 here.
-              const facPrior = f.outstanding[0] ?? 0;
+              const facPrior = f.openingBalance ?? 0;
               rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
               for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
               totalPrior += facPrior;
@@ -307,7 +308,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
         {/* M1: IDC Allocation */}
         <M4PeriodTable
           title="M1. Capitalised Interest (IDC) Allocation (project)"
-          caption="Total IDC per period from the financing engine, distributed across visible non-companion assets by active-construction land share. Sell / Sell+Manage IDC capitalises to inventory then unwinds to Cost of Sales via recognition; Operate / Lease IDC capitalises to Fixed Assets and depreciates over useful life."
+          caption="Total IDC per period from the financing engine, distributed across visible non-companion assets by active-construction land share. SELL / Sell+Manage IDC → augments CoS capex base, unwinds to P&L via recognition (sits in Inventory until released). OPERATE / Lease IDC → adds to Fixed Assets at handover and depreciates straight-line over useful life."
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
@@ -321,18 +322,64 @@ export default function Module4BSFeeders(): React.JSX.Element {
                 sectionRow('No allocation. Set project land area on assets or check financing tranches for capitalised interest.'),
               ];
             }
-            rows.push(sectionRow('IDC capitalised this period:'));
-            for (const r of idcAssetRows) {
+            // M4 Pass 2N-Fix (2026-05-21): split per-asset IDC by routing
+            // (Sell → CoS via Inventory vs Operate/Lease → Fixed Assets
+            // via D&A) so the user can see exactly how each asset's
+            // capitalised interest flows through the financials.
+            const assetById = new Map(state.assets.map((a) => [a.id, a] as const));
+            const sellRows = idcAssetRows.filter((r) => {
+              const a = assetById.get(r.assetId);
+              return a && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
+            });
+            const opLeaseRows = idcAssetRows.filter((r) => {
+              const a = assetById.get(r.assetId);
+              return a && (a.strategy === 'Operate' || a.strategy === 'Lease');
+            });
+            const sumRows = (rows: typeof idcAssetRows): number[] => {
+              const out = zeros();
+              for (const r of rows) for (let t = 0; t < N; t++) out[t] += r.idcPerPeriod[t] ?? 0;
+              return out;
+            };
+            const sellSubtotal = sumRows(sellRows);
+            const opLeaseSubtotal = sumRows(opLeaseRows);
+
+            if (sellRows.length > 0) {
+              rows.push(sectionRow('Sell / Sell+Manage IDC → routed to CoS via Inventory'));
+              for (const r of sellRows) {
+                rows.push({
+                  label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
+                  values: r.idcPerPeriod,
+                  indent: 1,
+                });
+              }
               rows.push({
-                label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
-                values: r.idcPerPeriod,
-                indent: 1,
+                label: 'Subtotal: Sell IDC → CoS',
+                values: sellSubtotal,
+                isSubtotal: true,
+                totalOverride: fmt(sellSubtotal.reduce((s, v) => s + v, 0)),
+              });
+            }
+            if (opLeaseRows.length > 0) {
+              rows.push(sectionRow('Operate / Lease IDC → routed to Fixed Assets via D&A'));
+              for (const r of opLeaseRows) {
+                rows.push({
+                  label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
+                  values: r.idcPerPeriod,
+                  indent: 1,
+                });
+              }
+              rows.push({
+                label: 'Subtotal: Operate/Lease IDC → Fixed Assets',
+                values: opLeaseSubtotal,
+                isSubtotal: true,
+                totalOverride: fmt(opLeaseSubtotal.reduce((s, v) => s + v, 0)),
               });
             }
             rows.push({ label: 'Total IDC (project)', values: snap.idc.totalIdcPerPeriod, isTotal: true });
-            rows.push({ label: 'Operate/Lease IDC depreciation', values: snap.idc.idcDepreciationPerPeriod.map((v) => -v), indent: 1 });
+            rows.push(sectionRow('Operate / Lease IDC lifecycle on Fixed Assets:'));
+            rows.push({ label: 'Operate/Lease IDC depreciation (charge to D&A)', values: snap.idc.idcDepreciationPerPeriod.map((v) => -v), indent: 1 });
             rows.push({
-              label: 'Operate/Lease IDC NBV (closing)',
+              label: 'Operate/Lease IDC NBV (closing, on BS Fixed Assets)',
               values: snap.idc.idcNbvPerPeriod,
               isSubtotal: true,
               totalOverride: fmt(snap.idc.idcNbvPerPeriod[N - 1] ?? 0),

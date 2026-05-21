@@ -76,7 +76,12 @@ export interface FacilityResult {
   trancheId: string;
   sharePct: number;
   drawSchedule: number[];
+  /** Closing balance at end of each project year. Length = totalPeriods. */
   outstanding: number[];
+  /** Balance carried into year 0 (start-of-axis). Existing tranches with
+   *  origination before the axis seed this; new tranches + existing
+   *  raised inside the axis are 0. Use this for the BS prior-year column. */
+  openingBalance: number;
   interestAccrued: number[];
   interestCapitalized: number[];
   interestPaid: number[];
