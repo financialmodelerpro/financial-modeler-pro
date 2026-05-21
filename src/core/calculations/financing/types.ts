@@ -2,10 +2,16 @@
  * Tab 4 Financing engine, internal result types (rebuild 2026-05-14).
  *
  * Every per-period array is PROJECT-period indexed and has length
- * equal to `axis.totalPeriods + 1` (column 0 holds the project Y0
- * lump for in-kind / existing-facility opening balances). Cropping
- * down to the UI's display window is the UI's job; the engine
- * always emits full project-period arrays.
+ * equal to `axis.totalPeriods` (NO prior column). arr[0] is the
+ * project's FIRST active year. Cropping down to the UI's display
+ * window is the UI's job; the engine always emits full project-
+ * period arrays.
+ *
+ * NOTE (Pass 2N-Fix 2026-05-21): earlier docstrings claimed arrays
+ * were length+1 with column 0 = prior. That convention was retired
+ * in axis.ts (2026-05-14) but several composer slices kept the
+ * stale +1 assumption, dropping year-0 financing data. See
+ * financials-resolvers.ts for the back-correction.
  */
 
 import type { FundingMethodId } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';

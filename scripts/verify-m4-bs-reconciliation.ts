@@ -224,6 +224,29 @@ console.log('\n[I] Pass 2N-Fix: BS debt mirrors facility.outstanding[t] exactly 
   }
 }
 
+// ──────────────────────────────────────────────────────────────────
+// J: M4 Pass 2N-Fix (2026-05-21) — Share Capital line on the BS
+// includes pre-axis equity opening. Earlier it only used cumulative
+// new draws, leaving existing equity off the BS (the user observed
+// "share capital line is wrong, it needs to be closing balance from
+// BS Schedules E1"). Pinned: bs.shareCapitalPerPeriod[t] equals
+// priorEquity + cumulative equityDrawdownPerPeriod[0..t].
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[J] Pass 2N-Fix: BS Share Capital includes pre-axis equity opening');
+{
+  const snap = computeFinancialsSnapshot(buildOpeningCashState());
+  const priorEquity = snap.financing.existing.equityTotal;
+  let cumDraws = 0;
+  for (let t = 0; t < Math.min(snap.axisLength, 6); t++) {
+    cumDraws += snap.directCF.equityDrawdownPerPeriod[t] ?? 0;
+    assertNear(
+      `J[t=${t}]: shareCapital = priorEquity + cumDraws`,
+      snap.bs.shareCapitalPerPeriod[t],
+      priorEquity + cumDraws,
+    );
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');

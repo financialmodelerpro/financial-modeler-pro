@@ -28,6 +28,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
+import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -137,6 +138,8 @@ export default function Module2CostOfSales(): React.JSX.Element {
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,
+      financingTranches: s.financingTranches,
+      equityContributions: s.equityContributions,
     })),
   );
 
@@ -144,6 +147,13 @@ export default function Module2CostOfSales(): React.JSX.Element {
     () => computeAllSellResults({ project: state.project, phases: state.phases, assets: state.assets, subUnits: state.subUnits }),
     [state.project, state.phases, state.assets, state.subUnits],
   );
+
+  // M4 Pass 2N-Fix (2026-05-21): per-asset IDC from the financials
+  // composer. Sell + Sell+Manage parents capitalise IDC into their
+  // CoS capex basis (charged through Cost of Sales via the same
+  // recognition profile that releases base capex).
+  const finSnap = useMemo(() => computeFinancialsSnapshot(state), [state]);
+  const idcByAsset = finSnap.idc.byAsset;
 
   // Pass 7w (2026-05-18): Sell + Manage parents get the same CoS
   // treatment as pure Sell. Companion-side opex handled in M3.
@@ -193,7 +203,15 @@ export default function Module2CostOfSales(): React.JSX.Element {
         if (projIdx >= 0 && projIdx < N) capexPerPeriod[projIdx] += perAll[i] ?? 0;
       }
     }
-    const capex = breakdown?.total ?? 0;
+    // M4 Pass 2N-Fix (2026-05-21): add the asset's IDC per period to the
+    // CoS capex basis. The M4 composer already routes Sell IDC through
+    // CoS via the recognition profile; surfacing it here keeps M2 CoS
+    // numbers in sync with the M4 P&L / BS / CF.
+    const idcRow = idcByAsset.get(a.id);
+    const idcPerPeriod = idcRow?.idcPerPeriod ?? new Array<number>(N).fill(0);
+    for (let i = 0; i < N; i++) capexPerPeriod[i] += idcPerPeriod[i] ?? 0;
+    const idcTotal = idcRow?.totalIdc ?? 0;
+    const capex = (breakdown?.total ?? 0) + idcTotal;
     // Sales cohort + recognition profile (already resolved in the
     // revenue engine). The engine returns per-period units AND area;
     // we pick the same metric the revenue surface uses (units when all
@@ -231,8 +249,8 @@ export default function Module2CostOfSales(): React.JSX.Element {
       totalInventory,
       axisLength: N,
     });
-    return { asset: a, sell: r, capex, capexPerPeriod, cos, breakdown, recognitionProfile, profileMode: profileResolution.mode };
-  }), [sellAssets, snap, state]);
+    return { asset: a, sell: r, capex, capexPerPeriod, cos, breakdown, recognitionProfile, profileMode: profileResolution.mode, idcTotal, idcPerPeriod };
+  }), [sellAssets, snap, state, idcByAsset]);
 
   const projTotals = useMemo(() => {
     const N = snap.axisLength;
@@ -373,7 +391,13 @@ export default function Module2CostOfSales(): React.JSX.Element {
                       ...(stageOperating > 0
                         ? [{ label: 'Operating-stage capex (total)', values: [], totalOverride: fmt(stageOperating), indent: 1 }]
                         : []),
-                      { label: 'Capex per period (project axis)', values: row.capexPerPeriod, totalOverride: fmt(totalCapex), isTotal: true, indent: 1 },
+                      // M4 Pass 2N-Fix (2026-05-21): Capitalised Interest (IDC)
+                      // added to the stage breakdown. Per-period IDC drives the
+                      // augmented capex row below; sums into Total Capex.
+                      ...(row.idcTotal > 0
+                        ? [{ label: 'Capitalised Interest (IDC, total)', values: row.idcPerPeriod, totalOverride: fmt(row.idcTotal), indent: 1 }]
+                        : []),
+                      { label: 'Capex per period (project axis, incl. IDC)', values: row.capexPerPeriod, totalOverride: fmt(totalCapex), isTotal: true, indent: 1 },
                       { label: 'Sales cohort (% of total inventory sold)', values: [], isSection: true, indent: 0 },
                       { label: `Pre-Sales % per period (${inventoryLabel})`, values: presalesPctPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(totalPreSalesPct), indent: 1 },
                       { label: 'Cumulative Pre-Sales %', values: cos.cumPreSalesPerPeriod, rowFmt: pctFmt, totalOverride: pctFmt(cumPreFinal), indent: 1 },

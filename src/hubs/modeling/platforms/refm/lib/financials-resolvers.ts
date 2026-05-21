@@ -297,9 +297,12 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   // Companions (no land) get zero; pure Sell assets, Sell+Manage parents,
   // Operate parents, and Lease assets all participate.
   const idcSource = financing.combined.totalInterestCapitalized;
-  // financing arrays are length totalPeriods+1 with index 0 = prior column;
-  // slice off the prior column so we get a length-N axis array.
-  const totalIdcPerPeriod = idcSource.slice(1, 1 + N);
+  // M4 Pass 2N-Fix (2026-05-21): the financing engine emits arrays of
+  // length totalPeriods (per axis.ts contract: arr[0] = project year 0,
+  // no prior column). The previous slice(1, 1+N) was dropping year-0
+  // IDC entirely — user reported financing total 333,761 vs BS
+  // Schedules total 317,586, the 16,175 gap was exactly year-0 IDC.
+  const totalIdcPerPeriod = idcSource.slice(0, N);
   while (totalIdcPerPeriod.length < N) totalIdcPerPeriod.push(0);
 
   // M4 Pass 2g (2026-05-20): allocate IDC per period using ACTIVE-
@@ -629,7 +632,9 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const da = fixedAssets.projectTotals.depreciable.depreciationPerPeriod.slice(0, N);
   for (let t = 0; t < N; t++) da[t] += idcDeprecProject[t] ?? 0;
   // Interest expense = combined interest expensed (excludes capitalized IDC which lives on BS)
-  const interestExpense = financing.combined.totalInterestExpensed.slice(1, 1 + N);
+  // M4 Pass 2N-Fix (2026-05-21): financing arrays are length N with
+  // arr[0] = year 0. The prior slice(1, 1+N) was dropping year-0 data.
+  const interestExpense = financing.combined.totalInterestExpensed.slice(0, N);
   while (interestExpense.length < N) interestExpense.push(0);
 
   const ebitda = zeros(N);
@@ -726,20 +731,24 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     cashFromOps[t] = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - taxPaidArr[t];
   }
 
-  // Capex: project total per-period from financing engine (excludes prior column)
-  const capexFull = financing.capex.perPeriod.inclAllLand; // length = totalPeriods + 1
-  const capexProj = capexFull.slice(1, 1 + N);
+  // Capex: project total per-period from financing engine.
+  // M4 Pass 2N-Fix (2026-05-21): financing arrays are length N starting
+  // at year 0 (per axis.ts contract). The previous slice(1, 1+N) was
+  // dropping year-0 capex AND zero-padding the last year. Fixed below.
+  const capexFull = financing.capex.perPeriod.inclAllLand; // length = totalPeriods
+  const capexProj = capexFull.slice(0, N);
   while (capexProj.length < N) capexProj.push(0);
   const cashFromInv = capexProj.map((v) => -v);
 
-  // Financing flows from M1 (combined + equity)
-  const equityDraws = financing.equity.totalPerPeriod.slice(1, 1 + N);
+  // Financing flows from M1 (combined + equity). Same Pass 2N-Fix: no
+  // off-by-one shift on engine arrays.
+  const equityDraws = financing.equity.totalPerPeriod.slice(0, N);
   while (equityDraws.length < N) equityDraws.push(0);
-  const debtDraws = financing.combined.totalDrawdown.slice(1, 1 + N);
+  const debtDraws = financing.combined.totalDrawdown.slice(0, N);
   while (debtDraws.length < N) debtDraws.push(0);
-  const debtRepays = financing.combined.totalPrincipalRepaid.slice(1, 1 + N);
+  const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
   while (debtRepays.length < N) debtRepays.push(0);
-  const interestPaidArr = financing.combined.debtServiceCash.slice(1, 1 + N).map((v, i) => Math.max(0, v - (debtRepays[i] ?? 0)));
+  const interestPaidArr = financing.combined.debtServiceCash.slice(0, N).map((v, i) => Math.max(0, v - (debtRepays[i] ?? 0)));
   while (interestPaidArr.length < N) interestPaidArr.push(0);
 
   const cashFromFin = zeros(N);
@@ -894,12 +903,18 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (let t = 0; t < N; t++) totalLiab[t] = totalCL[t] + debtOutstanding[t];
 
   // Equity
+  // M4 Pass 2N-Fix (2026-05-21): Share Capital must include the
+  // pre-axis equity opening (financing.existing.equityTotal) so it
+  // matches BS Schedules E1 closing balance. Previously only
+  // cumulative new draws were counted, leaving existing equity off
+  // the BS — the resulting gap was the user-reported mismatch.
+  const priorEquityTotal = financing.existing.equityTotal;
   const equityCumulative = cumulative(equityDraws);
   const shareCapital = zeros(N);
   for (let t = 0; t < N; t++) {
     shareCapital[t] = project.shareCapital != null && project.shareCapital > 0
       ? project.shareCapital
-      : equityCumulative[t];
+      : priorEquityTotal + equityCumulative[t];
   }
   const reserveRate = Math.max(0, project.statutoryReserve?.transferRate ?? 0);
   const reserveCapPct = Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0);

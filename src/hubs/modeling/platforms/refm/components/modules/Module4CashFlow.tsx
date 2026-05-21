@@ -259,15 +259,18 @@ export default function Module4CashFlow(): React.JSX.Element {
     for (const t of state.financingTranches) {
       const f = snap.financing.facilities.get(t.id);
       if (!f) continue;
-      // Slice off the financing engine's prior column (idx 0) to align
-      // with the project axis.
-      const drawCapex = f.drawSchedule.slice(1, 1 + N);
+      // M4 Pass 2N-Fix (2026-05-21): financing engine arrays are
+      // length N indexed by project year (arr[0] = year 0). The prior
+      // slice(1, 1+N) was dropping year-0 draws / capitalised interest
+      // / repayments / interest paid and shifting everything one
+      // column left.
+      const drawCapex = f.drawSchedule.slice(0, N);
       while (drawCapex.length < N) drawCapex.push(0);
-      const drawIdc = f.interestCapitalized.slice(1, 1 + N);
+      const drawIdc = f.interestCapitalized.slice(0, N);
       while (drawIdc.length < N) drawIdc.push(0);
-      const repaid = f.principalRepaid.slice(1, 1 + N);
+      const repaid = f.principalRepaid.slice(0, N);
       while (repaid.length < N) repaid.push(0);
-      const intPaid = f.interestPaid.slice(1, 1 + N);
+      const intPaid = f.interestPaid.slice(0, N);
       while (intPaid.length < N) intPaid.push(0);
       const phaseLabel = phaseShort(t.phaseId);
 
