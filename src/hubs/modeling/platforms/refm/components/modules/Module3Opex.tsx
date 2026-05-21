@@ -17,7 +17,7 @@
  * the same pattern (project-wide default + per-line override).
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset } from '../../lib/state/module1-types';
@@ -886,11 +886,23 @@ export default function Module3Opex(): React.JSX.Element {
   // M3 Pass 5c (2026-05-20): sort by strategy bucket so the user sees
   // all Hospitality assets first, then all Retail / Lease assets.
   // Within each bucket the order matches Module 1 entry order.
-  const opexAssets = useMemo(() => {
-    const operate = assets.filter((a) => a.strategy === 'Operate');
-    const lease = assets.filter((a) => a.strategy === 'Lease');
-    return [...operate, ...lease];
-  }, [assets]);
+  // M3 Pass 5d (2026-05-21): split into two named buckets (Hospitality /
+  // Retail) wrapped by collapsible strategy headers, matching the M2
+  // Revenue Inputs layout. Companions (Operate side of a Sell + Manage
+  // parent) render in Hospitality with a "linked to {parent}" chip
+  // pointing back at the Sell side (which lives in M2 Residential).
+  const hospitalityAssets = useMemo(
+    () => assets.filter((a) => a.strategy === 'Operate'),
+    [assets],
+  );
+  const leaseAssets = useMemo(
+    () => assets.filter((a) => a.strategy === 'Lease'),
+    [assets],
+  );
+  const opexAssets = useMemo(
+    () => [...hospitalityAssets, ...leaseAssets],
+    [hospitalityAssets, leaseAssets],
+  );
   const phaseNameForAsset = (a: Asset): string => {
     const p = phases.find((x) => x.id === a.phaseId);
     return p?.name ?? '';
@@ -1151,7 +1163,11 @@ export default function Module3Opex(): React.JSX.Element {
         />
       </AssetCard>
 
-      {/* Per-asset opex (flat list, phase shown on each card as a tag) */}
+      {/* M3 Pass 5d (2026-05-21): per-asset opex grouped by strategy
+       *  bucket (Hospitality / Retail/Lease) under collapsible headers,
+       *  mirroring M2 Revenue Inputs. Sell + Manage companions render
+       *  in Hospitality with a "linked to {parent}" chip pointing at
+       *  the Sell side (in M2 Residential). */}
       {opexAssets.length === 0 && (
         <div style={{
           padding: 'var(--sp-3)',
@@ -1164,127 +1180,219 @@ export default function Module3Opex(): React.JSX.Element {
         </div>
       )}
 
-      {opexAssets.map((a) => {
-        const collapsed = collapsedAssets[a.id] === true;
-        const lines = a.opex?.lines ?? [];
-        const hasLines = lines.length > 0;
-        const sb = strategyBadge(a);
-        const yearCells = opsYearsForAsset(a);
-        const assetDefault = assetDefaultIndexation(a);
-        const phaseName = phaseNameForAsset(a);
-        return (
-          <AssetCard
-            key={a.id}
-            title={
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <span>{a.name}</span>
-                {phaseName && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: '2px 6px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'color-mix(in srgb, var(--color-meta) 14%, transparent)',
-                      color: 'var(--color-meta)',
-                    }}
-                    title="Phase the asset belongs to (set in Module 1)."
-                  >{phaseName}</span>
-                )}
-              </span>
-            }
-            badge={sb.label}
-            badgeColor={sb.color}
-            collapsed={collapsed}
-            onToggle={() => setCollapsedAssets((s) => ({ ...s, [a.id]: !s[a.id] }))}
-          >
-            {!hasLines ? (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 'var(--sp-2)', background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)' }}>
-                <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-                  No opex configured yet for this asset.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => seedAsset(a)}
-                  style={{
-                    fontSize: 10,
-                    padding: '4px 10px',
-                    background: 'var(--color-navy)',
-                    color: 'var(--color-on-primary-navy)',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                  data-testid={`m3-seed-${a.id}`}
-                >
-                  Seed default {a.strategy === 'Lease' ? 'Lease' : 'Hospitality'} lines
-                </button>
-              </div>
-            ) : (
-              <>
+      {(() => {
+        const renderAssetCard = (a: Asset): React.JSX.Element => {
+          const collapsed = collapsedAssets[a.id] === true;
+          const lines = a.opex?.lines ?? [];
+          const hasLines = lines.length > 0;
+          const sb = strategyBadge(a);
+          const yearCells = opsYearsForAsset(a);
+          const assetDefault = assetDefaultIndexation(a);
+          const phaseName = phaseNameForAsset(a);
+          const parent = a.isCompanion === true && a.parentAssetId
+            ? assets.find((p) => p.id === a.parentAssetId)
+            : undefined;
+          return (
+            <React.Fragment key={a.id}>
+              {parent && (
                 <div
                   style={{
-                    marginBottom: 'var(--sp-2)',
-                    padding: '6px 10px',
-                    background: 'var(--color-grey-pale)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--color-border)',
+                    fontSize: 10,
+                    color: 'var(--color-info, #1d4ed8)',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    padding: '4px 10px',
+                    background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
+                    borderLeft: '3px solid var(--color-info, #1d4ed8)',
+                    borderTopLeftRadius: 'var(--radius-sm)',
+                    borderTopRightRadius: 'var(--radius-sm)',
+                    marginBottom: 0,
                   }}
                 >
-                  <InflationPanel
-                    config={assetDefault}
-                    onChange={(next) => setAssetDefaultIndexation(a.id, next)}
-                    axisLength={axisLength}
-                    yearCells={yearCells}
-                    testidPrefix={`m3-asset-${a.id}-default-infl`}
-                    leftLabel="Asset Inflation"
-                  />
+                  ↳ Manage / Operate · linked to {parent.name} (Sell side in Module 2 Residential)
                 </div>
-                <OpexLineTable
-                  lines={lines}
-                  allowedCategories={assetCategoriesFor(a)}
-                  allowedModes={assetModesFor(a)}
-                  onChange={(next) => setAssetLines(a.id, next)}
-                  testidPrefix={`m3-asset-${a.id}`}
-                  defaultIndexation={assetDefault}
-                  yearCells={yearCells}
-                  axisLength={axisLength}
-                  newLineStrategy={a.strategy === 'Lease' ? 'Lease' : 'Hospitality'}
-                />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
-                      const ok = window.confirm(
-                        `Apply this asset's opex lines + asset inflation to every other ${label} asset?\n\n` +
-                        `Each ${label} asset will be overwritten with the lines AND the asset-level inflation configured here. ` +
-                        `This won't change HQ overheads or assets of a different strategy.`,
-                      );
-                      if (ok) applyToStrategy(a);
-                    }}
-                    style={{
-                      fontSize: 10,
-                      padding: '4px 10px',
-                      background: 'var(--color-surface)',
-                      color: 'var(--color-navy)',
-                      border: '1px solid var(--color-navy)',
-                      borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                    }}
-                    title={`Copy these lines + asset inflation to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
-                    data-testid={`m3-apply-strategy-${a.id}`}
-                  >
-                    Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}
-                  </button>
-                </div>
-              </>
+              )}
+              <AssetCard
+                title={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span>{a.name}</span>
+                    {phaseName && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'color-mix(in srgb, var(--color-meta) 14%, transparent)',
+                          color: 'var(--color-meta)',
+                        }}
+                        title="Phase the asset belongs to (set in Module 1)."
+                      >{phaseName}</span>
+                    )}
+                  </span>
+                }
+                badge={sb.label}
+                badgeColor={sb.color}
+                collapsed={collapsed}
+                onToggle={() => setCollapsedAssets((s) => ({ ...s, [a.id]: !s[a.id] }))}
+              >
+                {!hasLines ? (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 'var(--sp-2)', background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+                      No opex configured yet for this asset.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => seedAsset(a)}
+                      style={{
+                        fontSize: 10,
+                        padding: '4px 10px',
+                        background: 'var(--color-navy)',
+                        color: 'var(--color-on-primary-navy)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                      data-testid={`m3-seed-${a.id}`}
+                    >
+                      Seed default {a.strategy === 'Lease' ? 'Lease' : 'Hospitality'} lines
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        marginBottom: 'var(--sp-2)',
+                        padding: '6px 10px',
+                        background: 'var(--color-grey-pale)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--color-border)',
+                      }}
+                    >
+                      <InflationPanel
+                        config={assetDefault}
+                        onChange={(next) => setAssetDefaultIndexation(a.id, next)}
+                        axisLength={axisLength}
+                        yearCells={yearCells}
+                        testidPrefix={`m3-asset-${a.id}-default-infl`}
+                        leftLabel="Asset Inflation"
+                      />
+                    </div>
+                    <OpexLineTable
+                      lines={lines}
+                      allowedCategories={assetCategoriesFor(a)}
+                      allowedModes={assetModesFor(a)}
+                      onChange={(next) => setAssetLines(a.id, next)}
+                      testidPrefix={`m3-asset-${a.id}`}
+                      defaultIndexation={assetDefault}
+                      yearCells={yearCells}
+                      axisLength={axisLength}
+                      newLineStrategy={a.strategy === 'Lease' ? 'Lease' : 'Hospitality'}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const label = a.strategy === 'Lease' ? 'Retail / Lease' : 'Hospitality';
+                          const ok = window.confirm(
+                            `Apply this asset's opex lines + asset inflation to every other ${label} asset?\n\n` +
+                            `Each ${label} asset will be overwritten with the lines AND the asset-level inflation configured here. ` +
+                            `This won't change HQ overheads or assets of a different strategy.`,
+                          );
+                          if (ok) applyToStrategy(a);
+                        }}
+                        style={{
+                          fontSize: 10,
+                          padding: '4px 10px',
+                          background: 'var(--color-surface)',
+                          color: 'var(--color-navy)',
+                          border: '1px solid var(--color-navy)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                        }}
+                        title={`Copy these lines + asset inflation to every other ${a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'} asset.`}
+                        data-testid={`m3-apply-strategy-${a.id}`}
+                      >
+                        Apply to all {a.strategy === 'Lease' ? 'Retail/Lease' : 'Hospitality'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </AssetCard>
+            </React.Fragment>
+          );
+        };
+        return (
+          <>
+            {hospitalityAssets.length > 0 && (
+              <StrategyBucket strategyKey="hospitality" title="Hospitality" count={hospitalityAssets.length}>
+                {hospitalityAssets.map((a) => renderAssetCard(a))}
+              </StrategyBucket>
             )}
-          </AssetCard>
+            {leaseAssets.length > 0 && (
+              <StrategyBucket strategyKey="retail" title="Retail / Lease" count={leaseAssets.length}>
+                {leaseAssets.map((a) => renderAssetCard(a))}
+              </StrategyBucket>
+            )}
+          </>
         );
-      })}
+      })()}
+    </div>
+  );
+}
+
+// ─── Strategy bucket header (M3 Pass 5d, 2026-05-21) ────────────────
+// Collapsible wrapper that groups operating assets by strategy
+// (Hospitality / Retail) so the layout mirrors M2 Revenue Inputs.
+function StrategyBucket({
+  strategyKey,
+  title,
+  count,
+  children,
+}: {
+  strategyKey: 'hospitality' | 'retail';
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const collapseKey = `fmp:m3:inputs:strategy:${strategyKey}:collapsed`;
+  const readCollapsed = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(collapseKey) === 'true'; }
+    catch { return false; }
+  };
+  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+  useEffect(() => {
+    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
+  }, [collapsed, collapseKey]);
+  return (
+    <div data-testid={`m3-strategy-${strategyKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
+      <div
+        onClick={() => setCollapsed((v) => !v)}
+        style={{
+          padding: '8px 12px',
+          background: 'var(--color-grey-pale)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 'var(--sp-2)',
+        }}
+      >
+        <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`m3-strategy-${strategyKey}-asset-count`}>
+            {count} asset{count === 1 ? '' : 's'}
+          </span>
+          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
+        </div>
+      </div>
+      {!collapsed && children}
     </div>
   );
 }
