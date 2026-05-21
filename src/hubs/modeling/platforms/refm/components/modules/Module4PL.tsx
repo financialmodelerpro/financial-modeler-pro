@@ -216,39 +216,39 @@ export default function Module4PL(): React.JSX.Element {
       });
     };
 
+    // M4 Pass 2N (2026-05-21): strategy buckets now surface the subtotal
+    // inline on the collapsible header row (no separate "Total X" row
+    // below). Sections default-open; user can collapse to hide per-asset
+    // detail. Members render indented below when expanded.
     if (residentialAssets.length > 0 && resRev.some((v) => v !== 0)) {
-      rows.push({ label: 'Residential Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Residential Revenue', values: resRev, isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: false });
       for (const a of residentialAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-res');
-      rows.push({ label: 'Total Residential Revenue', values: resRev, isSubtotal: true, indent: 1 });
     }
     if (hospitalityAssets.length > 0 && hospRev.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Hospitality Revenue', values: hospRev, isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
       for (const a of hospitalityAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-hosp');
-      rows.push({ label: 'Total Hospitality Revenue', values: hospRev, isSubtotal: true, indent: 1 });
     }
     if (retailAssets.length > 0 && retailRev.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail Revenue', values: [], isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Retail Revenue', values: retailRev, isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: false });
       for (const a of retailAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-ret');
-      rows.push({ label: 'Total Retail Revenue', values: retailRev, isSubtotal: true, indent: 1 });
     }
     rows.push({ label: 'Total Revenue', values: totalRev, isTotal: true });
 
     // ── COST OF SALES ─────────────────────────────────────────────
     if (cosTotal.some((v) => v !== 0)) {
       rows.push({ label: 'COST OF SALES', values: [], isSection: true });
-      rows.push({ label: 'Residential cost of sales', values: [], isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Residential cost of sales', values: negArr(cosTotal), isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: false });
       for (const a of residentialAssets) pushAssetPL(a, 'cosPerPeriod', 'pl-cos', -1);
-      rows.push({ label: 'Total Cost of Sales', values: negArr(cosTotal), isSubtotal: true });
     }
 
     // ── OPERATING EXPENSES ────────────────────────────────────────
     rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
     if (hospitalityAssets.length > 0 && hospOpex.some((v) => v !== 0)) {
-      rows.push({ label: 'Hospitality operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Hospitality operating expenses', values: negArr(hospOpex), isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
       for (const a of hospitalityAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-hosp', -1);
     }
     if (retailAssets.length > 0 && retailOpex.some((v) => v !== 0)) {
-      rows.push({ label: 'Retail operating expenses', values: [], isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: true });
+      rows.push({ label: 'Retail operating expenses', values: negArr(retailOpex), isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: false });
       for (const a of retailAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-ret', -1);
     }
     if (hqOpex.some((v) => v !== 0)) {

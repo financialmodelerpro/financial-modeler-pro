@@ -115,9 +115,18 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                 return null;
               }
               const colSpan = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
-              if (r.isSection) {
-                const isCollapsibleHeader = r.collapseRole === 'header' && r.collapseGroup;
-                const isCollapsed = isCollapsibleHeader && collapsed.has(r.collapseGroup!);
+              const isCollapsibleHeader = r.collapseRole === 'header' && r.collapseGroup;
+              const isCollapsed = isCollapsibleHeader && collapsed.has(r.collapseGroup!);
+              const cellFmt = r.rowFmt ?? fmt;
+
+              // M4 Pass 2N (2026-05-21): collapsible headers that carry
+              // inline subtotal values render as a subtotal-styled row
+              // (with caret + per-year cells) instead of a colSpan'd
+              // banner. Mega section headers without values keep the
+              // colSpan banner. The user's cleanup ask: drop the separate
+              // "Total <strategy> revenue" subtotal row, surface the
+              // total inline on the header itself, and default-open.
+              if (r.isSection && (!isCollapsibleHeader || r.values.length === 0)) {
                 return (
                   <tr key={`section-${idx}`}>
                     <td colSpan={colSpan}
@@ -146,14 +155,24 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                   </tr>
                 );
               }
-              const tokens = r.isTotal ? ROW_GRAND_TOTAL : r.isSubtotal ? ROW_SUBTOTAL : ROW_DATA;
+              const tokens = r.isTotal ? ROW_GRAND_TOTAL : (r.isSubtotal || isCollapsibleHeader) ? ROW_SUBTOTAL : ROW_DATA;
               const indent = r.indent ?? 0;
-              const cellFmt = r.rowFmt ?? fmt;
               const total = r.totalOverride ?? cellFmt(r.values.reduce((s, v) => s + (v ?? 0), 0));
               const priorCellStyle = { ...tokens.num, color: 'var(--color-meta)', fontStyle: 'italic' as const };
               return (
                 <tr key={r.label + idx}>
-                  <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px` }}>{r.label}</td>
+                  <td
+                    style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px`, cursor: isCollapsibleHeader ? 'pointer' : undefined, userSelect: isCollapsibleHeader ? 'none' : undefined }}
+                    onClick={isCollapsibleHeader ? () => toggleGroup(r.collapseGroup!) : undefined}
+                    data-testid={isCollapsibleHeader ? `m4-collapse-toggle-${r.collapseGroup}` : undefined}
+                  >
+                    {isCollapsibleHeader && (
+                      <span style={{ marginRight: 6, fontSize: 10, color: 'var(--color-meta)' }}>
+                        {isCollapsed ? '▶' : '▼'}
+                      </span>
+                    )}
+                    {r.label}
+                  </td>
                   {hasPhase && (
                     <td style={{ ...tokens.num, textAlign: 'center', fontSize: 10, color: 'var(--color-meta)' }}>
                       {r.phaseLabel ?? ''}

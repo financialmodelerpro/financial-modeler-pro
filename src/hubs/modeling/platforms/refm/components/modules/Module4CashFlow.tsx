@@ -106,16 +106,6 @@ export default function Module4CashFlow(): React.JSX.Element {
     // ── CASH FROM OPERATIONS ──────────────────────────────────────
     rows.push({ label: 'CASH FROM OPERATIONS', values: [], isSection: true });
 
-    // Revenue received - collapsible group, asset details under each
-    // strategy header.
-    rows.push({
-      label: 'Revenue received',
-      values: [],
-      isSection: true,
-      collapseGroup: 'cf-rev',
-      collapseRole: 'header',
-      defaultCollapsed: true,
-    });
     const pushAssetRow = (a: { id: string; name: string; phaseId: string }, key: keyof NonNullable<ReturnType<typeof snap.perAssetCF.get>>, group: string, sign = 1): boolean => {
       const cf = snap.perAssetCF.get(a.id);
       if (!cf) return false;
@@ -131,17 +121,45 @@ export default function Module4CashFlow(): React.JSX.Element {
       });
       return true;
     };
+
+    // M4 Pass 2N (2026-05-21): per-strategy subtotals computed inline so
+    // each collapsible bucket header carries its total directly (no
+    // separate "Total X Received" row). Sections default-open.
+    const sumAssetSeries = (
+      list: Array<{ id: string; name: string; phaseId: string }>,
+      key: keyof NonNullable<ReturnType<typeof snap.perAssetCF.get>>,
+    ): number[] => {
+      const out = new Array<number>(N).fill(0);
+      for (const a of list) {
+        const cf = snap.perAssetCF.get(a.id);
+        if (!cf) continue;
+        const series = (cf[key] as number[] | undefined) ?? [];
+        for (let t = 0; t < N; t++) out[t] += series[t] ?? 0;
+      }
+      return out;
+    };
+
+    // Revenue received: one collapsible bucket per strategy with inline totals.
     if (residentialAssets.length > 0) {
-      rows.push({ label: 'Residential revenue', values: [], isSection: true, collapseGroup: 'cf-rev', collapseRole: 'member' });
-      for (const a of residentialAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev');
+      const resRev = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
+      if (resRev.some((v) => v !== 0)) {
+        rows.push({ label: 'Residential revenue received', values: resRev, isSection: true, collapseGroup: 'cf-rev-res', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of residentialAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-res');
+      }
     }
     if (hospitalityAssets.length > 0) {
-      rows.push({ label: 'Hospitality revenue', values: [], isSection: true, collapseGroup: 'cf-rev', collapseRole: 'member' });
-      for (const a of hospitalityAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev');
+      const hospRev = sumAssetSeries(hospitalityAssets, 'revenueReceivedPerPeriod');
+      if (hospRev.some((v) => v !== 0)) {
+        rows.push({ label: 'Hospitality revenue received', values: hospRev, isSection: true, collapseGroup: 'cf-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of hospitalityAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-hosp');
+      }
     }
     if (retailAssets.length > 0) {
-      rows.push({ label: 'Retail revenue', values: [], isSection: true, collapseGroup: 'cf-rev', collapseRole: 'member' });
-      for (const a of retailAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev');
+      const retRev = sumAssetSeries(retailAssets, 'revenueReceivedPerPeriod');
+      if (retRev.some((v) => v !== 0)) {
+        rows.push({ label: 'Retail revenue received', values: retRev, isSection: true, collapseGroup: 'cf-rev-ret', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of retailAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-ret');
+      }
     }
     rows.push({ label: 'Total Revenue Received', values: d.revenueReceivedPerPeriod, isSubtotal: true });
 
@@ -150,31 +168,23 @@ export default function Module4CashFlow(): React.JSX.Element {
       rows.push({ label: 'Add: Release of Inaccessible Funds', values: d.escrowReleasePerPeriod, indent: 1 });
     }
 
-    // Operating expenses paid - collapsible group.
-    rows.push({
-      label: 'Operating expenses paid',
-      values: [],
-      isSection: true,
-      collapseGroup: 'cf-opex',
-      collapseRole: 'header',
-      defaultCollapsed: true,
-    });
+    // Operating expenses paid: per-strategy buckets with inline totals.
     if (hospitalityAssets.length > 0) {
-      rows.push({ label: 'Hospitality', values: [], isSection: true, collapseGroup: 'cf-opex', collapseRole: 'member' });
-      for (const a of hospitalityAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex', -1);
+      const hospOpex = sumAssetSeries(hospitalityAssets, 'opexPaidPerPeriod');
+      if (hospOpex.some((v) => v !== 0)) {
+        rows.push({ label: 'Hospitality operating expenses paid', values: hospOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of hospitalityAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex-hosp', -1);
+      }
     }
     if (retailAssets.length > 0) {
-      rows.push({ label: 'Retail', values: [], isSection: true, collapseGroup: 'cf-opex', collapseRole: 'member' });
-      for (const a of retailAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex', -1);
+      const retOpex = sumAssetSeries(retailAssets, 'opexPaidPerPeriod');
+      if (retOpex.some((v) => v !== 0)) {
+        rows.push({ label: 'Retail operating expenses paid', values: retOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-ret', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of retailAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex-ret', -1);
+      }
     }
     if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
-      rows.push({
-        label: 'HQ Expenses',
-        values: d.hqOpexPaidPerPeriod,
-        indent: 2,
-        collapseGroup: 'cf-opex',
-        collapseRole: 'member',
-      });
+      rows.push({ label: 'HQ Expenses', values: d.hqOpexPaidPerPeriod, indent: 1 });
     }
     rows.push({ label: 'Total Operating Expenses Paid', values: d.opexPaidPerPeriod.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0)), isSubtotal: true });
 
@@ -185,25 +195,27 @@ export default function Module4CashFlow(): React.JSX.Element {
 
     // ── CASH FROM INVESTMENT ──────────────────────────────────────
     rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
-    rows.push({
-      label: 'Capital expenditure excl. inventory cost',
-      values: [],
-      isSection: true,
-      collapseGroup: 'cf-capex',
-      collapseRole: 'header',
-      defaultCollapsed: true,
-    });
+    // Per-strategy capex buckets with inline totals.
     if (residentialAssets.length > 0) {
-      rows.push({ label: 'Residential Capex', values: [], isSection: true, collapseGroup: 'cf-capex', collapseRole: 'member' });
-      for (const a of residentialAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex', -1);
+      const resCx = sumAssetSeries(residentialAssets, 'capexPerPeriod');
+      if (resCx.some((v) => v !== 0)) {
+        rows.push({ label: 'Residential Capex', values: resCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-res', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of residentialAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-res', -1);
+      }
     }
     if (hospitalityAssets.length > 0) {
-      rows.push({ label: 'Hospitality Capex', values: [], isSection: true, collapseGroup: 'cf-capex', collapseRole: 'member' });
-      for (const a of hospitalityAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex', -1);
+      const hospCx = sumAssetSeries(hospitalityAssets, 'capexPerPeriod');
+      if (hospCx.some((v) => v !== 0)) {
+        rows.push({ label: 'Hospitality Capex', values: hospCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-hosp', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of hospitalityAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-hosp', -1);
+      }
     }
     if (retailAssets.length > 0) {
-      rows.push({ label: 'Retail Capex', values: [], isSection: true, collapseGroup: 'cf-capex', collapseRole: 'member' });
-      for (const a of retailAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex', -1);
+      const retCx = sumAssetSeries(retailAssets, 'capexPerPeriod');
+      if (retCx.some((v) => v !== 0)) {
+        rows.push({ label: 'Retail Capex', values: retCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-ret', collapseRole: 'header', defaultCollapsed: false });
+        for (const a of retailAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-ret', -1);
+      }
     }
     rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true });
     rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true });
