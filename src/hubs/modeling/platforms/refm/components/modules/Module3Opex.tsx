@@ -881,6 +881,13 @@ export default function Module3Opex(): React.JSX.Element {
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);
   const [collapsedAssets, setCollapsedAssets] = useState<Record<string, boolean>>({});
+  // M4 Pass 2N (2026-05-21): expand every asset card on AssetQuickNav
+  // click so the target's full opex panel is visible after scroll.
+  useEffect(() => {
+    const handler = (): void => setCollapsedAssets({});
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
 
   // Filter to opex-relevant assets: Hospitality (Operate, including
   // Sell + Manage companions whose strategy is 'Operate') and Lease.
@@ -1377,6 +1384,12 @@ function StrategyBucket({
   useEffect(() => {
     try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, collapseKey]);
+  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click.
+  useEffect(() => {
+    const handler = (): void => setCollapsed(false);
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
   return (
     <div data-testid={`m3-strategy-${strategyKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
       <div

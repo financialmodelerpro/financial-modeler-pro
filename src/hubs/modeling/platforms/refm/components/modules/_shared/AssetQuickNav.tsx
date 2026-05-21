@@ -52,19 +52,30 @@ export function AssetQuickNav({ assets, idPrefix, testidPrefix = 'm2-asset-nav' 
   const scrollToAsset = (assetId: string): void => {
     const targetId = `${idPrefix}-${assetId}`;
     if (typeof document === 'undefined') return;
-    const el = document.getElementById(targetId);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Brief highlight pulse so the user sees where they landed.
-    const prevOutline = el.style.outline;
-    const prevOffset = el.style.outlineOffset;
-    el.style.outline = '2px solid var(--color-primary, #1d4ed8)';
-    el.style.outlineOffset = '2px';
-    el.style.transition = 'outline-color 0.6s ease-out';
+    // M4 Pass 2N (2026-05-21): nav clicks dispatch a custom event so
+    // every collapsible section wrapper (PhaseSection / AssetSection /
+    // StrategyGroup / StrategyBucket) expands itself before we look up
+    // the target. Without this, a quick-nav click on an asset inside a
+    // collapsed strategy section finds nothing in the DOM and silently
+    // does nothing.
+    window.dispatchEvent(new CustomEvent('fmp:asset-nav-expand-all'));
+    // Defer the lookup + scroll one tick so React's re-render
+    // (triggered by the event handlers above) flushes first and the
+    // target element is in the DOM.
     window.setTimeout(() => {
-      el.style.outline = prevOutline;
-      el.style.outlineOffset = prevOffset;
-    }, 1200);
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const prevOutline = el.style.outline;
+      const prevOffset = el.style.outlineOffset;
+      el.style.outline = '2px solid var(--color-primary, #1d4ed8)';
+      el.style.outlineOffset = '2px';
+      el.style.transition = 'outline-color 0.6s ease-out';
+      window.setTimeout(() => {
+        el.style.outline = prevOutline;
+        el.style.outlineOffset = prevOffset;
+      }, 1200);
+    }, 60);
   };
 
   return (

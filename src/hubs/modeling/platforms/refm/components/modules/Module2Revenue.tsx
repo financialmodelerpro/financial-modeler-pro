@@ -301,6 +301,13 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
   useEffect(() => {
     try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, collapseKey]);
+  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click so the
+  // target asset card is rendered before the scroll lookup runs.
+  useEffect(() => {
+    const handler = (): void => setCollapsed(false);
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
 
   const phaseById = new Map(phases.map((p) => [p.id, p] as const));
 
@@ -537,6 +544,13 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   useEffect(() => {
     try { window.localStorage.setItem(assetCollapseKey, String(assetCollapsed)); } catch { /* noop */ }
   }, [assetCollapsed, assetCollapseKey]);
+  // M4 Pass 2N (2026-05-21): expand on AssetQuickNav click so users land
+  // on the full input panel, not the collapsed header.
+  useEffect(() => {
+    const handler = (): void => setAssetCollapsed(false);
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
 
   // Pass 7v (2026-05-18): velocity grid defaults to a single shared row
   // across all sub-units. User toggles "Split per sub-unit" to expose

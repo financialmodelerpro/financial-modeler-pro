@@ -62,6 +62,14 @@ export function PhaseSection({ phaseId, title, meta, countLabel, storageKey, def
   useEffect(() => {
     try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, key]);
+  // M4 Pass 2N (2026-05-21): AssetQuickNav dispatches a global expand-
+  // all event when the user clicks a pill. Expand so the target DOM
+  // node is rendered before the scroll lookup runs.
+  useEffect(() => {
+    const handler = (): void => setCollapsed(false);
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
 
   return (
     <div data-testid={`phase-section-${phaseId}`} style={{ marginBottom: 'var(--sp-3)' }}>
@@ -106,6 +114,12 @@ export function AssetSection({ assetId, title, meta, storageKey, defaultOpen = t
   useEffect(() => {
     try { window.localStorage.setItem(key, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, key]);
+  // M4 Pass 2N (2026-05-21): expand when AssetQuickNav fires.
+  useEffect(() => {
+    const handler = (): void => setCollapsed(false);
+    window.addEventListener('fmp:asset-nav-expand-all', handler);
+    return () => window.removeEventListener('fmp:asset-nav-expand-all', handler);
+  }, []);
 
   return (
     <div
