@@ -230,14 +230,44 @@ console.log('\n[I] Pass 2N-Fix: BS debt mirrors facility.outstanding[t] exactly 
 // new draws, leaving existing equity off the BS (the user observed
 // "share capital line is wrong, it needs to be closing balance from
 // BS Schedules E1"). Pinned: bs.shareCapitalPerPeriod[t] equals
-// priorEquity + cumulative equityDrawdownPerPeriod[0..t].
+// priorEquity + cumulative equityDrawdownPerPeriod[0..t]. AND the
+// equityDrawdownPerPeriod does NOT include the existing-equity lump
+// (that lump is captured by priorEquity instead, avoiding the
+// double-count that caused the BS to drift by priorEquity at year 0).
 // ──────────────────────────────────────────────────────────────────
-console.log('\n[J] Pass 2N-Fix: BS Share Capital includes pre-axis equity opening');
+console.log('\n[J] Pass 2N-Fix: BS Share Capital includes pre-axis equity opening (no double-count)');
 {
-  const snap = computeFinancialsSnapshot(buildOpeningCashState());
+  // Build a fixture with non-zero asset historicalEquityAmount so
+  // priorEquity > 0, and verify BS shareCapital tracks it correctly
+  // across the axis.
+  const base = buildOpeningCashState();
+  const project: Project = { ...base.project, startDate: '2026-01-01' };
+  const phase: Phase = { ...base.phases[0], status: 'operational', constructionPeriods: 0, operationsPeriods: 6 };
+  const asset: Asset = {
+    ...base.assets[0],
+    status: 'operational',
+    historicalEquityAmount: 5_000_000,
+    historicalPreCapexLand: 3_000_000,
+    historicalPreCapexBuilding: 2_000_000,
+  } as Asset;
+  const state: Parameters<typeof computeFinancialsSnapshot>[0] = {
+    ...base,
+    project,
+    phases: [phase],
+    assets: [asset],
+  };
+  const snap = computeFinancialsSnapshot(state);
   const priorEquity = snap.financing.existing.equityTotal;
+  if (priorEquity !== 5_000_000) {
+    fail++;
+    failures.push(`J-setup: priorEquity expected 5,000,000 got ${priorEquity}`);
+    console.log(`  [FAIL] J-setup: priorEquity = ${priorEquity}, expected 5,000,000`);
+  } else {
+    pass++;
+    console.log(`  [PASS] J-setup: priorEquity = 5,000,000`);
+  }
   let cumDraws = 0;
-  for (let t = 0; t < Math.min(snap.axisLength, 6); t++) {
+  for (let t = 0; t < Math.min(snap.axisLength, 4); t++) {
     cumDraws += snap.directCF.equityDrawdownPerPeriod[t] ?? 0;
     assertNear(
       `J[t=${t}]: shareCapital = priorEquity + cumDraws`,

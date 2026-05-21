@@ -89,30 +89,55 @@ export default function Module4BSFeeders(): React.JSX.Element {
         {/* A1: Residential Sales Receivables */}
         <M4PeriodTable
           title="A1. Residential Sales Receivables: Roll-Forward (project)"
-          caption="Opening + Revenue billed (pre-sales + SDO) − Cash collected = Closing. Driven by the M2 Sell asset milestone schedule."
+          caption="Per-asset closing AR (mirror of M2 Revenue Output Block 5) + project total. AR forms ONLY on pre-sales (sale value lumps at sale year, cash collects via milestone profile). Post-handover sales (SDO) recognise revenue = cash same period and never accrue AR. Opening + Pre-Sales Sale Value − Pre-Sales Cash Collected = Closing AR."
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
           rows={(() => {
-            const opening = zeros(), billed = zeros(), collected = zeros(), closing = zeros();
-            for (const [assetId, bundle] of snap.byAssetSchedules) {
-              const sell = snap.revenue.bySellAsset.get(assetId);
-              if (!sell) continue;
+            // M4 Pass 2N-Fix #3 (2026-05-21): A1 now literally mirrors
+            // the per-asset AR built in M2 Revenue Output (Block 5).
+            // Each Sell + Sell+Manage parent contributes its
+            // bundle.ar (which is buildAccountsReceivable(presalesSV,
+            // presalesCash)). The project totals are SUMS of the
+            // per-asset closings — guaranteed to equal the M2 Output
+            // numbers asset-for-asset. The previous SDO-inclusive
+            // billed/collected lines were confusing because the SDO
+            // terms cancelled (revenue=cash same period) yet showed
+            // non-zero values in the display.
+            const opening = zeros(), saleValue = zeros(), cashCollected = zeros(), closing = zeros();
+            const perAssetRows: import('./_shared/m4Table').M4Row[] = [];
+            const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
+            for (const [assetId, bundle] of sellEntries) {
+              const sell = snap.revenue.bySellAsset.get(assetId)!;
               for (let t = 0; t < N; t++) {
                 opening[t] += bundle.ar.openingPerPeriod[t] ?? 0;
-                billed[t] += (sell.presalesSalesValuePerPeriod[t] ?? 0)
-                  + (sell.postSalesRevenuePerPeriod[t] ?? 0);
-                collected[t] += sell.cashCollectedPerPeriod[t] ?? 0;
+                saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+                cashCollected[t] += sell.presalesCashPerPeriod[t] ?? 0;
                 closing[t] += bundle.ar.perPeriod[t] ?? 0;
               }
             }
-            return [
-              { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Revenue billed (pre-sales + SDO)', values: billed, indent: 1 },
-              { label: '(−) Cash collected (pre-sales + SDO)', values: collected.map((v) => -v), indent: 1 },
-              { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-            ];
+            const rows: import('./_shared/m4Table').M4Row[] = [];
+            rows.push({ label: 'Opening AR (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+            rows.push({ label: '(+) Pre-Sales Sale Value', values: saleValue, indent: 1 });
+            rows.push({ label: '(−) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 });
+            rows.push({ label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            // Per-asset closing AR breakdown (mirror).
+            if (sellEntries.length > 0) {
+              rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
+              for (const [assetId, bundle] of sellEntries) {
+                const asset = state.assets.find((a) => a.id === assetId);
+                rows.push({
+                  label: asset?.name ?? assetId,
+                  values: bundle.ar.perPeriod.slice(0, N),
+                  indent: 1,
+                  totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0),
+                });
+              }
+              rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            }
+            void perAssetRows;
+            return rows;
           })()}
         />
 
@@ -197,10 +222,12 @@ export default function Module4BSFeeders(): React.JSX.Element {
           fmt={fmt}
           priorYearLabel={priorYear}
           rows={(() => {
+            // M4 Pass 2N-Fix #3 (2026-05-21): L2 mirrors M2 Output
+            // Block 6 (Unearned Revenue) per asset + project total.
             const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
-            for (const [assetId, bundle] of snap.byAssetSchedules) {
-              const sell = snap.revenue.bySellAsset.get(assetId);
-              if (!sell) continue;
+            const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
+            for (const [assetId, bundle] of sellEntries) {
+              const sell = snap.revenue.bySellAsset.get(assetId)!;
               for (let t = 0; t < N; t++) {
                 opening[t] += bundle.unearned.openingPerPeriod[t] ?? 0;
                 saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
@@ -208,12 +235,25 @@ export default function Module4BSFeeders(): React.JSX.Element {
                 closing[t] += bundle.unearned.perPeriod[t] ?? 0;
               }
             }
-            return [
-              { label: 'Opening unearned revenue', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 },
-              { label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 },
-              { label: 'Closing unearned revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-            ];
+            const rows: import('./_shared/m4Table').M4Row[] = [];
+            rows.push({ label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+            rows.push({ label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 });
+            rows.push({ label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 });
+            rows.push({ label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            if (sellEntries.length > 0) {
+              rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
+              for (const [assetId, bundle] of sellEntries) {
+                const asset = state.assets.find((a) => a.id === assetId);
+                rows.push({
+                  label: asset?.name ?? assetId,
+                  values: bundle.unearned.perPeriod.slice(0, N),
+                  indent: 1,
+                  totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0),
+                });
+              }
+              rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            }
+            return rows;
           })()}
         />
 

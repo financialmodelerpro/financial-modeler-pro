@@ -740,10 +740,19 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   while (capexProj.length < N) capexProj.push(0);
   const cashFromInv = capexProj.map((v) => -v);
 
-  // Financing flows from M1 (combined + equity). Same Pass 2N-Fix: no
-  // off-by-one shift on engine arrays.
-  const equityDraws = financing.equity.totalPerPeriod.slice(0, N);
-  while (equityDraws.length < N) equityDraws.push(0);
+  // Financing flows from M1 (combined + equity).
+  // M4 Pass 2N-Fix #3 (2026-05-21): equity.totalPerPeriod lumps
+  // existing.equityTotal into year-0 alongside cash + in-kind draws.
+  // The composer also seeds priorCash separately on the asset side
+  // and adds priorEquity to shareCapital. Using totalPerPeriod here
+  // would double-count existing equity through cashFromFin -> netCf
+  // -> closingCash. Use cash + in-kind only (the actual new draws
+  // happening within the project axis).
+  const equityCashArr = financing.equity.cashPerPeriod.slice(0, N);
+  while (equityCashArr.length < N) equityCashArr.push(0);
+  const equityInKindArr = financing.equity.inKindPerPeriod.slice(0, N);
+  while (equityInKindArr.length < N) equityInKindArr.push(0);
+  const equityDraws = equityCashArr.map((v, i) => v + (equityInKindArr[i] ?? 0));
   const debtDraws = financing.combined.totalDrawdown.slice(0, N);
   while (debtDraws.length < N) debtDraws.push(0);
   const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
