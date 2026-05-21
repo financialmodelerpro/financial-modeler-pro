@@ -35,6 +35,7 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { OpexLineCategory } from '@/src/core/calculations/opex';
 
@@ -599,6 +600,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
               <AssetSection
                 key={ar.assetId}
                 assetId={ar.assetId}
+                domId={`m3-opex-out-asset-${ar.assetId}`}
                 title={ar.assetName}
                 meta={`DPO ${ar.effectiveApDays} days`}
                 storageKey={`fmp:m3:opex:ap:asset:${ar.assetId}:collapsed`}
@@ -705,6 +707,9 @@ export default function Module3OpexOutput(): React.JSX.Element {
         </p>
       </div>
 
+      {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
+      <AssetQuickNav assets={assets} idPrefix="m3-opex-out-asset" testidPrefix="m3-opex-out-nav" />
+
       {opexAssets.length === 0 && (
         <div style={{
           padding: 'var(--sp-3)',
@@ -744,6 +749,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
                 <AssetSection
                   key={a.id}
                   assetId={a.id}
+                  domId={`m3-opex-out-asset-${a.id}`}
                   title={a.name}
                   meta={a.strategy === 'Operate' ? 'Hospitality' : a.strategy}
                   storageKey={`fmp:m3:opex:asset:${a.id}:collapsed`}
@@ -783,6 +789,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
                 <AssetSection
                   key={a.id}
                   assetId={a.id}
+                  domId={`m3-opex-out-asset-${a.id}`}
                   title={a.name}
                   meta="Retail / Lease"
                   storageKey={`fmp:m3:opex:asset:${a.id}:collapsed`}

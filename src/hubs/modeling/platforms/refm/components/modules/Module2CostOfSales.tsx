@@ -41,6 +41,7 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 import VintageMatrix from './_shared/VintageMatrix';
 import { makeFmt, makePctFmt } from './_shared/numberFmt';
 
@@ -281,6 +282,9 @@ export default function Module2CostOfSales(): React.JSX.Element {
         </p>
       </div>
 
+      {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
+      <AssetQuickNav assets={state.assets} idPrefix="m2-cos-asset" testidPrefix="m2-cos-nav" />
+
       {/* Pass 9f-2 (2026-05-18): strategy-first grouping to mirror
           Revenue Output. CoS only applies to Sell + Sell + Manage
           parents, so a single outer strategy section covers everything. */}
@@ -348,6 +352,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
                 <AssetSection
                   key={row.asset.id}
                   assetId={row.asset.id}
+                  domId={`m2-cos-asset-${row.asset.id}`}
                   title={row.asset.name}
                   meta={`Total Capex (incl. Land) ${currency} ${fmt(totalCapex)} · CoS construction + operations`}
                   storageKey={`fmp:m2:costofsales:asset:${row.asset.id}:collapsed`}

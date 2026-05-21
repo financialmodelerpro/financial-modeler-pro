@@ -33,6 +33,7 @@ import {
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 
 // ─── styling primitives (mirror M2) ───────────────────────────────
 const FAST_INPUT: React.CSSProperties = {
@@ -357,6 +358,7 @@ function AssetCard({
   badgeColor,
   collapsed,
   onToggle,
+  domId,
   children,
 }: {
   title: React.ReactNode;
@@ -364,11 +366,14 @@ function AssetCard({
   badgeColor?: string;
   collapsed: boolean;
   onToggle: () => void;
+  domId?: string;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
     <div
+      id={domId}
       style={{
+        scrollMarginTop: domId ? '70px' : undefined,
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-sm)',
         marginBottom: 'var(--sp-2)',
@@ -1124,6 +1129,9 @@ export default function Module3Opex(): React.JSX.Element {
         </p>
       </div>
 
+      {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
+      <AssetQuickNav assets={assets} idPrefix="m3-opex-input-asset" testidPrefix="m3-opex-input-nav" />
+
       {/* HQ / project-wide opex */}
       <AssetCard
         title={<span style={{ color: 'var(--color-heading)' }}>🏢 HQ &amp; Corporate Overheads</span>}
@@ -1214,6 +1222,7 @@ export default function Module3Opex(): React.JSX.Element {
                 </div>
               )}
               <AssetCard
+                domId={`m3-opex-input-asset-${a.id}`}
                 title={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <span>{a.name}</span>

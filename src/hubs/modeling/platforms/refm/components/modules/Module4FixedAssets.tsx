@@ -44,6 +44,7 @@ import {
   nonLabelColumnPct,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
+import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { PercentageInput } from '../ui/PercentageInput';
 import { FAST_INPUT } from './_shared/inputStyles';
 
@@ -304,6 +305,9 @@ export default function Module4FixedAssets(): React.JSX.Element {
         </div>
       )}
 
+      {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
+      <AssetQuickNav assets={assets} idPrefix="m4-fa-asset" testidPrefix="m4-fa-nav" />
+
       {/* M4 Pass 2i (2026-05-20): consolidated Inputs table at the top
        *  of the tab. Per Ahmad: every asset's Method / Useful Life /
        *  Rate should be edited in one place at the top, not buried
@@ -429,6 +433,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           <AssetSection
             key={a.id}
             assetId={a.id}
+            domId={`m4-fa-asset-${a.id}`}
             title={a.name}
             meta={`${a.strategy === 'Operate' ? 'Hospitality' : a.strategy} · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
             storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
@@ -455,6 +460,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           <AssetSection
             key={a.id}
             assetId={a.id}
+            domId={`m4-fa-asset-${a.id}`}
             title={a.name}
             meta={`Retail / Lease · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
             storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
