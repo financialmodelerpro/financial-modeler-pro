@@ -50,6 +50,15 @@ export function buildCohortMatrix(
 
     if (mode === 'absolute_with_catchup') {
       let catchup = 0;
+      // M4 Pass 2N-Fix (2026-05-21): tailCatchup accumulates any
+      // percentages scheduled at positions BEYOND the project axis
+      // (position >= N). Previously these were silently dropped,
+      // which left AR stuck at the un-collected residual forever
+      // (e.g., total sale value 838,611 vs cash 712,819 = 125,792
+      // leak on Residential Tower 01). Now we deposit the residual
+      // at the last axis year so every cohort's row still sums to
+      // 100% of cohortValue and AR settles to 0 by end of axis.
+      let tailCatchup = 0;
       for (const { p, pos: position } of orderedPairs) {
         if (position < saleYear) {
           catchup += p;
@@ -58,16 +67,32 @@ export function buildCohortMatrix(
           catchup = 0;
         } else if (position < N) {
           out[saleYear][position] += cohortValue * p;
+        } else {
+          // position >= N: defer to tail catchup at last axis year.
+          tailCatchup += p;
         }
       }
       // If sale year is past every position, dump full catchup at sale year.
       if (catchup > 0) {
         out[saleYear][saleYear] += cohortValue * catchup;
       }
+      if (tailCatchup > 0 && N > 0) {
+        out[saleYear][N - 1] += cohortValue * tailCatchup;
+      }
     } else {
+      // relative_to_sale: same tail-catchup semantics. Offsets that
+      // push past axis end accumulate at N-1 so AR settles.
+      let tailCatchup = 0;
       for (const { p, pos: offset } of orderedPairs) {
         const col = saleYear + offset;
-        if (col >= 0 && col < N) out[saleYear][col] += cohortValue * p;
+        if (col >= 0 && col < N) {
+          out[saleYear][col] += cohortValue * p;
+        } else if (col >= N) {
+          tailCatchup += p;
+        }
+      }
+      if (tailCatchup > 0 && N > 0) {
+        out[saleYear][N - 1] += cohortValue * tailCatchup;
       }
     }
   }

@@ -195,6 +195,41 @@ console.log('\n[H] totalInventory = 0 fallback uses sum(pre + post)');
 }
 
 // ──────────────────────────────────────────────────────────────────
+// I: M4 Pass 2N-Fix (2026-05-21) — cohort tail catchup. When a cash
+// payment profile schedules percentages at positions beyond the project
+// axis, the prior code silently dropped them and AR stayed stuck at
+// the un-collected residual forever (user reported Residential
+// Tower 01: total sale 838,611 vs total cash 712,819 = 125,792 leak
+// at end of axis). Fix: deposit any position-past-axis percentages
+// at N-1 so every cohort's row sums to 100% of the cohort value.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[I] Cohort tail catchup: positions past axis settle at N-1 (AR closes to 0)');
+{
+  // 5-year axis, cohort lump = 100 at sale year 0. Profile schedules
+  // 25% at positions 0..4 plus 25% at position 6 (past N=5). The 25%
+  // at position 6 should land at idx 4 (the last axis year), so the
+  // row sums to 100.
+  const { buildCohortMatrix, columnSums } = require('../src/core/calculations/revenue/cohort');
+  const matrix = buildCohortMatrix(
+    [100, 0, 0, 0, 0],
+    {
+      percentages: [0.20, 0.20, 0.20, 0.10, 0.10, 0.20],
+      positions: [0, 1, 2, 3, 4, 6],
+      profileMode: 'absolute_with_catchup',
+    },
+    5,
+  );
+  const rowSum = matrix[0].reduce((s: number, v: number) => s + v, 0);
+  assertNear('I1: cohort row sums to full lump (no leak past axis)', rowSum, 100);
+  const colSums = columnSums(matrix, 5);
+  const total = colSums.reduce((s: number, v: number) => s + v, 0);
+  assertNear('I2: project column-sum total = full lump (no drop)', total, 100);
+  // Last cell should have the original 10% at position 4 PLUS the
+  // 20% tail catchup from position 6 = 30 (= 100 * 0.30).
+  assertNear('I3: position-past-axis percentage lands at N-1', matrix[0][4], 30);
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

@@ -43,6 +43,17 @@ export interface M4Row {
   defaultCollapsed?: boolean;
   /** M4 Pass 2L: Phase column value (shown only when showPhaseColumn). */
   phaseLabel?: string;
+  /** M4 Pass 2N-Fix (2026-05-21): Excel-style trace-to-source. When
+   *  set, renders a small "⤴" icon next to the label; click navigates
+   *  to the named module + tab and (optionally) scrolls to a section
+   *  via its DOM id. Implemented via a global custom event listened
+   *  to by RealEstatePlatform. */
+  trace?: {
+    module: 'module1' | 'module2' | 'module3' | 'module4';
+    tab: string;
+    sectionId?: string;
+    label?: string;
+  };
 }
 
 export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYearLabel, showPhaseColumn }: {
@@ -83,6 +94,15 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
   const totalCols = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
   const nonLabelPct = nonLabelColumnPct(totalCols);
   const phaseColWidth = hasPhase ? '60px' : undefined;
+  // M4 Pass 2N-Fix (2026-05-21): Total column rendered 25% wider than
+  // year columns per user feedback (totals are wider numbers; needs
+  // more room). Year columns absorb the difference proportionally.
+  const nonLabelColCount = 1 + (hasPrior ? 1 : 0) + yearLabels.length;
+  const evenPct = 78 / Math.max(1, nonLabelColCount);
+  const totalColPct = `${(evenPct * 1.25).toFixed(4)}%`;
+  const yearColPct = nonLabelColCount > 1
+    ? `${((78 - evenPct * 1.25) / (nonLabelColCount - 1)).toFixed(4)}%`
+    : nonLabelPct;
 
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -95,9 +115,9 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             {hasPhase && (<col style={{ width: phaseColWidth }} />)}
-            <col style={{ width: nonLabelPct }} />
-            {hasPrior && (<col style={{ width: nonLabelPct }} />)}
-            {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
+            <col style={{ width: totalColPct }} />
+            {hasPrior && (<col style={{ width: yearColPct }} />)}
+            {yearLabels.map((y) => (<col key={y} style={{ width: yearColPct }} />))}
           </colgroup>
           <thead>
             <tr>
@@ -159,6 +179,13 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
               const indent = r.indent ?? 0;
               const total = r.totalOverride ?? cellFmt(r.values.reduce((s, v) => s + (v ?? 0), 0));
               const priorCellStyle = { ...tokens.num, color: 'var(--color-meta)', fontStyle: 'italic' as const };
+              const trace = r.trace;
+              const onTrace = trace
+                ? (e: React.MouseEvent): void => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new CustomEvent('fmp:trace-to', { detail: trace }));
+                  }
+                : undefined;
               return (
                 <tr key={r.label + idx}>
                   <td
@@ -172,6 +199,25 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                       </span>
                     )}
                     {r.label}
+                    {trace && (
+                      <button
+                        type="button"
+                        onClick={onTrace}
+                        title={trace.label ?? `Jump to source schedule`}
+                        data-testid={`m4-trace-${r.label.replace(/\s+/g, '-')}`}
+                        style={{
+                          marginLeft: 6,
+                          fontSize: 11,
+                          padding: '0 4px',
+                          background: 'transparent',
+                          color: 'var(--color-primary, #1d4ed8)',
+                          border: '1px solid var(--color-primary, #1d4ed8)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          lineHeight: '14px',
+                        }}
+                      >⤴</button>
+                    )}
                   </td>
                   {hasPhase && (
                     <td style={{ ...tokens.num, textAlign: 'center', fontSize: 10, color: 'var(--color-meta)' }}>

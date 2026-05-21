@@ -233,6 +233,39 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
 
+  // M4 Pass 2N-Fix (2026-05-21): Excel-style trace-to-source navigator.
+  // M4 line items (e.g. P&L Finance Cost) can declare a `trace` field
+  // on M4Row that includes { module, tab, sectionId }. Clicking the
+  // ⤴ icon dispatches 'fmp:trace-to'; this top-level listener flips
+  // module + tab, then re-dispatches 'fmp:asset-nav-expand' with the
+  // sectionId (re-using the existing expand-and-scroll plumbing).
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ module?: string; tab?: string; sectionId?: string }>).detail;
+      if (!detail) return;
+      if (detail.module) setActiveModule(detail.module);
+      if (detail.tab) setActiveTab(detail.tab);
+      if (detail.sectionId) {
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fmp:asset-nav-expand', { detail: { assetId: detail.sectionId } }));
+          window.setTimeout(() => {
+            const el = document.getElementById(detail.sectionId!);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const prevOutline = el.style.outline;
+            const prevOffset = el.style.outlineOffset;
+            el.style.outline = '2px solid var(--color-primary, #1d4ed8)';
+            el.style.outlineOffset = '2px';
+            el.style.transition = 'outline-color 0.6s ease-out';
+            window.setTimeout(() => { el.style.outline = prevOutline; el.style.outlineOffset = prevOffset; }, 1200);
+          }, 80);
+        }, 80);
+      }
+    };
+    window.addEventListener('fmp:trace-to', handler);
+    return () => window.removeEventListener('fmp:trace-to', handler);
+  }, []);
+
   // P-Sync: dynamic platform modules from /api/platforms/refm/modules.
   // Falls back to static MODULES list while in flight.
   const { modules: dynamicSidebarModules } = usePlatformModules('refm');

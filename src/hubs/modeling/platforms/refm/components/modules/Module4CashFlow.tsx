@@ -217,12 +217,17 @@ export default function Module4CashFlow(): React.JSX.Element {
         for (const a of retailAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-ret', -1);
       }
     }
-    // M4 Pass 2N-Fix #3 (2026-05-21): prior column shows historical
-    // pre-capex (already spent before the project axis) as a negative
-    // outflow marker so the user sees the full capex picture.
+    // M4 Pass 2N-Fix #3 (2026-05-21): pre-capex (historical capex spent
+    // before the project axis) gets its own dedicated row above Total
+    // Capex. Shown as outflow at the prior column only — it's not a
+    // current-period flow, just a marker so the user can reconcile
+    // against the existing-operations seed on the BS Fixed Assets.
     const priorPreCapex = snap.financing.existing.preCapexTotal;
-    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true, priorValue: priorPreCapex > 0 ? -priorPreCapex : 0 });
-    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true, priorValue: priorPreCapex > 0 ? -priorPreCapex : 0 });
+    if (priorPreCapex > 0) {
+      rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
+    }
+    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true });
+    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true });
 
     // ── CASH FROM FINANCING ───────────────────────────────────────
     // M4 Pass 2N-Fix #3 (2026-05-21): debt rows consolidated into two
@@ -283,6 +288,15 @@ export default function Module4CashFlow(): React.JSX.Element {
     if (exIntPaid.some((v) => v !== 0)) {
       rows.push({ label: 'Finance Cost Paid, Existing loans', values: exIntPaid.map((v) => -v), indent: 1 });
     }
+    // M4 Pass 2N-Fix #3 (2026-05-21): construction-window finance cost
+    // is "paid" via additional drawdown (capitalised interest, IDC).
+    // The Drawdown (IDC) row above already reflects the cash inflow
+    // side. This memo surfaces the matching outflow side so the user
+    // sees that finance cost IS being paid during construction (just
+    // through a debt drawdown rather than cash). Net cash effect = 0.
+    if (exDrawIdc.some((v) => v !== 0)) {
+      rows.push({ label: 'Finance Cost (Capitalised via IDC drawdown), Existing loans', values: exDrawIdc.map((v) => -v), indent: 1 });
+    }
 
     // New loans bucket.
     const newDraw = sumOrigin('new', 'drawSchedule');
@@ -300,6 +314,10 @@ export default function Module4CashFlow(): React.JSX.Element {
     }
     if (newIntPaid.some((v) => v !== 0)) {
       rows.push({ label: 'Finance Cost Paid, New loans', values: newIntPaid.map((v) => -v), indent: 1 });
+    }
+    // Capitalised-IDC offset (same memo logic as existing loans).
+    if (newDrawIdc.some((v) => v !== 0)) {
+      rows.push({ label: 'Finance Cost (Capitalised via IDC drawdown), New loans', values: newDrawIdc.map((v) => -v), indent: 1 });
     }
 
     rows.push({ label: 'Cash Flow from Financing', values: d.cashFromFinancingPerPeriod, isSubtotal: true });
