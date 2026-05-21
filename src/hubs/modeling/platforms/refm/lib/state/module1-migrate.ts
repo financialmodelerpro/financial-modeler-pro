@@ -203,7 +203,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -221,7 +221,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))))))));
+  )))))))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -244,7 +244,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -262,7 +262,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ))))))))))))))))))));
+  )))))))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -2568,6 +2568,135 @@ export function migrateM2Pass9kPruneByPhase(snap: HydrateSnapshot): HydrateSnaps
         oxChanged = true;
       }
       if (oxChanged) { next.opex = ox; assetChanged = true; }
+    }
+
+    if (assetChanged) { touched = true; return next; }
+    return a;
+  });
+  if (nextAssets.some((a, i) => a !== assets[i])) {
+    snap = { ...snap, assets: nextAssets } as HydrateSnapshot;
+  }
+  return touched ? snap : snap;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// M2 Pass 9L-Fix (2026-05-21): backfill byPhase from legacy where the
+// resolver merge would otherwise shadow historical legacy values.
+//
+// Problem: prior dual-write setters padded an empty existingByPhase
+// to phaseLen and only assigned the newly-typed index. The resolver
+// merge in expandPhaseLocalToAxis is "byPhase authoritative WHERE IT
+// COVERS, legacy fills indices not covered". An all-zero byPhase
+// covering the full phase window SHADOWED legacy values from prior
+// sessions (entered before dual-write), zeroing them out at render.
+//
+// Fix at write time: setters now rebuild byPhase from the full
+// updated legacy axis (see Module2Revenue.tsx setOperateOccupancy /
+// setCashPct / setRecognitionPct / dualWriteVelocity).
+//
+// Fix on load (this migration): for any per-period field where
+// byPhase has a slot at 0 AND the matching legacy axis cell has a
+// non-zero value, copy the legacy value into byPhase. Idempotent.
+//
+// Without this, users with already-broken snapshots would have to
+// re-touch every affected cell. The migration fixes them on next
+// load.
+// ────────────────────────────────────────────────────────────────────
+
+function _backfillByPhaseFromLegacy(
+  byPhase: number[] | undefined,
+  legacy: number[] | undefined,
+  phaseOffset: number,
+): number[] | undefined {
+  if (!Array.isArray(byPhase) || byPhase.length === 0) return byPhase;
+  if (!Array.isArray(legacy) || legacy.length === 0) return byPhase;
+  let changed = false;
+  const out = byPhase.slice();
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] !== 0) continue;
+    const axisIdx = i + phaseOffset;
+    if (axisIdx < 0 || axisIdx >= legacy.length) continue;
+    const v = legacy[axisIdx] ?? 0;
+    if (v !== 0) {
+      out[i] = v;
+      changed = true;
+    }
+  }
+  return changed ? out : byPhase;
+}
+
+export function migrateM2Pass9LBackfillByPhase(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as { startDate?: string } | undefined;
+  const phases = (snap.phases as Array<{ id: string; startDate?: string }> | undefined) ?? [];
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  if (assets.length === 0 || !project?.startDate) return snap;
+  const projectStartYear = new Date(project.startDate).getUTCFullYear();
+  const phaseById = new Map(phases.map((p) => [p.id, p] as const));
+
+  let touched = false;
+  const nextAssets = assets.map((a) => {
+    const phase = phaseById.get(a.phaseId);
+    if (!phase) return a;
+    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const phaseOffset = Math.max(0, phaseStartYear - projectStartYear);
+    let assetChanged = false;
+    const next: Asset = { ...a };
+
+    if (a.revenue) {
+      const rev = { ...a.revenue };
+      let revChanged = false;
+
+      // Sell velocity per sub-unit + cash + recognition profiles
+      if (rev.sell) {
+        const sell = { ...rev.sell };
+        let sellChanged = false;
+        const newSubs = sell.subUnits.map((su) => {
+          const out = { ...su };
+          let suChanged = false;
+          const pre = _backfillByPhaseFromLegacy(su.preSalesVelocityByPhase, su.preSalesVelocity, phaseOffset);
+          if (pre !== su.preSalesVelocityByPhase) { out.preSalesVelocityByPhase = pre; suChanged = true; }
+          const post = _backfillByPhaseFromLegacy(su.postSalesVelocityByPhase, su.postSalesVelocity, phaseOffset);
+          if (post !== su.postSalesVelocityByPhase) { out.postSalesVelocityByPhase = post; suChanged = true; }
+          return suChanged ? out : su;
+        });
+        if (newSubs.some((su, i) => su !== sell.subUnits[i])) {
+          sell.subUnits = newSubs;
+          sellChanged = true;
+        }
+        if (sell.cashPaymentProfile) {
+          const cp = { ...sell.cashPaymentProfile };
+          const back = _backfillByPhaseFromLegacy(cp.percentagesByPhase, cp.percentages, phaseOffset);
+          if (back !== cp.percentagesByPhase) { cp.percentagesByPhase = back; sell.cashPaymentProfile = cp; sellChanged = true; }
+        }
+        if (sell.recognitionProfile) {
+          const rp = { ...sell.recognitionProfile };
+          const back = _backfillByPhaseFromLegacy(rp.percentagesByPhase, rp.percentages, phaseOffset);
+          if (back !== rp.percentagesByPhase) { rp.percentagesByPhase = back; sell.recognitionProfile = rp; sellChanged = true; }
+        }
+        if (sellChanged) { rev.sell = sell; revChanged = true; }
+      }
+
+      // Operate occupancy / keysParticipation
+      if (rev.operate) {
+        const op = { ...rev.operate };
+        let opChanged = false;
+        const occ = _backfillByPhaseFromLegacy(op.occupancyPerPeriodByPhase, op.occupancyPerPeriod, phaseOffset);
+        if (occ !== op.occupancyPerPeriodByPhase) { op.occupancyPerPeriodByPhase = occ; opChanged = true; }
+        const kp = _backfillByPhaseFromLegacy(op.keysParticipationProfileByPhase, op.keysParticipationProfile, phaseOffset);
+        if (kp !== op.keysParticipationProfileByPhase) { op.keysParticipationProfileByPhase = kp; opChanged = true; }
+        if (opChanged) { rev.operate = op; revChanged = true; }
+      }
+
+      // Lease occupancy
+      if (rev.lease) {
+        const ls = { ...rev.lease };
+        let lsChanged = false;
+        const occ = _backfillByPhaseFromLegacy(ls.occupancyPerPeriodByPhase, ls.occupancyPerPeriod, phaseOffset);
+        if (occ !== ls.occupancyPerPeriodByPhase) { ls.occupancyPerPeriodByPhase = occ; lsChanged = true; }
+        if (lsChanged) { rev.lease = ls; revChanged = true; }
+      }
+
+      if (revChanged) { next.revenue = rev; assetChanged = true; }
     }
 
     if (assetChanged) { touched = true; return next; }

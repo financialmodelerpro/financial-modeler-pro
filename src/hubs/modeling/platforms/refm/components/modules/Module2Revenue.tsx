@@ -688,22 +688,27 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
   const dualWriteVelocity = (
     legacyArr: number[],
-    byPhaseArr: number[] | undefined,
+    _byPhaseArr: number[] | undefined,
     periodIdx: number,
     value: number,
     validPhaseIndices: Set<number>,
   ): { legacy: number[]; byPhase: number[] } => {
     const legacy = [...legacyArr];
     legacy[periodIdx] = value;
-    const localIdx = periodIdx - phaseOffset;
     const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const byPhase = paddedArray(byPhaseArr, phaseLen);
-    // Prune: zero out every phase-local index outside the valid window.
-    for (let i = 0; i < byPhase.length; i++) {
-      if (!validPhaseIndices.has(i)) byPhase[i] = 0;
-    }
-    if (localIdx >= 0 && localIdx < byPhase.length && validPhaseIndices.has(localIdx)) {
-      byPhase[localIdx] = value;
+    // M2 Pass 9L-Fix (2026-05-21): rebuild byPhase from the FULL
+    // (updated) legacy axis on every write. Using paddedArray on an
+    // empty/partial existingByPhase produced a byPhase that covered
+    // the entire phase window with zeros, which then SHADOWED legacy
+    // values in the resolver merge (byPhase authoritative WHERE IT
+    // COVERS) and zeroed out historical entries the user had typed
+    // before the dual-write fix landed. Rebuilding from `legacy` gives
+    // parity between the two shapes on every save.
+    const byPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      if (!validPhaseIndices.has(i)) continue;
+      const axisIdx = i + phaseOffset;
+      byPhase[i] = legacy[axisIdx] ?? 0;
     }
     return { legacy, byPhase };
   };
@@ -772,10 +777,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     // legitimately extend past the phase's construction + operations
     // window (long payment plans). Use the full remaining-axis window
     // from phase start, not cp + op - overlap.
-    const localIdx = periodIdx - phaseOffset;
+    // M2 Pass 9L-Fix (2026-05-21): rebuild byPhase from the FULL
+    // (updated) legacy axis so historical values entered before the
+    // dual-write fix don't get zeroed out by an empty existingByPhase.
     const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const nextByPhase = paddedArray(cashProfile.percentagesByPhase, phaseLen);
-    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    const nextByPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      nextByPhase[i] = next[axisIdx] ?? 0;
+    }
     updateSellInline({
       cashPaymentProfile: {
         percentages: next,
@@ -815,10 +825,14 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     // M4 Pass 2h + 9k-Fix (2026-05-20): recognition profile is a
     // template applied to every cohort, NOT a single-year per-phase
     // setting. Use the full remaining-axis window from phase start.
-    const localIdx = periodIdx - phaseOffset;
+    // M2 Pass 9L-Fix (2026-05-21): rebuild byPhase from full legacy
+    // axis to preserve pre-dual-write historical values.
     const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const nextByPhase = paddedArray(recProfile.percentagesByPhase, phaseLen);
-    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    const nextByPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      nextByPhase[i] = next[axisIdx] ?? 0;
+    }
     updateSellInline({
       recognitionProfile: {
         ...recProfile,
@@ -957,15 +971,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     next[idx] = value;
     // M2 Fix (2026-05-20): dual-write to occupancyPerPeriodByPhase so
     // the engine (which prefers ByPhase via expandPhaseLocalToAxis)
-    // sees the edit. Without this every legacy-only write was
-    // shadowed by the migration-seeded ByPhase snapshot, which is
-    // also why occupancy at the last operations year showed 0 after
-    // a project-axis extension.
-    const localIdx = idx - phaseOffset;
+    // sees the edit.
+    // M2 Pass 9L-Fix (2026-05-21): rebuild byPhase from the FULL
+    // updated legacy axis (`next`) on every write. The old approach of
+    // paddedArray(existingByPhase, phaseLen) + single-index assign
+    // produced a byPhase covering the full phase window with zeros in
+    // every slot the user hadn't yet re-touched via the dual-write
+    // setter. The resolver merge is "byPhase authoritative WHERE IT
+    // COVERS, legacy fills indices it doesn't cover", so the empty
+    // byPhase slots SHADOWED legacy values entered in prior sessions,
+    // wiping any year the user hadn't re-typed.
     const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const existingByPhase = operateConfig?.occupancyPerPeriodByPhase;
-    const nextByPhase = paddedArray(existingByPhase, phaseLen);
-    if (localIdx >= 0 && localIdx < nextByPhase.length) nextByPhase[localIdx] = value;
+    const nextByPhase = new Array<number>(phaseLen).fill(0);
+    for (let i = 0; i < phaseLen; i++) {
+      const axisIdx = i + phaseOffset;
+      nextByPhase[i] = next[axisIdx] ?? 0;
+    }
     updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase });
   };
   const setOperateGuestsPerOR = (n: number): void => updateOperateInline({ guestsPerOccupiedRoom: Math.max(0, n) });

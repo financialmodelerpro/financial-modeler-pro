@@ -179,6 +179,107 @@ console.log('\n[D] ADR YoY growth per period preserves phase-local intent');
   assertNear('D2: late first ops year (2031) = 36.5M (idx 4 follows the phase)', resLate.hospitalityProjectTotals.totalRevenuePerPeriod[yLateIdx], base);
 }
 
+// ──────────────────────────────────────────────────────────────────
+// H: M2 Pass 9L-Fix (2026-05-21) — typing one cell must not zero out
+// historical legacy values at OTHER cells. Mimics the user-reported
+// scenario: prior snapshot had occupancy[year=Y1]=0.5 in legacy only
+// (entered before the dual-write fix). User edits Y2 via the new
+// dual-write setter. The byPhase created for Y2 must not shadow the
+// legacy value at Y1.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[H] Pass 9L-Fix: editing one occupancy cell preserves legacy values at other cells');
+{
+  const project = makeProject();
+  const phase: Phase = makePhase('p1', 2026, 4, 10); // ops 2030..2039
+  // Simulate post-edit state from the FIXED setter: byPhase is rebuilt
+  // from legacy on every write, so editing year 2039 produces a byPhase
+  // that includes BOTH the historical 2029 value AND the new 2039
+  // value. (Year 2029 isn't an op year for cp=4/op=10 (handover is
+  // 2029), so use year 2031 as the historical entry instead.)
+  // Scenario: legacy had occupancy at 2031 (axis idx 5) = 0.5 from a
+  // pre-dual-write session. User now types 2039 (axis idx 13) = 0.7.
+  // With the FIX: byPhase is rebuilt from legacy = [..., 0.5 at 5, ..., 0.7 at 13]
+  // -> byPhase at phase-local idx 5 = 0.5, byPhase at phase-local idx 13 = 0.7.
+  // Engine reads both correctly. Both years show revenue.
+  const legacyOcc = new Array(14).fill(0);
+  legacyOcc[5] = 0.5;  // year 2031 (historical, set pre-fix)
+  legacyOcc[13] = 0.7; // year 2039 (newly typed)
+  const byPhaseOcc = new Array(14).fill(0);
+  for (let i = 0; i < 14; i++) byPhaseOcc[i] = legacyOcc[i] ?? 0; // mirrors the fixed setter
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p1', name: 'Hotel', type: '',
+    strategy: 'Operate', visible: true,
+    gfaSqm: 0, buaSqm: 5000, sellableBuaSqm: 0,
+    revenue: {
+      operate: {
+        assetId: 'a1', daysPerYear: 365, startingADR: 1000,
+        adrIndexation: { method: 'none' },
+        occupancyPerPeriodByPhase: byPhaseOcc,
+        occupancyPerPeriod: legacyOcc,
+        guestsPerOccupiedRoom: 1.5,
+        fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+        otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Rooms', category: 'Operations',
+    metric: 'units', metricValue: 100, unitArea: 0, unitPrice: 1000,
+  } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] });
+  const idx2031 = res.yearLabels.indexOf(2031);
+  const idx2039 = res.yearLabels.indexOf(2039);
+  const expected2031 = 0.5 * 100 * 365 * 1000; // 18,250,000
+  const expected2039 = 0.7 * 100 * 365 * 1000; // 25,550,000
+  assertNear('H1: historical 2031 = 18.25M (legacy value preserved via setter backfill)', res.hospitalityProjectTotals.totalRevenuePerPeriod[idx2031], expected2031);
+  assertNear('H2: newly typed 2039 = 25.55M', res.hospitalityProjectTotals.totalRevenuePerPeriod[idx2039], expected2039);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// H-regression: WITHOUT the Pass 9L-Fix setter behaviour, byPhase
+// would have a value ONLY at the newly typed index (everything else
+// zero). The resolver merge would then shadow the legacy 2031 value.
+// We simulate that broken state here and assert the OLD bug surface.
+// (Documents what the fix prevents; not a positive assertion.)
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[H-regression] Simulated pre-fix setter: empty-but-defined byPhase shadows legacy');
+{
+  const project = makeProject();
+  const phase: Phase = makePhase('p1', 2026, 4, 10);
+  const legacyOcc = new Array(14).fill(0);
+  legacyOcc[5] = 0.5;
+  legacyOcc[13] = 0.7;
+  // Pre-fix setter: byPhase only carries the latest typed entry.
+  const byPhaseOcc = new Array(14).fill(0);
+  byPhaseOcc[13] = 0.7;
+  const asset: Asset = {
+    id: 'a1', phaseId: 'p1', name: 'Hotel', type: '',
+    strategy: 'Operate', visible: true,
+    gfaSqm: 0, buaSqm: 5000, sellableBuaSqm: 0,
+    revenue: {
+      operate: {
+        assetId: 'a1', daysPerYear: 365, startingADR: 1000,
+        adrIndexation: { method: 'none' },
+        occupancyPerPeriodByPhase: byPhaseOcc,
+        occupancyPerPeriod: legacyOcc,
+        guestsPerOccupiedRoom: 1.5,
+        fb: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+        otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 },
+      },
+    },
+  } as unknown as Asset;
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: 'Rooms', category: 'Operations',
+    metric: 'units', metricValue: 100, unitArea: 0, unitPrice: 1000,
+  } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] });
+  const idx2031 = res.yearLabels.indexOf(2031);
+  // This documents the SHADOWING behaviour: byPhase covers axis 0..13
+  // fully, so axis[5] reads byPhase[5]=0 (NOT legacy 0.5). The fix
+  // ensures the setter never produces a byPhase like this.
+  assertNear('H-reg: bad byPhase shadows legacy at 2031 → 0 (documents the prevented bug)', res.hospitalityProjectTotals.totalRevenuePerPeriod[idx2031], 0);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');
