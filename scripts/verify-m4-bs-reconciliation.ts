@@ -368,9 +368,13 @@ console.log('\n[M] Pass 2R: Funding Gap identities');
 
     const ops = gap.cashFromOpsPerPeriod[t] ?? 0;
     const inv = gap.cashFromInvPerPeriod[t] ?? 0;
-    assertNear(`M4[t=${t}]: preFinancingNetCf = ops + inv`, gap.preFinancingNetCfPerPeriod[t] ?? 0, ops + inv);
-    const expectedB = Math.max(0, -(ops + inv));
-    assertNear(`M3[t=${t}]: methodB = max(0, −(ops + inv))`, gap.methodBGapPerPeriod[t] ?? 0, expectedB);
+    // M4 Pass 2T-Fix #2 (2026-05-24): Method B lagged. preFinancingNetCf
+    // uses ops[t-1] + inv[t], not same-period ops.
+    const opsLagged = t === 0 ? 0 : (gap.cashFromOpsPerPeriod[t - 1] ?? 0);
+    assertNear(`M4[t=${t}]: preFinancingNetCf = ops[t-1] + inv[t]`, gap.preFinancingNetCfPerPeriod[t] ?? 0, opsLagged + inv);
+    const expectedB = Math.max(0, -(opsLagged + inv));
+    assertNear(`M3[t=${t}]: methodB = max(0, −(ops[t-1] + inv[t]))`, gap.methodBGapPerPeriod[t] ?? 0, expectedB);
+    void ops; // same-period ops kept on the snapshot for display only
     runningB += expectedB;
     assertNear(`M2-B[t=${t}]: methodB cumulative`, gap.methodBGapCumulative[t] ?? 0, runningB);
   }

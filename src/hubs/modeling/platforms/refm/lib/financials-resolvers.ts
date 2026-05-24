@@ -915,9 +915,11 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const methodAGapCumulative = cumulative(methodAGapPerPeriod);
   const methodATotalGap = methodAGapPerPeriod.reduce((s, v) => s + v, 0);
 
-  // Method B inputs — directCF carries signed values (capex/opex/etc.
-  // are already negative); ops + inv combined is the pre-financing
-  // net CF. Negative = deficit; positive = surplus.
+  // Method B inputs. M4 Pass 2T-Fix #2 (2026-05-24): same one-period
+  // lag as Method A — this year's capex is funded by LAST year's
+  // operating cash flow (we don't receive ops cash on Day 1 of the
+  // year). preFinancingNetCfLagged[t] = cashFromInv[t] + cashFromOps[t-1].
+  // First period gap = full |cashFromInv[0]| (no prior-year ops).
   const cashFromOpsPerPeriod = snap.directCF.cashFromOperationsPerPeriod.slice(0, N);
   while (cashFromOpsPerPeriod.length < N) cashFromOpsPerPeriod.push(0);
   const cashFromInvPerPeriod = snap.directCF.cashFromInvestmentPerPeriod.slice(0, N);
@@ -925,7 +927,11 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const preFinancingNetCfPerPeriod = zeros(N);
   const methodBGapPerPeriod = zeros(N);
   for (let t = 0; t < N; t++) {
-    preFinancingNetCfPerPeriod[t] = cashFromOpsPerPeriod[t] + cashFromInvPerPeriod[t];
+    const opsLagged = t === 0 ? 0 : (cashFromOpsPerPeriod[t - 1] ?? 0);
+    // Lagged net CF carried on the snapshot for display (and so the
+    // verifier can pin the formula). Same-period net CF stays available
+    // via the directCF arrays the UI also reads.
+    preFinancingNetCfPerPeriod[t] = opsLagged + (cashFromInvPerPeriod[t] ?? 0);
     methodBGapPerPeriod[t] = Math.max(0, -preFinancingNetCfPerPeriod[t]);
   }
   const methodBGapCumulative = cumulative(methodBGapPerPeriod);

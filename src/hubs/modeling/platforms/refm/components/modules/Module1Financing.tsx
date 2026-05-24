@@ -2545,16 +2545,17 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Method B — Pre-Financing CF Deficit</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Gap = max(0, −(Cash from Operations + Cash from Investing)). Captures the full waterfall: revenue collected, opex paid, tax, AR / AP timing, escrow movement, capex. Surpluses (positive pre-financing CF) reduce future need cumulatively but don't reduce the current period's funding line.
+          Gap = max(0, −(Cash from Operations<sub>t−1</sub> + Cash from Investing<sub>t</sub>)). Operations CF is <strong>lagged one year</strong> (consistent with Method A) — this year's capex is funded by last year's operating cash, since cash inflows aren't received on Day 1. Captures the full waterfall: revenue collected, opex paid, tax, AR / AP timing, escrow movement, capex. Surpluses reduce future need cumulatively but don't reduce the current period's funding line.
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
             {colgroup}
             {headerRow}
             <tbody>
-              {renderFlowRow('Cash from Operations', gap.cashFromOpsPerPeriod)}
-              {renderFlowRow('Cash from Investing', gap.cashFromInvPerPeriod, { negative: true })}
-              {renderFlowRow('Pre-Financing Net CF', gap.preFinancingNetCfPerPeriod, { subtotal: true })}
+              {renderFlowRow('Cash from Operations (same period, reference)', gap.cashFromOpsPerPeriod)}
+              {renderFlowRow('Cash from Operations (LAST year, used in gap)', gap.cashFromOpsPerPeriod.map((_, i) => i === 0 ? 0 : (gap.cashFromOpsPerPeriod[i - 1] ?? 0)), { indent: 1 })}
+              {renderFlowRow('Cash from Investing (this year)', gap.cashFromInvPerPeriod, { negative: true })}
+              {renderFlowRow('Pre-Financing Net CF (Ops_{t−1} + Inv_t)', gap.preFinancingNetCfPerPeriod, { subtotal: true })}
               {renderFlowRow('Method B — Funding Gap (deficit only)', gap.methodBGapPerPeriod, { bold: true })}
               {renderStateRow('Cumulative Funding Gap (B)', gap.methodBGapCumulative, { subtotal: true })}
             </tbody>
