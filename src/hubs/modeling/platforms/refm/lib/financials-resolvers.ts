@@ -654,6 +654,14 @@ export interface CashSweepSnapshot {
   adjustedClosingCash: number[];
   /** Project total debt outstanding per period AFTER sweep. */
   adjustedDebtOutstanding: number[];
+  /** M4 Pass 2Y (2026-05-24): interest savings per period from the
+   *  reduced post-sweep balance. interest_savings[t] = sum over
+   *  sweep-enabled tranches of (preSweep[t-1] − postSweep[t-1]) × rate.
+   *  Composer subtracts from both totalInterestExpensed (P&L) and the
+   *  cash interest paid (CF) so BS stays balanced AND the model
+   *  captures the real-world benefit of sweeping. */
+  interestSavingsPerPeriod: number[];
+  totalInterestSavings: number;
 }
 
 /**
@@ -900,6 +908,28 @@ export function computeCashWaterfall(args: {
     for (let t = 0; t < N; t++) adjustedDebtOutstanding[t] += outArr[t] ?? 0;
   }
 
+  // M4 Pass 2Y (2026-05-24): interest savings from sweep. For each
+  // tranche, the per-period balance reduction (preSweep[t-1] −
+  // postSweep[t-1]) × periodic rate is the interest payment that
+  // doesn't happen on the post-sweep balance. Aggregate across
+  // tranches; composer subtracts from totalInterestExpensed (P&L)
+  // AND from cash interest paid (CF), symmetric BS adjustment.
+  const interestSavingsPerPeriod = new Array<number>(N).fill(0);
+  for (const row of eligible) {
+    const tranche = tranches.find((t) => t.id === row.trancheId);
+    if (!tranche) continue;
+    const hasComponents = tranche.interbankRatePct !== undefined || tranche.creditSpreadPct !== undefined;
+    const annualRatePct = hasComponents
+      ? Math.max(0, (tranche.interbankRatePct ?? 0) + (tranche.creditSpreadPct ?? 0))
+      : Math.max(0, tranche.interestRatePct ?? 0);
+    const periodicRate = annualRatePct / 100;
+    if (periodicRate <= 0) continue;
+    for (let t = 1; t < N; t++) {
+      const reduction = (row.preSweepOutstanding[t - 1] ?? 0) - (row.postSweepOutstanding[t - 1] ?? 0);
+      if (reduction > 0) interestSavingsPerPeriod[t] += reduction * periodicRate;
+    }
+  }
+
   const cashSweep: CashSweepSnapshot = {
     axisLength: N,
     enabled: eligible.length > 0,
@@ -911,6 +941,8 @@ export function computeCashWaterfall(args: {
     totalSweep: totalSweepPerPeriod.reduce((s, v) => s + v, 0),
     adjustedClosingCash,
     adjustedDebtOutstanding,
+    interestSavingsPerPeriod,
+    totalInterestSavings: interestSavingsPerPeriod.reduce((s, v) => s + v, 0),
   };
   const dividends: DividendSnapshot = {
     axisLength: N,

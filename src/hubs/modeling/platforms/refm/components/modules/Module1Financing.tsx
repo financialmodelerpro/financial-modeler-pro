@@ -2709,6 +2709,13 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                     <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — IDC drawdown is debt-only (no cash; grows balance directly)</td></tr>
                   )}
                   {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC Drawdown — capitalised interest', idcAdd, { indent: 1, priorValue: 0 })}
+                  {/* M4 Pass 2Y (2026-05-24): interest savings from sweep. */}
+                  {sweep.enabled && sweep.totalInterestSavings > 0 && (
+                    <>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — interest savings from cash sweep (paid on reduced post-sweep balance)</td></tr>
+                      {renderFlowRow('  (memo) Interest Savings (informational; P&L still uses pre-sweep balance)', sweep.interestSavingsPerPeriod, { indent: 1, priorValue: 0 })}
+                    </>
+                  )}
 
                   {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (
                     <>
