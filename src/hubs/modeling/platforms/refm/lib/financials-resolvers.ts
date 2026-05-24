@@ -1240,7 +1240,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       const offset = Math.max(0, phaseStartYear - projectStartYear);
       const per = breakdown.perPeriod ?? [];
       for (let i = 0; i < per.length; i++) {
-        const projIdx = i === 0 ? offset - 1 : offset + i - 1;
+        // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).
+        const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
         if (projIdx >= 0 && projIdx < N) {
           capex[projIdx] += per[i] ?? 0;
         }

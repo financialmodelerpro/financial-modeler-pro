@@ -117,7 +117,8 @@ function projectOntoAxis(local: number[] | undefined, offset: number, N: number)
   const out = zeros(N);
   if (!local) return out;
   for (let i = 0; i < local.length; i++) {
-    const projIdx = i === 0 ? offset - 1 : offset + i - 1;
+    // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).
+    const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
     if (projIdx < 0 || projIdx >= N) continue;
     out[projIdx] += local[i] ?? 0;
   }

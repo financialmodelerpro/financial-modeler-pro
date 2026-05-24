@@ -69,7 +69,16 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
       const perInK  = breakdown.perPeriodLandInKind ?? [];
       const len = Math.max(perAll.length, perLand.length, perInK.length);
       for (let i = 0; i < len; i++) {
-        const projIdx = i === 0 ? offset - 1 : offset + i - 1;
+        // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump from the
+        // drop. Previously projIdx = offset - 1 produced -1 for Phase 1
+        // (offset=0), silently deleting the Y0 capex (typically the
+        // upfront land cash + in-kind). Equity engine stamps in-kind
+        // at axis[0] regardless of phase (debtEquity.ts:131), so this
+        // asymmetry leaked into the BS check as Assets < L+E during
+        // construction. Now Phase 1's Y0 lump lands at axis index 0
+        // (clamped) so both sides align. Phase 2+ behaviour unchanged
+        // (Math.max(0, offset-1) = offset-1 when offset>=1).
+        const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
         if (projIdx < 0 || projIdx >= N) continue;
         inclAllLand[projIdx] += perAll[i] ?? 0;
         landTotal[projIdx]   += perLand[i] ?? 0;
