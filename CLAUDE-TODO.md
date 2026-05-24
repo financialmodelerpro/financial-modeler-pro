@@ -28,30 +28,34 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 
 ---
 
-## REFM Module Status (2026-05-20)
+## REFM Module Status (2026-05-24)
 
 Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md) + memory `project_*` files.
 
 | Module | Name | Status |
 |--------|------|--------|
-| Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58. Funding Methods 2 + 3 still on backlog. |
-| Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9k. 133/133 + 46/46 verifier sections green. |
-| Module 3 | Operating Expenses | **LOCKED** at Pass 5c. 38/38 + 24/24 verifier sections green. |
-| Module 4 | Financial Statements | WIP at Pass 2M. Schedules / P&L / CF / BS surfaces shipped. |
+| Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58 (base). Funding Methods 2 + 3 have Funding Gap sub-tab with display-only sizing math (Pass 2R-2V) + Cash Sweep + Dividend waterfall live (Pass 2S-2Z); engine wire-up to debt drawdown sizing still on backlog. |
+| Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9N. 133/133 + 46/46 verifier sections green. |
+| Module 3 | Operating Expenses | **LOCKED** at Pass 5d. 38/38 + 24/24 verifier sections green. |
+| Module 4 | Financial Statements | WIP at **Pass 2Z**. Schedules / P&L / CF / BS surfaces shipped. Pass 2O-2Z this session: IDC policy split, BS equity split, RE schedule, Funding Gap sub-tab, Cash Sweep + Dividend master waterfall, Phase 1 i=0 lump rescue (BS root cause fix), per-parcel in-kind stamping. **BS check now reconciles** for any phase configuration. 693/693 verifier sections green across 11 scripts (+228 this session). |
 | Module 5 | Returns & Valuation | Not started. |
 | Module 6 | Reports & Visualizations | Not started. |
 
 ## Remaining backlog
 
 **Module 1 financing:**
-- Funding Method 2 (line-item application) + Method 3 (net-of-revenue) full calc-engine wiring. Inputs persist today; calc completes when M4 CF deficit feed is finalised.
+- Funding Method 2 (Net Funding Requirement) + Method 3 (Cash Deficit Funding) — display-only Funding Gap sub-tab live; wire Net Cash Required output into actual debt drawdown sizing.
 - True per-asset financing schedule breakdown across multi-asset phases.
 - DSCR breach alerts (M5 dependency).
 - Sharia Murabaha / Ijara product templates, multi-currency, refinancing flows.
 
-**Module 4 financial statements:**
-- Per-asset capex non-uniform spread (today uniform within each asset's construction window; project totals stay exact via financing engine).
-- Manual reconciliation surface against the reference v1.16 BS Build before further automation.
+**Module 4 financial statements (deferred from Pass 2X-2Y audit follow-ups):**
+- **D-2** per-asset CF revenue ignores DSO (explicit limitation in `financials-resolvers.ts:1192-1201`; project-level CF correct).
+- **D-3** Cash Sweep interest savings full P&L mutation (V1 ships memo-only; full mutation requires composer reorder OR iteration loop). BS still balances under sweep without it.
+- **D-5** P&L D&A and BS NBV aggregation paths (cosmetic — math is consistent).
+- **D-6** P&L + CF phase-filter column (UI parity with BS).
+- Per-asset capex non-uniform spread within construction windows (project totals stay exact via financing engine).
+- Manual reconciliation surface against the reference v1.16 BS Build.
 
 **Module 5 returns:**
 - Equity waterfall + IRR hurdle math.
