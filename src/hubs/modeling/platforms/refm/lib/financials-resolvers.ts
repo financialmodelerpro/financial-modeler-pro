@@ -44,6 +44,7 @@ import {
 import {
   computeAssetLandSqm,
   computeAssetBua,
+  computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
 import type { Module1Store } from './state/module1-store';
@@ -715,22 +716,29 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     if (idcRow) {
       for (let t = 0; t < N; t++) daRow[t] += idcRow.depreciationPerPeriod[t] ?? 0;
     }
-    // Capex per asset (sum across construction window)
-    // Estimate per-period capex by allocating asset's total capex across its construction period.
-    // For exact per-period capex we'd need to recompute computeAssetCost with the year buckets,
-    // which is done by aggregateProjectCapex at project level. Here we use a uniform spread
-    // across the asset's construction window as a sensible per-asset approximation.
+    // Capex per asset, per period. M4 Pass 2R-Fix (2026-05-24): switch
+    // from uniform spread across construction window to the actual cost-
+    // line distribution via computeAssetCost.breakdown.perPeriod.
+    // Previously the uniform spread diverged from financing.capex's
+    // cost-line-derived per-period values, leaking BS imbalance in
+    // mid-axis years (totals matched, per-period didn't). Sell asset
+    // Inventory build-up now mirrors the financing engine's capex curve
+    // for that asset exactly. Projection rule matches fixed-assets-
+    // resolvers::projectOntoAxis: local i=0 -> projIdx=offset-1
+    // (Y0 lump for new-construction land); local i>=1 -> projIdx=offset+i-1.
     const phase = phases.find((p) => p.id === a.phaseId);
     if (phase && (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true || a.strategy === 'Sell' || a.strategy === 'Sell + Manage')) {
-      const total = computeAssetCapex({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode }, a.id);
+      const breakdown = computeAssetCost(
+        a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode,
+        project.financing?.parcelFunding,
+      );
       const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-      const cp = Math.max(0, phase.constructionPeriods ?? 0);
       const offset = Math.max(0, phaseStartYear - projectStartYear);
-      if (cp > 0 && total > 0) {
-        const per = total / cp;
-        for (let i = 0; i < cp; i++) {
-          const idx = offset + i;
-          if (idx >= 0 && idx < N) capex[idx] = per;
+      const per = breakdown.perPeriod ?? [];
+      for (let i = 0; i < per.length; i++) {
+        const projIdx = i === 0 ? offset - 1 : offset + i - 1;
+        if (projIdx >= 0 && projIdx < N) {
+          capex[projIdx] += per[i] ?? 0;
         }
       }
     }

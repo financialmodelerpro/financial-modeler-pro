@@ -322,32 +322,55 @@ export default function Module4BSFeeders(): React.JSX.Element {
           fmt={fmt}
           priorYearLabel={priorYear}
           rows={(() => {
-            // M4 Pass 2P: read cash + in-kind separately from financing
-            // equity; existing-equity carry-forward sits in financing.equity
-            // and is only nonzero at the seed period (typically t=0).
+            // M4 Pass 2R-Fix (2026-05-24): pre-axis injections (existing
+            // equity carry-forward) go into the PRIOR column, not into
+            // axis Y0. Previously the engine lumped existing equity into
+            // existingEquityPerPeriod[0] which painted Y0 with the pre-
+            // axis value, so the prior-year column showed blank while
+            // Y0 over-stated drawdowns. Now we route the existing-equity
+            // lump to priorValue and zero axis[0], so:
+            //   Prior year (e.g. 2025): closing equity = priorEquity lump
+            //   Year 0 (e.g. 2026): opening = priorEquity, +draws -> closing
             const cashDraws = snap.financing.equity.cashPerPeriod.slice(0, N);
             const inKindDraws = snap.financing.equity.inKindPerPeriod.slice(0, N);
-            const existingDraws = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
+            const existingDrawsRaw = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
             while (cashDraws.length < N) cashDraws.push(0);
             while (inKindDraws.length < N) inKindDraws.push(0);
-            while (existingDraws.length < N) existingDraws.push(0);
+            while (existingDrawsRaw.length < N) existingDrawsRaw.push(0);
+            const priorExisting = existingDrawsRaw.reduce((s, v) => s + v, 0);
+            // Axis values for the existing-equity row: zero everywhere
+            // (the lump moves to the prior column).
+            const existingAxisZeros = zeros();
+            const priorOpening = 0;
+            const priorClosing = priorExisting;
             const opening = zeros();
             const closing = zeros();
-            let running = 0;
+            let running = priorClosing;
             for (let t = 0; t < N; t++) {
               opening[t] = running;
-              running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0) + (existingDraws[t] ?? 0);
+              running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0);
               closing[t] = running;
             }
             const rows: M4Row[] = [
-              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1 },
-              { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1 },
+              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: priorOpening },
+              { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1, priorValue: 0 },
+              { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1, priorValue: 0 },
             ];
-            if (existingDraws.some((v) => Math.abs(v ?? 0) > 0.5)) {
-              rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: existingDraws, indent: 1 });
+            if (Math.abs(priorExisting) > 0.5) {
+              rows.push({
+                label: '(+) Existing equity (pre-axis carry-forward)',
+                values: existingAxisZeros,
+                indent: 1,
+                priorValue: priorExisting,
+              });
             }
-            rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            rows.push({
+              label: 'Closing equity (cumulative)',
+              values: closing,
+              isTotal: true,
+              totalOverride: fmt(closing[N - 1] ?? 0),
+              priorValue: priorClosing,
+            });
             return rows;
           })()}
         />

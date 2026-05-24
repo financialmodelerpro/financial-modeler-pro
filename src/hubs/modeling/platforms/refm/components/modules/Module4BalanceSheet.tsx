@@ -441,21 +441,37 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         priorYearLabel={priorYear}
       />
 
-      {!balances && (
-        <div style={{
-          marginTop: 'var(--sp-2)',
-          padding: '8px 12px',
-          background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
-          color: 'var(--color-warning, #92400e)',
-          border: '1px solid var(--color-warning, #92400e)',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: 12,
-        }}>
-          <strong>BS does not balance.</strong> Max absolute Assets − (Liabilities + Equity) across the axis ={' '}
-          {fmt(maxAbsDiff)}. Common causes: tax accrual not yet wired into BS, capitalised IDC missing from
-          Fixed Assets, dividends not modelled. This is acceptable in early Pass 2e while the bridge is tuned.
-        </div>
-      )}
+      {!balances && (() => {
+        // M4 Pass 2R-Fix (2026-05-24): diagnostic per-period breakdown
+        // so users (and developers) can pinpoint where the imbalance
+        // first appears + whether it propagates or self-corrects.
+        const indexed = bsDiffFiltered.map((v, i) => ({ year: yearLabels[i], diff: v, abs: Math.abs(v) }));
+        const offenders = indexed
+          .filter((r) => r.abs > 0.5)
+          .sort((a, b) => b.abs - a.abs)
+          .slice(0, 5);
+        return (
+          <div style={{
+            marginTop: 'var(--sp-2)',
+            padding: '8px 12px',
+            background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
+            color: 'var(--color-warning, #92400e)',
+            border: '1px solid var(--color-warning, #92400e)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 12,
+          }}>
+            <strong>BS does not balance.</strong> Max absolute Assets − (Liabilities + Equity) across the axis ={' '}
+            {fmt(maxAbsDiff)}. Top imbalance years:{' '}
+            {offenders.map((r) => `${r.year}: ${fmt(r.diff)}`).join('  ·  ') || 'all small'}.
+            <div style={{ marginTop: 6, fontSize: 11 }}>
+              Common causes (in rough order of likelihood today): (1) per-asset capex spread uniform across the construction window
+              while the financing engine uses cost-line-derived spreads — mismatch leaks into Inventory vs CF; (2) tax timing
+              (paid same period as expensed today, so this is a non-issue unless project.tax.paymentDays is set);
+              (3) dividends not modelled (always 0 today). The BS Check row above shows the per-period diff in detail.
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

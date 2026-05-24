@@ -226,8 +226,14 @@ export default function Module4CashFlow(): React.JSX.Element {
     if (priorPreCapex > 0) {
       rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
     }
-    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true });
-    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true });
+    // M4 Pass 2R-Fix (2026-05-24): subtotal rows must carry the prior-
+    // column sum from their component rows. Previously the prior column
+    // showed "-" on subtotals while the underlying rows had values
+    // (Pre-Capex / Equity Drawdown / Existing Debt Drawdown), so the
+    // user saw a missing prior-column total even though the data was
+    // present in the components.
+    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true, priorValue: -priorPreCapex });
+    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true, priorValue: -priorPreCapex });
 
     // ── CASH FROM FINANCING ───────────────────────────────────────
     // M4 Pass 2N-Fix #3 (2026-05-21): debt rows consolidated into two
@@ -330,11 +336,14 @@ export default function Module4CashFlow(): React.JSX.Element {
       rows.push({ label: 'Finance Cost (Capitalised via IDC drawdown), New loans', values: newDrawIdc.map((v) => -v), indent: 1 });
     }
 
-    rows.push({ label: 'Cash Flow from Financing', values: d.cashFromFinancingPerPeriod, isSubtotal: true });
+    // M4 Pass 2R-Fix: prior-column subtotals (see comment above Total Capex).
+    const financingPrior = priorEquityTotal + existingOpening;
+    const netPrior = -priorPreCapex + financingPrior; // CFO has no prior column today
+    rows.push({ label: 'Cash Flow from Financing', values: d.cashFromFinancingPerPeriod, isSubtotal: true, priorValue: financingPrior });
 
-    rows.push({ label: 'Net Cash Flow', values: d.netCashFlowPerPeriod, isTotal: true });
-    rows.push({ label: 'Opening cash', values: d.openingCashPerPeriod, indent: 1, totalOverride: fmt(d.openingCashPerPeriod[0] ?? 0) });
-    rows.push({ label: 'Closing cash', values: d.closingCashPerPeriod, isSubtotal: true, totalOverride: fmt(d.closingCashPerPeriod[N - 1] ?? 0) });
+    rows.push({ label: 'Net Cash Flow', values: d.netCashFlowPerPeriod, isTotal: true, priorValue: netPrior });
+    rows.push({ label: 'Opening cash', values: d.openingCashPerPeriod, indent: 1, totalOverride: fmt(d.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+    rows.push({ label: 'Closing cash', values: d.closingCashPerPeriod, isSubtotal: true, totalOverride: fmt(d.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
     return rows;
   };
 
