@@ -78,7 +78,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   );
 
   const shares = normaliseFacilityShares(ctx.tranches);
-  const existing = buildExistingAggregate(ctx.phases, ctx.tranches, ctx.assets);
+  const existing = buildExistingAggregate(ctx.phases, ctx.tranches, ctx.assets, ctx.project);
 
   const facilities = new Map<string, FacilityResult>();
   for (const t of ctx.tranches) {

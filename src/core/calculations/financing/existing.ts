@@ -2,6 +2,7 @@ import type {
   Asset,
   Phase,
   FinancingTranche,
+  Project,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { getAssetPreCapexTotal } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { ExistingAggregate } from './types';
@@ -30,6 +31,7 @@ export function buildExistingAggregate(
   phases: Phase[],
   tranches: FinancingTranche[],
   assets: Asset[] = [],
+  project?: Project,
 ): ExistingAggregate {
   const preCapexByPhase = new Map<string, number>();
   const debtByPhase     = new Map<string, number>();
@@ -55,10 +57,28 @@ export function buildExistingAggregate(
     }
   }
 
+  // M4 Pass 2X (2026-05-24): only PRE-AXIS-raised existing tranches
+  // contribute to the prior-column debt opening balance. Existing
+  // tranches with originationYear inside the project axis are drawn as
+  // an in-axis cash inflow (schedule.ts:84-87) and flow through the
+  // normal drawSchedule → outstanding path; counting them in
+  // debtOutstandingTotal as a prior-column lump too would double-count
+  // the debt on the BS prior column.
+  const projectStartYear = project?.startDate
+    ? new Date(project.startDate).getUTCFullYear()
+    : Number.NaN;
   let debtOutstandingTotal = 0;
   for (const t of tranches) {
     if (t.origin !== 'existing') continue;
     const ob = Math.max(0, t.openingBalance ?? 0);
+    // Skip if origination falls inside the project axis — the financing
+    // engine already routes that openingBalance through drawSchedule.
+    const origYear = t.originationYear;
+    const isInAxisRaised = Number.isFinite(projectStartYear)
+      && origYear !== undefined
+      && Number.isFinite(origYear)
+      && origYear >= projectStartYear;
+    if (isInAxisRaised) continue;
     debtOutstandingTotal += ob;
     debtByPhase.set(t.phaseId, (debtByPhase.get(t.phaseId) ?? 0) + ob);
   }

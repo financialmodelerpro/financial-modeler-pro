@@ -60,14 +60,21 @@ interface Row {
   indent?: number;
   totalOverride?: string;
   aggregation?: 'sum' | 'last';
+  /** M4 Pass 2X (2026-05-24): prior-year opening value for stock rows. */
+  priorValue?: number;
 }
 
-function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
+function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYearLabel }: {
   title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string;
   fmt: (v: number) => string;
+  /** M4 Pass 2X (2026-05-24): show a prior-year column between Total and Y0
+   *  for consistency with M1 Capex Results + Module 4 BS / CF / P&L. */
+  priorYearLabel?: number;
 }): React.JSX.Element {
   if (rows.length === 0) return <></>;
-  const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
+  const hasPrior = priorYearLabel !== undefined;
+  const colCount = (hasPrior ? 2 : 1) + yearLabels.length;
+  const nonLabelPct = nonLabelColumnPct(colCount);
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span></span>
@@ -79,12 +86,14 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            {hasPrior && (<col style={{ width: nonLabelPct }} />)}
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{priorYearLabel}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
           </thead>
@@ -93,7 +102,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
               if (r.isSection) {
                 return (
                   <tr key={`section-${idx}`}>
-                    <td colSpan={2 + yearLabels.length}
+                    <td colSpan={(hasPrior ? 3 : 2) + yearLabels.length}
                       style={{
                         padding: '8px 10px 4px',
                         fontSize: 11,
@@ -116,11 +125,13 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
                   ? fmt(r.values[r.values.length - 1] ?? 0)
                   : fmt(r.values.reduce((s, v) => s + (v ?? 0), 0))
               );
+              const priorStyle: React.CSSProperties = { ...tokens.num, fontStyle: 'italic', color: 'var(--color-meta)' };
               return (
                 <tr key={r.label + idx}>
                   <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px` }}>{r.label}</td>
                   <td style={tokens.numTotal}>{totalDisplay}</td>
-                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v ?? 0)}</td>))}
+                  {hasPrior && (<td style={priorStyle}>{r.priorValue !== undefined ? fmt(r.priorValue) : ''}</td>)}
+                  {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v ?? 0)}</td>)) }
                 </tr>
               );
             })}
@@ -132,10 +143,13 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
 }
 
 function landTableRows(land: LandRollForward): Row[] {
+  // M4 Pass 2X (2026-05-24): opening at t=0 represents pre-axis Land
+  // carry (operational phase historicalPreCapexLand). Show in prior col.
+  const openingAtZero = land.openingPerPeriod[0] ?? 0;
   return [
-    { label: 'Opening Land', values: land.openingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: '(+) Land Additions', values: land.additionsPerPeriod, indent: 1 },
-    { label: 'Closing Land', values: land.closingPerPeriod, isTotal: true, aggregation: 'last' },
+    { label: 'Opening Land', values: land.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZero },
+    { label: '(+) Land Additions', values: land.additionsPerPeriod, indent: 1, priorValue: 0 },
+    { label: 'Closing Land', values: land.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZero },
   ];
 }
 
@@ -165,24 +179,28 @@ function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[]
     combinedDep[t] = (d.depreciationPerPeriod[t] ?? 0) + (idcDep[t] ?? 0);
   }
 
+  // M4 Pass 2X (2026-05-24): opening NBV at t=0 = pre-axis carry
+  // (operational phase historicalPreCapexBuilding). Show in prior col.
+  const openingAtZeroCapex = d.openingNBVPerPeriod[0] ?? 0;
+  const openingAtZeroCombined = combinedOpening[0] ?? 0;
   if (!hasIdc) {
     return [
-      { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-      { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1 },
-      { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1 },
-      { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
-      { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZeroCapex },
+      { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1, priorValue: 0 },
+      { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
+      { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCapex },
+      { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
     ];
   }
   return [
-    { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last' },
-    { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1 },
-    { label: '(+) IDC Additions (capitalised interest)', values: idcAdditions, indent: 1 },
-    { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1 },
-    { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last' },
-    { label: '   of which: Capex NBV', values: d.closingNBVPerPeriod, indent: 2, aggregation: 'last' },
-    { label: '   of which: IDC NBV', values: idcNbv, indent: 2, aggregation: 'last' },
-    { label: 'Accumulated Capex Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last', priorValue: openingAtZeroCombined },
+    { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1, priorValue: 0 },
+    { label: '(+) IDC Additions (capitalised interest)', values: idcAdditions, indent: 1, priorValue: 0 },
+    { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1, priorValue: 0 },
+    { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCombined },
+    { label: '   of which: Capex NBV', values: d.closingNBVPerPeriod, indent: 2, aggregation: 'last', priorValue: openingAtZeroCapex },
+    { label: '   of which: IDC NBV', values: idcNbv, indent: 2, aggregation: 'last', priorValue: 0 },
+    { label: 'Accumulated Capex Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
   ];
 }
 
@@ -245,6 +263,10 @@ export default function Module4FixedAssets(): React.JSX.Element {
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
   const yearLabels = snap.yearLabels;
   const N = yearLabels.length;
+  // M4 Pass 2X (2026-05-24): prior-year column for consistency with the
+  // rest of the platform. Opening Land + Opening NBV land in the prior
+  // column instead of being lumped into Y0.
+  const priorYear = snap.projectStartYear - 1;
 
   // Strategy groups (mirrors Module3OpexOutput).
   const faAssets = useMemo(() => assets.filter((a) => snap.byAsset.has(a.id)), [assets, snap.byAsset]);
@@ -303,6 +325,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={landTableRows(row.land)}
         />
 
@@ -312,6 +335,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={depreciableTableRows(row, idcSnap.byAsset.get(a.id))}
         />
 
@@ -321,6 +345,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={totalFA}
         />
       </>
@@ -548,6 +573,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={landTableRows(projectLand)}
         />
         {(() => {
@@ -592,6 +618,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
               yearLabels={yearLabels}
               currency={currency}
               fmt={fmt}
+              priorYearLabel={priorYear}
               rows={rows}
             />
           );
@@ -602,6 +629,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
+          priorYearLabel={priorYear}
           rows={projectTotalRows}
         />
       </PhaseSection>
