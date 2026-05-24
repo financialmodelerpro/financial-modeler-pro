@@ -41,7 +41,17 @@ export function computeFacilitySchedule(
   const interestAccrued    = new Array<number>(N).fill(0);
   const interestCapitalized = new Array<number>(N).fill(0);
   const interestPaid       = new Array<number>(N).fill(0);
+  const interestForAssetBasis = new Array<number>(N).fill(0);
+  const interestDuringConstruction = new Array<number>(N).fill(0);
   const principalRepaid    = new Array<number>(N).fill(0);
+
+  // M4 Pass 2O (2026-05-24): IDC policy. Capitalize controls ACCOUNTING
+  // (asset basis vs P&L); fundingMode controls FUNDING (debt growth vs
+  // cash payment). The two are independent. Defaults match prior
+  // hard-coded behaviour: capitalize=true + fundingMode='debt_drawdown'.
+  const idc = project.idcConfig ?? {};
+  const capitalizeInterest = idc.capitalize !== false; // default true
+  const idcFundingMode = idc.fundingMode ?? 'debt_drawdown';
 
   // Pass 27 (2026-05-14): effective interest rate = Interbank Rate +
   // Credit Spread when both are present; otherwise fall back to the
@@ -257,11 +267,24 @@ export function computeFacilitySchedule(
     const accrueInterest = !isExisting || i >= interestStartProj;
     const interest = accrueInterest ? bal * periodicRate : 0;
     interestAccrued[i] = interest;
+    // M4 Pass 2O: split accounting (capitalize) from funding (fundingMode).
+    //   Cap=Y + Fund=Debt (default): grows debt, sits in asset basis.
+    //   Cap=Y + Fund=Cash         : cash out, sits in asset basis.
+    //   Cap=N + Fund=Debt         : grows debt, hits P&L Finance Cost.
+    //   Cap=N + Fund=Cash         : cash out, hits P&L Finance Cost.
+    // Ops period + existing facility: always cash-paid + P&L expense.
     const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
-    const capitalise = inConstructionWindow;
-    if (capitalise) {
-      interestCapitalized[i] = interest;
-      bal += interest;
+    if (inConstructionWindow) {
+      interestDuringConstruction[i] = interest;
+      // Accounting side: where this hits the books.
+      if (capitalizeInterest) interestForAssetBasis[i] = interest;
+      // Funding side: where the cash comes from.
+      if (idcFundingMode === 'debt_drawdown') {
+        interestCapitalized[i] = interest;
+        bal += interest;
+      } else {
+        interestPaid[i] = interest;
+      }
     } else {
       interestPaid[i] = interest;
     }
@@ -287,6 +310,8 @@ export function computeFacilitySchedule(
     interestAccrued,
     interestCapitalized,
     interestPaid,
+    interestForAssetBasis,
+    interestDuringConstruction,
     principalRepaid,
     totalDrawn,
     totalInterest: interestAccrued.reduce((s, v) => s + v, 0),
@@ -304,6 +329,7 @@ export function combineDebtService(
   const totalInterestAccrued   = new Array<number>(N).fill(0);
   const totalInterestCapitalized = new Array<number>(N).fill(0);
   const totalInterestExpensed  = new Array<number>(N).fill(0);
+  const totalInterestForAssetBasis = new Array<number>(N).fill(0);
   const totalPrincipalRepaid   = new Array<number>(N).fill(0);
   // Pass 31 (2026-05-14): existing vs new origin breakdowns.
   const existingInterestAccrued  = new Array<number>(N).fill(0);
@@ -324,35 +350,47 @@ export function combineDebtService(
       const draw = r.drawSchedule[i] ?? 0;
       const acc  = r.interestAccrued[i] ?? 0;
       const cap  = r.interestCapitalized[i] ?? 0;
-      const exp  = r.interestPaid[i] ?? 0;
+      const cash = r.interestPaid[i] ?? 0;
+      const ab   = r.interestForAssetBasis[i] ?? 0;
       const prin = r.principalRepaid[i] ?? 0;
-      totalDrawdown[i]            += draw;
-      totalInterestAccrued[i]     += acc;
-      totalInterestCapitalized[i] += cap;
-      totalInterestExpensed[i]    += exp;
-      totalPrincipalRepaid[i]     += prin;
+      totalDrawdown[i]               += draw;
+      totalInterestAccrued[i]        += acc;
+      totalInterestCapitalized[i]    += cap;
+      totalInterestForAssetBasis[i]  += ab;
+      totalPrincipalRepaid[i]        += prin;
+      // M4 Pass 2O: P&L expense = accrual basis = accrued - asset basis.
+      // When capitalize=true (default), construction interest goes to
+      // asset basis and the P&L line is 0 during construction. When
+      // capitalize=false, all accrued interest hits P&L (whether funded
+      // by debt or cash).
+      const exp = acc - ab;
+      totalInterestExpensed[i] += exp;
       if (isEx) {
         existingInterestAccrued[i]  += acc;
         existingInterestExpensed[i] += exp;
         existingPrincipalRepaid[i]  += prin;
-        existingDebtServiceCash[i]  += exp + prin;
+        // Cash debt service = actual cash out for interest + principal.
+        existingDebtServiceCash[i]  += cash + prin;
       } else {
         newInterestAccrued[i]  += acc;
         newInterestExpensed[i] += exp;
         newPrincipalRepaid[i]  += prin;
-        newDebtServiceCash[i]  += exp + prin;
+        newDebtServiceCash[i]  += cash + prin;
       }
     }
   }
   const debtServiceCash = new Array<number>(N).fill(0);
   for (let i = 0; i < N; i++) {
-    debtServiceCash[i] = totalInterestExpensed[i] + totalPrincipalRepaid[i];
+    // Cash debt service uses CASH-paid interest, not P&L accrual.
+    // (When Cap=N|Fund=Debt, P&L hits but no cash leaves.)
+    debtServiceCash[i] = (totalInterestAccrued[i] - totalInterestCapitalized[i]) + totalPrincipalRepaid[i];
   }
   return {
     totalDrawdown,
     totalInterestAccrued,
     totalInterestCapitalized,
     totalInterestExpensed,
+    totalInterestForAssetBasis,
     totalPrincipalRepaid,
     debtServiceCash,
     existingInterestAccrued,

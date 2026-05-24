@@ -168,6 +168,148 @@ console.log('\n[F] startIdx defers depreciation for early additions');
 }
 
 // ──────────────────────────────────────────────────────────────────
+// G + H: M4 Pass 2O (2026-05-24) — capitalize toggle + funding mode
+// ──────────────────────────────────────────────────────────────────
+import { computeFacilitySchedule, combineDebtService } from '@/src/core/calculations/financing/schedule';
+import { buildProjectAxis } from '@/src/core/calculations/financing/axis';
+import type { Project, Phase, FinancingTranche } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+
+function makeFixture(idcConfig: Project['idcConfig']): {
+  project: Project;
+  phases: Phase[];
+  tranche: FinancingTranche;
+  debtPerPeriod: number[];
+} {
+  const project = {
+    name: 'IDC Test',
+    currency: 'SAR',
+    modelType: 'annual' as const,
+    startDate: '2025-01-01',
+    status: 'planning' as const,
+    location: '',
+    residentialDeductPct: 0,
+    residentialEfficiency: 0,
+    hospitalityDeductPct: 0,
+    hospitalityEfficiency: 0,
+    retailDeductPct: 0,
+    retailEfficiency: 0,
+    residentialCosts: [],
+    hospitalityCosts: [],
+    retailCosts: [],
+    nextCostId: 1,
+    interestRate: 0,
+    financingMode: 'global' as const,
+    globalDebtPct: 70,
+    capitalizeInterest: true,
+    repaymentPeriods: 0,
+    repaymentMethod: 'manual' as const,
+    lineRatios: {},
+    idcConfig,
+  } as unknown as Project;
+  const phases: Phase[] = [{
+    id: 'ph1',
+    name: 'P1',
+    constructionStart: 1,
+    constructionPeriods: 3,
+    operationsPeriods: 5,
+    overlapPeriods: 0,
+    startDate: '2025-01-01',
+    status: 'planning',
+  } as unknown as Phase];
+  const tranche: FinancingTranche = {
+    id: 'tr1',
+    name: 'NewDebt',
+    origin: 'new',
+    phaseId: 'ph1',
+    interestRatePct: 10,
+    repaymentPeriods: 5,
+    repaymentMethod: 'straight_line',
+    capexAllocationPct: 100,
+  } as unknown as FinancingTranche;
+  // 1000 of debt drawn evenly over construction periods 0..2.
+  const debtPerPeriod = [1000, 0, 0, 0, 0, 0, 0, 0];
+  return { project, phases, tranche, debtPerPeriod };
+}
+
+function runFacility(idcConfig: Project['idcConfig']): ReturnType<typeof computeFacilitySchedule> {
+  const f = makeFixture(idcConfig);
+  const axis = buildProjectAxis(f.project, f.phases);
+  return computeFacilitySchedule(f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100);
+}
+
+console.log('\n[G] Capitalize × Funding mode quadrants (single 1000 draw at t=0, 10% annual)');
+{
+  // Cap=Y, Fund=Debt (default): interest grows debt and goes to asset basis.
+  const r1 = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' });
+  // Construction periods 0..2 (3 years). With straight-line repay starting at
+  // t=3, balance grows by interest during 0..2 then amortises.
+  // t=0: bal opens at 0, draw 1000 → bal=1000, interest=100, IDC adds → bal=1100.
+  assertNear('G1a Cap=Y Fund=Debt: interestCapitalized[0]', r1.interestCapitalized[0], 100);
+  assertNear('G1b Cap=Y Fund=Debt: interestForAssetBasis[0]', r1.interestForAssetBasis[0], 100);
+  assertNear('G1c Cap=Y Fund=Debt: interestPaid[0] = 0', r1.interestPaid[0], 0);
+  assertNear('G1d Cap=Y Fund=Debt: outstanding[0] = 1100', r1.outstanding[0], 1100);
+  assertNear('G1e Cap=Y Fund=Debt: interestDuringConstruction[0] = 100', r1.interestDuringConstruction[0], 100);
+
+  // Cap=Y, Fund=Cash: interest goes to asset basis, paid in cash, balance unchanged.
+  const r2 = runFacility({ capitalize: true, fundingMode: 'cash' });
+  assertNear('G2a Cap=Y Fund=Cash: interestCapitalized[0] = 0', r2.interestCapitalized[0], 0);
+  assertNear('G2b Cap=Y Fund=Cash: interestForAssetBasis[0] = 100', r2.interestForAssetBasis[0], 100);
+  assertNear('G2c Cap=Y Fund=Cash: interestPaid[0] = 100', r2.interestPaid[0], 100);
+  assertNear('G2d Cap=Y Fund=Cash: outstanding[0] = 1000 (no debt growth)', r2.outstanding[0], 1000);
+
+  // Cap=N, Fund=Debt: interest hits P&L (interestForAssetBasis=0), balance grows.
+  const r3 = runFacility({ capitalize: false, fundingMode: 'debt_drawdown' });
+  assertNear('G3a Cap=N Fund=Debt: interestCapitalized[0] = 100', r3.interestCapitalized[0], 100);
+  assertNear('G3b Cap=N Fund=Debt: interestForAssetBasis[0] = 0', r3.interestForAssetBasis[0], 0);
+  assertNear('G3c Cap=N Fund=Debt: interestPaid[0] = 0 (no cash out)', r3.interestPaid[0], 0);
+  assertNear('G3d Cap=N Fund=Debt: outstanding[0] = 1100 (debt still grows)', r3.outstanding[0], 1100);
+  assertNear('G3e Cap=N Fund=Debt: interestDuringConstruction[0] = 100', r3.interestDuringConstruction[0], 100);
+
+  // Cap=N, Fund=Cash: interest hits P&L, paid in cash, balance unchanged.
+  const r4 = runFacility({ capitalize: false, fundingMode: 'cash' });
+  assertNear('G4a Cap=N Fund=Cash: interestCapitalized[0] = 0', r4.interestCapitalized[0], 0);
+  assertNear('G4b Cap=N Fund=Cash: interestForAssetBasis[0] = 0', r4.interestForAssetBasis[0], 0);
+  assertNear('G4c Cap=N Fund=Cash: interestPaid[0] = 100', r4.interestPaid[0], 100);
+  assertNear('G4d Cap=N Fund=Cash: outstanding[0] = 1000', r4.outstanding[0], 1000);
+
+  // Identity per period: accrued = capitalized + paid (no double-count).
+  for (const [name, r] of [['G5a Cap=Y/Debt', r1], ['G5b Cap=Y/Cash', r2], ['G5c Cap=N/Debt', r3], ['G5d Cap=N/Cash', r4]] as const) {
+    for (let t = 0; t < r.interestAccrued.length; t++) {
+      const sum = (r.interestCapitalized[t] ?? 0) + (r.interestPaid[t] ?? 0);
+      assertNear(`${name}: interestAccrued[${t}] = capitalized + paid`, r.interestAccrued[t], sum);
+    }
+  }
+}
+
+console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAssetBasis');
+{
+  // Build a combined snapshot for each quadrant and verify the aggregated
+  // P&L identity. Construction-window interest at t=0 for Cap=Y must
+  // produce 0 P&L expense (everything sits on asset basis); for Cap=N it
+  // must produce the full interest as P&L expense regardless of funding.
+  const axis = buildProjectAxis(makeFixture({}).project, makeFixture({}).phases);
+  for (const [name, cfg, expExpensedT0] of [
+    ['H1 Cap=Y Fund=Debt', { capitalize: true, fundingMode: 'debt_drawdown' as const }, 0],
+    ['H2 Cap=Y Fund=Cash', { capitalize: true, fundingMode: 'cash' as const }, 0],
+    ['H3 Cap=N Fund=Debt', { capitalize: false, fundingMode: 'debt_drawdown' as const }, 100],
+    ['H4 Cap=N Fund=Cash', { capitalize: false, fundingMode: 'cash' as const }, 100],
+  ] as const) {
+    const r = runFacility(cfg);
+    const facMap = new Map([[r.trancheId, r]]);
+    const f = makeFixture(cfg);
+    const combined = combineDebtService(facMap, axis, [f.tranche]);
+    assertNear(`${name}: totalInterestExpensed[0]`, combined.totalInterestExpensed[0], expExpensedT0);
+    // Sanity: accrual identity holds — expensed = accrued − forAssetBasis.
+    for (let t = 0; t < axis.totalPeriods; t++) {
+      const acc = combined.totalInterestAccrued[t] ?? 0;
+      const ab = combined.totalInterestForAssetBasis[t] ?? 0;
+      const exp = combined.totalInterestExpensed[t] ?? 0;
+      assertNear(`${name}: accrued − assetBasis = expensed at t=${t}`, acc - ab, exp);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

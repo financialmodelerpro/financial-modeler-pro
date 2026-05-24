@@ -34,7 +34,6 @@ import {
 import { computeFinancingResult, type FinancingComputation } from '@/src/core/calculations/financing';
 import {
   computeAssetFixedAssets,
-  type AssetFixedAssetResult,
 } from '@/src/core/calculations/depreciation';
 import {
   buildAccountsReceivableDSO,
@@ -44,6 +43,7 @@ import {
 } from '@/src/core/calculations/revenue';
 import {
   computeAssetLandSqm,
+  computeAssetBua,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
 import type { Module1Store } from './state/module1-store';
@@ -207,10 +207,17 @@ export interface ProjectBS {
  *     and depreciates over the asset's useful life via a thin extra
  *     computeAssetFixedAssets call.
  */
-interface AssetIDCRow {
+export interface AssetIDCRow {
   assetId: string;
   assetName: string;
+  /** Asset strategy (used by UI to route the row to Sell/CoS or Op-Lease/FA). */
+  strategy: Asset['strategy'];
+  /** Share basis value for this asset (land sqm OR BUA sqm depending on
+   *  ProjectIDCSnapshot.allocationBasis). Name retained for back-compat. */
   landSqm: number;
+  /** This asset's share of the total share-basis denominator (0..1).
+   *  Name retained for back-compat; means "share of total" regardless of
+   *  whether the basis is land or BUA. */
   shareOfTotalLand: number;
   /** Per-period IDC capitalised to this asset. */
   idcPerPeriod: number[];
@@ -218,15 +225,38 @@ interface AssetIDCRow {
   cumulativeIdcPerPeriod: number[];
   /** Total IDC capitalised across the axis. */
   totalIdc: number;
+  /** M4 Pass 2O: Operate/Lease only — depreciation derived from this
+   *  asset's IDC additions (straight-line over useful life from handover).
+   *  Zero for Sell / Sell+Manage (IDC there unwinds through CoS instead). */
+  depreciationPerPeriod: number[];
+  /** M4 Pass 2O: Operate/Lease only — closing NBV of capitalised IDC. */
+  closingNbvPerPeriod: number[];
 }
 
 export interface ProjectIDCSnapshot {
   axisLength: number;
-  /** Project IDC per period (sum across all assets). */
+  /** M4 Pass 2O (2026-05-24): basis used for the per-asset share calc.
+   *  Mirrors project.idcConfig.allocationBasis ('land' default). */
+  allocationBasis: 'land' | 'bua';
+  /** M4 Pass 2O (2026-05-24): whether interest was capitalised this run.
+   *  When false, totalIdcPerPeriod is zero and all construction interest
+   *  flowed through P&L Finance Cost instead. */
+  capitalize: boolean;
+  /** M4 Pass 2O (2026-05-24): funding mode used this run. */
+  fundingMode: 'debt_drawdown' | 'cash';
+  /** Total interest accrued during construction window (P&L+asset basis
+   *  combined). Always populated regardless of capitalize flag, so the
+   *  Summary panel can show the underlying interest stream and contrast
+   *  with the capitalised/expensed split. M4 Pass 2O. */
+  totalConstructionInterestPerPeriod: number[];
+  /** Project IDC per period actually routed to asset basis (sum across
+   *  all assets). Equal to totalConstructionInterestPerPeriod when
+   *  capitalize=true; zero when capitalize=false. */
   totalIdcPerPeriod: number[];
   /** Per-asset IDC row. Empty when total project IDC is zero. */
   byAsset: Map<string, AssetIDCRow>;
-  /** Sum of all asset land sqm used for the share calc. */
+  /** Sum of share-basis values (land sqm OR BUA sqm) across all
+   *  participating assets. Name retained for back-compat. */
   totalLandSqm: number;
   /** Depreciation derived from IDC additions on Operate / Lease assets. */
   idcDepreciationPerPeriod: number[];
@@ -270,6 +300,157 @@ const cumulative = (arr: number[]): number[] => {
   return out;
 };
 
+/**
+ * M4 Pass 2O (2026-05-24): standalone IDC snapshot helper.
+ * Extracted from computeFinancialsSnapshot so Module 1 Financing can
+ * render the IDC Settings + per-asset Summary + routing breakdown
+ * without re-composing the full FS pipeline.
+ *
+ * Inputs: state + a computed financing result. Output: ProjectIDCSnapshot
+ * with per-asset rows including Operate/Lease depreciation + closing NBV
+ * embedded directly on each AssetIDCRow.
+ */
+export function computeIdcSnapshot(
+  state: Pick<FinancialsResolverState, 'project' | 'phases' | 'assets' | 'subUnits' | 'parcels' | 'landAllocationMode'>,
+  financing: FinancingComputation,
+  ctx: { axisLength: number; projectStartYear: number },
+): ProjectIDCSnapshot {
+  const { project, phases, assets, subUnits, parcels, landAllocationMode } = state;
+  const { axisLength: N, projectStartYear } = ctx;
+
+  const idcSource = financing.combined.totalInterestForAssetBasis;
+  const totalIdcPerPeriod = idcSource.slice(0, N);
+  while (totalIdcPerPeriod.length < N) totalIdcPerPeriod.push(0);
+
+  const allocationBasis = project.idcConfig?.allocationBasis ?? 'land';
+  const assetShare = new Map<string, number>();
+  let totalShareDenom = 0;
+  const constructionWindow = new Map<string, { startIdx: number; endIdx: number }>();
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    const sqm = allocationBasis === 'bua'
+      ? Math.max(0, computeAssetBua(a, subUnits))
+      : Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
+    assetShare.set(a.id, sqm);
+    totalShareDenom += sqm;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+    if (cp <= 0) continue;
+    const offset = Math.max(0, phaseStartYear - projectStartYear);
+    const startIdx = Math.max(0, Math.min(N - 1, offset));
+    const endIdxRaw = offset + cp - 1;
+    if (endIdxRaw < startIdx) continue;
+    constructionWindow.set(a.id, { startIdx, endIdx: Math.min(N - 1, endIdxRaw) });
+  }
+
+  const byAssetIDC = new Map<string, AssetIDCRow>();
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    const sqm = assetShare.get(a.id) ?? 0;
+    byAssetIDC.set(a.id, {
+      assetId: a.id,
+      assetName: a.name,
+      strategy: a.strategy,
+      landSqm: sqm,
+      shareOfTotalLand: totalShareDenom > 0 ? sqm / totalShareDenom : 0,
+      idcPerPeriod: zeros(N),
+      cumulativeIdcPerPeriod: zeros(N),
+      totalIdc: 0,
+      depreciationPerPeriod: zeros(N),
+      closingNbvPerPeriod: zeros(N),
+    });
+  }
+
+  for (let t = 0; t < N; t++) {
+    const idcAtT = totalIdcPerPeriod[t] ?? 0;
+    if (idcAtT === 0) continue;
+    let activeDenom = 0;
+    const activeIds: string[] = [];
+    for (const [assetId, win] of constructionWindow) {
+      if (t < win.startIdx || t > win.endIdx) continue;
+      const sqm = assetShare.get(assetId) ?? 0;
+      if (sqm <= 0) continue;
+      activeDenom += sqm;
+      activeIds.push(assetId);
+    }
+    if (activeDenom <= 0) {
+      if (totalShareDenom <= 0) continue;
+      for (const [assetId, row] of byAssetIDC) {
+        const sqm = assetShare.get(assetId) ?? 0;
+        const slice = idcAtT * (sqm / totalShareDenom);
+        row.idcPerPeriod[t] += slice;
+      }
+    } else {
+      for (const assetId of activeIds) {
+        const sqm = assetShare.get(assetId) ?? 0;
+        const slice = idcAtT * (sqm / activeDenom);
+        const row = byAssetIDC.get(assetId);
+        if (row) row.idcPerPeriod[t] += slice;
+      }
+    }
+  }
+
+  for (const row of byAssetIDC.values()) {
+    let running = 0;
+    for (let t = 0; t < N; t++) {
+      running += row.idcPerPeriod[t] ?? 0;
+      row.cumulativeIdcPerPeriod[t] = running;
+    }
+    row.totalIdc = running;
+  }
+
+  // IDC-driven depreciation for Operate / Lease assets (Sell/Sell+Manage
+  // recover IDC via CoS unwinding, handled in the composer instead).
+  const idcDeprecProject = zeros(N);
+  const idcNbvProject = zeros(N);
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
+    const idc = byAssetIDC.get(a.id);
+    if (!idc || idc.totalIdc <= 0) continue;
+    const phase = phases.find((p) => p.id === a.phaseId);
+    if (!phase) continue;
+    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const cp = Math.max(0, phase.constructionPeriods ?? 0);
+    const handoverIdx = Math.max(0, Math.min(N - 1, (phaseStartYear - projectStartYear) + cp - 1));
+    const usefulLife = resolveUsefulLifeYears(a);
+    const idcRes = computeAssetFixedAssets({
+      assetId: a.id,
+      axisLength: N,
+      startIdx: handoverIdx,
+      additionsPerPeriod: idc.idcPerPeriod,
+      usefulLifeYears: usefulLife,
+      method: 'straight_line',
+    });
+    for (let t = 0; t < N; t++) {
+      idc.depreciationPerPeriod[t] = idcRes.depreciationPerPeriod[t] ?? 0;
+      idc.closingNbvPerPeriod[t] = idcRes.closingNBVPerPeriod[t] ?? 0;
+      idcDeprecProject[t] += idc.depreciationPerPeriod[t];
+      idcNbvProject[t] += idc.closingNbvPerPeriod[t];
+    }
+  }
+
+  const totalConstructionInterestPerPeriod = zeros(N);
+  for (const fac of financing.facilities.values()) {
+    const dc = fac.interestDuringConstruction ?? [];
+    for (let t = 0; t < N; t++) totalConstructionInterestPerPeriod[t] += dc[t] ?? 0;
+  }
+
+  return {
+    axisLength: N,
+    allocationBasis,
+    capitalize: project.idcConfig?.capitalize !== false,
+    fundingMode: project.idcConfig?.fundingMode ?? 'debt_drawdown',
+    totalConstructionInterestPerPeriod,
+    totalIdcPerPeriod,
+    byAsset: byAssetIDC,
+    totalLandSqm: totalShareDenom,
+    idcDepreciationPerPeriod: idcDeprecProject,
+    idcNbvPerPeriod: idcNbvProject,
+  };
+}
+
 export function computeFinancialsSnapshot(state: FinancialsResolverState): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
@@ -291,122 +472,15 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const projectStartYear = revenue.projectStartYear;
   const yearLabels = revenue.yearLabels;
 
-  // 2a. IDC allocation by land-area share (M4 Pass 2f).
-  // Project IDC per period comes from the financing engine. We allocate
-  // it across visible non-companion assets in proportion to land sqm.
-  // Companions (no land) get zero; pure Sell assets, Sell+Manage parents,
-  // Operate parents, and Lease assets all participate.
-  const idcSource = financing.combined.totalInterestCapitalized;
-  // M4 Pass 2N-Fix (2026-05-21): the financing engine emits arrays of
-  // length totalPeriods (per axis.ts contract: arr[0] = project year 0,
-  // no prior column). The previous slice(1, 1+N) was dropping year-0
-  // IDC entirely — user reported financing total 333,761 vs BS
-  // Schedules total 317,586, the 16,175 gap was exactly year-0 IDC.
-  const totalIdcPerPeriod = idcSource.slice(0, N);
-  while (totalIdcPerPeriod.length < N) totalIdcPerPeriod.push(0);
-
-  // M4 Pass 2g (2026-05-20): allocate IDC per period using ACTIVE-
-  // construction land share, not total land share. Assets that finished
-  // construction in earlier periods no longer accrue IDC; the share
-  // collapses to the assets still under construction in period t. This
-  // matters for multi-phase projects where Phase 3 is still drawing
-  // debt while Phase 1 is already operating.
-  const assetLand = new Map<string, number>();
-  let totalLandSqm = 0;
-  // Per-asset construction window [startIdx, endIdx] on the project axis.
-  const constructionWindow = new Map<string, { startIdx: number; endIdx: number }>();
-  for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
-    const sqm = Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
-    assetLand.set(a.id, sqm);
-    totalLandSqm += sqm;
-    const phase = phases.find((p) => p.id === a.phaseId);
-    const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-    const cp = Math.max(0, phase?.constructionPeriods ?? 0);
-    // M4 Pass 2g-Fix (2026-05-20): existing operational assets (cp = 0)
-    // do not have a construction window, so they must not appear in the
-    // active-construction set at all. Previously endIdx = max(0, -1) = 0
-    // made cp=0 assets falsely active at period 0, charging them a slice
-    // of IDC that economically belongs to the assets actually drawing
-    // construction debt. Per Ahmad 2026-05-20: "you charged IDC to
-    // Phase 1 which is already operational, why charged to that."
-    //
-    // Asset still participates in `assetLand` (used by the
-    // no-active-asset fallback below) so projects with only existing
-    // operational facilities still get IDC distributed sensibly.
-    if (cp <= 0) continue;
-    const offset = Math.max(0, phaseStartYear - projectStartYear);
-    const startIdx = Math.max(0, Math.min(N - 1, offset));
-    const endIdxRaw = offset + cp - 1;
-    if (endIdxRaw < startIdx) continue;
-    constructionWindow.set(a.id, {
-      startIdx,
-      endIdx: Math.min(N - 1, endIdxRaw),
-    });
-  }
-
-  // Two-pass allocation: pass 1 distributes IDC during each asset's
-  // construction window; pass 2 catches any "stray" IDC outside all
-  // construction windows (e.g. post-handover finance cost on existing
-  // debt that's still capitalising) and falls back to the static
-  // land-share split so no IDC is dropped on the floor.
-  const byAssetIDC = new Map<string, AssetIDCRow>();
-  for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
-    byAssetIDC.set(a.id, {
-      assetId: a.id,
-      assetName: a.name,
-      landSqm: assetLand.get(a.id) ?? 0,
-      shareOfTotalLand: totalLandSqm > 0 ? (assetLand.get(a.id) ?? 0) / totalLandSqm : 0,
-      idcPerPeriod: zeros(N),
-      cumulativeIdcPerPeriod: zeros(N),
-      totalIdc: 0,
-    });
-  }
-
-  for (let t = 0; t < N; t++) {
-    const idcAtT = totalIdcPerPeriod[t] ?? 0;
-    if (idcAtT === 0) continue;
-    // Determine active-construction land at t.
-    let activeLand = 0;
-    const activeIds: string[] = [];
-    for (const [assetId, win] of constructionWindow) {
-      if (t < win.startIdx || t > win.endIdx) continue;
-      const sqm = assetLand.get(assetId) ?? 0;
-      if (sqm <= 0) continue;
-      activeLand += sqm;
-      activeIds.push(assetId);
-    }
-    if (activeLand <= 0) {
-      // Fallback: no construction-active asset has land at t -> split
-      // by total land share (Pass 2f behaviour). Keeps IDC totals
-      // reconciled even in edge cases (e.g. existing facilities with
-      // post-operational IDC capitalisation).
-      if (totalLandSqm <= 0) continue;
-      for (const [assetId, row] of byAssetIDC) {
-        const sqm = assetLand.get(assetId) ?? 0;
-        const slice = idcAtT * (sqm / totalLandSqm);
-        row.idcPerPeriod[t] += slice;
-      }
-    } else {
-      for (const assetId of activeIds) {
-        const sqm = assetLand.get(assetId) ?? 0;
-        const slice = idcAtT * (sqm / activeLand);
-        const row = byAssetIDC.get(assetId);
-        if (row) row.idcPerPeriod[t] += slice;
-      }
-    }
-  }
-
-  // Finalize cumulative + totals
-  for (const row of byAssetIDC.values()) {
-    let running = 0;
-    for (let t = 0; t < N; t++) {
-      running += row.idcPerPeriod[t] ?? 0;
-      row.cumulativeIdcPerPeriod[t] = running;
-    }
-    row.totalIdc = running;
-  }
+  // 2a. IDC snapshot (M4 Pass 2O, 2026-05-24). Allocation + per-asset
+  // Op-Lease depreciation extracted into computeIdcSnapshot so Module 1
+  // Financing can render the same data.
+  const idcSnapshot = computeIdcSnapshot(
+    { project, phases, assets, subUnits, parcels, landAllocationMode },
+    financing,
+    { axisLength: N, projectStartYear },
+  );
+  const byAssetIDC = idcSnapshot.byAsset;
 
   // 2b. Per-asset Cost-of-Sales + AR + Unearned bundles (Sell strategies).
   // CoS uses the AR + Unearned bundle's standard outputs but the CoS
@@ -431,40 +505,10 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     }
   }
 
-  // 2c. IDC-driven depreciation for Operate / Lease assets.
-  // Each non-Sell asset's per-period IDC becomes a stream of depreciable
-  // additions feeding a thin extra computeAssetFixedAssets call. The
-  // resulting depreciation adds onto the asset's existing D&A series for
-  // the P&L; the closing NBV from this call lands on the BS as a memo
-  // line beneath Fixed Assets.
-  const idcDeprecPerAsset = new Map<string, AssetFixedAssetResult>();
-  const idcDeprecProject = zeros(N);
-  const idcNbvProject = zeros(N);
-  for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
-    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
-    const idc = byAssetIDC.get(a.id);
-    if (!idc || idc.totalIdc <= 0) continue;
-    const phase = phases.find((p) => p.id === a.phaseId);
-    if (!phase) continue;
-    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-    const cp = Math.max(0, phase.constructionPeriods ?? 0);
-    const handoverIdx = Math.max(0, Math.min(N - 1, (phaseStartYear - projectStartYear) + cp - 1));
-    const usefulLife = resolveUsefulLifeYears(a);
-    const idcRes = computeAssetFixedAssets({
-      assetId: a.id,
-      axisLength: N,
-      startIdx: handoverIdx,
-      additionsPerPeriod: idc.idcPerPeriod,
-      usefulLifeYears: usefulLife,
-      method: 'straight_line',
-    });
-    idcDeprecPerAsset.set(a.id, idcRes);
-    for (let t = 0; t < N; t++) {
-      idcDeprecProject[t] += idcRes.depreciationPerPeriod[t] ?? 0;
-      idcNbvProject[t] += idcRes.closingNBVPerPeriod[t] ?? 0;
-    }
-  }
+  // 2c. IDC-driven depreciation for Operate / Lease assets: now embedded
+  // on each AssetIDCRow via computeIdcSnapshot. Project totals available
+  // on idcSnapshot.idcDepreciationPerPeriod + idcNbvPerPeriod.
+  const idcDeprecProject = idcSnapshot.idcDepreciationPerPeriod;
 
   // 3. Per-asset P&L + CF rows
   const perAssetPL = new Map<string, AssetPL>();
@@ -525,9 +569,9 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     if (faRow) {
       for (let t = 0; t < N; t++) daRow[t] = faRow.depreciable.depreciationPerPeriod[t] ?? 0;
     }
-    const idcDep = idcDeprecPerAsset.get(a.id);
-    if (idcDep) {
-      for (let t = 0; t < N; t++) daRow[t] += idcDep.depreciationPerPeriod[t] ?? 0;
+    const idcRow = byAssetIDC.get(a.id);
+    if (idcRow) {
+      for (let t = 0; t < N; t++) daRow[t] += idcRow.depreciationPerPeriod[t] ?? 0;
     }
     // Capex per asset (sum across construction window)
     // Estimate per-period capex by allocating asset's total capex across its construction period.
@@ -882,7 +926,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   // IDC NBV picks up the depreciation lifecycle for Operate/Lease assets
   // (Sell IDC flows through CoS and lands in Inventory before being
   // released, so it's already in inventoryArr below).
-  for (let t = 0; t < N; t++) totalFA[t] = nbvArr[t] + landArr[t] + (idcNbvProject[t] ?? 0);
+  for (let t = 0; t < N; t++) totalFA[t] = nbvArr[t] + landArr[t] + (idcSnapshot.idcNbvPerPeriod[t] ?? 0);
   const totalCA = zeros(N);
   for (let t = 0; t < N; t++) totalCA[t] = cashPerPeriod[t] + arPerPeriod[t] + residentialReceivables[t] + inventoryArr[t];
   const totalAssets = zeros(N);
@@ -975,15 +1019,6 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     totalLiabilitiesAndEquityPerPeriod: totalLandE,
     bsDifferencePerPeriod: bsDiff,
     historicalOpeningCashTotal,
-  };
-
-  const idcSnapshot: ProjectIDCSnapshot = {
-    axisLength: N,
-    totalIdcPerPeriod,
-    byAsset: byAssetIDC,
-    totalLandSqm,
-    idcDepreciationPerPeriod: idcDeprecProject,
-    idcNbvPerPeriod: idcNbvProject,
   };
 
   return {

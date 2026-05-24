@@ -89,8 +89,22 @@ export interface FacilityResult {
    *  raised inside the axis are 0. Use this for the BS prior-year column. */
   openingBalance: number;
   interestAccrued: number[];
+  /** Construction-window interest added to the debt balance (funding via
+   *  additional drawdown). Zero when idcConfig.fundingMode === 'cash'.
+   *  Used by the financing CF block as "IDC Drawdown". */
   interestCapitalized: number[];
   interestPaid: number[];
+  /** M4 Pass 2O (2026-05-24): construction-window interest routed to
+   *  asset basis for accounting. Zero when idcConfig.capitalize === false.
+   *  Decoupled from interestCapitalized (which is the funding side).
+   *  Source for the IDC allocator in financials-resolvers. */
+  interestForAssetBasis: number[];
+  /** M4 Pass 2O (2026-05-24): interest accrued during the construction
+   *  window of this facility (gross, ignores capitalize / fundingMode).
+   *  Lets the IDC Summary panel show construction-interest stream even
+   *  when capitalize=false. Zero outside the construction window and
+   *  for existing facilities. */
+  interestDuringConstruction: number[];
   principalRepaid: number[];
   totalDrawn: number;
   totalInterest: number;
@@ -100,8 +114,16 @@ export interface FacilityResult {
 export interface CombinedDebtService {
   totalDrawdown: number[];
   totalInterestAccrued: number[];
+  /** Sum of FacilityResult.interestCapitalized: amount added to debt
+   *  balance (the "additional drawdown" piece). Zero when fundingMode='cash'. */
   totalInterestCapitalized: number[];
+  /** P&L Interest Expense (accrual basis) = totalInterestAccrued -
+   *  totalInterestForAssetBasis. Construction interest when capitalize=false
+   *  flows through here. M4 Pass 2O. */
   totalInterestExpensed: number[];
+  /** Sum of FacilityResult.interestForAssetBasis: amount going to asset
+   *  basis (IDC source for the composer's allocation). M4 Pass 2O. */
+  totalInterestForAssetBasis: number[];
   totalPrincipalRepaid: number[];
   debtServiceCash: number[];
   // Pass 31 (2026-05-14): existing-vs-new breakdowns so the Combined

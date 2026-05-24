@@ -343,91 +343,10 @@ export default function Module4BSFeeders(): React.JSX.Element {
         />
       </PhaseSection>
 
-      {/* ─── MEMO ────────────────────────────────────────────────── */}
-      <PhaseSection phaseId="m4-bs-memo" title="MEMO" meta="Feeders that aren't BS line items themselves" storageKey="fmp:m4:bs:memo:collapsed">
-        {/* M1: IDC Allocation */}
-        <M4PeriodTable
-          title="M1. Capitalised Interest (IDC) Allocation (project)"
-          caption="Total IDC per period from the financing engine, distributed across visible non-companion assets by active-construction land share. SELL / Sell+Manage IDC → augments CoS capex base, unwinds to P&L via recognition (sits in Inventory until released). OPERATE / Lease IDC → adds to Fixed Assets at handover and depreciates straight-line over useful life."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={(() => {
-            const rows: M4Row[] = [];
-            const idcAssetRows = Array.from(snap.idc.byAsset.values()).filter((r) => r.totalIdc > 0);
-            if (idcAssetRows.length === 0) {
-              return [
-                { label: 'Total IDC (project)', values: snap.idc.totalIdcPerPeriod, isTotal: true },
-                sectionRow('No allocation. Set project land area on assets or check financing tranches for capitalised interest.'),
-              ];
-            }
-            // M4 Pass 2N-Fix (2026-05-21): split per-asset IDC by routing
-            // (Sell → CoS via Inventory vs Operate/Lease → Fixed Assets
-            // via D&A) so the user can see exactly how each asset's
-            // capitalised interest flows through the financials.
-            const assetById = new Map(state.assets.map((a) => [a.id, a] as const));
-            const sellRows = idcAssetRows.filter((r) => {
-              const a = assetById.get(r.assetId);
-              return a && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
-            });
-            const opLeaseRows = idcAssetRows.filter((r) => {
-              const a = assetById.get(r.assetId);
-              return a && (a.strategy === 'Operate' || a.strategy === 'Lease');
-            });
-            const sumRows = (rows: typeof idcAssetRows): number[] => {
-              const out = zeros();
-              for (const r of rows) for (let t = 0; t < N; t++) out[t] += r.idcPerPeriod[t] ?? 0;
-              return out;
-            };
-            const sellSubtotal = sumRows(sellRows);
-            const opLeaseSubtotal = sumRows(opLeaseRows);
-
-            if (sellRows.length > 0) {
-              rows.push(sectionRow('Sell / Sell+Manage IDC → routed to CoS via Inventory'));
-              for (const r of sellRows) {
-                rows.push({
-                  label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
-                  values: r.idcPerPeriod,
-                  indent: 1,
-                });
-              }
-              rows.push({
-                label: 'Subtotal: Sell IDC → CoS',
-                values: sellSubtotal,
-                isSubtotal: true,
-                totalOverride: fmt(sellSubtotal.reduce((s, v) => s + v, 0)),
-              });
-            }
-            if (opLeaseRows.length > 0) {
-              rows.push(sectionRow('Operate / Lease IDC → routed to Fixed Assets via D&A'));
-              for (const r of opLeaseRows) {
-                rows.push({
-                  label: `${r.assetName} (${(r.shareOfTotalLand * 100).toFixed(2)}% land share)`,
-                  values: r.idcPerPeriod,
-                  indent: 1,
-                });
-              }
-              rows.push({
-                label: 'Subtotal: Operate/Lease IDC → Fixed Assets',
-                values: opLeaseSubtotal,
-                isSubtotal: true,
-                totalOverride: fmt(opLeaseSubtotal.reduce((s, v) => s + v, 0)),
-              });
-            }
-            rows.push({ label: 'Total IDC (project)', values: snap.idc.totalIdcPerPeriod, isTotal: true });
-            rows.push(sectionRow('Operate / Lease IDC lifecycle on Fixed Assets:'));
-            rows.push({ label: 'Operate/Lease IDC depreciation (charge to D&A)', values: snap.idc.idcDepreciationPerPeriod.map((v) => -v), indent: 1 });
-            rows.push({
-              label: 'Operate/Lease IDC NBV (closing, on BS Fixed Assets)',
-              values: snap.idc.idcNbvPerPeriod,
-              isSubtotal: true,
-              totalOverride: fmt(snap.idc.idcNbvPerPeriod[N - 1] ?? 0),
-            });
-            return rows;
-          })()}
-        />
-      </PhaseSection>
+      {/* M4 Pass 2O (2026-05-24): IDC Allocation moved to Module 1
+          Financing → Schedules → IDC Allocation. The MEMO section here
+          previously duplicated that breakdown; removed to avoid two
+          sources of truth. */}
     </div>
   );
 }

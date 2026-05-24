@@ -201,7 +201,10 @@
       "PowerShell(Out-Null *)",
       "PowerShell(powershell.exe -ExecutionPolicy Bypass -File \"D:\\\\FMP\\\\financial-modeler-pro\\\\scripts\\\\inspect-ref-depreciation.ps1\" 2>&1 | Select-Object -First 200)",
       "PowerShell(Out-File *)",
-      "Bash(sort -t: -k2 -rn)"
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(Get-ChildItem *)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep \"const.*Input.*:.*=\" {} | head -3')",
+      "Bash(awk ' *)"
     ]
   }
 }

@@ -1,5 +1,16 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-21. Module 1 LOCKED at M2.0 Pass 58. Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP at Pass 2N-Fix (financing slice off-by-one + BS share-capital priorEquity + AR/Unearned mirror + CF financing consolidated + cohort tail-catchup + UI polish). Verifiers: revenue 133/133; escrow 46/46; opex 38/38; opex-ap 24/24; fixed-assets 82/82; phase-date-preservation 37/37; phase-date-scenarios 7/7; cost-of-sales-v2 24/24; idc-depreciation 22/22; asset-cost-allocation 14/14; m4-bs-reconciliation 59/59 — 486 sections green across 11 scripts.**
+**Last updated: 2026-05-24. Module 1 LOCKED at M2.0 Pass 58. Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP at Pass 2O (IDC policy split + Module 1 Financing IDC Allocation panel). Verifiers: revenue 133/133; escrow 46/46; opex 38/38; opex-ap 24/24; fixed-assets 82/82; phase-date-preservation 37/37; phase-date-scenarios 7/7; cost-of-sales-v2 24/24; idc-depreciation 108/108 (was 22, +86 for capitalize × funding mode quadrants); asset-cost-allocation 14/14; m4-bs-reconciliation 59/59 — 572 sections green across 11 scripts.**
+
+**M4 Pass 2O (2026-05-24): IDC (Interest During Construction) policy made configurable.** Three independent toggles on `Project.idcConfig`:
+- `allocationBasis: 'land' | 'bua'` — per-asset share weight (default land area, alternative built-up area).
+- `capitalize: boolean` — when true (default) construction interest goes to asset basis; when false it hits P&L Finance Cost during construction and is NOT allocated to assets.
+- `fundingMode: 'debt_drawdown' | 'cash'` — when 'debt_drawdown' (default) capitalised interest grows the debt balance (additional drawdown); when 'cash' interest is paid from operating cash without growing debt.
+
+Engine (`schedule.ts`) decouples accounting from funding: new `interestForAssetBasis` field on `FacilityResult` carries the accounting-side amount; existing `interestCapitalized` keeps its semantics as "amount added to debt balance" (funding side). `combineDebtService` derives `totalInterestExpensed = totalInterestAccrued − totalInterestForAssetBasis` so non-capitalised construction interest correctly hits P&L. New `interestDuringConstruction` per-facility array gives the IDC Summary the underlying construction-interest stream regardless of capitalise/funding flags.
+
+Composer (`financials-resolvers.ts`) extracted `computeIdcSnapshot` standalone helper so Module 1 Financing can render IDC without re-composing the full FS pipeline. Per-asset rows on the snapshot now embed `depreciationPerPeriod` + `closingNbvPerPeriod` for Operate/Lease assets (Sell IDC continues to unwind through CoS).
+
+UI: IDC moved from BS Schedules MEMO to **Module 1 Financing**. Inputs sub-tab gets section "1b. IDC Policy" (3 pill toggles + captions). Schedules sub-tab replaces the old facility-level "IDC Summary" with "IDC Allocation — by Asset (YoY + Total)": basis/capitalize/funding chips, per-asset summary table with share %, routed-to-CoS sub-table for Sell, routed-to-Fixed-Assets sub-table (with IDC depreciation + closing NBV) for Operate/Lease.
 
 **Current state (2026-05-21):**
 

@@ -50,6 +50,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
+import { computeIdcSnapshot } from '../../lib/financials-resolvers';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -140,6 +141,17 @@ export default function Module1Financing(): React.JSX.Element {
   const setFinancingConfigPatch = (patch: Partial<ProjectFinancingConfig>) => {
     setProject({ financing: { ...financingConfig, ...patch } });
   };
+
+  // M4 Pass 2O: IDC snapshot for the Schedules sub-tab. Depends on
+  // financing result + project.idcConfig + asset land/BUA + phase windows.
+  const idcSnapshot = useMemo(
+    () => computeIdcSnapshot(
+      { project, phases, assets, subUnits, parcels, landAllocationMode },
+      result,
+      { axisLength: result.axis.totalPeriods, projectStartYear: new Date(project.startDate).getUTCFullYear() },
+    ),
+    [project, phases, assets, subUnits, parcels, landAllocationMode, result],
+  );
 
   const setParcelFundingPatch = (parcelId: string, patch: Partial<ParcelFundingConfig>) => {
     const list = financingConfig.parcelFunding ?? [];
@@ -297,6 +309,89 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </section>
 
+          {/* M4 Pass 2O (2026-05-24): IDC (Interest During Construction) policy.
+              3 independent decisions: allocation basis, capitalize Y/N,
+              funding mode. Lives in Financing because it's a financing
+              policy question. Defaults match historical behaviour. */}
+          {(() => {
+            const idcCfg = project.idcConfig ?? {};
+            const basis = idcCfg.allocationBasis ?? 'land';
+            const capitalize = idcCfg.capitalize !== false;
+            const fundingMode = idcCfg.fundingMode ?? 'debt_drawdown';
+            const setIdcCfg = (patch: Partial<NonNullable<typeof project.idcConfig>>) => {
+              setProject({ idcConfig: { ...idcCfg, ...patch } });
+            };
+            const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
+              <button
+                key={key}
+                type="button"
+                onClick={onClick}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                  background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                  color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                  fontWeight: 600,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            );
+            const labelStyle: React.CSSProperties = {
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              color: 'var(--color-text-muted)',
+              marginBottom: 4,
+            };
+            const captionStyle: React.CSSProperties = {
+              fontSize: 10,
+              color: 'var(--color-text-muted)',
+              marginTop: 4,
+              fontStyle: 'italic',
+            };
+            return (
+              <section style={sectionStyle}>
+                <div style={sectionTitle}>1b. IDC (Interest During Construction) Policy</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                  <div>
+                    <div style={labelStyle}>Allocation Basis</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {pillBtn(basis === 'land', 'Land Area', () => setIdcCfg({ allocationBasis: 'land' }), 'land')}
+                      {pillBtn(basis === 'bua', 'Total BUA', () => setIdcCfg({ allocationBasis: 'bua' }), 'bua')}
+                    </div>
+                    <div style={captionStyle}>
+                      How project IDC is split across non-companion assets. Land = parcel-allocated sqm; BUA = built-up area sqm (sub-units + support).
+                    </div>
+                  </div>
+                  <div>
+                    <div style={labelStyle}>Capitalize Interest</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {pillBtn(capitalize, 'Yes (capitalize)', () => setIdcCfg({ capitalize: true }), 'cap-y')}
+                      {pillBtn(!capitalize, 'No (expense to P&L)', () => setIdcCfg({ capitalize: false }), 'cap-n')}
+                    </div>
+                    <div style={captionStyle}>
+                      Yes: construction interest goes to asset basis (CoS for Sell; Fixed Assets + D&A for Operate/Lease). No: hits P&L Finance Cost during construction, no allocation to assets.
+                    </div>
+                  </div>
+                  <div>
+                    <div style={labelStyle}>Funding Mode (IDC cash)</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {pillBtn(fundingMode === 'debt_drawdown', 'Drawdown via Debt', () => setIdcCfg({ fundingMode: 'debt_drawdown' }), 'fd-debt')}
+                      {pillBtn(fundingMode === 'cash', 'Pay from Cash Flow', () => setIdcCfg({ fundingMode: 'cash' }), 'fd-cash')}
+                    </div>
+                    <div style={captionStyle}>
+                      Drawdown: additional debt grows balance to cover interest (no cash impact). Cash: interest paid from operating cash, debt balance unchanged.
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
 
           <section style={sectionStyle}>
             <div style={sectionTitle}>2. Funding Method</div>
@@ -628,6 +723,7 @@ export default function Module1Financing(): React.JSX.Element {
           fmt={fmt}
           currency={currency}
           cropProject={cropProject}
+          idc={idcSnapshot}
         />
       )}
     </div>
@@ -1777,6 +1873,9 @@ interface SchedulesProps {
   fmt: (n: number) => string;
   currency: string;
   cropProject: (arr: number[]) => number[];
+  /** M4 Pass 2O: IDC snapshot computed at parent, drives the per-asset
+   *  allocation Summary + routed-to-CoS / routed-to-FA sub-tables. */
+  idc: import('../../lib/financials-resolvers').ProjectIDCSnapshot;
 }
 
 function SchedulesView(p: SchedulesProps): React.JSX.Element {
@@ -2062,64 +2161,173 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         );
       })()}
 
-      <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>IDC Summary</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <colgroup>
-            <col style={{ width: '40%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '20%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={CELL_HEADER}>Facility</th>
-              <th style={CELL_HEADER}>Capitalised</th>
-              <th style={CELL_HEADER}>Expensed</th>
-              <th style={CELL_HEADER}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(() => {
-              // Pass 41c (2026-05-14): same isActiveExisting gate as
-              // Debt Movement / Combined Debt Service / Finance Cost.
-              // Empty existing-facility stubs no longer add a zero-only
-              // row to IDC Summary.
-              const idcTranches = p.tranches.filter((t) =>
-                t.origin !== 'existing' || isActiveExisting(t),
-              );
-              let grandCap = 0, grandExp = 0;
-              const rows = idcTranches.map((t) => {
-                const r = p.result.facilities.get(t.id);
-                if (!r) return null;
-                const cap = r.interestCapitalized.reduce((s, v) => s + v, 0);
-                const exp = r.interestPaid.reduce((s, v) => s + v, 0);
-                grandCap += cap;
-                grandExp += exp;
-                return (
-                  <tr key={`idc_${t.id}`}>
-                    <td style={ROW_DATA.name}>{t.name} ({t.origin === 'existing' ? 'existing' : 'new'})</td>
-                    <td style={ROW_DATA.num}>{p.fmt(cap)}</td>
-                    <td style={ROW_DATA.num}>{p.fmt(exp)}</td>
-                    <td style={ROW_DATA.num}>{p.fmt(cap + exp)}</td>
-                  </tr>
-                );
-              });
-              return (
-                <>
-                  {rows}
-                  <tr>
-                    <td style={ROW_GRAND_TOTAL.name}>Grand Total</td>
-                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandCap)}</td>
-                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandExp)}</td>
-                    <td style={ROW_GRAND_TOTAL.num}>{p.fmt(grandCap + grandExp)}</td>
-                  </tr>
-                </>
-              );
-            })()}
-          </tbody>
-        </table>
-      </section>
+      {/* M4 Pass 2O (2026-05-24): IDC Allocation — by-asset breakdown.
+          Source = financing.totalInterestForAssetBasis, allocated per
+          project.idcConfig.allocationBasis. Routed downstream to CoS
+          (Sell) or Fixed Assets+D&A (Operate/Lease). */}
+      {(() => {
+        const idc = p.idc;
+        const basisLabel = idc.allocationBasis === 'bua' ? 'BUA share' : 'Land share';
+        const policyChips = (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 'var(--sp-1)' }}>
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+              background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)',
+              color: 'var(--color-navy)', border: '1px solid var(--color-navy)',
+            }}>Basis: {idc.allocationBasis === 'bua' ? 'BUA Area' : 'Land Area'}</span>
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+              background: idc.capitalize
+                ? 'color-mix(in srgb, var(--color-success, #166534) 12%, transparent)'
+                : 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
+              color: idc.capitalize ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+              border: `1px solid ${idc.capitalize ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+            }}>{idc.capitalize ? 'Capitalize: ON' : 'Capitalize: OFF (P&L)'}</span>
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+              background: 'color-mix(in srgb, var(--color-meta, #6b7280) 12%, transparent)',
+              color: 'var(--color-meta, #6b7280)', border: '1px solid var(--color-meta, #6b7280)',
+            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : 'Drawdown via Debt'}</span>
+          </div>
+        );
+
+        const assetRows = Array.from(idc.byAsset.values());
+        const sellRows = assetRows.filter((r) => r.strategy === 'Sell' || r.strategy === 'Sell + Manage');
+        const opLeaseRows = assetRows.filter((r) => r.strategy === 'Operate' || r.strategy === 'Lease');
+        const grandTotal = idc.totalIdcPerPeriod.reduce((s, v) => s + v, 0);
+        const sumSeries = (rows: typeof assetRows): number[] => {
+          const out = new Array<number>(idc.axisLength).fill(0);
+          for (const r of rows) for (let t = 0; t < idc.axisLength; t++) out[t] += r.idcPerPeriod[t] ?? 0;
+          return out;
+        };
+        const sellSubtotal = sumSeries(sellRows);
+        const opLeaseSubtotal = sumSeries(opLeaseRows);
+        const constructionInterest = idc.totalConstructionInterestPerPeriod;
+
+        return (
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>IDC Allocation — by Asset (YoY + Total)</div>
+            {policyChips}
+
+            {/* Summary table: per-asset IDC YoY + Total + share %. Always
+                rendered (even when capitalize=OFF, shows zero rows for
+                clarity + construction-interest stream below). */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {assetRows.length === 0 ? (
+                    <tr><td colSpan={2 + N} style={ROW_DATA.name}>No non-companion assets — IDC allocation has nothing to distribute.</td></tr>
+                  ) : (
+                    <>
+                      {assetRows.map((r) => {
+                        const series = p.cropProject(r.idcPerPeriod);
+                        const total = series.reduce((s, v) => s + v, 0);
+                        const sharePct = (r.shareOfTotalLand * 100).toFixed(2);
+                        return (
+                          <tr key={r.assetId}>
+                            <td style={ROW_DATA.name}>{r.assetName} ({sharePct}% {basisLabel})</td>
+                            <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                          </tr>
+                        );
+                      })}
+                      {renderFlowRow('Total IDC (allocated to assets)', idc.totalIdcPerPeriod, { bold: true })}
+                    </>
+                  )}
+                  {!idc.capitalize && (
+                    <tr>
+                      <td colSpan={2 + N} style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-warning, #92400e)' }}>
+                        Capitalize=OFF — construction interest below is expensed to P&L Finance Cost instead of allocated to assets.
+                      </td>
+                    </tr>
+                  )}
+                  {renderFlowRow(
+                    idc.capitalize
+                      ? 'Memo: Total construction interest (accrual)'
+                      : 'Total construction interest → P&L Finance Cost',
+                    constructionInterest,
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Routing: Sell → CoS via Inventory */}
+            {idc.capitalize && sellRows.length > 0 && (
+              <div style={{ marginTop: 'var(--sp-2)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                  Routed to CoS via Inventory (Sell / Sell+Manage — augments capex basis, unwinds via revenue recognition)
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                    {colgroup}
+                    {headerRow}
+                    <tbody>
+                      {sellRows.map((r) => {
+                        const series = p.cropProject(r.idcPerPeriod);
+                        const total = series.reduce((s, v) => s + v, 0);
+                        return (
+                          <tr key={`sell_${r.assetId}`}>
+                            <td style={ROW_DATA.name}>{r.assetName}</td>
+                            <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                          </tr>
+                        );
+                      })}
+                      {renderFlowRow('Subtotal: Sell IDC → CoS', sellSubtotal, { bold: true })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Routing: Operate/Lease → Fixed Assets + D&A */}
+            {idc.capitalize && opLeaseRows.length > 0 && (
+              <div style={{ marginTop: 'var(--sp-2)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                  Routed to Fixed Assets → D&A (Operate / Lease — adds to depreciable basis at handover, straight-line over useful life)
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                    {colgroup}
+                    {headerRow}
+                    <tbody>
+                      {opLeaseRows.map((r) => {
+                        const series = p.cropProject(r.idcPerPeriod);
+                        const total = series.reduce((s, v) => s + v, 0);
+                        return (
+                          <tr key={`op_${r.assetId}`}>
+                            <td style={ROW_DATA.name}>{r.assetName} (Additions)</td>
+                            <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                          </tr>
+                        );
+                      })}
+                      {renderFlowRow('Subtotal: Operate/Lease IDC → Fixed Assets', opLeaseSubtotal, { bold: true })}
+                      {/* Lifecycle: depreciation per period + closing NBV */}
+                      {renderFlowRow(
+                        'Operate/Lease IDC Depreciation (charge to D&A)',
+                        idc.idcDepreciationPerPeriod.map((v) => -v),
+                        { negative: true },
+                      )}
+                      {renderStateRow(
+                        'Operate/Lease IDC NBV (closing, sits on BS Fixed Assets)',
+                        idc.idcNbvPerPeriod,
+                        { bold: true },
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 'var(--sp-1)', fontStyle: 'italic' }}>
+              Grand total {p.fmt(grandTotal)} allocated by {basisLabel.toLowerCase()}. Construction-active set drives per-period weights; stray IDC outside any construction window falls back to total-share split.
+            </div>
+          </section>
+        );
+      })()}
 
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Equity Movement</div>

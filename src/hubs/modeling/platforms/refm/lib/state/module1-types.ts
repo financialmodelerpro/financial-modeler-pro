@@ -443,6 +443,27 @@ export interface Project {
    */
   shareCapital?: number;
   /**
+   * M4 Pass 2O (2026-05-24): IDC (Interest During Construction) policy.
+   * Three independent decisions:
+   *   - allocationBasis: how to split project IDC across non-companion
+   *     assets ('land' = land sqm share, 'bua' = built-up area share).
+   *   - capitalize: when true, construction-window interest goes to
+   *     asset basis (CoS for Sell, Fixed Assets + D&A for Operate/Lease).
+   *     When false, interest hits P&L Finance Cost during construction
+   *     and is NOT allocated to assets.
+   *   - fundingMode: 'debt_drawdown' grows the debt balance by the
+   *     interest amount (additional drawdown, current default).
+   *     'cash' pays the interest from cash flow without growing debt.
+   *
+   * All three default to current behaviour (land / true / debt_drawdown)
+   * so legacy snapshots are unchanged.
+   */
+  idcConfig?: {
+    allocationBasis?: 'land' | 'bua';
+    capitalize?: boolean;
+    fundingMode?: 'debt_drawdown' | 'cash';
+  };
+  /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
    * on Asset.opex.
