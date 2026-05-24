@@ -142,6 +142,8 @@ export interface ProjectDirectCF {
   debtDrawdownPerPeriod: number[];
   debtRepaymentPerPeriod: number[];        // negative
   interestPaidPerPeriod: number[];         // negative
+  /** M4 Pass 2T (2026-05-24): dividends paid per period (negative). */
+  dividendsPaidPerPeriod: number[];
   cashFromFinancingPerPeriod: number[];
   // Bottom
   netCashFlowPerPeriod: number[];
@@ -323,6 +325,9 @@ export interface ProjectFinancialsSnapshot {
    *  Debt curves. Always present; sweep.enabled === false when no
    *  tranche has sweep configured. */
   cashSweep: CashSweepSnapshot;
+  /** M4 Pass 2T (2026-05-24): dividend distribution per phase. Always
+   *  present; .enabled === false when no phase has dividendPolicy.enabled. */
+  dividends: DividendSnapshot;
 }
 
 const zeros = (n: number): number[] => new Array<number>(n).fill(0);
@@ -604,13 +609,51 @@ export interface CashSweepSnapshot {
   /** Total sweep applied per period (sum across all tranches). */
   totalSweepPerPeriod: number[];
   totalSweep: number;
-  /** Closing cash per period AFTER sweep. */
+  /** Closing cash per period AFTER sweep AND dividends. */
   adjustedClosingCash: number[];
   /** Project total debt outstanding per period AFTER sweep. */
   adjustedDebtOutstanding: number[];
 }
 
-export function computeCashSweep(args: {
+/**
+ * M4 Pass 2T (2026-05-24): Dividend snapshot. Driven by per-phase
+ * Phase.dividendPolicy. Per period:
+ *   excess = preSweepClosingCash − minCashReserve − cumPriorAllocations
+ *   1. before_sweep dividends paid first (priority over cash sweep —
+ *      typical for operational phases that already produce cash and
+ *      want to distribute before new-debt sweep).
+ *   2. cash sweep on debt facilities (priority order across tranches).
+ *   3. after_sweep dividends paid last (new phases, after debt repays).
+ * Each step respects the project minimum cash reserve floor.
+ */
+export interface DividendPhaseRow {
+  phaseId: string;
+  phaseName: string;
+  priority: 'before_sweep' | 'after_sweep';
+  startingYear: number;
+  startingYearAxisIdx: number;
+  payoutRatio: number;
+  dividendsPerPeriod: number[];
+  totalDividends: number;
+}
+
+export interface DividendSnapshot {
+  axisLength: number;
+  enabled: boolean;
+  beforeSweepPhases: DividendPhaseRow[];
+  afterSweepPhases: DividendPhaseRow[];
+  /** Per-period total dividends (sum across all phases, before + after). */
+  totalDividendsPerPeriod: number[];
+  totalDividends: number;
+}
+
+/**
+ * Combined Cash Waterfall (M4 Pass 2T, 2026-05-24): forward pass that
+ * interleaves before-sweep dividends → cash sweep → after-sweep
+ * dividends per period. Returns both CashSweepSnapshot and
+ * DividendSnapshot so the composer + UI can render each tier separately.
+ */
+export function computeCashWaterfall(args: {
   axisLength: number;
   projectStartYear: number;
   tranches: FinancingTranche[];
@@ -618,9 +661,10 @@ export function computeCashSweep(args: {
   facilityOutstanding: Map<string, number[]>;
   preSweepClosingCash: number[];
   minCashReserve: number;
-}): CashSweepSnapshot {
+}): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
   const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve } = args;
-  // Build list of sweep-eligible tranches with resolved config.
+
+  // Build sweep-eligible tranches.
   const eligible: CashSweepRow[] = [];
   for (const t of tranches) {
     const cfg = t.cashSweepConfig ?? {};
@@ -628,7 +672,6 @@ export function computeCashSweep(args: {
     if (!useSweep) continue;
     const fac = facilityOutstanding.get(t.id);
     if (!fac) continue;
-    // Default startingYear = construction-end + 1 of the tranche's owning phase.
     const phase = phases.find((p) => p.id === t.phaseId);
     const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const cp = Math.max(0, phase?.constructionPeriods ?? 0);
@@ -653,45 +696,94 @@ export function computeCashSweep(args: {
   }
   eligible.sort((a, b) => a.priority - b.priority);
 
+  // Build dividend-enabled phases (before-sweep first, then after-sweep).
+  const buildPhaseRow = (phase: Phase, priority: 'before_sweep' | 'after_sweep'): DividendPhaseRow | null => {
+    const policy = phase.dividendPolicy ?? {};
+    if (policy.enabled !== true) return null;
+    if ((policy.priority ?? (phase.status === 'operational' ? 'before_sweep' : 'after_sweep')) !== priority) return null;
+    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const cp = Math.max(0, phase.constructionPeriods ?? 0);
+    const defaultStartingYear = phase.status === 'operational' ? projectStartYear : phaseStartYear + cp;
+    const startingYear = policy.startingYear ?? defaultStartingYear;
+    const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
+    const payoutRatio = Math.max(0, Math.min(1, (policy.payoutRatio ?? 0) / 100));
+    return {
+      phaseId: phase.id,
+      phaseName: phase.name,
+      priority,
+      startingYear,
+      startingYearAxisIdx,
+      payoutRatio,
+      dividendsPerPeriod: new Array<number>(N).fill(0),
+      totalDividends: 0,
+    };
+  };
+  const beforeSweepPhases: DividendPhaseRow[] = [];
+  const afterSweepPhases: DividendPhaseRow[] = [];
+  for (const ph of phases) {
+    const before = buildPhaseRow(ph, 'before_sweep');
+    if (before) beforeSweepPhases.push(before);
+    const after = buildPhaseRow(ph, 'after_sweep');
+    if (after) afterSweepPhases.push(after);
+  }
+
   const excessAvailablePerPeriod = new Array<number>(N).fill(0);
   const totalSweepPerPeriod = new Array<number>(N).fill(0);
+  const totalDividendsPerPeriod = new Array<number>(N).fill(0);
   const adjustedClosingCash = preSweepClosingCash.slice(0, N);
   while (adjustedClosingCash.length < N) adjustedClosingCash.push(0);
 
-  // Forward pass. Each period's cumulative-sweep effect carries forward
-  // by reducing all subsequent post-sweep outstanding balances of that
-  // tranche AND by reducing closing cash for the period.
-  let cumSweep = 0;
+  // Forward pass with the full waterfall.
+  let cumAllocation = 0;
   for (let t = 0; t < N; t++) {
-    const cashBeforeSweep = (preSweepClosingCash[t] ?? 0) - cumSweep;
-    const excess = Math.max(0, cashBeforeSweep - minCashReserve);
+    const cashBefore = (preSweepClosingCash[t] ?? 0) - cumAllocation;
+    let excess = Math.max(0, cashBefore - minCashReserve);
     excessAvailablePerPeriod[t] = excess;
     if (excess <= 0) {
-      adjustedClosingCash[t] = cashBeforeSweep;
+      adjustedClosingCash[t] = cashBefore;
       continue;
     }
-    let available = excess;
+    // 1. Before-sweep dividends.
+    for (const row of beforeSweepPhases) {
+      if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
+      const div = Math.min(excess * row.payoutRatio, excess);
+      if (div <= 0) continue;
+      row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;
+      row.totalDividends += div;
+      totalDividendsPerPeriod[t] += div;
+      excess -= div;
+    }
+    // 2. Cash sweep on debt.
     for (const row of eligible) {
-      if (t < row.startingYearAxisIdx) continue;
-      if (available <= 0) break;
+      if (t < row.startingYearAxisIdx || excess <= 0) continue;
       const remaining = Math.max(0, row.postSweepOutstanding[t] ?? 0);
       if (remaining <= 0) continue;
-      const sweepable = Math.min(available * row.sweepRatio, remaining, available);
+      const sweepable = Math.min(excess * row.sweepRatio, remaining, excess);
       if (sweepable <= 0) continue;
       row.sweepPerPeriod[t] = (row.sweepPerPeriod[t] ?? 0) + sweepable;
       row.totalSwept += sweepable;
       totalSweepPerPeriod[t] += sweepable;
-      available -= sweepable;
-      // Reduce future post-sweep outstanding for this tranche from t onward.
+      excess -= sweepable;
       for (let u = t; u < N; u++) {
         row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
       }
     }
-    cumSweep += totalSweepPerPeriod[t];
-    adjustedClosingCash[t] = cashBeforeSweep - totalSweepPerPeriod[t];
+    // 3. After-sweep dividends.
+    for (const row of afterSweepPhases) {
+      if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
+      const div = Math.min(excess * row.payoutRatio, excess);
+      if (div <= 0) continue;
+      row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;
+      row.totalDividends += div;
+      totalDividendsPerPeriod[t] += div;
+      excess -= div;
+    }
+    const totalAllocatedThisPeriod = totalSweepPerPeriod[t] + totalDividendsPerPeriod[t];
+    cumAllocation += totalAllocatedThisPeriod;
+    adjustedClosingCash[t] = cashBefore - totalAllocatedThisPeriod;
   }
 
-  // Adjusted project debt outstanding = sum of post-sweep eligible + raw non-eligible.
+  // Adjusted debt outstanding = post-sweep eligible + raw non-eligible.
   const eligibleIds = new Set(eligible.map((e) => e.trancheId));
   const adjustedDebtOutstanding = new Array<number>(N).fill(0);
   for (const row of eligible) {
@@ -702,7 +794,7 @@ export function computeCashSweep(args: {
     for (let t = 0; t < N; t++) adjustedDebtOutstanding[t] += outArr[t] ?? 0;
   }
 
-  return {
+  const cashSweep: CashSweepSnapshot = {
     axisLength: N,
     enabled: eligible.length > 0,
     minCashReserve,
@@ -714,6 +806,28 @@ export function computeCashSweep(args: {
     adjustedClosingCash,
     adjustedDebtOutstanding,
   };
+  const dividends: DividendSnapshot = {
+    axisLength: N,
+    enabled: beforeSweepPhases.length > 0 || afterSweepPhases.length > 0,
+    beforeSweepPhases,
+    afterSweepPhases,
+    totalDividendsPerPeriod,
+    totalDividends: totalDividendsPerPeriod.reduce((s, v) => s + v, 0),
+  };
+  return { cashSweep, dividends };
+}
+
+/** @deprecated M4 Pass 2T: use computeCashWaterfall. Thin shim for back-compat. */
+export function computeCashSweep(args: {
+  axisLength: number;
+  projectStartYear: number;
+  tranches: FinancingTranche[];
+  phases: Phase[];
+  facilityOutstanding: Map<string, number[]>;
+  preSweepClosingCash: number[];
+  minCashReserve: number;
+}): CashSweepSnapshot {
+  return computeCashWaterfall(args).cashSweep;
 }
 
 export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSnapshot {
@@ -1260,7 +1374,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (const [trancheId, fac] of financing.facilities) {
     facilityOutstandingForSweep.set(trancheId, fac.outstanding.slice(0, N));
   }
-  const cashSweep = computeCashSweep({
+  const waterfall = computeCashWaterfall({
     axisLength: N,
     projectStartYear,
     tranches: financingTranches,
@@ -1269,16 +1383,21 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     preSweepClosingCash: closingCash,
     minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
   });
+  const cashSweep = waterfall.cashSweep;
+  const dividends = waterfall.dividends;
 
-  // Build sweep-adjusted Direct CF arrays. When sweep is enabled, the
-  // total per-period sweep adds to debt repayment (cash outflow) and
-  // reduces cashFromFinancing and netCashFlow and closingCash.
+  // Build adjusted Direct CF arrays. Sweep adds to debt repayment;
+  // dividends become their own financing-block line. Both reduce
+  // cashFromFinancing / netCashFlow / closingCash.
   const sweepPerPeriodPos = cashSweep.totalSweepPerPeriod.slice(0, N);
   while (sweepPerPeriodPos.length < N) sweepPerPeriodPos.push(0);
+  const dividendsPerPeriodPos = dividends.totalDividendsPerPeriod.slice(0, N);
+  while (dividendsPerPeriodPos.length < N) dividendsPerPeriodPos.push(0);
   const debtRepaysAdj = debtRepays.map((v, i) => v + (sweepPerPeriodPos[i] ?? 0));
-  const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0));
-  const netCfAdj = netCf.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0));
-  const closingCashAdj = cashSweep.enabled ? cashSweep.adjustedClosingCash.slice(0, N) : closingCash;
+  const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
+  const netCfAdj = netCf.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
+  const enabledAnyAllocation = cashSweep.enabled || dividends.enabled;
+  const closingCashAdj = enabledAnyAllocation ? cashSweep.adjustedClosingCash.slice(0, N) : closingCash;
   const openingCashAdj = zeros(N);
   {
     let runC = historicalOpeningCashTotal;
@@ -1304,6 +1423,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     debtDrawdownPerPeriod: debtDraws,
     debtRepaymentPerPeriod: debtRepaysAdj.map((v) => -v),
     interestPaidPerPeriod: interestPaidArr.map((v) => -v),
+    dividendsPaidPerPeriod: dividendsPerPeriodPos.map((v) => -v),
     cashFromFinancingPerPeriod: cashFromFinAdj,
     netCashFlowPerPeriod: netCfAdj,
     openingCashPerPeriod: openingCashAdj,
@@ -1312,7 +1432,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
 
   // 7. Balance Sheet
   // Assets
-  // M4 Pass 2S: use sweep-adjusted closing cash when sweep is enabled.
+  // M4 Pass 2T: closingCashAdj already incorporates sweep + dividends.
   const cashPerPeriod = closingCashAdj;
   const arPerPeriod = operatingAR.perPeriod.slice(0, N);
   const residentialReceivables = zeros(N);
@@ -1377,7 +1497,11 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const reserveCapPct = Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0);
   const reserveArr = zeros(N);
   const reserveTransferArr = zeros(N); // M4 Pass 2P: per-period transfer
-  const dividendsArr = zeros(N); // M4 Pass 2P: placeholder (Dividend pass next)
+  // M4 Pass 2T (2026-05-24): dividends from the cash-waterfall flow
+  // through to BS / RE. The waterfall already took dividends out of
+  // closingCash; here we mirror it on the equity side so BS balances.
+  const dividendsArr = dividends.totalDividendsPerPeriod.slice(0, N);
+  while (dividendsArr.length < N) dividendsArr.push(0);
   const retained = zeros(N);
   let runningReserve = 0;
   let runningRetained = 0;
@@ -1449,5 +1573,6 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     indirectCF,
     bs,
     cashSweep,
+    dividends,
   };
 }

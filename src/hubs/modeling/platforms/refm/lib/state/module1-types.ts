@@ -608,6 +608,26 @@ export interface Phase {
   // M2.0i Fix 10: opening balances + run-rate baseline. Only populated
   // when status === 'operational' (Tab 1 hides the inputs otherwise).
   historicalBaseline?: PhaseHistoricalBaseline;
+  /**
+   * M4 Pass 2T (2026-05-24): per-phase dividend policy. Drives the
+   * cash waterfall after debt service:
+   *   priority='before_sweep' → this phase's dividend is paid BEFORE
+   *     cash sweep starts (typical for already-operational phases that
+   *     are producing cash and want to distribute first).
+   *   priority='after_sweep' → dividend paid AFTER cash sweep finishes
+   *     (typical for new construction phases — debt repays first).
+   * startingYear defaults to the phase's first operating year
+   * (constructionEnd + 1 for new phases; project start year for
+   * operational phases). payoutRatio is the % of available cash above
+   * the minimum cash reserve to distribute each period (0..100).
+   * Defaults to disabled when undefined.
+   */
+  dividendPolicy?: {
+    enabled?: boolean;
+    priority?: 'before_sweep' | 'after_sweep';
+    startingYear?: number;
+    payoutRatio?: number;
+  };
 }
 
 // ── Parcel (land) ──────────────────────────────────────────────────────────

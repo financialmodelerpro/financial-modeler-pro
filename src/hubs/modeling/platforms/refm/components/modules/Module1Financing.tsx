@@ -2441,6 +2441,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       landAllocationMode: s.landAllocationMode,
       financingTranches: s.financingTranches,
       equityContributions: s.equityContributions,
+      updatePhase: s.updatePhase,
     })),
   );
   const snap = useMemo(() => computeFinancialsSnapshot(state), [state]);
@@ -2628,6 +2629,161 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 <span key={r.trancheId} style={{ marginLeft: i === 0 ? 0 : 4 }}>
                   {i > 0 && ' · '}
                   <strong style={{ color: 'var(--color-heading)' }}>{r.trancheName}</strong> ({p.fmt(r.totalSwept)})
+                </span>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* M4 Pass 2T (2026-05-24): Dividend Policy editor + schedule. */}
+      <section style={sectionStyle}>
+        <div style={TABLE_TITLE}>Dividend Policy — per Phase</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+          Dividend waterfall: (1) <strong>Before-sweep</strong> dividends pay first — typical for operational phases (Phase 1) already producing cash. (2) <strong>Cash Sweep</strong> on debt. (3) <strong>After-sweep</strong> dividends — typical for new construction phases (debt repays first). Each step respects the project minimum cash reserve.
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={CELL_HEADER}>Phase</th>
+              <th style={CELL_HEADER}>Status</th>
+              <th style={CELL_HEADER}>Enable Dividend</th>
+              <th style={CELL_HEADER}>Priority</th>
+              <th style={CELL_HEADER}>Start Year</th>
+              <th style={CELL_HEADER}>Payout Ratio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.phases.map((ph) => {
+              const pol = ph.dividendPolicy ?? {};
+              const enabled = pol.enabled === true;
+              const projStart = snap.projectStartYear;
+              const phaseStartYear = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : projStart;
+              const cp = Math.max(0, ph.constructionPeriods ?? 0);
+              const defaultStart = ph.status === 'operational' ? projStart : phaseStartYear + cp;
+              const priority = pol.priority ?? (ph.status === 'operational' ? 'before_sweep' : 'after_sweep');
+              const startingYear = pol.startingYear ?? defaultStart;
+              const payoutRatio = pol.payoutRatio ?? 0;
+              const updatePolicy = (patch: Partial<NonNullable<typeof ph.dividendPolicy>>) => {
+                state.updatePhase(ph.id, { dividendPolicy: { ...(ph.dividendPolicy ?? {}), ...patch } });
+              };
+              const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={onClick}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                    background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                    color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                    fontWeight: 600,
+                    fontSize: 10,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+              return (
+                <tr key={ph.id}>
+                  <td style={ROW_DATA.name}>{ph.name}</td>
+                  <td style={ROW_DATA.name}>{ph.status ?? 'planning'}</td>
+                  <td style={ROW_DATA.name}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {pillBtn(enabled, 'On', () => updatePolicy({ enabled: true }), 'on')}
+                      {pillBtn(!enabled, 'Off', () => updatePolicy({ enabled: false }), 'off')}
+                    </div>
+                  </td>
+                  <td style={ROW_DATA.name}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {pillBtn(priority === 'before_sweep', 'Before sweep', () => updatePolicy({ priority: 'before_sweep' }), 'bs')}
+                      {pillBtn(priority === 'after_sweep', 'After sweep', () => updatePolicy({ priority: 'after_sweep' }), 'as')}
+                    </div>
+                  </td>
+                  <td style={ROW_DATA.name}>
+                    <input
+                      type="number"
+                      value={startingYear}
+                      onChange={(e) => updatePolicy({ startingYear: Math.max(1900, Number(e.target.value) || defaultStart) })}
+                      style={{ ...inputStyle, width: 80 }}
+                    />
+                    <div style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>default {defaultStart}</div>
+                  </td>
+                  <td style={ROW_DATA.name}>
+                    <PercentageInput
+                      value={payoutRatio}
+                      onChange={(v) => updatePolicy({ payoutRatio: v })}
+                      style={{ ...inputStyle, width: 80 }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      {/* Dividend schedule (always shown; empty when none enabled). */}
+      {(() => {
+        const div = snap.dividends;
+        if (!div.enabled) {
+          return (
+            <section style={sectionStyle}>
+              <div style={TABLE_TITLE}>Dividend Schedule</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                No phase has dividend distribution enabled. Toggle dividend on a phase above and set its payout ratio.
+              </div>
+            </section>
+          );
+        }
+        return (
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>Dividend Schedule</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              Per-period dividend distribution per phase. Before-sweep phases distribute first; after-sweep phases distribute from what remains after the cash sweep. Total dividends reduce closing cash + retained earnings (see Balance Sheet E2).
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {div.beforeSweepPhases.length > 0 && (
+                    <tr>
+                      <td colSpan={2 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
+                        Before-sweep dividends (paid before cash sweep on debt)
+                      </td>
+                    </tr>
+                  )}
+                  {div.beforeSweepPhases.map((row) => renderFlowRow(
+                    `${row.phaseName} (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout)`,
+                    row.dividendsPerPeriod,
+                    { indent: 1 },
+                  ))}
+                  {div.afterSweepPhases.length > 0 && (
+                    <tr>
+                      <td colSpan={2 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
+                        After-sweep dividends (paid from cash remaining after debt sweep)
+                      </td>
+                    </tr>
+                  )}
+                  {div.afterSweepPhases.map((row) => renderFlowRow(
+                    `${row.phaseName} (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout)`,
+                    row.dividendsPerPeriod,
+                    { indent: 1 },
+                  ))}
+                  {renderFlowRow('Total dividends paid', div.totalDividendsPerPeriod, { bold: true })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+              Grand total dividends: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(div.totalDividends)}</strong>
+              {[...div.beforeSweepPhases, ...div.afterSweepPhases].length > 0 && ' — '}
+              {[...div.beforeSweepPhases, ...div.afterSweepPhases].map((r, i, arr) => (
+                <span key={r.phaseId} style={{ marginLeft: i === 0 ? 0 : 4 }}>
+                  <strong style={{ color: 'var(--color-heading)' }}>{r.phaseName}</strong> ({p.fmt(r.totalDividends)})
+                  {i < arr.length - 1 && ' · '}
                 </span>
               ))}
             </div>

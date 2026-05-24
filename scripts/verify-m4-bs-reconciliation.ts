@@ -430,6 +430,59 @@ console.log('\n[N] Pass 2S: Cash Sweep identities');
   }
 }
 
+// ──────────────────────────────────────────────────────────────────
+// O: M4 Pass 2T (2026-05-24) — Dividend waterfall identities
+//   O1: snap.dividends always present
+//   O2: when no phase has dividendPolicy.enabled, dividends.enabled === false
+//       and totalDividends === 0
+//   O3: bs.dividendsPerPeriod equals snap.dividends.totalDividendsPerPeriod
+//   O4: BS still balances under default fixture
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[O] Pass 2T: Dividend waterfall identities');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  if (!snap.dividends || typeof snap.dividends.enabled !== 'boolean') {
+    fail++;
+    failures.push('O1: snap.dividends missing');
+    console.log('  [FAIL] O1: snap.dividends missing');
+  } else {
+    pass++;
+    console.log(`  [PASS] O1: snap.dividends present (enabled=${snap.dividends.enabled})`);
+  }
+  if (snap.dividends.enabled === false && snap.dividends.totalDividends === 0) {
+    pass++;
+    console.log('  [PASS] O2: dividends disabled with zero total when no phase opts in');
+  } else {
+    fail++;
+    failures.push(`O2: expected dividends disabled & total 0; got enabled=${snap.dividends.enabled}, total=${snap.dividends.totalDividends}`);
+    console.log(`  [FAIL] O2: dividends enabled=${snap.dividends.enabled}, total=${snap.dividends.totalDividends}`);
+  }
+  let mirror = true;
+  for (let t = 0; t < snap.axisLength; t++) {
+    if (Math.abs((snap.bs.dividendsPerPeriod[t] ?? 0) - (snap.dividends.totalDividendsPerPeriod[t] ?? 0)) > 1) {
+      mirror = false;
+      break;
+    }
+  }
+  if (mirror) {
+    pass++;
+    console.log('  [PASS] O3: bs.dividendsPerPeriod mirrors dividends.totalDividendsPerPeriod');
+  } else {
+    fail++;
+    failures.push('O3: bs.dividendsPerPeriod diverges from dividends.totalDividendsPerPeriod');
+    console.log('  [FAIL] O3: bs.dividendsPerPeriod diverges from dividends.totalDividendsPerPeriod');
+  }
+  const maxAbs = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  if (maxAbs < 1) {
+    pass++;
+    console.log(`  [PASS] O4: BS still balances with dividend wire-up (maxAbsDiff=${maxAbs.toFixed(2)})`);
+  } else {
+    fail++;
+    failures.push(`O4: BS diff ${maxAbs.toFixed(2)} > 1 after dividend wire-up`);
+    console.log(`  [FAIL] O4: BS diff ${maxAbs.toFixed(2)} > 1 after dividend wire-up`);
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');
