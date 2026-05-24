@@ -75,6 +75,8 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     ctx.parcels,
     ctx.financingConfig.parcelFunding ?? [],
     axis,
+    ctx.phases,
+    ctx.project,
   );
 
   const shares = normaliseFacilityShares(ctx.tranches);

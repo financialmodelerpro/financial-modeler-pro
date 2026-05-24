@@ -1,6 +1,8 @@
 import type {
   Parcel,
   ParcelFundingConfig,
+  Phase,
+  Project,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type {
   CapexAggregate,
@@ -59,6 +61,8 @@ export function computeDebtEquitySplit(
   parcels: Parcel[],
   parcelFunding: ParcelFundingConfig[],
   axis: ProjectAxis,
+  phases?: Phase[],
+  project?: Project,
 ): DebtEquitySplit {
   const N = axis.totalPeriods;
   const debt        = new Array<number>(N).fill(0);
@@ -85,10 +89,30 @@ export function computeDebtEquitySplit(
   const landDebtFrac = totalCashLand > 0 ? totalDebtWeighted / totalCashLand : 0;
   const landEquityFrac = 1 - landDebtFrac;
 
-  let inKindLump = 0;
+  // M4 Pass 2Z (2026-05-24): stamp in-kind per parcel at the OWNING
+  // phase's projected i=0 axis index — mirrors the asset-side
+  // projection rule in aggregateProjectCapex / fixed-assets-resolvers
+  // (projIdx = Math.max(0, offset - 1) post Pass 2W). Previously the
+  // sum lumped at axis[0] regardless of phase, leaving Phase 3+
+  // (offset >= 2) with Y0 equity but no matching Land asset — peak
+  // contributor to the user's 1.4M BS construction-year imbalance.
+  const projStart = project?.startDate
+    ? new Date(project.startDate).getUTCFullYear()
+    : Number.NaN;
+  let inKindLump = 0; // running total (for total-of-totals identity)
+  const inKindByPeriod = new Array<number>(N).fill(0);
   for (const p of parcels) {
     const inKindValue = p.area * p.rate * (Math.max(0, Math.min(100, 100 - (p.cashPct ?? 0))) / 100);
+    if (inKindValue <= 0) continue;
     inKindLump += inKindValue;
+    let projIdx = 0;
+    if (phases && Number.isFinite(projStart)) {
+      const phase = phases.find((ph) => ph.id === p.phaseId);
+      const psy = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projStart;
+      const offset = Math.max(0, psy - projStart);
+      projIdx = Math.max(0, offset - 1);
+    }
+    if (projIdx >= 0 && projIdx < N) inKindByPeriod[projIdx] += inKindValue;
   }
 
   // Pass 30 (2026-05-14): when Method 4 (Specified Debt + Equity) is
@@ -111,7 +135,7 @@ export function computeDebtEquitySplit(
       debt[i]   = nonLandDebt[i];
       equity[i] = nonLandEquity[i];
     }
-    if (N > 0) inKind[0] = inKindLump;
+    for (let i = 0; i < N; i++) inKind[i] = inKindByPeriod[i] ?? 0;
     return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
   }
 
@@ -128,7 +152,8 @@ export function computeDebtEquitySplit(
     debt[i]   = nonLandDebt[i] + landDebt[i];
     equity[i] = nonLandEquity[i] + landEquity[i];
   }
-  if (N > 0) inKind[0] = inKindLump;
+  for (let i = 0; i < N; i++) inKind[i] = inKindByPeriod[i] ?? 0;
+  void inKindLump; // running total kept above for clarity / future use
 
   return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
 }

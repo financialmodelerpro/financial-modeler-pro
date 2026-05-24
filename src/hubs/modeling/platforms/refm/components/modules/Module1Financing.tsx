@@ -2333,9 +2333,13 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                         const series = p.cropProject(r.idcPerPeriod);
                         const total = series.reduce((s, v) => s + v, 0);
                         const sharePct = (r.shareOfTotalLand * 100).toFixed(2);
-                        // M4 Pass 2Q: show physical Land + BUA sqm next
-                        // to the share so the user can verify the math.
                         const sqmFmt = (v: number): string => Math.round(v).toLocaleString();
+                        // M4 Pass 2Y-Fix (2026-05-24): inline <tr> rows
+                        // must include an EMPTY prior-column cell so they
+                        // align with the Pass 2V header (label | total |
+                        // prior | y0..yN-1). Without this, axis values
+                        // shifted left into the prior column visually.
+                        const priorStyle: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
                         return (
                           <tr key={r.assetId}>
                             <td style={ROW_DATA.name}>
@@ -2345,6 +2349,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                               </span>
                             </td>
                             <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            <td style={priorStyle}></td>
                             {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                           </tr>
                         );
@@ -2383,10 +2388,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                       {sellRows.map((r) => {
                         const series = p.cropProject(r.idcPerPeriod);
                         const total = series.reduce((s, v) => s + v, 0);
+                        const priorStyle: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
                         return (
                           <tr key={`sell_${r.assetId}`}>
                             <td style={ROW_DATA.name}>{r.assetName}</td>
                             <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            <td style={priorStyle}></td>
                             {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                           </tr>
                         );
@@ -2412,10 +2419,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                       {opLeaseRows.map((r) => {
                         const series = p.cropProject(r.idcPerPeriod);
                         const total = series.reduce((s, v) => s + v, 0);
+                        const priorStyle: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
                         return (
                           <tr key={`op_${r.assetId}`}>
                             <td style={ROW_DATA.name}>{r.assetName} (Additions)</td>
                             <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                            <td style={priorStyle}></td>
                             {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                           </tr>
                         );
