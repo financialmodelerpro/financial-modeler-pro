@@ -635,6 +635,17 @@ export interface DividendPhaseRow {
   payoutRatio: number;
   dividendsPerPeriod: number[];
   totalDividends: number;
+  /** M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA per period (sum of
+   *  per-asset EBITDA for assets in this phase). Used as the dividend
+   *  cap: cumulative dividends ≤ cumulative EBITDA. */
+  phaseEbitdaPerPeriod: number[];
+  /** Cumulative EBITDA through each period (project axis). */
+  cumulativeEbitdaPerPeriod: number[];
+  /** Remaining EBITDA budget BEFORE this period's dividend = cum EBITDA[t]
+   *  − cum dividends[t−1]. Negative values mean cap is exhausted. */
+  ebitdaBudgetPerPeriod: number[];
+  /** Total cumulative EBITDA across the axis (the lifetime dividend cap). */
+  totalPhaseEbitda: number;
 }
 
 export interface DividendSnapshot {
@@ -661,8 +672,12 @@ export function computeCashWaterfall(args: {
   facilityOutstanding: Map<string, number[]>;
   preSweepClosingCash: number[];
   minCashReserve: number;
+  /** M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA per period, used to
+   *  cap cumulative dividends per phase. Phases not in the map are
+   *  treated as zero EBITDA (no dividend allowed). */
+  phaseEbitdaPerPeriod?: Map<string, number[]>;
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod } = args;
 
   // Build sweep-eligible tranches.
   const eligible: CashSweepRow[] = [];
@@ -707,6 +722,17 @@ export function computeCashWaterfall(args: {
     const startingYear = policy.startingYear ?? defaultStartingYear;
     const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
     const payoutRatio = Math.max(0, Math.min(1, (policy.payoutRatio ?? 0) / 100));
+    // M4 Pass 2T-Fix: EBITDA cap. Cumulative EBITDA defines the lifetime
+    // cap on cumulative dividends (per Ahmad 2026-05-24: "Phase 1
+    // dividend will be Max of EBITDA of Phase 1, not more than this").
+    const rawEbitda = phaseEbitdaPerPeriod?.get(phase.id) ?? new Array<number>(N).fill(0);
+    const ebitda = new Array<number>(N).fill(0);
+    for (let t = 0; t < N; t++) ebitda[t] = rawEbitda[t] ?? 0;
+    const cumEbitda = new Array<number>(N).fill(0);
+    {
+      let s = 0;
+      for (let t = 0; t < N; t++) { s += ebitda[t]; cumEbitda[t] = s; }
+    }
     return {
       phaseId: phase.id,
       phaseName: phase.name,
@@ -716,6 +742,10 @@ export function computeCashWaterfall(args: {
       payoutRatio,
       dividendsPerPeriod: new Array<number>(N).fill(0),
       totalDividends: 0,
+      phaseEbitdaPerPeriod: ebitda,
+      cumulativeEbitdaPerPeriod: cumEbitda,
+      ebitdaBudgetPerPeriod: new Array<number>(N).fill(0),
+      totalPhaseEbitda: cumEbitda[N - 1] ?? 0,
     };
   };
   const beforeSweepPhases: DividendPhaseRow[] = [];
@@ -743,10 +773,18 @@ export function computeCashWaterfall(args: {
       adjustedClosingCash[t] = cashBefore;
       continue;
     }
-    // 1. Before-sweep dividends.
+    // 1. Before-sweep dividends. Capped by remaining EBITDA budget:
+    //    budget[t] = cumEbitda[t] − cumDividendsPaid[t−1]. Per Ahmad
+    //    2026-05-24: "Phase 1 dividend will be Max of EBITDA of Phase 1,
+    //    not more than this".
     for (const row of beforeSweepPhases) {
       if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
-      const div = Math.min(excess * row.payoutRatio, excess);
+      const cumEb = row.cumulativeEbitdaPerPeriod[t] ?? 0;
+      const cumDivPriorPeriods = row.totalDividends; // through t-1 (this period's not added yet)
+      const budget = Math.max(0, cumEb - cumDivPriorPeriods);
+      row.ebitdaBudgetPerPeriod[t] = budget;
+      const desired = excess * row.payoutRatio;
+      const div = Math.min(desired, excess, budget);
       if (div <= 0) continue;
       row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;
       row.totalDividends += div;
@@ -768,10 +806,15 @@ export function computeCashWaterfall(args: {
         row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
       }
     }
-    // 3. After-sweep dividends.
+    // 3. After-sweep dividends. Same EBITDA cap.
     for (const row of afterSweepPhases) {
       if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
-      const div = Math.min(excess * row.payoutRatio, excess);
+      const cumEb = row.cumulativeEbitdaPerPeriod[t] ?? 0;
+      const cumDivPriorPeriods = row.totalDividends;
+      const budget = Math.max(0, cumEb - cumDivPriorPeriods);
+      row.ebitdaBudgetPerPeriod[t] = budget;
+      const desired = excess * row.payoutRatio;
+      const div = Math.min(desired, excess, budget);
       if (div <= 0) continue;
       row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;
       row.totalDividends += div;
@@ -857,8 +900,17 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     preSalesNetPerPeriod[t] = (preSalesGrossPerPeriod[t] ?? 0)
       - (escrowHeldPerPeriod[t] ?? 0)
       + (escrowReleasePerPeriod[t] ?? 0);
-    fulfilledByPreSalesPerPeriod[t] = Math.min(capexPerPeriod[t] ?? 0, Math.max(0, preSalesNetPerPeriod[t]));
-    methodAGapPerPeriod[t] = Math.max(0, (capexPerPeriod[t] ?? 0) - preSalesNetPerPeriod[t]);
+  }
+  // M4 Pass 2T-Fix (2026-05-24): pre-sales are LAGGED by one period in
+  // the funding gap formula. Per Ahmad 2026-05-24 (Excel formula
+  // =IF((I52-H57)>0,I52-H57,0)): "we are not received on day 1 of the
+  // year" — so the cash available to fund THIS year's capex is the
+  // PREVIOUS year's collected pre-sales (net), not this year's.
+  // First-period gap = full capex (no prior-year pre-sales).
+  for (let t = 0; t < N; t++) {
+    const presLagged = t === 0 ? 0 : (preSalesNetPerPeriod[t - 1] ?? 0);
+    fulfilledByPreSalesPerPeriod[t] = Math.min(capexPerPeriod[t] ?? 0, Math.max(0, presLagged));
+    methodAGapPerPeriod[t] = Math.max(0, (capexPerPeriod[t] ?? 0) - presLagged);
   }
   const methodAGapCumulative = cumulative(methodAGapPerPeriod);
   const methodATotalGap = methodAGapPerPeriod.reduce((s, v) => s + v, 0);
@@ -1374,6 +1426,19 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (const [trancheId, fac] of financing.facilities) {
     facilityOutstandingForSweep.set(trancheId, fac.outstanding.slice(0, N));
   }
+  // M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA = sum across assets in
+  // the phase. Caps cumulative dividends per phase at cumulative EBITDA.
+  const phaseEbitdaForWaterfall = new Map<string, number[]>();
+  for (const phase of phases) {
+    const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible !== false);
+    const ebitdaArr = new Array<number>(N).fill(0);
+    for (const a of phaseAssets) {
+      const pl = perAssetPL.get(a.id);
+      if (!pl) continue;
+      for (let t = 0; t < N; t++) ebitdaArr[t] += pl.ebitdaPerPeriod[t] ?? 0;
+    }
+    phaseEbitdaForWaterfall.set(phase.id, ebitdaArr);
+  }
   const waterfall = computeCashWaterfall({
     axisLength: N,
     projectStartYear,
@@ -1382,6 +1447,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     facilityOutstanding: facilityOutstandingForSweep,
     preSweepClosingCash: closingCash,
     minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
+    phaseEbitdaPerPeriod: phaseEbitdaForWaterfall,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;

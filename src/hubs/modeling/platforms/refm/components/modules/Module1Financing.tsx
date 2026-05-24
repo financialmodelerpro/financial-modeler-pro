@@ -2518,7 +2518,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Method A — Capex vs Pre-Sales</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Gap = MAX(0, Capex − Pre-Sales net). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
+          Gap = MAX(0, Capex<sub>t</sub> − Pre-Sales net<sub>t−1</sub>). Pre-Sales are <strong>lagged one year</strong> — this year's capex is funded from LAST year's collected pre-sales (we don't receive on Day 1 of the year). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -2530,8 +2530,8 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               {renderFlowRow('  Less: Inaccessible funds locked (escrow held)', gap.escrowHeldPerPeriod.map((v) => -v), { negative: true, indent: 1 })}
               {renderFlowRow('  Add: Release of inaccessible funds (escrow release)', gap.escrowReleasePerPeriod, { indent: 1 })}
               {renderFlowRow('Advance received from customer (net)', gap.preSalesNetPerPeriod, { subtotal: true })}
-              {renderFlowRow('Funding requirement fulfilled by pre-sales (capped at capex)', gap.fulfilledByPreSalesPerPeriod)}
-              {renderFlowRow('Funding gap = MAX(Capex − Pre-Sales, 0) per period', gap.methodAGapPerPeriod, { bold: true })}
+              {renderFlowRow('Funding requirement fulfilled by pre-sales (LAST year, capped at capex)', gap.fulfilledByPreSalesPerPeriod)}
+              {renderFlowRow('Funding gap = MAX(Capex_t − Pre-Sales net_{t−1}, 0)', gap.methodAGapPerPeriod, { bold: true })}
               {renderStateRow('Cumulative Funding Gap (A)', gap.methodAGapCumulative, { subtotal: true })}
             </tbody>
           </table>
@@ -2742,7 +2742,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           <section style={sectionStyle}>
             <div style={TABLE_TITLE}>Dividend Schedule</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period dividend distribution per phase. Before-sweep phases distribute first; after-sweep phases distribute from what remains after the cash sweep. Total dividends reduce closing cash + retained earnings (see Balance Sheet E2).
+              Per-period dividend distribution per phase. Before-sweep phases distribute first; after-sweep phases distribute from what remains after the cash sweep. <strong>EBITDA cap:</strong> per phase, cumulative dividends never exceed cumulative phase EBITDA (Revenue − CoS − Opex, before D&A / interest / tax). Total dividends reduce closing cash + retained earnings (see Balance Sheet E2).
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -2756,10 +2756,19 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       </td>
                     </tr>
                   )}
-                  {div.beforeSweepPhases.map((row) => renderFlowRow(
-                    `${row.phaseName} (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout)`,
-                    row.dividendsPerPeriod,
-                    { indent: 1 },
+                  {div.beforeSweepPhases.map((row) => (
+                    <React.Fragment key={`bs_${row.phaseId}`}>
+                      {renderFlowRow(
+                        `${row.phaseName} EBITDA (cap source)`,
+                        row.phaseEbitdaPerPeriod,
+                        { indent: 1, subtotal: true },
+                      )}
+                      {renderFlowRow(
+                        `${row.phaseName} dividend (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout, capped at cum. EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
+                        row.dividendsPerPeriod,
+                        { indent: 1 },
+                      )}
+                    </React.Fragment>
                   ))}
                   {div.afterSweepPhases.length > 0 && (
                     <tr>
@@ -2768,10 +2777,19 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       </td>
                     </tr>
                   )}
-                  {div.afterSweepPhases.map((row) => renderFlowRow(
-                    `${row.phaseName} (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout)`,
-                    row.dividendsPerPeriod,
-                    { indent: 1 },
+                  {div.afterSweepPhases.map((row) => (
+                    <React.Fragment key={`as_${row.phaseId}`}>
+                      {renderFlowRow(
+                        `${row.phaseName} EBITDA (cap source)`,
+                        row.phaseEbitdaPerPeriod,
+                        { indent: 1, subtotal: true },
+                      )}
+                      {renderFlowRow(
+                        `${row.phaseName} dividend (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout, capped at cum. EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
+                        row.dividendsPerPeriod,
+                        { indent: 1 },
+                      )}
+                    </React.Fragment>
                   ))}
                   {renderFlowRow('Total dividends paid', div.totalDividendsPerPeriod, { bold: true })}
                 </tbody>
