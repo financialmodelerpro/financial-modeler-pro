@@ -687,6 +687,12 @@ export interface DividendPhaseRow {
   ebitdaBudgetPerPeriod: number[];
   /** Total cumulative EBITDA across the axis (the lifetime dividend cap). */
   totalPhaseEbitda: number;
+  /** M4 Pass 2U-Fix (2026-05-24): per-period cash available to pay this
+   *  phase's dividend, AFTER prior waterfall steps (min reserve floor +
+   *  any before-sweep dividends paid earlier + cash sweep if this is an
+   *  after-sweep phase). If 0, no dividend can be paid this period
+   *  regardless of EBITDA budget. */
+  cashAvailableForDividendPerPeriod: number[];
 }
 
 export interface DividendSnapshot {
@@ -753,10 +759,17 @@ export function computeCashWaterfall(args: {
   eligible.sort((a, b) => a.priority - b.priority);
 
   // Build dividend-enabled phases (before-sweep first, then after-sweep).
+  // M4 Pass 2U-Fix (2026-05-24): priority is forced by phase.status —
+  // operational phases pay BEFORE the cash sweep (Phase 1 first claim
+  // on cash); non-operational (construction) phases pay AFTER sweep.
+  // User no longer toggles this in the UI; the legacy policy.priority
+  // field stays on schema for back-compat but is ignored.
+  const statusPriority = (phase: Phase): 'before_sweep' | 'after_sweep' =>
+    phase.status === 'operational' ? 'before_sweep' : 'after_sweep';
   const buildPhaseRow = (phase: Phase, priority: 'before_sweep' | 'after_sweep'): DividendPhaseRow | null => {
     const policy = phase.dividendPolicy ?? {};
     if (policy.enabled !== true) return null;
-    if ((policy.priority ?? (phase.status === 'operational' ? 'before_sweep' : 'after_sweep')) !== priority) return null;
+    if (statusPriority(phase) !== priority) return null;
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const cp = Math.max(0, phase.constructionPeriods ?? 0);
     const defaultStartingYear = phase.status === 'operational' ? projectStartYear : phaseStartYear + cp;
@@ -787,6 +800,7 @@ export function computeCashWaterfall(args: {
       cumulativeEbitdaPerPeriod: cumEbitda,
       ebitdaBudgetPerPeriod: new Array<number>(N).fill(0),
       totalPhaseEbitda: cumEbitda[N - 1] ?? 0,
+      cashAvailableForDividendPerPeriod: new Array<number>(N).fill(0),
     };
   };
   const beforeSweepPhases: DividendPhaseRow[] = [];
@@ -818,8 +832,13 @@ export function computeCashWaterfall(args: {
     //    budget[t] = cumEbitda[t] − cumDividendsPaid[t−1]. Per Ahmad
     //    2026-05-24: "Phase 1 dividend will be Max of EBITDA of Phase 1,
     //    not more than this".
+    // M4 Pass 2U-Fix (2026-05-24): also record cashAvailableForDividend
+    //    so UI can show the gate explicitly. excess is already the cash
+    //    above the min reserve floor; if 0 → no dividend possible.
     for (const row of beforeSweepPhases) {
-      if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
+      if (t < row.startingYearAxisIdx || row.payoutRatio <= 0) continue;
+      row.cashAvailableForDividendPerPeriod[t] = excess;
+      if (excess <= 0) continue;
       const cumEb = row.cumulativeEbitdaPerPeriod[t] ?? 0;
       const cumDivPriorPeriods = row.totalDividends; // through t-1 (this period's not added yet)
       const budget = Math.max(0, cumEb - cumDivPriorPeriods);
@@ -847,9 +866,12 @@ export function computeCashWaterfall(args: {
         row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
       }
     }
-    // 3. After-sweep dividends. Same EBITDA cap.
+    // 3. After-sweep dividends. Same EBITDA cap. Cash available at this
+    //    point is whatever remains after debt sweep.
     for (const row of afterSweepPhases) {
-      if (t < row.startingYearAxisIdx || excess <= 0 || row.payoutRatio <= 0) continue;
+      if (t < row.startingYearAxisIdx || row.payoutRatio <= 0) continue;
+      row.cashAvailableForDividendPerPeriod[t] = excess;
+      if (excess <= 0) continue;
       const cumEb = row.cumulativeEbitdaPerPeriod[t] ?? 0;
       const cumDivPriorPeriods = row.totalDividends;
       const budget = Math.max(0, cumEb - cumDivPriorPeriods);
@@ -985,28 +1007,16 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   //   sweep) = Cash Available Before New Debt; Net Cash Required =
   //   max(0, minCashReserve − Cash Available).
   const fin = snap.financing;
-  const existingEquityLump = fin.existing.equityTotal;
-  // Existing equity recognised at axis t=0 as a single lump (matches the
-  // financing engine convention; the prior column already shows the
-  // historicalEquity portion on Module 1 surfaces).
+  // M4 Pass 2U-Fix (2026-05-24): existing equity + existing debt OPENING
+  // are pre-axis events (they happened before axis t=0 and are ALREADY
+  // captured in historicalOpeningCashTotal which seeds the waterfall's
+  // opening cash). Adding them here as t=0 inflows would double-count.
+  // The Method 3 waterfall now shows ONLY in-axis financing items.
+  // For audit clarity we still surface the existing equity / existing
+  // debt opening as a prior-year MEMO via the "Prior Year" column
+  // (when the table renderer supports it; see follow-up pass).
   const existingEquityDrawdownPerPeriod = zeros(N);
-  if (N > 0) existingEquityDrawdownPerPeriod[0] = existingEquityLump;
-  // Existing debt drawdown: sum of existing tranches' drawSchedule (zero
-  // for opening-balance carry-forwards; non-zero when an existing
-  // tranche is raised inside the axis).
   const existingDebtDrawdownPerPeriod = zeros(N);
-  const existingDebtOpeningLumpAtT0 = (() => {
-    let s = 0;
-    for (const t of snap.financing.facilities.values()) {
-      // Each facility's openingBalance reflects pre-axis carry; lump it at t=0.
-      s += Math.max(0, t.openingBalance ?? 0);
-    }
-    return s;
-  })();
-  if (N > 0) existingDebtDrawdownPerPeriod[0] = existingDebtOpeningLumpAtT0;
-  // Add origination-inside-axis drawdowns from existing tranches (those
-  // appear in their drawSchedule directly).
-  // We need the tranches list to identify existing vs new; pull from snap.
   // existingPrincipalRepaid covers principal cash out on existing facilities.
   const existingDebtRepaymentPerPeriod = (fin.combined.existingPrincipalRepaid ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -v);
   while (existingDebtRepaymentPerPeriod.length < N) existingDebtRepaymentPerPeriod.push(0);

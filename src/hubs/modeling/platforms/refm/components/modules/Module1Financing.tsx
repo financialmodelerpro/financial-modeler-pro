@@ -2547,7 +2547,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           <section style={sectionStyle}>
             <div style={TABLE_TITLE}>Method 3 — Cash Deficit Funding (detailed waterfall)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period cash waterfall ending with <strong>Net Cash Required</strong> — the funding required from NEW debt drawdown each period to keep cash at or above the minimum reserve ({p.fmt(w.minCashReserve)}). Opening Cash carries forward (under the assumption new debt has plugged any prior deficit). IDC drawdown is shown as a memo since capitalised interest grows debt without moving cash. After-sweep dividends (new phases) come from cash AFTER debt repayment and are not part of this pre-debt gap.
+              Per-period cash waterfall ending with <strong>Net Cash Required</strong> — the funding required from NEW debt drawdown each period to keep cash at or above the minimum reserve ({p.fmt(w.minCashReserve)}). Opening Cash at axis start = historical opening cash (sum of phase.historicalOpeningCash); existing equity + existing debt are pre-axis events already reflected in that opening seed, so they don't appear as in-axis inflows here. IDC drawdown is shown as a memo since capitalised interest grows debt without moving cash. After-sweep dividends (new phases) come from cash AFTER debt repayment and are not part of this pre-debt gap.
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -2658,8 +2658,8 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             <tr>
               <th style={CELL_HEADER}>Phase</th>
               <th style={CELL_HEADER}>Status</th>
+              <th style={CELL_HEADER}>Waterfall Position</th>
               <th style={CELL_HEADER}>Enable Dividend</th>
-              <th style={CELL_HEADER}>Priority</th>
               <th style={CELL_HEADER}>Start Year</th>
               <th style={CELL_HEADER}>Payout Ratio</th>
             </tr>
@@ -2672,7 +2672,8 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               const phaseStartYear = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : projStart;
               const cp = Math.max(0, ph.constructionPeriods ?? 0);
               const defaultStart = ph.status === 'operational' ? projStart : phaseStartYear + cp;
-              const priority = pol.priority ?? (ph.status === 'operational' ? 'before_sweep' : 'after_sweep');
+              // Waterfall position is auto-assigned by status (M4 Pass 2U-Fix).
+              const waterfallPos = ph.status === 'operational' ? 'Before sweep (Phase 1 first claim)' : 'After sweep (debt repays first)';
               const startingYear = pol.startingYear ?? defaultStart;
               const payoutRatio = pol.payoutRatio ?? 0;
               const updatePolicy = (patch: Partial<NonNullable<typeof ph.dividendPolicy>>) => {
@@ -2701,16 +2702,11 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 <tr key={ph.id}>
                   <td style={ROW_DATA.name}>{ph.name}</td>
                   <td style={ROW_DATA.name}>{ph.status ?? 'planning'}</td>
+                  <td style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-text-muted)', fontSize: 11 }}>{waterfallPos}</td>
                   <td style={ROW_DATA.name}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       {pillBtn(enabled, 'On', () => updatePolicy({ enabled: true }), 'on')}
                       {pillBtn(!enabled, 'Off', () => updatePolicy({ enabled: false }), 'off')}
-                    </div>
-                  </td>
-                  <td style={ROW_DATA.name}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {pillBtn(priority === 'before_sweep', 'Before sweep', () => updatePolicy({ priority: 'before_sweep' }), 'bs')}
-                      {pillBtn(priority === 'after_sweep', 'After sweep', () => updatePolicy({ priority: 'after_sweep' }), 'as')}
                     </div>
                   </td>
                   <td style={ROW_DATA.name}>
@@ -2775,9 +2771,14 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                         { indent: 1, subtotal: true },
                       )}
                       {renderFlowRow(
-                        `${row.phaseName} dividend (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout, capped at cum. EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
-                        row.dividendsPerPeriod,
+                        `${row.phaseName} cash available (above min reserve)`,
+                        row.cashAvailableForDividendPerPeriod,
                         { indent: 1 },
+                      )}
+                      {renderFlowRow(
+                        `${row.phaseName} dividend = MIN(EBITDA budget, cash available × ${(row.payoutRatio * 100).toFixed(0)}%)`,
+                        row.dividendsPerPeriod,
+                        { indent: 1, subtotal: true },
                       )}
                     </React.Fragment>
                   ))}
@@ -2796,9 +2797,14 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                         { indent: 1, subtotal: true },
                       )}
                       {renderFlowRow(
-                        `${row.phaseName} dividend (from ${row.startingYear}, ${(row.payoutRatio * 100).toFixed(0)}% payout, capped at cum. EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
-                        row.dividendsPerPeriod,
+                        `${row.phaseName} cash available (after debt sweep, above min reserve)`,
+                        row.cashAvailableForDividendPerPeriod,
                         { indent: 1 },
+                      )}
+                      {renderFlowRow(
+                        `${row.phaseName} dividend = MIN(EBITDA budget, cash available × ${(row.payoutRatio * 100).toFixed(0)}%)`,
+                        row.dividendsPerPeriod,
+                        { indent: 1, subtotal: true },
                       )}
                     </React.Fragment>
                   ))}
