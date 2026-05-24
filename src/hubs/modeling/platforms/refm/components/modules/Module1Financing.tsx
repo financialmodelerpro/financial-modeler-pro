@@ -1921,10 +1921,15 @@ interface SchedulesProps {
 
 function SchedulesView(p: SchedulesProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2U-Fix #2 (2026-05-24): add prior-year column between
+  // Total and the first axis year, consistent with Capex Results and
+  // Module 4 surfaces. Pre-axis events (existing equity, existing
+  // debt opening, pre-capex) render here instead of inflating Y0.
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const colgroup = (
     <colgroup>
       <col style={{ width: COLUMN_WIDTHS.label }} />
+      <col style={{ width: nonLabelPct }} />
       <col style={{ width: nonLabelPct }} />
       {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
     </colgroup>
@@ -1934,26 +1939,18 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       <tr>
         <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
         <th style={CELL_HEADER_TOTAL}>Total</th>
+        <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
         {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
       </tr>
     </thead>
   );
 
-  // Flow row (additive, total = sum of all periods).
-  // Pass 24b (2026-05-14): `negative` opt renders the row as accounting-
-  // negative (parentheses + red colour) for cash-outflow lines like
-  // principal repaid + total debt service.
-  // Pass 35 (2026-05-14): Total cell uses the dotted-right-border
-  // numTotal variant so it visually separates from the period columns.
-  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean }) => {
+  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean; priorValue?: number }) => {
     const cropped = p.cropProject(arr);
-    const total = cropped.reduce((s, v) => s + v, 0);
+    const total = cropped.reduce((s, v) => s + v, 0) + (opts?.priorValue ?? 0);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const baseNumStyle = opts?.bold ? ROW_GRAND_TOTAL.num : ROW_DATA.num;
     const baseTotalStyle = opts?.bold ? ROW_GRAND_TOTAL.numTotal : ROW_DATA.numTotal;
-    // Pass 30b (2026-05-14): grand-total rows render white-on-navy;
-    // recolouring to red would be invisible. Keep the parentheses for
-    // the accounting-negative semantic but skip the red on bold rows.
     const applyRed = opts?.negative && !opts?.bold;
     const numStyle: React.CSSProperties = applyRed
       ? { ...baseNumStyle, color: 'var(--color-danger, #b91c1c)' }
@@ -1961,6 +1958,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     const totalStyle: React.CSSProperties = applyRed
       ? { ...baseTotalStyle, color: 'var(--color-danger, #b91c1c)' }
       : baseTotalStyle;
+    const priorStyle: React.CSSProperties = { ...numStyle, fontStyle: 'italic', color: applyRed ? 'var(--color-danger, #b91c1c)' : 'var(--color-meta)' };
     const renderVal = (v: number): string => {
       if (!opts?.negative) return p.fmt(v);
       const signed = v > 0 ? -v : v;
@@ -1970,21 +1968,23 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={totalStyle}>{renderVal(total)}</td>
+        <td style={priorStyle}>{opts?.priorValue !== undefined ? renderVal(opts.priorValue) : ''}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{renderVal(v)}</td>)}
       </tr>
     );
   };
 
-  // State row (point-in-time, no Total).
-  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean }) => {
+  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; priorValue?: number }) => {
     const cropped = p.cropProject(arr);
     const nameStyle = opts?.bold ? ROW_GRAND_TOTAL.name : ROW_DATA.name;
     const numStyle  = opts?.bold ? ROW_GRAND_TOTAL.num  : ROW_DATA.num;
     const totalStyle = opts?.bold ? ROW_GRAND_TOTAL.numTotal : ROW_DATA.numTotal;
+    const priorStyle: React.CSSProperties = { ...numStyle, fontStyle: 'italic', color: 'var(--color-meta)' };
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={totalStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
+        <td style={priorStyle}>{opts?.priorValue !== undefined ? p.fmt(opts.priorValue) : ''}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
       </tr>
     );
@@ -2038,7 +2038,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {existingTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
-        const opening = openingSeries(r.outstanding, Math.max(0, t.openingBalance ?? 0));
+        // M4 Pass 2U-Fix #2 (2026-05-24): existing facility's
+        // openingBalance is a PRE-AXIS carry-forward. Show it in the
+        // prior-year column on Opening + Closing rows.
+        const priorBal = Math.max(0, t.openingBalance ?? 0);
+        const opening = openingSeries(r.outstanding, priorBal);
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         return (
           <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
@@ -2048,12 +2052,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderStateRow('Opening', opening)}
-                  {renderFlowRow('Capex Drawdown', r.drawSchedule)}
-                  {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized)}
-                  {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true })}
-                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
-                  {renderStateRow('Closing', r.outstanding, { bold: true })}
+                  {renderStateRow('Opening', opening, { priorValue: 0 })}
+                  {renderFlowRow('Capex Drawdown', r.drawSchedule, { priorValue: 0 })}
+                  {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized, { priorValue: 0 })}
+                  {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true, priorValue: priorBal })}
+                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true, priorValue: 0 })}
+                  {renderStateRow('Closing', r.outstanding, { bold: true, priorValue: priorBal })}
                 </tbody>
               </table>
             </div>
@@ -2259,7 +2263,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {assetRows.length === 0 ? (
-                    <tr><td colSpan={2 + N} style={ROW_DATA.name}>No non-companion assets — IDC allocation has nothing to distribute.</td></tr>
+                    <tr><td colSpan={3 + N} style={ROW_DATA.name}>No non-companion assets — IDC allocation has nothing to distribute.</td></tr>
                   ) : (
                     <>
                       {assetRows.map((r) => {
@@ -2287,7 +2291,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   )}
                   {!idc.capitalize && (
                     <tr>
-                      <td colSpan={2 + N} style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-warning, #92400e)' }}>
+                      <td colSpan={3 + N} style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-warning, #92400e)' }}>
                         Capitalize=OFF — construction interest below is expensed to P&L Finance Cost instead of allocated to assets.
                       </td>
                     </tr>
@@ -2386,25 +2390,31 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {headerRow}
             <tbody>
               {(() => {
+                // M4 Pass 2U-Fix #2 (2026-05-24): existing equity is a
+                // PRE-AXIS event. Move it to the prior-year column and
+                // zero its axis entries, consistent with Capex Results
+                // and the Module 4 surfaces.
                 const cash   = p.result.equity.cashPerPeriod;
                 const inKind = p.result.equity.inKindPerPeriod;
-                const existing = p.result.equity.existingEquityPerPeriod;
+                const priorExisting = p.result.equity.totalExisting;
+                // Axis cumulative for the equity roll-forward: opens at
+                // prior-existing and accumulates only NEW cash + in-kind.
                 const cumulative = new Array<number>(cash.length).fill(0);
-                let running = 0;
+                let running = priorExisting;
                 for (let i = 0; i < cash.length; i++) {
-                  running += (cash[i] ?? 0) + (inKind[i] ?? 0) + (existing[i] ?? 0);
+                  running += (cash[i] ?? 0) + (inKind[i] ?? 0);
                   cumulative[i] = running;
                 }
-                const opening = openingSeries(cumulative, 0);
+                const opening = openingSeries(cumulative, priorExisting);
                 return (
                   <>
-                    {renderStateRow('Opening', opening)}
-                    {renderFlowRow('Cash Contribution', cash)}
-                    {renderFlowRow('In-Kind Contribution', inKind)}
-                    {p.result.equity.totalExisting > 0
-                      ? renderFlowRow('Existing Equity (carry-forward)', existing)
+                    {renderStateRow('Opening (incl. existing carry-forward)', opening, { priorValue: 0 })}
+                    {renderFlowRow('Cash Contribution', cash, { priorValue: 0 })}
+                    {renderFlowRow('In-Kind Contribution', inKind, { priorValue: 0 })}
+                    {priorExisting > 0
+                      ? renderFlowRow('Existing Equity (pre-axis carry-forward)', new Array<number>(cash.length).fill(0), { priorValue: priorExisting })
                       : null}
-                    {renderStateRow('Closing (cumulative equity)', cumulative, { bold: true })}
+                    {renderStateRow('Closing (cumulative equity)', cumulative, { bold: true, priorValue: priorExisting })}
                   </>
                 );
               })()}
@@ -2448,10 +2458,12 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
   const gap = useMemo(() => computeFundingGap(snap), [snap]);
 
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2U-Fix #2 (2026-05-24): add prior-year column.
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const colgroup = (
     <colgroup>
       <col style={{ width: COLUMN_WIDTHS.label }} />
+      <col style={{ width: nonLabelPct }} />
       <col style={{ width: nonLabelPct }} />
       {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
     </colgroup>
@@ -2461,14 +2473,15 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       <tr>
         <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
         <th style={CELL_HEADER_TOTAL}>Total</th>
+        <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
         {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
       </tr>
     </thead>
   );
 
-  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean; indent?: number; subtotal?: boolean }) => {
+  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean; indent?: number; subtotal?: boolean; priorValue?: number }) => {
     const cropped = p.cropProject(arr);
-    const total = cropped.reduce((s, v) => s + v, 0);
+    const total = cropped.reduce((s, v) => s + v, 0) + (opts?.priorValue ?? 0);
     const isBold = opts?.bold === true;
     const isSub = opts?.subtotal === true;
     const nameStyle: React.CSSProperties = {
@@ -2480,26 +2493,30 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     const applyRed = opts?.negative && !isBold;
     const numApplied: React.CSSProperties = applyRed ? { ...numStyle, color: 'var(--color-danger, #b91c1c)' } : numStyle;
     const totalApplied: React.CSSProperties = applyRed ? { ...totalStyle, color: 'var(--color-danger, #b91c1c)' } : totalStyle;
+    const priorStyle: React.CSSProperties = { ...numApplied, fontStyle: 'italic', color: applyRed ? 'var(--color-danger, #b91c1c)' : 'var(--color-meta)' };
     const renderVal = (v: number) => p.fmt(v);
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={totalApplied}>{renderVal(total)}</td>
+        <td style={priorStyle}>{opts?.priorValue !== undefined ? renderVal(opts.priorValue) : ''}</td>
         {cropped.map((v, i) => <td key={i} style={numApplied}>{renderVal(v)}</td>)}
       </tr>
     );
   };
-  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; subtotal?: boolean }) => {
+  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; subtotal?: boolean; priorValue?: number }) => {
     const cropped = p.cropProject(arr);
     const isBold = opts?.bold === true;
     const isSub = opts?.subtotal === true;
     const nameStyle = isBold ? ROW_GRAND_TOTAL.name : isSub ? ROW_SUBTOTAL.name : ROW_DATA.name;
     const numStyle = isBold ? ROW_GRAND_TOTAL.num : isSub ? ROW_SUBTOTAL.num : ROW_DATA.num;
     const totalStyle = isBold ? ROW_GRAND_TOTAL.numTotal : isSub ? ROW_SUBTOTAL.numTotal : ROW_DATA.numTotal;
+    const priorStyle: React.CSSProperties = { ...numStyle, fontStyle: 'italic', color: 'var(--color-meta)' };
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
         <td style={totalStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
+        <td style={priorStyle}>{opts?.priorValue !== undefined ? p.fmt(opts.priorValue) : ''}</td>
         {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
       </tr>
     );
@@ -2565,12 +2582,33 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderFlowRow('Cash Available Before New Debt Drawdown', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true })}
                   {renderFlowRow(`(−) Minimum Cash Reserve (floor)`, w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
                   {renderFlowRow('Net Cash Required (= max(0, MinCash − CashAvailable))', w.netCashRequiredPerPeriod, { bold: true })}
-                  {w.idcDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(memo) IDC drawdown — capitalised interest growing debt (no cash)', w.idcDrawdownPerPeriod, { indent: 1 })}
+                  {(() => {
+                    // M4 Pass 2U-Fix #2 (2026-05-24): split Net Cash
+                    // Required into debt + equity per the project
+                    // funding ratio. IDC drawdown sits on the debt side
+                    // (per fundingMode='debt_drawdown'); other funding
+                    // mixes debt + equity per the ratio.
+                    const debtPct = (snap.financing.funding.debtPct ?? 0) / 100;
+                    const equityPct = (snap.financing.funding.equityPct ?? 0) / 100;
+                    const debtSplit = w.netCashRequiredPerPeriod.map((v) => v * debtPct);
+                    const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
+                    const idcAdd = w.idcDrawdownPerPeriod;
+                    const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
+                    return (
+                      <>
+                        {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2 })}
+                        {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2 })}
+                        {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC Drawdown (debt-only, capitalised interest — no cash)', idcAdd, { indent: 1 })}
+                        {renderFlowRow('Total New Debt Required (cash + IDC)', totalNewDebt, { bold: true })}
+                        {renderFlowRow('Total New Equity Required', equitySplit, { bold: true })}
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-              Grand total Net Cash Required: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>. This is the lifetime new-debt + new-equity funding the project needs across the axis (under the assumption that this amount is drawn each period to keep cash at the floor).
+              Grand total Net Cash Required: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>. This is the lifetime new funding the project needs across the axis (under the assumption that this amount is drawn each period to keep cash at the floor). Per the project's funding ratio, this is split into <strong>{(((snap.financing.funding.debtPct ?? 0))).toFixed(0)}%</strong> debt + <strong>{(((snap.financing.funding.equityPct ?? 0))).toFixed(0)}%</strong> equity. IDC drawdown is debt-only (fundingMode='debt_drawdown') and adds on top of the debt split.
             </div>
           </section>
         );
@@ -2758,7 +2796,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 <tbody>
                   {div.beforeSweepPhases.length > 0 && (
                     <tr>
-                      <td colSpan={2 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
+                      <td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
                         Before-sweep dividends (paid before cash sweep on debt)
                       </td>
                     </tr>
@@ -2784,7 +2822,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   ))}
                   {div.afterSweepPhases.length > 0 && (
                     <tr>
-                      <td colSpan={2 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
+                      <td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
                         After-sweep dividends (paid from cash remaining after debt sweep)
                       </td>
                     </tr>
