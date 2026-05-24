@@ -35,6 +35,9 @@ import {
   type LandRollForward,
   type ProjectFixedAssetSnapshot,
 } from '../../lib/fixed-assets-resolvers';
+import { computeIdcSnapshot, type AssetIDCRow } from '../../lib/financials-resolvers';
+import { computeFinancingResult } from '@/src/core/calculations/financing';
+import { DEFAULT_PROJECT_FINANCING_CONFIG } from '../../lib/state/module1-types';
 import { resolveUsefulLifeYears } from '@/src/core/calculations';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -136,14 +139,50 @@ function landTableRows(land: LandRollForward): Row[] {
   ];
 }
 
-function depreciableTableRows(row: AssetFixedAssetRow): Row[] {
+function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[] {
   const d = row.depreciable;
+  // M4 Pass 2Q (2026-05-24): integrate IDC into the depreciable roll-
+  // forward when it's nonzero for this asset. Layout per user:
+  //   Opening + (+) Capex Additions + (+) IDC Additions − Depreciation = Closing
+  // Depreciation is on (Capex + IDC) combined. Capex NBV + IDC NBV are
+  // shown as memo splits beneath so the user can see the source of the
+  // closing balance.
+  const N = d.openingNBVPerPeriod.length;
+  const idcAdditions = idc ? idc.idcPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const idcDep = idc ? idc.depreciationPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const idcNbv = idc ? idc.closingNbvPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const hasIdc = (idc?.totalIdc ?? 0) > 0;
+
+  const combinedOpening = new Array<number>(N).fill(0);
+  const combinedClosing = new Array<number>(N).fill(0);
+  const combinedDep = new Array<number>(N).fill(0);
+  for (let t = 0; t < N; t++) {
+    // Combined opening at t = capex opening + IDC opening.
+    // IDC opening = previous-period IDC closing (zero at t=0).
+    const idcOpening = t === 0 ? 0 : (idcNbv[t - 1] ?? 0);
+    combinedOpening[t] = (d.openingNBVPerPeriod[t] ?? 0) + idcOpening;
+    combinedClosing[t] = (d.closingNBVPerPeriod[t] ?? 0) + (idcNbv[t] ?? 0);
+    combinedDep[t] = (d.depreciationPerPeriod[t] ?? 0) + (idcDep[t] ?? 0);
+  }
+
+  if (!hasIdc) {
+    return [
+      { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+      { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1 },
+      { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1 },
+      { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
+      { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+    ];
+  }
   return [
-    { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-    { label: '(+) Depreciable Additions', values: d.additionsPerPeriod, indent: 1 },
-    { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1 },
-    { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
-    { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last' },
+    { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1 },
+    { label: '(+) IDC Additions (capitalised interest)', values: idcAdditions, indent: 1 },
+    { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1 },
+    { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last' },
+    { label: '   of which: Capex NBV', values: d.closingNBVPerPeriod, indent: 2, aggregation: 'last' },
+    { label: '   of which: IDC NBV', values: idcNbv, indent: 2, aggregation: 'last' },
+    { label: 'Accumulated Capex Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last' },
   ];
 }
 
@@ -157,7 +196,7 @@ function totalFATableRows(combinedOpening: number[], combinedClosing: number[], 
 }
 
 export default function Module4FixedAssets(): React.JSX.Element {
-  const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, updateAsset } = useModule1Store(
+  const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -167,6 +206,8 @@ export default function Module4FixedAssets(): React.JSX.Element {
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,
+      financingTranches: s.financingTranches,
+      equityContributions: s.equityContributions,
       updateAsset: s.updateAsset,
     })),
   );
@@ -174,6 +215,28 @@ export default function Module4FixedAssets(): React.JSX.Element {
   const snap: ProjectFixedAssetSnapshot = useMemo(
     () => computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode }),
     [project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode],
+  );
+
+  // M4 Pass 2Q (2026-05-24): pull the IDC snapshot so per-asset
+  // Depreciable Roll-Forward can integrate IDC additions + depreciation
+  // alongside capex (depreciation = on Capex + IDC).
+  const financing = useMemo(
+    () => computeFinancingResult({
+      project, phases, parcels, assets, subUnits, costLines, costOverrides,
+      landAllocationMode,
+      financingConfig: project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG,
+      tranches: financingTranches,
+      equityContributions,
+    }),
+    [project, phases, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions],
+  );
+  const idcSnap = useMemo(
+    () => computeIdcSnapshot(
+      { project, phases, assets, subUnits, parcels, landAllocationMode },
+      financing,
+      { axisLength: snap.axisLength, projectStartYear: snap.projectStartYear },
+    ),
+    [project, phases, assets, subUnits, parcels, landAllocationMode, financing, snap.axisLength, snap.projectStartYear],
   );
 
   const scale: DisplayScale = (project.displayScale ?? 'thousands');
@@ -245,11 +308,11 @@ export default function Module4FixedAssets(): React.JSX.Element {
 
         <PeriodTable
           title={`${a.name}: Depreciable Assets Roll-Forward`}
-          caption={`${methodLabel}. Closing NBV = Opening + Depreciable Additions − Depreciation. Accumulated Depreciation tracks the cumulative writeoff.`}
+          caption={`${methodLabel}. Closing NBV = Opening + Capex Additions + IDC Additions − Depreciation. When IDC is present, depreciation applies to both Capex AND IDC; the closing split is shown beneath.`}
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
-          rows={depreciableTableRows(row)}
+          rows={depreciableTableRows(row, idcSnap.byAsset.get(a.id))}
         />
 
         <PeriodTable
@@ -487,20 +550,52 @@ export default function Module4FixedAssets(): React.JSX.Element {
           fmt={fmt}
           rows={landTableRows(projectLand)}
         />
-        <PeriodTable
-          title="Project Depreciable Assets: Roll-Forward"
-          caption="Sum of every asset's depreciable roll-forward. Depreciation per period = sum of per-asset depreciation streams."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          rows={[
-            { label: 'Opening NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-            { label: '(+) Depreciable Additions', values: projectDep.additionsPerPeriod, indent: 1 },
-            { label: '(−) Depreciation', values: projectDep.depreciationPerPeriod.map((v) => -v), indent: 1 },
-            { label: 'Closing NBV', values: projectDep.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
-            { label: 'Accumulated Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
-          ]}
-        />
+        {(() => {
+          const Nproj = projectDep.openingNBVPerPeriod.length;
+          const idcAddProj = idcSnap.totalIdcPerPeriod.slice(0, Nproj);
+          const idcDepProj = idcSnap.idcDepreciationPerPeriod.slice(0, Nproj);
+          const idcNbvProj = idcSnap.idcNbvPerPeriod.slice(0, Nproj);
+          const hasIdcProj = idcAddProj.some((v) => Math.abs(v) > 0.5);
+          const combinedOpening = new Array<number>(Nproj).fill(0);
+          const combinedClosing = new Array<number>(Nproj).fill(0);
+          const combinedDep = new Array<number>(Nproj).fill(0);
+          for (let t = 0; t < Nproj; t++) {
+            const idcOpening = t === 0 ? 0 : (idcNbvProj[t - 1] ?? 0);
+            combinedOpening[t] = (projectDep.openingNBVPerPeriod[t] ?? 0) + idcOpening;
+            combinedClosing[t] = (projectDep.closingNBVPerPeriod[t] ?? 0) + (idcNbvProj[t] ?? 0);
+            combinedDep[t] = (projectDep.depreciationPerPeriod[t] ?? 0) + (idcDepProj[t] ?? 0);
+          }
+          const rows: Row[] = hasIdcProj
+            ? [
+                { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last' },
+                { label: '(+) Capex Additions', values: projectDep.additionsPerPeriod, indent: 1 },
+                { label: '(+) IDC Additions (capitalised interest)', values: idcAddProj, indent: 1 },
+                { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1 },
+                { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last' },
+                { label: '   of which: Capex NBV', values: projectDep.closingNBVPerPeriod, indent: 2, aggregation: 'last' },
+                { label: '   of which: IDC NBV', values: idcNbvProj, indent: 2, aggregation: 'last' },
+                { label: 'Accumulated Capex Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+              ]
+            : [
+                { label: 'Opening NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
+                { label: '(+) Capex Additions', values: projectDep.additionsPerPeriod, indent: 1 },
+                { label: '(−) Depreciation', values: projectDep.depreciationPerPeriod.map((v) => -v), indent: 1 },
+                { label: 'Closing NBV', values: projectDep.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
+                { label: 'Accumulated Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+              ];
+          return (
+            <PeriodTable
+              title="Project Depreciable Assets: Roll-Forward"
+              caption={hasIdcProj
+                ? 'Sum of every asset\'s depreciable roll-forward. Operate/Lease IDC is integrated: depreciation applies to Capex + IDC together.'
+                : 'Sum of every asset\'s depreciable roll-forward. Depreciation per period = sum of per-asset depreciation streams.'}
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={rows}
+            />
+          );
+        })()}
         <PeriodTable
           title="Project Total Fixed Assets (Land + Depreciable)"
           caption="The Fixed Assets line on the project balance sheet. Equals Land closing + Depreciable closing NBV across every asset."

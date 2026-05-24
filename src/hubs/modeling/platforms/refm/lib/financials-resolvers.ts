@@ -242,6 +242,14 @@ export interface AssetIDCRow {
    *  Name retained for back-compat; means "share of total" regardless of
    *  whether the basis is land or BUA. */
   shareOfTotalLand: number;
+  /** M4 Pass 2Q (2026-05-24): physical land sqm for this asset
+   *  (always the actual land area regardless of active basis). For
+   *  display alongside the basis-share so users can verify the
+   *  percentage math. */
+  physicalLandSqm: number;
+  /** M4 Pass 2Q (2026-05-24): physical BUA sqm for this asset
+   *  (always the actual built-up area regardless of active basis). */
+  physicalBuaSqm: number;
   /** Per-period IDC capitalised to this asset. */
   idcPerPeriod: number[];
   /** Cumulative IDC capitalised through each period. */
@@ -347,13 +355,20 @@ export function computeIdcSnapshot(
 
   const allocationBasis = project.idcConfig?.allocationBasis ?? 'land';
   const assetShare = new Map<string, number>();
+  // M4 Pass 2Q: capture BOTH physical land sqm + physical BUA sqm per
+  // asset (independent of active basis) so the UI can display them
+  // side-by-side for verification.
+  const physicalLand = new Map<string, number>();
+  const physicalBua = new Map<string, number>();
   let totalShareDenom = 0;
   const constructionWindow = new Map<string, { startIdx: number; endIdx: number }>();
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
-    const sqm = allocationBasis === 'bua'
-      ? Math.max(0, computeAssetBua(a, subUnits))
-      : Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
+    const landSqm = Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
+    const buaSqm = Math.max(0, computeAssetBua(a, subUnits));
+    physicalLand.set(a.id, landSqm);
+    physicalBua.set(a.id, buaSqm);
+    const sqm = allocationBasis === 'bua' ? buaSqm : landSqm;
     assetShare.set(a.id, sqm);
     totalShareDenom += sqm;
     const phase = phases.find((p) => p.id === a.phaseId);
@@ -377,6 +392,8 @@ export function computeIdcSnapshot(
       strategy: a.strategy,
       landSqm: sqm,
       shareOfTotalLand: totalShareDenom > 0 ? sqm / totalShareDenom : 0,
+      physicalLandSqm: physicalLand.get(a.id) ?? 0,
+      physicalBuaSqm: physicalBua.get(a.id) ?? 0,
       idcPerPeriod: zeros(N),
       cumulativeIdcPerPeriod: zeros(N),
       totalIdc: 0,

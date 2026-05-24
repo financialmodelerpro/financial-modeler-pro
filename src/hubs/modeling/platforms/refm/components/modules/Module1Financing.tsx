@@ -2225,9 +2225,17 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                         const series = p.cropProject(r.idcPerPeriod);
                         const total = series.reduce((s, v) => s + v, 0);
                         const sharePct = (r.shareOfTotalLand * 100).toFixed(2);
+                        // M4 Pass 2Q: show physical Land + BUA sqm next
+                        // to the share so the user can verify the math.
+                        const sqmFmt = (v: number): string => Math.round(v).toLocaleString();
                         return (
                           <tr key={r.assetId}>
-                            <td style={ROW_DATA.name}>{r.assetName} ({sharePct}% {basisLabel})</td>
+                            <td style={ROW_DATA.name}>
+                              {r.assetName}
+                              <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 6 }}>
+                                (Land {sqmFmt(r.physicalLandSqm)} sqm · BUA {sqmFmt(r.physicalBuaSqm)} sqm · {sharePct}% {basisLabel})
+                              </span>
+                            </td>
                             <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
                             {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                           </tr>

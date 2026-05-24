@@ -310,6 +310,55 @@ console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAs
 }
 
 // ──────────────────────────────────────────────────────────────────
+// I: M4 Pass 2Q (2026-05-24) — integrated FA roll-forward identity
+// per-asset Operate/Lease: combined closing NBV = combined opening
+//                          + (capex add + IDC add) − combined dep
+// where combined opening at t = capexOpening[t] + IDC closing at t-1.
+// Engine + composer math should self-prove via the existing G/A-F
+// cases plus the additive nature of two parallel SL streams. This
+// section pins the integration arithmetic the UI relies on.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[I] Pass 2Q: integrated Capex + IDC FA roll-forward identity');
+{
+  // Build two parallel SL streams (capex + IDC) and confirm:
+  //   combinedClosing[t] = combinedOpening[t] + capexAdd[t] + idcAdd[t]
+  //                        - capexDep[t] - idcDep[t]
+  const N = 6;
+  const capexAdditions = [100, 0, 0, 0, 0, 0];
+  const idcAdditions = [0, 20, 30, 0, 0, 0];
+  const capex = computeAssetFixedAssets({
+    assetId: 'cap',
+    axisLength: N,
+    startIdx: 0,
+    additionsPerPeriod: capexAdditions,
+    usefulLifeYears: 10,
+  });
+  const idc = computeAssetFixedAssets({
+    assetId: 'idc',
+    axisLength: N,
+    startIdx: 0,
+    additionsPerPeriod: idcAdditions,
+    usefulLifeYears: 10,
+  });
+  for (let t = 0; t < N; t++) {
+    const capexOpening = capex.openingNBVPerPeriod[t] ?? 0;
+    const idcOpeningPrev = t === 0 ? 0 : (idc.closingNBVPerPeriod[t - 1] ?? 0);
+    const combinedOpening = capexOpening + idcOpeningPrev;
+    const combinedClosing = (capex.closingNBVPerPeriod[t] ?? 0) + (idc.closingNBVPerPeriod[t] ?? 0);
+    const expected = combinedOpening
+      + (capexAdditions[t] ?? 0)
+      + (idcAdditions[t] ?? 0)
+      - (capex.depreciationPerPeriod[t] ?? 0)
+      - (idc.depreciationPerPeriod[t] ?? 0);
+    assertNear(
+      `I[t=${t}]: combinedClosing = combinedOpening + capexAdd + idcAdd − combinedDep`,
+      combinedClosing,
+      expected,
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
