@@ -277,6 +277,65 @@ console.log('\n[J] Pass 2N-Fix: BS Share Capital includes pre-axis equity openin
   }
 }
 
+// ──────────────────────────────────────────────────────────────────
+// K: M4 Pass 2P (2026-05-24) — CF equity split (cash vs in-kind)
+// Pinned:
+//   K1: directCF.equityDrawdownPerPeriod equals financing.equity.cashPerPeriod
+//       (CF carries cash only).
+//   K2: directCF.equityInKindDrawdownPerPeriod equals financing.equity.inKindPerPeriod
+//       (in-kind is a memo, separate from CF cash).
+//   K3: cashFromFinancing does NOT include in-kind (sum identity).
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[K] Pass 2P: CF equity is cash only; in-kind is memo');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  for (let t = 0; t < snap.axisLength; t++) {
+    assertNear(
+      `K1[t=${t}]: directCF.equityDrawdownPerPeriod == financing.equity.cashPerPeriod`,
+      snap.directCF.equityDrawdownPerPeriod[t] ?? 0,
+      snap.financing.equity.cashPerPeriod[t] ?? 0,
+    );
+    assertNear(
+      `K2[t=${t}]: directCF.equityInKindDrawdownPerPeriod == financing.equity.inKindPerPeriod`,
+      snap.directCF.equityInKindDrawdownPerPeriod[t] ?? 0,
+      snap.financing.equity.inKindPerPeriod[t] ?? 0,
+    );
+    // K3: cashFromFinancing = cash equity + debt draws - debt repays - interest paid (no in-kind).
+    // Sign convention: interestPaidPerPeriod is already negative on directCF; debtRepaymentPerPeriod negative.
+    const reconstructed = (snap.directCF.equityDrawdownPerPeriod[t] ?? 0)
+      + (snap.directCF.debtDrawdownPerPeriod[t] ?? 0)
+      + (snap.directCF.debtRepaymentPerPeriod[t] ?? 0)
+      + (snap.directCF.interestPaidPerPeriod[t] ?? 0);
+    assertNear(
+      `K3[t=${t}]: cashFromFinancing = cashEquity + debtDraws + debtRepays(neg) + interest(neg)`,
+      snap.directCF.cashFromFinancingPerPeriod[t] ?? 0,
+      reconstructed,
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// L: M4 Pass 2P (2026-05-24) — Retained Earnings roll-forward identity
+// Pinned per period: retained[t] − retained[t−1]
+//                    = pat[t] − statutoryReserveTransfer[t] − dividends[t]
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[L] Pass 2P: Retained Earnings roll-forward identity');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  for (let t = 0; t < snap.axisLength; t++) {
+    const opening = t === 0 ? 0 : (snap.bs.retainedEarningsPerPeriod[t - 1] ?? 0);
+    const expectedClosing = opening
+      + (snap.pl.patPerPeriod[t] ?? 0)
+      - (snap.bs.statutoryReserveTransferPerPeriod[t] ?? 0)
+      - (snap.bs.dividendsPerPeriod[t] ?? 0);
+    assertNear(
+      `L[t=${t}]: retained[t] = opening + PAT − transfer − dividend`,
+      snap.bs.retainedEarningsPerPeriod[t] ?? 0,
+      expectedClosing,
+    );
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');

@@ -238,15 +238,25 @@ export default function Module4CashFlow(): React.JSX.Element {
     // see what carried over from before the project axis.
     rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
 
-    // Equity Drawdown (single line). Prior column = existing equity
-    // total (the amount already contributed before the project axis).
+    // M4 Pass 2P (2026-05-24): Equity Drawdown is CASH ONLY. In-kind
+    // equity (land in-kind) is non-cash — recognised on BS as Land +
+    // Share Capital simultaneously, never flowing through CF. Rendered
+    // as a memo row beneath when nonzero so the user can see the full
+    // equity picture in one place.
     const priorEquityTotal = snap.financing.existing.equityTotal;
     if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
       rows.push({
-        label: 'Equity Drawdown',
+        label: 'Equity Drawdown (Cash)',
         values: d.equityDrawdownPerPeriod,
         indent: 1,
         priorValue: priorEquityTotal,
+      });
+    }
+    if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
+      rows.push({
+        label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)',
+        values: d.equityInKindDrawdownPerPeriod,
+        indent: 2,
       });
     }
 

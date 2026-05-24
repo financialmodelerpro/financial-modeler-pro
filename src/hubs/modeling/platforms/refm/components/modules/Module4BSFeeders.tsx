@@ -312,32 +312,71 @@ export default function Module4BSFeeders(): React.JSX.Element {
       </PhaseSection>
 
       {/* ─── EQUITY ──────────────────────────────────────────────── */}
-      <PhaseSection phaseId="m4-bs-equity" title="EQUITY" meta="Equity roll-forward" storageKey="fmp:m4:bs:equity:collapsed">
-        {/* E1: Equity Roll-Forward */}
+      <PhaseSection phaseId="m4-bs-equity" title="EQUITY" meta="Equity roll-forward + Retained Earnings schedule" storageKey="fmp:m4:bs:equity:collapsed">
+        {/* E1: Equity Roll-Forward split by type (Pass 2P) */}
         <M4PeriodTable
-          title="E1. Equity Cumulative Roll-Forward (project)"
-          caption="Opening + Equity drawdown = Closing. Cumulative across the project axis. Statutory reserve + retained earnings build on this base (see the Balance Sheet tab)."
+          title="E1. Equity Cumulative Roll-Forward (project, split by type)"
+          caption="Opening + Cash + In-Kind + Existing = Closing. Cash equity flows through Cash Flow (financing block); In-Kind equity is non-cash (land contributed in-kind, recognised on BS as Land + Share Capital simultaneously); Existing equity carries pre-existing operational-phase equity forward at axis start."
           yearLabels={yearLabels}
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
           rows={(() => {
-            const draws = snap.directCF.equityDrawdownPerPeriod;
-            const closing = zeros();
+            // M4 Pass 2P: read cash + in-kind separately from financing
+            // equity; existing-equity carry-forward sits in financing.equity
+            // and is only nonzero at the seed period (typically t=0).
+            const cashDraws = snap.financing.equity.cashPerPeriod.slice(0, N);
+            const inKindDraws = snap.financing.equity.inKindPerPeriod.slice(0, N);
+            const existingDraws = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
+            while (cashDraws.length < N) cashDraws.push(0);
+            while (inKindDraws.length < N) inKindDraws.push(0);
+            while (existingDraws.length < N) existingDraws.push(0);
             const opening = zeros();
-            // M4 Pass 2j: seed cumulative equity from existing equity at
-            // axis start. Opening[0] carries the existing equity total
-            // forward into year 0 so the BS share capital reconciles.
-            let running = priorEquity;
+            const closing = zeros();
+            let running = 0;
             for (let t = 0; t < N; t++) {
               opening[t] = running;
-              running += draws[t] ?? 0;
+              running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0) + (existingDraws[t] ?? 0);
               closing[t] = running;
             }
+            const rows: M4Row[] = [
+              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+              { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1 },
+              { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1 },
+            ];
+            if (existingDraws.some((v) => Math.abs(v ?? 0) > 0.5)) {
+              rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: existingDraws, indent: 1 });
+            }
+            rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+            return rows;
+          })()}
+        />
+
+        {/* E2: Retained Earnings Schedule (Pass 2P) */}
+        <M4PeriodTable
+          title="E2. Retained Earnings Roll-Forward (project)"
+          caption="Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE. Dividends are zero today (Dividend policy lands in a follow-up pass); the row is present so the schedule is wired end-to-end."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          priorYearLabel={priorYear}
+          rows={(() => {
+            const pat = snap.pl.patPerPeriod.slice(0, N);
+            const reserveTransfer = snap.bs.statutoryReserveTransferPerPeriod.slice(0, N);
+            const dividends = snap.bs.dividendsPerPeriod.slice(0, N);
+            const closing = snap.bs.retainedEarningsPerPeriod.slice(0, N);
+            while (pat.length < N) pat.push(0);
+            while (reserveTransfer.length < N) reserveTransfer.push(0);
+            while (dividends.length < N) dividends.push(0);
+            while (closing.length < N) closing.push(0);
+            const opening = zeros();
+            for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (closing[t - 1] ?? 0);
             return [
-              { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: priorEquity },
-              { label: '(+) Equity drawdown', values: draws, indent: 1, priorValue: 0 },
-              { label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorEquity },
+              { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+              { label: '(+) PAT for the period', values: pat, indent: 1 },
+              { label: '(−) Transfer to statutory reserve', values: reserveTransfer.map((v) => -v), indent: 1 },
+              { label: '(−) Dividends declared', values: dividends.map((v) => -v), indent: 1 },
+              { label: 'Closing retained earnings', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
             ];
           })()}
         />

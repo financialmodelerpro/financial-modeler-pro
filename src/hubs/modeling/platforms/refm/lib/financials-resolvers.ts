@@ -131,7 +131,13 @@ export interface ProjectDirectCF {
   capexPerPeriod: number[];                // negative
   cashFromInvestmentPerPeriod: number[];
   // Financing
+  /** M4 Pass 2P (2026-05-24): cash equity only — what actually moves
+   *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
+   *  as a memo. */
   equityDrawdownPerPeriod: number[];
+  /** M4 Pass 2P (2026-05-24): in-kind equity (land in-kind) memo. NOT
+   *  included in cashFromFinancingPerPeriod. */
+  equityInKindDrawdownPerPeriod: number[];
   debtDrawdownPerPeriod: number[];
   debtRepaymentPerPeriod: number[];        // negative
   interestPaidPerPeriod: number[];         // negative
@@ -154,7 +160,15 @@ export interface ProjectIndirectCF {
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
+  /** M4 Pass 2P (2026-05-24): cash equity only — what actually moves
+   *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
+   *  as a memo (NOT included in cashFromFinancingPerPeriod). */
   equityDrawdownPerPeriod: number[];
+  /** M4 Pass 2P (2026-05-24): in-kind equity (land in-kind) memo. Does
+   *  NOT flow through cash; mirrors the in-kind land already on BS as a
+   *  Land asset + Share Capital recognition. Surfaced so BS Equity
+   *  Schedule and audit views can render the split. */
+  equityInKindDrawdownPerPeriod: number[];
   debtDrawdownPerPeriod: number[];
   debtRepaymentPerPeriod: number[];
   interestPaidPerPeriod: number[];         // actual cash interest
@@ -185,6 +199,15 @@ export interface ProjectBS {
   statutoryReservePerPeriod: number[];
   retainedEarningsPerPeriod: number[];
   totalEquityPerPeriod: number[];
+  /** M4 Pass 2P (2026-05-24): per-period STATUTORY-RESERVE TRANSFER (not
+   *  cumulative). Used by the Retained Earnings Schedule to show the
+   *  (-) transfer line; statutoryReservePerPeriod above is cumulative. */
+  statutoryReserveTransferPerPeriod: number[];
+  /** M4 Pass 2P (2026-05-24): per-period DIVIDEND distribution. Zero
+   *  today (Dividend policy lands in a follow-up pass); field present
+   *  so the RE Schedule and downstream consumers can wire to it without
+   *  schema churn. */
+  dividendsPerPeriod: number[];
   // Check
   totalLiabilitiesAndEquityPerPeriod: number[];
   bsDifferencePerPeriod: number[];
@@ -777,25 +800,34 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
 
   // Capex: project total per-period from financing engine.
   // M4 Pass 2N-Fix (2026-05-21): financing arrays are length N starting
-  // at year 0 (per axis.ts contract). The previous slice(1, 1+N) was
-  // dropping year-0 capex AND zero-padding the last year. Fixed below.
-  const capexFull = financing.capex.perPeriod.inclAllLand; // length = totalPeriods
+  // M4 Pass 2P (2026-05-24): CF Capex uses CASH-basis capex
+  // (perPeriod.exclLandInKind), not inclAllLand. In-kind land is a
+  // non-cash equity contribution recognised on BS as Land + Share
+  // Capital simultaneously; it does NOT flow through Cash from
+  // Investment. Previously this was the larger inclAllLand which
+  // washed against in-kind equity in cashFromFin — both sides wrong,
+  // net BS Cash accidentally right. Now both sides clean.
+  const capexFull = financing.capex.perPeriod.exclLandInKind; // length = totalPeriods
   const capexProj = capexFull.slice(0, N);
   while (capexProj.length < N) capexProj.push(0);
   const cashFromInv = capexProj.map((v) => -v);
 
   // Financing flows from M1 (combined + equity).
-  // M4 Pass 2N-Fix #3 (2026-05-21): equity.totalPerPeriod lumps
-  // existing.equityTotal into year-0 alongside cash + in-kind draws.
-  // The composer also seeds priorCash separately on the asset side
-  // and adds priorEquity to shareCapital. Using totalPerPeriod here
-  // would double-count existing equity through cashFromFin -> netCf
-  // -> closingCash. Use cash + in-kind only (the actual new draws
-  // happening within the project axis).
+  // M4 Pass 2P (2026-05-24): cash CF uses CASH equity only; in-kind
+  // (land contributed in-kind by parcel owners) is a non-cash equity
+  // recognition. Previously cashFromFin summed cash + in-kind, which
+  // washed against an over-stated capex outflow (capex.inclAllLand)
+  // — both sides individually wrong, BS Cash accidentally correct.
+  // Now cashFromInv uses capex.exclLandInKind and cashFromFin uses
+  // equityCashArr. Net BS Cash unchanged; both lines individually right.
+  // equityDraws kept as the cumulative basis for Share Capital roll-up
+  // (cash + in-kind both recognised on BS via Land + Share Capital).
   const equityCashArr = financing.equity.cashPerPeriod.slice(0, N);
   while (equityCashArr.length < N) equityCashArr.push(0);
   const equityInKindArr = financing.equity.inKindPerPeriod.slice(0, N);
   while (equityInKindArr.length < N) equityInKindArr.push(0);
+  const equityExistingArr = financing.equity.existingEquityPerPeriod.slice(0, N);
+  while (equityExistingArr.length < N) equityExistingArr.push(0);
   const equityDraws = equityCashArr.map((v, i) => v + (equityInKindArr[i] ?? 0));
   const debtDraws = financing.combined.totalDrawdown.slice(0, N);
   while (debtDraws.length < N) debtDraws.push(0);
@@ -806,7 +838,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
 
   const cashFromFin = zeros(N);
   for (let t = 0; t < N; t++) {
-    cashFromFin[t] = equityDraws[t] + debtDraws[t] - debtRepays[t] - interestPaidArr[t];
+    cashFromFin[t] = equityCashArr[t] + debtDraws[t] - debtRepays[t] - interestPaidArr[t];
   }
 
   // M4 Pass 2M-A1 (2026-05-20): seed runningCash with the sum of
@@ -839,7 +871,9 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     cashFromOperationsPerPeriod: cashFromOps,
     capexPerPeriod: capexProj.map((v) => -v),
     cashFromInvestmentPerPeriod: cashFromInv,
-    equityDrawdownPerPeriod: equityDraws,
+    // M4 Pass 2P: CASH equity only on CF. In-kind kept as a memo field.
+    equityDrawdownPerPeriod: equityCashArr,
+    equityInKindDrawdownPerPeriod: equityInKindArr,
     debtDrawdownPerPeriod: debtDraws,
     debtRepaymentPerPeriod: debtRepays.map((v) => -v),
     interestPaidPerPeriod: interestPaidArr.map((v) => -v),
@@ -900,7 +934,9 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     cashFromOperationsPerPeriod: cashFromOpsIndirect,
     capexPerPeriod: capexProj.map((v) => -v),
     cashFromInvestmentPerPeriod: cashFromInv,
-    equityDrawdownPerPeriod: equityDraws,
+    // M4 Pass 2P: CASH equity only on CF. In-kind kept as a memo field.
+    equityDrawdownPerPeriod: equityCashArr,
+    equityInKindDrawdownPerPeriod: equityInKindArr,
     debtDrawdownPerPeriod: debtDraws,
     debtRepaymentPerPeriod: debtRepays.map((v) => -v),
     interestPaidPerPeriod: interestPaidArr.map((v) => -v),
@@ -972,6 +1008,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const reserveRate = Math.max(0, project.statutoryReserve?.transferRate ?? 0);
   const reserveCapPct = Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0);
   const reserveArr = zeros(N);
+  const reserveTransferArr = zeros(N); // M4 Pass 2P: per-period transfer
+  const dividendsArr = zeros(N); // M4 Pass 2P: placeholder (Dividend pass next)
   const retained = zeros(N);
   let runningReserve = 0;
   let runningRetained = 0;
@@ -982,8 +1020,9 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     const cap = reserveCapPct > 0 ? shareCapital[t] * reserveCapPct : Infinity;
     const allowed = Math.max(0, Math.min(transfer, cap - runningReserve));
     runningReserve += allowed;
-    runningRetained += pat[t] - allowed;
+    runningRetained += pat[t] - allowed - (dividendsArr[t] ?? 0);
     reserveArr[t] = runningReserve;
+    reserveTransferArr[t] = allowed;
     retained[t] = runningRetained;
   }
   const totalEquity = zeros(N);
@@ -1016,6 +1055,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     statutoryReservePerPeriod: reserveArr,
     retainedEarningsPerPeriod: retained,
     totalEquityPerPeriod: totalEquity,
+    statutoryReserveTransferPerPeriod: reserveTransferArr,
+    dividendsPerPeriod: dividendsArr,
     totalLiabilitiesAndEquityPerPeriod: totalLandE,
     bsDifferencePerPeriod: bsDiff,
     historicalOpeningCashTotal,
