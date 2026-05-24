@@ -50,7 +50,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
-import { computeIdcSnapshot } from '../../lib/financials-resolvers';
+import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -90,7 +90,7 @@ function ensureConfig(cfg: ProjectFinancingConfig | undefined): ProjectFinancing
 }
 
 export default function Module1Financing(): React.JSX.Element {
-  const [subTab, setSubTab] = useState<'inputs' | 'schedules'>('inputs');
+  const [subTab, setSubTab] = useState<'inputs' | 'schedules' | 'fundingGap'>('inputs');
 
   const {
     project, phases, parcels, assets, subUnits,
@@ -204,17 +204,21 @@ export default function Module1Financing(): React.JSX.Element {
   return (
     <div style={{ padding: 'var(--sp-2)' }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--sp-2)' }}>
-        {(['inputs', 'schedules'] as const).map((k) => (
+        {([
+          { key: 'inputs', label: 'Inputs' },
+          { key: 'schedules', label: 'Schedules' },
+          { key: 'fundingGap', label: 'Funding Gap' },
+        ] as const).map((t) => (
           <button
-            key={k}
+            key={t.key}
             type="button"
-            onClick={() => setSubTab(k)}
+            onClick={() => setSubTab(t.key)}
             style={{
               padding: '6px 14px',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--color-border)',
-              background: subTab === k ? 'var(--color-navy)' : 'var(--color-surface)',
-              color: subTab === k ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+              background: subTab === t.key ? 'var(--color-navy)' : 'var(--color-surface)',
+              color: subTab === t.key ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
               fontWeight: 700,
               fontSize: 12,
               cursor: 'pointer',
@@ -222,7 +226,7 @@ export default function Module1Financing(): React.JSX.Element {
               letterSpacing: '0.04em',
             }}
           >
-            {k}
+            {t.label}
           </button>
         ))}
       </div>
@@ -724,6 +728,15 @@ export default function Module1Financing(): React.JSX.Element {
           currency={currency}
           cropProject={cropProject}
           idc={idcSnapshot}
+        />
+      )}
+
+      {subTab === 'fundingGap' && (
+        <FundingGapView
+          axis={axis}
+          fmt={fmt}
+          currency={currency}
+          cropProject={cropProject}
         />
       )}
     </div>
@@ -2369,6 +2382,153 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               })()}
             </tbody>
           </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+// ── Funding Gap sub-tab (M4 Pass 2R, 2026-05-24) ──────────────────────
+
+interface FundingGapProps {
+  axis: ReturnType<typeof buildResultsPeriodAxis>;
+  fmt: (n: number) => string;
+  currency: string;
+  cropProject: (arr: number[]) => number[];
+}
+
+function FundingGapView(p: FundingGapProps): React.JSX.Element {
+  // Pull everything we need to compose the full financials snapshot,
+  // then derive the funding gap. computeFinancialsSnapshot is memoised
+  // by React via useMemo so this only re-runs when its inputs change.
+  const state = useModule1Store(
+    useShallow((s) => ({
+      project: s.project,
+      phases: s.phases,
+      assets: s.assets,
+      subUnits: s.subUnits,
+      parcels: s.parcels,
+      costLines: s.costLines,
+      costOverrides: s.costOverrides,
+      landAllocationMode: s.landAllocationMode,
+      financingTranches: s.financingTranches,
+      equityContributions: s.equityContributions,
+    })),
+  );
+  const snap = useMemo(() => computeFinancialsSnapshot(state), [state]);
+  const gap = useMemo(() => computeFundingGap(snap), [snap]);
+
+  const N = p.axis.activeLabels.length;
+  const nonLabelPct = nonLabelColumnPct(1 + N);
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: COLUMN_WIDTHS.label }} />
+      <col style={{ width: nonLabelPct }} />
+      {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
+    </colgroup>
+  );
+  const headerRow = (
+    <thead>
+      <tr>
+        <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
+        <th style={CELL_HEADER_TOTAL}>Total</th>
+        {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
+      </tr>
+    </thead>
+  );
+
+  const renderFlowRow = (label: string, arr: number[], opts?: { bold?: boolean; negative?: boolean; indent?: number; subtotal?: boolean }) => {
+    const cropped = p.cropProject(arr);
+    const total = cropped.reduce((s, v) => s + v, 0);
+    const isBold = opts?.bold === true;
+    const isSub = opts?.subtotal === true;
+    const nameStyle: React.CSSProperties = {
+      ...(isBold ? ROW_GRAND_TOTAL.name : isSub ? ROW_SUBTOTAL.name : ROW_DATA.name),
+      paddingLeft: 8 + (opts?.indent ?? 0) * 12,
+    };
+    const numStyle = isBold ? ROW_GRAND_TOTAL.num : isSub ? ROW_SUBTOTAL.num : ROW_DATA.num;
+    const totalStyle = isBold ? ROW_GRAND_TOTAL.numTotal : isSub ? ROW_SUBTOTAL.numTotal : ROW_DATA.numTotal;
+    const applyRed = opts?.negative && !isBold;
+    const numApplied: React.CSSProperties = applyRed ? { ...numStyle, color: 'var(--color-danger, #b91c1c)' } : numStyle;
+    const totalApplied: React.CSSProperties = applyRed ? { ...totalStyle, color: 'var(--color-danger, #b91c1c)' } : totalStyle;
+    const renderVal = (v: number) => p.fmt(v);
+    return (
+      <tr>
+        <td style={nameStyle}>{label}</td>
+        <td style={totalApplied}>{renderVal(total)}</td>
+        {cropped.map((v, i) => <td key={i} style={numApplied}>{renderVal(v)}</td>)}
+      </tr>
+    );
+  };
+  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; subtotal?: boolean }) => {
+    const cropped = p.cropProject(arr);
+    const isBold = opts?.bold === true;
+    const isSub = opts?.subtotal === true;
+    const nameStyle = isBold ? ROW_GRAND_TOTAL.name : isSub ? ROW_SUBTOTAL.name : ROW_DATA.name;
+    const numStyle = isBold ? ROW_GRAND_TOTAL.num : isSub ? ROW_SUBTOTAL.num : ROW_DATA.num;
+    const totalStyle = isBold ? ROW_GRAND_TOTAL.numTotal : isSub ? ROW_SUBTOTAL.numTotal : ROW_DATA.numTotal;
+    return (
+      <tr>
+        <td style={nameStyle}>{label}</td>
+        <td style={totalStyle}>{p.fmt(cropped[N - 1] ?? 0)}</td>
+        {cropped.map((v, i) => <td key={i} style={numStyle}>{p.fmt(v)}</td>)}
+      </tr>
+    );
+  };
+
+  return (
+    <>
+      <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
+        <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> Two views of how much external capital (debt + equity) the project needs. Method A is the gross feasibility view (capex vs cash actually available from pre-sales after escrow); Method B is the full pre-financing CF deficit (accounts for opex, AR/AP timing, tax, interest paid). Wiring these into actual debt drawdown sizing (Funding Methods 2 + 3) lands in a follow-up pass.
+        </div>
+      </section>
+
+      {/* Method A — Capex vs Pre-Sales */}
+      <section style={sectionStyle}>
+        <div style={TABLE_TITLE}>Method A — Capex vs Pre-Sales (gross)</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+          Gap = Capex (excl land in-kind) − (Pre-Sales cash − Escrow held). Simple sanity-check; ignores opex / tax / AR / AP / interest. A positive gap means external funding is required for that period.
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            {colgroup}
+            {headerRow}
+            <tbody>
+              {renderFlowRow('(+) Capex (excl land in-kind)', gap.capexPerPeriod)}
+              {renderFlowRow('(−) Pre-Sales cash collected', gap.preSalesCashPerPeriod.map((v) => -v), { negative: true })}
+              {renderFlowRow('(+) Escrow held (cash held back)', gap.escrowHeldPerPeriod)}
+              {renderFlowRow('Method A — Funding Gap', gap.methodAGapPerPeriod, { bold: true })}
+              {renderStateRow('Cumulative Funding Gap (A)', gap.methodAGapCumulative, { subtotal: true })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+          Grand total gap (A): <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(gap.methodATotalGap)}</strong>
+        </div>
+      </section>
+
+      {/* Method B — Pre-Financing CF deficit */}
+      <section style={sectionStyle}>
+        <div style={TABLE_TITLE}>Method B — Pre-Financing CF Deficit</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+          Gap = max(0, −(Cash from Operations + Cash from Investing)). Captures the full waterfall: revenue collected, opex paid, tax, AR / AP timing, escrow movement, capex. Surpluses (positive pre-financing CF) reduce future need cumulatively but don't reduce the current period's funding line.
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            {colgroup}
+            {headerRow}
+            <tbody>
+              {renderFlowRow('Cash from Operations', gap.cashFromOpsPerPeriod)}
+              {renderFlowRow('Cash from Investing', gap.cashFromInvPerPeriod, { negative: true })}
+              {renderFlowRow('Pre-Financing Net CF', gap.preFinancingNetCfPerPeriod, { subtotal: true })}
+              {renderFlowRow('Method B — Funding Gap (deficit only)', gap.methodBGapPerPeriod, { bold: true })}
+              {renderStateRow('Cumulative Funding Gap (B)', gap.methodBGapCumulative, { subtotal: true })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+          Grand total gap (B): <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(gap.methodBTotalGap)}</strong>
         </div>
       </section>
     </>

@@ -24,7 +24,7 @@ import {
   makeDefaultPhase,
   makeDefaultProject,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 
 let pass = 0;
 let fail = 0;
@@ -334,6 +334,46 @@ console.log('\n[L] Pass 2P: Retained Earnings roll-forward identity');
       expectedClosing,
     );
   }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// M: M4 Pass 2R (2026-05-24) — Funding Gap identities
+//   M1: Method A per period = capex − (preSales − escrowHeld)
+//   M2: Method A cumulative = running sum of methodAGapPerPeriod
+//   M3: Method B per period = max(0, −(ops + inv))
+//   M4: preFinancingNetCf = ops + inv (no clamping)
+//   M5: Method B grand total = sum of methodBGapPerPeriod
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[M] Pass 2R: Funding Gap identities');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  const gap = computeFundingGap(snap);
+  let runningA = 0;
+  let runningB = 0;
+  for (let t = 0; t < snap.axisLength; t++) {
+    const expectedA = (gap.capexPerPeriod[t] ?? 0)
+      - ((gap.preSalesCashPerPeriod[t] ?? 0) - (gap.escrowHeldPerPeriod[t] ?? 0));
+    assertNear(
+      `M1[t=${t}]: methodA = capex − (preSales − escrowHeld)`,
+      gap.methodAGapPerPeriod[t] ?? 0,
+      expectedA,
+    );
+    runningA += expectedA;
+    assertNear(`M2[t=${t}]: methodA cumulative`, gap.methodAGapCumulative[t] ?? 0, runningA);
+
+    const ops = gap.cashFromOpsPerPeriod[t] ?? 0;
+    const inv = gap.cashFromInvPerPeriod[t] ?? 0;
+    assertNear(`M4[t=${t}]: preFinancingNetCf = ops + inv`, gap.preFinancingNetCfPerPeriod[t] ?? 0, ops + inv);
+    const expectedB = Math.max(0, -(ops + inv));
+    assertNear(`M3[t=${t}]: methodB = max(0, −(ops + inv))`, gap.methodBGapPerPeriod[t] ?? 0, expectedB);
+    runningB += expectedB;
+    assertNear(`M2-B[t=${t}]: methodB cumulative`, gap.methodBGapCumulative[t] ?? 0, runningB);
+  }
+  assertNear(
+    'M5: methodB grand total = sum of per-period deficit',
+    gap.methodBTotalGap,
+    gap.methodBGapPerPeriod.reduce((s, v) => s + v, 0),
+  );
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

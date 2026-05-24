@@ -491,6 +491,108 @@ export function computeIdcSnapshot(
   };
 }
 
+/**
+ * M4 Pass 2R (2026-05-24): Funding Gap snapshot.
+ *
+ * Two methods for sizing the project's required external funding
+ * (debt + equity to be raised within the project axis):
+ *
+ *   Method A — Capex vs Pre-Sales (gross feasibility view):
+ *     gap[t] = capex[t] − (preSalesCash[t] − escrowHeld[t])
+ *     i.e. cash capex less the portion of pre-sales actually
+ *     available (Pre-Sales received minus the amount held in escrow).
+ *     Simple. Ignores opex, AR, AP, tax, interest. Useful as a
+ *     sanity check + a baseline for early feasibility.
+ *
+ *   Method B — Pre-financing CF deficit (full waterfall):
+ *     gap[t] = −(cashFromOps[t] + cashFromInv[t]) when negative
+ *              0                                  otherwise.
+ *     I.e. whatever the operations + investing CF can't fund itself
+ *     becomes the period's funding requirement. Accounts for opex,
+ *     AR/AP timing, tax, interest paid, escrow movement — the
+ *     "true" feasibility gap.
+ *
+ * Both methods produce per-period + cumulative + grand total. The
+ * UI's "Funding Gap" sub-tab in Module 1 Financing renders them
+ * side-by-side. Wiring these gaps into actual debt drawdown sizing
+ * (Methods 2 + 3 in computeFundingRequirement) is a follow-up pass.
+ */
+export interface FundingGapSnapshot {
+  axisLength: number;
+  yearLabels: number[];
+  // Method A inputs (each per period, project-axis)
+  capexPerPeriod: number[];
+  preSalesCashPerPeriod: number[];
+  escrowHeldPerPeriod: number[];
+  /** Method A gap per period: capex − (preSales − escrow held). May be negative
+   *  (surplus) when pre-sales exceed capex in a period. */
+  methodAGapPerPeriod: number[];
+  methodAGapCumulative: number[];
+  methodATotalGap: number;
+  // Method B inputs
+  cashFromOpsPerPeriod: number[];
+  cashFromInvPerPeriod: number[];
+  /** Method B pre-financing net CF: ops + investing per period. Negative
+   *  values mean a funding gap; positive values mean a surplus. */
+  preFinancingNetCfPerPeriod: number[];
+  /** Method B gap per period: max(0, −(ops + inv)) — only the deficit
+   *  side, since a surplus doesn't increase funding need. */
+  methodBGapPerPeriod: number[];
+  methodBGapCumulative: number[];
+  methodBTotalGap: number;
+}
+
+export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSnapshot {
+  const N = snap.axisLength;
+  const yearLabels = snap.yearLabels;
+  // Method A inputs
+  const capexPerPeriod = snap.financing.capex.perPeriod.exclLandInKind.slice(0, N);
+  while (capexPerPeriod.length < N) capexPerPeriod.push(0);
+  const preSalesCashPerPeriod = snap.revenue.projectTotals.presalesCashPerPeriod.slice(0, N);
+  while (preSalesCashPerPeriod.length < N) preSalesCashPerPeriod.push(0);
+  const escrowHeldPerPeriod = snap.escrow.projectTotals.heldPerPeriod.slice(0, N);
+  while (escrowHeldPerPeriod.length < N) escrowHeldPerPeriod.push(0);
+  const methodAGapPerPeriod = zeros(N);
+  for (let t = 0; t < N; t++) {
+    methodAGapPerPeriod[t] = capexPerPeriod[t] - (preSalesCashPerPeriod[t] - escrowHeldPerPeriod[t]);
+  }
+  const methodAGapCumulative = cumulative(methodAGapPerPeriod);
+  const methodATotalGap = methodAGapPerPeriod.reduce((s, v) => s + v, 0);
+
+  // Method B inputs — directCF carries signed values (capex/opex/etc.
+  // are already negative); ops + inv combined is the pre-financing
+  // net CF. Negative = deficit; positive = surplus.
+  const cashFromOpsPerPeriod = snap.directCF.cashFromOperationsPerPeriod.slice(0, N);
+  while (cashFromOpsPerPeriod.length < N) cashFromOpsPerPeriod.push(0);
+  const cashFromInvPerPeriod = snap.directCF.cashFromInvestmentPerPeriod.slice(0, N);
+  while (cashFromInvPerPeriod.length < N) cashFromInvPerPeriod.push(0);
+  const preFinancingNetCfPerPeriod = zeros(N);
+  const methodBGapPerPeriod = zeros(N);
+  for (let t = 0; t < N; t++) {
+    preFinancingNetCfPerPeriod[t] = cashFromOpsPerPeriod[t] + cashFromInvPerPeriod[t];
+    methodBGapPerPeriod[t] = Math.max(0, -preFinancingNetCfPerPeriod[t]);
+  }
+  const methodBGapCumulative = cumulative(methodBGapPerPeriod);
+  const methodBTotalGap = methodBGapPerPeriod.reduce((s, v) => s + v, 0);
+
+  return {
+    axisLength: N,
+    yearLabels,
+    capexPerPeriod,
+    preSalesCashPerPeriod,
+    escrowHeldPerPeriod,
+    methodAGapPerPeriod,
+    methodAGapCumulative,
+    methodATotalGap,
+    cashFromOpsPerPeriod,
+    cashFromInvPerPeriod,
+    preFinancingNetCfPerPeriod,
+    methodBGapPerPeriod,
+    methodBGapCumulative,
+    methodBTotalGap,
+  };
+}
+
 export function computeFinancialsSnapshot(state: FinancialsResolverState): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
