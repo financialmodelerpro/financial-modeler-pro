@@ -1592,10 +1592,14 @@ interface CapexProps {
 
 function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2V (2026-05-24): add prior-year column. Pre-Capex (existing
+  // operations) lives in the prior column instead of Y0.
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const exclLand    = p.cropProject(p.capex.perPeriod.exclAllLand);
   const landCash    = p.cropProject(p.capex.perPeriod.landCash);
   const totalIncl   = p.cropProject(p.capex.perPeriod.exclLandInKind);
+  const priorCell: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorTotalCell: React.CSSProperties = { ...ROW_GRAND_TOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>6. Capex Breakdown</div>
@@ -1604,12 +1608,14 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            <col style={{ width: nonLabelPct }} />
             {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line ({currencyHeaderLine(p.currency, 'full')})</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
@@ -1617,24 +1623,28 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
             <tr>
               <td style={ROW_DATA.name}>Capex (excluding Land)</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.capex.totals.exclAllLand)}</td>
+              <td style={priorCell}></td>
               {exclLand.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Land Cash Value</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.capex.totals.exclLandInKind - p.capex.totals.exclAllLand)}</td>
+              <td style={priorCell}></td>
               {landCash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Capex Incl Cash Land</td>
               <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.capex.totals.exclLandInKind)}</td>
+              <td style={priorTotalCell}></td>
               {totalIncl.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
             {p.existingPreCapex > 0 && (
               <tr>
                 <td style={ROW_DATA.name}>Pre-Capex (existing operations)</td>
                 <td style={ROW_DATA.numTotal}>{p.fmt(p.existingPreCapex)}</td>
+                <td style={priorCell}>{p.fmt(p.existingPreCapex)}</td>
                 {p.axis.activeLabels.map((_, i) => (
-                  <td key={i} style={ROW_DATA.num}>{p.fmt(i === 0 ? p.existingPreCapex : 0)}</td>
+                  <td key={i} style={ROW_DATA.num}>{p.fmt(0)}</td>
                 ))}
               </tr>
             )}
@@ -1660,14 +1670,17 @@ interface FundingProps {
 
 function FundingRequirementTable(p: FundingProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2V (2026-05-24): add prior-year column for visual
+  // consistency with the rest of the financing tables (blank for
+  // in-axis-only Funding Methods).
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const m1PerPeriod = p.cropProject(p.capex.perPeriod.exclLandInKind);
   const blanks = new Array<number>(N).fill(0);
   const selectedMethodId = p.funding.selectedMethodId;
+  const priorCell: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorTotalCell: React.CSSProperties = { ...ROW_GRAND_TOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorSubCell: React.CSSProperties = { ...ROW_SUBTOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
 
-  // Pass 26 (2026-05-14): Min Cash Reserve is added on top of Methods
-  // 1 + 2; Method 3 (Cash Deficit) absorbs it implicitly. The lump
-  // lands at the first non-zero capex period (engine-side).
   const selectedPerPeriod = p.cropProject(p.funding.selectedByPeriod);
   const minCashPerPeriod = p.cropProject(p.funding.minCashByPeriod);
   const totalFundingPerPeriod = p.cropProject(p.funding.totalFundingNeedByPeriod);
@@ -1681,12 +1694,14 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            <col style={{ width: nonLabelPct }} />
             {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Method</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
@@ -1694,21 +1709,25 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
             <tr>
               <td style={ROW_DATA.name}>Method 1, Fixed Debt-to-Equity Ratio</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.method1)}</td>
+              <td style={priorCell}></td>
               {m1PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 2, Net Funding Requirement</td>
               <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={priorCell}></td>
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 3, Cash Deficit Funding</td>
               <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={priorCell}></td>
               {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Method 4, Specified Debt + Equity (manual)</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.method4)}</td>
+              <td style={priorCell}></td>
               {(selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
                 <td key={i} style={ROW_DATA.num}>{selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
               ))}
@@ -1716,6 +1735,7 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
             <tr>
               <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
               <td style={ROW_SUBTOTAL.numTotal}>{p.fmt(p.funding.selected)}</td>
+              <td style={priorSubCell}></td>
               {(selectedMethodId === 1 || selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
                 <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
               ))}
@@ -1725,11 +1745,13 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
                 <tr>
                   <td style={ROW_DATA.name}>+ Minimum Cash Reserve</td>
                   <td style={ROW_DATA.numTotal}>{p.fmt(p.funding.minCashReserve)}</td>
+                  <td style={priorCell}></td>
                   {minCashPerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                 </tr>
                 <tr>
                   <td style={ROW_GRAND_TOTAL.name}>Total Funding Need</td>
                   <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.funding.selectedWithMinCash)}</td>
+                  <td style={priorTotalCell}></td>
                   {totalFundingPerPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
                 </tr>
               </>
@@ -1763,8 +1785,20 @@ interface DebtReqProps {
 
 function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2V (2026-05-24): add prior-year column for existing debt
+  // opening balance (pre-axis carry-forward).
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const newTranches = p.tranches.filter((t) => t.origin !== 'existing');
+  const existingOpeningTotal = (() => {
+    let s = 0;
+    for (const t of p.tranches) {
+      if (t.origin === 'existing') s += Math.max(0, t.openingBalance ?? 0);
+    }
+    return s;
+  })();
+  const priorCell: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorSubCell: React.CSSProperties = { ...ROW_SUBTOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorTotalCell: React.CSSProperties = { ...ROW_GRAND_TOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
 
   // Pass 25 (2026-05-14): per-facility rows show capex-driven drawdown
   // (the project-axis split allocated to this facility). IDC during
@@ -1795,16 +1829,26 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            <col style={{ width: nonLabelPct }} />
             {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Facility</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
+            {existingOpeningTotal > 0 && (
+              <tr>
+                <td style={ROW_DATA.name}>Existing Debt (opening balance, pre-axis)</td>
+                <td style={ROW_DATA.numTotal}>{p.fmt(existingOpeningTotal)}</td>
+                <td style={priorCell}>{p.fmt(existingOpeningTotal)}</td>
+                {p.axis.activeLabels.map((_, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(0)}</td>)}
+              </tr>
+            )}
             {newTranches.map((t) => {
               const r = p.facilities.get(t.id);
               const series = p.cropProject(r?.drawSchedule ?? []);
@@ -1813,6 +1857,7 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
                 <tr key={t.id}>
                   <td style={ROW_DATA.name}>{t.name}</td>
                   <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>
+                  <td style={priorCell}></td>
                   {series.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
                 </tr>
               );
@@ -1820,16 +1865,19 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
             <tr>
               <td style={ROW_SUBTOTAL.name}>Capex Drawdown Subtotal</td>
               <td style={ROW_SUBTOTAL.numTotal}>{p.fmt(totalCapexDraw)}</td>
+              <td style={priorSubCell}></td>
               {totalCapexDrawByPeriod.map((v, i) => <td key={i} style={ROW_SUBTOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>IDC Drawdown (capitalized interest)</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(totalIdcDraw)}</td>
+              <td style={priorCell}></td>
               {idcDrawByPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
-              <td style={ROW_GRAND_TOTAL.name}>Total Debt Required</td>
+              <td style={ROW_GRAND_TOTAL.name}>Total Debt Required (new draws + IDC)</td>
               <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(totalDebtRequired)}</td>
+              <td style={priorTotalCell}></td>
               {totalDebtByPeriod.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
             </tr>
           </tbody>
@@ -1853,11 +1901,15 @@ interface EquityReqProps {
 
 function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  // M4 Pass 2V (2026-05-24): add prior-year column. Existing equity
+  // is a PRE-AXIS event — render it in the prior column and zero its
+  // axis entries.
+  const nonLabelPct = nonLabelColumnPct(2 + N);
   const cash = p.cropProject(p.equity.cashPerPeriod);
   const inKind = p.cropProject(p.equity.inKindPerPeriod);
-  const existing = p.cropProject(p.equity.existingEquityPerPeriod);
   const total = p.cropProject(p.equity.totalPerPeriod);
+  const priorCell: React.CSSProperties = { ...ROW_DATA.num, fontStyle: 'italic', color: 'var(--color-meta)' };
+  const priorTotalCell: React.CSSProperties = { ...ROW_GRAND_TOTAL.num, fontStyle: 'italic', color: 'var(--color-meta)' };
   return (
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>9. Total Equity Required ({currencyHeaderLine(p.currency, p.scale)})</div>
@@ -1866,37 +1918,48 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            <col style={{ width: nonLabelPct }} />
             {p.axis.activeLabels.map((_, i) => <col key={i} style={{ width: nonLabelPct }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Source</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{p.axis.priorLabel}</th>
               {p.axis.activeLabels.map((l) => <th key={l} style={CELL_HEADER}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
             {p.equity.totalExisting > 0 && (
               <tr>
-                <td style={ROW_DATA.name}>Existing Equity (operational phases)</td>
+                <td style={ROW_DATA.name}>Existing Equity (pre-axis carry-forward)</td>
                 <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalExisting)}</td>
-                {existing.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
+                <td style={priorCell}>{p.fmt(p.equity.totalExisting)}</td>
+                {p.axis.activeLabels.map((_, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(0)}</td>)}
               </tr>
             )}
             <tr>
               <td style={ROW_DATA.name}>Cash Equity</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalCash)}</td>
+              <td style={priorCell}></td>
               {cash.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>In-Kind Equity</td>
               <td style={ROW_DATA.numTotal}>{p.fmt(p.equity.totalInKind)}</td>
+              <td style={priorCell}></td>
               {inKind.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_GRAND_TOTAL.name}>Total Equity Required</td>
               <td style={ROW_GRAND_TOTAL.numTotal}>{p.fmt(p.equity.grandTotal)}</td>
-              {total.map((v, i) => <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(v)}</td>)}
+              <td style={priorTotalCell}>{p.fmt(p.equity.totalExisting)}</td>
+              {total.map((v, i) => {
+                // Subtract existing equity that was lumped into axis t=0
+                // by the financing engine — we've moved it to prior col.
+                const axisOnly = i === 0 ? v - p.equity.totalExisting : v;
+                return <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(axisOnly)}</td>;
+              })}
             </tr>
           </tbody>
         </table>
@@ -2557,133 +2620,141 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </div>
       </section>
 
-      {/* Method 3 — Cash Deficit Funding (full waterfall) */}
+      {/* M4 Pass 2V (2026-05-24): consolidated Cash Sweep & Dividend
+          Waterfall. Replaces the prior separate Method 3 + Cash Sweep +
+          Dividend Schedule tables with one comprehensive waterfall
+          matching the user's reference model. Per-tranche post-sweep
+          outstanding stays below as a supporting view. */}
       {(() => {
         const w = gap.method3Waterfall;
+        const sweep = snap.cashSweep;
+        const div = snap.dividends;
+        const debtPct = (snap.financing.funding.debtPct ?? 0) / 100;
+        const equityPct = (snap.financing.funding.equityPct ?? 0) / 100;
+        const idcAdd = w.idcDrawdownPerPeriod;
+        const debtSplit = w.netCashRequiredPerPeriod.map((v) => v * debtPct);
+        const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
+        const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
+        // Post-sweep cash available for dividend = cash sweep's
+        // adjustedClosingCash + after-sweep dividends (since those are
+        // already taken out in adjusted closing).
+        const postSweepCashBeforeAfterDiv = sweep.adjustedClosingCash.map(
+          (v, i) => v + div.afterSweepPhases.reduce((s, r) => s + (r.dividendsPerPeriod[i] ?? 0), 0),
+        );
         return (
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>Method 3 — Cash Deficit Funding (detailed waterfall)</div>
+            <div style={TABLE_TITLE}>Cash Sweep &amp; Dividend Waterfall (Method 3 + Sweep + Dividend, consolidated)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period cash waterfall ending with <strong>Net Cash Required</strong> — the funding required from NEW debt drawdown each period to keep cash at or above the minimum reserve ({p.fmt(w.minCashReserve)}). Opening Cash at axis start = historical opening cash (sum of phase.historicalOpeningCash); existing equity + existing debt are pre-axis events already reflected in that opening seed, so they don't appear as in-axis inflows here. IDC drawdown is shown as a memo since capitalised interest grows debt without moving cash. After-sweep dividends (new phases) come from cash AFTER debt repayment and are not part of this pre-debt gap.
+              Per-period waterfall ending with Closing Cash. Order: Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available. − Min Cash floor ({p.fmt(w.minCashReserve)}) = Cash for Debt+Dividend. − Cash Sweep on debt = Cash for Dividend. − After-sweep dividends = Closing Cash. Existing equity + existing debt opening are pre-axis (in the prior column), already reflected in opening cash. The Net Cash Required block at the bottom shows what NEW funding is implied if Cash Available was negative before reaching min cash.
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderStateRow('Opening Cash', w.openingCashPerPeriod)}
-                  {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod)}
-                  {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true })}
-                  {w.existingEquityDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(+) Existing Equity Drawdown', w.existingEquityDrawdownPerPeriod, { indent: 1 })}
-                  {w.existingDebtDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(+) Existing Debt Drawdown (opening + in-axis)', w.existingDebtDrawdownPerPeriod, { indent: 1 })}
-                  {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1 })}
-                  {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1 })}
-                  {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Dividends Paid (Phase 1, before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1 })}
-                  {renderFlowRow('Cash Available Before New Debt Drawdown', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true })}
-                  {renderFlowRow(`(−) Minimum Cash Reserve (floor)`, w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
-                  {renderFlowRow('Net Cash Required (= max(0, MinCash − CashAvailable))', w.netCashRequiredPerPeriod, { bold: true })}
+                  {/* INFLOWS / OUTFLOWS section */}
+                  <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Cash Available for Debt Repayment</td></tr>
+                  {renderStateRow('Opening Cash', w.openingCashPerPeriod, { priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod, { priorValue: 0 })}
+                  {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true, priorValue: -snap.financing.existing.preCapexTotal })}
+                  {renderFlowRow('(+) Equity Drawdown (Cash)', snap.directCF.equityDrawdownPerPeriod, { priorValue: snap.financing.existing.equityTotal })}
                   {(() => {
-                    // M4 Pass 2U-Fix #2 (2026-05-24): split Net Cash
-                    // Required into debt + equity per the project
-                    // funding ratio. IDC drawdown sits on the debt side
-                    // (per fundingMode='debt_drawdown'); other funding
-                    // mixes debt + equity per the ratio.
-                    const debtPct = (snap.financing.funding.debtPct ?? 0) / 100;
-                    const equityPct = (snap.financing.funding.equityPct ?? 0) / 100;
-                    const debtSplit = w.netCashRequiredPerPeriod.map((v) => v * debtPct);
-                    const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
-                    const idcAdd = w.idcDrawdownPerPeriod;
-                    const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
-                    return (
-                      <>
-                        {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2 })}
-                        {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2 })}
-                        {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC Drawdown (debt-only, capitalised interest — no cash)', idcAdd, { indent: 1 })}
-                        {renderFlowRow('Total New Debt Required (cash + IDC)', totalNewDebt, { bold: true })}
-                        {renderFlowRow('Total New Equity Required', equitySplit, { bold: true })}
-                      </>
-                    );
+                    // Existing debt opening shown in prior column; in-axis draws follow.
+                    const existingOpening = (() => {
+                      let s = 0;
+                      for (const fac of snap.financing.facilities.values()) {
+                        s += Math.max(0, fac.openingBalance ?? 0);
+                      }
+                      return s;
+                    })();
+                    return renderFlowRow('(+) Existing Debt Opening Balance', new Array<number>(N).fill(0), { priorValue: existingOpening });
                   })()}
+                  {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Phase 1 / Operational Dividend (before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {renderFlowRow('Cash Available', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}
+                  {renderFlowRow('(−) Minimum Cash Requirement', w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
+                  {renderFlowRow('Cash Available for Debt + Dividend Payment', w.cashAvailableBeforeNewDebtPerPeriod.map((v) => v - w.minCashReserve), { subtotal: true, priorValue: 0 })}
+
+                  {/* CASH SWEEP section */}
+                  {sweep.enabled && (
+                    <>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Cash Sweep — Debt Repayment Priority</td></tr>
+                      {sweep.eligibleTranches.map((row) => renderFlowRow(
+                        `  (−) Sweep: ${row.trancheName} (priority ${row.priority}, from ${row.startingYear})`,
+                        row.sweepPerPeriod.map((v) => -v),
+                        { negative: true, indent: 1, priorValue: 0 },
+                      ))}
+                      {renderFlowRow('Total Cash Sweep Applied', sweep.totalSweepPerPeriod.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
+                      {renderFlowRow('Cash Available for Dividend (post-sweep)', postSweepCashBeforeAfterDiv, { subtotal: true, priorValue: 0 })}
+                    </>
+                  )}
+
+                  {/* DIVIDENDS (after sweep) section */}
+                  {div.afterSweepPhases.length > 0 && (
+                    <>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Dividends (after sweep, new phases)</td></tr>
+                      {div.afterSweepPhases.map((row) => renderFlowRow(
+                        `  (−) ${row.phaseName} dividend (${(row.payoutRatio * 100).toFixed(0)}% of cash avail, cap EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
+                        row.dividendsPerPeriod.map((v) => -v),
+                        { negative: true, indent: 1, priorValue: 0 },
+                      ))}
+                    </>
+                  )}
+                  {div.enabled && renderFlowRow('Total Dividend Payment (Phase 1 + new phases)', div.totalDividendsPerPeriod.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
+                  {renderStateRow('Closing Cash', snap.directCF.closingCashPerPeriod, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+
+                  {/* MEMO + Net Cash Required */}
+                  {idcAdd.some((v) => v !== 0) && (
+                    <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — IDC drawdown is debt-only (no cash; grows balance directly)</td></tr>
+                  )}
+                  {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC Drawdown — capitalised interest', idcAdd, { indent: 1, priorValue: 0 })}
+
+                  {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (
+                    <>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Net Cash Required — implied NEW funding needed each period</td></tr>
+                      {renderFlowRow('Net Cash Required (= max(0, MinCash − Cash Available))', w.netCashRequiredPerPeriod, { bold: true, priorValue: 0 })}
+                      {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2, priorValue: 0 })}
+                      {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2, priorValue: 0 })}
+                      {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC Drawdown (debt-only, no cash)', idcAdd, { indent: 1, priorValue: 0 })}
+                      {renderFlowRow('Total New Debt Required (cash + IDC)', totalNewDebt, { bold: true, priorValue: 0 })}
+                      {renderFlowRow('Total New Equity Required', equitySplit, { bold: true, priorValue: 0 })}
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-              Grand total Net Cash Required: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>. This is the lifetime new funding the project needs across the axis (under the assumption that this amount is drawn each period to keep cash at the floor). Per the project's funding ratio, this is split into <strong>{(((snap.financing.funding.debtPct ?? 0))).toFixed(0)}%</strong> debt + <strong>{(((snap.financing.funding.equityPct ?? 0))).toFixed(0)}%</strong> equity. IDC drawdown is debt-only (fundingMode='debt_drawdown') and adds on top of the debt split.
+              Lifetime totals: Net Cash Required <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>
+              {sweep.enabled && <> · Cash Sweep applied <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalSweep)}</strong></>}
+              {div.enabled && <> · Dividend paid <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(div.totalDividends)}</strong></>}
+              . Funding ratio per project: <strong>{(snap.financing.funding.debtPct ?? 0).toFixed(0)}%</strong> debt / <strong>{(snap.financing.funding.equityPct ?? 0).toFixed(0)}%</strong> equity. IDC drawdown is debt-only.
             </div>
           </section>
         );
       })()}
 
-      {/* M4 Pass 2S (2026-05-24): Cash Sweep schedule. */}
-      {(() => {
-        const sweep = snap.cashSweep;
-        if (!sweep.enabled) {
-          return (
-            <section style={sectionStyle}>
-              <div style={TABLE_TITLE}>Cash Sweep — Debt Repayment Priority</div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                No tranche has cash sweep enabled. Enable cash sweep on a tranche by setting its repayment method to "Cash Sweep" (or by ticking enabled in cashSweepConfig). Configure priority (lower = paid first), starting year (defaults to construction end + 1), and sweep ratio % of excess cash.
-              </div>
-            </section>
-          );
-        }
-        return (
-          <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>Cash Sweep — Debt Repayment Priority</div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per period: excess cash = pre-sweep closing cash − minimum cash reserve ({p.fmt(sweep.minCashReserve)}). Distributed across sweep-enabled tranches in priority order until excess is exhausted or all balances are zero. V1 limitation: future interest is NOT re-derived from the lower post-sweep balance, so a tighter follow-up will close any residual.
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                {colgroup}
-                {headerRow}
-                <tbody>
-                  {renderFlowRow('Closing cash (pre-sweep)', sweep.preSweepClosingCash, { subtotal: true })}
-                  {renderFlowRow(`Less: Minimum cash reserve (floor)`, sweep.preSweepClosingCash.map(() => -sweep.minCashReserve), { negative: true })}
-                  {renderFlowRow('Excess cash available for sweep', sweep.excessAvailablePerPeriod)}
-                  {sweep.eligibleTranches.map((row) => renderFlowRow(
-                    `(−) Sweep: ${row.trancheName} (priority ${row.priority}, from ${row.startingYear})`,
-                    row.sweepPerPeriod.map((v) => -v),
-                    { negative: true, indent: 1 },
-                  ))}
-                  {renderFlowRow('Total sweep applied', sweep.totalSweepPerPeriod.map((v) => -v), { negative: true, bold: true })}
-                  {renderFlowRow('Closing cash (post-sweep)', sweep.adjustedClosingCash, { subtotal: true })}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ marginTop: 'var(--sp-2)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                Outstanding balance per tranche after sweep
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                  {colgroup}
-                  {headerRow}
-                  <tbody>
-                    {sweep.eligibleTranches.map((row) => (
-                      <React.Fragment key={`bal_${row.trancheId}`}>
-                        {renderStateRow(`${row.trancheName} — Pre-sweep closing`, row.preSweepOutstanding)}
-                        {renderStateRow(`${row.trancheName} — Post-sweep closing`, row.postSweepOutstanding, { subtotal: true })}
-                      </React.Fragment>
-                    ))}
-                    {renderStateRow('Project total debt outstanding (post-sweep)', sweep.adjustedDebtOutstanding, { bold: true })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-              Grand total sweep applied: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalSweep)}</strong>
-              {sweep.eligibleTranches.length > 0 && ' across '}
-              {sweep.eligibleTranches.map((r, i) => (
-                <span key={r.trancheId} style={{ marginLeft: i === 0 ? 0 : 4 }}>
-                  {i > 0 && ' · '}
-                  <strong style={{ color: 'var(--color-heading)' }}>{r.trancheName}</strong> ({p.fmt(r.totalSwept)})
-                </span>
-              ))}
-            </div>
-          </section>
-        );
-      })()}
+      {/* Per-tranche outstanding after sweep — supporting detail */}
+      {snap.cashSweep.enabled && (
+        <section style={sectionStyle}>
+          <div style={TABLE_TITLE}>Per-Tranche Outstanding (after sweep)</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              {colgroup}
+              {headerRow}
+              <tbody>
+                {snap.cashSweep.eligibleTranches.map((row) => (
+                  <React.Fragment key={`bal_${row.trancheId}`}>
+                    {renderStateRow(`${row.trancheName} — Pre-sweep closing`, row.preSweepOutstanding, { priorValue: 0 })}
+                    {renderStateRow(`${row.trancheName} — Post-sweep closing`, row.postSweepOutstanding, { subtotal: true, priorValue: 0 })}
+                  </React.Fragment>
+                ))}
+                {renderStateRow('Project total debt outstanding (post-sweep)', snap.cashSweep.adjustedDebtOutstanding, { bold: true, priorValue: 0 })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* M4 Pass 2T (2026-05-24): Dividend Policy editor + schedule. */}
       <section style={sectionStyle}>
@@ -2770,99 +2841,35 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </table>
       </section>
 
-      {/* Dividend schedule (always shown; empty when none enabled). */}
-      {(() => {
-        const div = snap.dividends;
-        if (!div.enabled) {
-          return (
-            <section style={sectionStyle}>
-              <div style={TABLE_TITLE}>Dividend Schedule</div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                No phase has dividend distribution enabled. Toggle dividend on a phase above and set its payout ratio.
-              </div>
-            </section>
-          );
-        }
-        return (
-          <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>Dividend Schedule</div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period dividend distribution per phase. Before-sweep phases distribute first; after-sweep phases distribute from what remains after the cash sweep. <strong>EBITDA cap:</strong> per phase, cumulative dividends never exceed cumulative phase EBITDA (Revenue − CoS − Opex, before D&A / interest / tax). Total dividends reduce closing cash + retained earnings (see Balance Sheet E2).
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                {colgroup}
-                {headerRow}
-                <tbody>
-                  {div.beforeSweepPhases.length > 0 && (
-                    <tr>
-                      <td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
-                        Before-sweep dividends (paid before cash sweep on debt)
-                      </td>
-                    </tr>
-                  )}
-                  {div.beforeSweepPhases.map((row) => (
-                    <React.Fragment key={`bs_${row.phaseId}`}>
-                      {renderFlowRow(
-                        `${row.phaseName} EBITDA (cap source)`,
-                        row.phaseEbitdaPerPeriod,
-                        { indent: 1, subtotal: true },
-                      )}
-                      {renderFlowRow(
-                        `${row.phaseName} cash available (above min reserve)`,
-                        row.cashAvailableForDividendPerPeriod,
-                        { indent: 1 },
-                      )}
-                      {renderFlowRow(
-                        `${row.phaseName} dividend = MIN(EBITDA budget, cash available × ${(row.payoutRatio * 100).toFixed(0)}%)`,
-                        row.dividendsPerPeriod,
-                        { indent: 1, subtotal: true },
-                      )}
-                    </React.Fragment>
-                  ))}
-                  {div.afterSweepPhases.length > 0 && (
-                    <tr>
-                      <td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>
-                        After-sweep dividends (paid from cash remaining after debt sweep)
-                      </td>
-                    </tr>
-                  )}
-                  {div.afterSweepPhases.map((row) => (
-                    <React.Fragment key={`as_${row.phaseId}`}>
-                      {renderFlowRow(
-                        `${row.phaseName} EBITDA (cap source)`,
-                        row.phaseEbitdaPerPeriod,
-                        { indent: 1, subtotal: true },
-                      )}
-                      {renderFlowRow(
-                        `${row.phaseName} cash available (after debt sweep, above min reserve)`,
-                        row.cashAvailableForDividendPerPeriod,
-                        { indent: 1 },
-                      )}
-                      {renderFlowRow(
-                        `${row.phaseName} dividend = MIN(EBITDA budget, cash available × ${(row.payoutRatio * 100).toFixed(0)}%)`,
-                        row.dividendsPerPeriod,
-                        { indent: 1, subtotal: true },
-                      )}
-                    </React.Fragment>
-                  ))}
-                  {renderFlowRow('Total dividends paid', div.totalDividendsPerPeriod, { bold: true })}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-              Grand total dividends: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(div.totalDividends)}</strong>
-              {[...div.beforeSweepPhases, ...div.afterSweepPhases].length > 0 && ' — '}
-              {[...div.beforeSweepPhases, ...div.afterSweepPhases].map((r, i, arr) => (
-                <span key={r.phaseId} style={{ marginLeft: i === 0 ? 0 : 4 }}>
-                  <strong style={{ color: 'var(--color-heading)' }}>{r.phaseName}</strong> ({p.fmt(r.totalDividends)})
-                  {i < arr.length - 1 && ' · '}
-                </span>
-              ))}
-            </div>
-          </section>
-        );
-      })()}
+      {/* Dividend per-phase EBITDA cap detail (supporting view; main
+          waterfall already shows the dividend line per phase). */}
+      {snap.dividends.enabled && (
+        <section style={sectionStyle}>
+          <div style={TABLE_TITLE}>Dividend Detail — per Phase EBITDA Cap</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+            Per phase EBITDA (Revenue − CoS − Opex, before D&A / interest / tax) caps cumulative dividends. Shows the EBITDA budget, cash available at the time of dividend, and resulting dividend per period.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              {colgroup}
+              {headerRow}
+              <tbody>
+                {[...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases].map((row) => (
+                  <React.Fragment key={`detail_${row.phaseId}`}>
+                    <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>{row.phaseName} ({row.priority === 'before_sweep' ? 'before sweep' : 'after sweep'})</td></tr>
+                    {renderFlowRow(`  ${row.phaseName} EBITDA (cap source, cum. cap ${p.fmt(row.totalPhaseEbitda)})`, row.phaseEbitdaPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
+                    {renderFlowRow(`  Cash available for dividend (${row.priority === 'before_sweep' ? 'above min reserve' : 'after debt sweep'})`, row.cashAvailableForDividendPerPeriod, { indent: 1, priorValue: 0 })}
+                    {renderFlowRow(`  Dividend = MIN(EBITDA budget, cash × ${(row.payoutRatio * 100).toFixed(0)}%)`, row.dividendsPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+            Grand total dividends: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(snap.dividends.totalDividends)}</strong>.
+          </div>
+        </section>
+      )}
     </>
   );
 }
