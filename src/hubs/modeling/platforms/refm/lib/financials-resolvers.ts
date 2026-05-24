@@ -48,7 +48,7 @@ import {
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
 import type { Module1Store } from './state/module1-store';
-import type { Asset } from './state/module1-types';
+import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 
 export type FinancialsResolverState = Pick<
@@ -319,6 +319,10 @@ export interface ProjectFinancialsSnapshot {
   directCF: ProjectDirectCF;
   indirectCF: ProjectIndirectCF;
   bs: ProjectBS;
+  /** M4 Pass 2S (2026-05-24): cash sweep schedule + adjusted BS Cash /
+   *  Debt curves. Always present; sweep.enabled === false when no
+   *  tranche has sweep configured. */
+  cashSweep: CashSweepSnapshot;
 }
 
 const zeros = (n: number): number[] => new Array<number>(n).fill(0);
@@ -523,13 +527,23 @@ export interface FundingGapSnapshot {
   yearLabels: number[];
   // Method A inputs (each per period, project-axis)
   capexPerPeriod: number[];
-  preSalesCashPerPeriod: number[];
+  /** Pre-sales cash received from customers, gross of escrow. */
+  preSalesGrossPerPeriod: number[];
+  /** Cash held back into escrow (inaccessible to project) per period. */
   escrowHeldPerPeriod: number[];
-  /** Method A gap per period: capex − (preSales − escrow held). May be negative
-   *  (surplus) when pre-sales exceed capex in a period. */
+  /** Escrow release back to project per period (becomes accessible). */
+  escrowReleasePerPeriod: number[];
+  /** Pre-sales net of escrow movement = gross − held + release. */
+  preSalesNetPerPeriod: number[];
+  /** Funding requirement fulfilled by pre-sales = min(capex, preSalesNet). */
+  fulfilledByPreSalesPerPeriod: number[];
+  /** Method A funding gap per period: MAX(0, capex − preSalesNet).
+   *  Floored at 0 — a surplus in one period doesn't reduce later gap. */
   methodAGapPerPeriod: number[];
   methodAGapCumulative: number[];
   methodATotalGap: number;
+  /** @deprecated Kept for legacy V1 callers; equal to preSalesGrossPerPeriod. */
+  preSalesCashPerPeriod: number[];
   // Method B inputs
   cashFromOpsPerPeriod: number[];
   cashFromInvPerPeriod: number[];
@@ -543,19 +557,194 @@ export interface FundingGapSnapshot {
   methodBTotalGap: number;
 }
 
+/**
+ * M4 Pass 2S (2026-05-24): Cash Sweep snapshot.
+ *
+ * Forward-pass post-processor on the financing engine output. For each
+ * period:
+ *   excess[t] = preSweepClosingCash[t] − minCashReserve (only counted
+ *               from each tranche's sweep startingYear onward)
+ *   if excess > 0, distribute across sweep-enabled tranches in priority
+ *   order (lower priority = paid first), limited by each tranche's
+ *   remaining outstanding balance and its sweepRatio.
+ *
+ * V1 limitation: this iteration does NOT re-derive future interest from
+ * the lower post-sweep balance — the snapshot's interestAccrued curve
+ * stays as the financing engine emitted it. This means an actual sweep
+ * would save more interest than this display shows, leaving a small
+ * residual excess cash in later years. Tighter iteration lands in a
+ * follow-up pass; current view is accurate for the sweep schedule and
+ * the BS adjustment (cash − debt, both sides reduce equally).
+ */
+export interface CashSweepRow {
+  trancheId: string;
+  trancheName: string;
+  origin: 'existing' | 'new';
+  priority: number;
+  startingYear: number;
+  startingYearAxisIdx: number;
+  sweepRatio: number;
+  preSweepOutstanding: number[];
+  postSweepOutstanding: number[];
+  sweepPerPeriod: number[];
+  totalSwept: number;
+}
+
+export interface CashSweepSnapshot {
+  axisLength: number;
+  enabled: boolean;
+  /** Project minimum cash reserve consumed by the sweep floor. */
+  minCashReserve: number;
+  /** Sorted list of sweep-eligible tranches (priority ascending). */
+  eligibleTranches: CashSweepRow[];
+  /** Pre-sweep closing cash per period (mirrors directCF before sweep). */
+  preSweepClosingCash: number[];
+  /** Excess available per period before sweep (capped at 0 from below). */
+  excessAvailablePerPeriod: number[];
+  /** Total sweep applied per period (sum across all tranches). */
+  totalSweepPerPeriod: number[];
+  totalSweep: number;
+  /** Closing cash per period AFTER sweep. */
+  adjustedClosingCash: number[];
+  /** Project total debt outstanding per period AFTER sweep. */
+  adjustedDebtOutstanding: number[];
+}
+
+export function computeCashSweep(args: {
+  axisLength: number;
+  projectStartYear: number;
+  tranches: FinancingTranche[];
+  phases: Phase[];
+  facilityOutstanding: Map<string, number[]>;
+  preSweepClosingCash: number[];
+  minCashReserve: number;
+}): CashSweepSnapshot {
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve } = args;
+  // Build list of sweep-eligible tranches with resolved config.
+  const eligible: CashSweepRow[] = [];
+  for (const t of tranches) {
+    const cfg = t.cashSweepConfig ?? {};
+    const useSweep = (t.repaymentMethod === 'cash_sweep') || (cfg.enabled === true);
+    if (!useSweep) continue;
+    const fac = facilityOutstanding.get(t.id);
+    if (!fac) continue;
+    // Default startingYear = construction-end + 1 of the tranche's owning phase.
+    const phase = phases.find((p) => p.id === t.phaseId);
+    const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+    const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+    const defaultStartingYear = phaseStartYear + cp;
+    const startingYear = cfg.startingYear ?? defaultStartingYear;
+    const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
+    const priority = cfg.priority ?? 100;
+    const sweepRatio = Math.max(0, Math.min(1, (cfg.sweepRatio ?? 100) / 100));
+    eligible.push({
+      trancheId: t.id,
+      trancheName: t.name,
+      origin: t.origin === 'existing' ? 'existing' : 'new',
+      priority,
+      startingYear,
+      startingYearAxisIdx,
+      sweepRatio,
+      preSweepOutstanding: fac.slice(0, N),
+      postSweepOutstanding: fac.slice(0, N),
+      sweepPerPeriod: new Array<number>(N).fill(0),
+      totalSwept: 0,
+    });
+  }
+  eligible.sort((a, b) => a.priority - b.priority);
+
+  const excessAvailablePerPeriod = new Array<number>(N).fill(0);
+  const totalSweepPerPeriod = new Array<number>(N).fill(0);
+  const adjustedClosingCash = preSweepClosingCash.slice(0, N);
+  while (adjustedClosingCash.length < N) adjustedClosingCash.push(0);
+
+  // Forward pass. Each period's cumulative-sweep effect carries forward
+  // by reducing all subsequent post-sweep outstanding balances of that
+  // tranche AND by reducing closing cash for the period.
+  let cumSweep = 0;
+  for (let t = 0; t < N; t++) {
+    const cashBeforeSweep = (preSweepClosingCash[t] ?? 0) - cumSweep;
+    const excess = Math.max(0, cashBeforeSweep - minCashReserve);
+    excessAvailablePerPeriod[t] = excess;
+    if (excess <= 0) {
+      adjustedClosingCash[t] = cashBeforeSweep;
+      continue;
+    }
+    let available = excess;
+    for (const row of eligible) {
+      if (t < row.startingYearAxisIdx) continue;
+      if (available <= 0) break;
+      const remaining = Math.max(0, row.postSweepOutstanding[t] ?? 0);
+      if (remaining <= 0) continue;
+      const sweepable = Math.min(available * row.sweepRatio, remaining, available);
+      if (sweepable <= 0) continue;
+      row.sweepPerPeriod[t] = (row.sweepPerPeriod[t] ?? 0) + sweepable;
+      row.totalSwept += sweepable;
+      totalSweepPerPeriod[t] += sweepable;
+      available -= sweepable;
+      // Reduce future post-sweep outstanding for this tranche from t onward.
+      for (let u = t; u < N; u++) {
+        row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
+      }
+    }
+    cumSweep += totalSweepPerPeriod[t];
+    adjustedClosingCash[t] = cashBeforeSweep - totalSweepPerPeriod[t];
+  }
+
+  // Adjusted project debt outstanding = sum of post-sweep eligible + raw non-eligible.
+  const eligibleIds = new Set(eligible.map((e) => e.trancheId));
+  const adjustedDebtOutstanding = new Array<number>(N).fill(0);
+  for (const row of eligible) {
+    for (let t = 0; t < N; t++) adjustedDebtOutstanding[t] += row.postSweepOutstanding[t] ?? 0;
+  }
+  for (const [trancheId, outArr] of facilityOutstanding) {
+    if (eligibleIds.has(trancheId)) continue;
+    for (let t = 0; t < N; t++) adjustedDebtOutstanding[t] += outArr[t] ?? 0;
+  }
+
+  return {
+    axisLength: N,
+    enabled: eligible.length > 0,
+    minCashReserve,
+    eligibleTranches: eligible,
+    preSweepClosingCash: preSweepClosingCash.slice(0, N),
+    excessAvailablePerPeriod,
+    totalSweepPerPeriod,
+    totalSweep: totalSweepPerPeriod.reduce((s, v) => s + v, 0),
+    adjustedClosingCash,
+    adjustedDebtOutstanding,
+  };
+}
+
 export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSnapshot {
   const N = snap.axisLength;
   const yearLabels = snap.yearLabels;
-  // Method A inputs
+  // M4 Pass 2S (2026-05-24): Method A reshaped to a 6-row pre-sales
+  // waterfall per the user's reference layout:
+  //   Capex
+  //   Pre-sales gross
+  //   − Inaccessible funds locked (escrow held)
+  //   + Release of inaccessible funds (escrow release)
+  //   Pre-sales net
+  //   Funding requirement fulfilled by pre-sales = MIN(capex, preSalesNet)
+  //   Funding gap = MAX(0, capex − preSalesNet)   ← floored, no surplus carry
   const capexPerPeriod = snap.financing.capex.perPeriod.exclLandInKind.slice(0, N);
   while (capexPerPeriod.length < N) capexPerPeriod.push(0);
-  const preSalesCashPerPeriod = snap.revenue.projectTotals.presalesCashPerPeriod.slice(0, N);
-  while (preSalesCashPerPeriod.length < N) preSalesCashPerPeriod.push(0);
+  const preSalesGrossPerPeriod = snap.revenue.projectTotals.presalesCashPerPeriod.slice(0, N);
+  while (preSalesGrossPerPeriod.length < N) preSalesGrossPerPeriod.push(0);
   const escrowHeldPerPeriod = snap.escrow.projectTotals.heldPerPeriod.slice(0, N);
   while (escrowHeldPerPeriod.length < N) escrowHeldPerPeriod.push(0);
+  const escrowReleasePerPeriod = snap.escrow.projectTotals.releasePerPeriod.slice(0, N);
+  while (escrowReleasePerPeriod.length < N) escrowReleasePerPeriod.push(0);
+  const preSalesNetPerPeriod = zeros(N);
+  const fulfilledByPreSalesPerPeriod = zeros(N);
   const methodAGapPerPeriod = zeros(N);
   for (let t = 0; t < N; t++) {
-    methodAGapPerPeriod[t] = capexPerPeriod[t] - (preSalesCashPerPeriod[t] - escrowHeldPerPeriod[t]);
+    preSalesNetPerPeriod[t] = (preSalesGrossPerPeriod[t] ?? 0)
+      - (escrowHeldPerPeriod[t] ?? 0)
+      + (escrowReleasePerPeriod[t] ?? 0);
+    fulfilledByPreSalesPerPeriod[t] = Math.min(capexPerPeriod[t] ?? 0, Math.max(0, preSalesNetPerPeriod[t]));
+    methodAGapPerPeriod[t] = Math.max(0, (capexPerPeriod[t] ?? 0) - preSalesNetPerPeriod[t]);
   }
   const methodAGapCumulative = cumulative(methodAGapPerPeriod);
   const methodATotalGap = methodAGapPerPeriod.reduce((s, v) => s + v, 0);
@@ -580,11 +769,15 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     axisLength: N,
     yearLabels,
     capexPerPeriod,
-    preSalesCashPerPeriod,
+    preSalesGrossPerPeriod,
     escrowHeldPerPeriod,
+    escrowReleasePerPeriod,
+    preSalesNetPerPeriod,
+    fulfilledByPreSalesPerPeriod,
     methodAGapPerPeriod,
     methodAGapCumulative,
     methodATotalGap,
+    preSalesCashPerPeriod: preSalesGrossPerPeriod, // back-compat alias
     cashFromOpsPerPeriod,
     cashFromInvPerPeriod,
     preFinancingNetCfPerPeriod,
@@ -987,28 +1180,12 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     closingCash[t] = runningCash;
   }
 
-  const directCF: ProjectDirectCF = {
-    revenueReceivedPerPeriod: revRcvProject,
-    escrowHeldPerPeriod: escrowHeld.map((v) => -v),
-    escrowReleasePerPeriod: escrowRelease,
-    netRevenueAdjustmentPerPeriod: netRevAdj,
-    opexPaidPerPeriod: opexPaidProject.map((v) => -v),
-    hqOpexPaidPerPeriod: hqOpexPaid.map((v) => -v),
-    taxPaidPerPeriod: taxPaidArr.map((v) => -v),
-    cashFromOperationsPerPeriod: cashFromOps,
-    capexPerPeriod: capexProj.map((v) => -v),
-    cashFromInvestmentPerPeriod: cashFromInv,
-    // M4 Pass 2P: CASH equity only on CF. In-kind kept as a memo field.
-    equityDrawdownPerPeriod: equityCashArr,
-    equityInKindDrawdownPerPeriod: equityInKindArr,
-    debtDrawdownPerPeriod: debtDraws,
-    debtRepaymentPerPeriod: debtRepays.map((v) => -v),
-    interestPaidPerPeriod: interestPaidArr.map((v) => -v),
-    cashFromFinancingPerPeriod: cashFromFin,
-    netCashFlowPerPeriod: netCf,
-    openingCashPerPeriod: openingCash,
-    closingCashPerPeriod: closingCash,
-  };
+  // M4 Pass 2S (2026-05-24): when cash sweep is enabled, fold sweep
+  // amounts into the financing block as an additional debt repayment
+  // line, so cashFromFin / closingCash reflect the sweep. This is
+  // defined HERE (above directCF construction) but populated AFTER
+  // the cashSweep snapshot is computed (further below in the function).
+  // The directCF arrays referenced below pull from these adjusted vars.
 
   // 6. Indirect Cash Flow
   // Aggregate working-capital changes: AR (operating + residential milestone), AP, Inventory, Unearned, Escrow
@@ -1071,9 +1248,72 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     netCashFlowPerPeriod: cashFromOpsIndirect.map((v, i) => v + cashFromInv[i] + cashFromFin[i]),
   };
 
+  // M4 Pass 2S (2026-05-24): Cash Sweep post-pass. Walks period-by-
+  // period; for each period computes excess cash (closingCash − minCash)
+  // and distributes across sweep-enabled tranches in priority order. The
+  // adjusted closing cash (post-sweep) feeds BS Cash; adjusted facility
+  // outstandings feed BS Debt. BS check stays balanced (both sides
+  // reduce by the same total sweep amount each period). This iteration
+  // does NOT re-derive future interest from the lower post-sweep
+  // balance, so a tighter follow-up will close any residual.
+  const facilityOutstandingForSweep = new Map<string, number[]>();
+  for (const [trancheId, fac] of financing.facilities) {
+    facilityOutstandingForSweep.set(trancheId, fac.outstanding.slice(0, N));
+  }
+  const cashSweep = computeCashSweep({
+    axisLength: N,
+    projectStartYear,
+    tranches: financingTranches,
+    phases,
+    facilityOutstanding: facilityOutstandingForSweep,
+    preSweepClosingCash: closingCash,
+    minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
+  });
+
+  // Build sweep-adjusted Direct CF arrays. When sweep is enabled, the
+  // total per-period sweep adds to debt repayment (cash outflow) and
+  // reduces cashFromFinancing and netCashFlow and closingCash.
+  const sweepPerPeriodPos = cashSweep.totalSweepPerPeriod.slice(0, N);
+  while (sweepPerPeriodPos.length < N) sweepPerPeriodPos.push(0);
+  const debtRepaysAdj = debtRepays.map((v, i) => v + (sweepPerPeriodPos[i] ?? 0));
+  const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0));
+  const netCfAdj = netCf.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0));
+  const closingCashAdj = cashSweep.enabled ? cashSweep.adjustedClosingCash.slice(0, N) : closingCash;
+  const openingCashAdj = zeros(N);
+  {
+    let runC = historicalOpeningCashTotal;
+    for (let t = 0; t < N; t++) {
+      openingCashAdj[t] = runC;
+      runC = closingCashAdj[t] ?? runC;
+    }
+  }
+
+  const directCF: ProjectDirectCF = {
+    revenueReceivedPerPeriod: revRcvProject,
+    escrowHeldPerPeriod: escrowHeld.map((v) => -v),
+    escrowReleasePerPeriod: escrowRelease,
+    netRevenueAdjustmentPerPeriod: netRevAdj,
+    opexPaidPerPeriod: opexPaidProject.map((v) => -v),
+    hqOpexPaidPerPeriod: hqOpexPaid.map((v) => -v),
+    taxPaidPerPeriod: taxPaidArr.map((v) => -v),
+    cashFromOperationsPerPeriod: cashFromOps,
+    capexPerPeriod: capexProj.map((v) => -v),
+    cashFromInvestmentPerPeriod: cashFromInv,
+    equityDrawdownPerPeriod: equityCashArr,
+    equityInKindDrawdownPerPeriod: equityInKindArr,
+    debtDrawdownPerPeriod: debtDraws,
+    debtRepaymentPerPeriod: debtRepaysAdj.map((v) => -v),
+    interestPaidPerPeriod: interestPaidArr.map((v) => -v),
+    cashFromFinancingPerPeriod: cashFromFinAdj,
+    netCashFlowPerPeriod: netCfAdj,
+    openingCashPerPeriod: openingCashAdj,
+    closingCashPerPeriod: closingCashAdj,
+  };
+
   // 7. Balance Sheet
   // Assets
-  const cashPerPeriod = closingCash;
+  // M4 Pass 2S: use sweep-adjusted closing cash when sweep is enabled.
+  const cashPerPeriod = closingCashAdj;
   const arPerPeriod = operatingAR.perPeriod.slice(0, N);
   const residentialReceivables = zeros(N);
   const inventoryArr = inventoryClosingProject;
@@ -1103,15 +1343,16 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   }
   const escrowLiab = escrowBalance;
   const debtOutstanding = zeros(N);
-  for (const fac of financing.facilities.values()) {
-    // M4 Pass 2N-Fix (2026-05-21): fac.outstanding is project-axis-
-    // indexed (length = N), where outstanding[t] is the CLOSING balance
-    // at end of year t. The previous code read outstanding[t + 1],
-    // assuming a [prior, year0, year1, ..., yearN-1] shape that the
-    // engine never produced. That shifted every BS year one slot to the
-    // left and zeroed the last year (out-of-bounds read), driving the
-    // 2,969,006 BS imbalance the user reported.
-    for (let t = 0; t < N; t++) debtOutstanding[t] += fac.outstanding[t] ?? 0;
+  if (cashSweep.enabled) {
+    // M4 Pass 2S: use sweep-adjusted outstandings.
+    for (let t = 0; t < N; t++) debtOutstanding[t] = cashSweep.adjustedDebtOutstanding[t] ?? 0;
+  } else {
+    for (const fac of financing.facilities.values()) {
+      // M4 Pass 2N-Fix (2026-05-21): fac.outstanding is project-axis-
+      // indexed (length = N), where outstanding[t] is the CLOSING balance
+      // at end of year t.
+      for (let t = 0; t < N; t++) debtOutstanding[t] += fac.outstanding[t] ?? 0;
+    }
   }
   const totalCL = zeros(N);
   for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t] + escrowLiab[t];
@@ -1207,5 +1448,6 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     directCF,
     indirectCF,
     bs,
+    cashSweep,
   };
 }

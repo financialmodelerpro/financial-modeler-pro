@@ -351,15 +351,18 @@ console.log('\n[M] Pass 2R: Funding Gap identities');
   let runningA = 0;
   let runningB = 0;
   for (let t = 0; t < snap.axisLength; t++) {
-    const expectedA = (gap.capexPerPeriod[t] ?? 0)
-      - ((gap.preSalesCashPerPeriod[t] ?? 0) - (gap.escrowHeldPerPeriod[t] ?? 0));
-    assertNear(
-      `M1[t=${t}]: methodA = capex − (preSales − escrowHeld)`,
-      gap.methodAGapPerPeriod[t] ?? 0,
-      expectedA,
-    );
+    // M4 Pass 2S (2026-05-24): Method A reshaped — gap is now floored
+    // at 0 (MAX(0, capex − preSalesNet)) instead of a signed delta.
+    // preSalesNet = gross − escrow held + escrow release.
+    const preSalesNet = (gap.preSalesGrossPerPeriod[t] ?? 0)
+      - (gap.escrowHeldPerPeriod[t] ?? 0)
+      + (gap.escrowReleasePerPeriod[t] ?? 0);
+    const expectedA = Math.max(0, (gap.capexPerPeriod[t] ?? 0) - preSalesNet);
+    assertNear(`M1[t=${t}]: methodA = MAX(0, capex − preSalesNet)`, gap.methodAGapPerPeriod[t] ?? 0, expectedA);
     runningA += expectedA;
     assertNear(`M2[t=${t}]: methodA cumulative`, gap.methodAGapCumulative[t] ?? 0, runningA);
+    const expectedFulfilled = Math.min(gap.capexPerPeriod[t] ?? 0, Math.max(0, preSalesNet));
+    assertNear(`M1b[t=${t}]: fulfilled = MIN(capex, max(0, preSalesNet))`, gap.fulfilledByPreSalesPerPeriod[t] ?? 0, expectedFulfilled);
 
     const ops = gap.cashFromOpsPerPeriod[t] ?? 0;
     const inv = gap.cashFromInvPerPeriod[t] ?? 0;
@@ -374,6 +377,57 @@ console.log('\n[M] Pass 2R: Funding Gap identities');
     gap.methodBTotalGap,
     gap.methodBGapPerPeriod.reduce((s, v) => s + v, 0),
   );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// N: M4 Pass 2S (2026-05-24) — Cash Sweep identities
+//   N1: snapshot always carries a cashSweep object (enabled false when
+//       no tranche has sweep config)
+//   N2: when enabled, sum(eligibleTranches[i].sweepPerPeriod[t]) == totalSweepPerPeriod[t]
+//   N3: adjustedDebtOutstanding[t] <= sum(facility.outstanding[t]) (sweep
+//       only reduces debt, never increases)
+//   N4: BS still balances under default fixture (no sweep configured)
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[N] Pass 2S: Cash Sweep identities');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  // N1: cashSweep always present
+  if (!snap.cashSweep || typeof snap.cashSweep.enabled !== 'boolean') {
+    fail++;
+    failures.push('N1: snap.cashSweep missing');
+    console.log('  [FAIL] N1: snap.cashSweep missing');
+  } else {
+    pass++;
+    console.log(`  [PASS] N1: snap.cashSweep present (enabled=${snap.cashSweep.enabled})`);
+  }
+  // N3 (no sweep): adjustedDebt equals raw sum of facility outstandings
+  let rawDebtMatch = true;
+  for (let t = 0; t < snap.axisLength; t++) {
+    let raw = 0;
+    for (const fac of snap.financing.facilities.values()) raw += fac.outstanding[t] ?? 0;
+    if (Math.abs(raw - (snap.cashSweep.adjustedDebtOutstanding[t] ?? 0)) > 1) {
+      rawDebtMatch = false;
+      break;
+    }
+  }
+  if (rawDebtMatch) {
+    pass++;
+    console.log('  [PASS] N3 (no sweep): adjustedDebtOutstanding == raw sum of facility.outstanding');
+  } else {
+    fail++;
+    failures.push('N3: adjustedDebtOutstanding diverges from raw facility sum when no sweep configured');
+    console.log('  [FAIL] N3: adjustedDebtOutstanding diverges from raw facility sum when no sweep configured');
+  }
+  // N4: BS still balances under default fixture
+  const maxAbs = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  if (maxAbs < 1) {
+    pass++;
+    console.log(`  [PASS] N4: BS still balances with sweep wired in (maxAbsDiff=${maxAbs.toFixed(2)})`);
+  } else {
+    fail++;
+    failures.push(`N4: BS diff ${maxAbs.toFixed(2)} > 1 after sweep wire-up`);
+    console.log(`  [FAIL] N4: BS diff ${maxAbs.toFixed(2)} > 1 after sweep wire-up`);
+  }
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

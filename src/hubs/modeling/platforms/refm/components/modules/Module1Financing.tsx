@@ -1193,12 +1193,25 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         />
       )}
 
-      {(t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (
-        <CashSweepEditor
-          config={t.cashSweepConfig}
-          onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
-        />
-      )}
+      {/* M4 Pass 2S (2026-05-24): Cash Sweep editor renders whenever the
+          tranche's repayment method is cash_sweep OR cashSweepConfig.enabled
+          is true (lets sweep stack on top of another scheduled method). */}
+      {(t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true || t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (() => {
+        // Default startingYear = construction end + 1 of owning phase.
+        const phase = p.phases.find((ph) => ph.id === t.phaseId);
+        const phaseStartYear = phase?.startDate
+          ? new Date(phase.startDate).getUTCFullYear()
+          : p.projectStartYear;
+        const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+        const defaultStartingYear = phaseStartYear + cp;
+        return (
+          <CashSweepEditor
+            config={t.cashSweepConfig}
+            defaultStartingYear={defaultStartingYear}
+            onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
+          />
+        );
+      })()}
 
       {/* Pass 53 (2026-05-14): Existing Operations panel
           relocated BELOW the rate + repayment rows so the user
@@ -1522,27 +1535,42 @@ function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
 // ── Cash Sweep editor ──────────────────────────────────────────────────
 
 interface CashSweepEditorProps {
-  config: { startingYear: number; sweepRatio: number } | undefined;
-  onChange: (cfg: { startingYear: number; sweepRatio: number }) => void;
+  config: { enabled?: boolean; priority?: number; startingYear?: number; sweepRatio?: number } | undefined;
+  onChange: (cfg: { enabled?: boolean; priority?: number; startingYear?: number; sweepRatio?: number }) => void;
+  /** Default starting year suggestion (construction end + 1 of owning phase). */
+  defaultStartingYear: number;
 }
 
 function CashSweepEditor(p: CashSweepEditorProps): React.JSX.Element {
-  const cfg = p.config ?? { startingYear: 1, sweepRatio: 75 };
+  const cfg = p.config ?? {};
+  const startingYear = cfg.startingYear ?? p.defaultStartingYear;
+  const sweepRatio = cfg.sweepRatio ?? 100;
+  const priority = cfg.priority ?? 100;
   return (
-    <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+    <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
       <div>
-        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Starting Year</label>
+        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Priority (lower = paid first)</label>
         <input
           type="number"
-          value={cfg.startingYear}
-          onChange={(e) => p.onChange({ ...cfg, startingYear: Math.max(1, Number(e.target.value) || 1) })}
+          value={priority}
+          onChange={(e) => p.onChange({ ...cfg, priority: Math.max(0, Number(e.target.value) || 0) })}
           style={inputStyle}
         />
       </div>
       <div>
-        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Ratio % (excess cash above min reserve)</label>
+        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Starting Year (calendar)</label>
+        <input
+          type="number"
+          value={startingYear}
+          onChange={(e) => p.onChange({ ...cfg, startingYear: Math.max(1900, Number(e.target.value) || p.defaultStartingYear) })}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>Default: {p.defaultStartingYear} (construction end + 1)</div>
+      </div>
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Ratio % of excess cash</label>
         <PercentageInput
-          value={cfg.sweepRatio}
+          value={sweepRatio}
           onChange={(v) => p.onChange({ ...cfg, sweepRatio: v })}
           style={inputStyle}
         />
@@ -2484,21 +2512,25 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </div>
       </section>
 
-      {/* Method A — Capex vs Pre-Sales */}
+      {/* Method A — Capex vs Pre-Sales (full pre-sales waterfall per
+          user's reference layout, M4 Pass 2S 2026-05-24) */}
       <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Method A — Capex vs Pre-Sales (gross)</div>
+        <div style={TABLE_TITLE}>Method A — Capex vs Pre-Sales</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Gap = Capex (excl land in-kind) − (Pre-Sales cash − Escrow held). Simple sanity-check; ignores opex / tax / AR / AP / interest. A positive gap means external funding is required for that period.
+          Gap = MAX(0, Capex − Pre-Sales net). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
             {colgroup}
             {headerRow}
             <tbody>
-              {renderFlowRow('(+) Capex (excl land in-kind)', gap.capexPerPeriod)}
-              {renderFlowRow('(−) Pre-Sales cash collected', gap.preSalesCashPerPeriod.map((v) => -v), { negative: true })}
-              {renderFlowRow('(+) Escrow held (cash held back)', gap.escrowHeldPerPeriod)}
-              {renderFlowRow('Method A — Funding Gap', gap.methodAGapPerPeriod, { bold: true })}
+              {renderFlowRow('Total project capex (excl land in-kind)', gap.capexPerPeriod, { subtotal: true })}
+              {renderFlowRow('Advance received from customer (gross)', gap.preSalesGrossPerPeriod)}
+              {renderFlowRow('  Less: Inaccessible funds locked (escrow held)', gap.escrowHeldPerPeriod.map((v) => -v), { negative: true, indent: 1 })}
+              {renderFlowRow('  Add: Release of inaccessible funds (escrow release)', gap.escrowReleasePerPeriod, { indent: 1 })}
+              {renderFlowRow('Advance received from customer (net)', gap.preSalesNetPerPeriod, { subtotal: true })}
+              {renderFlowRow('Funding requirement fulfilled by pre-sales (capped at capex)', gap.fulfilledByPreSalesPerPeriod)}
+              {renderFlowRow('Funding gap = MAX(Capex − Pre-Sales, 0) per period', gap.methodAGapPerPeriod, { bold: true })}
               {renderStateRow('Cumulative Funding Gap (A)', gap.methodAGapCumulative, { subtotal: true })}
             </tbody>
           </table>
@@ -2531,6 +2563,77 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           Grand total gap (B): <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(gap.methodBTotalGap)}</strong>
         </div>
       </section>
+
+      {/* M4 Pass 2S (2026-05-24): Cash Sweep schedule. */}
+      {(() => {
+        const sweep = snap.cashSweep;
+        if (!sweep.enabled) {
+          return (
+            <section style={sectionStyle}>
+              <div style={TABLE_TITLE}>Cash Sweep — Debt Repayment Priority</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                No tranche has cash sweep enabled. Enable cash sweep on a tranche by setting its repayment method to "Cash Sweep" (or by ticking enabled in cashSweepConfig). Configure priority (lower = paid first), starting year (defaults to construction end + 1), and sweep ratio % of excess cash.
+              </div>
+            </section>
+          );
+        }
+        return (
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>Cash Sweep — Debt Repayment Priority</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              Per period: excess cash = pre-sweep closing cash − minimum cash reserve ({p.fmt(sweep.minCashReserve)}). Distributed across sweep-enabled tranches in priority order until excess is exhausted or all balances are zero. V1 limitation: future interest is NOT re-derived from the lower post-sweep balance, so a tighter follow-up will close any residual.
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {renderFlowRow('Closing cash (pre-sweep)', sweep.preSweepClosingCash, { subtotal: true })}
+                  {renderFlowRow(`Less: Minimum cash reserve (floor)`, sweep.preSweepClosingCash.map(() => -sweep.minCashReserve), { negative: true })}
+                  {renderFlowRow('Excess cash available for sweep', sweep.excessAvailablePerPeriod)}
+                  {sweep.eligibleTranches.map((row) => renderFlowRow(
+                    `(−) Sweep: ${row.trancheName} (priority ${row.priority}, from ${row.startingYear})`,
+                    row.sweepPerPeriod.map((v) => -v),
+                    { negative: true, indent: 1 },
+                  ))}
+                  {renderFlowRow('Total sweep applied', sweep.totalSweepPerPeriod.map((v) => -v), { negative: true, bold: true })}
+                  {renderFlowRow('Closing cash (post-sweep)', sweep.adjustedClosingCash, { subtotal: true })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 'var(--sp-2)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                Outstanding balance per tranche after sweep
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  {colgroup}
+                  {headerRow}
+                  <tbody>
+                    {sweep.eligibleTranches.map((row) => (
+                      <React.Fragment key={`bal_${row.trancheId}`}>
+                        {renderStateRow(`${row.trancheName} — Pre-sweep closing`, row.preSweepOutstanding)}
+                        {renderStateRow(`${row.trancheName} — Post-sweep closing`, row.postSweepOutstanding, { subtotal: true })}
+                      </React.Fragment>
+                    ))}
+                    {renderStateRow('Project total debt outstanding (post-sweep)', sweep.adjustedDebtOutstanding, { bold: true })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+              Grand total sweep applied: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalSweep)}</strong>
+              {sweep.eligibleTranches.length > 0 && ' across '}
+              {sweep.eligibleTranches.map((r, i) => (
+                <span key={r.trancheId} style={{ marginLeft: i === 0 ? 0 : 4 }}>
+                  {i > 0 && ' · '}
+                  <strong style={{ color: 'var(--color-heading)' }}>{r.trancheName}</strong> ({p.fmt(r.totalSwept)})
+                </span>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
     </>
   );
 }

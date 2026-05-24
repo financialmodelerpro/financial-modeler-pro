@@ -1834,9 +1834,26 @@ export interface FinancingTranche {
   // P2-Fix 5: % per period for year_on_year_pct (sums to 100, auto-normalised).
   yearOnYearPctSchedule?: number[];
   // P2-Fix 5: cash sweep config for the new cash_sweep method.
+  // M4 Pass 2S (2026-05-24): made every field optional and added a
+  //   priority field so multiple sweep-enabled tranches across the
+  //   project can be ordered (lower priority = paid first). Default
+  //   priority = 100 (ties broken by tranche order in the list).
+  //   Default startingYear = construction-end year + 1 of the owning
+  //   phase. Default sweepRatio = 100 (sweep all excess above min cash).
   cashSweepConfig?: {
-    startingYear: number;
-    sweepRatio: number;  // 0..100, % of excess cash above project min reserve
+    /** Enable cash sweep for this tranche. Optional for back-compat;
+     *  treated as true when the tranche's repaymentMethod === 'cash_sweep',
+     *  false otherwise. Lets a tranche participate in sweep alongside
+     *  another repayment method when explicitly enabled. */
+    enabled?: boolean;
+    /** Lower priority = swept first. Default 100. */
+    priority?: number;
+    /** Calendar year sweep begins. Defaults to construction-end + 1 of
+     *  the tranche's owning phase. */
+    startingYear?: number;
+    /** % of excess cash above project minimum cash reserve to sweep
+     *  per period. 0..100. Default 100 (sweep all). */
+    sweepRatio?: number;
   };
   // ── Existing Operations (2026-05-13) ──────────────────────────────
   /** Origin of the facility. 'new' = drawdown in model; 'existing' = pre-existing facility with opening balance. Default 'new'. */

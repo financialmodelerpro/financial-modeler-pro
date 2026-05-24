@@ -222,18 +222,19 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   const rows: M4Row[] = [];
   rows.push({ label: 'ASSETS', values: [], isSection: true });
 
+  // M4 Pass 2S (2026-05-24): merge IDC NBV into "Fixed Assets (NBV)"
+  // line since Module 4 Fixed Assets schedules now display the
+  // depreciable roll-forward as Capex + IDC combined. Showing IDC as a
+  // separate BS line duplicated the disclosure (user feedback). The
+  // underlying math still tracks both components; combined value is
+  // what hits BS Total Fixed Assets.
   rows.push({ label: 'Fixed Assets', values: [], isSection: true });
   rows.push({ label: 'Land', values: landFiltered, indent: 1, totalOverride: fmt(landFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorLand });
-  rows.push({ label: 'WIP / Fixed Assets (NBV)', values: nbvFiltered, indent: 1, totalOverride: fmt(nbvFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorBuilding });
-  if (idcNbvFiltered.some((v) => v !== 0)) {
-    rows.push({
-      label: 'Capitalised Interest (IDC) NBV',
-      values: idcNbvFiltered,
-      indent: 1,
-      totalOverride: fmt(idcNbvFiltered[N - 1] ?? 0),
-      priorValue: 0,
-    });
-  }
+  const nbvCombined = nbvFiltered.map((v, i) => v + (idcNbvFiltered[i] ?? 0));
+  const fixedAssetsLabel = idcNbvFiltered.some((v) => v !== 0)
+    ? 'Fixed Assets (NBV, incl. capitalised IDC)'
+    : 'Fixed Assets (NBV)';
+  rows.push({ label: fixedAssetsLabel, values: nbvCombined, indent: 1, totalOverride: fmt(nbvCombined[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorBuilding });
   rows.push({ label: 'Total Fixed Assets', values: totalFAFiltered, isSubtotal: true, totalOverride: fmt(totalFAFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorFA });
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
