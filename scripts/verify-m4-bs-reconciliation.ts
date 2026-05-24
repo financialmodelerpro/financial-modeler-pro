@@ -566,6 +566,50 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
   }
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Q: M4 Pass 2U (2026-05-24) — Method 3 detailed waterfall identities
+//   Q1: snap exposes gap.method3Waterfall
+//   Q2: per period, Cash Available Before New Debt
+//       = Opening + Ops + Inv + ExistingEquity + ExistingDebtDraw
+//         + ExistingDebtRepayment(neg) + FinanceCostPaid(neg)
+//         + DividendsBeforeSweep(neg)
+//   Q3: Net Cash Required = max(0, minCash − Cash Available)
+//   Q4: Opening Cash[t+1] = max(minCash, Cash Available[t]) when net
+//       required plugs the gap (forward-walk consistency)
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[Q] Pass 2U: Method 3 detailed waterfall identities');
+{
+  const snap = computeFinancialsSnapshot(buildSimpleResidentialState());
+  const gap = computeFundingGap(snap);
+  const w = gap.method3Waterfall;
+  if (w) {
+    pass++;
+    console.log('  [PASS] Q1: snap.gap.method3Waterfall present');
+  } else {
+    fail++;
+    failures.push('Q1: method3Waterfall missing');
+    console.log('  [FAIL] Q1: method3Waterfall missing');
+    process.exit(1);
+  }
+  for (let t = 0; t < w.axisLength; t++) {
+    const expectedAvail = (w.openingCashPerPeriod[t] ?? 0)
+      + (w.cashFromOpsPerPeriod[t] ?? 0)
+      + (w.cashFromInvPerPeriod[t] ?? 0)
+      + (w.existingEquityDrawdownPerPeriod[t] ?? 0)
+      + (w.existingDebtDrawdownPerPeriod[t] ?? 0)
+      + (w.existingDebtRepaymentPerPeriod[t] ?? 0)
+      + (w.financeCostPaidPerPeriod[t] ?? 0)
+      + (w.dividendsBeforeSweepPerPeriod[t] ?? 0);
+    assertNear(`Q2[t=${t}]: cashAvailable identity`, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0, expectedAvail);
+    const expectedReq = Math.max(0, w.minCashReserve - (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0));
+    assertNear(`Q3[t=${t}]: netCashRequired = max(0, minCash − cashAvail)`, w.netCashRequiredPerPeriod[t] ?? 0, expectedReq);
+    if (t + 1 < w.axisLength) {
+      const expectedOpeningNext = Math.max(w.minCashReserve, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0);
+      assertNear(`Q4[t=${t}→${t+1}]: opening cash forward-walk`, w.openingCashPerPeriod[t + 1] ?? 0, expectedOpeningNext);
+    }
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) {
   console.log('Failures:');

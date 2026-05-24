@@ -527,10 +527,49 @@ export function computeIdcSnapshot(
  * side-by-side. Wiring these gaps into actual debt drawdown sizing
  * (Methods 2 + 3 in computeFundingRequirement) is a follow-up pass.
  */
+/**
+ * M4 Pass 2U (2026-05-24): Method 3 detailed waterfall snapshot.
+ * Per-period cash waterfall arriving at "Net Cash Required" — the
+ * funding-gap output that NEW debt drawdown should cover. Matches the
+ * user's reference layout (Opening Cash → ... → Cash Available Before
+ * New Debt → vs Minimum Cash → Net Cash Required).
+ */
+export interface Method3WaterfallSnapshot {
+  axisLength: number;
+  openingCashPerPeriod: number[];
+  cashFromOpsPerPeriod: number[];
+  cashFromInvPerPeriod: number[];
+  /** Existing equity contributions per period (typically a lump at t=0 from
+   *  pre-axis operational phase equity). */
+  existingEquityDrawdownPerPeriod: number[];
+  /** Existing debt drawdowns per period (typically a lump at t=0 or
+   *  the originationYear of an existing tranche raised inside the axis). */
+  existingDebtDrawdownPerPeriod: number[];
+  /** Existing debt principal repayments per period (negative). */
+  existingDebtRepaymentPerPeriod: number[];
+  /** Cash-paid finance cost per period (existing + new ops-period; negative).
+   *  Does NOT include capitalised IDC (which doesn't move cash). */
+  financeCostPaidPerPeriod: number[];
+  /** Memo line: per-period IDC capitalised = new debt drawdown to fund
+   *  the construction interest. Does NOT move cash (interest is added
+   *  to debt balance directly). Shown for transparency. */
+  idcDrawdownPerPeriod: number[];
+  /** Before-sweep dividends paid per period (negative — Phase 1
+   *  operational dividends pay before debt sweep). */
+  dividendsBeforeSweepPerPeriod: number[];
+  /** Cash available BEFORE any new debt drawdown is added. */
+  cashAvailableBeforeNewDebtPerPeriod: number[];
+  /** Minimum cash reserve floor (project-wide). */
+  minCashReserve: number;
+  /** Net cash required to maintain min cash = max(0, minCash − Cash Available). */
+  netCashRequiredPerPeriod: number[];
+  totalNetCashRequired: number;
+}
+
 export interface FundingGapSnapshot {
   axisLength: number;
   yearLabels: number[];
-  // Method A inputs (each per period, project-axis)
+  // Method 2 inputs (Net Funding Requirement, Capex vs Pre-Sales)
   capexPerPeriod: number[];
   /** Pre-sales cash received from customers, gross of escrow. */
   preSalesGrossPerPeriod: number[];
@@ -540,10 +579,11 @@ export interface FundingGapSnapshot {
   escrowReleasePerPeriod: number[];
   /** Pre-sales net of escrow movement = gross − held + release. */
   preSalesNetPerPeriod: number[];
-  /** Funding requirement fulfilled by pre-sales = min(capex, preSalesNet). */
+  /** Funding requirement fulfilled by pre-sales = min(capex, preSalesNet[t-1]).
+   *  Lagged one period per Pass 2T-Fix. */
   fulfilledByPreSalesPerPeriod: number[];
-  /** Method A funding gap per period: MAX(0, capex − preSalesNet).
-   *  Floored at 0 — a surplus in one period doesn't reduce later gap. */
+  /** Method 2 funding gap per period: MAX(0, capex_t − preSalesNet_{t-1}).
+   *  Lagged one period per Pass 2T-Fix. */
   methodAGapPerPeriod: number[];
   methodAGapCumulative: number[];
   methodATotalGap: number;
@@ -552,14 +592,15 @@ export interface FundingGapSnapshot {
   // Method B inputs
   cashFromOpsPerPeriod: number[];
   cashFromInvPerPeriod: number[];
-  /** Method B pre-financing net CF: ops + investing per period. Negative
-   *  values mean a funding gap; positive values mean a surplus. */
+  /** Method 3 simple-form pre-financing net CF (legacy): ops + investing
+   *  per period (lagged ops). Kept for back-compat; the detailed
+   *  method3Waterfall below is the canonical Method 3 view. */
   preFinancingNetCfPerPeriod: number[];
-  /** Method B gap per period: max(0, −(ops + inv)) — only the deficit
-   *  side, since a surplus doesn't increase funding need. */
   methodBGapPerPeriod: number[];
   methodBGapCumulative: number[];
   methodBTotalGap: number;
+  /** M4 Pass 2U (2026-05-24): detailed Method 3 cash-deficit waterfall. */
+  method3Waterfall: Method3WaterfallSnapshot;
 }
 
 /**
@@ -937,6 +978,93 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const methodBGapCumulative = cumulative(methodBGapPerPeriod);
   const methodBTotalGap = methodBGapPerPeriod.reduce((s, v) => s + v, 0);
 
+  // M4 Pass 2U (2026-05-24): Method 3 detailed waterfall.
+  // Builds the per-period funding-gap view per Ahmad's reference layout:
+  //   Opening Cash + CFO + CFI + Existing Equity + Existing Debt Drawdown
+  //   − Existing Debt Repayment − Finance Cost Paid − Dividends (before
+  //   sweep) = Cash Available Before New Debt; Net Cash Required =
+  //   max(0, minCashReserve − Cash Available).
+  const fin = snap.financing;
+  const existingEquityLump = fin.existing.equityTotal;
+  // Existing equity recognised at axis t=0 as a single lump (matches the
+  // financing engine convention; the prior column already shows the
+  // historicalEquity portion on Module 1 surfaces).
+  const existingEquityDrawdownPerPeriod = zeros(N);
+  if (N > 0) existingEquityDrawdownPerPeriod[0] = existingEquityLump;
+  // Existing debt drawdown: sum of existing tranches' drawSchedule (zero
+  // for opening-balance carry-forwards; non-zero when an existing
+  // tranche is raised inside the axis).
+  const existingDebtDrawdownPerPeriod = zeros(N);
+  const existingDebtOpeningLumpAtT0 = (() => {
+    let s = 0;
+    for (const t of snap.financing.facilities.values()) {
+      // Each facility's openingBalance reflects pre-axis carry; lump it at t=0.
+      s += Math.max(0, t.openingBalance ?? 0);
+    }
+    return s;
+  })();
+  if (N > 0) existingDebtDrawdownPerPeriod[0] = existingDebtOpeningLumpAtT0;
+  // Add origination-inside-axis drawdowns from existing tranches (those
+  // appear in their drawSchedule directly).
+  // We need the tranches list to identify existing vs new; pull from snap.
+  // existingPrincipalRepaid covers principal cash out on existing facilities.
+  const existingDebtRepaymentPerPeriod = (fin.combined.existingPrincipalRepaid ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -v);
+  while (existingDebtRepaymentPerPeriod.length < N) existingDebtRepaymentPerPeriod.push(0);
+  // Finance cost paid: existing + new ops-period cash interest (negative).
+  const financeCostPaidPerPeriod = (fin.combined.totalInterestExpensed ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -v);
+  while (financeCostPaidPerPeriod.length < N) financeCostPaidPerPeriod.push(0);
+  // IDC drawdown memo: capitalised interest growing debt (no cash move).
+  const idcDrawdownPerPeriod = (fin.combined.totalInterestCapitalized ?? new Array<number>(N).fill(0)).slice(0, N);
+  while (idcDrawdownPerPeriod.length < N) idcDrawdownPerPeriod.push(0);
+  // Before-sweep dividends only (Phase 1 operational). After-sweep
+  // dividends are driven by the cash sweep waterfall after debt is
+  // repaid, so they're not part of the "Net Cash Required" pre-debt
+  // gap; only the before-sweep payments reduce cash available for new
+  // debt drawdown.
+  const dividendsBeforeSweepPerPeriod = zeros(N);
+  for (const row of snap.dividends.beforeSweepPhases) {
+    for (let t = 0; t < N; t++) dividendsBeforeSweepPerPeriod[t] -= row.dividendsPerPeriod[t] ?? 0;
+  }
+  // Forward-walk the waterfall.
+  const minCashReserve = Math.max(0, snap.cashSweep.minCashReserve ?? 0);
+  const openingCashPerPeriod = zeros(N);
+  const cashAvailableBeforeNewDebtPerPeriod = zeros(N);
+  const netCashRequiredPerPeriod = zeros(N);
+  let openingC = snap.bs.historicalOpeningCashTotal;
+  for (let t = 0; t < N; t++) {
+    openingCashPerPeriod[t] = openingC;
+    const cashAvail = openingC
+      + (cashFromOpsPerPeriod[t] ?? 0)
+      + (cashFromInvPerPeriod[t] ?? 0)
+      + (existingEquityDrawdownPerPeriod[t] ?? 0)
+      + (existingDebtDrawdownPerPeriod[t] ?? 0)
+      + (existingDebtRepaymentPerPeriod[t] ?? 0) // already negative
+      + (financeCostPaidPerPeriod[t] ?? 0)       // already negative
+      + (dividendsBeforeSweepPerPeriod[t] ?? 0); // already negative
+    cashAvailableBeforeNewDebtPerPeriod[t] = cashAvail;
+    const netReq = Math.max(0, minCashReserve - cashAvail);
+    netCashRequiredPerPeriod[t] = netReq;
+    // Assume new debt drawdown = netReq is sized to plug the gap; closing
+    // cash thus = max(minCash, cashAvail).
+    openingC = Math.max(minCashReserve, cashAvail);
+  }
+  const method3Waterfall: Method3WaterfallSnapshot = {
+    axisLength: N,
+    openingCashPerPeriod,
+    cashFromOpsPerPeriod,
+    cashFromInvPerPeriod,
+    existingEquityDrawdownPerPeriod,
+    existingDebtDrawdownPerPeriod,
+    existingDebtRepaymentPerPeriod,
+    financeCostPaidPerPeriod,
+    idcDrawdownPerPeriod,
+    dividendsBeforeSweepPerPeriod,
+    cashAvailableBeforeNewDebtPerPeriod,
+    minCashReserve,
+    netCashRequiredPerPeriod,
+    totalNetCashRequired: netCashRequiredPerPeriod.reduce((s, v) => s + v, 0),
+  };
+
   return {
     axisLength: N,
     yearLabels,
@@ -956,6 +1084,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     methodBGapPerPeriod,
     methodBGapCumulative,
     methodBTotalGap,
+    method3Waterfall,
   };
 }
 

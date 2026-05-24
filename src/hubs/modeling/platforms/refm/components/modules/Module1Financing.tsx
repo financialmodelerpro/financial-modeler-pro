@@ -2509,14 +2509,13 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> Two views of how much external capital (debt + equity) the project needs. Method A is the gross feasibility view (capex vs cash actually available from pre-sales after escrow); Method B is the full pre-financing CF deficit (accounts for opex, AR/AP timing, tax, interest paid). Wiring these into actual debt drawdown sizing (Funding Methods 2 + 3) lands in a follow-up pass.
+          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> Two sizing views aligned with the Funding Method dropdown in Inputs: <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales gross feasibility) and <strong>Method 3 — Cash Deficit Funding</strong> (full per-period waterfall ending with Net Cash Required). Wiring these into actual debt drawdown sizing lands in a follow-up pass.
         </div>
       </section>
 
-      {/* Method A — Capex vs Pre-Sales (full pre-sales waterfall per
-          user's reference layout, M4 Pass 2S 2026-05-24) */}
+      {/* Method 2 — Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
       <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Method A — Capex vs Pre-Sales</div>
+        <div style={TABLE_TITLE}>Method 2 — Net Funding Requirement (Capex vs Pre-Sales)</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
           Gap = MAX(0, Capex<sub>t</sub> − Pre-Sales net<sub>t−1</sub>). Pre-Sales are <strong>lagged one year</strong> — this year's capex is funded from LAST year's collected pre-sales (we don't receive on Day 1 of the year). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
         </div>
@@ -2541,30 +2540,41 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </div>
       </section>
 
-      {/* Method B — Pre-Financing CF deficit */}
-      <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Method B — Pre-Financing CF Deficit</div>
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Gap = max(0, −(Cash from Operations<sub>t−1</sub> + Cash from Investing<sub>t</sub>)). Operations CF is <strong>lagged one year</strong> (consistent with Method A) — this year's capex is funded by last year's operating cash, since cash inflows aren't received on Day 1. Captures the full waterfall: revenue collected, opex paid, tax, AR / AP timing, escrow movement, capex. Surpluses reduce future need cumulatively but don't reduce the current period's funding line.
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-            {colgroup}
-            {headerRow}
-            <tbody>
-              {renderFlowRow('Cash from Operations (same period, reference)', gap.cashFromOpsPerPeriod)}
-              {renderFlowRow('Cash from Operations (LAST year, used in gap)', gap.cashFromOpsPerPeriod.map((_, i) => i === 0 ? 0 : (gap.cashFromOpsPerPeriod[i - 1] ?? 0)), { indent: 1 })}
-              {renderFlowRow('Cash from Investing (this year)', gap.cashFromInvPerPeriod, { negative: true })}
-              {renderFlowRow('Pre-Financing Net CF (Ops_{t−1} + Inv_t)', gap.preFinancingNetCfPerPeriod, { subtotal: true })}
-              {renderFlowRow('Method B — Funding Gap (deficit only)', gap.methodBGapPerPeriod, { bold: true })}
-              {renderStateRow('Cumulative Funding Gap (B)', gap.methodBGapCumulative, { subtotal: true })}
-            </tbody>
-          </table>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-          Grand total gap (B): <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(gap.methodBTotalGap)}</strong>
-        </div>
-      </section>
+      {/* Method 3 — Cash Deficit Funding (full waterfall) */}
+      {(() => {
+        const w = gap.method3Waterfall;
+        return (
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>Method 3 — Cash Deficit Funding (detailed waterfall)</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              Per-period cash waterfall ending with <strong>Net Cash Required</strong> — the funding required from NEW debt drawdown each period to keep cash at or above the minimum reserve ({p.fmt(w.minCashReserve)}). Opening Cash carries forward (under the assumption new debt has plugged any prior deficit). IDC drawdown is shown as a memo since capitalised interest grows debt without moving cash. After-sweep dividends (new phases) come from cash AFTER debt repayment and are not part of this pre-debt gap.
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {renderStateRow('Opening Cash', w.openingCashPerPeriod)}
+                  {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod)}
+                  {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true })}
+                  {w.existingEquityDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(+) Existing Equity Drawdown', w.existingEquityDrawdownPerPeriod, { indent: 1 })}
+                  {w.existingDebtDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(+) Existing Debt Drawdown (opening + in-axis)', w.existingDebtDrawdownPerPeriod, { indent: 1 })}
+                  {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1 })}
+                  {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1 })}
+                  {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Dividends Paid (Phase 1, before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1 })}
+                  {renderFlowRow('Cash Available Before New Debt Drawdown', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true })}
+                  {renderFlowRow(`(−) Minimum Cash Reserve (floor)`, w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
+                  {renderFlowRow('Net Cash Required (= max(0, MinCash − CashAvailable))', w.netCashRequiredPerPeriod, { bold: true })}
+                  {w.idcDrawdownPerPeriod.some((v) => v !== 0) && renderFlowRow('(memo) IDC drawdown — capitalised interest growing debt (no cash)', w.idcDrawdownPerPeriod, { indent: 1 })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+              Grand total Net Cash Required: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>. This is the lifetime new-debt + new-equity funding the project needs across the axis (under the assumption that this amount is drawn each period to keep cash at the floor).
+            </div>
+          </section>
+        );
+      })()}
 
       {/* M4 Pass 2S (2026-05-24): Cash Sweep schedule. */}
       {(() => {
