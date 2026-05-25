@@ -90,6 +90,35 @@ function buildOpeningCashState(): Parameters<typeof computeFinancialsSnapshot>[0
   return base;
 }
 
+// Over-time recognition fixture: each cohort recognised 50/30/20 across
+// 3 years (the asset's OWN criteria from Module 2), distinct from sale and
+// cash timing. Proves the M4 P&L recognises residential revenue on the
+// SAME per-asset profile Module 2 computes (not a forced all-at-handover),
+// and that the statements still balance + tie under spread recognition.
+function buildOverTimeRecognitionState(): Parameters<typeof computeFinancialsSnapshot>[0] {
+  const project: Project = makeDefaultProject();
+  const phase: Phase = { ...makeDefaultPhase(), id: 'p1', startDate: '2026-01-01', constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 };
+  const asset: Asset = {
+    id: 'a1', phaseId: phase.id, name: 'Tower A', type: '',
+    strategy: 'Sell', visible: true,
+    gfaSqm: 50000, buaSqm: 50000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0, 0.4, 0.4, 0.2, 0, 0, 0, 0], postSalesVelocityByPhase: [] }],
+        cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [0.5, 0.3, 0.2], positionsByPhase: [0, 1, 2] },
+        recognitionProfile: { method: 'over_time', profileMode: 'relative_to_sale', percentagesByPhase: [0.5, 0.3, 0.2], positionsByPhase: [0, 1, 2] },
+        indexation: { method: 'none' },
+      },
+    },
+  };
+  const subUnit: SubUnit = { id: 'su1', assetId: 'a1', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 50000, unitPrice: 5000 };
+  return {
+    project, phases: [phase], assets: [asset], subUnits: [subUnit], parcels: [], costLines: [],
+    costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [], equityContributions: [],
+  };
+}
+
 // Escrow-enabled residential fixture: pre-sales generate escrow held
 // (restricted cash). Proves the escrow reclassification balances and both
 // CF methods agree when escrow > 0 (the path the user's project hits).
@@ -754,6 +783,76 @@ console.log('\n[R] Escrow reclassified to restricted cash (asset)');
   } else {
     fail++;
     failures.push('R3: escrowRestrictedCashPerPeriod empty');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// S: Residential P&L revenue = Module 2 recognised revenue (per-asset
+//    criteria), NOT sale-value timing. With over-time recognition the
+//    M4 P&L must equal Module 2's presalesRecognitionPerPeriod + post-
+//    sales, the statements must balance, and Direct must equal Indirect.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[S] Residential P&L uses Module 2 recognised revenue (per-asset profile)');
+{
+  const snap = computeFinancialsSnapshot(buildOverTimeRecognitionState());
+  const sell = snap.revenue.bySellAsset.get('a1');
+  if (!sell) {
+    fail++;
+    failures.push('S-setup: sell asset missing');
+    console.log('  [FAIL] S-setup: sell asset missing');
+  } else {
+    // S0: recognition is actually spread (not all in one period) so the
+    // test is meaningful and proves no all-at-handover lumping.
+    const nonZeroYears = sell.presalesRecognitionPerPeriod.filter((v) => Math.abs(v) > 1).length;
+    if (nonZeroYears >= 3) {
+      pass++;
+      console.log(`  [PASS] S0: recognition spread across ${nonZeroYears} years (per-asset over-time profile)`);
+    } else {
+      fail++;
+      failures.push(`S0: recognition not spread (${nonZeroYears} non-zero years)`);
+      console.log(`  [FAIL] S0: recognition not spread (${nonZeroYears} non-zero years)`);
+    }
+    // S1: M4 P&L residential revenue == M2 recognised pre-sales + post-sales.
+    let matches = true;
+    for (let t = 0; t < snap.axisLength; t++) {
+      const expected = (sell.presalesRecognitionPerPeriod[t] ?? 0) + (sell.postSalesRevenuePerPeriod[t] ?? 0);
+      if (Math.abs((snap.pl.residentialRevenuePerPeriod[t] ?? 0) - expected) > 1) {
+        matches = false;
+        failures.push(`S1[t=${t}]: M4 P&L ${snap.pl.residentialRevenuePerPeriod[t]} != M2 recognised ${expected}`);
+        console.log(`  [FAIL] S1[t=${t}]: M4 P&L ${(snap.pl.residentialRevenuePerPeriod[t] ?? 0).toFixed(2)} != M2 recognised ${expected.toFixed(2)}`);
+        break;
+      }
+    }
+    if (matches) {
+      pass++;
+      console.log('  [PASS] S1: M4 P&L residential revenue == Module 2 recognised revenue (per-asset profile)');
+    } else {
+      fail++;
+    }
+  }
+  const maxAbsDiff = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  if (maxAbsDiff < 1) {
+    pass++;
+    console.log(`  [PASS] S2: BS balances under over-time recognition (max|diff|=${maxAbsDiff.toFixed(2)})`);
+  } else {
+    fail++;
+    failures.push(`S2: BS diff ${maxAbsDiff.toFixed(2)} > 1 under over-time recognition`);
+    console.log(`  [FAIL] S2: BS diff ${maxAbsDiff.toFixed(2)} > 1 under over-time recognition`);
+  }
+  let cfParity = true;
+  for (let t = 0; t < snap.axisLength; t++) {
+    if (Math.abs((snap.directCF.closingCashPerPeriod[t] ?? 0) - (snap.indirectCF.closingCashPerPeriod[t] ?? 0)) > 1) {
+      cfParity = false;
+      failures.push(`S3[t=${t}]: Direct != Indirect closing under over-time recognition`);
+      console.log(`  [FAIL] S3[t=${t}]: Direct ${(snap.directCF.closingCashPerPeriod[t] ?? 0).toFixed(2)} != Indirect ${(snap.indirectCF.closingCashPerPeriod[t] ?? 0).toFixed(2)}`);
+      break;
+    }
+  }
+  if (cfParity) {
+    pass++;
+    console.log('  [PASS] S3: Direct == Indirect closing cash under over-time recognition');
+  } else {
+    fail++;
   }
 }
 
