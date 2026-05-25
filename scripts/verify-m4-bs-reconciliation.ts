@@ -21,6 +21,7 @@ import {
   type Asset,
   type Phase,
   type Project,
+  type SubUnit,
   makeDefaultPhase,
   makeDefaultProject,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -87,6 +88,40 @@ function buildOpeningCashState(): Parameters<typeof computeFinancialsSnapshot>[0
     },
   }];
   return base;
+}
+
+// Escrow-enabled residential fixture: pre-sales generate escrow held
+// (restricted cash). Proves the escrow reclassification balances and both
+// CF methods agree when escrow > 0 (the path the user's project hits).
+function buildEscrowState(): Parameters<typeof computeFinancialsSnapshot>[0] {
+  const project: Project = { ...makeDefaultProject(), escrow: { heldPct: 20, defaultReleaseYear: 2030 } };
+  const phase: Phase = { ...makeDefaultPhase(), id: 'p1', startDate: '2026-01-01', constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 };
+  const asset: Asset = {
+    id: 'a1', phaseId: phase.id, name: 'Tower A', type: '',
+    strategy: 'Sell', visible: true,
+    gfaSqm: 50000, buaSqm: 50000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
+    revenue: {
+      sell: {
+        assetId: 'a1',
+        subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0, 0.4, 0.4, 0.2, 0, 0, 0, 0], postSalesVelocityByPhase: [] }],
+        cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [1], positionsByPhase: [0] },
+        // Sale-year recognition keeps Unearned flat so this fixture
+        // isolates ESCROW. (Lagged/handover recognition exposes a separate
+        // residential cash-vs-Unearned reconciliation gap, tracked apart.)
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'sale_year' },
+        indexation: { method: 'none' },
+      },
+    },
+  };
+  const subUnit: SubUnit = {
+    id: 'su1', assetId: 'a1', name: '2BR', category: 'Sellable', metric: 'area',
+    metricValue: 50000, unitPrice: 5000,
+  };
+  return {
+    project, phases: [phase], assets: [asset], subUnits: [subUnit], parcels: [], costLines: [],
+    costOverrides: [], landAllocationMode: 'autoByBua',
+    financingTranches: [], equityContributions: [],
+  };
 }
 
 console.log('=== M4 Pass 2M-C4 BS reconciliation verifier ===');
@@ -665,6 +700,58 @@ console.log('\n[Q] Pass 2U: Method 3 detailed waterfall identities');
       const expectedOpeningNext = Math.max(w.minCashReserve, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0);
       assertNear(`Q4[t=${t}→${t+1}]: opening cash forward-walk`, w.openingCashPerPeriod[t + 1] ?? 0, expectedOpeningNext);
     }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// R: Escrow = restricted cash (2026-05-25). With escrow enabled the BS
+//    must still balance and Direct must equal Indirect closing cash.
+//    Escrow was previously a liability with no offsetting asset + an
+//    opposite CF sign, so an escrow-enabled project diverged.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[R] Escrow reclassified to restricted cash (asset)');
+{
+  const snap = computeFinancialsSnapshot(buildEscrowState());
+  const maxEscrow = Math.max(...snap.bs.escrowRestrictedCashPerPeriod.map((v) => Math.abs(v)));
+  if (maxEscrow > 1) {
+    pass++;
+    console.log(`  [PASS] R0: fixture generates non-zero escrow (max=${maxEscrow.toFixed(2)})`);
+  } else {
+    fail++;
+    failures.push(`R0: escrow is zero (${maxEscrow.toFixed(2)}); test would be vacuous`);
+    console.log(`  [FAIL] R0: escrow is zero (${maxEscrow.toFixed(2)})`);
+  }
+  const maxAbsDiff = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  if (maxAbsDiff < 1) {
+    pass++;
+    console.log(`  [PASS] R1: BS balances with escrow enabled (max|diff|=${maxAbsDiff.toFixed(2)})`);
+  } else {
+    fail++;
+    failures.push(`R1: BS diff ${maxAbsDiff.toFixed(2)} > 1 with escrow enabled`);
+    console.log(`  [FAIL] R1: BS diff ${maxAbsDiff.toFixed(2)} > 1 with escrow enabled`);
+  }
+  let cfParity = true;
+  for (let t = 0; t < snap.axisLength; t++) {
+    if (Math.abs((snap.directCF.closingCashPerPeriod[t] ?? 0) - (snap.indirectCF.closingCashPerPeriod[t] ?? 0)) > 1) {
+      cfParity = false;
+      failures.push(`R2[t=${t}]: Direct close ${snap.directCF.closingCashPerPeriod[t]} != Indirect ${snap.indirectCF.closingCashPerPeriod[t]}`);
+      console.log(`  [FAIL] R2[t=${t}]: Direct ${(snap.directCF.closingCashPerPeriod[t] ?? 0).toFixed(2)} != Indirect ${(snap.indirectCF.closingCashPerPeriod[t] ?? 0).toFixed(2)}`);
+      break;
+    }
+  }
+  if (cfParity) {
+    pass++;
+    console.log('  [PASS] R2: Direct == Indirect closing cash with escrow enabled');
+  } else {
+    fail++;
+  }
+  // Escrow now sits in assets, not liabilities.
+  if (Math.abs(snap.bs.escrowRestrictedCashPerPeriod.reduce((s, v) => s + Math.abs(v), 0)) > 0) {
+    pass++;
+    console.log('  [PASS] R3: escrow exposed as restricted-cash asset (escrowRestrictedCashPerPeriod)');
+  } else {
+    fail++;
+    failures.push('R3: escrowRestrictedCashPerPeriod empty');
   }
 }
 

@@ -12,7 +12,7 @@
  *     TOTAL ASSETS
  *
  *   LIABILITIES & EQUITY
- *     Current Liabilities (AP + Unearned + Escrow lock)
+ *     Current Liabilities (AP + Unearned). Escrow is restricted cash (asset).
  *     Non-current Liabilities (Debt outstanding)
  *     Shareholders' Equity (Share Capital + Statutory Reserve + Retained
  *       Earnings)
@@ -194,9 +194,10 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   const bsDiffFiltered = zerosN();
   for (let t = 0; t < N_; t++) {
     totalFAFiltered[t] = landFiltered[t] + nbvFiltered[t] + idcNbvFiltered[t];
-    totalCAFiltered[t] = cashFiltered[t] + arOperatingFiltered[t] + resReceivablesFiltered[t] + inventoryFiltered[t];
+    // Escrow = restricted cash (asset), NOT a liability.
+    totalCAFiltered[t] = cashFiltered[t] + escrowFiltered[t] + arOperatingFiltered[t] + resReceivablesFiltered[t] + inventoryFiltered[t];
     totalAssetsFiltered[t] = totalFAFiltered[t] + totalCAFiltered[t];
-    totalCLFiltered[t] = apFiltered[t] + unearnedFiltered[t] + escrowFiltered[t];
+    totalCLFiltered[t] = apFiltered[t] + unearnedFiltered[t];
     totalLiabFiltered[t] = totalCLFiltered[t] + debtFiltered[t];
     totalEquityFiltered[t] = shareCapitalFiltered[t] + reserveFiltered[t] + retainedFiltered[t];
     totalLandEFiltered[t] = totalLiabFiltered[t] + totalEquityFiltered[t];
@@ -244,6 +245,9 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   }
   rows.push({ label: 'Residential Sales Receivables', values: resReceivablesFiltered, indent: 1, totalOverride: fmt(resReceivablesFiltered[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Inventory (Residential WIP)', values: inventoryFiltered, indent: 1, totalOverride: fmt(inventoryFiltered[N - 1] ?? 0), priorValue: 0 });
+  if (escrowFiltered.some((v) => v !== 0)) {
+    rows.push({ label: 'Restricted Cash (Escrow)', values: escrowFiltered, indent: 1, totalOverride: fmt(escrowFiltered[N - 1] ?? 0), priorValue: 0 });
+  }
   rows.push({ label: 'Total Current Assets', values: totalCAFiltered, isSubtotal: true, totalOverride: fmt(totalCAFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorCA });
 
   rows.push({ label: 'TOTAL ASSETS', values: totalAssetsFiltered, isTotal: true, totalOverride: fmt(totalAssetsFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorTotalAssets });
@@ -252,7 +256,6 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   rows.push({ label: 'Current Liabilities', values: [], isSection: true });
   rows.push({ label: 'Accounts Payable', values: apFiltered, indent: 1, totalOverride: fmt(apFiltered[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: unearnedFiltered, indent: 1, totalOverride: fmt(unearnedFiltered[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Escrow Locked Funds', values: escrowFiltered, indent: 1, totalOverride: fmt(escrowFiltered[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Total Current Liabilities', values: totalCLFiltered, isSubtotal: true, totalOverride: fmt(totalCLFiltered[N - 1] ?? 0), priorValue: 0 });
 
   rows.push({ label: 'Non-current Liabilities', values: [], isSection: true });
@@ -487,8 +490,8 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           { label: 'Δ Reserve + Retained earnings', values: neg(r.deltaReserveRetainedPerPeriod), indent: 1 },
           { label: 'Δ Accounts payable', values: neg(r.deltaApPerPeriod), indent: 1 },
           { label: 'Δ Unearned revenue', values: neg(r.deltaUnearnedPerPeriod), indent: 1 },
-          { label: 'Δ Escrow liability', values: neg(r.deltaEscrowPerPeriod), indent: 1 },
           { label: '(+) Δ Non-cash assets', values: [], isSection: true },
+          { label: 'Δ Restricted cash (escrow)', values: r.deltaEscrowPerPeriod, indent: 1 },
           { label: 'Δ AR (operating)', values: r.deltaArPerPeriod, indent: 1 },
           { label: 'Δ Receivables (residential)', values: r.deltaResidentialReceivablesPerPeriod, indent: 1 },
           { label: 'Δ Inventory', values: r.deltaInventoryPerPeriod, indent: 1 },

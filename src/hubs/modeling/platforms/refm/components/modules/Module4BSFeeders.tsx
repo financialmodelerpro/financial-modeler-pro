@@ -13,11 +13,11 @@
  *     A1. Residential Sales Receivables (M2 milestone)
  *     A2. Operating Receivables (M4 Pass 2g DSO)
  *     A3. Inventory (Residential WIP, M2 CoS)
+ *     A4. Restricted Cash (Escrow) — M2 Pass 9h; restricted-cash asset
  *   LIABILITIES:
  *     L1. Accounts Payable (M3 Pass 2a DPO)
  *     L2. Unearned Revenue (M2 off-plan advances)
- *     L3. Escrow Balance (M2 Pass 9h regulator lock)
- *     L4. Debt Outstanding (M1 financing)
+ *     L3. Debt Outstanding (M1 financing)
  *   EQUITY:
  *     E1. Equity Roll-Forward (M1 cumulative drawdowns)
  *   MEMO:
@@ -193,6 +193,29 @@ export default function Module4BSFeeders(): React.JSX.Element {
             ];
           })()}
         />
+
+        {/* A4: Restricted Cash (Escrow) — the developer's pre-sales cash
+            held in escrow and released back per milestones. It is an
+            ASSET (restricted cash), not a liability. */}
+        <M4PeriodTable
+          title="A4. Restricted Cash (Escrow): Roll-Forward (project)"
+          caption="Opening + Held − Release = Closing. Pre-sales cash held in escrow during construction, released back to the developer on each asset's Release Year. Restricted CASH (asset), not a liability. See the M2 Escrow tab for inputs."
+          yearLabels={yearLabels}
+          currency={currency}
+          fmt={fmt}
+          priorYearLabel={priorYear}
+          rows={(() => {
+            const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
+            const opening = zeros();
+            for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+            return [
+              { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+              { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
+              { label: '(−) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
+              { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+            ];
+          })()}
+        />
       </PhaseSection>
 
       {/* ─── LIABILITIES ─────────────────────────────────────────── */}
@@ -257,30 +280,9 @@ export default function Module4BSFeeders(): React.JSX.Element {
           })()}
         />
 
-        {/* L3: Escrow Balance */}
+        {/* L3: Debt Outstanding */}
         <M4PeriodTable
-          title="L3. Escrow Balance (Inaccessible Funds): Roll-Forward (project)"
-          caption="Opening + Held − Release = Closing. Held during construction; releases on each asset's Release Year. See the M2 Escrow tab for inputs."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={(() => {
-            const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
-            const opening = zeros();
-            for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
-            return [
-              { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-              { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
-              { label: '(−) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
-              { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-            ];
-          })()}
-        />
-
-        {/* L4: Debt Outstanding */}
-        <M4PeriodTable
-          title="L4. Debt Outstanding by Tranche (project)"
+          title="L3. Debt Outstanding by Tranche (project)"
           caption="Per-tranche outstanding balance. Drawdowns add; principal repayments subtract; interest is recorded in the P&L."
           yearLabels={yearLabels}
           currency={currency}
