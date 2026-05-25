@@ -37,7 +37,7 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 | Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58 (base). Funding Methods 2 + 3 have Funding Gap sub-tab with display-only sizing math (Pass 2R-2V) + Cash Sweep + Dividend waterfall live (Pass 2S-2Z); engine wire-up to debt drawdown sizing still on backlog. |
 | Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9N. 133/133 + 46/46 verifier sections green. |
 | Module 3 | Operating Expenses | **LOCKED** at Pass 5d. 38/38 + 24/24 verifier sections green. |
-| Module 4 | Financial Statements | WIP at **Pass 2Z**. Schedules / P&L / CF / BS surfaces shipped. Pass 2O-2Z this session: IDC policy split, BS equity split, RE schedule, Funding Gap sub-tab, Cash Sweep + Dividend master waterfall, Phase 1 i=0 lump rescue (BS root cause fix), per-parcel in-kind stamping. **BS check now reconciles** for any phase configuration. 693/693 verifier sections green across 11 scripts (+228 this session). |
+| Module 4 | Financial Statements | WIP. Schedules / P&L / CF / BS surfaces shipped. **Balances by construction**: BS reconciles AND Direct == Indirect closing cash every period (verified under escrow + handover/over-time recognition). 2026-05-25 root causes closed: escrow = restricted-cash asset (not liability); residential P&L revenue uses recognised series (matches Module 2). Per-line Reconciliation Bridge on the BS tab. 703 verifier sections green across 11 scripts (m4-bs-reconciliation 184). |
 | Module 5 | Returns & Valuation | Not started. |
 | Module 6 | Reports & Visualizations | Not started. |
 
@@ -49,13 +49,13 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 - DSCR breach alerts (M5 dependency).
 - Sharia Murabaha / Ijara product templates, multi-currency, refinancing flows.
 
-**Module 4 financial statements (deferred from Pass 2X-2Y audit follow-ups):**
-- **D-2** per-asset CF revenue ignores DSO (explicit limitation in `financials-resolvers.ts:1192-1201`; project-level CF correct).
-- **D-3** Cash Sweep interest savings full P&L mutation (V1 ships memo-only; full mutation requires composer reorder OR iteration loop). BS still balances under sweep without it.
-- **D-5** P&L D&A and BS NBV aggregation paths (cosmetic — math is consistent).
+**Module 4 financial statements (remaining, non-blocking — BS balances + CF methods tie):**
+- **D-2** per-asset (phase-filtered) CF revenue ignores DSO (project-level CF correct).
+- **D-3** Cash Sweep interest savings full P&L mutation (ships memo-only; BS balances under sweep without it).
 - **D-6** P&L + CF phase-filter column (UI parity with BS).
 - Per-asset capex non-uniform spread within construction windows (project totals stay exact via financing engine).
-- Manual reconciliation surface against the reference v1.16 BS Build.
+- PIT-handover recognition recognises post-handover cohorts at handover (Unearned can go briefly negative); M4 mirrors Module 2 exactly, statements still balance. Optional Module 2 recognition tweak to defer later cohorts.
+- ~~BS imbalance / manual reconciliation against reference~~ **RESOLVED 2026-05-25** (escrow + recognition root causes; balances by construction).
 
 **Module 5 returns:**
 - Equity waterfall + IRR hurdle math.
