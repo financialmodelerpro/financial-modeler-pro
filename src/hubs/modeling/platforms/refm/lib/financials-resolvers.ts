@@ -159,7 +159,7 @@ export interface ProjectIndirectCF {
   changeInInventoryPerPeriod: number[];    // -ΔInv
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
-  changeInEscrowPerPeriod: number[];       // +ΔEscrow (liability, restricted cash sits on the books)
+  changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
@@ -201,7 +201,10 @@ export interface ProjectBS {
   // Liabilities
   apPerPeriod: number[];
   unearnedRevenuePerPeriod: number[];
-  escrowLiabilityPerPeriod: number[];
+  /** Escrow modeled as RESTRICTED CASH (asset), not a liability:
+   *  developer's pre-sales cash held in escrow and released back per
+   *  milestones. Offsets the operating-cash reduction so the BS balances. */
+  escrowRestrictedCashPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
   totalCurrentLiabilitiesPerPeriod: number[];
   totalLiabilitiesPerPeriod: number[];
@@ -338,8 +341,9 @@ export interface BsReconciliation {
   deltaReserveRetainedPerPeriod: number[];
   deltaApPerPeriod: number[];
   deltaUnearnedPerPeriod: number[];
+  /** Non-cash asset period changes (each INCREASES Δ BS diff).
+   *  deltaEscrowPerPeriod is restricted cash (an asset), not a liability. */
   deltaEscrowPerPeriod: number[];
-  /** Non-cash asset period changes (each INCREASES Δ BS diff). */
   deltaArPerPeriod: number[];
   deltaResidentialReceivablesPerPeriod: number[];
   deltaInventoryPerPeriod: number[];
@@ -1614,7 +1618,11 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     arOperatingChange[t] = operatingAR.changePerPeriod[t] ?? 0;
   }
   const apChange = ap.projectTotals.changeApPerPeriod.slice(0, N);
-  // Escrow change: cumulative balance increases = cash held (effectively a liability sitting on the BS)
+  // Escrow = RESTRICTED CASH (an asset the developer still owns, released
+  // back per construction milestones), NOT a liability. Building the
+  // escrow balance therefore CONSUMES available cash (a working-capital
+  // asset increase), exactly mirroring the Direct CF's netRevAdj
+  // (= release − held = −escrowChange). Both methods now agree on escrow.
   const escrowBalance = escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
   const escrowChange = zeros(N);
   for (let t = 0; t < N; t++) escrowChange[t] = escrowBalance[t] - (t === 0 ? 0 : escrowBalance[t - 1]);
@@ -1623,7 +1631,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (let t = 0; t < N; t++) {
     cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t]
       - arOperatingChange[t] - residentialArChange[t] - inventoryChange[t]
-      + apChange[t] + unearnedChange[t] + escrowChange[t]
+      + apChange[t] + unearnedChange[t] - escrowChange[t]
       - interestPaidArr[t]; // reverse the add-back of interest expense (we paid the real interest in cash)
   }
 
@@ -1754,7 +1762,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     changeInInventoryPerPeriod: inventoryChange.map((v) => -v),
     changeInApPerPeriod: apChange,
     changeInUnearnedPerPeriod: unearnedChange,
-    changeInEscrowPerPeriod: escrowChange,
+    changeInEscrowPerPeriod: escrowChange.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOpsIndirect,
     capexPerPeriod: capexProj.map((v) => -v),
     cashFromInvestmentPerPeriod: cashFromInv,
@@ -1791,18 +1799,22 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   // (Sell IDC flows through CoS and lands in Inventory before being
   // released, so it's already in inventoryArr below).
   for (let t = 0; t < N; t++) totalFA[t] = nbvArr[t] + landArr[t] + (idcSnapshot.idcNbvPerPeriod[t] ?? 0);
+  // Escrow = restricted cash (asset). Operating cash (cashPerPeriod) was
+  // already reduced by escrow held via the CF; the held amount now sits
+  // here as a restricted-cash asset, so total cash-side assets are
+  // unaffected by escrow and the BS stays balanced (no escrow liability).
+  const escrowRestrictedCash = escrowBalance;
   const totalCA = zeros(N);
-  for (let t = 0; t < N; t++) totalCA[t] = cashPerPeriod[t] + arPerPeriod[t] + residentialReceivables[t] + inventoryArr[t];
+  for (let t = 0; t < N; t++) totalCA[t] = cashPerPeriod[t] + escrowRestrictedCash[t] + arPerPeriod[t] + residentialReceivables[t] + inventoryArr[t];
   const totalAssets = zeros(N);
   for (let t = 0; t < N; t++) totalAssets[t] = totalFA[t] + totalCA[t];
 
-  // Liabilities
+  // Liabilities (escrow is NOT a liability; it is restricted cash above).
   const apClosing = ap.projectTotals.closingApPerPeriod.slice(0, N);
   const unearnedClosing = zeros(N);
   for (const bundle of byAssetSchedules.values()) {
     for (let t = 0; t < N; t++) unearnedClosing[t] += bundle.unearned.perPeriod[t] ?? 0;
   }
-  const escrowLiab = escrowBalance;
   const debtOutstanding = zeros(N);
   if (cashSweep.enabled) {
     // M4 Pass 2S: use sweep-adjusted outstandings.
@@ -1816,7 +1828,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     }
   }
   const totalCL = zeros(N);
-  for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t] + escrowLiab[t];
+  for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t];
   const totalLiab = zeros(N);
   for (let t = 0; t < N; t++) totalLiab[t] = totalCL[t] + debtOutstanding[t];
 
@@ -1880,7 +1892,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     totalAssetsPerPeriod: totalAssets,
     apPerPeriod: apClosing,
     unearnedRevenuePerPeriod: unearnedClosing,
-    escrowLiabilityPerPeriod: escrowLiab,
+    escrowRestrictedCashPerPeriod: escrowRestrictedCash,
     debtOutstandingPerPeriod: debtOutstanding,
     totalCurrentLiabilitiesPerPeriod: totalCL,
     totalLiabilitiesPerPeriod: totalLiab,
@@ -1921,7 +1933,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     dRR[t] = deltaWithOpen(reserveRetained, t, 0);
     dAp[t] = deltaWithOpen(apClosing, t, 0);
     dUn[t] = deltaWithOpen(unearnedClosing, t, 0);
-    dEsc[t] = deltaWithOpen(escrowLiab, t, 0);
+    // Escrow is a restricted-cash ASSET (not a liability).
+    dEsc[t] = deltaWithOpen(escrowRestrictedCash, t, 0);
     dAr[t] = deltaWithOpen(arPerPeriod, t, 0);
     dResAr[t] = deltaWithOpen(residentialReceivables, t, 0);
     dInv[t] = deltaWithOpen(inventoryArr, t, 0);
@@ -1930,8 +1943,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     dIdc[t] = deltaWithOpen(idcNbvP, t, 0);
     bsDiffChange[t] = (bsDiff[t] ?? 0) - (t === 0 ? 0 : (bsDiff[t - 1] ?? 0));
     const bridged = (recoNetCf[t] ?? 0)
-      - (dDebt[t] + dShare[t] + dRR[t] + dAp[t] + dUn[t] + dEsc[t])
-      + (dAr[t] + dResAr[t] + dInv[t] + dNbv[t] + dLand[t] + dIdc[t]);
+      - (dDebt[t] + dShare[t] + dRR[t] + dAp[t] + dUn[t])
+      + (dAr[t] + dResAr[t] + dInv[t] + dNbv[t] + dLand[t] + dIdc[t] + dEsc[t]);
     unexplained[t] = bsDiffChange[t] - bridged;
   }
   const bsReconciliation: BsReconciliation = {
