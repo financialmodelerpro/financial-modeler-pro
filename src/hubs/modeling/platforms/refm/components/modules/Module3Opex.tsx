@@ -880,6 +880,7 @@ export default function Module3Opex(): React.JSX.Element {
 
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);
+  const [apCollapsed, setApCollapsed] = useState<boolean>(true);
   const [collapsedAssets, setCollapsedAssets] = useState<Record<string, boolean>>({});
   // M4 Pass 2N-Fix (2026-05-21): expand only the specific asset card
   // that the user clicked in the nav strip; other asset cards keep
@@ -949,7 +950,7 @@ export default function Module3Opex(): React.JSX.Element {
   // line table UI. Without this, every YoY rate or yoy_per_period
   // growth edit was silently shadowed by the migration-seeded ByPhase
   // / ByYear snapshot.
-  // Core types lack the ByPhase / ByYear siblings — storage schema (in
+  // Core types lack the ByPhase / ByYear siblings; storage schema (in
   // module1-types.ts) adds them as optional fields. Use `as` casts at
   // assignment so we can synthesise them without polluting core types.
   const syncIndexationByPhase = (ix: IndexationConfig | undefined, phaseOffset: number): IndexationConfig | undefined => {
@@ -1134,6 +1135,26 @@ export default function Module3Opex(): React.JSX.Element {
     return { label: 'Hospitality', color: 'var(--color-success, #166534)' };
   };
 
+  // ── M4 Pass 2a Accounts Payable (DPO) inputs ──────────────────────
+  // Moved here from the Opex Output tab (2026-05-25): inputs belong on
+  // the Inputs tab; the Output tab renders the resulting AP roll-forward.
+  // Effective DPO mirrors the engine: per-asset override (>= 0) wins,
+  // else the project default. See opex-resolvers computeOpexApSnapshot.
+  const projectDefaultApDays = Math.max(0, project.opexAp?.defaultApDays ?? 0);
+  const setProjectDefaultApDays = (days: number | undefined): void => {
+    setProject({ opexAp: { ...(project.opexAp ?? {}), defaultApDays: days } });
+  };
+  const setProjectApDaysPerYear = (days: number): void => {
+    setProject({ opexAp: { ...(project.opexAp ?? {}), daysPerYear: days } });
+  };
+  const setAssetApDaysOverride = (assetId: string, days: number | undefined): void => {
+    const a = assets.find((x) => x.id === assetId);
+    if (!a) return;
+    const prev = a.opex;
+    const nextOpex = prev ? { ...prev, apDaysOverride: days } : { lines: [], apDaysOverride: days };
+    updateAsset(assetId, { opex: nextOpex });
+  };
+
   return (
     <div data-testid="module3-opex">
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1186,6 +1207,126 @@ export default function Module3Opex(): React.JSX.Element {
           axisLength={axisLength}
           newLineStrategy="HQ"
         />
+      </AssetCard>
+
+      {/* M4 Pass 2a Accounts Payable (DPO) inputs. Moved from the Opex
+       *  Output tab (2026-05-25). The Output tab renders the resulting
+       *  AP roll-forward (Opening + Opex − Cash Paid = Closing). */}
+      <AssetCard
+        title={<span style={{ color: 'var(--color-heading)' }}>💳 Accounts Payable (DPO)</span>}
+        badge="project-wide"
+        badgeColor="var(--color-meta)"
+        collapsed={apCollapsed}
+        onToggle={() => setApCollapsed((v) => !v)}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
+            gap: 'var(--sp-2)',
+            marginBottom: 'var(--sp-2)',
+          }}
+        >
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Project Default DPO (days)
+            </label>
+            <input
+              type="number"
+              value={project.opexAp?.defaultApDays ?? ''}
+              min={0}
+              max={365}
+              placeholder="0 (cash basis)"
+              onChange={(e) => {
+                const v = e.target.value;
+                setProjectDefaultApDays(v === '' ? undefined : Math.max(0, Number(v)));
+              }}
+              style={FAST_INPUT}
+              data-testid="m3-ap-project-defaultdpo"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days Payable Outstanding. AP closing = Opex × (DPO / days basis). Blank or 0 = pay on incurrence (no AP).
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Days basis
+            </label>
+            <input
+              type="number"
+              value={project.opexAp?.daysPerYear ?? 365}
+              min={1}
+              max={400}
+              onChange={(e) => setProjectApDaysPerYear(Math.max(1, Math.min(400, Number(e.target.value) || 365)))}
+              style={FAST_INPUT}
+              data-testid="m3-ap-days-per-year"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days per year for DPO ratio. Standard = 365.
+            </div>
+          </div>
+        </div>
+
+        {opexAssets.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+            No operating assets yet. Per-asset DPO overrides appear once Hospitality or Retail/Lease assets are added.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {(['Asset', 'Effective DPO (days)', 'DPO Override'] as const).map((h, i) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: i === 0 ? 'left' : 'right',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: 'var(--color-meta)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        padding: '6px 8px',
+                        borderBottom: '1px solid var(--color-border)',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {opexAssets.map((a) => {
+                  const override = a.opex?.apDaysOverride;
+                  const effective = override !== undefined && override >= 0 ? override : projectDefaultApDays;
+                  return (
+                    <tr key={a.id}>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-border)' }}>{a.name}</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-border)', textAlign: 'right' }}>{effective}</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-border)', textAlign: 'right' }}>
+                        <div style={{ width: 100, marginLeft: 'auto' }}>
+                          <input
+                            type="number"
+                            value={override ?? ''}
+                            placeholder="inherit"
+                            min={0}
+                            max={365}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAssetApDaysOverride(a.id, v === '' ? undefined : Math.max(0, Number(v)));
+                            }}
+                            style={FAST_INPUT}
+                            data-testid={`m3-ap-asset-${a.id}-dpo`}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </AssetCard>
 
       {/* M3 Pass 5d (2026-05-21): per-asset opex grouped by strategy
