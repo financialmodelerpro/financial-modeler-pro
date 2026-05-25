@@ -564,6 +564,31 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
     failures.push(`P4: BS diff ${maxAbs.toFixed(2)} > 1 under dividend pressure`);
     console.log(`  [FAIL] P4: BS diff ${maxAbs.toFixed(2)} > 1 under dividend pressure`);
   }
+  // P5 (2026-05-25): Direct and Indirect CF must reconcile to the SAME
+  // net CF AND the SAME closing cash even with dividends enabled. This
+  // pins the fix where the Indirect method previously ignored the
+  // dividend + cash-sweep adjustments and diverged from the Direct close.
+  {
+    let parityOk = true;
+    for (let t = 0; t < snap.axisLength; t++) {
+      const netD = snap.directCF.netCashFlowPerPeriod[t] ?? 0;
+      const netI = snap.indirectCF.netCashFlowPerPeriod[t] ?? 0;
+      const closeD = snap.directCF.closingCashPerPeriod[t] ?? 0;
+      const closeI = snap.indirectCF.closingCashPerPeriod[t] ?? 0;
+      if (Math.abs(netD - netI) > 1 || Math.abs(closeD - closeI) > 1) {
+        parityOk = false;
+        failures.push(`P5[t=${t}]: Direct/Indirect divergence netΔ=${(netD - netI).toFixed(2)} closeΔ=${(closeD - closeI).toFixed(2)}`);
+        console.log(`  [FAIL] P5[t=${t}]: net D=${netD.toFixed(2)} I=${netI.toFixed(2)}; close D=${closeD.toFixed(2)} I=${closeI.toFixed(2)}`);
+        break;
+      }
+    }
+    if (parityOk) {
+      pass++;
+      console.log('  [PASS] P5: Direct == Indirect net CF + closing cash with dividends enabled');
+    } else {
+      fail++;
+    }
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────

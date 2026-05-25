@@ -498,8 +498,19 @@ export default function Module4CashFlow(): React.JSX.Element {
     if (intPaidFin.some((v) => v !== 0)) {
       rows.push({ label: 'Finance cost paid', values: intPaidFin, indent: 1 });
     }
+    // Dividends + sweep are project-level (the waterfall is not split per
+    // phase), so only the unfiltered Cash Flow from Financing nets them.
+    if (!filtered && ic.dividendsPaidPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Dividends paid', values: ic.dividendsPaidPerPeriod, indent: 1 });
+    }
     rows.push({ label: 'Cash Flow from Financing', values: cff, isSubtotal: true });
     rows.push({ label: 'Net Cash Flow', values: netCf, isTotal: true });
+    // Opening / Closing cash. Project view only: it must tie out to the
+    // Direct method's closing balance (same closingCashAdj series).
+    if (!filtered) {
+      rows.push({ label: 'Opening cash', values: ic.openingCashPerPeriod, indent: 1, totalOverride: fmt(ic.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+      rows.push({ label: 'Closing cash', values: ic.closingCashPerPeriod, isSubtotal: true, totalOverride: fmt(ic.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+    }
     // Avoid unused-variable lint warning while the per-tranche detail
     // is folded into aggregate lines.
     void phaseLbl;

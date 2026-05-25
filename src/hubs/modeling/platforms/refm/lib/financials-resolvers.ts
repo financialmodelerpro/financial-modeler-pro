@@ -173,10 +173,18 @@ export interface ProjectIndirectCF {
    *  Schedule and audit views can render the split. */
   equityInKindDrawdownPerPeriod: number[];
   debtDrawdownPerPeriod: number[];
-  debtRepaymentPerPeriod: number[];
+  debtRepaymentPerPeriod: number[];        // negative; INCLUDES cash-sweep repayments
   interestPaidPerPeriod: number[];         // actual cash interest
+  /** M4 (2026-05-25): dividends paid per period (negative). Mirrors the
+   *  Direct CF so both methods reconcile to the same closing cash. */
+  dividendsPaidPerPeriod: number[];
   cashFromFinancingPerPeriod: number[];
   netCashFlowPerPeriod: number[];
+  /** M4 (2026-05-25): opening / closing cash, identical to the Direct CF
+   *  series (post sweep + dividend). Both methods MUST close to the same
+   *  balance; exposing it here lets the Indirect surface show it too. */
+  openingCashPerPeriod: number[];
+  closingCashPerPeriod: number[];
 }
 
 export interface ProjectBS {
@@ -1570,27 +1578,13 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       - interestPaidArr[t]; // reverse the add-back of interest expense (we paid the real interest in cash)
   }
 
-  const indirectCF: ProjectIndirectCF = {
-    patPerPeriod: pat,
-    daPerPeriod: da,
-    interestExpensePerPeriod: interestExpense,
-    changeInArPerPeriod: arOperatingChange.map((v, i) => -(v + residentialArChange[i])),
-    changeInInventoryPerPeriod: inventoryChange.map((v) => -v),
-    changeInApPerPeriod: apChange,
-    changeInUnearnedPerPeriod: unearnedChange,
-    changeInEscrowPerPeriod: escrowChange,
-    cashFromOperationsPerPeriod: cashFromOpsIndirect,
-    capexPerPeriod: capexProj.map((v) => -v),
-    cashFromInvestmentPerPeriod: cashFromInv,
-    // M4 Pass 2P: CASH equity only on CF. In-kind kept as a memo field.
-    equityDrawdownPerPeriod: equityCashArr,
-    equityInKindDrawdownPerPeriod: equityInKindArr,
-    debtDrawdownPerPeriod: debtDraws,
-    debtRepaymentPerPeriod: debtRepays.map((v) => -v),
-    interestPaidPerPeriod: interestPaidArr.map((v) => -v),
-    cashFromFinancingPerPeriod: cashFromFin,
-    netCashFlowPerPeriod: cashFromOpsIndirect.map((v, i) => v + cashFromInv[i] + cashFromFin[i]),
-  };
+  // M4 (2026-05-25): the indirectCF object is built AFTER the cash
+  // waterfall below, so it can mirror the same sweep + dividend
+  // adjustments as the Direct CF (cashFromFinAdj / debtRepaysAdj /
+  // dividends / closingCashAdj). Building it here, before the waterfall,
+  // left Indirect closing diverging from Direct by the dividends + sweep.
+  // cashFromOpsIndirect + all working-capital change arrays above stay
+  // valid (operating cash is independent of the financing waterfall).
 
   // M4 Pass 2S (2026-05-24): Cash Sweep post-pass. Walks period-by-
   // period; for each period computes excess cash (closingCash − minCash)
@@ -1670,6 +1664,39 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     dividendsPaidPerPeriod: dividendsPerPeriodPos.map((v) => -v),
     cashFromFinancingPerPeriod: cashFromFinAdj,
     netCashFlowPerPeriod: netCfAdj,
+    openingCashPerPeriod: openingCashAdj,
+    closingCashPerPeriod: closingCashAdj,
+  };
+
+  // Indirect CF: mirror the Direct CF's financing block exactly (sweep
+  // folded into debt repayment, dividends as their own line) so both
+  // methods reconcile to the SAME closing cash. Operating cash from the
+  // working-capital bridge is independent of the waterfall. netCf is
+  // identical to Direct by construction:
+  //   CFO_indirect + CFI + CFF_adj  ==  CFO_direct + CFI + CFF_adj
+  // (CFO_indirect == CFO_direct is pinned by verifier section H.)
+  const indirectNetCf = cashFromOpsIndirect.map((v, i) => v + cashFromInv[i] + cashFromFinAdj[i]);
+  const indirectCF: ProjectIndirectCF = {
+    patPerPeriod: pat,
+    daPerPeriod: da,
+    interestExpensePerPeriod: interestExpense,
+    changeInArPerPeriod: arOperatingChange.map((v, i) => -(v + residentialArChange[i])),
+    changeInInventoryPerPeriod: inventoryChange.map((v) => -v),
+    changeInApPerPeriod: apChange,
+    changeInUnearnedPerPeriod: unearnedChange,
+    changeInEscrowPerPeriod: escrowChange,
+    cashFromOperationsPerPeriod: cashFromOpsIndirect,
+    capexPerPeriod: capexProj.map((v) => -v),
+    cashFromInvestmentPerPeriod: cashFromInv,
+    // CASH equity only on CF. In-kind kept as a memo field.
+    equityDrawdownPerPeriod: equityCashArr,
+    equityInKindDrawdownPerPeriod: equityInKindArr,
+    debtDrawdownPerPeriod: debtDraws,
+    debtRepaymentPerPeriod: debtRepaysAdj.map((v) => -v),
+    interestPaidPerPeriod: interestPaidArr.map((v) => -v),
+    dividendsPaidPerPeriod: dividendsPerPeriodPos.map((v) => -v),
+    cashFromFinancingPerPeriod: cashFromFinAdj,
+    netCashFlowPerPeriod: indirectNetCf,
     openingCashPerPeriod: openingCashAdj,
     closingCashPerPeriod: closingCashAdj,
   };
