@@ -218,6 +218,7 @@ function PeriodTable({
   rows,
   fmt,
   trailingHeader,
+  priorYearLabel,
 }: {
   title: string;
   formula: string;
@@ -227,9 +228,23 @@ function PeriodTable({
   unit?: string;
   fmt: (v: number) => string;
   trailingHeader?: string;
+  /**
+   * Universal prior-year column (2026-05-25): when set, a leading prior
+   * calendar-year column (= projectStartYear - 1) renders immediately
+   * before the first year column so the year axis lines up
+   * column-for-column with every other platform table. Revenue has no
+   * pre-axis activity, so the prior cells are blank.
+   */
+  priorYearLabel?: number;
 }): React.JSX.Element {
-  const extraCols = trailingHeader ? 1 : 0;
+  // Universal prior-year column: defaults to (first year - 1) so every
+  // table on the platform leads with the year before project start.
+  const resolvedPriorYear = priorYearLabel ?? (yearLabels.length > 0 ? yearLabels[0] - 1 : undefined);
+  const hasPrior = resolvedPriorYear !== undefined;
+  const priorCols = hasPrior ? 1 : 0;
+  const extraCols = (trailingHeader ? 1 : 0) + priorCols;
   const nonLabelPct = nonLabelColumnPct(1 + extraCols + yearLabels.length);
+  const priorCellStyle: React.CSSProperties = { color: 'var(--color-meta)', fontStyle: 'italic' };
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title}</span>
@@ -242,6 +257,7 @@ function PeriodTable({
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
             {trailingHeader && (<col style={{ width: nonLabelPct }} />)}
+            {hasPrior && (<col style={{ width: nonLabelPct }} />)}
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
@@ -249,13 +265,14 @@ function PeriodTable({
               <th style={CELL_HEADER}>Line</th>
               <th style={CELL_HEADER_TOTAL}>Total</th>
               {trailingHeader && (<th style={CELL_HEADER}>{trailingHeader}</th>)}
+              {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => {
               if (r.kind === 'section') {
-                const valueColCount = 1 + (trailingHeader ? 1 : 0) + yearLabels.length;
+                const valueColCount = 1 + (trailingHeader ? 1 : 0) + priorCols + yearLabels.length;
                 const indentPx = Math.max(0, (r.indent ?? 0)) * 14;
                 return (
                   <tr key={`${r.label}-${idx}`}>
@@ -297,6 +314,7 @@ function PeriodTable({
                   {trailingHeader && (
                     <td style={tokens.num}>{r.trailing ?? ''}</td>
                   )}
+                  {hasPrior && (<td style={{ ...tokens.num, ...priorCellStyle }}>{cellFmt(0)}</td>)}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{cellFmt(v ?? 0)}</td>))}
                 </tr>
               );
@@ -1199,8 +1217,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     fmt={inventoryFmt}
                   />
                   <PeriodTable
-                    title={`1c. Total ${inventoryLabel} Sold + Reconciliation`}
-                    formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Cum % Sold = sum(Pre + Post) / sub-unit total inventory. Engine caps each sub-unit at 100%; this column shows under/over-sell vs total inventory.`}
+                    title={`1c. Total ${inventoryLabel} Sold`}
+                    formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Engine caps each sub-unit at 100% of its total inventory.`}
                     yearLabels={snap.yearLabels}
                     rows={buildTotalSoldReconciledRows(
                       assetSubUnits,
@@ -1211,7 +1229,6 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                       inventoryDenomAsset,
                     )}
                     fmt={inventoryFmt}
-                    trailingHeader="Cum % Sold"
                   />
 
                   {/* 2. Revenue */}

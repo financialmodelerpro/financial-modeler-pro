@@ -39,9 +39,17 @@ interface VintageMatrixProps {
    * semantics for back-compat.
    */
   rowAxisHeader?: string;     // default: 'Cohort sold in ↓ / Year →'
-  rowTotalHeader?: string;    // default: 'Cohort Total'
+  rowTotalHeader?: string;    // default: 'Total'
   rowLabelPrefix?: string;    // default: 'Sold in'
   emptyMessage?: string;      // default: 'No cohorts yet, ...'
+  /**
+   * Universal prior-year column (2026-05-25): when set, a leading prior
+   * calendar-year column (= projectStartYear - 1) renders between the
+   * row-total column and the first year column, so the year axis aligns
+   * column-for-column with every other platform table. Vintage matrices
+   * have no pre-axis cohorts, so the prior cells are always blank.
+   */
+  priorYearLabel?: number;
 }
 
 const defaultFmt = (v: number): string => {
@@ -59,11 +67,17 @@ export default function VintageMatrix({
   handoverYearIdx,
   fmt = defaultFmt,
   rowAxisHeader = 'Cohort sold in ↓ / Year →',
-  rowTotalHeader = 'Cohort Total',
+  rowTotalHeader = 'Total',
   rowLabelPrefix = 'Sold in',
   emptyMessage = 'No cohorts yet, enter pre-sales velocity in Tab 1 Inputs.',
+  priorYearLabel,
 }: VintageMatrixProps): React.JSX.Element {
   const N = yearLabels.length;
+  // Universal prior-year column: defaults to (first year - 1) so every
+  // table on the platform leads with the year before project start.
+  const resolvedPriorYear = priorYearLabel ?? (N > 0 ? yearLabels[0] - 1 : undefined);
+  const hasPrior = resolvedPriorYear !== undefined;
+  const priorCellStyle: React.CSSProperties = { ...ROW_DATA.num, color: 'var(--color-meta)', fontStyle: 'italic' };
   const rowTotals = matrix.map((row) => row.reduce((s, v) => s + (v ?? 0), 0));
   const colTotals = new Array<number>(N).fill(0);
   for (let r = 0; r < matrix.length; r++) for (let c = 0; c < N; c++) colTotals[c] += matrix[r]?.[c] ?? 0;
@@ -73,7 +87,7 @@ export default function VintageMatrix({
   const activeRows: number[] = [];
   for (let r = 0; r < N; r++) if (rowTotals[r] > 0.5) activeRows.push(r);
 
-  const nonLabelPct = nonLabelColumnPct(1 + N);
+  const nonLabelPct = nonLabelColumnPct(1 + (hasPrior ? 1 : 0) + N);
 
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -91,12 +105,14 @@ export default function VintageMatrix({
             <colgroup>
               <col style={{ width: COLUMN_WIDTHS.label }} />
               <col style={{ width: nonLabelPct }} />
+              {hasPrior && (<col style={{ width: nonLabelPct }} />)}
               {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
             </colgroup>
             <thead>
               <tr>
                 <th style={CELL_HEADER}>{rowAxisHeader}</th>
                 <th style={CELL_HEADER_TOTAL}>{rowTotalHeader}</th>
+                {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
                 {yearLabels.map((y) => (
                   <th key={y} style={{ ...CELL_HEADER, ...(handoverYearIdx != null && yearLabels.indexOf(y) === handoverYearIdx ? { borderBottom: '2px solid var(--color-info, #1d4ed8)' } : {}) }}>
                     {y}{handoverYearIdx != null && yearLabels.indexOf(y) === handoverYearIdx ? '*' : ''}
@@ -109,6 +125,7 @@ export default function VintageMatrix({
                 <tr key={r}>
                   <td style={ROW_DATA.name}>{rowLabelPrefix} {yearLabels[r]}</td>
                   <td style={ROW_DATA.numTotal}>{fmt(rowTotals[r])}</td>
+                  {hasPrior && (<td style={priorCellStyle}>{fmt(0)}</td>)}
                   {yearLabels.map((_, c) => {
                     const v = matrix[r]?.[c] ?? 0;
                     const isDiagonal = r === c;
@@ -125,6 +142,7 @@ export default function VintageMatrix({
               <tr>
                 <td style={ROW_GRAND_TOTAL.name}>Year Total</td>
                 <td style={ROW_GRAND_TOTAL.numTotal}>{fmt(grandTotal)}</td>
+                {hasPrior && (<td style={ROW_GRAND_TOTAL.num}>{fmt(0)}</td>)}
                 {colTotals.map((v, c) => (<td key={c} style={ROW_GRAND_TOTAL.num}>{fmt(v)}</td>))}
               </tr>
             </tbody>

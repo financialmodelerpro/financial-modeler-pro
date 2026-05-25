@@ -74,7 +74,12 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
   title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string;
   totalLabel?: string; fmt: (v: number) => string;
 }): React.JSX.Element {
-  const nonLabelPct = nonLabelColumnPct(1 + yearLabels.length);
+  // Universal prior-year column: leads with the year before project
+  // start so the year axis aligns column-for-column across the platform.
+  const resolvedPriorYear = yearLabels.length > 0 ? yearLabels[0] - 1 : undefined;
+  const hasPrior = resolvedPriorYear !== undefined;
+  const nonLabelPct = nonLabelColumnPct(1 + (hasPrior ? 1 : 0) + yearLabels.length);
+  const priorCellStyle: React.CSSProperties = { color: 'var(--color-meta)', fontStyle: 'italic' };
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span></span>
@@ -86,12 +91,14 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
+            {hasPrior && (<col style={{ width: nonLabelPct }} />)}
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
             <tr>
               <th style={CELL_HEADER}>Line</th>
               <th style={CELL_HEADER_TOTAL}>{totalLabel}</th>
+              {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
           </thead>
@@ -101,7 +108,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
                 return (
                   <tr key={`section-${idx}`}>
                     <td
-                      colSpan={2 + yearLabels.length}
+                      colSpan={2 + (hasPrior ? 1 : 0) + yearLabels.length}
                       style={{
                         padding: '8px 10px 4px',
                         fontSize: 11,
@@ -137,6 +144,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
                 <tr key={r.label + idx}>
                   <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px` }}>{r.label}</td>
                   <td style={tokens.numTotal}>{totalDisplay}</td>
+                  {hasPrior && (<td style={{ ...tokens.num, ...priorCellStyle }}>{fmt(0)}</td>)}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v)}</td>))}
                 </tr>
               );
