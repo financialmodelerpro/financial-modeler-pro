@@ -589,6 +589,39 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
       fail++;
     }
   }
+  // P6 (2026-05-25): BS reconciliation bridge is an EXACT identity. Every
+  // BS line is accounted for, so unexplainedPerPeriod must be ~0 (else a
+  // line is missing from the bridge). Also the named components must sum
+  // to the period change in the BS difference.
+  {
+    const r = snap.bsReconciliation;
+    let identityOk = true;
+    let maxUnexplained = 0;
+    for (let t = 0; t < snap.axisLength; t++) {
+      maxUnexplained = Math.max(maxUnexplained, Math.abs(r.unexplainedPerPeriod[t] ?? 0));
+      const bridged = (r.netCashFlowPerPeriod[t] ?? 0)
+        - (r.deltaDebtPerPeriod[t] + r.deltaShareCapitalPerPeriod[t] + r.deltaReserveRetainedPerPeriod[t]
+           + r.deltaApPerPeriod[t] + r.deltaUnearnedPerPeriod[t] + r.deltaEscrowPerPeriod[t])
+        + (r.deltaArPerPeriod[t] + r.deltaResidentialReceivablesPerPeriod[t] + r.deltaInventoryPerPeriod[t]
+           + r.deltaNbvPerPeriod[t] + r.deltaLandPerPeriod[t] + r.deltaIdcNbvPerPeriod[t]);
+      if (Math.abs(bridged - (r.bsDifferenceChangePerPeriod[t] ?? 0)) > 1) {
+        identityOk = false;
+        failures.push(`P6[t=${t}]: bridge ${bridged.toFixed(2)} != Δbsdiff ${(r.bsDifferenceChangePerPeriod[t] ?? 0).toFixed(2)}`);
+        console.log(`  [FAIL] P6[t=${t}]: bridge ${bridged.toFixed(2)} != Δbsdiff ${(r.bsDifferenceChangePerPeriod[t] ?? 0).toFixed(2)}`);
+        break;
+      }
+    }
+    if (identityOk && maxUnexplained < 1) {
+      pass++;
+      console.log(`  [PASS] P6: BS reconciliation bridge is exact (max|unexplained|=${maxUnexplained.toFixed(2)})`);
+    } else {
+      fail++;
+      if (maxUnexplained >= 1) {
+        failures.push(`P6: max|unexplained| ${maxUnexplained.toFixed(2)} >= 1 (a BS line is missing from the bridge)`);
+        console.log(`  [FAIL] P6: max|unexplained| ${maxUnexplained.toFixed(2)} >= 1`);
+      }
+    }
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────

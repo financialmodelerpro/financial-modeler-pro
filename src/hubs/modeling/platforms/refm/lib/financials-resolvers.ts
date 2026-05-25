@@ -306,6 +306,52 @@ export interface ProjectIDCSnapshot {
   idcNbvPerPeriod: number[];
 }
 
+/**
+ * M4 (2026-05-25): Balance-sheet reconciliation diagnostic.
+ *
+ * The BS difference (Assets − (Liabilities + Equity)) equals
+ * (cash-flow-derived cash) − (plug cash). Differentiating period-over-
+ * period gives an EXACT identity:
+ *
+ *   Δ(BS diff)[t] = NetCashFlow[t]
+ *                   − Δ(Debt + Share + Reserve+Retained + AP + Unearned + Escrow)[t]
+ *                   + Δ(AR + ResAR + Inventory + NBV + Land + IDC NBV)[t]
+ *
+ * Every term below is one piece of that bridge. When the BS balances,
+ * the pieces net to zero each period. When it does not, the piece whose
+ * stock change is NOT offset by a matching cash-flow line is the leak.
+ * For t >= 1 all opening balances cancel, so the bridge is clean; the
+ * t = 0 column also carries pre-axis openings (existing debt / equity /
+ * fixed assets) and is informational.
+ */
+export interface BsReconciliation {
+  /** Assets − (Liab + Equity), cumulative. Mirrors bs.bsDifferencePerPeriod. */
+  bsDifferencePerPeriod: number[];
+  /** Period change of the cumulative BS difference. Equals the signed
+   *  sum of every component below (exact identity). */
+  bsDifferenceChangePerPeriod: number[];
+  /** Direct/Indirect net cash flow (they are equal). Drives the bridge. */
+  netCashFlowPerPeriod: number[];
+  /** Liabilities + Equity period changes (each REDUCES Δ BS diff). */
+  deltaDebtPerPeriod: number[];
+  deltaShareCapitalPerPeriod: number[];
+  deltaReserveRetainedPerPeriod: number[];
+  deltaApPerPeriod: number[];
+  deltaUnearnedPerPeriod: number[];
+  deltaEscrowPerPeriod: number[];
+  /** Non-cash asset period changes (each INCREASES Δ BS diff). */
+  deltaArPerPeriod: number[];
+  deltaResidentialReceivablesPerPeriod: number[];
+  deltaInventoryPerPeriod: number[];
+  deltaNbvPerPeriod: number[];
+  deltaLandPerPeriod: number[];
+  deltaIdcNbvPerPeriod: number[];
+  /** Residual that the named components do NOT explain. EXACT identity =>
+   *  this is ~0 everywhere; a nonzero value means a line is missing from
+   *  the BS or the bridge (a coding gap), not a wiring leak. */
+  unexplainedPerPeriod: number[];
+}
+
 export interface ProjectFinancialsSnapshot {
   axisLength: number;
   projectStartYear: number;
@@ -336,6 +382,9 @@ export interface ProjectFinancialsSnapshot {
   /** M4 Pass 2T (2026-05-24): dividend distribution per phase. Always
    *  present; .enabled === false when no phase has dividendPolicy.enabled. */
   dividends: DividendSnapshot;
+  /** M4 (2026-05-25): per-line BS reconciliation bridge. Localizes which
+   *  line drives any Assets vs (Liab + Equity) imbalance. */
+  bsReconciliation: BsReconciliation;
 }
 
 const zeros = (n: number): number[] => new Array<number>(n).fill(0);
@@ -1825,6 +1874,64 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     historicalOpeningCashTotal,
   };
 
+  // ── BS reconciliation bridge (2026-05-25) ──────────────────────────
+  // Δ(BS diff) = NetCashFlow − Δ(Liab+Equity) + Δ(non-cash Assets), an
+  // exact identity. For t >= 1 every opening cancels; the t = 0 column
+  // carries pre-axis openings (existing debt / equity / fixed assets).
+  // unexplainedPerPeriod must be ~0; a nonzero value means a BS line is
+  // missing from this bridge (a coding gap to fix), not a wiring leak.
+  const reserveRetained = reserveArr.map((v, i) => v + (retained[i] ?? 0));
+  const depAdd0 = fixedAssets.projectTotals.depreciable.additionsPerPeriod[0] ?? 0;
+  const depDep0 = fixedAssets.projectTotals.depreciable.depreciationPerPeriod[0] ?? 0;
+  const landAdd0 = fixedAssets.projectTotals.land.additionsPerPeriod[0] ?? 0;
+  const openNbv = (nbvArr[0] ?? 0) - depAdd0 + depDep0; // pre-axis opening NBV
+  const openLand = (landArr[0] ?? 0) - landAdd0;          // pre-axis opening Land
+  const idcNbvP = idcSnapshot.idcNbvPerPeriod;
+  const deltaWithOpen = (arr: number[], t: number, open: number): number =>
+    (arr[t] ?? 0) - (t === 0 ? open : (arr[t - 1] ?? 0));
+  const recoNetCf = directCF.netCashFlowPerPeriod.slice(0, N);
+  while (recoNetCf.length < N) recoNetCf.push(0);
+  const dDebt = zeros(N), dShare = zeros(N), dRR = zeros(N), dAp = zeros(N), dUn = zeros(N), dEsc = zeros(N);
+  const dAr = zeros(N), dResAr = zeros(N), dInv = zeros(N), dNbv = zeros(N), dLand = zeros(N), dIdc = zeros(N);
+  const bsDiffChange = zeros(N), unexplained = zeros(N);
+  for (let t = 0; t < N; t++) {
+    dDebt[t] = deltaWithOpen(debtOutstanding, t, financing.existing.debtOutstandingTotal);
+    dShare[t] = deltaWithOpen(shareCapital, t, priorEquityTotal);
+    dRR[t] = deltaWithOpen(reserveRetained, t, 0);
+    dAp[t] = deltaWithOpen(apClosing, t, 0);
+    dUn[t] = deltaWithOpen(unearnedClosing, t, 0);
+    dEsc[t] = deltaWithOpen(escrowLiab, t, 0);
+    dAr[t] = deltaWithOpen(arPerPeriod, t, 0);
+    dResAr[t] = deltaWithOpen(residentialReceivables, t, 0);
+    dInv[t] = deltaWithOpen(inventoryArr, t, 0);
+    dNbv[t] = deltaWithOpen(nbvArr, t, openNbv);
+    dLand[t] = deltaWithOpen(landArr, t, openLand);
+    dIdc[t] = deltaWithOpen(idcNbvP, t, 0);
+    bsDiffChange[t] = (bsDiff[t] ?? 0) - (t === 0 ? 0 : (bsDiff[t - 1] ?? 0));
+    const bridged = (recoNetCf[t] ?? 0)
+      - (dDebt[t] + dShare[t] + dRR[t] + dAp[t] + dUn[t] + dEsc[t])
+      + (dAr[t] + dResAr[t] + dInv[t] + dNbv[t] + dLand[t] + dIdc[t]);
+    unexplained[t] = bsDiffChange[t] - bridged;
+  }
+  const bsReconciliation: BsReconciliation = {
+    bsDifferencePerPeriod: bsDiff,
+    bsDifferenceChangePerPeriod: bsDiffChange,
+    netCashFlowPerPeriod: recoNetCf,
+    deltaDebtPerPeriod: dDebt,
+    deltaShareCapitalPerPeriod: dShare,
+    deltaReserveRetainedPerPeriod: dRR,
+    deltaApPerPeriod: dAp,
+    deltaUnearnedPerPeriod: dUn,
+    deltaEscrowPerPeriod: dEsc,
+    deltaArPerPeriod: dAr,
+    deltaResidentialReceivablesPerPeriod: dResAr,
+    deltaInventoryPerPeriod: dInv,
+    deltaNbvPerPeriod: dNbv,
+    deltaLandPerPeriod: dLand,
+    deltaIdcNbvPerPeriod: dIdc,
+    unexplainedPerPeriod: unexplained,
+  };
+
   return {
     axisLength: N,
     projectStartYear,
@@ -1845,5 +1952,6 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     bs,
     cashSweep,
     dividends,
+    bsReconciliation,
   };
 }

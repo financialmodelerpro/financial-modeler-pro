@@ -465,11 +465,51 @@ export default function Module4BalanceSheet(): React.JSX.Element {
             {fmt(maxAbsDiff)}. Top imbalance years:{' '}
             {offenders.map((r) => `${r.year}: ${fmt(r.diff)}`).join('  ·  ') || 'all small'}.
             <div style={{ marginTop: 6, fontSize: 11 }}>
-              Common causes (in rough order of likelihood today): (1) per-asset capex spread uniform across the construction window
-              while the financing engine uses cost-line-derived spreads — mismatch leaks into Inventory vs CF; (2) tax timing
-              (paid same period as expensed today, so this is a non-issue unless project.tax.paymentDays is set);
-              (3) dividends not modelled (always 0 today). The BS Check row above shows the per-period diff in detail.
+              Use the <strong>Reconciliation Bridge</strong> below to localize it: the line whose change is not offset by
+              its cash-flow / non-cash pair is the leak.
             </div>
+          </div>
+        );
+      })()}
+
+      {/* M4 (2026-05-25): per-line BS reconciliation bridge. Exact identity
+       *  Δ(BS diff) = Net CF − Δ(Liab+Equity) + Δ(non-cash Assets). Localizes
+       *  which line drives any imbalance. Project-level (whole-project
+       *  identity), so it is hidden under a phase filter. */}
+      {!phaseFiltered && (() => {
+        const r = snap.bsReconciliation;
+        const neg = (a: number[]): number[] => a.map((v) => -v);
+        const recRows: M4Row[] = [
+          { label: 'Net cash flow (Direct = Indirect)', values: r.netCashFlowPerPeriod },
+          { label: '(−) Δ Liabilities + Equity', values: [], isSection: true },
+          { label: 'Δ Debt outstanding', values: neg(r.deltaDebtPerPeriod), indent: 1 },
+          { label: 'Δ Share capital', values: neg(r.deltaShareCapitalPerPeriod), indent: 1 },
+          { label: 'Δ Reserve + Retained earnings', values: neg(r.deltaReserveRetainedPerPeriod), indent: 1 },
+          { label: 'Δ Accounts payable', values: neg(r.deltaApPerPeriod), indent: 1 },
+          { label: 'Δ Unearned revenue', values: neg(r.deltaUnearnedPerPeriod), indent: 1 },
+          { label: 'Δ Escrow liability', values: neg(r.deltaEscrowPerPeriod), indent: 1 },
+          { label: '(+) Δ Non-cash assets', values: [], isSection: true },
+          { label: 'Δ AR (operating)', values: r.deltaArPerPeriod, indent: 1 },
+          { label: 'Δ Receivables (residential)', values: r.deltaResidentialReceivablesPerPeriod, indent: 1 },
+          { label: 'Δ Inventory', values: r.deltaInventoryPerPeriod, indent: 1 },
+          { label: 'Δ Fixed assets NBV', values: r.deltaNbvPerPeriod, indent: 1 },
+          { label: 'Δ Land', values: r.deltaLandPerPeriod, indent: 1 },
+          { label: 'Δ Capitalised IDC NBV', values: r.deltaIdcNbvPerPeriod, indent: 1 },
+          { label: '= Δ BS difference (this period)', values: r.bsDifferenceChangePerPeriod, isTotal: true },
+          { label: 'Unexplained (must be 0)', values: r.unexplainedPerPeriod, isSubtotal: true },
+          { label: 'BS difference (cumulative)', values: r.bsDifferencePerPeriod, isSubtotal: true },
+        ];
+        return (
+          <div style={{ marginTop: 'var(--sp-3)' }}>
+            <M4PeriodTable
+              title="Balance Check, Reconciliation Bridge (per period)"
+              caption="Δ BS difference = Net cash flow − Δ(Liabilities + Equity) + Δ(non-cash Assets). Exact identity: when the BS balances every line nets to zero each year. When it does not, the line whose change is NOT offset by its cash-flow / non-cash counterpart is the leak. Unexplained must be 0 (else a BS line is missing from the bridge)."
+              yearLabels={yearLabels}
+              currency={currency}
+              fmt={fmt}
+              rows={recRows}
+              priorYearLabel={priorYear}
+            />
           </div>
         );
       })()}
