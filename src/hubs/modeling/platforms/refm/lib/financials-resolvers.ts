@@ -1683,14 +1683,21 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   const debtRepaysAdj = debtRepays.map((v, i) => v + (sweepPerPeriodPos[i] ?? 0));
   const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
   const netCfAdj = netCf.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
-  const enabledAnyAllocation = cashSweep.enabled || dividends.enabled;
-  const closingCashAdj = enabledAnyAllocation ? cashSweep.adjustedClosingCash.slice(0, N) : closingCash;
+  // Direct CF closing = explicit running sum of the Direct net cash flow
+  // (every line item summed period by period), seeded with pre-existing
+  // operational cash. This is the single source of truth for BS Cash, so
+  // the statement's own lines provably add up to its closing balance and
+  // the BS ties to it. With sweep / dividends enabled this equals the
+  // waterfall's adjustedClosingCash, because netCfAdj nets out the same
+  // per-period sweep + dividend amounts the waterfall applied.
   const openingCashAdj = zeros(N);
+  const closingCashAdj = zeros(N);
   {
     let runC = historicalOpeningCashTotal;
     for (let t = 0; t < N; t++) {
       openingCashAdj[t] = runC;
-      runC = closingCashAdj[t] ?? runC;
+      runC += netCfAdj[t] ?? 0;
+      closingCashAdj[t] = runC;
     }
   }
 
@@ -1717,14 +1724,28 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     closingCashPerPeriod: closingCashAdj,
   };
 
-  // Indirect CF: mirror the Direct CF's financing block exactly (sweep
-  // folded into debt repayment, dividends as their own line) so both
-  // methods reconcile to the SAME closing cash. Operating cash from the
-  // working-capital bridge is independent of the waterfall. netCf is
-  // identical to Direct by construction:
-  //   CFO_indirect + CFI + CFF_adj  ==  CFO_direct + CFI + CFF_adj
-  // (CFO_indirect == CFO_direct is pinned by verifier section H.)
+  // Indirect CF: each subtotal is summed from the Indirect method's OWN
+  // line items (CFO from the working-capital bridge; CFI and CFF share
+  // the same financing/investing flows as Direct because those ARE the
+  // same cash movements). The closing balance below is an INDEPENDENT
+  // running sum of the Indirect net cash flow, NOT a copy of the Direct
+  // closing. Both methods land on the same balance only because both are
+  // computed correctly: Direct net = revenue received − cash costs;
+  // Indirect net = PAT + non-cash add-backs − working-capital build.
+  // Any divergence between the two closing curves is therefore a real
+  // signal that the operating-cash bridge (CFO_indirect vs CFO_direct,
+  // pinned by verifier H) has drifted, not an artefact of linking.
   const indirectNetCf = cashFromOpsIndirect.map((v, i) => v + cashFromInv[i] + cashFromFinAdj[i]);
+  const indirectOpeningCash = zeros(N);
+  const indirectClosingCash = zeros(N);
+  {
+    let runI = historicalOpeningCashTotal;
+    for (let t = 0; t < N; t++) {
+      indirectOpeningCash[t] = runI;
+      runI += indirectNetCf[t] ?? 0;
+      indirectClosingCash[t] = runI;
+    }
+  }
   const indirectCF: ProjectIndirectCF = {
     patPerPeriod: pat,
     daPerPeriod: da,
@@ -1746,8 +1767,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     dividendsPaidPerPeriod: dividendsPerPeriodPos.map((v) => -v),
     cashFromFinancingPerPeriod: cashFromFinAdj,
     netCashFlowPerPeriod: indirectNetCf,
-    openingCashPerPeriod: openingCashAdj,
-    closingCashPerPeriod: closingCashAdj,
+    openingCashPerPeriod: indirectOpeningCash,
+    closingCashPerPeriod: indirectClosingCash,
   };
 
   // 7. Balance Sheet
