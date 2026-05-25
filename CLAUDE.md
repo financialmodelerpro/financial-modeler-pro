@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-24.**
+**Last updated: 2026-05-25.**
 
 **Module status (REFM platform):**
 - **Module 1 (Project Setup / Costs / Financing)** — LOCKED at M2.0 Pass 58 (base). Funding Methods 2 + 3 now have a "Funding Gap" sub-tab in Financing with display-only sizing math (Pass 2R → 2V). Cash Sweep + Dividend waterfall live (Pass 2S → 2Z).

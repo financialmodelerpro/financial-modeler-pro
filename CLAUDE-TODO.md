@@ -28,7 +28,7 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 
 ---
 
-## REFM Module Status (2026-05-24)
+## REFM Module Status (2026-05-25)
 
 Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md) + memory `project_*` files.
 
