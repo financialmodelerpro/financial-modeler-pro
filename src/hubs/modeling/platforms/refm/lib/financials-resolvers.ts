@@ -1268,7 +1268,14 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       const sell = revenue.bySellAsset.get(a.id);
       if (sell) {
         for (let t = 0; t < N; t++) {
-          revRow[t] = (sell.presalesRevenuePerPeriod[t] ?? 0) + (sell.postSalesRevenuePerPeriod[t] ?? 0);
+          // P&L revenue is RECOGNISED revenue, not sale-value timing. For
+          // pre-sales that means the recognition profile (handover / custom
+          // / over-time), the SAME series the Unearned schedule drains;
+          // using sale-value timing here made PAT disagree with Unearned,
+          // so Direct (milestone cash) and Indirect (PAT + ΔUnearned)
+          // diverged and the BS drifted. Post-sales (sales during
+          // operation) recognise in-period, so their revenue == recognition.
+          revRow[t] = (sell.presalesRecognitionPerPeriod[t] ?? 0) + (sell.postSalesRevenuePerPeriod[t] ?? 0);
           revRcv[t] = sell.cashCollectedPerPeriod[t] ?? 0;
         }
         const bundle = byAssetSchedules.get(a.id);

@@ -105,10 +105,12 @@ function buildEscrowState(): Parameters<typeof computeFinancialsSnapshot>[0] {
         assetId: 'a1',
         subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0, 0.4, 0.4, 0.2, 0, 0, 0, 0], postSalesVelocityByPhase: [] }],
         cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [1], positionsByPhase: [0] },
-        // Sale-year recognition keeps Unearned flat so this fixture
-        // isolates ESCROW. (Lagged/handover recognition exposes a separate
-        // residential cash-vs-Unearned reconciliation gap, tracked apart.)
-        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'sale_year' },
+        // Handover (deferred) recognition + escrow together: the user's
+        // real scenario. P&L revenue follows the recognition profile while
+        // cash follows the milestone profile, so this exercises BOTH the
+        // escrow reclassification AND the residential recognised-revenue
+        // fix (PAT must use recognition, not sale-value, timing).
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
         indexation: { method: 'none' },
       },
     },
