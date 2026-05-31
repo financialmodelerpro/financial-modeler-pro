@@ -1,5 +1,63 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-05-25. Module 1 LOCKED at M2.0 Pass 58 (base). Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP, Financial Statements now BALANCE BY CONSTRUCTION (BS reconciles AND Direct == Indirect closing cash, every period, under escrow + handover/over-time recognition). Verifiers: revenue 133; escrow 46; opex 38; opex-ap 24; fixed-assets 82; phase-date-preservation 37; phase-date-scenarios 7; cost-of-sales-v2 24; idc-depreciation 114; asset-cost-allocation 14; m4-bs-reconciliation 184 — 703 sections green across 11 scripts.**
+**Last updated: 2026-05-31. Module 1 LOCKED at M2.0 Pass 58 (base). Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP, Financial Statements now BALANCE BY CONSTRUCTION. Platform infra: project-switch state-leak fixed + session-based versioning with per-version change_log shipped (commits `ca5c152` + `d25a20b`). Verifiers: revenue 133; escrow 46; opex 38; opex-ap 24; fixed-assets 82; phase-date-preservation 37; phase-date-scenarios 7; cost-of-sales-v2 24; idc-depreciation 114; asset-cost-allocation 14; m4-bs-reconciliation 184; versioning 40 — 743 sections green across 12 scripts.**
+
+## 2026-05-31 session (project-switch state-leak + session versioning)
+
+Two independent platform-infra fixes shipped to close a demo-killing bug + rework the version save UX per user request.
+
+### Project-switch state-leak (commit `ca5c152`)
+
+User report: opened existing Project A after creating Demo Project B, A's UI showed B's numbers; deleting B did not restore A. A's server row had been overwritten with B's data. Three root causes:
+
+- **BUG A (data corruption)**: `handleCreateFromWizard` (`RealEstatePlatform.tsx`) mutated the Zustand store via `hydrate(snapshot)` BEFORE detaching the prior project's autosave subscriber. The hydrate event scheduled an autosave; if network > 1.5 s, that autosave wrote the NEW project's snapshot to the PREVIOUS project's `refm_project_versions` row.
+- **BUG B (visual state leak)**: `handleSelectProject` + boot effect flipped `activeProjectId` BEFORE awaiting `attachSyncToProject`. UI rendered the new id with the old store snapshot for 200-500 ms.
+- **BUG C (no-op detection break)**: `runAutoSave` updated `lastSavedJson` unconditionally after the await. A mid-save project switch clobbered the new project's `lastSavedJson` with the old project's JSON.
+
+Fixes:
+- Wizard create: `detachSync()` FIRST, then `hydrate`, then `createProject`, then `attachToProjectFromLocalSnapshot`.
+- Select / boot: detach + clear-store + `await attach` + flip `activeProjectId` last. Added `isSwitchingProject` overlay so the gap is visible and blocking.
+- runAutoSave: `if (activeProjectId !== projectId) return;` cross-project guard before writing `lastSavedJson`; `isLoading` skip at entry.
+
+**Recovery convention**: `refm_project_versions` is append-only, so pre-pollution snapshots are recoverable via VersionModal "Load" on an older version row. The migration 152 history list shows the change log per version to localize which save corrupted the data.
+
+### Session-based versioning (commit `d25a20b`, migration 152)
+
+Replaces the M1.6 "every keystroke creates a new auto-save version" model with a session-based one driven by user intent:
+
+1. Project opens read-only against the most recent version (`sessionBaseVersionId`).
+2. User's first edit fires `fmp:refm-session-needs-name` window event → `NameVersionModal` opens.
+3. Naming the session POSTs ONE new version row pinned via `base_version_id`, and every subsequent edit PATCHes the SAME row in place (`patchVersion` endpoint at `/api/refm/projects/[id]/versions/[versionId]`).
+4. Server pre-computes `change_log = diffSnapshots(base.snapshot, this.snapshot)` on every PATCH (or POST), so the history UI renders "what changed" from one column.
+5. `VersionModal` history list gains a "View log" toggle per version, expanding into typed add / remove / update entries with before → after value chips.
+
+**State machine** (`module1-sync.ts`):
+```
+VIEWING ──first edit──▶ WAITING_FOR_NAME
+WAITING_FOR_NAME ──startEditSession──▶ EDITING
+WAITING_FOR_NAME ──revertEditSession──▶ VIEWING
+EDITING ──store mutation──▶ EDITING (PATCH in place)
+* ──detach──▶ (detached)
+```
+
+**Architectural conventions locked**:
+- **Detach-before-hydrate is non-negotiable.** Any code that mutates the Zustand store on behalf of a different project MUST call `detachSync()` first. Otherwise the prior project's autosave subscriber catches the hydrate event.
+- **Session = version.** One named version row per editing session. PATCHes in place. The pre-fix "auto-save creates N versions per session" pattern is retired.
+- **Diff is server-computed against the row's base.** PATCH endpoint re-loads `existing.base_version_id` and recomputes `change_log`; it never trusts a client-supplied diff (defense against polluted history).
+- **`change_log` is on the row**, not derived. Survives base-version deletion (`ON DELETE SET NULL`). Versions stay readable even if their base is gone; the diff just records the pre-deletion comparison.
+- **`refm_project_versions` stays append-only.** Migration 152 adds columns but never deletes / mutates existing rows; recovery from data corruption uses the version history via VersionModal "Load".
+
+**Files**:
+- `supabase/migrations/152_refm_version_change_log.sql`: `base_version_id uuid` FK ON DELETE SET NULL + `change_log jsonb DEFAULT '[]'`.
+- `lib/persistence/snapshot-diff.ts`: pure id-keyed-array + compound-key + nested-object diff lib. Number-array leaves report as single entries (not per-index).
+- `lib/persistence/module1-sync.ts`: session state + `startEditSession` / `revertEditSession` / `getSessionState`. Fires `fmp:refm-session-needs-name` event.
+- `lib/persistence/server.ts`: `updateVersion()` helper for PATCH.
+- `lib/persistence/client.ts`: `patchVersion()` wrapper, `SaveVersionInput.baseVersionId`.
+- `app/api/refm/projects/[id]/versions/route.ts` POST: accepts `baseVersionId`, computes initial `change_log`.
+- `app/api/refm/projects/[id]/versions/[versionId]/route.ts` PATCH: in-place update with server-recomputed `change_log`.
+- `components/modals/NameVersionModal.tsx`: first-edit prompt + rename modes.
+- `components/modals/VersionModal.tsx`: expandable change_log per version row.
+- `scripts/verify-versioning.ts`: 40/40 (identity, project meta, nested project, id-array add/remove/update, nested asset, costOverrides compound key, number-array leaf, snapshotsEqual, null safety).
+
 
 ## 2026-05-25 session (M4 statements correctness + UI polish)
 

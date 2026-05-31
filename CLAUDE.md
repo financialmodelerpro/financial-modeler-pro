@@ -1,11 +1,14 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-25.**
+**Last updated: 2026-05-31.**
 
 **Module status (REFM platform):**
 - **Module 1 (Project Setup / Costs / Financing)** — LOCKED at M2.0 Pass 58 (base). Funding Methods 2 + 3 now have a "Funding Gap" sub-tab in Financing with display-only sizing math (Pass 2R → 2V). Cash Sweep + Dividend waterfall live (Pass 2S → 2Z).
 - **Module 2 (Revenue + Cost of Sales + Schedules + Escrow)** — LOCKED at Pass 9N.
 - **Module 3 (Operating Expenses)** — LOCKED at Pass 5d.
-- **Module 4 (Financial Statements)** — WIP. Financial statements now **balance by construction**: BS reconciles AND Direct == Indirect closing cash every period (verified under escrow + handover/over-time recognition). Two 2026-05-25 root-cause fixes closed the long-running BS imbalance + CF mismatch: **escrow is restricted cash (asset), not a liability**, and **residential P&L revenue uses the recognised series (matches Module 2), not sale-value timing**. Per-line Reconciliation Bridge on the BS tab localizes any future leak. Verifiers: 703 sections green across 11 scripts (m4-bs-reconciliation 184). See the 2026-05-25 session block in `CLAUDE-REFM.md`.
+- **Module 4 (Financial Statements)** — WIP. Financial statements **balance by construction**: BS reconciles AND Direct == Indirect closing cash every period (verified under escrow + handover/over-time recognition). Two 2026-05-25 root-cause fixes closed the long-running BS imbalance + CF mismatch: escrow is restricted cash (asset, not liability), residential P&L revenue uses recognised series (matches Module 2, not sale-value timing). Per-line Reconciliation Bridge on the BS tab localizes future leaks.
+- **REFM platform infra (2026-05-31)**: (1) project-switch state-leak fixed — detach-before-hydrate in createWizard + UI-gate-on-hydrate in selectProject (commit `ca5c152`); (2) session-based versioning replaces every-keystroke auto-save: first edit prompts for a session name, every edit PATCHes the SAME version row in place, server pre-computes per-version `change_log` diff against base, VersionModal renders the log inline (commit `d25a20b`, migration 152).
+
+Verifiers: **743 sections green across 12 scripts** (added verify-versioning 40/40).
 
 **M2 lock conventions** (apply to M3+ unless overridden):
 - The reference Excel at repo root is the verification benchmark, not a behavioural spec. Every reference-specific behaviour stays configurable; never hard-code currency, locale, escrow, or DSO defaults into engine paths.
