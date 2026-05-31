@@ -22,14 +22,45 @@ import type {
 const PROJECT_COLS =
   'id, user_id, name, location, status, asset_mix, schema_version, current_version_id, created_at, updated_at';
 // 2026-05-31 (migration 152): base_version_id + change_log columns added.
-// VERSION_LIST_COLS deliberately includes change_log so the history UI
-// can render diffs without a second fetch; the JSON is small (a few
-// hundred bytes per version) and skipping it would just force every
-// caller to do a round-trip.
-const VERSION_COLS =
-  'id, project_id, version_number, schema_version, snapshot, label, base_version_id, change_log, created_at';
-const VERSION_LIST_COLS =
-  'id, project_id, version_number, schema_version, label, base_version_id, change_log, created_at';
+// Hotfix 2026-05-31b: kept OUT of the base SELECT lists because production
+// Supabase may not yet have migration 152 applied. The widened lists
+// (VERSION_COLS_FULL / VERSION_LIST_COLS_FULL) are tried first by every
+// helper; on "column does not exist" failure, helpers fall back to the
+// base SELECT and synthesize { base_version_id: null, change_log: [] }
+// onto the returned row. Once migration 152 is applied the full SELECT
+// succeeds and the columns surface naturally; no code change needed.
+const VERSION_COLS_BASE =
+  'id, project_id, version_number, schema_version, snapshot, label, created_at';
+const VERSION_COLS_FULL =
+  `${VERSION_COLS_BASE}, base_version_id, change_log`;
+const VERSION_LIST_COLS_BASE =
+  'id, project_id, version_number, schema_version, label, created_at';
+const VERSION_LIST_COLS_FULL =
+  `${VERSION_LIST_COLS_BASE}, base_version_id, change_log`;
+
+// Cached after first successful query so each request doesn't probe twice.
+// Reset to undefined (= unknown) on module init; flipped to true once a
+// FULL select succeeds or false once we observe the missing-column error.
+let m152Applied: boolean | undefined;
+
+function isMissingColumnError(msg: string | null | undefined): boolean {
+  if (!msg) return false;
+  return /column .* does not exist|column "?(base_version_id|change_log)"? does not exist/i.test(msg);
+}
+
+// Helper that decorates a row read with the base SELECT with the
+// migration-152 fields so callers see a consistent shape regardless of
+// whether the migration has been applied yet.
+function decorateVersionRow<T extends Record<string, unknown>>(row: T | null): T | null {
+  if (!row) return row;
+  if (!('base_version_id' in row)) {
+    (row as Record<string, unknown>).base_version_id = null;
+  }
+  if (!('change_log' in row)) {
+    (row as Record<string, unknown>).change_log = [];
+  }
+  return row;
+}
 
 // ── refm_projects ───────────────────────────────────────────────────────────
 // Returns project rows decorated with `version_count` (computed via a
@@ -151,47 +182,100 @@ export async function deleteProject(
 }
 
 // ── refm_project_versions ───────────────────────────────────────────────────
+// Reads use a try-full-then-fall-back-to-base pattern so the platform
+// stays functional before migration 152 is applied. Once applied,
+// the FULL path succeeds and the cached `m152Applied=true` flag pins
+// every subsequent read to the cheap path.
 export async function getVersionById(
   projectId: string,
   versionId: string,
 ): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
+  if (m152Applied !== false) {
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .select(VERSION_COLS_FULL)
+      .eq('id', versionId)
+      .eq('project_id', projectId)
+      .maybeSingle();
+    if (!error) {
+      m152Applied = true;
+      return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+    }
+    if (!isMissingColumnError(error.message)) {
+      return { row: null, error: error.message };
+    }
+    m152Applied = false;
+  }
   const { data, error } = await sb
     .from('refm_project_versions')
-    .select(VERSION_COLS)
+    .select(VERSION_COLS_BASE)
     .eq('id', versionId)
     .eq('project_id', projectId)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+  return { row: decorateVersionRow(data ?? null) as RefmProjectVersionRow | null, error: null };
 }
 
 export async function getLatestVersion(
   projectId: string,
 ): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
+  if (m152Applied !== false) {
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .select(VERSION_COLS_FULL)
+      .eq('project_id', projectId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error) {
+      m152Applied = true;
+      return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+    }
+    if (!isMissingColumnError(error.message)) {
+      return { row: null, error: error.message };
+    }
+    m152Applied = false;
+  }
   const { data, error } = await sb
     .from('refm_project_versions')
-    .select(VERSION_COLS)
+    .select(VERSION_COLS_BASE)
     .eq('project_id', projectId)
     .order('version_number', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+  return { row: decorateVersionRow(data ?? null) as RefmProjectVersionRow | null, error: null };
 }
 
 export async function listVersions(
   projectId: string,
 ): Promise<{ rows: RefmProjectVersionListItem[]; error: string | null }> {
   const sb = getServerClient();
+  if (m152Applied !== false) {
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .select(VERSION_LIST_COLS_FULL)
+      .eq('project_id', projectId)
+      .order('version_number', { ascending: false });
+    if (!error) {
+      m152Applied = true;
+      return { rows: (data ?? []) as unknown as RefmProjectVersionListItem[], error: null };
+    }
+    if (!isMissingColumnError(error.message)) {
+      return { rows: [], error: error.message };
+    }
+    m152Applied = false;
+  }
   const { data, error } = await sb
     .from('refm_project_versions')
-    .select(VERSION_LIST_COLS)
+    .select(VERSION_LIST_COLS_BASE)
     .eq('project_id', projectId)
     .order('version_number', { ascending: false });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as unknown as RefmProjectVersionListItem[], error: null };
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  return { rows: rows.map((r) => decorateVersionRow(r)) as unknown as RefmProjectVersionListItem[], error: null };
 }
 
 // Reads MAX(version_number) for the project; callers add 1 to it for
@@ -224,13 +308,32 @@ export async function insertVersion(insert: {
   change_log?:      unknown;
 }): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
+  const tryFull = m152Applied !== false;
+  if (tryFull) {
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .insert(insert)
+      .select(VERSION_COLS_FULL)
+      .single();
+    if (!error) {
+      m152Applied = true;
+      return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+    }
+    if (!isMissingColumnError(error.message)) {
+      return { row: null, error: error.message };
+    }
+    m152Applied = false;
+  }
+  // Strip migration-152 fields and retry with base SELECT.
+  const { base_version_id: _b, change_log: _c, ...stripped } = insert;
+  void _b; void _c;
   const { data, error } = await sb
     .from('refm_project_versions')
-    .insert(insert)
-    .select(VERSION_COLS)
+    .insert(stripped)
+    .select(VERSION_COLS_BASE)
     .single();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+  return { row: decorateVersionRow(data ?? null) as RefmProjectVersionRow | null, error: null };
 }
 
 // 2026-05-31 (Phase M-Versioning). In-place version update used by
@@ -254,12 +357,31 @@ export async function updateVersion(
   },
 ): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
+  if (m152Applied !== false) {
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .update(patch)
+      .eq('id', versionId)
+      .select(VERSION_COLS_FULL)
+      .maybeSingle();
+    if (!error) {
+      m152Applied = true;
+      return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+    }
+    if (!isMissingColumnError(error.message)) {
+      return { row: null, error: error.message };
+    }
+    m152Applied = false;
+  }
+  // Strip migration-152 fields and retry with base SELECT.
+  const { change_log: _c, ...stripped } = patch;
+  void _c;
   const { data, error } = await sb
     .from('refm_project_versions')
-    .update(patch)
+    .update(stripped)
     .eq('id', versionId)
-    .select(VERSION_COLS)
+    .select(VERSION_COLS_BASE)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+  return { row: decorateVersionRow(data ?? null) as RefmProjectVersionRow | null, error: null };
 }
