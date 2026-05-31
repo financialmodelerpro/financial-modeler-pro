@@ -45,6 +45,14 @@ export default function VersionModal({
   // Phase M-Versioning (2026-05-31): which version's change log is
   // currently expanded in the history list. null = none expanded.
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
+  // 2026-05-31 hotfix: histories grow large (legacy M1.6 auto-save
+  // could produce 1000+ rows per project in a few days). Date filter
+  // + label search make finding a specific historic version
+  // tractable. Empty values mean "no filter".
+  const [filterFrom, setFilterFrom] = useState<string>('');   // YYYY-MM-DD
+  const [filterTo, setFilterTo]     = useState<string>('');   // YYYY-MM-DD
+  const [labelSearch, setLabelSearch] = useState<string>('');
+  const [maxToRender, setMaxToRender] = useState<number>(50); // progressive load
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -211,9 +219,132 @@ export default function VersionModal({
                 <div className="state-empty" data-testid="version-modal-empty">
                   No saved versions yet. Save a version to start tracking changes.
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {versions.map((v) => {
+              ) : (() => {
+                // Apply the date + label filters to the version list,
+                // then progressively reveal `maxToRender` rows so a
+                // 1000+-row history doesn't lag the modal.
+                const fromMs = filterFrom ? new Date(filterFrom + 'T00:00:00').getTime() : -Infinity;
+                const toMs   = filterTo   ? new Date(filterTo   + 'T23:59:59').getTime() :  Infinity;
+                const q      = labelSearch.trim().toLowerCase();
+                const filtered = versions.filter((v) => {
+                  const ts = new Date(v.created_at).getTime();
+                  if (ts < fromMs || ts > toMs) return false;
+                  if (q && !(v.label ?? '').toLowerCase().includes(q)) return false;
+                  return true;
+                });
+                const visible = filtered.slice(0, maxToRender);
+                const hiddenCount = filtered.length - visible.length;
+                return (
+                  <>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        marginBottom: 10,
+                        padding: '8px 10px',
+                        background: 'var(--color-row-alt)',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 12,
+                      }}
+                      data-testid="version-modal-filter-bar"
+                    >
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        From
+                        <input
+                          type="date"
+                          value={filterFrom}
+                          onChange={(e) => setFilterFrom(e.target.value)}
+                          data-testid="version-filter-from"
+                          style={{
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '3px 6px',
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        To
+                        <input
+                          type="date"
+                          value={filterTo}
+                          onChange={(e) => setFilterTo(e.target.value)}
+                          data-testid="version-filter-to"
+                          style={{
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '3px 6px',
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <input
+                        type="text"
+                        value={labelSearch}
+                        onChange={(e) => setLabelSearch(e.target.value)}
+                        placeholder="Search label..."
+                        data-testid="version-filter-search"
+                        style={{
+                          flex: 1,
+                          minWidth: 100,
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '3px 8px',
+                          fontSize: 12,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setFilterFrom('');
+                          setFilterTo('2026-05-29');
+                          setLabelSearch('');
+                          setMaxToRender(50);
+                        }}
+                        data-testid="version-filter-pre-may30"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                        title="Show only versions saved on or before 2026-05-29 (pre-bug window)"
+                      >
+                        Pre-May 30
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setFilterFrom('');
+                          setFilterTo('');
+                          setLabelSearch('');
+                          setMaxToRender(50);
+                        }}
+                        data-testid="version-filter-clear"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                      >
+                        Clear
+                      </button>
+                      <span style={{ color: 'var(--color-muted)', marginLeft: 'auto' }}>
+                        {filtered.length === versions.length
+                          ? `${versions.length} versions`
+                          : `${filtered.length} of ${versions.length}`}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {filtered.length === 0 && (
+                        <div
+                          style={{
+                            padding: '12px',
+                            textAlign: 'center',
+                            color: 'var(--color-muted)',
+                            fontStyle: 'italic',
+                            fontSize: 12,
+                          }}
+                        >
+                          No versions match the current filter.
+                        </div>
+                      )}
+                      {visible.map((v) => {
                     const isActive = v.id === activeVersionId;
                     const isExpanded = expandedVersionId === v.id;
                     const log = (v.change_log ?? []) as ChangeLogEntryDTO[];
@@ -329,8 +460,21 @@ export default function VersionModal({
                       </div>
                     );
                   })}
-                </div>
-              )}
+                      {hiddenCount > 0 && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          data-testid="version-modal-load-more"
+                          onClick={() => setMaxToRender((n) => n + 100)}
+                          style={{ fontSize: 12, padding: '6px 12px', marginTop: 6 }}
+                        >
+                          Show {Math.min(100, hiddenCount)} more ({hiddenCount} remaining)
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

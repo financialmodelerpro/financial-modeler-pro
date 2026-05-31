@@ -276,33 +276,65 @@ export async function getLatestVersion(
   return { row: decorateVersionRow(data ?? null) as RefmProjectVersionRow | null, error: null };
 }
 
+// 2026-05-31 hotfix: Supabase / PostgREST's default `max-rows` setting
+// caps SELECT responses at 1000 rows unless the request uses `.range()`.
+// Users with bloated histories (M1.6 auto-save model could produce
+// 1000+ versions per project in a few days of editing) were silently
+// losing their OLDEST versions because we returned only the newest
+// 1000 ordered DESC. Switching to explicit `.range(0, 9999)` raises the
+// ceiling to 10,000; we also paginate via repeated range fetches when
+// the page comes back full so genuinely huge histories still surface
+// every row. The order remains version_number DESC so newest-first
+// rendering in VersionModal is unchanged.
+const VERSION_PAGE_SIZE = 1000;
+const VERSION_HARD_CAP  = 50_000;
+
+async function listVersionsPaginated(
+  projectId: string,
+  cols: string,
+): Promise<{ rows: Array<Record<string, unknown>>; error: string | null }> {
+  const sb = getServerClient();
+  const out: Array<Record<string, unknown>> = [];
+  let from = 0;
+  // Pull pages of VERSION_PAGE_SIZE until the response comes back
+  // shorter than a full page (= end of table) or we hit the safety cap.
+  while (from < VERSION_HARD_CAP) {
+    const to = from + VERSION_PAGE_SIZE - 1;
+    const { data, error } = await sb
+      .from('refm_project_versions')
+      .select(cols)
+      .eq('project_id', projectId)
+      .order('version_number', { ascending: false })
+      .range(from, to);
+    if (error) return { rows: out, error: error.message };
+    const page = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    out.push(...page);
+    if (page.length < VERSION_PAGE_SIZE) break;
+    from += VERSION_PAGE_SIZE;
+  }
+  return { rows: out, error: null };
+}
+
 export async function listVersions(
   projectId: string,
 ): Promise<{ rows: RefmProjectVersionListItem[]; error: string | null }> {
-  const sb = getServerClient();
   if (m152Applied !== false) {
-    const { data, error } = await sb
-      .from('refm_project_versions')
-      .select(VERSION_LIST_COLS_FULL)
-      .eq('project_id', projectId)
-      .order('version_number', { ascending: false });
+    const { rows, error } = await listVersionsPaginated(projectId, VERSION_LIST_COLS_FULL);
     if (!error) {
       m152Applied = true;
-      return { rows: (data ?? []) as unknown as RefmProjectVersionListItem[], error: null };
+      return { rows: rows as unknown as RefmProjectVersionListItem[], error: null };
     }
     if (!isMissingColumnError(error)) {
-      return { rows: [], error: error.message };
+      return { rows: [], error };
     }
     m152Applied = false;
   }
-  const { data, error } = await sb
-    .from('refm_project_versions')
-    .select(VERSION_LIST_COLS_BASE)
-    .eq('project_id', projectId)
-    .order('version_number', { ascending: false });
-  if (error) return { rows: [], error: error.message };
-  const rows = (data ?? []) as Array<Record<string, unknown>>;
-  return { rows: rows.map((r) => decorateVersionRow(r)) as unknown as RefmProjectVersionListItem[], error: null };
+  const { rows, error } = await listVersionsPaginated(projectId, VERSION_LIST_COLS_BASE);
+  if (error) return { rows: [], error };
+  return {
+    rows: rows.map((r) => decorateVersionRow(r)) as unknown as RefmProjectVersionListItem[],
+    error: null,
+  };
 }
 
 // Reads MAX(version_number) for the project; callers add 1 to it for
