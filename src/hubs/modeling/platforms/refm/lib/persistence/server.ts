@@ -43,9 +43,36 @@ const VERSION_LIST_COLS_FULL =
 // FULL select succeeds or false once we observe the missing-column error.
 let m152Applied: boolean | undefined;
 
-function isMissingColumnError(msg: string | null | undefined): boolean {
-  if (!msg) return false;
-  return /column .* does not exist|column "?(base_version_id|change_log)"? does not exist/i.test(msg);
+/**
+ * Detects "column does not exist" failures from Supabase / PostgREST.
+ * Checks both the human-readable message (regex-based on the typical
+ * Postgres wording) AND the SQL state code 42703 (undefined_column),
+ * because PostgREST sometimes truncates the message or wraps it in
+ * detail / hint, in which case `code` is the only reliable signal.
+ *
+ * Accepts either a Supabase error object ({ message, code, details, hint })
+ * or a bare string for compatibility with existing call sites.
+ */
+type SupabaseLikeError =
+  | string
+  | { message?: string | null; code?: string | null; details?: string | null; hint?: string | null }
+  | null
+  | undefined;
+
+function isMissingColumnError(err: SupabaseLikeError): boolean {
+  if (!err) return false;
+  if (typeof err === 'string') {
+    return /column .* does not exist/i.test(err)
+        || /(base_version_id|change_log)/i.test(err);
+  }
+  if (err.code === '42703' || err.code === 'PGRST204') return true;
+  const fields = [err.message, err.details, err.hint].filter(Boolean) as string[];
+  for (const f of fields) {
+    if (/column .* does not exist/i.test(f)) return true;
+    if (/(base_version_id|change_log).* does not exist/i.test(f)) return true;
+    if (/could not find the .* column/i.test(f)) return true;
+  }
+  return false;
 }
 
 // Helper that decorates a row read with the base SELECT with the
@@ -202,7 +229,7 @@ export async function getVersionById(
       m152Applied = true;
       return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
     }
-    if (!isMissingColumnError(error.message)) {
+    if (!isMissingColumnError(error)) {
       return { row: null, error: error.message };
     }
     m152Applied = false;
@@ -233,7 +260,7 @@ export async function getLatestVersion(
       m152Applied = true;
       return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
     }
-    if (!isMissingColumnError(error.message)) {
+    if (!isMissingColumnError(error)) {
       return { row: null, error: error.message };
     }
     m152Applied = false;
@@ -263,7 +290,7 @@ export async function listVersions(
       m152Applied = true;
       return { rows: (data ?? []) as unknown as RefmProjectVersionListItem[], error: null };
     }
-    if (!isMissingColumnError(error.message)) {
+    if (!isMissingColumnError(error)) {
       return { rows: [], error: error.message };
     }
     m152Applied = false;
@@ -319,7 +346,7 @@ export async function insertVersion(insert: {
       m152Applied = true;
       return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
     }
-    if (!isMissingColumnError(error.message)) {
+    if (!isMissingColumnError(error)) {
       return { row: null, error: error.message };
     }
     m152Applied = false;
@@ -368,7 +395,7 @@ export async function updateVersion(
       m152Applied = true;
       return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
     }
-    if (!isMissingColumnError(error.message)) {
+    if (!isMissingColumnError(error)) {
       return { row: null, error: error.message };
     }
     m152Applied = false;
