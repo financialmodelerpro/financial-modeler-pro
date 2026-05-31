@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getProject,
+  getVersionById,
   listVersions,
   insertVersion,
   nextVersionNumber,
@@ -25,6 +26,7 @@ import {
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { SCHEMA_VERSION } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
+import { diffSnapshots } from '@/src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -49,20 +51,35 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 }
 
 // ── POST /api/refm/projects/[id]/versions ───────────────────────────────────
-// Body: { snapshot: HydrateSnapshot, label?: string, assetMix?: string[] }
+// Body: {
+//   snapshot:       HydrateSnapshot,
+//   label?:         string | null,
+//   assetMix?:      string[],
+//   baseVersionId?: string | null,   // (2026-05-31) version this one
+//                                    //  branches from; null means
+//                                    //  "first version of project".
+// }
+//
 // `assetMix` updates the picker-tile cache on refm_projects in the
 // same write, the snapshot is the source of truth, but the cached
 // asset_mix avoids the picker having to read every snapshot to render
 // the project list.
+//
+// 2026-05-31 (Phase M-Versioning): when `baseVersionId` is provided
+// the route loads that version's snapshot and computes the
+// `change_log` diff so the version-history UI can render "what
+// changed in this version" without a second fetch. Diff entries are
+// stored pre-computed on the row (see migration 152).
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const userId = await getRefmUserId();
   if (!userId) return unauthorized();
   const { id: projectId } = await ctx.params;
 
   let body: {
-    snapshot?: HydrateSnapshot;
-    label?:    string | null;
-    assetMix?: string[];
+    snapshot?:      HydrateSnapshot;
+    label?:         string | null;
+    assetMix?:      string[];
+    baseVersionId?: string | null;
   };
   try { body = await req.json(); }
   catch { return badRequest('Body must be valid JSON.'); }
@@ -74,6 +91,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 
+  // Resolve base version (if any) and compute change_log against it.
+  // baseVersionId === null is the explicit "no base" case for the
+  // first version of a project; baseVersionId === undefined means the
+  // caller didn't ask for diff tracking (legacy auto-save callers).
+  let baseVersionId: string | null = null;
+  let changeLog: ReturnType<typeof diffSnapshots> = [];
+  if (body.baseVersionId) {
+    const { row: baseVersion, error: baseErr } = await getVersionById(projectId, body.baseVersionId);
+    if (baseErr) return serverError(baseErr);
+    // Tolerate a missing base (race with delete): treat as "no base"
+    // rather than 4xx-ing the caller's save.
+    if (baseVersion) {
+      baseVersionId = baseVersion.id;
+      changeLog = diffSnapshots(baseVersion.snapshot, body.snapshot);
+    }
+  }
+
   // Read the current MAX(version_number) and write +1. The unique
   // index on (project_id, version_number) guarantees no concurrent
   // duplicate even if two saves race; on collision the second insert
@@ -82,11 +116,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (nextErr) return serverError(nextErr);
 
   const { row: versionRow, error: insErr } = await insertVersion({
-    project_id:     projectId,
-    version_number: next,
-    schema_version: SCHEMA_VERSION,
-    snapshot:       body.snapshot,
-    label:          body.label?.trim() ? body.label.trim() : null,
+    project_id:      projectId,
+    version_number:  next,
+    schema_version:  SCHEMA_VERSION,
+    snapshot:        body.snapshot,
+    label:           body.label?.trim() ? body.label.trim() : null,
+    base_version_id: baseVersionId,
+    change_log:      changeLog,
   });
   if (insErr || !versionRow) return serverError(insErr ?? 'Failed to insert version.');
 

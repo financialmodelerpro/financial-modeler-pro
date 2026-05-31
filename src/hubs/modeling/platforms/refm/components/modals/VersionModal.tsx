@@ -17,7 +17,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as pclient from '../../lib/persistence/client';
-import type { RefmProjectVersionListItem } from '../../lib/persistence/types';
+import type { RefmProjectVersionListItem, ChangeLogEntryDTO } from '../../lib/persistence/types';
 
 interface VersionModalProps {
   open: boolean;
@@ -42,6 +42,9 @@ export default function VersionModal({
   const [error, setError] = useState<string | null>(null);
   const [versionName, setVersionName] = useState('');
   const [tab, setTab] = useState<'save' | 'history'>(onSave ? 'save' : 'history');
+  // Phase M-Versioning (2026-05-31): which version's change log is
+  // currently expanded in the history list. null = none expanded.
+  const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -212,14 +215,14 @@ export default function VersionModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {versions.map((v) => {
                     const isActive = v.id === activeVersionId;
+                    const isExpanded = expandedVersionId === v.id;
+                    const log = (v.change_log ?? []) as ChangeLogEntryDTO[];
+                    const logCount = log.length;
                     return (
                       <div
                         key={v.id}
                         data-testid={`version-${v.id}`}
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
                           padding: '10px 12px',
                           borderRadius: 'var(--radius-sm)',
                           border: isActive
@@ -230,50 +233,98 @@ export default function VersionModal({
                             : 'transparent',
                         }}
                       >
-                        <div>
-                          <div
-                            style={{
-                              fontWeight: 'var(--fw-semibold)',
-                              color: 'var(--color-heading)',
-                              fontSize: 'var(--font-body)',
-                              marginBottom: '2px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                            }}
-                          >
-                            {v.label || 'Auto-save'}
-                            {isActive && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: 'var(--fw-semibold)',
+                                color: 'var(--color-heading)',
+                                fontSize: 'var(--font-body)',
+                                marginBottom: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                              }}
+                            >
+                              {v.label || `Version ${v.version_number}`}
+                              {isActive && (
+                                <span
+                                  style={{
+                                    fontSize: '9px',
+                                    fontWeight: 700,
+                                    padding: '1px 7px',
+                                    borderRadius: '20px',
+                                    background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
+                                    color: 'var(--color-success)',
+                                  }}
+                                >
+                                  LOADED
+                                </span>
+                              )}
                               <span
                                 style={{
-                                  fontSize: '9px',
-                                  fontWeight: 700,
-                                  padding: '1px 7px',
-                                  borderRadius: '20px',
-                                  background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                                  color: 'var(--color-success)',
+                                  fontSize: '10px',
+                                  color: 'var(--color-muted)',
+                                  fontWeight: 'var(--fw-normal)',
                                 }}
                               >
-                                LOADED
+                                #{v.version_number}
                               </span>
+                            </div>
+                            <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
+                              {new Date(v.created_at).toLocaleString()}
+                              {logCount > 0 && (
+                                <>
+                                  {' · '}
+                                  {logCount} {logCount === 1 ? 'change' : 'changes'}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              data-testid={`version-${v.id}-toggle-log`}
+                              style={{ fontSize: '12px', padding: '5px 10px' }}
+                              onClick={() => setExpandedVersionId(isExpanded ? null : v.id)}
+                              disabled={logCount === 0 && !v.base_version_id}
+                              title={
+                                logCount === 0 && !v.base_version_id
+                                  ? 'No change log (initial version)'
+                                  : isExpanded
+                                    ? 'Hide change log'
+                                    : 'View change log'
+                              }
+                            >
+                              {isExpanded ? 'Hide log' : `View log (${logCount})`}
+                            </button>
+                            {!isActive && (
+                              <button
+                                className="btn-secondary"
+                                data-testid={`version-${v.id}-load`}
+                                style={{ fontSize: '12px', padding: '5px 12px' }}
+                                onClick={() => {
+                                  onLoadVersion(v.id);
+                                  onClose();
+                                }}
+                              >
+                                Load
+                              </button>
                             )}
                           </div>
-                          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
-                            {new Date(v.created_at).toLocaleString()}
-                          </div>
                         </div>
-                        {!isActive && (
-                          <button
-                            className="btn-secondary"
-                            data-testid={`version-${v.id}-load`}
-                            style={{ fontSize: '12px', padding: '5px 12px' }}
-                            onClick={() => {
-                              onLoadVersion(v.id);
-                              onClose();
-                            }}
-                          >
-                            Load
-                          </button>
+                        {isExpanded && (
+                          <div style={{ marginTop: 10 }}>
+                            <ChangeLogList entries={log} />
+                          </div>
                         )}
                       </div>
                     );
@@ -299,4 +350,142 @@ export default function VersionModal({
   );
 
   return createPortal(content, document.body);
+}
+
+// ── Change log renderer ────────────────────────────────────────────────────
+/**
+ * Renders the list of ChangeLogEntry records stored on a version
+ * row. Each entry shows path, kind, and before/after values. Long
+ * value strings are truncated with a hover-revealable full text via
+ * `title`. Empty arrays render the explicit "No changes recorded"
+ * message rather than a blank block.
+ */
+function ChangeLogList({ entries }: { entries: ChangeLogEntryDTO[] }): React.JSX.Element {
+  if (!entries || entries.length === 0) {
+    return (
+      <div
+        style={{
+          fontSize: '12px',
+          color: 'var(--color-muted)',
+          fontStyle: 'italic',
+          padding: '8px 10px',
+          background: 'var(--color-row-alt)',
+          borderRadius: 'var(--radius-sm)',
+        }}
+      >
+        No changes recorded for this version.
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        background: 'var(--color-row-alt)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '8px 10px',
+        maxHeight: 240,
+        overflowY: 'auto',
+        fontSize: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+      data-testid="change-log-list"
+    >
+      {entries.map((entry, idx) => (
+        <ChangeLogRow key={`${entry.path}-${idx}`} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
+function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Element {
+  const kindBadge =
+    entry.kind === 'add' ? { label: 'Added', bg: '#d1fae5', fg: '#065f46' } :
+    entry.kind === 'remove' ? { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' } :
+    { label: 'Updated', bg: '#e0f2fe', fg: '#0c4a6e' };
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '70px 1fr',
+        gap: 8,
+        alignItems: 'baseline',
+        padding: '4px 0',
+        borderBottom: '1px dashed var(--color-border)',
+      }}
+    >
+      <span
+        style={{
+          fontSize: '10px',
+          fontWeight: 700,
+          padding: '1px 6px',
+          borderRadius: '20px',
+          background: kindBadge.bg,
+          color: kindBadge.fg,
+          width: 'max-content',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}
+      >
+        {kindBadge.label}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            fontFamily: 'monospace',
+            color: 'var(--color-heading)',
+            wordBreak: 'break-all',
+          }}
+        >
+          {entry.label ?? entry.path}
+        </div>
+        {entry.kind === 'update' && (
+          <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
+            <ValueChip raw={entry.before} kind="before" />
+            <span style={{ margin: '0 6px' }}>→</span>
+            <ValueChip raw={entry.after} kind="after" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ValueChip({ raw, kind }: { raw: unknown; kind: 'before' | 'after' }): React.JSX.Element {
+  const display = formatLogValue(raw);
+  return (
+    <span
+      title={display.length > 60 ? display : undefined}
+      style={{
+        fontFamily: 'monospace',
+        background: kind === 'before' ? '#fef3c7' : '#dcfce7',
+        padding: '0 5px',
+        borderRadius: 4,
+        color: 'var(--color-heading)',
+        maxWidth: 240,
+        display: 'inline-block',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        verticalAlign: 'bottom',
+      }}
+    >
+      {display.length > 60 ? `${display.slice(0, 57)}...` : display}
+    </span>
+  );
+}
+
+function formatLogValue(raw: unknown): string {
+  if (raw === undefined) return '∅';
+  if (raw === null) return 'null';
+  if (typeof raw === 'string') return JSON.stringify(raw);
+  if (typeof raw === 'number') return raw.toLocaleString();
+  if (typeof raw === 'boolean') return raw ? 'true' : 'false';
+  if (Array.isArray(raw)) return `[${raw.length} items]`;
+  if (typeof raw === 'object') {
+    try { return JSON.stringify(raw); } catch { return '[object]'; }
+  }
+  return String(raw);
 }

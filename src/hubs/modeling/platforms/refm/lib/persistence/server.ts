@@ -21,10 +21,15 @@ import type {
 
 const PROJECT_COLS =
   'id, user_id, name, location, status, asset_mix, schema_version, current_version_id, created_at, updated_at';
+// 2026-05-31 (migration 152): base_version_id + change_log columns added.
+// VERSION_LIST_COLS deliberately includes change_log so the history UI
+// can render diffs without a second fetch; the JSON is small (a few
+// hundred bytes per version) and skipping it would just force every
+// caller to do a round-trip.
 const VERSION_COLS =
-  'id, project_id, version_number, schema_version, snapshot, label, created_at';
+  'id, project_id, version_number, schema_version, snapshot, label, base_version_id, change_log, created_at';
 const VERSION_LIST_COLS =
-  'id, project_id, version_number, schema_version, label, created_at';
+  'id, project_id, version_number, schema_version, label, base_version_id, change_log, created_at';
 
 // ── refm_projects ───────────────────────────────────────────────────────────
 // Returns project rows decorated with `version_count` (computed via a
@@ -210,11 +215,13 @@ export async function nextVersionNumber(
 }
 
 export async function insertVersion(insert: {
-  project_id:     string;
-  version_number: number;
-  schema_version: number;
-  snapshot:       unknown;
-  label?:         string | null;
+  project_id:       string;
+  version_number:   number;
+  schema_version:   number;
+  snapshot:         unknown;
+  label?:           string | null;
+  base_version_id?: string | null;
+  change_log?:      unknown;
 }): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
   const { data, error } = await sb
@@ -222,6 +229,37 @@ export async function insertVersion(insert: {
     .insert(insert)
     .select(VERSION_COLS)
     .single();
+  if (error) return { row: null, error: error.message };
+  return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
+}
+
+// 2026-05-31 (Phase M-Versioning). In-place version update used by
+// the session-based editing flow: once the user has named the new
+// version they're editing, every autosave PATCHes the same row
+// instead of inserting a new one.
+//
+// Caller is responsible for recomputing change_log against the base
+// version's snapshot before calling this; the helper stores whatever
+// is passed.
+//
+// Patch shape is intentionally narrow: only snapshot + change_log +
+// label can be updated. version_number, schema_version,
+// base_version_id, project_id are immutable from this code path.
+export async function updateVersion(
+  versionId: string,
+  patch: {
+    snapshot?:    unknown;
+    change_log?:  unknown;
+    label?:       string | null;
+  },
+): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_project_versions')
+    .update(patch)
+    .eq('id', versionId)
+    .select(VERSION_COLS)
+    .maybeSingle();
   if (error) return { row: null, error: error.message };
   return { row: (data ?? null) as RefmProjectVersionRow | null, error: null };
 }

@@ -66,6 +66,13 @@ export type RefmProjectListItem = Omit<RefmProjectRow, 'user_id'> & {
 // jsonb on the server, but typed as the live HydrateSnapshot here so
 // reads land already-shaped (the migrator at lib/state/module1-migrate
 // still runs on hydrate to upgrade older shapes).
+//
+// Migration 152 (2026-05-31) adds two columns for the session-based
+// versioning model:
+//   base_version_id  the version this one branched from (null = first)
+//   change_log       pre-computed diff against base_version_id; see
+//                    src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts
+//                    for the entry shape.
 export interface RefmProjectVersionRow {
   id:              string;
   project_id:      string;
@@ -73,8 +80,23 @@ export interface RefmProjectVersionRow {
   schema_version:  number;
   snapshot:        HydrateSnapshot;
   label:           string | null;
+  base_version_id: string | null;
+  change_log:      ChangeLogEntryDTO[];
   created_at:      string;
 }
 
+// Mirrors src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts
+// `ChangeLogEntry`. Re-declared here so server-side files don't have
+// to import from the diff lib (which has no server-side dependency).
+export interface ChangeLogEntryDTO {
+  path:    string;
+  label?:  string;
+  before:  unknown;
+  after:   unknown;
+  kind:    'add' | 'remove' | 'update';
+}
+
 // Version-list shape: snapshot omitted to keep the picker query light.
+// change_log is included so the history UI can render diffs without a
+// second round-trip; it's typically small (a few hundred bytes).
 export type RefmProjectVersionListItem = Omit<RefmProjectVersionRow, 'snapshot'>;

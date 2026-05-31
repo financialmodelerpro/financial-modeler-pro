@@ -1,39 +1,66 @@
 /**
- * REFM persistence: Module 1 store ↔ server sync (Phase M1.6/5).
+ * REFM persistence: Module 1 store ↔ server sync.
  *
- * Bridges the Zustand `useModule1Store` to the persistence layer. The
- * lifecycle:
+ * Lifecycle (Phase M-Versioning, 2026-05-31):
  *
  *   attachToProject(projectId)
- *     1. Tries to load the project + current snapshot from /api/refm.
- *     2. On success, hydrates the store and writes the snapshot to
- *        the localStorage cache.
- *     3. On failure, falls back to whatever cached snapshot exists.
- *     4. Subscribes to the store and starts the debounced auto-save
- *        loop (1.5 s after the last change).
+ *     1. Loads the project + its current version snapshot.
+ *     2. Hydrates the store; captures `sessionBase` (the snapshot
+ *        and version id that the session STARTED from).
+ *     3. Subscribes to the store. Session is in VIEWING state: no
+ *        auto-save will write anywhere yet.
  *
- *   detach()
- *     - Unsubscribes, clears the timer, drops the active id. Call
- *       this when the user closes the project (or before
- *       attachToProject for a different project, attach calls
- *       detach() internally for safety).
+ *   First store mutation
+ *     The subscriber notices that the current snapshot differs from
+ *     `sessionBase.snapshot`. It does NOT save automatically; it
+ *     dispatches a `fmp:refm-session-needs-name` window event so
+ *     the UI can open NameVersionModal. Until the user names the
+ *     session, every mutation is held in the store (the subscriber
+ *     re-fires but stays in WAITING_FOR_NAME).
+ *
+ *   startEditSession(label)
+ *     POSTs a new version with the current snapshot, label, and
+ *     `baseVersionId = sessionBase.versionId`. Stores the returned
+ *     row id as `editingVersionId` and the session transitions to
+ *     EDITING. Subsequent mutations PATCH that same version row
+ *     (debounced 1.5 s). One session = one version row.
+ *
+ *   revertEditSession()
+ *     Re-hydrates `sessionBase.snapshot` so the user's first edit
+ *     is undone, transitions back to VIEWING. Used by the modal's
+ *     Cancel button.
  *
  *   loadVersionInto(projectId, versionId)
- *     - Hydrates the store from a specific historical version row
- *       without writing a new save. Used by VersionModal's
- *       "load this version" path. Sets the auto-save baseline so
- *       the next user edit triggers a save (which becomes the new
- *       latest version).
+ *     Hydrates from a specific historical version row WITHOUT
+ *     creating a new save. Re-anchors `sessionBase` to that version.
+ *     Used by VersionModal's "Load this version" path.
  *
- * Locks:
+ *   detach()
+ *     Unsubscribes, clears the timer, drops all session state.
+ *     Called when the user closes a project or switches to a
+ *     different one.
+ *
+ * State machine:
+ *
+ *   VIEWING ──first edit──▶ WAITING_FOR_NAME
+ *   WAITING_FOR_NAME ──startEditSession──▶ EDITING
+ *   WAITING_FOR_NAME ──revertEditSession──▶ VIEWING
+ *   EDITING ──store mutation──▶ EDITING (PATCH in place)
+ *   * ──detach──▶ (detached)
+ *
+ * Concurrency locks:
  *   - `isLoading` skips auto-save while we're programmatically
- *     hydrating (otherwise the hydrate event itself would trigger
- *     a save loop back to the server).
- *   - `isSaving` prevents a second save from racing the first; the
+ *     hydrating (otherwise the hydrate event would trigger a save
+ *     loop back to the server).
+ *   - `isSaving` prevents a second PATCH from racing the first; the
  *     subscriber re-arms the timer after a save completes so any
  *     edits made mid-save still flush.
- *   - `lastSavedSnapshotJson` skips no-op saves (e.g. UI-only state
+ *   - `lastSavedJson` skips no-op PATCHes (e.g. UI-only state
  *     changes that don't alter the HydrateSnapshot fields).
+ *   - Cross-project save guard: after the PATCH/POST await, we
+ *     verify activeProjectId still matches the captured projectId
+ *     before updating lastSavedJson, so a switch-mid-save doesn't
+ *     pollute the new project's no-op detection.
  */
 
 import { useModule1Store, type HydrateSnapshot, DEFAULT_MODULE1_STATE } from '../state/module1-store';
@@ -42,30 +69,33 @@ import {
   loadProject,
   loadVersion,
   saveVersion,
+  patchVersion,
 } from './client';
 import {
   readCachedSnapshot,
   writeCachedSnapshot,
   writeActiveProjectId,
 } from './cache';
+import { snapshotsEqual } from './snapshot-diff';
 
 const DEBOUNCE_MS = 1500;
 
-// Module-level state. The sync module is a singleton, there is one
-// active project per browser tab.
-let activeProjectId: string | null = null;
-let unsubscribe:    (() => void) | null = null;
-let saveTimer:      ReturnType<typeof setTimeout> | null = null;
-let isSaving        = false;
-let isLoading       = false;
-let lastSavedJson   = '';   // serialized snapshot at last successful save
+// Module-level state. The sync module is a singleton, one active
+// project per browser tab.
+let activeProjectId:    string | null = null;
+let unsubscribe:        (() => void) | null = null;
+let saveTimer:          ReturnType<typeof setTimeout> | null = null;
+let isSaving            = false;
+let isLoading           = false;
+let lastSavedJson       = '';   // serialized snapshot at last successful save
+// Session-based versioning state (Phase M-Versioning, 2026-05-31).
+let sessionBaseSnapshot: HydrateSnapshot | null = null;
+let sessionBaseVersionId: string | null = null;
+let editingVersionId:    string | null = null;
+let editingLabel:        string | null = null;
+let hasFiredNeedsName    = false;  // de-dupe the modal trigger event
 
 // ── Snapshot extraction ─────────────────────────────────────────────────────
-// Pulls the HydrateSnapshot-shaped subset out of the live store state
-// using DEFAULT_MODULE1_STATE's keys as the canonical field list. This
-// keeps the field set in lockstep with the store: if a new field is
-// added to HydrateSnapshot via DEFAULT_MODULE1_STATE, it automatically
-// participates in saves without anyone editing this file.
 const SNAPSHOT_KEYS = Object.keys(DEFAULT_MODULE1_STATE) as Array<keyof HydrateSnapshot>;
 
 function extractSnapshot(): HydrateSnapshot {
@@ -77,8 +107,6 @@ function extractSnapshot(): HydrateSnapshot {
   return out;
 }
 
-// Picker tile cache: array of visible asset names. Mirrors the
-// pre-M1.6 logic in RealEstatePlatform.computeAssetMix().
 function computeAssetMix(snapshot: HydrateSnapshot): string[] {
   return snapshot.assets.filter(a => a.visible).map(a => a.name);
 }
@@ -87,10 +115,10 @@ function computeAssetMix(snapshot: HydrateSnapshot): string[] {
 export interface AttachResult {
   loaded:   'server' | 'cache' | 'none';
   error:    string | null;
-  // M2.0h Fix 1 (2026-05-07): set when a v7 -> v8 migration ran during
-  // this attach. UI surfaces it once as a banner; the next save persists
-  // the v8 snapshot so the banner doesn't reappear.
   migrationNotice?: string;
+  /** Version row id the session was anchored to (for the
+   *  RealEstatePlatform shell to display as the "active version"). */
+  versionId?: string | null;
 }
 
 export async function attachToProject(projectId: string): Promise<AttachResult> {
@@ -104,6 +132,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   let loaded: AttachResult['loaded'] = 'none';
   let error:  string | null          = null;
   let migrationNotice: string | undefined;
+  let versionId: string | null = null;
 
   // Try server first.
   const serverRes = await loadProject(projectId);
@@ -112,6 +141,9 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     useModule1Store.getState().hydrate(checked.snapshot);
     writeCachedSnapshot(projectId, checked.snapshot);
     lastSavedJson = JSON.stringify(checked.snapshot);
+    sessionBaseSnapshot  = checked.snapshot;
+    sessionBaseVersionId = serverRes.data.version.id;
+    versionId = serverRes.data.version.id;
     loaded = 'server';
     migrationNotice = checked.migrationNotice;
     if (checked.error) error = checked.error;
@@ -123,53 +155,40 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
       const checked = hydrationFromAnySnapshotChecked(cached.snapshot);
       useModule1Store.getState().hydrate(checked.snapshot);
       lastSavedJson = JSON.stringify(checked.snapshot);
+      sessionBaseSnapshot  = checked.snapshot;
+      sessionBaseVersionId = null;  // can't trust cache to know which version
       loaded = 'cache';
       migrationNotice = checked.migrationNotice;
     }
-    // If cache also empty: leave the store on whatever it had
-    // (likely DEFAULT_MODULE1_STATE). The UI surfaces the error so
-    // the user knows the project failed to load.
   }
+
+  editingVersionId  = null;
+  editingLabel      = null;
+  hasFiredNeedsName = false;
 
   // Wire the subscriber AFTER hydrate so the hydrate event itself
-  // doesn't trigger a save. (isLoading=true would also block it, but
-  // belt-and-braces.)
-  unsubscribe = useModule1Store.subscribe(scheduleAutoSave);
+  // doesn't trigger the first-edit modal or auto-save.
+  unsubscribe = useModule1Store.subscribe(onStoreChange);
   isLoading = false;
 
-  // M2.0h: when a migration ran, kick a save immediately so the v8
-  // snapshot lands on the server (idempotent; further opens won't
-  // re-emit the banner because the saved snapshot is already v8).
-  if (migrationNotice) {
-    void runAutoSave();
-  }
-
-  return { loaded, error, migrationNotice };
+  // M2.0h legacy: if a migration ran on hydrate the v8 snapshot
+  // should be persisted. Under the session-based model we surface
+  // this as a notice; the user names the session and the save lands
+  // through the editing path.
+  void migrationNotice;
+  return { loaded, error, migrationNotice, versionId };
 }
 
 /**
- * Attach the auto-save subscriber to a project WITHOUT re-loading its
- * snapshot from the server.
- *
- * Used by the wizard create path (M1.8) and any other flow where the
- * store was just hydrated locally with a known-good snapshot AND that
- * exact snapshot was just persisted server-side. In those cases the
- * round-trip `loadProject` in `attachToProject` is wasteful AND
- * dangerous: `hydrationFromAnySnapshot` requires `version === 3` to
- * recognize a snapshot as "new shape", wizard / legacy createProject
- * snapshots are bare `HydrateSnapshot` (no version discriminator), so
- * the recogniser falls through to `DEFAULT_MODULE1_STATE`, silently
- * wiping the just-hydrated wizard data (3 assets / 1 plot / sub-units
- * → empty) and dropping the user into an empty Area Program tab.
- *
- * Caller's responsibility: the store must already hold the snapshot
- * the server has saved (call `useModule1Store.getState().hydrate(snap)`
- * before this). The cache mirror is written here so offline-resume on
- * next reload uses the same snapshot.
+ * Attach the auto-save subscriber to a project WITHOUT re-loading
+ * its snapshot from the server. Used by the wizard create path: the
+ * store was just hydrated locally with a known-good snapshot AND
+ * that exact snapshot was just persisted server-side as version 1.
  */
 export function attachToProjectFromLocalSnapshot(
   projectId: string,
   snapshot:  HydrateSnapshot,
+  versionId: string | null = null,
 ): void {
   detach();
 
@@ -177,29 +196,38 @@ export function attachToProjectFromLocalSnapshot(
   activeProjectId = projectId;
   writeActiveProjectId(projectId);
   writeCachedSnapshot(projectId, snapshot);
-  lastSavedJson = JSON.stringify(snapshot);
+  lastSavedJson        = JSON.stringify(snapshot);
+  sessionBaseSnapshot  = snapshot;
+  sessionBaseVersionId = versionId;
+  editingVersionId     = null;
+  editingLabel         = null;
+  hasFiredNeedsName    = false;
 
   // Subscribe AFTER setting lastSavedJson so the very first store
-  // event is a no-op (json === lastSavedJson), the snapshot is
-  // already on the server, no need to immediately re-save.
-  unsubscribe = useModule1Store.subscribe(scheduleAutoSave);
+  // event is a no-op (json === lastSavedJson).
+  unsubscribe = useModule1Store.subscribe(onStoreChange);
   isLoading = false;
 }
 
 export function detach(): void {
   if (saveTimer)   { clearTimeout(saveTimer); saveTimer = null; }
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }
-  activeProjectId = null;
-  isSaving        = false;
-  isLoading       = false;
-  lastSavedJson   = '';
+  activeProjectId      = null;
+  isSaving             = false;
+  isLoading            = false;
+  lastSavedJson        = '';
+  sessionBaseSnapshot  = null;
+  sessionBaseVersionId = null;
+  editingVersionId     = null;
+  editingLabel         = null;
+  hasFiredNeedsName    = false;
 }
 
 // ── Load a specific historical version into the store ──────────────────────
-// Used by VersionModal's "Load this version" action. Replaces the
-// current store state without writing a new server-side save; the next
-// user edit is what triggers the save (which becomes the latest
-// version, branching off the loaded one).
+// Re-anchors the session base to the loaded version. The next user
+// edit will fire the name-prompt modal again (so historic loads also
+// land in their own named version, not silently overwriting the
+// loaded one).
 export async function loadVersionInto(
   projectId: string,
   versionId: string,
@@ -210,57 +238,156 @@ export async function loadVersionInto(
     const snap = hydrationFromAnySnapshot(res.data.version.snapshot);
     useModule1Store.getState().hydrate(snap);
     writeCachedSnapshot(projectId, snap);
-    lastSavedJson = JSON.stringify(snap);
+    lastSavedJson        = JSON.stringify(snap);
+    sessionBaseSnapshot  = snap;
+    sessionBaseVersionId = res.data.version.id;
+    editingVersionId     = null;
+    editingLabel         = null;
+    hasFiredNeedsName    = false;
   }
   isLoading = false;
   return { error: res.error };
 }
 
-// ── Auto-save plumbing ──────────────────────────────────────────────────────
-function scheduleAutoSave(): void {
+// ── Session controls (called from RealEstatePlatform) ───────────────────────
+
+export interface SessionState {
+  projectId:        string | null;
+  baseVersionId:    string | null;
+  editingVersionId: string | null;
+  editingLabel:     string | null;
+  /** True iff the store currently differs from sessionBaseSnapshot. */
+  hasUncommittedEdits: boolean;
+}
+
+export function getSessionState(): SessionState {
+  return {
+    projectId:           activeProjectId,
+    baseVersionId:       sessionBaseVersionId,
+    editingVersionId,
+    editingLabel,
+    hasUncommittedEdits: !snapshotsEqual(extractSnapshot(), sessionBaseSnapshot),
+  };
+}
+
+/**
+ * Begin an editing session. Called from the NameVersionModal "Save"
+ * button after the user picks a label. POSTs a new version row
+ * branched off `sessionBaseVersionId` and stores its id as
+ * `editingVersionId` so subsequent autosaves PATCH that row.
+ *
+ * Returns the new version's id on success (or null on failure).
+ */
+export async function startEditSession(
+  label: string,
+): Promise<{ versionId: string | null; error: string | null }> {
+  if (!activeProjectId) {
+    return { versionId: null, error: 'No active project.' };
+  }
+  if (editingVersionId) {
+    // Session already started (e.g. modal re-opened). Treat as a
+    // label rename rather than creating a duplicate row.
+    const trimmed = label.trim() || editingLabel;
+    if (trimmed && trimmed !== editingLabel) {
+      const patch = await patchVersion(activeProjectId, editingVersionId, { label: trimmed });
+      if (patch.error) return { versionId: editingVersionId, error: patch.error };
+      editingLabel = trimmed;
+    }
+    return { versionId: editingVersionId, error: null };
+  }
+
+  const snapshot = extractSnapshot();
+  const res = await saveVersion(activeProjectId, {
+    snapshot,
+    label:         label.trim() || null,
+    assetMix:      computeAssetMix(snapshot),
+    baseVersionId: sessionBaseVersionId,
+  });
+  if (res.error || !res.data) {
+    return { versionId: null, error: res.error ?? 'Failed to start edit session.' };
+  }
+  editingVersionId = res.data.version.id;
+  editingLabel     = res.data.version.label;
+  lastSavedJson    = JSON.stringify(snapshot);
+  // From this point onward, the auto-save subscriber will PATCH this
+  // version row in place rather than POSTing new versions.
+  return { versionId: editingVersionId, error: null };
+}
+
+/**
+ * Revert any uncommitted edits back to the session base. Called from
+ * the NameVersionModal "Cancel" path.
+ */
+export function revertEditSession(): void {
+  if (!sessionBaseSnapshot) return;
+  isLoading = true;
+  useModule1Store.getState().hydrate(sessionBaseSnapshot);
+  lastSavedJson    = JSON.stringify(sessionBaseSnapshot);
+  hasFiredNeedsName = false;
+  isLoading = false;
+}
+
+// ── Store subscriber ────────────────────────────────────────────────────────
+// Called on every Zustand mutation. Branches on session state:
+//   - VIEWING (no editingVersionId, snapshot matches base): no-op.
+//   - VIEWING → first real edit: fire the 'needs name' event ONCE.
+//   - WAITING_FOR_NAME: hold (modal is open; further edits are
+//     allowed but won't save until the user picks a name).
+//   - EDITING: debounce a PATCH to editingVersionId.
+function onStoreChange(): void {
   if (isLoading || activeProjectId === null) return;
+
+  // Distinguish snapshot-affecting mutations from UI-only flips
+  // (activePhaseId / activeAssetId). The cheap proxy is JSON
+  // equality with the last-saved snapshot; if equal, we don't even
+  // need to check sessionBaseSnapshot.
+  const snapshot = extractSnapshot();
+  const json     = JSON.stringify(snapshot);
+  if (json === lastSavedJson) return;
+
+  // First-edit detection: differs from the session base AND no
+  // editing version yet. Fire the modal-trigger event exactly once
+  // per session; the modal stays mounted until the user dismisses
+  // it.
+  if (!editingVersionId) {
+    if (!hasFiredNeedsName && !snapshotsEqual(snapshot, sessionBaseSnapshot)) {
+      hasFiredNeedsName = true;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fmp:refm-session-needs-name', {
+          detail: { projectId: activeProjectId, baseVersionId: sessionBaseVersionId },
+        }));
+      }
+    }
+    return;  // Until startEditSession runs, no PATCHes go out.
+  }
+
+  // EDITING: debounce a PATCH to the editing version row.
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { void runAutoSave(); }, DEBOUNCE_MS);
 }
 
 async function runAutoSave(): Promise<void> {
-  if (!activeProjectId || isSaving || isLoading) return;
+  if (!activeProjectId || !editingVersionId || isSaving || isLoading) return;
   const projectId = activeProjectId;
+  const versionId = editingVersionId;
 
   const snapshot = extractSnapshot();
   const json     = JSON.stringify(snapshot);
-
-  // No-op skip: store updates that don't alter HydrateSnapshot fields
-  // (e.g. activeSubProjectId / activePhaseId UI flips) shouldn't write
-  // a new version.
   if (json === lastSavedJson) return;
 
   isSaving = true;
 
-  // Optimistic cache write BEFORE the network call. If the user
-  // closes the tab between this write and the server response, the
-  // cache still holds the latest state for offline-resume on next
-  // open.
+  // Optimistic cache write BEFORE the network call.
   writeCachedSnapshot(projectId, snapshot);
 
-  const res = await saveVersion(projectId, {
+  const res = await patchVersion(projectId, versionId, {
     snapshot,
     assetMix: computeAssetMix(snapshot),
   });
 
-  // 2026-05-31 cross-project save guard. If the user switched to a
-  // different project (or closed the project) while saveVersion was
-  // in flight, `activeProjectId` no longer matches the project this
-  // save targeted. Two failure modes the guard avoids:
-  //   1. lastSavedJson getting set to THIS save's json after the new
-  //      project's attach already wrote its own lastSavedJson, which
-  //      would break no-op detection for the new project.
-  //   2. The "saved" toast firing for a project the user no longer
-  //      has open.
-  // The save itself completed on the server correctly (saveVersion
-  // captured projectId locally), so no data is lost; we just stay
-  // quiet about the result.
-  if (activeProjectId !== projectId) {
+  // Cross-project save guard (see commit ca5c152). If the user
+  // switched away during the PATCH, do not update lastSavedJson.
+  if (activeProjectId !== projectId || editingVersionId !== versionId) {
     isSaving = false;
     return;
   }
@@ -268,22 +395,15 @@ async function runAutoSave(): Promise<void> {
   isSaving = false;
 
   if (res.error) {
-    // Don't update lastSavedJson, the next change will retry. The
-    // cache write above already happened so the user doesn't lose
-    // data while offline.
     if (typeof console !== 'undefined') {
-      console.warn('[REFM] auto-save failed:', res.error);
+      console.warn('[REFM] auto-save (PATCH) failed:', res.error);
     }
     return;
   }
   lastSavedJson = json;
-
-  // If the user kept editing during the round-trip, the subscriber
-  // already re-armed the timer; nothing else to do here.
 }
 
 // ── Test / debug surface ────────────────────────────────────────────────────
-// Exposed so unit tests and devtools can inspect the sync state
-// without poking at module-level vars directly.
 export function getActiveProjectIdForDebug(): string | null { return activeProjectId; }
 export function isAttachedForDebug(): boolean              { return unsubscribe !== null; }
+export function getEditingVersionIdForDebug(): string | null { return editingVersionId; }

@@ -30,6 +30,9 @@ import {
   attachToProjectFromLocalSnapshot,
   detach as detachSync,
   loadVersionInto,
+  startEditSession,
+  revertEditSession,
+  getSessionState,
 } from '../lib/persistence/module1-sync';
 import { readActiveProjectId, writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
@@ -56,6 +59,7 @@ import Module3OpexOutput from './modules/Module3OpexOutput';
 import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
+import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode } from './modals/NameVersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
@@ -323,6 +327,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+  // Phase M-Versioning (2026-05-31): NameVersionModal state.
+  const [nameVersionModalOpen, setNameVersionModalOpen] = useState(false);
+  const [nameVersionModalMode, setNameVersionModalMode] = useState<NameVersionModalMode>('start-session');
+  const [editingVersionLabel, setEditingVersionLabel] = useState<string | null>(null);
 
   // Permissions / visibility helpers
   const can = useCallback(
@@ -360,6 +368,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         if (attach.migrationNotice) setMigrationNotice(attach.migrationNotice);
         if (!attach.error) {
           setActiveProjectId(cached);
+          setActiveVersionId(attach.versionId ?? null);
         }
         setIsSwitchingProject(false);
       }
@@ -381,6 +390,21 @@ export default function RealEstatePlatform(): React.JSX.Element {
     });
     return () => unsub();
   }, [activeProjectId]);
+
+  // Phase M-Versioning (2026-05-31): listen for the sync module's
+  // "user just made their first edit; please name this version"
+  // signal. When fired, open NameVersionModal in start-session mode
+  // so the user can label the version their edits will land in.
+  useEffect(() => {
+    const handler = (): void => {
+      const session = getSessionState();
+      setEditingVersionLabel(session.editingLabel);
+      setNameVersionModalMode('start-session');
+      setNameVersionModalOpen(true);
+    };
+    window.addEventListener('fmp:refm-session-needs-name', handler);
+    return () => window.removeEventListener('fmp:refm-session-needs-name', handler);
+  }, []);
 
   // Project selection / load
   //
@@ -432,6 +456,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveTab('project-phases');
     setActiveModule('module1');
     setHasUnsaved(false);
+    setActiveVersionId(res.versionId ?? null);
+    setEditingVersionLabel(null);
     setIsSwitchingProject(false);
   }, []);
 
@@ -464,10 +490,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setServerProjects((prev) => [...prev, res.data!.project]);
       setActiveProjectId(res.data.project.id);
       writeActiveProjectId(res.data.project.id);
-      attachToProjectFromLocalSnapshot(res.data.project.id, snapshot);
+      // Phase M-Versioning (2026-05-31): pass version.id so the
+      // session base is anchored to the just-created v1. The user's
+      // first edit will then prompt for a session name and create a
+      // v2 with base=v1 and a proper change_log diff.
+      attachToProjectFromLocalSnapshot(res.data.project.id, snapshot, res.data.version.id);
       setActiveTab('project-phases');
       setActiveModule('module1');
       setHasUnsaved(false);
+      setEditingVersionLabel(null);
     },
     [],
   );
@@ -495,24 +526,29 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveTab('project-phases');
     setActiveModule('module1');
     setHasUnsaved(false);
+    // Phase M-Versioning: loadVersionInto re-anchors sessionBase to
+    // the loaded version. Clear the editing label so the next edit
+    // triggers a fresh "name this version" prompt.
+    setEditingVersionLabel(null);
   }, []);
 
+  // Phase M-Versioning (2026-05-31): handleSaveVersion now branches:
+  //   - If no editing session yet, calls startEditSession to create a
+  //     new named version branched off the loaded version. All
+  //     subsequent edits will auto-PATCH that same row.
+  //   - If an editing session is already active, this is just a
+  //     label update (snapshot is auto-saved every 1.5 s already).
   const handleSaveVersion = useCallback(
     async (versionName: string): Promise<void> => {
       if (!activeProjectId) return;
-      const snapshot = extractHydrateSnapshot(useModule1Store.getState());
-      const res = await pclient.saveVersion(activeProjectId, {
-        snapshot,
-        label: versionName || null,
-        assetMix: snapshot.assets.filter((a) => a.visible).map((a) => a.name),
-      });
+      const res = await startEditSession(versionName);
       if (res.error) {
         setLoadError(res.error);
         return;
       }
-      if (res.data) {
-        setActiveVersionId(res.data.version.id);
-        setServerProjects((prev) => prev.map((p) => (p.id === res.data!.project.id ? res.data!.project : p)));
+      if (res.versionId) {
+        setActiveVersionId(res.versionId);
+        setEditingVersionLabel(getSessionState().editingLabel);
       }
       setHasUnsaved(false);
       setLastSavedAt(new Date().toLocaleTimeString());
@@ -521,8 +557,58 @@ export default function RealEstatePlatform(): React.JSX.Element {
   );
 
   const handleSaveQuick = useCallback(() => {
-    void handleSaveVersion(`Save ${new Date().toLocaleTimeString()}`);
-  }, [handleSaveVersion]);
+    const session = getSessionState();
+    if (session.editingVersionId) {
+      // Already editing; "Save" is a label rename in this state.
+      setNameVersionModalMode('rename');
+      setEditingVersionLabel(session.editingLabel);
+      setNameVersionModalOpen(true);
+      return;
+    }
+    if (session.hasUncommittedEdits) {
+      // First edit pending name. Open the start-session modal.
+      setNameVersionModalMode('start-session');
+      setEditingVersionLabel(null);
+      setNameVersionModalOpen(true);
+      return;
+    }
+    // No edits, no session. Treat as "fork current state as a new
+    // named version" — same modal, start-session mode.
+    setNameVersionModalMode('start-session');
+    setEditingVersionLabel(null);
+    setNameVersionModalOpen(true);
+  }, []);
+
+  // NameVersionModal callbacks.
+  const handleNameVersionConfirm = useCallback(
+    async (label: string): Promise<void> => {
+      const res = await startEditSession(label);
+      if (res.error) {
+        setLoadError(res.error);
+        return;
+      }
+      if (res.versionId) {
+        setActiveVersionId(res.versionId);
+        setEditingVersionLabel(getSessionState().editingLabel);
+        // Refresh the picker tile in case assetMix shifted on this save.
+        const listRes = await pclient.listProjects();
+        if (listRes.data?.projects) setServerProjects(listRes.data.projects);
+      }
+      setHasUnsaved(true);
+      setLastSavedAt(new Date().toLocaleTimeString());
+      setNameVersionModalOpen(false);
+    },
+    [],
+  );
+
+  const handleNameVersionCancel = useCallback((): void => {
+    if (nameVersionModalMode === 'start-session') {
+      // Revert the user's first edit back to the loaded version.
+      revertEditSession();
+      setHasUnsaved(false);
+    }
+    setNameVersionModalOpen(false);
+  }, [nameVersionModalMode]);
 
   const handleEditProject = useCallback((_pid: string): void => {
     setProjectModalOpen(true);
@@ -996,6 +1082,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
           if (activeProjectId) void handleLoadVersion(activeProjectId, versionId);
           setVersionModalOpen(false);
         }}
+      />
+      <NameVersionModal
+        open={nameVersionModalOpen}
+        mode={nameVersionModalMode}
+        defaultLabel={defaultSessionLabel()}
+        currentLabel={editingVersionLabel}
+        projectName={activeProjectData?.name ?? null}
+        onConfirm={handleNameVersionConfirm}
+        onCancel={handleNameVersionCancel}
       />
       <RbacModal
         open={rbacModalOpen}

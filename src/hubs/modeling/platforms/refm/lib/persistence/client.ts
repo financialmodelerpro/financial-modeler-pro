@@ -134,9 +134,15 @@ export function listVersions(
 }
 
 export interface SaveVersionInput {
-  snapshot:  HydrateSnapshot;
-  label?:    string | null;
-  assetMix?: string[];
+  snapshot:       HydrateSnapshot;
+  label?:         string | null;
+  assetMix?:      string[];
+  // 2026-05-31 (Phase M-Versioning): when provided, the server loads
+  // this version's snapshot and pre-computes change_log against it
+  // so the version-history UI can render the diff without a second
+  // round-trip. Passing `null` is the explicit "first version, no
+  // base" case.
+  baseVersionId?: string | null;
 }
 
 export function saveVersion(
@@ -147,6 +153,31 @@ export function saveVersion(
     method: 'POST',
     body:   JSON.stringify(input),
   });
+}
+
+// 2026-05-31 (Phase M-Versioning). In-place version update. Used by
+// the session-based auto-save: once the user has named the version
+// they're editing, every keystroke PATCHes the same row instead of
+// inserting a new one. Server re-computes change_log against the
+// row's existing base_version_id on every patch.
+export interface PatchVersionInput {
+  snapshot?: HydrateSnapshot;
+  label?:    string | null;
+  assetMix?: string[];
+}
+
+export function patchVersion(
+  projectId: string,
+  versionId: string,
+  input: PatchVersionInput,
+): Promise<FetchResult<{ version: RefmProjectVersionRow }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`,
+    {
+      method: 'PATCH',
+      body:   JSON.stringify(input),
+    },
+  );
 }
 
 export function loadVersion(
