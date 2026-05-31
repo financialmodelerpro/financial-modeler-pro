@@ -93,7 +93,16 @@ let sessionBaseSnapshot: HydrateSnapshot | null = null;
 let sessionBaseVersionId: string | null = null;
 let editingVersionId:    string | null = null;
 let editingLabel:        string | null = null;
-let hasFiredNeedsName    = false;  // de-dupe the modal trigger event
+// 2026-05-31 (auto-start refactor): retained as a no-op flag for
+// backwards compat with the lifecycle reset sites; replaced as the
+// real de-dupe gate by `isStartingSession` below.
+let hasFiredNeedsName    = false;
+// 2026-05-31 (auto-start refactor): set true while the first-edit
+// POST is in flight; the subscriber re-entry no-ops on this so we
+// don't fire two POSTs for the same session boot. Cleared by the
+// POST resolution AND by every lifecycle reset (attach / detach /
+// load / revert) so a project switch can't leave it stuck.
+let isStartingSession    = false;
 
 // ── Snapshot extraction ─────────────────────────────────────────────────────
 const SNAPSHOT_KEYS = Object.keys(DEFAULT_MODULE1_STATE) as Array<keyof HydrateSnapshot>;
@@ -165,9 +174,10 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   editingVersionId  = null;
   editingLabel      = null;
   hasFiredNeedsName = false;
+  isStartingSession = false;
 
   // Wire the subscriber AFTER hydrate so the hydrate event itself
-  // doesn't trigger the first-edit modal or auto-save.
+  // doesn't trigger the first-edit auto-start or auto-save.
   unsubscribe = useModule1Store.subscribe(onStoreChange);
   isLoading = false;
 
@@ -202,6 +212,7 @@ export function attachToProjectFromLocalSnapshot(
   editingVersionId     = null;
   editingLabel         = null;
   hasFiredNeedsName    = false;
+  isStartingSession    = false;
 
   // Subscribe AFTER setting lastSavedJson so the very first store
   // event is a no-op (json === lastSavedJson).
@@ -221,6 +232,7 @@ export function detach(): void {
   editingVersionId     = null;
   editingLabel         = null;
   hasFiredNeedsName    = false;
+  isStartingSession    = false;
 }
 
 // ── Load a specific historical version into the store ──────────────────────
@@ -244,6 +256,7 @@ export async function loadVersionInto(
     editingVersionId     = null;
     editingLabel         = null;
     hasFiredNeedsName    = false;
+  isStartingSession    = false;
   }
   isLoading = false;
   return { error: res.error };
@@ -324,41 +337,74 @@ export function revertEditSession(): void {
   useModule1Store.getState().hydrate(sessionBaseSnapshot);
   lastSavedJson    = JSON.stringify(sessionBaseSnapshot);
   hasFiredNeedsName = false;
+  isStartingSession = false;
   isLoading = false;
 }
 
+// ── Default-label helper ───────────────────────────────────────────────────
+// Generates "Edits 2026-05-31 14:32"; mirrored by NameVersionModal's
+// `defaultSessionLabel()` so the UI banner reads the same string.
+function defaultSessionLabel(now: Date = new Date()): string {
+  const pad = (n: number): string => n.toString().padStart(2, '0');
+  return `Edits ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
 // ── Store subscriber ────────────────────────────────────────────────────────
-// Called on every Zustand mutation. Branches on session state:
+// 2026-05-31 (refactor per user request): the first-edit flow no
+// longer blocks with a modal. Branches on session state:
 //   - VIEWING (no editingVersionId, snapshot matches base): no-op.
-//   - VIEWING → first real edit: fire the 'needs name' event ONCE.
-//   - WAITING_FOR_NAME: hold (modal is open; further edits are
-//     allowed but won't save until the user picks a name).
+//   - VIEWING → first real edit: AUTO-START a session with a default
+//     timestamp label, dispatch fmp:refm-session-started so the UI
+//     can show a non-blocking banner with a "Rename" button.
 //   - EDITING: debounce a PATCH to editingVersionId.
+//
+// Concurrency: while the auto-start POST is in flight, isStartingSession
+// (declared at module-state level near `hasFiredNeedsName`) gates further
+// edits so we don't fire two POSTs. Edits made during the in-flight
+// window naturally flush via the next PATCH cycle.
 function onStoreChange(): void {
   if (isLoading || activeProjectId === null) return;
 
   // Distinguish snapshot-affecting mutations from UI-only flips
   // (activePhaseId / activeAssetId). The cheap proxy is JSON
-  // equality with the last-saved snapshot; if equal, we don't even
-  // need to check sessionBaseSnapshot.
+  // equality with the last-saved snapshot.
   const snapshot = extractSnapshot();
   const json     = JSON.stringify(snapshot);
   if (json === lastSavedJson) return;
 
   // First-edit detection: differs from the session base AND no
-  // editing version yet. Fire the modal-trigger event exactly once
-  // per session; the modal stays mounted until the user dismisses
-  // it.
+  // editing version yet. Auto-start a session with a default label.
   if (!editingVersionId) {
-    if (!hasFiredNeedsName && !snapshotsEqual(snapshot, sessionBaseSnapshot)) {
-      hasFiredNeedsName = true;
+    if (isStartingSession) return;  // POST already in flight.
+    if (snapshotsEqual(snapshot, sessionBaseSnapshot)) return;
+    isStartingSession = true;
+    void (async () => {
+      const label = defaultSessionLabel();
+      const res = await startEditSession(label);
+      isStartingSession = false;
+      if (res.error) {
+        if (typeof console !== 'undefined') {
+          console.warn('[REFM] auto-start session failed:', res.error);
+        }
+        return;
+      }
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('fmp:refm-session-needs-name', {
-          detail: { projectId: activeProjectId, baseVersionId: sessionBaseVersionId },
+        window.dispatchEvent(new CustomEvent('fmp:refm-session-started', {
+          detail: {
+            projectId:        activeProjectId,
+            versionId:        res.versionId,
+            label,
+            baseVersionId:    sessionBaseVersionId,
+          },
         }));
       }
-    }
-    return;  // Until startEditSession runs, no PATCHes go out.
+      // Trigger the auto-save loop so the just-stamped snapshot is
+      // sent as a PATCH within DEBOUNCE_MS (covers any edits the
+      // user made during the in-flight POST window).
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => { void runAutoSave(); }, DEBOUNCE_MS);
+    })();
+    return;
   }
 
   // EDITING: debounce a PATCH to the editing version row.

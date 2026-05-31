@@ -11,7 +11,7 @@
  * Tabs (4): Project & Phases / Assets & Sub-units / Costs / Financing.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 
 import {
@@ -331,6 +331,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [nameVersionModalOpen, setNameVersionModalOpen] = useState(false);
   const [nameVersionModalMode, setNameVersionModalMode] = useState<NameVersionModalMode>('start-session');
   const [editingVersionLabel, setEditingVersionLabel] = useState<string | null>(null);
+  // Auto-start session toast (transient banner shown when the sync
+  // module auto-creates a session on first edit). null = hidden.
+  const [sessionStartedToast, setSessionStartedToast] = useState<string | null>(null);
+  const sessionToastTimerRef = useRef<number>(0);
 
   // Permissions / visibility helpers
   const can = useCallback(
@@ -391,19 +395,29 @@ export default function RealEstatePlatform(): React.JSX.Element {
     return () => unsub();
   }, [activeProjectId]);
 
-  // Phase M-Versioning (2026-05-31): listen for the sync module's
-  // "user just made their first edit; please name this version"
-  // signal. When fired, open NameVersionModal in start-session mode
-  // so the user can label the version their edits will land in.
+  // Phase M-Versioning (2026-05-31, auto-start refactor per user
+  // request): the sync module auto-creates a session on first edit
+  // with a default timestamp label. We listen for the post-creation
+  // event and surface a non-blocking banner with a "Rename" affordance
+  // instead of popping a modal. The user can rename later via the
+  // topbar Save button OR ignore it entirely and the auto-name sticks.
   useEffect(() => {
-    const handler = (): void => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ versionId?: string; label?: string }>).detail;
       const session = getSessionState();
-      setEditingVersionLabel(session.editingLabel);
-      setNameVersionModalMode('start-session');
-      setNameVersionModalOpen(true);
+      setEditingVersionLabel(detail?.label ?? session.editingLabel);
+      setActiveVersionId(detail?.versionId ?? session.editingVersionId ?? null);
+      setSessionStartedToast(detail?.label ?? session.editingLabel ?? null);
+      setHasUnsaved(true);
+      setLastSavedAt(new Date().toLocaleTimeString());
+      // Auto-dismiss the toast after 8s; user can also click X.
+      window.clearTimeout(sessionToastTimerRef.current);
+      sessionToastTimerRef.current = window.setTimeout(() => {
+        setSessionStartedToast(null);
+      }, 8000);
     };
-    window.addEventListener('fmp:refm-session-needs-name', handler);
-    return () => window.removeEventListener('fmp:refm-session-needs-name', handler);
+    window.addEventListener('fmp:refm-session-started', handler);
+    return () => window.removeEventListener('fmp:refm-session-started', handler);
   }, []);
 
   // Project selection / load
@@ -969,6 +983,66 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 type="button"
                 onClick={() => setLoadError(null)}
                 style={{ marginLeft: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {sessionStartedToast && activeProjectId && (
+            <div
+              role="status"
+              data-testid="session-started-toast"
+              style={{
+                background: 'color-mix(in srgb, var(--color-primary, #1d4ed8) 12%, transparent)',
+                border: '1px solid var(--color-primary, #1d4ed8)',
+                borderRadius: 'var(--radius-sm)',
+                padding: 'var(--sp-2)',
+                marginBottom: 'var(--sp-2)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 'var(--sp-2)',
+                fontSize: 'var(--font-small)',
+              }}
+            >
+              <span>
+                ✏️ Editing as <strong>{sessionStartedToast}</strong> — all changes
+                in this session save to one version. Use{' '}
+                <strong>📌 Save Version</strong> in the topbar to rename it.
+              </span>
+              <button
+                type="button"
+                data-testid="session-started-toast-rename"
+                onClick={() => {
+                  setNameVersionModalMode('rename');
+                  setEditingVersionLabel(getSessionState().editingLabel);
+                  setNameVersionModalOpen(true);
+                }}
+                style={{
+                  background: 'var(--color-primary, #1d4ed8)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                onClick={() => setSessionStartedToast(null)}
+                data-testid="session-started-toast-dismiss"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                }}
               >
                 Dismiss
               </button>
