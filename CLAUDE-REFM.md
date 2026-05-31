@@ -1,9 +1,22 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-05-31. Module 1 LOCKED at M2.0 Pass 58 (base). Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP, Financial Statements now BALANCE BY CONSTRUCTION. Platform infra: project-switch state-leak fixed + session-based versioning with per-version change_log shipped (commits `ca5c152` + `d25a20b`). Verifiers: revenue 133; escrow 46; opex 38; opex-ap 24; fixed-assets 82; phase-date-preservation 37; phase-date-scenarios 7; cost-of-sales-v2 24; idc-depreciation 114; asset-cost-allocation 14; m4-bs-reconciliation 184; versioning 40 — 743 sections green across 12 scripts.**
 
-## 2026-05-31 session (project-switch state-leak + session versioning)
+## 2026-05-31 session, recap + tomorrow's checkpoint
 
-Two independent platform-infra fixes shipped to close a demo-killing bug + rework the version save UX per user request.
+**Where we left off (end of 2026-05-31 session):**
+- 7 commits shipped in one session, all on `main` and pushed to remote.
+- Production Supabase **still needs migration 152 applied manually** (paste DDL from `supabase/migrations/152_refm_version_change_log.sql` into the Supabase dashboard SQL editor). The platform works without it (hotfix tolerates missing columns), but the change_log + diff feature is inert until applied.
+- User-reported demo data corruption traced + closed at the root cause.
+- New auto-start session model is live; on first edit a banner says "Editing as Edits YYYY-MM-DD HH:MM — Rename / Dismiss".
+
+**For tomorrow's session, pick up here:**
+1. **Verify migration 152 is applied** (or apply it). After that, change_log starts populating on every new session.
+2. **Verify the recovery worked** — user restored a pre-May-30 version on the polluted project via VersionModal History → Pre-May 30 filter → Load. Confirm the workspace reflects the clean snapshot.
+3. **Verify the auto-start banner flow** — make one edit on the restored project; banner should appear, all subsequent edits should land in a single version row, picker tile version count should bump by exactly 1 per session.
+4. **Audit residual calc/schedule bugs** (task #3 from the 2026-05-31 task list, still open). User was seeing what they thought were calc bugs during the demo, but most were likely the state-leak rendering the wrong project. With the leak fixed and the restored snapshot, walk through each module and flag any real numbers that don't reconcile.
+5. **Backlog**: task list at the bottom of CLAUDE-REFM.md, plus the original M4 follow-ups (Funding Methods 2 + 3 cash-deficit driven, per-asset capex non-uniform spread, PIT-handover Unearned negative window).
+
+Two independent platform-infra fixes shipped to close a demo-killing bug + rework the version save UX per user request, then four follow-up hotfixes addressed real-world breakage as the user tested in production.
 
 ### Project-switch state-leak (commit `ca5c152`)
 
@@ -42,9 +55,12 @@ EDITING ──store mutation──▶ EDITING (PATCH in place)
 **Architectural conventions locked**:
 - **Detach-before-hydrate is non-negotiable.** Any code that mutates the Zustand store on behalf of a different project MUST call `detachSync()` first. Otherwise the prior project's autosave subscriber catches the hydrate event.
 - **Session = version.** One named version row per editing session. PATCHes in place. The pre-fix "auto-save creates N versions per session" pattern is retired.
+- **Auto-start on first edit, no blocking modal** (refined 2026-05-31 evening). The sync subscriber detects the first snapshot-changing edit and calls `startEditSession(defaultLabel)` automatically. UI shows a non-blocking banner with Rename + Dismiss buttons. Never lose an edit to a discarded modal.
 - **Diff is server-computed against the row's base.** PATCH endpoint re-loads `existing.base_version_id` and recomputes `change_log`; it never trusts a client-supplied diff (defense against polluted history).
 - **`change_log` is on the row**, not derived. Survives base-version deletion (`ON DELETE SET NULL`). Versions stay readable even if their base is gone; the diff just records the pre-deletion comparison.
 - **`refm_project_versions` stays append-only.** Migration 152 adds columns but never deletes / mutates existing rows; recovery from data corruption uses the version history via VersionModal "Load".
+- **All new server-side reads/writes that depend on a new column MUST ship with a schema-tolerant fallback.** Pattern: try-FULL-select-first, catch PostgreSQL error code `42703` / PostgREST `PGRST204`, retry with BASE select and synthesize the new fields. Cache the probe result module-scope (`m152Applied: boolean | undefined`) to avoid double-probing per request. Reason: project convention is "apply migrations manually via Supabase dashboard" (see CLAUDE-DB.md migrations 142-148 entries), so production schema lags repo schema for hours-to-days.
+- **Reads from any potentially-large table MUST paginate** via explicit `.range(from, to)` in pages of 1000. PostgREST's default `max-rows=1000` silently truncates and the dropped rows are typically the OLDEST (DESC order) — exactly the slice users need for historical recovery. See `listVersionsPaginated` in `lib/persistence/server.ts` for the pattern.
 
 **Files**:
 - `supabase/migrations/152_refm_version_change_log.sql`: `base_version_id uuid` FK ON DELETE SET NULL + `change_log jsonb DEFAULT '[]'`.
@@ -57,6 +73,12 @@ EDITING ──store mutation──▶ EDITING (PATCH in place)
 - `components/modals/NameVersionModal.tsx`: first-edit prompt + rename modes.
 - `components/modals/VersionModal.tsx`: expandable change_log per version row.
 - `scripts/verify-versioning.ts`: 40/40 (identity, project meta, nested project, id-array add/remove/update, nested asset, costOverrides compound key, number-array leaf, snapshotsEqual, null safety).
+
+**Hotfix commits (post-d25a20b, in order)**:
+- `e2a7ba9` — first column-tolerance hotfix. Reverted VERSION_COLS to base cols + added try-FULL-then-BASE fallback in every read; insertVersion / updateVersion strip new fields on retry.
+- `988dde5` — strengthened `isMissingColumnError` to also detect via PostgreSQL `code === '42703'` and PostgREST `'PGRST204'`, accepting either a string message or the full error object (some PostgREST responses move column refs to `details` / `hint`).
+- `ff96aad` — paginated listVersions via `listVersionsPaginated` walking `.range(from, to)` pages of 1000 up to 50k cap. VersionModal History gains date filter (From / To pickers + label search + "Pre-May 30" quick-button + "Show 100 more" progressive reveal). Default render limit 50 rows so 1000+-version histories don't lag.
+- `7d76bf4` — auto-start refactor. `onStoreChange` calls `startEditSession(defaultLabel)` directly on first edit instead of dispatching `fmp:refm-session-needs-name`. New `isStartingSession` lock prevents double-POSTs while in-flight. `fmp:refm-session-started` event fires post-success; RealEstatePlatform listens and surfaces a non-blocking banner with Rename + Dismiss. Banner auto-clears via `sessionToastTimerRef` after 8s. NameVersionModal retained for manual Save Version button (rename mode if session active, start-session mode if not).
 
 
 ## 2026-05-25 session (M4 statements correctness + UI polish)
