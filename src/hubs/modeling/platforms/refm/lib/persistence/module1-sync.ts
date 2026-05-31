@@ -224,7 +224,7 @@ function scheduleAutoSave(): void {
 }
 
 async function runAutoSave(): Promise<void> {
-  if (!activeProjectId || isSaving) return;
+  if (!activeProjectId || isSaving || isLoading) return;
   const projectId = activeProjectId;
 
   const snapshot = extractSnapshot();
@@ -247,6 +247,23 @@ async function runAutoSave(): Promise<void> {
     snapshot,
     assetMix: computeAssetMix(snapshot),
   });
+
+  // 2026-05-31 cross-project save guard. If the user switched to a
+  // different project (or closed the project) while saveVersion was
+  // in flight, `activeProjectId` no longer matches the project this
+  // save targeted. Two failure modes the guard avoids:
+  //   1. lastSavedJson getting set to THIS save's json after the new
+  //      project's attach already wrote its own lastSavedJson, which
+  //      would break no-op detection for the new project.
+  //   2. The "saved" toast firing for a project the user no longer
+  //      has open.
+  // The save itself completed on the server correctly (saveVersion
+  // captured projectId locally), so no data is lost; we just stay
+  // quiet about the result.
+  if (activeProjectId !== projectId) {
+    isSaving = false;
+    return;
+  }
 
   isSaving = false;
 

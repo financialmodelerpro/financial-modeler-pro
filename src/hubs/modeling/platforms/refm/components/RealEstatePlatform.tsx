@@ -312,6 +312,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Save state
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  // 2026-05-31 BUG-B FIX: gates the UI during a project switch so no
+  // stale snapshot is rendered between detach + hydrate.
+  const [isSwitchingProject, setIsSwitchingProject] = useState(false);
   // M2.0h Fix 1 (2026-05-07): one-shot banner shown after a v7 -> v8
   // migration. Cleared by the user via the dismiss button.
   const [migrationNotice, setMigrationNotice] = useState<string | null>(null);
@@ -332,6 +335,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
   );
 
   // Boot: list projects from server
+  //
+  // 2026-05-31 BUG-B FIX: hydrate BEFORE flipping activeProjectId so
+  // the first paint of every module surface reads the correct
+  // snapshot. Previously the boot effect set activeProjectId before
+  // awaiting the hydrate, causing the same stale-snapshot render
+  // window as handleSelectProject.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -344,10 +353,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setServerProjects(res.data?.projects ?? []);
       const cached = readActiveProjectId();
       if (cached && (res.data?.projects ?? []).some((p) => p.id === cached)) {
-        setActiveProjectId(cached);
+        setIsSwitchingProject(true);
         const attach = await attachSyncToProject(cached);
+        if (cancelled) return;
         if (attach.error) setLoadError(attach.error);
         if (attach.migrationNotice) setMigrationNotice(attach.migrationNotice);
+        if (!attach.error) {
+          setActiveProjectId(cached);
+        }
+        setIsSwitchingProject(false);
       }
     })();
     return () => {
@@ -369,20 +383,72 @@ export default function RealEstatePlatform(): React.JSX.Element {
   }, [activeProjectId]);
 
   // Project selection / load
+  //
+  // 2026-05-31 BUG-B FIX: previously this method flipped React state
+  // (`setActiveProjectId`, `setActiveModule`) BEFORE awaiting the
+  // hydrate from server. During the 200-500ms server round-trip the
+  // UI rendered with `activeProjectId = <new id>` but the Zustand
+  // store still held the PREVIOUS project's snapshot, so every
+  // module surface showed the wrong project's numbers under the new
+  // project's heading. The fix is to:
+  //   1. Detach the previous project's subscriber.
+  //   2. Show a switching indicator and clear the store so no stale
+  //      data renders during the gap.
+  //   3. Await the hydrate.
+  //   4. Only then flip activeProjectId/activeModule, so the UI
+  //      renders with the correct snapshot from the very first
+  //      paint.
   const handleSelectProject = useCallback(async (projectId: string) => {
+    setIsSwitchingProject(true);
+    setHasUnsaved(false);
+
+    // Step 1: detach the previous project's autosave subscriber so
+    // any in-flight events from the prior session can't race with
+    // the new attach. attachToProject internally calls detach() again
+    // for safety; the dual call is idempotent.
+    detachSync();
+
+    // Step 2: clear the store IMMEDIATELY so that if React re-renders
+    // before attachSyncToProject's hydrate fires (e.g. due to other
+    // state updates), no stale snapshot is visible. We still hold
+    // activeProjectId until hydrate completes, so module surfaces
+    // currently render the prior project's UI shell.
+    useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE });
+
+    // Step 3: load + hydrate the new project's snapshot before the
+    // UI knows about it. attachSyncToProject re-wires the autosave
+    // subscriber for the new project after hydrate is done.
+    const res = await attachSyncToProject(projectId);
+    if (res.error) {
+      setLoadError(res.error);
+      setIsSwitchingProject(false);
+      return;
+    }
+    if (res.migrationNotice) setMigrationNotice(res.migrationNotice);
+
+    // Step 4: flip the UI now that the store is correct.
     setActiveProjectId(projectId);
     writeActiveProjectId(projectId);
     setActiveTab('project-phases');
     setActiveModule('module1');
     setHasUnsaved(false);
-    const res = await attachSyncToProject(projectId);
-    if (res.error) setLoadError(res.error);
-    if (res.migrationNotice) setMigrationNotice(res.migrationNotice);
+    setIsSwitchingProject(false);
   }, []);
 
   const handleCreateFromWizard = useCallback(
     async (draft: WizardDraft): Promise<void> => {
       const snapshot = buildWizardSnapshot(draft);
+
+      // 2026-05-31 BUG-A FIX: detach the PREVIOUS project's autosave
+      // subscriber BEFORE hydrating the store with the new project's
+      // snapshot. Previously this method called `hydrate(snapshot)`
+      // while the old project's subscriber was still wired, so the
+      // hydrate event scheduled an autosave that, 1.5s later, wrote
+      // the NEW project's snapshot to the OLD project's server row,
+      // overwriting the user's previous work on disk. The 2026-05-29
+      // demo data-loss incident traced to this exact sequence.
+      detachSync();
+
       useModule1Store.getState().hydrate(snapshot);
       const res = await pclient.createProject({
         name: snapshot.project.name,
@@ -852,6 +918,58 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {renderModule()}
         </main>
       </div>
+
+      {/* 2026-05-31 BUG-B FIX: overlay shown during a project switch so
+          the user sees an unambiguous loading state instead of stale
+          numbers from the previous project. Pointer-events:auto on the
+          backdrop prevents any clicks reaching the underlying UI during
+          the hydration window. */}
+      {isSwitchingProject && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="project-switching-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9000,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--color-surface, #fff)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md, 10px)',
+              padding: '18px 26px',
+              fontSize: 'var(--font-body)',
+              fontWeight: 600,
+              color: 'var(--color-heading)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                border: '2px solid var(--color-border)',
+                borderTopColor: 'var(--color-primary, #1d4ed8)',
+                animation: 'fmp-spin 0.8s linear infinite',
+              }}
+            />
+            Loading project...
+          </div>
+          <style>{`@keyframes fmp-spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
 
       <ProjectWizard
         open={wizardOpen}
