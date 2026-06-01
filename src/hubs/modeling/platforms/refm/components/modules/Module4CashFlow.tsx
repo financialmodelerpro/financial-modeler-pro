@@ -432,7 +432,6 @@ export default function Module4CashFlow(): React.JSX.Element {
     const daPhase = ic.daPerPeriod;
     const intExpPhase = ic.interestExpensePerPeriod;
     const changeArPhase = ic.changeInArPerPeriod;
-    const interestPaidProjPhase = ic.interestPaidPerPeriod;
     const equityDrawPhase = ic.equityDrawdownPerPeriod;
 
     // Recomputed subtotals when filtered; otherwise fall back to the snapshot.
@@ -447,8 +446,7 @@ export default function Module4CashFlow(): React.JSX.Element {
         + cosAddBackPhase[t]
         + changeInAp[t]
         + changeInUnearned[t]
-        + changeInEscrow[t]
-        - (interestPaidProjPhase[t] ?? 0);
+        + changeInEscrow[t];
       cffFiltered[t] = (equityDrawPhase[t] ?? 0)
         + debtDrawFiltered[t]
         + debtRepayFiltered[t]
@@ -482,7 +480,6 @@ export default function Module4CashFlow(): React.JSX.Element {
     rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
     rows.push({ label: '(+) Change in Unearned Revenue', values: un, indent: 1 });
     rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
-    rows.push({ label: `(−) Cash interest paid${projTag}`, values: interestPaidProjPhase, indent: 1 });
     rows.push({ label: 'Cash Flow from Operations', values: cfo, isSubtotal: true });
 
     rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });

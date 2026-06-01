@@ -1647,8 +1647,15 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   for (let t = 0; t < N; t++) {
     cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t] + cosTotal[t]
       - arOperatingChange[t] - residentialArChange[t]
-      + apChange[t] + unearnedChange[t] - escrowChange[t]
-      - interestPaidArr[t]; // reverse the add-back of interest expense (we paid the real interest in cash)
+      + apChange[t] + unearnedChange[t] - escrowChange[t];
+    // Interest is a FINANCING item in this model: the Direct CF shows interest
+    // paid in the financing block (not operations). The +interestExpense
+    // add-back above already removes the accrued interest from operating cash,
+    // so interest paid must NOT be subtracted here as well: it lives in the
+    // financing section (cashFromFinAdj), exactly as in the Direct method.
+    // Subtracting it here too (2026-06-01 Finding 1b) double-counted interest
+    // paid across operations + financing and pulled Indirect closing cash
+    // below Direct by the cash interest once operations began.
   }
 
   // M4 (2026-05-25): the indirectCF object is built AFTER the cash

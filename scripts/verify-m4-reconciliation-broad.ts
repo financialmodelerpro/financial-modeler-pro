@@ -77,6 +77,28 @@ function assertReconciles(name: string, build: () => State): void {
   check('Reconciliation bridge residual ~0 every period', okBr, wBr);
 }
 
+// Assert ONLY the cash-flow tie + bridge residual (not BS balance) for
+// fixtures whose BS balance is gated on a separate open finding (e.g. a
+// financing fixture without explicit equity contributions). Pins the
+// Direct/Indirect CF consistency without depending on a fully-funded BS.
+function assertCfTies(name: string, build: () => State): void {
+  const snap = computeFinancialsSnapshot(build());
+  const N = snap.axisLength;
+  let okCf = true, okBr = true, wCf = 0, wBr = 0;
+  for (let t = 0; t < N; t++) {
+    const cf = (snap.directCF.closingCashPerPeriod[t] ?? 0) - (snap.indirectCF.closingCashPerPeriod[t] ?? 0);
+    const br = snap.bsReconciliation?.unexplainedPerPeriod?.[t] ?? 0;
+    if (!isNear(cf, 0)) { okCf = false; wCf = Math.max(wCf, Math.abs(cf)); }
+    if (!isNear(br, 0)) { okBr = false; wBr = Math.max(wBr, Math.abs(br)); }
+  }
+  const check = (label: string, ok: boolean, worst: number): void => {
+    if (ok) { passed++; console.log(`  PASS  ${name} :: ${label}`); }
+    else { failed++; failures.push(`${name} :: ${label} (worst |delta|=${worst.toFixed(2)})`); console.log(`  FAIL  ${name} :: ${label} (worst |delta|=${worst.toFixed(2)})`); }
+  };
+  check('Direct CF closing == Indirect CF closing every period', okCf, wCf);
+  check('Reconciliation bridge residual ~0 every period', okBr, wBr);
+}
+
 // Print residuals for a known-open fixture without asserting (so the guard
 // stays green while keeping the follow-up visible in CI output).
 function reportOpen(name: string, build: () => State): void {
@@ -126,6 +148,15 @@ function buildSellWithInventory(): State {
   cl.forEach((l) => { if ((l.endPeriod ?? 0) > 3) l.endPeriod = 3; });
   return wrap(makeDefaultProject(), sellAsset('handover'), [sellSubUnit()], cl);
 }
+// Inventory + financing (confined capex): senior debt + IDC. Pins the
+// Finding 1b fix (interest paid was double-counted across operating +
+// financing in the Indirect CF, diverging Direct vs Indirect once cash
+// interest started in operations).
+function buildSellInventoryFinanced(): State {
+  const s = buildSellWithInventory();
+  s.financingTranches = [makeDefaultFinancingTranche('t1', 'p1')];
+  return s;
+}
 
 console.log('=== M4 broad reconciliation guard ===');
 assertReconciles('Empty project', buildEmpty);
@@ -133,20 +164,30 @@ assertReconciles('Sell (no revenue config)', buildSellSimple);
 assertReconciles('Sell + over-time recognition', buildOverTime);
 assertReconciles('Sell + escrow (20% held)', buildEscrow);
 assertReconciles('Sell + inventory (construction capex)', buildSellWithInventory);
+// Financing: CF tie + bridge are asserted (Finding 1b fix); BS balance is a
+// separate open finding (see below), so it is reported, not asserted.
+assertCfTies('Sell + inventory + financing (senior debt + IDC)', buildSellInventoryFinanced);
 
 console.log('\n--- KNOWN OPEN (printed, not asserted; follow-up findings) ---');
-// Finding 1b: financing/IDC residual in the Indirect CF (capitalised
-// interest). Finding 2: capex spilling past handover leaves CoS booked
-// against not-yet-spent capex (BS gap). Build a financed fixture to surface
-// both. Needs a properly funded fixture (parcels + equity) to separate
-// engine gap from fixture noise before fixing.
-function buildFinanced(): State {
+// Finding 4 (NEW, 2026-06-01): a financed fixture (debt tranche, no explicit
+// equity contributions) shows a BS imbalance (~28M with capex confined) even
+// though the CF now ties and the bridge residual is 0. Could be the missing
+// equity-contribution side of the fixture or a real financing BS gap; needs a
+// fully-funded fixture (parcels + equity) to separate the two before fixing.
+reportOpen('Sell + inventory + financing, BS balance (Finding 4)', buildSellInventoryFinanced);
+// Finding 2: when construction capex spills past the handover / recognition
+// period (the makeDefaultCostLines default endPeriod is cp+1), CoS is booked
+// against capex not yet spent, leaving a constant BS imbalance equal to the
+// post-handover capex slice. Confining capex to the construction window makes
+// the BS balance exactly (see the asserted fixtures above). Surfaced here on
+// an unconfined financed fixture.
+function buildFinancedUnconfined(): State {
   const cl = makeDefaultCostLines('p1', 3); // default endPeriod cp+1 spills past handover (Finding 2)
   const s = wrap(makeDefaultProject(), sellAsset('handover'), [sellSubUnit()], cl);
   s.financingTranches = [makeDefaultFinancingTranche('t1', 'p1')];
   return s;
 }
-reportOpen('Sell + financing + IDC (Finding 1b + 2)', buildFinanced);
+reportOpen('Sell + financing, capex past handover (Finding 2)', buildFinancedUnconfined);
 
 console.log(`\nResults: ${passed} pass / ${failed} fail`);
 if (failed > 0) { console.log('FAILURES:'); failures.forEach((f) => console.log(`  - ${f}`)); }
