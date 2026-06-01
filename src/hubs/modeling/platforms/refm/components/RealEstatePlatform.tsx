@@ -25,6 +25,9 @@ import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.t
 
 import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
 import * as pclient from '../lib/persistence/client';
+// Reuse the table scrollbar styling so the workspace vertical scrollbar is the
+// same 14px thickness as the horizontal scrollbars inside the results tables.
+import scrollStyles from './modules/_shared/ScrollableTable.module.css';
 import {
   attachToProject as attachSyncToProject,
   attachToProjectFromLocalSnapshot,
@@ -965,7 +968,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onOpenRbac={() => setRbacModalOpen(true)}
           modules={dynamicSidebarModules}
         />
-        <main style={{ flex: 1, padding: 'var(--sp-3)', overflow: 'auto' }}>
+        <main className={scrollStyles.scroll} style={{ flex: 1, padding: 'var(--sp-3)', overflow: 'auto' }}>
           {loadError && (
             <div
               role="alert"
