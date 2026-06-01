@@ -615,7 +615,7 @@ export interface Phase {
    *     cash sweep starts (typical for already-operational phases that
    *     are producing cash and want to distribute first).
    *   priority='after_sweep' → dividend paid AFTER cash sweep finishes
-   *     (typical for new construction phases — debt repays first).
+   *     (typical for new construction phases, debt repays first).
    * startingYear defaults to the phase's first operating year
    * (constructionEnd + 1 for new phases; project start year for
    * operational phases). payoutRatio is the % of available cash above

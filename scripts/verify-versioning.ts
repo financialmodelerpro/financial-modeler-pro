@@ -64,7 +64,7 @@ function deepClone<T>(v: T): T {
 console.log('=== Phase M-Versioning: snapshot-diff verifier ===');
 
 // ─────────────────────────────────────────────────────────────────────
-// A: Identity — same snapshot diffed against itself is empty.
+// A: Identity, same snapshot diffed against itself is empty.
 // ─────────────────────────────────────────────────────────────────────
 console.log('\n[A] Identity');
 {

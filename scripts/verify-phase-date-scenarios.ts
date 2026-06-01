@@ -118,7 +118,7 @@ console.log('\n[B] Hospitality occupancy at calendar year 2035 unchanged after p
   // at calendar year +2. So the early-phase 0.75 year = 2035, late-
   // phase 0.75 year = 2037. (This is the documented phase-local
   // semantic; calendar-year-preservation would require year-keyed
-  // storage instead — covered in a separate decision.)
+  // storage instead, covered in a separate decision.)
   const expected = 0.75 * 100 * 365 * 1000;
   const yEarlyIdx = resEarly.yearLabels.indexOf(2035);
   const yLateIdx = resLate.yearLabels.indexOf(2037);
@@ -180,7 +180,7 @@ console.log('\n[D] ADR YoY growth per period preserves phase-local intent');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// H: M2 Pass 9L-Fix (2026-05-21) — typing one cell must not zero out
+// H: M2 Pass 9L-Fix (2026-05-21), typing one cell must not zero out
 // historical legacy values at OTHER cells. Mimics the user-reported
 // scenario: prior snapshot had occupancy[year=Y1]=0.5 in legacy only
 // (entered before the dual-write fix). User edits Y2 via the new

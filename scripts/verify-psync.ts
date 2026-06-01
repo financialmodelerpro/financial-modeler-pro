@@ -49,7 +49,7 @@ function read(rel: string): string {
 // ── Section 1: SQL migration ──────────────────────────────────────────────
 console.log('\n[1/5] SQL migration');
 
-const sqlPath = 'supabase/migrations/p_sync_platform_modules.sql';
+const sqlPath = 'supabase/migrations/150_p_sync_platform_modules.sql';
 if (!existsSync(join(REPO_ROOT, sqlPath))) {
   fail('SQL file', `${sqlPath} missing`);
 } else {
@@ -68,9 +68,9 @@ if (!existsSync(join(REPO_ROOT, sqlPath))) {
     { label: 'public read policy on modules',             needle: 'platform_modules_public_read' },
     { label: 'public read policy on pages',               needle: 'platform_module_pages_public_read' },
     { label: 'cascade delete pages on module',            needle: 'REFERENCES public.platform_modules(id) ON DELETE CASCADE' },
-    { label: 'seed: refm project-setup module 1',         needle: "('refm', 'project-setup', 1," },
-    { label: 'seed: refm revenue module 2',               needle: "('refm', 'revenue', 2," },
-    { label: 'seed: 11 modules (api-access at 11)',       needle: "('refm', 'api-access', 11," },
+    { label: 'seed: real-estate project-setup module 1',  needle: "('real-estate', 'project-setup', 1," },
+    { label: 'seed: real-estate revenue module 2',        needle: "('real-estate', 'revenue', 2," },
+    { label: 'seed: 11 modules (api-access at 11)',       needle: "('real-estate', 'api-access', 11," },
     { label: 'seed: hero page section',                   needle: "(m1_id, 'hero', 1," },
     { label: 'seed: cta page section',                    needle: "(m1_id, 'cta', 4," },
     { label: 'idempotent INSERT ON CONFLICT',             needle: 'ON CONFLICT (platform_slug, slug) DO NOTHING' },
@@ -222,13 +222,13 @@ const emDashFiles = [
   'app/api/platforms/[platformSlug]/modules/[moduleSlug]/route.ts',
   'app/api/admin/platform-module-pages/route.ts',
   'app/api/admin/platform-module-pages/[id]/route.ts',
-  'supabase/migrations/p_sync_platform_modules.sql',
+  'supabase/migrations/150_p_sync_platform_modules.sql',
 ];
 let emDashFails = 0;
 for (const f of emDashFiles) {
   if (!existsSync(join(REPO_ROOT, f))) continue;
   const src = readFileSync(join(REPO_ROOT, f), 'utf8');
-  if (src.includes(', ')) {
+  if (src.includes('\u2014')) {
     emDashFails++;
     console.log(`  FAIL  em-dash in ${f}`);
   }

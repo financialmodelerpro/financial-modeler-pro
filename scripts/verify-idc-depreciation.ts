@@ -168,7 +168,7 @@ console.log('\n[F] startIdx defers depreciation for early additions');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// G + H: M4 Pass 2O (2026-05-24) — capitalize toggle + funding mode
+// G + H: M4 Pass 2O (2026-05-24), capitalize toggle + funding mode
 // ──────────────────────────────────────────────────────────────────
 import { computeFacilitySchedule, combineDebtService } from '@/src/core/calculations/financing/schedule';
 import { buildProjectAxis } from '@/src/core/calculations/financing/axis';
@@ -299,7 +299,7 @@ console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAs
     const f = makeFixture(cfg);
     const combined = combineDebtService(facMap, axis, [f.tranche]);
     assertNear(`${name}: totalInterestExpensed[0]`, combined.totalInterestExpensed[0], expExpensedT0);
-    // Sanity: accrual identity holds — expensed = accrued − forAssetBasis.
+    // Sanity: accrual identity holds, expensed = accrued − forAssetBasis.
     for (let t = 0; t < axis.totalPeriods; t++) {
       const acc = combined.totalInterestAccrued[t] ?? 0;
       const ab = combined.totalInterestForAssetBasis[t] ?? 0;
@@ -310,7 +310,7 @@ console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAs
 }
 
 // ──────────────────────────────────────────────────────────────────
-// I: M4 Pass 2Q (2026-05-24) — integrated FA roll-forward identity
+// I: M4 Pass 2Q (2026-05-24), integrated FA roll-forward identity
 // per-asset Operate/Lease: combined closing NBV = combined opening
 //                          + (capex add + IDC add) − combined dep
 // where combined opening at t = capexOpening[t] + IDC closing at t-1.

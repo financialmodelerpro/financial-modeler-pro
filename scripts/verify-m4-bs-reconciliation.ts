@@ -1,7 +1,7 @@
 /**
  * M4 Pass 2M-C4 (2026-05-20): M4 composer BS reconciliation identities.
  *
- * End-to-end verifier on computeFinancialsSnapshot — feeds the M4
+ * End-to-end verifier on computeFinancialsSnapshot, feeds the M4
  * composer a tightly controlled state and checks the BS identities:
  *
  *   A: TOTAL ASSETS = TOTAL CURRENT ASSETS + TOTAL FIXED ASSETS
@@ -235,7 +235,7 @@ console.log('\n[H] Direct vs Indirect Net Cash Flow parity');
 // Summary
 // ──────────────────────────────────────────────────────────────────
 // ──────────────────────────────────────────────────────────────────
-// I: M4 Pass 2N-Fix (2026-05-21) — debt outstanding off-by-one regression
+// I: M4 Pass 2N-Fix (2026-05-21), debt outstanding off-by-one regression
 // pin. The previous composer / BS surfaces read fac.outstanding[t + 1],
 // which (a) showed year-t+1 closing balance in the year-t column, and
 // (b) zeroed out the last year (out-of-bounds read), driving a large
@@ -291,7 +291,7 @@ console.log('\n[I] Pass 2N-Fix: BS debt mirrors facility.outstanding[t] exactly 
 }
 
 // ──────────────────────────────────────────────────────────────────
-// J: M4 Pass 2N-Fix (2026-05-21) — Share Capital line on the BS
+// J: M4 Pass 2N-Fix (2026-05-21), Share Capital line on the BS
 // includes pre-axis equity opening. Earlier it only used cumulative
 // new draws, leaving existing equity off the BS (the user observed
 // "share capital line is wrong, it needs to be closing balance from
@@ -344,7 +344,7 @@ console.log('\n[J] Pass 2N-Fix: BS Share Capital includes pre-axis equity openin
 }
 
 // ──────────────────────────────────────────────────────────────────
-// K: M4 Pass 2P (2026-05-24) — CF equity split (cash vs in-kind)
+// K: M4 Pass 2P (2026-05-24), CF equity split (cash vs in-kind)
 // Pinned:
 //   K1: directCF.equityDrawdownPerPeriod equals financing.equity.cashPerPeriod
 //       (CF carries cash only).
@@ -381,7 +381,7 @@ console.log('\n[K] Pass 2P: CF equity is cash only; in-kind is memo');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// L: M4 Pass 2P (2026-05-24) — Retained Earnings roll-forward identity
+// L: M4 Pass 2P (2026-05-24), Retained Earnings roll-forward identity
 // Pinned per period: retained[t] − retained[t−1]
 //                    = pat[t] − statutoryReserveTransfer[t] − dividends[t]
 // ──────────────────────────────────────────────────────────────────
@@ -403,7 +403,7 @@ console.log('\n[L] Pass 2P: Retained Earnings roll-forward identity');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// M: M4 Pass 2R (2026-05-24) — Funding Gap identities
+// M: M4 Pass 2R (2026-05-24), Funding Gap identities
 //   M1: Method A per period = capex − (preSales − escrowHeld)
 //   M2: Method A cumulative = running sum of methodAGapPerPeriod
 //   M3: Method B per period = max(0, −(ops + inv))
@@ -452,7 +452,7 @@ console.log('\n[M] Pass 2R: Funding Gap identities');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// N: M4 Pass 2S (2026-05-24) — Cash Sweep identities
+// N: M4 Pass 2S (2026-05-24), Cash Sweep identities
 //   N1: snapshot always carries a cashSweep object (enabled false when
 //       no tranche has sweep config)
 //   N2: when enabled, sum(eligibleTranches[i].sweepPerPeriod[t]) == totalSweepPerPeriod[t]
@@ -503,7 +503,7 @@ console.log('\n[N] Pass 2S: Cash Sweep identities');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// O: M4 Pass 2T (2026-05-24) — Dividend waterfall identities
+// O: M4 Pass 2T (2026-05-24), Dividend waterfall identities
 //   O1: snap.dividends always present
 //   O2: when no phase has dividendPolicy.enabled, dividends.enabled === false
 //       and totalDividends === 0
@@ -556,7 +556,7 @@ console.log('\n[O] Pass 2T: Dividend waterfall identities');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// P: M4 Pass 2T-Fix (2026-05-24) — Dividend EBITDA cap
+// P: M4 Pass 2T-Fix (2026-05-24), Dividend EBITDA cap
 //   P1: enable dividend on the fixture's operational phase with 100%
 //       payout. Cumulative dividend per phase MUST equal cumulative
 //       phase EBITDA (cap binds when payout is large enough to exhaust
@@ -691,7 +691,7 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Q: M4 Pass 2U (2026-05-24) — Method 3 detailed waterfall identities
+// Q: M4 Pass 2U (2026-05-24), Method 3 detailed waterfall identities
 //   Q1: snap exposes gap.method3Waterfall
 //   Q2: per period, Cash Available Before New Debt
 //       = Opening + Ops + Inv + ExistingEquity + ExistingDebtDraw

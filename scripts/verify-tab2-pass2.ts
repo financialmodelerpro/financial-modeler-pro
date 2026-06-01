@@ -197,7 +197,7 @@ console.log('\n[5/5] Em-dash sweep on touched files');
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
     const t2Lines = txt.split(/\r?\n/).filter((l) => l.includes('T2P2') || l.includes('Tab2_Pass2') || l.includes('tab2-pass2'));
-    const offending = t2Lines.filter((l) => l.includes(', '));
+    const offending = t2Lines.filter((l) => l.includes('\u2014'));
     if (offending.length === 0) pass(`${rel}: no em-dashes in T2P2 lines`);
     else fail(`${rel}: em-dashes`, `T2P2 lines: ${offending.length}`);
   }

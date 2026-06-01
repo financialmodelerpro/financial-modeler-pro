@@ -195,7 +195,7 @@ console.log('\n[H] totalInventory = 0 fallback uses sum(pre + post)');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// I: M4 Pass 2N-Fix (2026-05-21) — cohort tail catchup. When a cash
+// I: M4 Pass 2N-Fix (2026-05-21), cohort tail catchup. When a cash
 // payment profile schedules percentages at positions beyond the project
 // axis, the prior code silently dropped them and AR stayed stuck at
 // the un-collected residual forever (user reported Residential
