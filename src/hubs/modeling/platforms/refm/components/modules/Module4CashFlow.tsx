@@ -86,6 +86,106 @@ export default function Module4CashFlow(): React.JSX.Element {
     return m ? m[1] : name.slice(0, 4);
   };
 
+  const matchesPhase = (a: { phaseId: string }): boolean =>
+    filterPhaseId === '__all__' || a.phaseId === filterPhaseId;
+  const existingOpening = state.financingTranches
+    .filter((t) => t.origin === 'existing')
+    .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+
+  // ── Shared CASH FROM INVESTMENT / FINANCING row builders ──────────────
+  // Investment + Financing are the SAME cash movements in the Direct and
+  // Indirect methods, so BOTH views render them from here with identical
+  // line-item detail (per-strategy capex; per-tranche existing / new debt with
+  // IDC drawdown lines; equity cash + in-kind memo; dividends). Only the
+  // Operations section differs by method. `capexSubtotal` / `cfiSubtotal` /
+  // `cffSubtotal` are passed so each view supplies its own (filtered or
+  // project-level) totals while the detail is derived from `snap`.
+  const buildInvestmentRows = (capexSubtotal: number[], cfiSubtotal: number[]): M4Row[] => {
+    const rows: M4Row[] = [];
+    const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
+    const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
+    const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
+    const bucketTotal = (list: typeof residentialAssets): number[] => {
+      const out = new Array<number>(N).fill(0);
+      for (const a of list) {
+        const series = snap.perAssetCF.get(a.id)?.capexPerPeriod ?? [];
+        for (let t = 0; t < N; t++) out[t] += series[t] ?? 0;
+      }
+      return out;
+    };
+    const pushCapexBucket = (list: typeof residentialAssets, label: string, group: string): void => {
+      if (list.length === 0) return;
+      const total = bucketTotal(list);
+      if (!total.some((v) => v !== 0)) return;
+      rows.push({ label, values: total.map((v) => -v), isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
+      for (const a of list) {
+        const series = snap.perAssetCF.get(a.id)?.capexPerPeriod ?? [];
+        if (series.every((v) => v === 0)) continue;
+        rows.push({ label: a.name, values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
+      }
+    };
+    rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
+    pushCapexBucket(residentialAssets, 'Residential Capex', 'cf-capex-res');
+    pushCapexBucket(hospitalityAssets, 'Hospitality Capex', 'cf-capex-hosp');
+    pushCapexBucket(retailAssets, 'Retail Capex', 'cf-capex-ret');
+    const priorPreCapex = snap.financing.existing.preCapexTotal;
+    if (priorPreCapex > 0) {
+      rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
+    }
+    rows.push({ label: 'Total Capex', values: capexSubtotal, isSubtotal: true, priorValue: -priorPreCapex });
+    rows.push({ label: 'Cash Flow from Investment', values: cfiSubtotal, isTotal: true, priorValue: -priorPreCapex });
+    return rows;
+  };
+
+  const buildFinancingRows = (cffSubtotal: number[]): M4Row[] => {
+    const rows: M4Row[] = [];
+    // Equity / in-kind / dividend series are method-independent cash; read
+    // them off the Direct snapshot (identical to the Indirect arrays).
+    const d = snap.directCF;
+    rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
+    const priorEquityTotal = snap.financing.existing.equityTotal;
+    if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
+      rows.push({ label: 'Equity Drawdown (Cash)', values: d.equityDrawdownPerPeriod, indent: 1, priorValue: priorEquityTotal });
+    }
+    if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)', values: d.equityInKindDrawdownPerPeriod, indent: 2 });
+    }
+    const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid'): number[] => {
+      const out = new Array<number>(N).fill(0);
+      for (const t of state.financingTranches) {
+        if ((t.origin === 'existing' ? 'existing' : 'new') !== origin) continue;
+        const f = snap.financing.facilities.get(t.id);
+        if (!f) continue;
+        const src = (f[key] as number[]).slice(0, N);
+        for (let i = 0; i < N; i++) out[i] += src[i] ?? 0;
+      }
+      return out;
+    };
+    const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
+      const draw = sumOrigin(origin, 'drawSchedule');
+      const drawIdc = sumOrigin(origin, 'interestCapitalized');
+      const repaid = sumOrigin(origin, 'principalRepaid');
+      const intPaid = sumOrigin(origin, 'interestPaid');
+      if (draw.some((v) => v !== 0) || (opening ?? 0) > 0) {
+        rows.push({ label: `Debt Drawdown, ${label}`, values: draw, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
+      }
+      if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Debt Drawdown (IDC), ${label}`, values: drawIdc, indent: 1 });
+      if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
+      if (intPaid.some((v) => v !== 0)) rows.push({ label: `Finance Cost Paid, ${label}`, values: intPaid.map((v) => -v), indent: 1 });
+      // Capitalised IDC settles via additional drawdown, not cash; this memo
+      // surfaces the matching outflow so finance cost is visible during
+      // construction. Net cash effect = 0 against the Drawdown (IDC) row.
+      if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Finance Cost (Capitalised via IDC drawdown), ${label}`, values: drawIdc.map((v) => -v), indent: 1 });
+    };
+    pushDebtBucket('existing', 'Existing loans', existingOpening);
+    pushDebtBucket('new', 'New loans');
+    if (d.dividendsPaidPerPeriod.some((v) => v !== 0)) {
+      rows.push({ label: 'Dividends paid', values: d.dividendsPaidPerPeriod, indent: 1 });
+    }
+    rows.push({ label: 'Cash Flow from Financing', values: cffSubtotal, isSubtotal: true, priorValue: priorEquityTotal + existingOpening });
+    return rows;
+  };
+
   // Direct CF rows, project view (M4 Pass 2L 2026-05-20):
   //  - Phase filter narrows the asset rows shown.
   //  - Each asset row carries its phaseLabel.
@@ -97,8 +197,6 @@ export default function Module4CashFlow(): React.JSX.Element {
   const buildDirectProjectRows = (): M4Row[] => {
     const d = snap.directCF;
     const rows: M4Row[] = [];
-    const matchesPhase = (a: { phaseId: string }): boolean =>
-      filterPhaseId === '__all__' || a.phaseId === filterPhaseId;
     const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
     const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
     const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
@@ -193,153 +291,14 @@ export default function Module4CashFlow(): React.JSX.Element {
     }
     rows.push({ label: 'Cash Flow from Operations', values: d.cashFromOperationsPerPeriod, isTotal: true });
 
-    // ── CASH FROM INVESTMENT ──────────────────────────────────────
-    rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
-    // Per-strategy capex buckets with inline totals.
-    if (residentialAssets.length > 0) {
-      const resCx = sumAssetSeries(residentialAssets, 'capexPerPeriod');
-      if (resCx.some((v) => v !== 0)) {
-        rows.push({ label: 'Residential Capex', values: resCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-res', collapseRole: 'header', defaultCollapsed: false });
-        for (const a of residentialAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-res', -1);
-      }
-    }
-    if (hospitalityAssets.length > 0) {
-      const hospCx = sumAssetSeries(hospitalityAssets, 'capexPerPeriod');
-      if (hospCx.some((v) => v !== 0)) {
-        rows.push({ label: 'Hospitality Capex', values: hospCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-hosp', collapseRole: 'header', defaultCollapsed: false });
-        for (const a of hospitalityAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-hosp', -1);
-      }
-    }
-    if (retailAssets.length > 0) {
-      const retCx = sumAssetSeries(retailAssets, 'capexPerPeriod');
-      if (retCx.some((v) => v !== 0)) {
-        rows.push({ label: 'Retail Capex', values: retCx.map((v) => -v), isSection: true, collapseGroup: 'cf-capex-ret', collapseRole: 'header', defaultCollapsed: false });
-        for (const a of retailAssets) pushAssetRow(a, 'capexPerPeriod', 'cf-capex-ret', -1);
-      }
-    }
-    // M4 Pass 2N-Fix #3 (2026-05-21): pre-capex (historical capex spent
-    // before the project axis) gets its own dedicated row above Total
-    // Capex. Shown as outflow at the prior column only — it's not a
-    // current-period flow, just a marker so the user can reconcile
-    // against the existing-operations seed on the BS Fixed Assets.
+    rows.push(...buildInvestmentRows(d.capexPerPeriod, d.cashFromInvestmentPerPeriod));
+
+    rows.push(...buildFinancingRows(d.cashFromFinancingPerPeriod));
+
+    // M4 Pass 2R-Fix: prior-column subtotals (existing equity + debt +
+    // pre-capex carried from before the project axis).
     const priorPreCapex = snap.financing.existing.preCapexTotal;
-    if (priorPreCapex > 0) {
-      rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
-    }
-    // M4 Pass 2R-Fix (2026-05-24): subtotal rows must carry the prior-
-    // column sum from their component rows. Previously the prior column
-    // showed "-" on subtotals while the underlying rows had values
-    // (Pre-Capex / Equity Drawdown / Existing Debt Drawdown), so the
-    // user saw a missing prior-column total even though the data was
-    // present in the components.
-    rows.push({ label: 'Total Capex', values: d.capexPerPeriod, isSubtotal: true, priorValue: -priorPreCapex });
-    rows.push({ label: 'Cash Flow from Investment', values: d.cashFromInvestmentPerPeriod, isTotal: true, priorValue: -priorPreCapex });
-
-    // ── CASH FROM FINANCING ───────────────────────────────────────
-    // M4 Pass 2N-Fix #3 (2026-05-21): debt rows consolidated into two
-    // origin buckets — Existing loans + New loans — instead of per-
-    // tranche detail. Phase tag dropped (user feedback: showing phase
-    // on financing rows is incorrect). Prior column seeded with
-    // existing equity / existing debt / pre-capex so the user can
-    // see what carried over from before the project axis.
-    rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
-
-    // M4 Pass 2P (2026-05-24): Equity Drawdown is CASH ONLY. In-kind
-    // equity (land in-kind) is non-cash — recognised on BS as Land +
-    // Share Capital simultaneously, never flowing through CF. Rendered
-    // as a memo row beneath when nonzero so the user can see the full
-    // equity picture in one place.
-    const priorEquityTotal = snap.financing.existing.equityTotal;
-    if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
-      rows.push({
-        label: 'Equity Drawdown (Cash)',
-        values: d.equityDrawdownPerPeriod,
-        indent: 1,
-        priorValue: priorEquityTotal,
-      });
-    }
-    if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
-      rows.push({
-        label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)',
-        values: d.equityInKindDrawdownPerPeriod,
-        indent: 2,
-      });
-    }
-
-    // Debt buckets: aggregate per origin so we get at most 2 rows per
-    // category (Drawdown / Repayment / Finance Cost) instead of N
-    // per-tranche rows. interestCapitalized never settles in cash
-    // (capitalised IDC stays on BS), so it never appears as a CF
-    // "Finance Cost Paid" line — IDC drawdowns increase the loan
-    // balance directly.
-    const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid'): number[] => {
-      const out = new Array<number>(N).fill(0);
-      for (const t of state.financingTranches) {
-        if ((t.origin === 'existing' ? 'existing' : 'new') !== origin) continue;
-        const f = snap.financing.facilities.get(t.id);
-        if (!f) continue;
-        const src = (f[key] as number[]).slice(0, N);
-        for (let i = 0; i < N; i++) out[i] += src[i] ?? 0;
-      }
-      return out;
-    };
-    const existingOpening = state.financingTranches
-      .filter((t) => t.origin === 'existing')
-      .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
-
-    // Existing loans bucket.
-    const exDraw = sumOrigin('existing', 'drawSchedule');
-    const exDrawIdc = sumOrigin('existing', 'interestCapitalized');
-    const exRepaid = sumOrigin('existing', 'principalRepaid');
-    const exIntPaid = sumOrigin('existing', 'interestPaid');
-    if (exDraw.some((v) => v !== 0) || existingOpening > 0) {
-      rows.push({ label: 'Debt Drawdown, Existing loans', values: exDraw, indent: 1, priorValue: existingOpening });
-    }
-    if (exDrawIdc.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt Drawdown (IDC), Existing loans', values: exDrawIdc, indent: 1 });
-    }
-    if (exRepaid.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt Repayment, Existing loans', values: exRepaid.map((v) => -v), indent: 1 });
-    }
-    if (exIntPaid.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance Cost Paid, Existing loans', values: exIntPaid.map((v) => -v), indent: 1 });
-    }
-    // M4 Pass 2N-Fix #3 (2026-05-21): construction-window finance cost
-    // is "paid" via additional drawdown (capitalised interest, IDC).
-    // The Drawdown (IDC) row above already reflects the cash inflow
-    // side. This memo surfaces the matching outflow side so the user
-    // sees that finance cost IS being paid during construction (just
-    // through a debt drawdown rather than cash). Net cash effect = 0.
-    if (exDrawIdc.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance Cost (Capitalised via IDC drawdown), Existing loans', values: exDrawIdc.map((v) => -v), indent: 1 });
-    }
-
-    // New loans bucket.
-    const newDraw = sumOrigin('new', 'drawSchedule');
-    const newDrawIdc = sumOrigin('new', 'interestCapitalized');
-    const newRepaid = sumOrigin('new', 'principalRepaid');
-    const newIntPaid = sumOrigin('new', 'interestPaid');
-    if (newDraw.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt Drawdown, New loans', values: newDraw, indent: 1 });
-    }
-    if (newDrawIdc.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt Drawdown (IDC), New loans', values: newDrawIdc, indent: 1 });
-    }
-    if (newRepaid.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt Repayment, New loans', values: newRepaid.map((v) => -v), indent: 1 });
-    }
-    if (newIntPaid.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance Cost Paid, New loans', values: newIntPaid.map((v) => -v), indent: 1 });
-    }
-    // Capitalised-IDC offset (same memo logic as existing loans).
-    if (newDrawIdc.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance Cost (Capitalised via IDC drawdown), New loans', values: newDrawIdc.map((v) => -v), indent: 1 });
-    }
-
-    // M4 Pass 2R-Fix: prior-column subtotals (see comment above Total Capex).
-    const financingPrior = priorEquityTotal + existingOpening;
-    const netPrior = -priorPreCapex + financingPrior; // CFO has no prior column today
-    rows.push({ label: 'Cash Flow from Financing', values: d.cashFromFinancingPerPeriod, isSubtotal: true, priorValue: financingPrior });
+    const netPrior = -priorPreCapex + (snap.financing.existing.equityTotal + existingOpening);
 
     rows.push({ label: 'Net Cash Flow', values: d.netCashFlowPerPeriod, isTotal: true, priorValue: netPrior });
     rows.push({ label: 'Opening cash', values: d.openingCashPerPeriod, indent: 1, totalOverride: fmt(d.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
@@ -464,9 +423,6 @@ export default function Module4CashFlow(): React.JSX.Element {
     const un = filtered ? changeInUnearned : ic.changeInUnearnedPerPeriod;
     const esc = filtered ? changeInEscrow : ic.changeInEscrowPerPeriod;
     const cpx = filtered ? capexFiltered : ic.capexPerPeriod;
-    const debtDraw = filtered ? debtDrawFiltered : ic.debtDrawdownPerPeriod;
-    const debtRepay = filtered ? debtRepayFiltered : ic.debtRepaymentPerPeriod;
-    const intPaidFin = filtered ? interestPaidFiltered : ic.interestPaidPerPeriod;
 
     const phaseLbl = (id: string): string => phaseShort(id);
 
@@ -482,29 +438,11 @@ export default function Module4CashFlow(): React.JSX.Element {
     rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
     rows.push({ label: 'Cash Flow from Operations', values: cfo, isSubtotal: true });
 
-    rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
-    rows.push({ label: 'Capital expenditure', values: cpx, indent: 1 });
-    rows.push({ label: 'Cash Flow from Investment', values: cfi, isSubtotal: true });
-
-    rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
-    if (equityDrawPhase.some((v) => v !== 0)) {
-      rows.push({ label: `Equity drawdown${projTag}`, values: equityDrawPhase, indent: 1 });
-    }
-    if (debtDraw.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt drawdown', values: debtDraw, indent: 1 });
-    }
-    if (debtRepay.some((v) => v !== 0)) {
-      rows.push({ label: 'Debt repayment', values: debtRepay, indent: 1 });
-    }
-    if (intPaidFin.some((v) => v !== 0)) {
-      rows.push({ label: 'Finance cost paid', values: intPaidFin, indent: 1 });
-    }
-    // Dividends + sweep are project-level (the waterfall is not split per
-    // phase), so only the unfiltered Cash Flow from Financing nets them.
-    if (!filtered && ic.dividendsPaidPerPeriod.some((v) => v !== 0)) {
-      rows.push({ label: 'Dividends paid', values: ic.dividendsPaidPerPeriod, indent: 1 });
-    }
-    rows.push({ label: 'Cash Flow from Financing', values: cff, isSubtotal: true });
+    // Investment + Financing carry the SAME line-item detail as the Direct
+    // view (identical cash movements), via the shared builders. Subtotals
+    // come from the Indirect view's own (filtered or project-level) arrays.
+    rows.push(...buildInvestmentRows(cpx, cfi));
+    rows.push(...buildFinancingRows(cff));
     rows.push({ label: 'Net Cash Flow', values: netCf, isTotal: true });
     // Opening / Closing cash. Project view only: it must tie out to the
     // Direct method's closing balance (same closingCashAdj series).
