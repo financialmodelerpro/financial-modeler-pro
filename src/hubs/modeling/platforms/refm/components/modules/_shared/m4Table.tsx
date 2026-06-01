@@ -18,7 +18,7 @@ import React, { useState } from 'react';
 import {
   CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS,
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
-  nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX,
+  nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX, PERIOD_LABEL_PX,
 } from './tableStyles';
 import { ScrollableTable } from './ScrollableTable';
 
@@ -101,6 +101,19 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
   const nonLabelPct = nonLabelColumnPct(nonLabelColCount);
   const phaseColWidth = hasPhase ? `${PERIOD_PHASE_PX}px` : undefined;
 
+  // Freeze the Description + (Phase) + Total columns so only the year axis
+  // scrolls horizontally. Sticky-left with OPAQUE per-row backgrounds so the
+  // scrolling year cells slide underneath instead of bleeding through.
+  const totalLeftPx = PERIOD_LABEL_PX + (hasPhase ? PERIOD_PHASE_PX : 0);
+  const STICKY_DATA_BG = 'var(--color-surface, #ffffff)';
+  const STICKY_SUBTOTAL_BG = 'color-mix(in srgb, var(--color-navy) 12%, var(--color-surface, #ffffff))';
+  const freeze = (left: number, bg?: string): React.CSSProperties => ({
+    position: 'sticky',
+    left,
+    zIndex: 1,
+    ...(bg ? { background: bg } : {}),
+  });
+
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <span style={TABLE_TITLE}>{title} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span></span>
@@ -118,9 +131,9 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
           </colgroup>
           <thead>
             <tr>
-              <th style={CELL_HEADER}>Line</th>
-              {hasPhase && (<th style={{ ...CELL_HEADER, textAlign: 'center', fontSize: 10 }}>Phase</th>)}
-              <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, ...freeze(0) }}>Line</th>
+              {hasPhase && (<th style={{ ...CELL_HEADER, textAlign: 'center', fontSize: 10, ...freeze(PERIOD_LABEL_PX) }}>Phase</th>)}
+              <th style={{ ...CELL_HEADER_TOTAL, ...freeze(totalLeftPx) }}>Total</th>
               {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{priorYearLabel}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
@@ -173,6 +186,10 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                 );
               }
               const tokens = r.isTotal ? ROW_GRAND_TOTAL : (r.isSubtotal || isCollapsibleHeader) ? ROW_SUBTOTAL : ROW_DATA;
+              // Opaque background for the frozen Description / Phase / Total
+              // cells. Grand-total rows already carry an opaque navy fill via
+              // their token, so leave those untouched (undefined).
+              const stickyBg = (r.isSubtotal || isCollapsibleHeader) ? STICKY_SUBTOTAL_BG : r.isTotal ? undefined : STICKY_DATA_BG;
               const indent = r.indent ?? 0;
               const total = r.totalOverride ?? cellFmt(r.values.reduce((s, v) => s + (v ?? 0), 0));
               const priorCellStyle = { ...tokens.num, color: 'var(--color-meta)', fontStyle: 'italic' as const };
@@ -186,7 +203,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
               return (
                 <tr key={r.label + idx}>
                   <td
-                    style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px`, cursor: isCollapsibleHeader ? 'pointer' : undefined, userSelect: isCollapsibleHeader ? 'none' : undefined }}
+                    style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px`, cursor: isCollapsibleHeader ? 'pointer' : undefined, userSelect: isCollapsibleHeader ? 'none' : undefined, ...freeze(0, stickyBg) }}
                     onClick={isCollapsibleHeader ? () => toggleGroup(r.collapseGroup!) : undefined}
                     data-testid={isCollapsibleHeader ? `m4-collapse-toggle-${r.collapseGroup}` : undefined}
                   >
@@ -217,11 +234,11 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                     )}
                   </td>
                   {hasPhase && (
-                    <td style={{ ...tokens.num, textAlign: 'center', fontSize: 10, color: 'var(--color-meta)' }}>
+                    <td style={{ ...tokens.num, textAlign: 'center', fontSize: 10, color: 'var(--color-meta)', ...freeze(PERIOD_LABEL_PX, stickyBg) }}>
                       {r.phaseLabel ?? ''}
                     </td>
                   )}
-                  <td style={tokens.numTotal}>{total}</td>
+                  <td style={{ ...tokens.numTotal, ...freeze(totalLeftPx, stickyBg) }}>{total}</td>
                   {hasPrior && (<td style={priorCellStyle}>{cellFmt(r.priorValue ?? 0)}</td>)}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{cellFmt(v ?? 0)}</td>))}
                 </tr>
