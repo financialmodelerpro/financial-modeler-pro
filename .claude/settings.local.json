@@ -204,7 +204,8 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(Get-ChildItem *)",
       "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep \"const.*Input.*:.*=\" {} | head -3')",
-      "Bash(awk ' *)"
+      "Bash(awk ' *)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

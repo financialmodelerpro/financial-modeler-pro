@@ -1,0 +1,138 @@
+/**
+ * M5 Returns engine, shared types.
+ *
+ * Pure data shapes. No store / snapshot coupling, no platform imports.
+ * The refm resolver (returns-resolvers.ts) maps an M4 financials snapshot
+ * onto these inputs; the UI reads the outputs.
+ *
+ * Sign convention for cash-flow streams: NEGATIVE = cash OUT (invested),
+ * POSITIVE = cash IN (returned). period[0] is the first project year.
+ */
+
+export type TerminalMethod = 'none' | 'exit_multiple' | 'perpetuity';
+
+/** One signed cash-flow stream (e.g. FCFF, FCFE, Dividends). */
+export interface CashFlowStream {
+  /** Signed per-period cash flow (negative = invested, positive = returned). */
+  perPeriod: number[];
+}
+
+/** IRR / MOIC / NPV / Payback summary for a single stream. */
+export interface StreamReturns {
+  /** Annualised IRR as a decimal (0.184 = 18.4%); null if no sign change
+   *  or the solver did not converge. */
+  irr: number | null;
+  /** Multiple on invested capital = total inflow / total outflow (x). */
+  moic: number;
+  /** Net present value at the supplied discount rate. */
+  npv: number;
+  /** Discount rate used for the NPV (decimal). */
+  discountRate: number;
+  /** Payback period in years (fractional, linearly interpolated); null if
+   *  the cumulative cash flow never turns positive. */
+  paybackPeriod: number | null;
+  /** Sum of positive flows (cash returned). */
+  totalInflow: number;
+  /** Sum of |negative flows| (cash invested). */
+  totalOutflow: number;
+  /** totalInflow − totalOutflow (undiscounted profit). */
+  netProfit: number;
+  /** Largest cumulative cash invested at any point (peak exposure). */
+  peakExposure: number;
+}
+
+/** Terminal-value inputs (exit-multiple or perpetuity). */
+export interface TerminalValueInput {
+  method: TerminalMethod;
+  /** Exit-year metric the terminal value is built on:
+   *   exit_multiple -> stabilised EBITDA / NOI at exit
+   *   perpetuity    -> exit-year free cash flow (FCFF or FCFE) */
+  exitMetric: number;
+  /** Multiple applied to exitMetric (exit_multiple method). */
+  exitMultiple?: number;
+  /** Perpetuity growth rate g (perpetuity method, decimal). */
+  perpetuityGrowth?: number;
+  /** Discount rate r for the perpetuity (decimal). */
+  discountRate?: number;
+}
+
+/** Real-estate point/period metrics derived from the snapshot. */
+export interface RealEstateMetrics {
+  /** Stabilised NOI / total development cost (going-in yield on cost). */
+  yieldOnCost: number | null;
+  /** Exit NOI / exit enterprise value (exit cap rate). */
+  capRateAtExit: number | null;
+  /** yieldOnCost − capRateAtExit (development spread, decimal). */
+  developmentSpread: number | null;
+  /** (total revenue − total cost) / total cost (profit on cost). */
+  profitOnCost: number | null;
+  /** total PAT / total revenue (net profit margin). */
+  profitMargin: number | null;
+  /** Average annual cash-on-cash = mean(distribution / cumulative equity). */
+  cashOnCashAvg: number | null;
+  /** Debt outstanding at exit / enterprise value at exit (LTV at exit). */
+  ltvAtExit: number | null;
+  /** Total equity distributions / total equity invested (equity multiple, x). */
+  equityMultiple: number;
+  /** Stabilised NOI / total debt outstanding (debt yield, decimal). */
+  debtYield: number | null;
+  /** Peak cumulative equity invested (max equity exposure). */
+  peakEquity: number;
+  /** Per-period Debt Service Coverage Ratio (NOI or CFADS / debt service). */
+  dscrPerPeriod: number[];
+  /** Minimum DSCR across operating periods with debt service. */
+  dscrMin: number | null;
+  /** Average DSCR across operating periods with debt service. */
+  dscrAvg: number | null;
+  /** Per-period Interest Coverage Ratio (EBITDA / interest). */
+  icrPerPeriod: number[];
+  /** Minimum ICR across periods with interest. */
+  icrMin: number | null;
+  /** Per-period cash-on-cash (distribution / cumulative equity). */
+  cashOnCashPerPeriod: number[];
+}
+
+/** Full returns input (resolver -> engine). */
+export interface ReturnsInput {
+  axisLength: number;
+  /** The three return streams. */
+  fcff: CashFlowStream;
+  fcfe: CashFlowStream;
+  dividends: CashFlowStream;
+  discountRate: number;
+  /** Real-estate metric feeders. */
+  metrics: {
+    stabilisedNOI: number;
+    totalDevelopmentCost: number;
+    totalRevenue: number;
+    totalCost: number;
+    totalPAT: number;
+    exitNOI: number;
+    exitEnterpriseValue: number;
+    debtOutstandingAtExit: number;
+    totalEquityInvested: number;
+    totalEquityDistributions: number;
+    /** Per-period cash flow available for debt service (NOI/CFADS). */
+    cfadsPerPeriod: number[];
+    /** Per-period cash debt service (interest + principal). */
+    debtServicePerPeriod: number[];
+    /** Per-period EBITDA. */
+    ebitdaPerPeriod: number[];
+    /** Per-period interest expense. */
+    interestPerPeriod: number[];
+    /** Per-period equity distributions (dividends). */
+    distributionPerPeriod: number[];
+    /** Per-period cumulative equity invested. */
+    cumulativeEquityPerPeriod: number[];
+    /** Per-period equity invested (for peak equity). */
+    equityInvestedPerPeriod: number[];
+  };
+}
+
+/** Full returns output (engine -> UI). */
+export interface ReturnsResult {
+  fcff: StreamReturns;
+  fcfe: StreamReturns;
+  dividends: StreamReturns;
+  realEstate: RealEstateMetrics;
+}
