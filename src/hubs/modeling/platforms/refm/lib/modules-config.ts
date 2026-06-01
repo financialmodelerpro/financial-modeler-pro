@@ -86,9 +86,8 @@ export const MODULES: readonly ModuleConfig[] = [
     longLabel: 'Returns & Valuation Analysis',
     featureKey: 'module_5',
     requiredPlan: 'free',
-    status: 'soon',
-    disabled: true,
-    disabledReason: 'Coming soon',
+    status: 'wip',
+    disabled: false,
   },
   {
     num: 6,

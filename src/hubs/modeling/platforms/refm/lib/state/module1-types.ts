@@ -464,6 +464,26 @@ export interface Project {
     fundingMode?: 'debt_drawdown' | 'cash';
   };
   /**
+   * M5 Returns (2026-06-01): returns + valuation assumptions. Additive;
+   * absent => the resolver applies sensible defaults (10% discount rate,
+   * exit at the last axis year, exit-multiple terminal value of 8x
+   * stabilised NOI). Consumed only by Module 5 / the returns resolver;
+   * does not touch any M1-M4 engine path.
+   */
+  returns?: {
+    /** Discount rate for NPV + perpetuity terminal value (decimal). */
+    discountRate?: number;
+    /** Axis index of the exit/hold-period end (0-based). Clamped to the
+     *  axis; unset => last active year. */
+    exitYearOffset?: number;
+    /** Terminal-value method the user picks. */
+    terminalMethod?: 'none' | 'exit_multiple' | 'perpetuity';
+    /** Exit multiple applied to stabilised NOI (exit_multiple method). */
+    exitMultiple?: number;
+    /** Perpetuity growth rate g (perpetuity method, decimal). */
+    perpetuityGrowth?: number;
+  };
+  /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
    * on Asset.opex.

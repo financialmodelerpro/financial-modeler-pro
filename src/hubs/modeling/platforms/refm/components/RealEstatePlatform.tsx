@@ -56,6 +56,8 @@ import Module4Schedules from './modules/Module4Schedules';
 import Module4PL from './modules/Module4PL';
 import Module4CashFlow from './modules/Module4CashFlow';
 import Module4BalanceSheet from './modules/Module4BalanceSheet';
+import Module5Returns from './modules/Module5Returns';
+import Module5Metrics from './modules/Module5Metrics';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 
@@ -217,6 +219,12 @@ export const m4Tabs = [
   { key: 'm4-balancesheet', icon: '⚖️', label: '4. Balance Sheet', step: 4 },
 ];
 
+// ── Module 5 tabs (Returns and Valuation) ─────────────────────────────
+export const m5Tabs = [
+  { key: 'm5-returns', icon: '📈', label: '1. Returns', step: 1 },
+  { key: 'm5-metrics', icon: '🏷️', label: '2. RE Metrics', step: 2 },
+];
+
 // Universal module → sub-tabs map. Any module key that needs a sidebar
 // drop-down just registers its tabs here; Sidebar.tsx reads from this
 // map instead of hard-coding per-module branches. New modules (M4/M5/M6)
@@ -227,6 +235,7 @@ export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
   module2: m2Tabs,
   module3: m3Tabs,
   module4: m4Tabs,
+  module5: m5Tabs,
 };
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -913,6 +922,59 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {m4ActiveTab === 'm4-pl' && <Module4PL />}
           {m4ActiveTab === 'm4-cashflow' && <Module4CashFlow />}
           {m4ActiveTab === 'm4-balancesheet' && <Module4BalanceSheet />}
+        </div>
+      );
+    }
+    if (activeModule === 'module5') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m5-no-project">
+            No project selected.{' '}
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            >
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      const m5ActiveTab = m5Tabs.some((t) => t.key === activeTab) ? activeTab : m5Tabs[0].key;
+      return (
+        <div data-testid="module5-shell-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--sp-1)',
+              borderBottom: '1px solid var(--color-border)',
+              marginBottom: 'var(--sp-3)',
+            }}
+            data-testid="m5-tab-row"
+          >
+            {m5Tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`m5-tab-${tab.key}`}
+                style={{
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  background: m5ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
+                  color: m5ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-small)',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          {m5ActiveTab === 'm5-returns' && <Module5Returns />}
+          {m5ActiveTab === 'm5-metrics' && <Module5Metrics />}
         </div>
       );
     }
