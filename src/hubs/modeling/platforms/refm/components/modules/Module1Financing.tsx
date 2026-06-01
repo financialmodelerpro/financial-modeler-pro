@@ -2793,6 +2793,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               <th style={CELL_HEADER}>Enable Dividend</th>
               <th style={CELL_HEADER}>Start Year</th>
               <th style={CELL_HEADER}>Payout Ratio</th>
+              <th style={CELL_HEADER}>Basis</th>
             </tr>
           </thead>
           <tbody>
@@ -2856,6 +2857,15 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       style={{ ...inputStyle, width: 80 }}
                     />
                   </td>
+                  <td style={ROW_DATA.name}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {pillBtn((pol.mode ?? 'cash_above_min') === 'cash_above_min', 'Cash above min', () => updatePolicy({ mode: 'cash_above_min' }), 'm-cash')}
+                      {pillBtn(pol.mode === 'pct_of_ebitda', '% of EBITDA', () => updatePolicy({ mode: 'pct_of_ebitda' }), 'm-ebitda')}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                      {(pol.mode ?? 'cash_above_min') === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -2881,7 +2891,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                     <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>{row.phaseName} ({row.priority === 'before_sweep' ? 'before sweep' : 'after sweep'})</td></tr>
                     {renderFlowRow(`  ${row.phaseName} EBITDA (cap source, cum. cap ${p.fmt(row.totalPhaseEbitda)})`, row.phaseEbitdaPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
                     {renderFlowRow(`  Cash available for dividend (${row.priority === 'before_sweep' ? 'above min reserve' : 'after debt sweep'})`, row.cashAvailableForDividendPerPeriod, { indent: 1, priorValue: 0 })}
-                    {renderFlowRow(`  Dividend = MIN(EBITDA budget, cash × ${(row.payoutRatio * 100).toFixed(0)}%)`, row.dividendsPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
+                    {renderFlowRow(`  Dividend = MIN(EBITDA budget, ${row.mode === 'pct_of_ebitda' ? `cash, EBITDA × ${(row.payoutRatio * 100).toFixed(0)}%` : `cash × ${(row.payoutRatio * 100).toFixed(0)}%`})`, row.dividendsPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
                   </React.Fragment>
                 ))}
               </tbody>

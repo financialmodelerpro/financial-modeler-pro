@@ -743,6 +743,8 @@ export interface DividendPhaseRow {
   startingYear: number;
   startingYearAxisIdx: number;
   payoutRatio: number;
+  /** 2026-06-01: dividend sizing basis (see Phase.dividendPolicy.mode). */
+  mode: 'cash_above_min' | 'pct_of_ebitda';
   dividendsPerPeriod: number[];
   totalDividends: number;
   /** M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA per period (sum of
@@ -845,6 +847,7 @@ export function computeCashWaterfall(args: {
     const startingYear = policy.startingYear ?? defaultStartingYear;
     const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
     const payoutRatio = Math.max(0, Math.min(1, (policy.payoutRatio ?? 0) / 100));
+    const mode: 'cash_above_min' | 'pct_of_ebitda' = policy.mode === 'pct_of_ebitda' ? 'pct_of_ebitda' : 'cash_above_min';
     // M4 Pass 2T-Fix: EBITDA cap. Cumulative EBITDA defines the lifetime
     // cap on cumulative dividends (per Ahmad 2026-05-24: "Phase 1
     // dividend will be Max of EBITDA of Phase 1, not more than this").
@@ -863,6 +866,7 @@ export function computeCashWaterfall(args: {
       startingYear,
       startingYearAxisIdx,
       payoutRatio,
+      mode,
       dividendsPerPeriod: new Array<number>(N).fill(0),
       totalDividends: 0,
       phaseEbitdaPerPeriod: ebitda,
@@ -912,7 +916,12 @@ export function computeCashWaterfall(args: {
       const cumDivPriorPeriods = row.totalDividends; // through t-1 (this period's not added yet)
       const budget = Math.max(0, cumEb - cumDivPriorPeriods);
       row.ebitdaBudgetPerPeriod[t] = budget;
-      const desired = excess * row.payoutRatio;
+      // 2026-06-01: pct_of_ebitda sizes the dividend off THIS period's EBITDA;
+      // cash_above_min (default) sizes it off the cash above the min reserve.
+      // Both stay bounded by `excess` (cash available) + the EBITDA budget cap.
+      const desired = row.mode === 'pct_of_ebitda'
+        ? Math.max(0, row.phaseEbitdaPerPeriod[t] ?? 0) * row.payoutRatio
+        : excess * row.payoutRatio;
       const div = Math.min(desired, excess, budget);
       if (div <= 0) continue;
       row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;
@@ -945,7 +954,12 @@ export function computeCashWaterfall(args: {
       const cumDivPriorPeriods = row.totalDividends;
       const budget = Math.max(0, cumEb - cumDivPriorPeriods);
       row.ebitdaBudgetPerPeriod[t] = budget;
-      const desired = excess * row.payoutRatio;
+      // 2026-06-01: pct_of_ebitda sizes the dividend off THIS period's EBITDA;
+      // cash_above_min (default) sizes it off the cash above the min reserve.
+      // Both stay bounded by `excess` (cash available) + the EBITDA budget cap.
+      const desired = row.mode === 'pct_of_ebitda'
+        ? Math.max(0, row.phaseEbitdaPerPeriod[t] ?? 0) * row.payoutRatio
+        : excess * row.payoutRatio;
       const div = Math.min(desired, excess, budget);
       if (div <= 0) continue;
       row.dividendsPerPeriod[t] = (row.dividendsPerPeriod[t] ?? 0) + div;

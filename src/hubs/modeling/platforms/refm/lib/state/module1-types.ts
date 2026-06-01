@@ -627,6 +627,17 @@ export interface Phase {
     priority?: 'before_sweep' | 'after_sweep';
     startingYear?: number;
     payoutRatio?: number;
+    /**
+     * 2026-06-01: dividend sizing basis. Both modes pay only AFTER the
+     * construction period (startingYear) and stay capped by cash available
+     * above the minimum reserve AND by cumulative EBITDA.
+     *   'cash_above_min' (default, legacy): payoutRatio % of the cash above
+     *     the minimum reserve each period (the cash-sweep-style distribution).
+     *   'pct_of_ebitda': payoutRatio % of THIS period's EBITDA, still gated by
+     *     the cash available above the minimum reserve.
+     * Works the same regardless of the tranche debt-repayment method.
+     */
+    mode?: 'cash_above_min' | 'pct_of_ebitda';
   };
 }
 
