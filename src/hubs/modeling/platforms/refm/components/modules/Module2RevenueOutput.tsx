@@ -64,6 +64,7 @@ import {
   nonLabelColumnPct,
   periodTableStyle,
 } from './_shared/tableStyles';
+import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 import { makePctFmt } from './_shared/numberFmt';
@@ -252,7 +253,7 @@ function PeriodTable({
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
         Formula: {formula}
       </div>
-      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+      <ScrollableTable>
         <table style={periodTableStyle(1 + extraCols + yearLabels.length)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
@@ -322,7 +323,7 @@ function PeriodTable({
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollableTable>
     </div>
   );
 }

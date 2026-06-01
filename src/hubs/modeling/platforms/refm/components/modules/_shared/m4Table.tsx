@@ -20,6 +20,7 @@ import {
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
   nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX,
 } from './tableStyles';
+import { ScrollableTable } from './ScrollableTable';
 
 export interface M4Row {
   label: string;
@@ -106,7 +107,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
       {caption && (
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>{caption}</div>
       )}
-      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+      <ScrollableTable>
         <table style={periodTableStyle(nonLabelColCount, hasPhase ? PERIOD_PHASE_PX : 0)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
@@ -228,7 +229,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollableTable>
     </div>
   );
 }

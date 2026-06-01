@@ -47,6 +47,7 @@ import {
   nonLabelColumnPct,
   periodTableStyle,
 } from './_shared/tableStyles';
+import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -82,7 +83,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYea
       {caption && (
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>{caption}</div>
       )}
-      <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
+      <ScrollableTable>
         <table style={periodTableStyle(colCount)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
@@ -138,7 +139,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYea
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollableTable>
     </div>
   );
 }

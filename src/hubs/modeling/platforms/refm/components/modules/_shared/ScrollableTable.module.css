@@ -1,0 +1,37 @@
+/* Thick custom scrollbars for the wide period-axis results tables.
+   Applied to both the mirrored top scrollbar and the table body. */
+
+.scroll {
+  /* Firefox: only auto / thin / none are supported (no px width), so we ask
+     for the default (auto) thickness, which is already chunkier than the
+     webkit hairline. Colour the thumb + track to match the design system. */
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-border-strong, #94a3b8) var(--color-surface, #eef2f6);
+}
+
+.scroll::-webkit-scrollbar {
+  height: 14px;
+  width: 14px;
+}
+
+.scroll::-webkit-scrollbar-track {
+  background: var(--color-surface, #eef2f6);
+  border-radius: 7px;
+}
+
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong, #94a3b8);
+  border-radius: 7px;
+  /* inset the thumb from the track edges for a pill look */
+  border: 3px solid var(--color-surface, #eef2f6);
+  background-clip: content-box;
+}
+
+.scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-meta, #64748b);
+  background-clip: content-box;
+}
+
+.scroll::-webkit-scrollbar-corner {
+  background: var(--color-surface, #eef2f6);
+}
