@@ -29,7 +29,7 @@ import type {
 
 import { buildProjectAxis } from './axis';
 import { aggregateProjectCapex } from './capex';
-import { computeFundingRequirement } from './funding';
+import { computeFundingRequirement, type FundingGapInputs } from './funding';
 import { computeDebtEquitySplit } from './debtEquity';
 import { normaliseFacilityShares } from './shares';
 import { computeFacilitySchedule, combineDebtService } from './schedule';
@@ -50,6 +50,14 @@ export interface FinancingContext {
   financingConfig: ProjectFinancingConfig;
   tranches: FinancingTranche[];
   equityContributions: EquityContribution[];
+  /**
+   * Per-period funding-gap series for Methods 2 + 3 (Net Funding
+   * Requirement + Cash Deficit). Derived from the post-revenue snapshot
+   * (computeFundingGap) and passed in so the core engine stays free of
+   * any revenue / FS dependency. Optional: absent => Methods 2 + 3
+   * fall back to 0.
+   */
+  fundingGap?: FundingGapInputs;
 }
 
 export function computeFinancingResult(ctx: FinancingContext): FinancingComputation {
@@ -67,7 +75,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     parcelFunding:      ctx.financingConfig.parcelFunding ?? [],
   }, axis);
 
-  const funding = computeFundingRequirement(capex, ctx.financingConfig);
+  const funding = computeFundingRequirement(capex, ctx.financingConfig, ctx.fundingGap);
 
   const split = computeDebtEquitySplit(
     capex,
@@ -101,6 +109,8 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     reconciliation,
   };
 }
+
+export type { FundingGapInputs } from './funding';
 
 export type {
   FinancingComputation,

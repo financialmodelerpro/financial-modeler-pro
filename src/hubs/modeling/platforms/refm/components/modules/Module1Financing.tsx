@@ -125,6 +125,30 @@ export default function Module1Financing(): React.JSX.Element {
   const decimals = project.displayDecimals ?? 0;
   const currency = project.currency || 'SAR';
 
+  // Funding-method fix (2026-06-01): Methods 2 + 3 (Net Funding
+  // Requirement + Cash Deficit) need the post-revenue funding-gap
+  // series. computeFundingGap reads a full financials snapshot whose
+  // ops / investing / pre-sales flows are independent of debt sizing,
+  // so feeding the gap back into the financing result is a clean
+  // one-way pass (no circular dependency). Memoised; only Methods 2 + 3
+  // consume it (Methods 1 + 4 ignore the gap inputs entirely).
+  const fundingSnap = useMemo(
+    () => computeFinancialsSnapshot({
+      project, phases, assets, subUnits, parcels,
+      costLines, costOverrides, landAllocationMode,
+      financingTranches, equityContributions,
+    }),
+    [project, phases, assets, subUnits, parcels, costLines, costOverrides,
+     landAllocationMode, financingTranches, equityContributions],
+  );
+  const fundingGap = useMemo(() => {
+    const g = computeFundingGap(fundingSnap);
+    return {
+      method2PerPeriod: g.methodAGapPerPeriod,
+      method3PerPeriod: g.method3Waterfall.netCashRequiredPerPeriod,
+    };
+  }, [fundingSnap]);
+
   const result = useMemo(
     () => computeFinancingResult({
       project, phases, parcels, assets, subUnits,
@@ -133,9 +157,10 @@ export default function Module1Financing(): React.JSX.Element {
       financingConfig,
       tranches:            financingTranches,
       equityContributions,
+      fundingGap,
     }),
     [project, phases, parcels, assets, subUnits, costLines, costOverrides,
-     landAllocationMode, financingConfig, financingTranches, equityContributions],
+     landAllocationMode, financingConfig, financingTranches, equityContributions, fundingGap],
   );
 
   const setFinancingConfigPatch = (patch: Partial<ProjectFinancingConfig>) => {
@@ -470,6 +495,118 @@ export default function Module1Financing(): React.JSX.Element {
             </section>
           )}
 
+          {financingConfig.fundingMethod === 2 && (() => {
+            // Funding-method fix (2026-06-01): Method 2 (Net Funding
+            // Requirement) reads its OWN debt / equity split from
+            // netFundingConfig. The gap funded is capex less pre-sales.
+            const cfg = financingConfig.netFundingConfig;
+            const d = cfg?.debtPct ?? 70;
+            const e = cfg?.equityPct ?? 30;
+            const ok = Math.abs(d + e - 100) < 0.01;
+            return (
+              <section style={sectionStyle}>
+                <div style={sectionTitle}>2a. Method 2 Configuration</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Debt %</label>
+                    <PercentageInput
+                      value={d}
+                      onChange={(v) => setFinancingConfigPatch({
+                        netFundingConfig: { existingCash: cfg?.existingCash ?? 0, debtPct: v, equityPct: Math.max(0, 100 - v) },
+                      })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Equity %</label>
+                    <PercentageInput
+                      value={e}
+                      onChange={(v) => setFinancingConfigPatch({
+                        netFundingConfig: { existingCash: cfg?.existingCash ?? 0, equityPct: v, debtPct: Math.max(0, 100 - v) },
+                      })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: ok ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
+                      color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                      border: `1px solid ${ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {ok ? 'Match: 100%' : `Match: ${(d + e).toFixed(2)}%`}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
+          {financingConfig.fundingMethod === 3 && (() => {
+            // Funding-method fix (2026-06-01): Method 3 (Cash Deficit
+            // Funding) reads its OWN debt / equity split from
+            // cashDeficitConfig. New debt + equity are drawn each period
+            // only up to the amount needed to maintain the minimum cash
+            // reserve; IDC is drawn only when cash is otherwise short.
+            const cfg = financingConfig.cashDeficitConfig;
+            const d = cfg?.debtPct ?? 70;
+            const e = cfg?.equityPct ?? 30;
+            const ok = Math.abs(d + e - 100) < 0.01;
+            return (
+              <section style={sectionStyle}>
+                <div style={sectionTitle}>2a. Method 3 Configuration</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Debt %</label>
+                    <PercentageInput
+                      value={d}
+                      onChange={(v) => setFinancingConfigPatch({
+                        cashDeficitConfig: {
+                          initialCash: cfg?.initialCash ?? 0,
+                          minimumCashReserve: cfg?.minimumCashReserve ?? 0,
+                          debtPct: v, equityPct: Math.max(0, 100 - v),
+                        },
+                      })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Equity %</label>
+                    <PercentageInput
+                      value={e}
+                      onChange={(v) => setFinancingConfigPatch({
+                        cashDeficitConfig: {
+                          initialCash: cfg?.initialCash ?? 0,
+                          minimumCashReserve: cfg?.minimumCashReserve ?? 0,
+                          equityPct: v, debtPct: Math.max(0, 100 - v),
+                        },
+                      })}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: ok ? 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)' : 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)',
+                      color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                      border: `1px solid ${ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {ok ? 'Match: 100%' : `Match: ${(d + e).toFixed(2)}%`}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
           {financingConfig.fundingMethod === 4 && (
             <section style={sectionStyle}>
               <div style={sectionTitle}>2a. Method 4 Configuration</div>
@@ -680,6 +817,8 @@ export default function Module1Financing(): React.JSX.Element {
             fmt={fmt}
             axis={axis}
             cropProject={cropProject}
+            method2PerPeriod={fundingGap.method2PerPeriod}
+            method3PerPeriod={fundingGap.method3PerPeriod}
           />
 
           <DebtRequiredTable
@@ -1667,6 +1806,9 @@ interface FundingProps {
   fmt: (n: number) => string;
   axis: ReturnType<typeof buildResultsPeriodAxis>;
   cropProject: (arr: number[]) => number[];
+  /** Per-period funding-gap series for the Method 2 + 3 rows. */
+  method2PerPeriod: number[];
+  method3PerPeriod: number[];
 }
 
 function FundingRequirementTable(p: FundingProps): React.JSX.Element {
@@ -1687,6 +1829,13 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
   const minCashPerPeriod = p.cropProject(p.funding.minCashByPeriod);
   const totalFundingPerPeriod = p.cropProject(p.funding.totalFundingNeedByPeriod);
   const showMinCashRows = p.funding.minCashReserve > 0 && selectedMethodId !== 3;
+  // Funding-method fix (2026-06-01): Methods 2 + 3 now show their real
+  // per-period funding-gap series (Net Funding Requirement + Cash
+  // Deficit), derived from the post-revenue snapshot.
+  const m2PerPeriod = p.cropProject(p.method2PerPeriod);
+  const m3PerPeriod = p.cropProject(p.method3PerPeriod);
+  const m2Total = m2PerPeriod.reduce((s, v) => s + v, 0);
+  const m3Total = m3PerPeriod.reduce((s, v) => s + v, 0);
 
   return (
     <section style={sectionStyle}>
@@ -1715,16 +1864,16 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               {m1PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
-              <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 2, Net Funding Requirement</td>
-              <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={ROW_DATA.name}>Method 2, Net Funding Requirement</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(m2Total)}</td>
               <td style={priorCell}></td>
-              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
+              {m2PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
-              <td style={{ ...ROW_DATA.name, color: 'var(--color-text-muted)' }}>Method 3, Cash Deficit Funding</td>
-              <td style={{ ...ROW_DATA.numTotal, color: 'var(--color-text-muted)' }}>-</td>
+              <td style={ROW_DATA.name}>Method 3, Cash Deficit Funding</td>
+              <td style={ROW_DATA.numTotal}>{p.fmt(m3Total)}</td>
               <td style={priorCell}></td>
-              {blanks.map((_, i) => <td key={i} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)' }}>-</td>)}
+              {m3PerPeriod.map((v, i) => <td key={i} style={ROW_DATA.num}>{p.fmt(v)}</td>)}
             </tr>
             <tr>
               <td style={ROW_DATA.name}>Method 4, Specified Debt + Equity (manual)</td>
@@ -1738,8 +1887,8 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
               <td style={ROW_SUBTOTAL.name}>Selected (Method {selectedMethodId})</td>
               <td style={ROW_SUBTOTAL.numTotal}>{p.fmt(p.funding.selected)}</td>
               <td style={priorSubCell}></td>
-              {(selectedMethodId === 1 || selectedMethodId === 4 ? selectedPerPeriod : blanks).map((v, i) => (
-                <td key={i} style={ROW_SUBTOTAL.num}>{selectedMethodId === 1 || selectedMethodId === 4 ? p.fmt(v) : '-'}</td>
+              {selectedPerPeriod.map((v, i) => (
+                <td key={i} style={ROW_SUBTOTAL.num}>{p.fmt(v)}</td>
               ))}
             </tr>
             {showMinCashRows && (

@@ -2,32 +2,79 @@ import type { ProjectFinancingConfig } from '@/src/hubs/modeling/platforms/refm/
 import type { CapexAggregate, FundingRequirement } from './types';
 
 /**
+ * Per-period funding-gap series feeding Methods 2 + 3.
+ *
+ * These are derived from the post-revenue / post-opex snapshot
+ * (computeFundingGap in financials-resolvers) and passed in here so the
+ * core financing engine stays free of any revenue / FS dependency.
+ *   method2PerPeriod = Net Funding Requirement = MAX(0, capex − pre-sales)
+ *   method3PerPeriod = Cash Deficit = MAX(0, minCash − cash available)
+ */
+export interface FundingGapInputs {
+  method2PerPeriod: number[];
+  method3PerPeriod: number[];
+}
+
+/** Normalise a debt / equity pair to percentages summing to 100 (default 70/30). */
+function ratioFractions(
+  debtPctRaw: number | undefined,
+  equityPctRaw: number | undefined,
+): { debtPct: number; equityPct: number } {
+  const d = Math.max(0, debtPctRaw ?? 0);
+  const e = Math.max(0, equityPctRaw ?? 0);
+  const sum = d + e;
+  if (sum <= 0) return { debtPct: 70, equityPct: 30 };
+  return { debtPct: (d / sum) * 100, equityPct: (e / sum) * 100 };
+}
+
+/**
  * Funding Requirement table feed.
  *
  *   Method 1 (Fixed Debt-to-Equity Ratio): need = capex excl land in-kind.
  *     debtPct + equityPct come from fixedRatio config.
- *   Method 2 (Net Funding Requirement): need = capex excl land in-kind
- *     minus pre-sales minus operating CF minus existing cash. Returns 0
- *     today, blocked on M2 Revenue + M4 FS; the row renders blank in UI.
- *   Method 3 (Cash Deficit Funding): period-by-period draw. Returns 0
- *     today, blocked on M2 Revenue + M4 FS.
+ *   Method 2 (Net Funding Requirement): need = capex less the pre-sales
+ *     cash that funds it, summed period by period. debtPct + equityPct
+ *     come from netFundingConfig. Sizes external funding to the GAP via
+ *     the custom-curve path (so less debt than full capex).
+ *   Method 3 (Cash Deficit Funding): period-by-period draw to maintain
+ *     the minimum cash reserve. debtPct + equityPct come from
+ *     cashDeficitConfig. The min-cash buffer is already absorbed in the
+ *     deficit series, so it is NOT added again.
+ *
+ * Methods 2 + 3 require the per-period gap series (`gapInputs`); when it
+ * is absent (e.g. the core engine called without snapshot context) they
+ * fall back to 0 so the engine never blocks.
  *
  * Pass 26 (2026-05-14): Minimum Cash Reserve from financingConfig adds
- * a one-shot buffer on top of the selected method's curve. The buffer
- * is lumped at the first non-zero capex period (axis-indexed) so the
- * project starts operations with the configured cash on hand. Methods
- * 1 + 2 add it explicitly via `totalFundingNeedByPeriod`; Method 3
- * (Cash Deficit) absorbs it implicitly when it lands.
+ * a one-shot buffer on top of the selected method's curve, lumped at the
+ * first non-zero capex period. Methods 1 + 2 + 4 add it explicitly;
+ * Method 3 (Cash Deficit) absorbs it implicitly via the deficit calc.
+ *
+ * Funding-method fix (2026-06-01): Methods 2 + 3 now calculate (no longer
+ * stubbed to 0), each method reads its OWN debt / equity ratio, and a
+ * selected Method 2 / 3 sizes external funding to its gap series.
  *
  * `selected` mirrors the method the user picked in financingConfig.
  */
 export function computeFundingRequirement(
   capex: CapexAggregate,
   financingConfig: ProjectFinancingConfig,
+  gapInputs?: FundingGapInputs,
 ): FundingRequirement {
+  const exclLandInKindByPeriod = capex.perPeriod.exclLandInKind;
+  const N = exclLandInKindByPeriod.length;
+
+  const pad = (arr: number[] | undefined): number[] => {
+    const out = new Array<number>(N).fill(0);
+    if (arr) for (let i = 0; i < N; i++) out[i] = Math.max(0, arr[i] ?? 0);
+    return out;
+  };
+  const m2PerPeriod = pad(gapInputs?.method2PerPeriod);
+  const m3PerPeriod = pad(gapInputs?.method3PerPeriod);
+
   const m1 = capex.totals.exclLandInKind;
-  const m2 = 0;
-  const m3 = 0;
+  const m2 = m2PerPeriod.reduce((s, v) => s + v, 0);
+  const m3 = m3PerPeriod.reduce((s, v) => s + v, 0);
   // Pass 30 (2026-05-14): Method 4 = user-specified Debt + Equity.
   const m4Cfg = financingConfig.fixedAmountConfig
     ?? { debtAmount: 0, equityAmount: 0, yoySchedule: [] };
@@ -42,35 +89,48 @@ export function computeFundingRequirement(
     : selectedMethodId === 3 ? m3
     : m4;
 
-  // debtPct / equityPct: Methods 1-3 read fixedRatio; Method 4 derives
-  // from the user-specified amounts so downstream consumers (parcel
-  // land split, IDC capitalisation) still see a meaningful ratio.
+  // debtPct / equityPct: each method reads its OWN ratio config.
+  //   Method 1 -> fixedRatio
+  //   Method 2 -> netFundingConfig
+  //   Method 3 -> cashDeficitConfig
+  //   Method 4 -> derived from the user-specified debt + equity amounts
+  // so downstream consumers (parcel land split, IDC capitalisation) see a
+  // meaningful ratio for whichever method is active.
   let debtPct: number;
   let equityPct: number;
   if (selectedMethodId === 4) {
     debtPct = m4 > 0 ? (m4DebtAmt / m4) * 100 : 0;
     equityPct = m4 > 0 ? (m4EquityAmt / m4) * 100 : 0;
   } else {
-    const ratio = financingConfig.fixedRatio ?? { debtPct: 70, equityPct: 30 };
-    const debtPctRaw = Math.max(0, ratio.debtPct ?? 0);
-    const equityPctRaw = Math.max(0, ratio.equityPct ?? 0);
-    const sum = debtPctRaw + equityPctRaw;
-    debtPct = sum > 0 ? (debtPctRaw / sum) * 100 : 0;
-    equityPct = sum > 0 ? (equityPctRaw / sum) * 100 : 0;
+    const cfg =
+      selectedMethodId === 2 ? financingConfig.netFundingConfig
+      : selectedMethodId === 3 ? financingConfig.cashDeficitConfig
+      : financingConfig.fixedRatio;
+    const r = ratioFractions(cfg?.debtPct, cfg?.equityPct);
+    debtPct = r.debtPct;
+    equityPct = r.equityPct;
   }
-
-  const exclLandInKindByPeriod = capex.perPeriod.exclLandInKind;
-  const N = exclLandInKindByPeriod.length;
+  const debtFrac = debtPct / 100;
+  const equityFrac = equityPct / 100;
 
   // Pass 30: Method 4 builds its per-period draw from the YoY schedule
-  // (normalised to 100). Earlier methods drive selectedByPeriod from
-  // capex; Method 4 drives it from the specified totals + curve.
+  // (normalised to 100). Method 1 mirrors capex. Methods 2 + 3 mirror
+  // their gap series and size external funding to the gap via the
+  // custom-curve path (same mechanism Method 4 uses).
   let selectedByPeriod: number[];
   let customDebtByPeriod: number[] | undefined;
   let customEquityByPeriod: number[] | undefined;
   if (selectedMethodId === 1) {
     selectedByPeriod = exclLandInKindByPeriod.slice();
-  } else if (selectedMethodId === 4) {
+  } else if (selectedMethodId === 2) {
+    selectedByPeriod = m2PerPeriod.slice();
+    customDebtByPeriod = m2PerPeriod.map((v) => v * debtFrac);
+    customEquityByPeriod = m2PerPeriod.map((v) => v * equityFrac);
+  } else if (selectedMethodId === 3) {
+    selectedByPeriod = m3PerPeriod.slice();
+    customDebtByPeriod = m3PerPeriod.map((v) => v * debtFrac);
+    customEquityByPeriod = m3PerPeriod.map((v) => v * equityFrac);
+  } else {
     const raw = m4Cfg.yoySchedule ?? [];
     const padded = new Array<number>(N).fill(0);
     for (let i = 0; i < N; i++) padded[i] = Math.max(0, raw[i] ?? 0);
@@ -79,13 +139,14 @@ export function computeFundingRequirement(
     selectedByPeriod = norm.map((w) => w * m4);
     customDebtByPeriod = norm.map((w) => w * m4DebtAmt);
     customEquityByPeriod = norm.map((w) => w * m4EquityAmt);
-  } else {
-    selectedByPeriod = new Array<number>(N).fill(0);
   }
 
+  // Min Cash Reserve buffer. Method 3 (Cash Deficit) already nets the
+  // reserve inside its deficit series, so it must NOT be added again or
+  // the reserve double-counts. Methods 1 / 2 / 4 add it on top.
   const minCashReserve = Math.max(0, financingConfig.minimumCashReserve ?? 0);
   const minCashByPeriod = new Array<number>(N).fill(0);
-  if (minCashReserve > 0 && N > 0) {
+  if (minCashReserve > 0 && N > 0 && selectedMethodId !== 3) {
     let firstCapexIdx = -1;
     for (let i = 0; i < N; i++) {
       if ((exclLandInKindByPeriod[i] ?? 0) > 0) { firstCapexIdx = i; break; }
