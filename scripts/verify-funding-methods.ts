@@ -17,6 +17,8 @@
 import { computeFundingRequirement, type FundingGapInputs } from '../src/core/calculations/financing/funding';
 import type { CapexAggregate } from '../src/core/calculations/financing/types';
 import type { ProjectFinancingConfig } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0;
 let fail = 0;
@@ -71,33 +73,46 @@ function cfg(method: 1 | 2 | 3 | 4, extra: Partial<ProjectFinancingConfig> = {})
   check('method1 still = capex total (1000)', approx(r.method1, 1000));
 }
 
-// ── Method 2 selected: own ratio + gap-sized custom curve ─────────────
+// ── Method 2 selected: own ratio, gap shown, CAPEX-based sizing ───────
+// Regression fix (2026-06-01): Methods 2/3 must NOT set custom debt/equity
+// arrays. When the per-period gap is absent (always, inside the snapshot),
+// custom-zero arrays zeroed all funding. They now size from capex via the
+// non-custom path; the gap is display-only.
 {
   const r = computeFundingRequirement(capex, cfg(2, { netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 } }), gap);
-  check('M2 selected: selected = 600', approx(r.selected, 600), `got ${r.selected}`);
+  check('M2 selected: selected = 600 (gap total)', approx(r.selected, 600), `got ${r.selected}`);
   check('M2 selected: debtPct = 60 (netFundingConfig)', approx(r.debtPct, 60), `got ${r.debtPct}`);
   check('M2 selected: equityPct = 40', approx(r.equityPct, 40), `got ${r.equityPct}`);
-  check('M2 selected: selectedByPeriod mirrors gap', JSON.stringify(r.selectedByPeriod) === JSON.stringify(gap.method2PerPeriod));
-  check('M2 selected: custom debt = gap * 0.6', !!r.customDebtByPeriod && approx(r.customDebtByPeriod[0], 120));
-  check('M2 selected: custom equity = gap * 0.4', !!r.customEquityByPeriod && approx(r.customEquityByPeriod[0], 80));
+  check('M2 selected: selectedByPeriod mirrors gap (display)', JSON.stringify(r.selectedByPeriod) === JSON.stringify(gap.method2PerPeriod));
+  check('M2 REGRESSION GUARD: NO custom debt array (capex-based sizing)', r.customDebtByPeriod === undefined);
+  check('M2 REGRESSION GUARD: NO custom equity array (capex-based sizing)', r.customEquityByPeriod === undefined);
 }
 
-// ── Method 3 selected: own ratio, no min-cash double-add ──────────────
+// ── Method 3 selected: own ratio, gap shown, CAPEX-based sizing ───────
 {
   const r = computeFundingRequirement(
     capex,
     cfg(3, {
       cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 },
-      minimumCashReserve: 500, // would double-add for M1/2/4; M3 must ignore
+      minimumCashReserve: 500,
     }),
     gap,
   );
-  check('M3 selected: selected = 400', approx(r.selected, 400), `got ${r.selected}`);
+  check('M3 selected: selected = 400 (gap total)', approx(r.selected, 400), `got ${r.selected}`);
   check('M3 selected: debtPct = 75 (cashDeficitConfig)', approx(r.debtPct, 75), `got ${r.debtPct}`);
   check('M3 selected: equityPct = 25', approx(r.equityPct, 25), `got ${r.equityPct}`);
-  check('M3 selected: minCashByPeriod all 0 (no double-add)', r.minCashByPeriod.every((v) => v === 0));
-  check('M3 selected: custom debt = gap * 0.75', !!r.customDebtByPeriod && approx(r.customDebtByPeriod[0], 75));
-  check('M3 selected: custom equity = gap * 0.25', !!r.customEquityByPeriod && approx(r.customEquityByPeriod[0], 25));
+  check('M3 REGRESSION GUARD: NO custom debt array (capex-based sizing)', r.customDebtByPeriod === undefined);
+  check('M3 REGRESSION GUARD: NO custom equity array (capex-based sizing)', r.customEquityByPeriod === undefined);
+  check('M3 selected: min-cash buffer placed (sum 500)', approx(r.minCashByPeriod.reduce((s, v) => s + v, 0), 500));
+}
+
+// ── No-gap fallback: Methods 2/3 still size from capex (the snapshot case)
+{
+  const r2 = computeFundingRequirement(capex, cfg(2, { netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 } }));
+  const r3 = computeFundingRequirement(capex, cfg(3, { cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 } }));
+  check('M2 no-gap: NO custom arrays => capex split draws funding', r2.customDebtByPeriod === undefined && r2.customEquityByPeriod === undefined);
+  check('M3 no-gap: NO custom arrays => capex split draws funding', r3.customDebtByPeriod === undefined && r3.customEquityByPeriod === undefined);
+  check('M2 no-gap: selectedByPeriod falls back to capex curve', JSON.stringify(r2.selectedByPeriod) === JSON.stringify(capex.perPeriod.exclLandInKind));
 }
 
 // ── Method 1 still adds the min-cash buffer (regression guard) ─────────
@@ -117,6 +132,39 @@ function cfg(method: 1 | 2 | 3 | 4, extra: Partial<ProjectFinancingConfig> = {})
   check('M4 selected: selected = debt + equity (1000)', approx(r.selected, 1000), `got ${r.selected}`);
   check('M4 selected: debtPct = 80 (derived)', approx(r.debtPct, 80), `got ${r.debtPct}`);
   check('M4 selected: equityPct = 20 (derived)', approx(r.equityPct, 20), `got ${r.equityPct}`);
+}
+
+// ── SNAPSHOT REGRESSION GUARD ─────────────────────────────────────────
+// The 2026-06-01 regression: with Method 2 or 3 selected, the Cash Flow
+// drew ZERO new debt + equity because computeFinancialsSnapshot does not
+// feed the per-period gap, so the (removed) custom-zero arrays zeroed all
+// funding. This guard builds a REAL snapshot per method and asserts every
+// method draws debt + equity and the BS balances.
+function buildSnapState(method: 1 | 2 | 3 | 4): Parameters<typeof computeFinancialsSnapshot>[0] {
+  const project = makeDefaultProject();
+  project.startDate = '2026-01-01';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (project as any).financing = { ...((project as any).financing ?? {}), fundingMethod: method, parcelFunding: [],
+    netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 },
+    cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 },
+    fixedAmountConfig: { debtAmount: 500_000, equityAmount: 300_000, yoySchedule: [50, 50] } };
+  const p1 = { ...makeDefaultPhase(), id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 6, overlapPeriods: 0 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sell: any = { id: 'a1', phaseId: 'p1', name: 'Tower', type: '', strategy: 'Sell', visible: true, gfaSqm: 50000, buaSqm: 50000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
+    revenue: { sell: { assetId: 'a1', subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0.5, 0.5, 0, 0, 0, 0, 0, 0], postSalesVelocityByPhase: [] }], cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [1], positionsByPhase: [0] }, recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' }, indexation: { method: 'none' } } } };
+  const su = { id: 'su1', assetId: 'a1', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 50000, unitPrice: 5000 };
+  const parcel = { id: 'parcel1', phaseId: 'p1', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { project, phases: [p1], assets: [sell], subUnits: [su], parcels: [parcel], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [makeDefaultFinancingTranche('t1', 'p1')], equityContributions: [] } as any;
+}
+for (const method of [1, 2, 3, 4] as const) {
+  const snap = computeFinancialsSnapshot(buildSnapState(method));
+  const debt = snap.directCF.debtDrawdownPerPeriod.reduce((s, v) => s + v, 0);
+  const equity = snap.directCF.equityDrawdownPerPeriod.reduce((s, v) => s + v, 0);
+  const bsMax = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  check(`SNAPSHOT Method ${method}: new debt > 0 in Cash Flow`, debt > 0, `debt=${Math.round(debt)}`);
+  check(`SNAPSHOT Method ${method}: equity > 0 in Cash Flow`, equity > 0, `equity=${Math.round(equity)}`);
+  check(`SNAPSHOT Method ${method}: BS balances`, bsMax < 1, `maxBSdiff=${Math.round(bsMax)}`);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

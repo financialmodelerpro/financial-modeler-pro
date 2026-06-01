@@ -122,14 +122,24 @@ export function computeFundingRequirement(
   let customEquityByPeriod: number[] | undefined;
   if (selectedMethodId === 1) {
     selectedByPeriod = exclLandInKindByPeriod.slice();
-  } else if (selectedMethodId === 2) {
-    selectedByPeriod = m2PerPeriod.slice();
-    customDebtByPeriod = m2PerPeriod.map((v) => v * debtFrac);
-    customEquityByPeriod = m2PerPeriod.map((v) => v * equityFrac);
-  } else if (selectedMethodId === 3) {
-    selectedByPeriod = m3PerPeriod.slice();
-    customDebtByPeriod = m3PerPeriod.map((v) => v * debtFrac);
-    customEquityByPeriod = m3PerPeriod.map((v) => v * equityFrac);
+  } else if (selectedMethodId === 2 || selectedMethodId === 3) {
+    // Regression fix (2026-06-01): Methods 2 + 3 size debt/equity from
+    // CAPEX via the standard (non-custom) split, NOT a custom gap curve.
+    // The earlier custom-curve routing set customDebt/EquityByPeriod for
+    // 2/3 unconditionally; whenever the per-period gap was not fed (which
+    // is ALWAYS the case inside computeFinancialsSnapshot, the engine that
+    // drives the P&L / Cash Flow / Balance Sheet), those arrays were all
+    // zero, so debtEquity.ts took the custom path and drew ZERO debt and
+    // ZERO equity, leaving the Cash Flow with no new debt. Routing 2/3
+    // through capex sizing keeps Module 1 + Module 4 consistent and the
+    // statements funded. The per-period gap (when fed) still drives the
+    // Funding Requirement table + the per-method debt/equity ratio still
+    // applies (debtPct / equityPct above); the gap is the displayed
+    // funding REQUIREMENT, the capex split is the actual draw. No custom
+    // arrays are set, so debtEquity.ts uses the capex-based split.
+    const gapForDisplay = selectedMethodId === 2 ? m2PerPeriod : m3PerPeriod;
+    const gapTotal = selectedMethodId === 2 ? m2 : m3;
+    selectedByPeriod = gapTotal > 0 ? gapForDisplay.slice() : exclLandInKindByPeriod.slice();
   } else {
     const raw = m4Cfg.yoySchedule ?? [];
     const padded = new Array<number>(N).fill(0);
@@ -141,12 +151,14 @@ export function computeFundingRequirement(
     customEquityByPeriod = norm.map((w) => w * m4EquityAmt);
   }
 
-  // Min Cash Reserve buffer. Method 3 (Cash Deficit) already nets the
-  // reserve inside its deficit series, so it must NOT be added again or
-  // the reserve double-counts. Methods 1 / 2 / 4 add it on top.
+  // Min Cash Reserve buffer, lumped at the first non-zero capex period and
+  // split at the project ratio by debtEquity.ts. Applied to every method
+  // (Methods 2 + 3 now size from capex, so the buffer is added on top just
+  // like Methods 1 + 4). selectedWithMinCash keeps Method 3 out of the
+  // scalar total to match its cash-deficit reading.
   const minCashReserve = Math.max(0, financingConfig.minimumCashReserve ?? 0);
   const minCashByPeriod = new Array<number>(N).fill(0);
-  if (minCashReserve > 0 && N > 0 && selectedMethodId !== 3) {
+  if (minCashReserve > 0 && N > 0) {
     let firstCapexIdx = -1;
     for (let i = 0; i < N; i++) {
       if ((exclLandInKindByPeriod[i] ?? 0) > 0) { firstCapexIdx = i; break; }
