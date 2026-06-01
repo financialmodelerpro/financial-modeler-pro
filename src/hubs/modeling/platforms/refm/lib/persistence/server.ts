@@ -31,12 +31,16 @@ const PROJECT_COLS =
 // succeeds and the columns surface naturally; no code change needed.
 const VERSION_COLS_BASE =
   'id, project_id, version_number, schema_version, snapshot, label, created_at';
+// Migration 153 (2026-06-01) adds version_label / task_name / comment for the
+// auto-naming + required-comment flow. Folded into the same FULL tier + the
+// same m152Applied probe: if EITHER migration is unapplied the FULL select
+// fails and we fall back to BASE, synthesising null defaults via decorate.
 const VERSION_COLS_FULL =
-  `${VERSION_COLS_BASE}, base_version_id, change_log`;
+  `${VERSION_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment`;
 const VERSION_LIST_COLS_BASE =
   'id, project_id, version_number, schema_version, label, created_at';
 const VERSION_LIST_COLS_FULL =
-  `${VERSION_LIST_COLS_BASE}, base_version_id, change_log`;
+  `${VERSION_LIST_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment`;
 
 // Cached after first successful query so each request doesn't probe twice.
 // Reset to undefined (= unknown) on module init; flipped to true once a
@@ -63,13 +67,13 @@ function isMissingColumnError(err: SupabaseLikeError): boolean {
   if (!err) return false;
   if (typeof err === 'string') {
     return /column .* does not exist/i.test(err)
-        || /(base_version_id|change_log)/i.test(err);
+        || /(base_version_id|change_log|version_label|task_name|comment)/i.test(err);
   }
   if (err.code === '42703' || err.code === 'PGRST204') return true;
   const fields = [err.message, err.details, err.hint].filter(Boolean) as string[];
   for (const f of fields) {
     if (/column .* does not exist/i.test(f)) return true;
-    if (/(base_version_id|change_log).* does not exist/i.test(f)) return true;
+    if (/(base_version_id|change_log|version_label|task_name|comment).* does not exist/i.test(f)) return true;
     if (/could not find the .* column/i.test(f)) return true;
   }
   return false;
@@ -85,6 +89,9 @@ function decorateVersionRow<T extends Record<string, unknown>>(row: T | null): T
   }
   if (!('change_log' in row)) {
     (row as Record<string, unknown>).change_log = [];
+  }
+  for (const k of ['version_label', 'task_name', 'comment']) {
+    if (!(k in row)) (row as Record<string, unknown>)[k] = null;
   }
   return row;
 }
@@ -365,6 +372,9 @@ export async function insertVersion(insert: {
   label?:           string | null;
   base_version_id?: string | null;
   change_log?:      unknown;
+  version_label?:   string | null;
+  task_name?:       string | null;
+  comment?:         string | null;
 }): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
   const tryFull = m152Applied !== false;
@@ -384,8 +394,8 @@ export async function insertVersion(insert: {
     m152Applied = false;
   }
   // Strip migration-152 fields and retry with base SELECT.
-  const { base_version_id: _b, change_log: _c, ...stripped } = insert;
-  void _b; void _c;
+  const { base_version_id: _b, change_log: _c, version_label: _vl, task_name: _tn, comment: _cm, ...stripped } = insert;
+  void _b; void _c; void _vl; void _tn; void _cm;
   const { data, error } = await sb
     .from('refm_project_versions')
     .insert(stripped)

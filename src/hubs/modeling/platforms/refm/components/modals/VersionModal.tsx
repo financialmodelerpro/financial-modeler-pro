@@ -409,6 +409,15 @@ export default function VersionModal({
                                 #{v.version_number}
                               </span>
                             </div>
+                            {v.comment && (
+                              <div
+                                title={v.comment}
+                                data-testid="version-comment"
+                                style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '420px' }}
+                              >
+                                💬 {v.comment}
+                              </div>
+                            )}
                             <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
                               {new Date(v.created_at).toLocaleString()}
                               {logCount > 0 && (

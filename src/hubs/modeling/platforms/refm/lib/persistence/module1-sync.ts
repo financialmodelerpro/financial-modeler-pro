@@ -293,6 +293,7 @@ export function getSessionState(): SessionState {
  */
 export async function startEditSession(
   label: string,
+  meta?: { versionLabel?: string | null; taskName?: string | null; comment?: string | null },
 ): Promise<{ versionId: string | null; error: string | null }> {
   if (!activeProjectId) {
     return { versionId: null, error: 'No active project.' };
@@ -315,6 +316,9 @@ export async function startEditSession(
     label:         label.trim() || null,
     assetMix:      computeAssetMix(snapshot),
     baseVersionId: sessionBaseVersionId,
+    versionLabel:  meta?.versionLabel ?? null,
+    taskName:      meta?.taskName ?? null,
+    comment:       meta?.comment ?? null,
   });
   if (res.error || !res.data) {
     return { versionId: null, error: res.error ?? 'Failed to start edit session.' };

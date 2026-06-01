@@ -137,6 +137,11 @@ export interface SaveVersionInput {
   snapshot:       HydrateSnapshot;
   label?:         string | null;
   assetMix?:      string[];
+  // 2026-06-01 (auto-naming + required comment). versionLabel is the X.Y
+  // string, taskName the user task label, comment the required change note.
+  versionLabel?:  string | null;
+  taskName?:      string | null;
+  comment?:       string | null;
   // 2026-05-31 (Phase M-Versioning): when provided, the server loads
   // this version's snapshot and pre-computes change_log against it
   // so the version-history UI can render the diff without a second

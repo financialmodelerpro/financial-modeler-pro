@@ -62,7 +62,7 @@ import Module3OpexOutput from './modules/Module3OpexOutput';
 import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
-import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode } from './modals/NameVersionModal';
+import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode, type NameVersionConfirm } from './modals/NameVersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
@@ -598,8 +598,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // NameVersionModal callbacks.
   const handleNameVersionConfirm = useCallback(
-    async (label: string): Promise<void> => {
-      const res = await startEditSession(label);
+    async (result: NameVersionConfirm): Promise<void> => {
+      const res = await startEditSession(result.label, {
+        versionLabel: result.versionLabel,
+        taskName: result.taskName,
+        comment: result.comment,
+      });
       if (res.error) {
         setLoadError(res.error);
         return;
@@ -1166,6 +1170,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         defaultLabel={defaultSessionLabel()}
         currentLabel={editingVersionLabel}
         projectName={activeProjectData?.name ?? null}
+        existingVersions={Object.values(activeProjectData?.versions ?? {}).map((v) => ({ name: v.name, createdAt: v.createdAt }))}
         onConfirm={handleNameVersionConfirm}
         onCancel={handleNameVersionCancel}
       />

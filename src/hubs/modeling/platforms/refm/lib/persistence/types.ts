@@ -83,6 +83,11 @@ export interface RefmProjectVersionRow {
   base_version_id: string | null;
   change_log:      ChangeLogEntryDTO[];
   created_at:      string;
+  // Migration 153 (2026-06-01): auto-naming + required comment. Nullable so
+  // pre-153 rows (and the server's BASE fallback) read as null.
+  version_label:   string | null;   // major.minor, e.g. "1.5"
+  task_name:       string | null;   // user task label embedded in the name
+  comment:         string | null;   // required note describing the change
 }
 
 // Mirrors src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts

@@ -1,52 +1,75 @@
 'use client';
 
 /**
- * NameVersionModal (Phase M-Versioning, 2026-05-31).
+ * NameVersionModal (Phase M-Versioning, 2026-05-31; auto-naming + comment
+ * 2026-06-01).
  *
- * Triggered automatically when the user makes their first edit after
- * opening a project (or after loading a historical version). The
- * sync module fires `fmp:refm-session-needs-name`; the
- * RealEstatePlatform shell opens this modal. The user names the
- * version they're about to edit; from that point on, every keystroke
- * PATCHes the same version row in place. The version is also stamped
- * with a pre-computed change_log diff against the version it
- * branched from, so the history UI can render "what changed in this
- * version" later.
+ * Two modes:
  *
- * Two modes (driven by the `mode` prop):
+ *   'start-session'  ←  first-edit prompt / "Create Version". The version
+ *                       name is AUTO-GENERATED
+ *                       ({ProjectName}_v{Major}.{Minor}_{MMDDYYYY}_{TaskName})
+ *                       and shown read-only, updating live as the user types
+ *                       the Task Name. The user must also enter a Comment
+ *                       describing what changed. Save is disabled until both
+ *                       Task Name and Comment are valid. Cancel reverts the
+ *                       edit back to the loaded version.
  *
- *   'start-session'  ←  first-edit prompt. Cancel reverts the user's
- *                       edit back to the loaded version. Save
- *                       transitions to EDITING.
+ *   'rename'         ←  user clicked the topbar Save while already editing.
+ *                       Simple free-text label edit (the snapshot is auto-
+ *                       PATCHed every 1.5 s anyway).
  *
- *   'rename'         ←  user clicked the topbar Save button while
- *                       already in EDITING. Cancel keeps the existing
- *                       label; Save updates the label only (snapshot
- *                       is auto-PATCHed every 1.5 s anyway).
- *
- * Pure presentational + minimal local state. All persistence happens
- * via the `onConfirm` / `onCancel` callbacks the parent wires to
- * sync.startEditSession() / sync.revertEditSession().
+ * Persistence happens via the `onConfirm` callback the parent wires to
+ * sync.startEditSession().
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  getNextVersionNumber,
+  buildVersionName,
+  validateTaskName,
+  validateComment,
+  TASK_NAME_MAX,
+  COMMENT_MAX,
+} from '../../lib/persistence/versionNaming';
 
 export type NameVersionModalMode = 'start-session' | 'rename';
+
+export interface NameVersionConfirm {
+  /** Final version label written to the row (the auto-name in create mode). */
+  label: string;
+  versionLabel?: string;
+  taskName?: string;
+  comment?: string;
+}
+
+interface ExistingVersionLite {
+  name?: string | null;
+  createdAt?: string | null;
+}
 
 interface NameVersionModalProps {
   open: boolean;
   mode: NameVersionModalMode;
-  /** Default name suggestion (e.g. "Edits 2026-05-31 14:32"). */
+  /** Default name suggestion for rename mode (e.g. "Edits 2026-05-31 14:32"). */
   defaultLabel: string;
   /** Existing label, shown in rename mode. */
   currentLabel?: string | null;
-  /** Project name for context in the header. */
+  /** Project name, used to build the auto-generated version name. */
   projectName?: string | null;
-  /** Resolves with the chosen label (may be empty → server uses null). */
-  onConfirm: (label: string) => Promise<void> | void;
-  /** Called on Cancel / overlay click / Escape. */
+  /** Existing versions of this project, used to compute the next X.Y label.
+   *  versionLabel is parsed from each version's name (which embeds _vX.Y_). */
+  existingVersions?: ExistingVersionLite[];
+  onConfirm: (result: NameVersionConfirm) => Promise<void> | void;
   onCancel: () => void;
+}
+
+/** Pull "1.5" out of a generated version name like "Proj_v1.5_06152026_Task". */
+function extractVersionLabelFromName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const m = /_v(\d+\.\d+)_/.exec(name);
+  return m ? m[1] : null;
 }
 
 export default function NameVersionModal({
@@ -55,77 +78,110 @@ export default function NameVersionModal({
   defaultLabel,
   currentLabel,
   projectName,
+  existingVersions,
   onConfirm,
   onCancel,
 }: NameVersionModalProps): React.JSX.Element | null {
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState('');      // rename mode free text
+  const [taskName, setTaskName] = useState(''); // create mode
+  const [comment, setComment] = useState('');   // create mode
   const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const firstFieldRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setLabel(mode === 'rename' ? (currentLabel ?? '') : '');
+    setTaskName('');
+    setComment('');
     setSubmitting(false);
-    // Auto-focus on open; delay slightly to win against the React
-    // portal mount timing.
-    const t = window.setTimeout(() => inputRef.current?.focus(), 50);
+    const t = window.setTimeout(() => firstFieldRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [open, mode, currentLabel]);
+
+  // Next version label + live preview (create mode only).
+  const nextVersionLabel = useMemo(() => {
+    const list = (existingVersions ?? []).map((v) => ({
+      versionLabel: extractVersionLabelFromName(v.name),
+      createdAt: v.createdAt ?? null,
+    }));
+    return getNextVersionNumber(list);
+  }, [existingVersions]);
+
+  const previewName = useMemo(
+    () => buildVersionName(projectName ?? 'Project', nextVersionLabel, taskName),
+    [projectName, nextVersionLabel, taskName],
+  );
 
   if (!open) return null;
   if (typeof document === 'undefined') return null;
 
+  const taskV = validateTaskName(taskName);
+  const commentV = validateComment(comment);
+  const createValid = taskV.ok && commentV.ok;
+
   const handleConfirm = async (): Promise<void> => {
     if (submitting) return;
+    if (mode === 'start-session' && !createValid) return;
     setSubmitting(true);
-    const effectiveLabel = label.trim() || defaultLabel;
     try {
-      await onConfirm(effectiveLabel);
+      if (mode === 'start-session') {
+        await onConfirm({
+          label: previewName,
+          versionLabel: nextVersionLabel,
+          taskName: taskName.trim(),
+          comment: comment.trim(),
+        });
+      } else {
+        await onConfirm({ label: label.trim() || defaultLabel });
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
-  const title =
-    mode === 'start-session' ? '📌 Name this version' : '✏️ Rename this version';
-  const description =
-    mode === 'start-session'
-      ? 'You are about to edit this project. Give this version a name so its changes are tracked separately from the loaded version. All edits in this session will be saved into this version, and the change log will show exactly what changed.'
-      : 'Update the name of the version you are currently editing. The snapshot is auto-saved every 1.5 seconds; this only changes the label.';
+  const isCreate = mode === 'start-session';
+  const title = isCreate ? '📌 Create version' : '✏️ Rename this version';
+
+  const fieldLabel: React.CSSProperties = {
+    display: 'block',
+    fontSize: 'var(--font-meta)',
+    fontWeight: 'var(--fw-semibold)',
+    color: 'var(--color-body)',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  };
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '10px 12px',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--font-body)',
+    fontFamily: 'Inter, sans-serif',
+  };
 
   const content = (
     <div
       className="pm-modal-overlay"
-      onClick={mode === 'start-session' ? undefined : onCancel}
+      onClick={isCreate ? undefined : onCancel}
       data-testid="name-version-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="name-version-modal-title"
-      style={{
-        // Stack above the project-switching overlay added in
-        // commit ca5c152 (z-index 9000).
-        zIndex: 9500,
-      }}
+      style={{ zIndex: 9500 }}
     >
       <div
         className="pm-modal"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onCancel();
-        }}
+        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
       >
         <div className="pm-modal-header">
           <div>
             <div id="name-version-modal-title" style={{ fontSize: '15px', fontWeight: 700 }}>
               {title}
             </div>
-            <div
-              style={{
-                fontSize: '11px',
-                color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)',
-                marginTop: '2px',
-              }}
-            >
+            <div style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)', marginTop: '2px' }}>
               {projectName ?? 'No project selected'}
             </div>
           </div>
@@ -133,19 +189,7 @@ export default function NameVersionModal({
             <button
               onClick={onCancel}
               data-testid="name-version-modal-close"
-              style={{
-                background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)',
-                border: 'none',
-                borderRadius: '6px',
-                width: '28px',
-                height: '28px',
-                cursor: 'pointer',
-                color: 'var(--color-on-primary-navy)',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              style={{ background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', color: 'var(--color-on-primary-navy)', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               ✕
             </button>
@@ -153,71 +197,80 @@ export default function NameVersionModal({
         </div>
 
         <div className="pm-modal-body">
-          <p
-            style={{
-              fontSize: 'var(--font-small)',
-              color: 'var(--color-body)',
-              lineHeight: 1.5,
-              marginBottom: 'var(--sp-2)',
-            }}
-          >
-            {description}
-          </p>
+          {isCreate ? (
+            <>
+              <label style={fieldLabel}>Version Name (auto-generated)</label>
+              <div
+                data-testid="name-version-modal-preview"
+                style={{
+                  ...inputStyle,
+                  background: 'var(--color-surface)',
+                  color: 'var(--color-body)',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontSize: '12px',
+                  wordBreak: 'break-all',
+                  userSelect: 'all',
+                }}
+              >
+                {previewName}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px', marginBottom: 'var(--sp-2)' }}>
+                {`Version v${nextVersionLabel} - auto-managed (v1.0 to v1.9 then v2.0). Date is today.`}
+              </div>
 
-          <label
-            style={{
-              display: 'block',
-              fontSize: 'var(--font-meta)',
-              fontWeight: 'var(--fw-semibold)',
-              color: 'var(--color-body)',
-              marginBottom: '6px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            Version Name
-          </label>
-          <input
-            ref={inputRef}
-            type="text"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleConfirm();
-            }}
-            placeholder={defaultLabel}
-            data-testid="name-version-modal-input"
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: '10px 12px',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-body)',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          />
-          <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
-            {mode === 'start-session'
-              ? `Leave blank to use "${defaultLabel}" (the default).`
-              : 'Leave blank to clear the label (version still appears in history by date).'}
-          </div>
+              <label style={fieldLabel}>Task Name *</label>
+              <input
+                ref={firstFieldRef}
+                type="text"
+                value={taskName}
+                maxLength={TASK_NAME_MAX}
+                onChange={(e) => setTaskName(e.target.value)}
+                placeholder="e.g. Debt Assumptions"
+                data-testid="name-version-modal-task"
+                style={{ ...inputStyle, borderColor: taskName.length > 0 && !taskV.ok ? 'var(--color-danger, #dc2626)' : 'var(--color-border)' }}
+              />
+              <div style={{ fontSize: '11px', color: taskName.length > 0 && !taskV.ok ? 'var(--color-danger, #dc2626)' : 'var(--color-muted)', marginTop: '4px', marginBottom: 'var(--sp-2)' }}>
+                {taskName.length > 0 && !taskV.ok ? taskV.error : `Letters, numbers, spaces, underscores. ${taskName.length}/${TASK_NAME_MAX}.`}
+              </div>
 
-          {mode === 'start-session' && (
-            <div
-              style={{
-                background: 'var(--color-amber-light, color-mix(in srgb, #f59e0b 15%, transparent))',
-                border: '1px solid var(--color-amber, #f59e0b)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '10px 12px',
-                fontSize: '12px',
-                color: 'var(--color-amber-dark, #92400e)',
-                marginTop: 'var(--sp-2)',
-              }}
-            >
-              ⓘ If you cancel, your last edit will be discarded and the project
-              will return to the previously loaded version.
-            </div>
+              <label style={fieldLabel}>Comment *</label>
+              <textarea
+                value={comment}
+                maxLength={COMMENT_MAX}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Explain what changed in this version (e.g. updated debt rate assumptions, added Phase 3 capex, fixed escrow logic)"
+                data-testid="name-version-modal-comment"
+                rows={4}
+                style={{ ...inputStyle, resize: 'vertical', minHeight: '88px', borderColor: comment.length > 0 && !commentV.ok ? 'var(--color-danger, #dc2626)' : 'var(--color-border)' }}
+              />
+              <div style={{ fontSize: '11px', color: comment.length > 0 && !commentV.ok ? 'var(--color-danger, #dc2626)' : 'var(--color-muted)', marginTop: '4px' }}>
+                {comment.length > 0 && !commentV.ok ? commentV.error : `Required. ${comment.length}/${COMMENT_MAX}.`}
+              </div>
+
+              <div style={{ background: 'var(--color-amber-light, color-mix(in srgb, #f59e0b 15%, transparent))', border: '1px solid var(--color-amber, #f59e0b)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: '12px', color: 'var(--color-amber-dark, #92400e)', marginTop: 'var(--sp-2)' }}>
+                ⓘ If you cancel, your last edit will be discarded and the project will return to the previously loaded version.
+              </div>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 'var(--font-small)', color: 'var(--color-body)', lineHeight: 1.5, marginBottom: 'var(--sp-2)' }}>
+                Update the name of the version you are currently editing. The snapshot is auto-saved every 1.5 seconds; this only changes the label.
+              </p>
+              <label style={fieldLabel}>Version Name</label>
+              <input
+                ref={firstFieldRef}
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleConfirm(); }}
+                placeholder={defaultLabel}
+                data-testid="name-version-modal-input"
+                style={inputStyle}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
+                Leave blank to clear the label (version still appears in history by date).
+              </div>
+            </>
           )}
         </div>
 
@@ -229,20 +282,16 @@ export default function NameVersionModal({
             data-testid="name-version-modal-cancel"
             disabled={submitting}
           >
-            {mode === 'start-session' ? 'Discard Edit' : 'Cancel'}
+            {isCreate ? 'Discard Edit' : 'Cancel'}
           </button>
           <button
             type="button"
             className="btn-primary"
             onClick={() => void handleConfirm()}
             data-testid="name-version-modal-save"
-            disabled={submitting}
+            disabled={submitting || (isCreate && !createValid)}
           >
-            {submitting
-              ? 'Saving...'
-              : mode === 'start-session'
-                ? 'Start Editing'
-                : 'Save Name'}
+            {submitting ? 'Saving...' : isCreate ? 'Save Version' : 'Save Name'}
           </button>
         </div>
       </div>

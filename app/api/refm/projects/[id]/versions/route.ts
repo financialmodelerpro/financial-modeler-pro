@@ -80,6 +80,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     label?:         string | null;
     assetMix?:      string[];
     baseVersionId?: string | null;
+    versionLabel?:  string | null;
+    taskName?:      string | null;
+    comment?:       string | null;
   };
   try { body = await req.json(); }
   catch { return badRequest('Body must be valid JSON.'); }
@@ -123,6 +126,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     label:           body.label?.trim() ? body.label.trim() : null,
     base_version_id: baseVersionId,
     change_log:      changeLog,
+    version_label:   body.versionLabel?.trim() ? body.versionLabel.trim() : null,
+    task_name:       body.taskName?.trim() ? body.taskName.trim() : null,
+    comment:         body.comment?.trim() ? body.comment.trim() : null,
   });
   if (insErr || !versionRow) return serverError(insErr ?? 'Failed to insert version.');
 
