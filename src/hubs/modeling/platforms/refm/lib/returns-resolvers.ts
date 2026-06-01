@@ -60,6 +60,28 @@ export function resolveReturnsConfig(project: Project, axisLength: number): Retu
   };
 }
 
+/**
+ * Per-period component lines that BUILD UP each stream, so the UI can show
+ * the step-by-step derivation (not just the final signed number). All
+ * arrays are truncated to the hold horizon (exit + 1).
+ */
+export interface ReturnsBuildup {
+  // FCFF (unlevered) build-up
+  cfoPerPeriod: number[];               // (+) cash from operations
+  cfiPerPeriod: number[];               // (+) cash from investing (= -capex)
+  inKindLandPerPeriod: number[];        // (-) in-kind land contributed
+  terminalEnterprisePerPeriod: number[];// (+) terminal enterprise value (exit only)
+  // FCFE (levered) extra lines on top of unlevered FCFF
+  debtDrawPerPeriod: number[];          // (+) debt drawdown
+  principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
+  interestPaidPerPeriod: number[];      // (-) interest paid (already negative)
+  terminalEquityPerPeriod: number[];    // (+) terminal equity value (exit only)
+  // Dividend (realised equity) build-up
+  equityCashPerPeriod: number[];        // (-) cash equity contributed
+  equityInKindPerPeriod: number[];      // (-) in-kind equity contributed
+  dividendsDistributedPerPeriod: number[]; // (+) dividends paid (cash-sweep waterfall)
+}
+
 export interface ReturnsSnapshot {
   axisLength: number;
   yearLabels: number[];
@@ -69,6 +91,8 @@ export interface ReturnsSnapshot {
   fcffPerPeriod: number[];
   fcfePerPeriod: number[];
   dividendStreamPerPeriod: number[];
+  /** Step-by-step component lines for each stream. */
+  buildup: ReturnsBuildup;
   /** NOI per period (recurring hospitality + lease income net of opex). */
   noiPerPeriod: number[];
   stabilisedNOI: number;
@@ -77,6 +101,8 @@ export interface ReturnsSnapshot {
   terminalEquityValue: number;
   totalDevelopmentCost: number;
   totalEquityInvested: number;
+  /** Total dividends distributed over the hold (cash-sweep waterfall). */
+  totalDividendsDistributed: number;
   result: ReturnsResult;
 }
 
@@ -158,6 +184,23 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   }
   dividendStream[exit] = (dividendStream[exit] ?? 0) + tvEquity;
 
+  // ── Step-by-step build-up components (truncated to the hold) ─────────
+  const sliceE = (arr: number[]): number[] => arr.slice(0, E).map((v) => v ?? 0);
+  const atExit = (value: number): number[] => { const a = new Array<number>(E).fill(0); a[exit] = value; return a; };
+  const buildup = {
+    cfoPerPeriod: sliceE(dcf.cashFromOperationsPerPeriod),
+    cfiPerPeriod: sliceE(dcf.cashFromInvestmentPerPeriod),
+    inKindLandPerPeriod: sliceE(dcf.equityInKindDrawdownPerPeriod).map((v) => -v),
+    terminalEnterprisePerPeriod: atExit(tvEnterprise),
+    debtDrawPerPeriod: sliceE(dcf.debtDrawdownPerPeriod),
+    principalRepayPerPeriod: sliceE(dcf.debtRepaymentPerPeriod),
+    interestPaidPerPeriod: sliceE(dcf.interestPaidPerPeriod),
+    terminalEquityPerPeriod: atExit(tvEquity),
+    equityCashPerPeriod: sliceE(equityCash).map((v) => -v),
+    equityInKindPerPeriod: sliceE(equityInKind).map((v) => -v),
+    dividendsDistributedPerPeriod: sliceE(dividendsPaid),
+  };
+
   // ── Real-estate metric feeders ──────────────────────────────────────
   const totalDevelopmentCost = fin.capex.totals.inclAllLand;
   const totalRevenue = pl.totalRevenuePerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
@@ -204,6 +247,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     fcffPerPeriod: fcff,
     fcfePerPeriod: fcfe,
     dividendStreamPerPeriod: dividendStream,
+    buildup,
     noiPerPeriod,
     stabilisedNOI,
     exitNOI,
@@ -211,6 +255,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     terminalEquityValue: tvEquity,
     totalDevelopmentCost,
     totalEquityInvested,
+    totalDividendsDistributed: totalDividends,
     result: computeReturns(input),
   };
 }

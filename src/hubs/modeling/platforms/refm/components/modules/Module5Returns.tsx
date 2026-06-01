@@ -88,6 +88,37 @@ export default function Module5Returns(): React.JSX.Element {
 
   const irrTone = (irr: number | null) => (irr === null ? 'neutral' : irr >= cfg.discountRate ? 'good' : 'bad');
 
+  // Step-by-step build-up rows (so the derivation is transparent).
+  const b = rs.buildup;
+  const sumRows = (...arrs: number[][]): number[] =>
+    streamYearLabels.map((_, i) => arrs.reduce((s, a) => s + (a[i] ?? 0), 0));
+  const unleveredFcff = sumRows(b.cfoPerPeriod, b.cfiPerPeriod, b.inKindLandPerPeriod);
+  const fcffBuildupRows: M4Row[] = [
+    { label: '(+) Cash from Operations', values: b.cfoPerPeriod, indent: 1 },
+    { label: '(+) Cash from Investing (capex)', values: b.cfiPerPeriod, indent: 1 },
+    { label: '(-) In-kind land contributed', values: b.inKindLandPerPeriod, indent: 1 },
+    { label: '(+) Terminal Enterprise Value', values: b.terminalEnterprisePerPeriod, indent: 1 },
+    { label: '= FCFF (unlevered project)', values: rs.fcffPerPeriod, isTotal: true },
+  ];
+  const fcfeBuildupRows: M4Row[] = [
+    { label: 'Cash from Operations', values: b.cfoPerPeriod, indent: 1 },
+    { label: 'Cash from Investing (capex)', values: b.cfiPerPeriod, indent: 1 },
+    { label: '(-) In-kind land contributed', values: b.inKindLandPerPeriod, indent: 1 },
+    { label: '= Unlevered Free Cash Flow', values: unleveredFcff, isSubtotal: true },
+    { label: '(+) Debt Drawdown', values: b.debtDrawPerPeriod, indent: 1 },
+    { label: '(-) Principal Repayment', values: b.principalRepayPerPeriod, indent: 1 },
+    { label: '(-) Interest Paid', values: b.interestPaidPerPeriod, indent: 1 },
+    { label: '(+) Terminal Equity Value', values: b.terminalEquityPerPeriod, indent: 1 },
+    { label: '= FCFE (levered equity)', values: rs.fcfePerPeriod, isTotal: true },
+  ];
+  const dividendBuildupRows: M4Row[] = [
+    { label: '(-) Cash Equity Contributed', values: b.equityCashPerPeriod, indent: 1 },
+    { label: '(-) In-kind Equity Contributed', values: b.equityInKindPerPeriod, indent: 1 },
+    { label: '(+) Dividends Distributed (cash-sweep waterfall)', values: b.dividendsDistributedPerPeriod, indent: 1 },
+    { label: '(+) Terminal Equity Value', values: b.terminalEquityPerPeriod, indent: 1 },
+    { label: '= Net Equity Cash Flow (dividend basis)', values: rs.dividendStreamPerPeriod, isTotal: true },
+  ];
+
   return (
     <div data-testid="module5-returns" style={{ padding: 'var(--sp-3)', width: '100%' }}>
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
@@ -157,6 +188,38 @@ export default function Module5Returns(): React.JSX.Element {
         caption="Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Dividends (equity) cells. NOI is the recurring hospitality + lease income net of operating cost."
         yearLabels={streamYearLabels}
         rows={streamRows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
+      />
+
+      {/* Step-by-step build-ups so the derivation is transparent */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+        Step-by-Step Build-Up
+      </div>
+      <M4PeriodTable
+        title="FCFF Build-Up (unlevered, to all capital providers)"
+        caption="Free Cash Flow to Firm = Cash from Operations + Cash from Investing (capex) less in-kind land contributed, plus the terminal enterprise value at exit. Pre-financing: interest and debt are excluded."
+        yearLabels={streamYearLabels}
+        rows={fcffBuildupRows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
+      />
+      <M4PeriodTable
+        title="FCFE Build-Up (levered, free cash to equity)"
+        caption="Free Cash Flow to Equity = Unlevered Free Cash Flow plus debt drawdown, less principal repayment and interest paid, plus the terminal equity value (enterprise value less debt at exit) at exit. The negative periods are the equity required after debt service."
+        yearLabels={streamYearLabels}
+        rows={fcfeBuildupRows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
+      />
+      <M4PeriodTable
+        title="Dividend Build-Up (realised equity cash)"
+        caption="Realised equity cash = dividends actually distributed by the cash-sweep waterfall, less cash + in-kind equity contributed, plus the terminal equity value at exit. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
+        yearLabels={streamYearLabels}
+        rows={dividendBuildupRows}
         currency={currency}
         fmt={fmt}
         priorYearLabel={snap.projectStartYear - 1}

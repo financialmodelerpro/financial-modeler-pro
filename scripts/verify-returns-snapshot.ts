@@ -90,6 +90,25 @@ console.log('=== M5 Returns snapshot integration ===');
   check('dscr series length = N', rs.result.realEstate.dscrPerPeriod.length === N);
   check('LTV at exit in [0,2]', rs.result.realEstate.ltvAtExit === null || (rs.result.realEstate.ltvAtExit! >= 0 && rs.result.realEstate.ltvAtExit! < 2));
   check('total development cost > 0', rs.totalDevelopmentCost > 0);
+
+  // ── Build-up identities: components must reconstruct each stream ─────
+  const bld = rs.buildup;
+  const len = rs.fcffPerPeriod.length;
+  check('buildup arrays truncated to hold horizon', bld.cfoPerPeriod.length === len && bld.debtDrawPerPeriod.length === len);
+  let fcffOk = true, fcfeOk = true, divOk = true;
+  for (let t = 0; t < len; t++) {
+    const fcffSum = bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t] + bld.inKindLandPerPeriod[t] + bld.terminalEnterprisePerPeriod[t];
+    if (Math.abs(fcffSum - rs.fcffPerPeriod[t]) > 0.01) fcffOk = false;
+    const fcfeSum = bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t] + bld.inKindLandPerPeriod[t]
+      + bld.debtDrawPerPeriod[t] + bld.principalRepayPerPeriod[t] + bld.interestPaidPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+    if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
+    const divSum = bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+    if (Math.abs(divSum - rs.dividendStreamPerPeriod[t]) > 0.01) divOk = false;
+  }
+  check('FCFF build-up components sum to FCFF every period', fcffOk);
+  check('FCFE build-up components sum to FCFE every period', fcfeOk);
+  check('Dividend build-up components sum to the dividend stream every period', divOk);
+  check('dividends distributed flow into Returns (>= 0, present)', bld.dividendsDistributedPerPeriod.every((v) => v >= 0) && rs.totalDividendsDistributed >= 0);
 }
 
 // ── Config overrides flow through ─────────────────────────────────────
