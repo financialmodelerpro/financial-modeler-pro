@@ -121,6 +121,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
                         color: 'var(--color-navy)',
                         background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)',
                         borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)',
+                        ...freezeCol(0),
                       }}
                     >
                       {r.label}

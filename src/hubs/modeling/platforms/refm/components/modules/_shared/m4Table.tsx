@@ -172,6 +172,10 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
                         borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)',
                         cursor: isCollapsibleHeader ? 'pointer' : 'default',
                         userSelect: 'none',
+                        // Keep the section banner (and its label) pinned to the
+                        // left so it stays visible during horizontal scroll,
+                        // like the frozen Description column on data rows.
+                        ...freeze(0),
                       }}
                       data-testid={isCollapsibleHeader ? `m4-collapse-toggle-${r.collapseGroup}` : undefined}
                     >

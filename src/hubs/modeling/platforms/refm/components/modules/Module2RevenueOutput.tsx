@@ -287,6 +287,7 @@ function PeriodTable({
                         fontWeight: 700,
                         color: 'var(--color-heading)',
                         background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)',
+                        ...freezeCol(0),
                         borderTop: '1px solid var(--color-border)',
                         textTransform: 'uppercase',
                         letterSpacing: '0.04em',
