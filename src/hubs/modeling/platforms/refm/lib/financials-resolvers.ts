@@ -1381,9 +1381,21 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       ebitPerPeriod: ebit,
     });
     // Inventory: only Sell strategies carry WIP.
-    //   = cumulative (capex + IDC capitalised) - cumulative CoS, floored at 0.
+    //   = cumulative (capex + IDC capitalised) - cumulative CoS.
     // CoS itself is already IDC-augmented in byAssetSchedules above, so
     // the inventory release matches.
+    //
+    // 2026-06-01 (BS identity fix): NO `max(0, ...)` floor. When the sale is
+    // recognised (point-in-time at handover) but a slice of construction capex
+    // is still scheduled to be spent AFTER handover (a cost line whose
+    // endPeriod runs past the handover year), CoS recognises the full cost
+    // base while that capex slice has not been placed yet. Flooring inventory
+    // to 0 dropped that slice and threw the Balance Sheet out by exactly the
+    // post-handover capex amount for the handover period. Letting inventory
+    // CARRY the (transient, negative) slice past handover lets it settle back
+    // to 0 once the remaining capex is placed, so the BS balances every period.
+    // Inventory only goes negative in this capex-past-handover edge; with capex
+    // inside the construction window it stays >= 0 exactly as before.
     const inventoryRow = zeros(N);
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
       const idcRow = byAssetIDC.get(a.id)?.idcPerPeriod ?? zeros(N);
@@ -1392,7 +1404,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       for (let t = 0; t < N; t++) {
         cumCapex += (capex[t] ?? 0) + (idcRow[t] ?? 0);
         cumCos += cosRow[t] ?? 0;
-        inventoryRow[t] = Math.max(0, cumCapex - cumCos);
+        inventoryRow[t] = cumCapex - cumCos;
       }
     }
 
