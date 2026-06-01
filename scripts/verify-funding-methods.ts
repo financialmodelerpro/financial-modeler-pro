@@ -73,46 +73,50 @@ function cfg(method: 1 | 2 | 3 | 4, extra: Partial<ProjectFinancingConfig> = {})
   check('method1 still = capex total (1000)', approx(r.method1, 1000));
 }
 
-// ── Method 2 selected: own ratio, gap shown, CAPEX-based sizing ───────
-// Regression fix (2026-06-01): Methods 2/3 must NOT set custom debt/equity
-// arrays. When the per-period gap is absent (always, inside the snapshot),
-// custom-zero arrays zeroed all funding. They now size from capex via the
-// non-custom path; the gap is display-only.
+// ── Method 2 selected WITH gap: GAP-SIZED custom curve at own ratio ───
+// Gap-sized drawdown (2026-06-01): when the per-period gap is fed (the
+// snapshot's 2nd pass + Module 1), Methods 2/3 size debt/equity to the net
+// requirement via the custom path. When NO gap is fed (1st pass / direct),
+// they fall back to capex sizing (no custom arrays) so funding is never
+// zeroed (the regression). See the "no-gap fallback" block below.
 {
   const r = computeFundingRequirement(capex, cfg(2, { netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 } }), gap);
   check('M2 selected: selected = 600 (gap total)', approx(r.selected, 600), `got ${r.selected}`);
   check('M2 selected: debtPct = 60 (netFundingConfig)', approx(r.debtPct, 60), `got ${r.debtPct}`);
   check('M2 selected: equityPct = 40', approx(r.equityPct, 40), `got ${r.equityPct}`);
-  check('M2 selected: selectedByPeriod mirrors gap (display)', JSON.stringify(r.selectedByPeriod) === JSON.stringify(gap.method2PerPeriod));
-  check('M2 REGRESSION GUARD: NO custom debt array (capex-based sizing)', r.customDebtByPeriod === undefined);
-  check('M2 REGRESSION GUARD: NO custom equity array (capex-based sizing)', r.customEquityByPeriod === undefined);
+  check('M2 selected: selectedByPeriod mirrors gap', JSON.stringify(r.selectedByPeriod) === JSON.stringify(gap.method2PerPeriod));
+  check('M2 gap-sized: custom debt = gap * 0.6', !!r.customDebtByPeriod && approx(r.customDebtByPeriod[0], 120));
+  check('M2 gap-sized: custom equity = gap * 0.4', !!r.customEquityByPeriod && approx(r.customEquityByPeriod[0], 80));
 }
 
-// ── Method 3 selected: own ratio, gap shown, CAPEX-based sizing ───────
+// ── Method 3 selected WITH gap: GAP-SIZED, min-cash NOT double-added ──
 {
   const r = computeFundingRequirement(
     capex,
     cfg(3, {
       cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 },
-      minimumCashReserve: 500,
+      minimumCashReserve: 500, // gap already nets min-cash; must NOT add again
     }),
     gap,
   );
   check('M3 selected: selected = 400 (gap total)', approx(r.selected, 400), `got ${r.selected}`);
   check('M3 selected: debtPct = 75 (cashDeficitConfig)', approx(r.debtPct, 75), `got ${r.debtPct}`);
   check('M3 selected: equityPct = 25', approx(r.equityPct, 25), `got ${r.equityPct}`);
-  check('M3 REGRESSION GUARD: NO custom debt array (capex-based sizing)', r.customDebtByPeriod === undefined);
-  check('M3 REGRESSION GUARD: NO custom equity array (capex-based sizing)', r.customEquityByPeriod === undefined);
-  check('M3 selected: min-cash buffer placed (sum 500)', approx(r.minCashByPeriod.reduce((s, v) => s + v, 0), 500));
+  check('M3 gap-sized: custom debt = gap * 0.75', !!r.customDebtByPeriod && approx(r.customDebtByPeriod[0], 75));
+  check('M3 gap-sized: custom equity = gap * 0.25', !!r.customEquityByPeriod && approx(r.customEquityByPeriod[0], 25));
+  check('M3 gap-sized: min-cash NOT double-added (buffer 0)', r.minCashByPeriod.every((v) => v === 0));
 }
 
-// ── No-gap fallback: Methods 2/3 still size from capex (the snapshot case)
+// ── No-gap fallback: Methods 2/3 size from capex (snapshot pass 1) ────
+// REGRESSION GUARD: no custom arrays without a gap, so debtEquity.ts uses
+// the capex split and the statements are never left unfunded.
 {
-  const r2 = computeFundingRequirement(capex, cfg(2, { netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 } }));
-  const r3 = computeFundingRequirement(capex, cfg(3, { cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 } }));
+  const r2 = computeFundingRequirement(capex, cfg(2, { netFundingConfig: { existingCash: 0, debtPct: 60, equityPct: 40 }, minimumCashReserve: 500 }));
+  const r3 = computeFundingRequirement(capex, cfg(3, { cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 }, minimumCashReserve: 500 }));
   check('M2 no-gap: NO custom arrays => capex split draws funding', r2.customDebtByPeriod === undefined && r2.customEquityByPeriod === undefined);
   check('M3 no-gap: NO custom arrays => capex split draws funding', r3.customDebtByPeriod === undefined && r3.customEquityByPeriod === undefined);
   check('M2 no-gap: selectedByPeriod falls back to capex curve', JSON.stringify(r2.selectedByPeriod) === JSON.stringify(capex.perPeriod.exclLandInKind));
+  check('M3 no-gap: min-cash buffer placed (capex sizing, sum 500)', approx(r3.minCashByPeriod.reduce((s, v) => s + v, 0), 500));
 }
 
 // ── Method 1 still adds the min-cash buffer (regression guard) ─────────
@@ -157,14 +161,23 @@ function buildSnapState(method: 1 | 2 | 3 | 4): Parameters<typeof computeFinanci
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { project, phases: [p1], assets: [sell], subUnits: [su], parcels: [parcel], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [makeDefaultFinancingTranche('t1', 'p1')], equityContributions: [] } as any;
 }
+let m1Funding = 0;
 for (const method of [1, 2, 3, 4] as const) {
   const snap = computeFinancialsSnapshot(buildSnapState(method));
   const debt = snap.directCF.debtDrawdownPerPeriod.reduce((s, v) => s + v, 0);
   const equity = snap.directCF.equityDrawdownPerPeriod.reduce((s, v) => s + v, 0);
   const bsMax = Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  const cfTie = Math.max(...snap.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (snap.indirectCF.closingCashPerPeriod[i] ?? 0))));
   check(`SNAPSHOT Method ${method}: new debt > 0 in Cash Flow`, debt > 0, `debt=${Math.round(debt)}`);
   check(`SNAPSHOT Method ${method}: equity > 0 in Cash Flow`, equity > 0, `equity=${Math.round(equity)}`);
   check(`SNAPSHOT Method ${method}: BS balances`, bsMax < 1, `maxBSdiff=${Math.round(bsMax)}`);
+  check(`SNAPSHOT Method ${method}: Direct CF == Indirect CF (2-pass stable)`, cfTie < 1, `tie=${Math.round(cfTie)}`);
+  if (method === 1) m1Funding = debt + equity;
+  // Gap-sized drawdown: Methods 2/3 fund the NET requirement, so total
+  // funding is <= Method 1 (full capex). (Equal only if the gap = capex.)
+  if (method === 2 || method === 3) {
+    check(`SNAPSHOT Method ${method}: gap-sized funding <= Method 1 (capex)`, debt + equity <= m1Funding + 1, `m${method}=${Math.round(debt + equity)} m1=${Math.round(m1Funding)}`);
+  }
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

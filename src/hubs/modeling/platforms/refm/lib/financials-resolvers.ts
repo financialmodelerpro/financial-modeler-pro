@@ -31,7 +31,7 @@ import {
   computeAllFixedAssetResults,
   type ProjectFixedAssetSnapshot,
 } from './fixed-assets-resolvers';
-import { computeFinancingResult, type FinancingComputation } from '@/src/core/calculations/financing';
+import { computeFinancingResult, type FinancingComputation, type FundingGapInputs } from '@/src/core/calculations/financing';
 import {
   computeAssetFixedAssets,
 } from '@/src/core/calculations/depreciation';
@@ -1205,7 +1205,10 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   };
 }
 
-export function computeFinancialsSnapshot(state: FinancialsResolverState): ProjectFinancialsSnapshot {
+export function computeFinancialsSnapshot(
+  state: FinancialsResolverState,
+  opts?: { fundingGap?: FundingGapInputs },
+): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
   // 1. Upstream snapshots (each pure function call already memoizes via React.useMemo at the call site)
@@ -1220,6 +1223,11 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     financingConfig: project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG,
     tranches: financingTranches,
     equityContributions,
+    // M5 / funding (2026-06-01): Methods 2 + 3 size debt/equity to the
+    // per-period funding gap. The gap needs a full snapshot to compute, so
+    // it is fed back via a guarded second pass (see the end of this
+    // function); opts.fundingGap is set only on that second pass.
+    fundingGap: opts?.fundingGap,
   });
 
   const N = revenue.axisLength;
@@ -2015,7 +2023,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     unexplainedPerPeriod: unexplained,
   };
 
-  return {
+  const snapResult: ProjectFinancialsSnapshot = {
     axisLength: N,
     projectStartYear,
     yearLabels,
@@ -2037,4 +2045,27 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     dividends,
     bsReconciliation,
   };
+
+  // M5 / funding (2026-06-01): gap-sized drawdown for Methods 2 + 3.
+  // This first pass sized debt/equity from capex (no gap fed). Now that the
+  // full snapshot exists, derive the per-period funding gap and re-run ONCE
+  // with it so external funding is sized to the net requirement (Method 2 =
+  // capex net of pre-sales; Method 3 = the cash deficit to maintain minimum
+  // cash). Guarded: only when no gap was fed (so the second pass does not
+  // recurse) and only when the gap is non-trivial (otherwise the capex-based
+  // first pass stands, keeping the statements funded). Methods 1 + 4 never
+  // enter this branch.
+  const fundingMethod = (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).fundingMethod;
+  if (!opts?.fundingGap && (fundingMethod === 2 || fundingMethod === 3)) {
+    const gap = computeFundingGap(snapResult);
+    const fundingGap: FundingGapInputs = {
+      method2PerPeriod: gap.methodAGapPerPeriod,
+      method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
+    };
+    const relevant = fundingMethod === 2 ? fundingGap.method2PerPeriod : fundingGap.method3PerPeriod;
+    const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    if (gapTotal > 0) return computeFinancialsSnapshot(state, { fundingGap });
+  }
+
+  return snapResult;
 }
