@@ -141,7 +141,21 @@ export default function Module4BalanceSheet(): React.JSX.Element {
   const inventoryFiltered = sumAssetsBy((id) => snap.perAssetCF.get(id)?.inventoryPerPeriod);
   const resReceivablesFiltered = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.ar.perPeriod);
   const unearnedFiltered = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
-  const apFiltered = sumAssetsBy((id) => snap.ap.byAsset.get(id)?.result.perPeriod);
+  // BS reconciliation fix (2026-06-01): Accounts Payable must LINK to the
+  // canonical project-wide AP (snap.ap.projectTotals), which includes the
+  // HQ / head-office AP. The per-asset sum (snap.ap.byAsset) covers
+  // Operate/Lease assets ONLY and OMITS HQ AP. When HQ opex is indexed,
+  // the missing HQ AP made this UI's re-summed BS Check drift by
+  // (HQ opex × DPO / 365), compounding at the HQ inflation rate, even
+  // though the financials snapshot itself balances every period. Under a
+  // phase filter HQ AP cannot be attributed to a single phase, so the
+  // per-asset sum stays (the BS Check is already flagged approximate when
+  // filtered). This mirrors the "link, don't re-calculate" rule the rest
+  // of the project-level rows (Cash, AR Operating, Reserve, Retained)
+  // already follow.
+  const apFiltered = phaseFiltered
+    ? sumAssetsBy((id) => snap.ap.byAsset.get(id)?.result.perPeriod)
+    : snap.ap.projectTotals.closingApPerPeriod.slice(0, N_);
   const escrowFiltered = sumAssetsBy((id) => snap.escrow.byAsset.get(id)?.result.cumulativeBalancePerPeriod);
 
   // IDC NBV decomposition: project-only field. When filtered, allocate
