@@ -200,29 +200,28 @@ export const ROW_GRAND_TOTAL = {
 
 // Universal column widths for every period-axis results table.
 //
-// M2.0 Pass 14 (2026-05-13) rule: percentage-based widths that
-// re-balance automatically when the period count changes. Label
-// column is fixed at 22% of table width; the remaining 78% is split
-// EQUALLY across the Total column + every period column. So a table
-// with 1 Total + N period cols gives each non-label column
-// `78 / (1 + N) %`, and all non-label columns are the same width.
+// Excel-grid rule (2026-06-01): FIXED PIXEL column widths. The label
+// (description) column and every non-label column (Total + prior +
+// each period) hold a constant width regardless of how many years the
+// project runs. When the period count grows past what the workspace
+// can show, the table outgrows its container and the surrounding
+// `overflowX: 'auto'` wrapper scrolls horizontally, exactly like
+// Excel, instead of compressing the year columns until the numbers
+// overlap (the prior percentage-based behaviour).
 //
-// Why this shape:
-//   - Tables on the same page share column widths column-for-column
-//     because every consumer derives the same percentage from the
-//     same axis count.
-//   - Extend a phase's operating periods, every non-label column
-//     shrinks proportionally and the label stays at 22%.
-//   - No horizontal scroll needed at typical project durations
-//     (10-25 years). On extreme projects (40+ years) columns get
-//     narrow, which is expected and acceptable since annual projects
-//     rarely run that long.
+// Why fixed px:
+//   - Numbers never overlap: a 96px column always fits a formatted
+//     value at the platform's 11px numeric font, no matter the year
+//     count.
+//   - Tables on the same page still align column-for-column because
+//     every consumer derives the same px widths from these constants.
+//   - The description column stays put; only the scroll position
+//     moves when the user pans across a long horizon.
 //
 // Render pattern:
-//   const nonLabelPct = nonLabelColumnPct(axis.count);
+//   const nonLabelPct = nonLabelColumnPct(axis.count); // -> fixed px
 //   <div style={{ overflowX: 'auto' }}>
-//     <table style={{ width: '100%', tableLayout: 'fixed',
-//                     borderCollapse: 'collapse' }}>
+//     <table style={periodTableStyle(axis.count)}>
 //       <colgroup>
 //         <col style={{ width: COLUMN_WIDTHS.label }} />   // label
 //         <col style={{ width: nonLabelPct }} />            // total
@@ -231,18 +230,45 @@ export const ROW_GRAND_TOTAL = {
 //       ...
 //     </table>
 //   </div>
+
+/** Description / label column width (px). Excel-style: stays constant. */
+export const PERIOD_LABEL_PX = 260;
+/** Total + prior + each period column width (px). ~Excel column width 13. */
+export const PERIOD_COL_PX = 96;
+/** Optional Phase column width (px), used by the M4 period table. */
+export const PERIOD_PHASE_PX = 60;
+
 export const COLUMN_WIDTHS = {
-  /** Label column: 22% of table width. */
-  label: '22%',
+  /** Label column: fixed px (Excel-style description column). */
+  label: `${PERIOD_LABEL_PX}px`,
 } as const;
 
 /**
- * Equal-width percentage applied to the Total column AND every period
- * column. `nonLabelColumnCount` = 1 (Total) + axis.count (prior +
- * active period columns). Splits the remaining 78% evenly so all
- * non-label cells render at the same width.
+ * Fixed pixel width applied to the Total column AND every period
+ * column. The `nonLabelColumnCount` argument is retained for call-site
+ * compatibility but no longer affects the width: every non-label
+ * column is a constant `PERIOD_COL_PX` so the year axis never
+ * compresses (it scrolls instead, see `periodTableStyle`).
  */
-export function nonLabelColumnPct(nonLabelColumnCount: number): string {
-  const denom = Math.max(1, nonLabelColumnCount);
-  return `${(78 / denom).toFixed(4)}%`;
+export function nonLabelColumnPct(_nonLabelColumnCount?: number): string {
+  return `${PERIOD_COL_PX}px`;
+}
+
+/**
+ * Table-element style for a period-axis results table. Sets an explicit
+ * pixel `width` (label + every non-label column) with `minWidth: 100%`
+ * so the table fills the workspace when there is room to spare, but
+ * grows past the container and triggers the wrapper's horizontal scroll
+ * once the year columns no longer fit. `tableLayout: 'fixed'` keeps the
+ * colgroup widths authoritative.
+ *
+ * @param nonLabelColumnCount Total + prior + every period column (i.e.
+ *   every column except the label and any Phase column).
+ * @param extraPx Width of any additional fixed columns not counted in
+ *   `nonLabelColumnCount` (e.g. the M4 Phase column). Defaults to 0.
+ */
+export function periodTableStyle(nonLabelColumnCount: number, extraPx = 0): CSSProperties {
+  const cols = Math.max(1, nonLabelColumnCount);
+  const width = PERIOD_LABEL_PX + extraPx + cols * PERIOD_COL_PX;
+  return { minWidth: '100%', width, tableLayout: 'fixed', borderCollapse: 'collapse' };
 }

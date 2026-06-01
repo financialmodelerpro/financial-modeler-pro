@@ -54,7 +54,7 @@ import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
-import { CELL_HEADER, CELL_HEADER_TOTAL, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
+import { CELL_HEADER, CELL_HEADER_TOTAL, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, periodTableStyle, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
 const inputStyle: React.CSSProperties = {
@@ -1595,6 +1595,7 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
   // M4 Pass 2V (2026-05-24): add prior-year column. Pre-Capex (existing
   // operations) lives in the prior column instead of Y0.
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const exclLand    = p.cropProject(p.capex.perPeriod.exclAllLand);
   const landCash    = p.cropProject(p.capex.perPeriod.landCash);
   const totalIncl   = p.cropProject(p.capex.perPeriod.exclLandInKind);
@@ -1604,7 +1605,7 @@ function CapexBreakdownTable(p: CapexProps): React.JSX.Element {
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>6. Capex Breakdown</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTbl}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
@@ -1674,6 +1675,7 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
   // consistency with the rest of the financing tables (blank for
   // in-axis-only Funding Methods).
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const m1PerPeriod = p.cropProject(p.capex.perPeriod.exclLandInKind);
   const blanks = new Array<number>(N).fill(0);
   const selectedMethodId = p.funding.selectedMethodId;
@@ -1690,7 +1692,7 @@ function FundingRequirementTable(p: FundingProps): React.JSX.Element {
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>7. Funding Requirement ({currencyHeaderLine(p.currency, p.scale)})</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTbl}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
@@ -1788,6 +1790,7 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
   // M4 Pass 2V (2026-05-24): add prior-year column for existing debt
   // opening balance (pre-axis carry-forward).
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const newTranches = p.tranches.filter((t) => t.origin !== 'existing');
   const existingOpeningTotal = (() => {
     let s = 0;
@@ -1825,7 +1828,7 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>8. Total Debt Required ({currencyHeaderLine(p.currency, p.scale)})</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTbl}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
@@ -1905,6 +1908,7 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
   // is a PRE-AXIS event — render it in the prior column and zero its
   // axis entries.
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const cash = p.cropProject(p.equity.cashPerPeriod);
   const inKind = p.cropProject(p.equity.inKindPerPeriod);
   const total = p.cropProject(p.equity.totalPerPeriod);
@@ -1914,7 +1918,7 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
     <section style={sectionStyle}>
       <div style={TABLE_TITLE}>9. Total Equity Required ({currencyHeaderLine(p.currency, p.scale)})</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTbl}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />
@@ -1989,6 +1993,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
   // Module 4 surfaces. Pre-axis events (existing equity, existing
   // debt opening, pre-capex) render here instead of inflating Y0.
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const colgroup = (
     <colgroup>
       <col style={{ width: COLUMN_WIDTHS.label }} />
@@ -2111,7 +2116,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
             <div style={TABLE_TITLE}>{t.name}</div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <table style={periodTbl}>
                 {colgroup}
                 {headerRow}
                 <tbody>
@@ -2140,7 +2145,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           <section key={t.id} style={sectionStyle}>
             <div style={TABLE_TITLE}>{t.name}</div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <table style={periodTbl}>
                 {colgroup}
                 {headerRow}
                 <tbody>
@@ -2160,7 +2165,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Combined Debt Service</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <table style={periodTbl}>
             {colgroup}
             {headerRow}
             <tbody>
@@ -2216,7 +2221,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             <section key={`fc_${t.id}`} style={sectionStyle}>
               <div style={TABLE_TITLE}>Finance Cost, {t.name}</div>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                <table style={periodTbl}>
                   {colgroup}
                   {headerRow}
                   <tbody>
@@ -2251,7 +2256,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               <section style={sectionStyle}>
                 <div style={TABLE_TITLE}>Combined Finance Cost (all facilities)</div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  <table style={periodTbl}>
                     {colgroup}
                     {headerRow}
                     <tbody>
@@ -2321,7 +2326,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 rendered (even when capitalize=OFF, shows zero rows for
                 clarity + construction-interest stream below). */}
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <table style={periodTbl}>
                 {colgroup}
                 {headerRow}
                 <tbody>
@@ -2381,7 +2386,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   Routed to CoS via Inventory (Sell / Sell+Manage — augments capex basis, unwinds via revenue recognition)
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  <table style={periodTbl}>
                     {colgroup}
                     {headerRow}
                     <tbody>
@@ -2412,7 +2417,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   Routed to Fixed Assets → D&A (Operate / Lease — adds to depreciable basis at handover, straight-line over useful life)
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+                  <table style={periodTbl}>
                     {colgroup}
                     {headerRow}
                     <tbody>
@@ -2457,7 +2462,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Equity Movement</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <table style={periodTbl}>
             {colgroup}
             {headerRow}
             <tbody>
@@ -2532,6 +2537,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
   // M4 Pass 2U-Fix #2 (2026-05-24): add prior-year column.
   const nonLabelPct = nonLabelColumnPct(2 + N);
+  const periodTbl = periodTableStyle(2 + N);
   const colgroup = (
     <colgroup>
       <col style={{ width: COLUMN_WIDTHS.label }} />
@@ -2609,7 +2615,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           Gap = MAX(0, Capex<sub>t</sub> − Pre-Sales net<sub>t−1</sub>). Pre-Sales are <strong>lagged one year</strong> — this year's capex is funded from LAST year's collected pre-sales (we don't receive on Day 1 of the year). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <table style={periodTbl}>
             {colgroup}
             {headerRow}
             <tbody>
@@ -2657,7 +2663,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               Per-period waterfall ending with Closing Cash. Order: Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available. − Min Cash floor ({p.fmt(w.minCashReserve)}) = Cash for Debt+Dividend. − Cash Sweep on debt = Cash for Dividend. − After-sweep dividends = Closing Cash. Existing equity + existing debt opening are pre-axis (in the prior column), already reflected in opening cash. The Net Cash Required block at the bottom shows what NEW funding is implied if Cash Available was negative before reaching min cash.
             </div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <table style={periodTbl}>
                 {colgroup}
                 {headerRow}
                 <tbody>
@@ -2755,7 +2761,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         <section style={sectionStyle}>
           <div style={TABLE_TITLE}>Per-Tranche Outstanding (after sweep)</div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <table style={periodTbl}>
               {colgroup}
               {headerRow}
               <tbody>
@@ -2866,7 +2872,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             Per phase EBITDA (Revenue − CoS − Opex, before D&A / interest / tax) caps cumulative dividends. Shows the EBITDA budget, cash available at the time of dividend, and resulting dividend per period.
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <table style={periodTbl}>
               {colgroup}
               {headerRow}
               <tbody>

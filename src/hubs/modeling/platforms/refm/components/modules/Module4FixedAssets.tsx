@@ -45,6 +45,7 @@ import {
   CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS,
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
   nonLabelColumnPct,
+  periodTableStyle,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
@@ -82,7 +83,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYea
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>{caption}</div>
       )}
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTableStyle(colCount)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />

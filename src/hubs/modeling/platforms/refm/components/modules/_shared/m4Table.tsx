@@ -18,7 +18,7 @@ import React, { useState } from 'react';
 import {
   CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS,
   ROW_DATA, ROW_GRAND_TOTAL, ROW_SUBTOTAL, TABLE_TITLE,
-  nonLabelColumnPct,
+  nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX,
 } from './tableStyles';
 
 export interface M4Row {
@@ -91,18 +91,14 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
   if (rows.length === 0) return <></>;
   const hasPrior = priorYearLabel !== undefined;
   const hasPhase = showPhaseColumn === true;
-  const totalCols = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
-  const nonLabelPct = nonLabelColumnPct(totalCols);
-  const phaseColWidth = hasPhase ? '60px' : undefined;
-  // M4 Pass 2N-Fix (2026-05-21): Total column rendered 25% wider than
-  // year columns per user feedback (totals are wider numbers; needs
-  // more room). Year columns absorb the difference proportionally.
+  // Excel-grid (2026-06-01): every non-label column is a fixed px width
+  // so the year axis never compresses; the table scrolls horizontally
+  // instead. nonLabelColCount = Total + prior + each year column (the
+  // Phase column is sized separately and passed to periodTableStyle as
+  // extra fixed width).
   const nonLabelColCount = 1 + (hasPrior ? 1 : 0) + yearLabels.length;
-  const evenPct = 78 / Math.max(1, nonLabelColCount);
-  const totalColPct = `${(evenPct * 1.25).toFixed(4)}%`;
-  const yearColPct = nonLabelColCount > 1
-    ? `${((78 - evenPct * 1.25) / (nonLabelColCount - 1)).toFixed(4)}%`
-    : nonLabelPct;
+  const nonLabelPct = nonLabelColumnPct(nonLabelColCount);
+  const phaseColWidth = hasPhase ? `${PERIOD_PHASE_PX}px` : undefined;
 
   return (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -111,13 +107,13 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>{caption}</div>
       )}
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTableStyle(nonLabelColCount, hasPhase ? PERIOD_PHASE_PX : 0)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             {hasPhase && (<col style={{ width: phaseColWidth }} />)}
-            <col style={{ width: totalColPct }} />
-            {hasPrior && (<col style={{ width: yearColPct }} />)}
-            {yearLabels.map((y) => (<col key={y} style={{ width: yearColPct }} />))}
+            <col style={{ width: nonLabelPct }} />
+            {hasPrior && (<col style={{ width: nonLabelPct }} />)}
+            {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
             <tr>

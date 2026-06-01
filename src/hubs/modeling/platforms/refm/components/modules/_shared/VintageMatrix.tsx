@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { formatAccounting } from '@/src/core/formatters';
-import { CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS, ROW_DATA, ROW_GRAND_TOTAL, TABLE_TITLE, nonLabelColumnPct } from './tableStyles';
+import { CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS, ROW_DATA, ROW_GRAND_TOTAL, TABLE_TITLE, nonLabelColumnPct, periodTableStyle } from './tableStyles';
 
 interface VintageMatrixProps {
   title: string;
@@ -101,7 +101,7 @@ export default function VintageMatrix({
         </div>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <table style={periodTableStyle(1 + (hasPrior ? 1 : 0) + N)}>
             <colgroup>
               <col style={{ width: COLUMN_WIDTHS.label }} />
               <col style={{ width: nonLabelPct }} />

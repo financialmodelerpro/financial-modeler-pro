@@ -62,6 +62,7 @@ import {
   ROW_GRAND_TOTAL,
   TABLE_TITLE,
   nonLabelColumnPct,
+  periodTableStyle,
 } from './_shared/tableStyles';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
@@ -252,7 +253,7 @@ function PeriodTable({
         Formula: {formula}
       </div>
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <table style={periodTableStyle(1 + extraCols + yearLabels.length)}>
           <colgroup>
             <col style={{ width: COLUMN_WIDTHS.label }} />
             <col style={{ width: nonLabelPct }} />

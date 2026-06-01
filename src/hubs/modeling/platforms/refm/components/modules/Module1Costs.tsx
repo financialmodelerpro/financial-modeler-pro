@@ -87,6 +87,7 @@ import {
   ROW_GRAND_TOTAL,
   COLUMN_WIDTHS,
   nonLabelColumnPct,
+  periodTableStyle,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 
@@ -1812,7 +1813,7 @@ function SummaryTables({
       <div style={sectionCardStyle} data-testid="capex-by-period">
         <strong style={TABLE_TITLE} data-testid="capex-table-1-title">Table 1 - Construction Cost Schedule by Period (per cost line, per asset)</strong>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+          <table style={periodTableStyle(1 + periodAxis.count)}>
             <colgroup>
               <col style={{ width: COLUMN_WIDTHS.label }} />
               <col style={{ width: nonLabelPct }} />
