@@ -156,7 +156,7 @@ export interface ProjectIndirectCF {
   daPerPeriod: number[];                   // add-back
   interestExpensePerPeriod: number[];      // add-back (then subtract Interest Paid)
   changeInArPerPeriod: number[];           // -ΔAR (asset = subtract increase)
-  changeInInventoryPerPeriod: number[];    // -ΔInv
+  costOfSalesAddBackPerPeriod: number[];   // +CoS add-back (capex funded via investing CFI, so CoS is non-cash in operations)
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
@@ -1603,7 +1603,6 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
   // Aggregate working-capital changes: AR (operating + residential milestone), AP, Inventory, Unearned, Escrow
   const arOperatingChange = zeros(N);
   const residentialArChange = zeros(N);
-  const inventoryChange = zeros(N);
   const unearnedChange = zeros(N);
   // Residential AR + Unearned changes come from per-asset Sell bundles.
   for (const bundle of byAssetSchedules.values()) {
@@ -1612,13 +1611,23 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
       unearnedChange[t] += bundle.unearned.changePerPeriod[t] ?? 0;
     }
   }
-  // Inventory: project-level closing summed across per-asset rows; change = Δclosing.
+  // Inventory / Cost of Sales (2026-06-01): a Sell asset's Inventory (WIP)
+  // is BUILT by construction capex and RELEASED to Cost of Sales. The capex
+  // cash already sits in the Investing section (cashFromInv, shared with the
+  // Direct method), so subtracting the full inventory change here would
+  // count that capex a SECOND time and pull Indirect CFO below Direct CFO by
+  // the inventory build. The correct operating-cash treatment when capex is
+  // classified as investing is to ADD COST OF SALES BACK (a non-cash expense
+  // in the period it is booked, exactly like depreciation): PAT carries
+  // -CoS, the capex carries the cash in Investing, so adding CoS back nets
+  // the inventory cycle to zero in operations and makes Indirect tie Direct.
+  // `cosTotal` (project Cost of Sales per period, Sell strategies only) is
+  // computed with the P&L above. The Inventory CLOSING balance is still
+  // summed here for the Balance Sheet (it is a real BS asset); only the
+  // operating-cash *change* line is replaced by the CoS add-back.
   const inventoryClosingProject = zeros(N);
   for (const cf of perAssetCF.values()) {
     for (let t = 0; t < N; t++) inventoryClosingProject[t] += cf.inventoryPerPeriod[t] ?? 0;
-  }
-  for (let t = 0; t < N; t++) {
-    inventoryChange[t] = inventoryClosingProject[t] - (t === 0 ? 0 : inventoryClosingProject[t - 1]);
   }
   // Operating AR change for the Indirect CF bridge (Pass 2g).
   for (let t = 0; t < N; t++) {
@@ -1636,8 +1645,8 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
 
   const cashFromOpsIndirect = zeros(N);
   for (let t = 0; t < N; t++) {
-    cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t]
-      - arOperatingChange[t] - residentialArChange[t] - inventoryChange[t]
+    cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t] + cosTotal[t]
+      - arOperatingChange[t] - residentialArChange[t]
       + apChange[t] + unearnedChange[t] - escrowChange[t]
       - interestPaidArr[t]; // reverse the add-back of interest expense (we paid the real interest in cash)
   }
@@ -1766,7 +1775,7 @@ export function computeFinancialsSnapshot(state: FinancialsResolverState): Proje
     daPerPeriod: da,
     interestExpensePerPeriod: interestExpense,
     changeInArPerPeriod: arOperatingChange.map((v, i) => -(v + residentialArChange[i])),
-    changeInInventoryPerPeriod: inventoryChange.map((v) => -v),
+    costOfSalesAddBackPerPeriod: cosTotal.slice(),
     changeInApPerPeriod: apChange,
     changeInUnearnedPerPeriod: unearnedChange,
     changeInEscrowPerPeriod: escrowChange.map((v) => -v),

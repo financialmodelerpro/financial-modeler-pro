@@ -382,8 +382,12 @@ export default function Module4CashFlow(): React.JSX.Element {
     };
 
     // Per-asset summable bridge lines.
-    const inventoryClosingPhase = sumAssets((id) => snap.perAssetCF.get(id)?.inventoryPerPeriod);
-    const changeInInventory = periodChange(inventoryClosingPhase);
+    // Cost of sales add-back (2026-06-01): capex builds Sell Inventory and
+    // its cash sits in Investing, so the operating section adds CoS back
+    // (non-cash, like D&A) rather than subtracting the inventory build.
+    // Mirrors the resolver's costOfSalesAddBackPerPeriod; CoS is already
+    // per-period (no periodChange).
+    const cosAddBackPhase = sumAssets((id) => snap.perAssetPL.get(id)?.cosPerPeriod);
     const apClosingPhase = sumAssets((id) => snap.ap.byAsset.get(id)?.result.perPeriod);
     const changeInAp = periodChange(apClosingPhase);
     const unearnedClosingPhase = sumAssets((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
@@ -440,7 +444,7 @@ export default function Module4CashFlow(): React.JSX.Element {
         + (daPhase[t] ?? 0)
         + (intExpPhase[t] ?? 0)
         - (changeArPhase[t] ?? 0)
-        - changeInInventory[t]
+        + cosAddBackPhase[t]
         + changeInAp[t]
         + changeInUnearned[t]
         + changeInEscrow[t]
@@ -457,7 +461,7 @@ export default function Module4CashFlow(): React.JSX.Element {
     const cfi = filtered ? cfiFiltered : ic.cashFromInvestmentPerPeriod;
     const cff = filtered ? cffFiltered : ic.cashFromFinancingPerPeriod;
     const netCf = filtered ? netCfFiltered : ic.netCashFlowPerPeriod;
-    const inv = filtered ? changeInInventory : ic.changeInInventoryPerPeriod;
+    const cosAdd = filtered ? cosAddBackPhase : ic.costOfSalesAddBackPerPeriod;
     const ap = filtered ? changeInAp : ic.changeInApPerPeriod;
     const un = filtered ? changeInUnearned : ic.changeInUnearnedPerPeriod;
     const esc = filtered ? changeInEscrow : ic.changeInEscrowPerPeriod;
@@ -474,7 +478,7 @@ export default function Module4CashFlow(): React.JSX.Element {
     rows.push({ label: `(+) Depreciation & Amortization${projTag}`, values: daPhase, indent: 1 });
     rows.push({ label: `(+) Interest expense (add back)${projTag}`, values: intExpPhase, indent: 1 });
     rows.push({ label: `(−) Change in AR${projTag}`, values: changeArPhase, indent: 1 });
-    rows.push({ label: '(−) Change in Inventory', values: inv, indent: 1 });
+    rows.push({ label: '(+) Cost of sales (add back; capex in investing)', values: cosAdd, indent: 1 });
     rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
     rows.push({ label: '(+) Change in Unearned Revenue', values: un, indent: 1 });
     rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
