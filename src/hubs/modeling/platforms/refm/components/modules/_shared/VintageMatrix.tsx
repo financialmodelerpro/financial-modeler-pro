@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { formatAccounting } from '@/src/core/formatters';
-import { CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS, ROW_DATA, ROW_GRAND_TOTAL, TABLE_TITLE, nonLabelColumnPct, periodTableStyle } from './tableStyles';
+import { CELL_HEADER, CELL_HEADER_TOTAL, COLUMN_WIDTHS, ROW_DATA, ROW_GRAND_TOTAL, TABLE_TITLE, nonLabelColumnPct, periodTableStyle, PERIOD_LABEL_PX, STICKY_DATA_BG, freezeCol } from './tableStyles';
 import { ScrollableTable } from './ScrollableTable';
 
 interface VintageMatrixProps {
@@ -111,8 +111,8 @@ export default function VintageMatrix({
             </colgroup>
             <thead>
               <tr>
-                <th style={CELL_HEADER}>{rowAxisHeader}</th>
-                <th style={CELL_HEADER_TOTAL}>{rowTotalHeader}</th>
+                <th style={{ ...CELL_HEADER, ...freezeCol(0) }}>{rowAxisHeader}</th>
+                <th style={{ ...CELL_HEADER_TOTAL, ...freezeCol(PERIOD_LABEL_PX) }}>{rowTotalHeader}</th>
                 {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
                 {yearLabels.map((y) => (
                   <th key={y} style={{ ...CELL_HEADER, ...(handoverYearIdx != null && yearLabels.indexOf(y) === handoverYearIdx ? { borderBottom: '2px solid var(--color-info, #1d4ed8)' } : {}) }}>
@@ -124,8 +124,8 @@ export default function VintageMatrix({
             <tbody>
               {activeRows.map((r) => (
                 <tr key={r}>
-                  <td style={ROW_DATA.name}>{rowLabelPrefix} {yearLabels[r]}</td>
-                  <td style={ROW_DATA.numTotal}>{fmt(rowTotals[r])}</td>
+                  <td style={{ ...ROW_DATA.name, ...freezeCol(0, STICKY_DATA_BG) }}>{rowLabelPrefix} {yearLabels[r]}</td>
+                  <td style={{ ...ROW_DATA.numTotal, ...freezeCol(PERIOD_LABEL_PX, STICKY_DATA_BG) }}>{fmt(rowTotals[r])}</td>
                   {hasPrior && (<td style={priorCellStyle}>{fmt(0)}</td>)}
                   {yearLabels.map((_, c) => {
                     const v = matrix[r]?.[c] ?? 0;
@@ -141,8 +141,8 @@ export default function VintageMatrix({
                 </tr>
               ))}
               <tr>
-                <td style={ROW_GRAND_TOTAL.name}>Year Total</td>
-                <td style={ROW_GRAND_TOTAL.numTotal}>{fmt(grandTotal)}</td>
+                <td style={{ ...ROW_GRAND_TOTAL.name, ...freezeCol(0) }}>Year Total</td>
+                <td style={{ ...ROW_GRAND_TOTAL.numTotal, ...freezeCol(PERIOD_LABEL_PX) }}>{fmt(grandTotal)}</td>
                 {hasPrior && (<td style={ROW_GRAND_TOTAL.num}>{fmt(0)}</td>)}
                 {colTotals.map((v, c) => (<td key={c} style={ROW_GRAND_TOTAL.num}>{fmt(v)}</td>))}
               </tr>

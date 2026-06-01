@@ -272,3 +272,21 @@ export function periodTableStyle(nonLabelColumnCount: number, extraPx = 0): CSSP
   const width = PERIOD_LABEL_PX + extraPx + cols * PERIOD_COL_PX;
   return { minWidth: '100%', width, tableLayout: 'fixed', borderCollapse: 'collapse' };
 }
+
+// ── Frozen (sticky) Description + Total columns ───────────────────────────
+// The wide period tables scroll horizontally (see ScrollableTable). Freeze the
+// Description + Total columns so the row labels + totals stay visible while
+// only the year axis scrolls. Sticky cells need an OPAQUE background so the
+// scrolling year cells slide underneath instead of bleeding through.
+export const STICKY_DATA_BG = 'var(--color-surface, #ffffff)';
+export const STICKY_SUBTOTAL_BG = 'color-mix(in srgb, var(--color-navy) 12%, var(--color-surface, #ffffff))';
+
+/**
+ * Sticky-left style for a frozen results-table column. `left` is the column's
+ * x-offset (0 for the label column, PERIOD_LABEL_PX for the Total column when
+ * there is no Phase column). Pass the opaque row background via `bg`; omit it
+ * for rows whose token already carries an opaque fill (grand-total / header).
+ */
+export function freezeCol(left: number, bg?: string): CSSProperties {
+  return { position: 'sticky', left, zIndex: 1, ...(bg ? { background: bg } : {}) };
+}

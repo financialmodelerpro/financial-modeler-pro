@@ -55,6 +55,7 @@ import {
   TABLE_TITLE,
   nonLabelColumnPct,
   periodTableStyle,
+  PERIOD_LABEL_PX, STICKY_DATA_BG, STICKY_SUBTOTAL_BG, freezeCol,
 } from './_shared/tableStyles';
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
@@ -98,8 +99,8 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
           </colgroup>
           <thead>
             <tr>
-              <th style={CELL_HEADER}>Line</th>
-              <th style={CELL_HEADER_TOTAL}>{totalLabel}</th>
+              <th style={{ ...CELL_HEADER, ...freezeCol(0) }}>Line</th>
+              <th style={{ ...CELL_HEADER_TOTAL, ...freezeCol(PERIOD_LABEL_PX) }}>{totalLabel}</th>
               {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>
@@ -128,6 +129,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
                 );
               }
               const tokens = r.isTotal ? ROW_GRAND_TOTAL : r.isSubtotal ? ROW_SUBTOTAL : ROW_DATA;
+              const stickyBg = r.isTotal ? undefined : r.isSubtotal ? STICKY_SUBTOTAL_BG : STICKY_DATA_BG;
               const indent = r.indent ?? 0;
               const agg: Aggregation = r.aggregation ?? 'sum';
               let totalDisplay: string;
@@ -144,8 +146,8 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
               }
               return (
                 <tr key={r.label + idx}>
-                  <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px` }}>{r.label}</td>
-                  <td style={tokens.numTotal}>{totalDisplay}</td>
+                  <td style={{ ...tokens.name, paddingLeft: `${10 + indent * 12}px`, ...freezeCol(0, stickyBg) }}>{r.label}</td>
+                  <td style={{ ...tokens.numTotal, ...freezeCol(PERIOD_LABEL_PX, stickyBg) }}>{totalDisplay}</td>
                   {hasPrior && (<td style={{ ...tokens.num, ...priorCellStyle }}>{fmt(0)}</td>)}
                   {r.values.map((v, j) => (<td key={j} style={tokens.num}>{fmt(v)}</td>))}
                 </tr>

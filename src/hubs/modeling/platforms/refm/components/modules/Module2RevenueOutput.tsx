@@ -63,6 +63,7 @@ import {
   TABLE_TITLE,
   nonLabelColumnPct,
   periodTableStyle,
+  PERIOD_LABEL_PX, STICKY_DATA_BG, STICKY_SUBTOTAL_BG, freezeCol,
 } from './_shared/tableStyles';
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
@@ -264,8 +265,8 @@ function PeriodTable({
           </colgroup>
           <thead>
             <tr>
-              <th style={CELL_HEADER}>Line</th>
-              <th style={CELL_HEADER_TOTAL}>Total</th>
+              <th style={{ ...CELL_HEADER, ...freezeCol(0) }}>Line</th>
+              <th style={{ ...CELL_HEADER_TOTAL, ...freezeCol(PERIOD_LABEL_PX) }}>Total</th>
               {trailingHeader && (<th style={CELL_HEADER}>{trailingHeader}</th>)}
               {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{resolvedPriorYear}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
@@ -301,6 +302,7 @@ function PeriodTable({
                 : r.kind === 'subtotal'
                   ? ROW_SUBTOTAL
                   : ROW_DATA;
+              const stickyBg = r.kind === 'grand' ? undefined : r.kind === 'subtotal' ? STICKY_SUBTOTAL_BG : STICKY_DATA_BG;
               const total = r.values.reduce((s, v) => s + (v ?? 0), 0);
               const indentPx = Math.max(0, (r.indent ?? 0)) * 14;
               const labelStyle = indentPx > 0
@@ -311,8 +313,8 @@ function PeriodTable({
               const totalDisplay = r.totalOverride ?? cellFmt(total);
               return (
                 <tr key={`${r.label}-${idx}`}>
-                  <td style={labelStyle}>{r.label}</td>
-                  <td style={tokens.numTotal}>{totalDisplay}</td>
+                  <td style={{ ...labelStyle, ...freezeCol(0, stickyBg) }}>{r.label}</td>
+                  <td style={{ ...tokens.numTotal, ...freezeCol(PERIOD_LABEL_PX, stickyBg) }}>{totalDisplay}</td>
                   {trailingHeader && (
                     <td style={tokens.num}>{r.trailing ?? ''}</td>
                   )}
