@@ -49,8 +49,14 @@ export function reconcile(
   // debt/equity split, so the identity expands to include it.
   // Pass 30 (2026-05-14): Method 4 sizes from user-specified amounts
   // (funding.method4) instead of capex; identity flips accordingly.
-  const expectedFunding = funding.selectedMethodId === 4
-    ? funding.method4 + (funding.minCashReserve ?? 0)
+  // Gap-sized methods (2/3 with a fed gap) and Method 4 size funding from
+  // custom per-period curves, NOT full capex, so the identity must expect
+  // funding.selectedWithMinCash (selected gap/amount + the min-cash buffer,
+  // which Method 3 gap-sizing suppresses). Methods 1 + no-gap 2/3 size from
+  // capex. `customDebt/EquityByPeriod` is the gap/Method-4 marker.
+  const isCustomSized = funding.customDebtByPeriod !== undefined && funding.customEquityByPeriod !== undefined;
+  const expectedFunding = isCustomSized
+    ? funding.selectedWithMinCash
     : capex.totals.exclLandInKind + (funding.minCashReserve ?? 0);
   if (!near(totalDebt + totalEquity, expectedFunding))
     issues.push(`Debt+CashEquity ${totalDebt + totalEquity} vs Funding+MinCash ${expectedFunding}`);

@@ -2854,7 +2854,12 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         //   finalClosing  = closing after sweep AND dividends (= Direct CF
         //                   closing, the BS cash).
         const finalClosing = snap.directCF.closingCashPerPeriod.slice(0, N);
-        const preSweepClose = sweep.preSweepClosingCash.slice(0, N);
+        // cashBeforeAlloc = cash at the start of each period's distribution
+        // waterfall (after funding, net of PRIOR periods' sweep/dividends), so
+        // cashBeforeAlloc − minCash = excessArr foots and Opening rolls from the
+        // prior period's final closing. preSweepClose is the no-distribution
+        // counterfactual (used only for Method 3's funding-sizing reference).
+        const cashBeforeAlloc = sweep.cashBeforeAllocationPerPeriod.slice(0, N);
         const excessArr = sweep.excessAvailablePerPeriod.slice(0, N);
         const sweepArr = sweep.totalSweepPerPeriod;
         const divArr = div.totalDividendsPerPeriod;
@@ -2879,7 +2884,11 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderStateRow('Opening Cash', w.openingCashPerPeriod, { priorValue: snap.bs.historicalOpeningCashTotal })}
                   {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod, { priorValue: 0 })}
                   {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true, priorValue: -snap.financing.existing.preCapexTotal })}
-                  {renderFlowRow('(+) Equity Drawdown (Cash)', snap.directCF.equityDrawdownPerPeriod, { priorValue: snap.financing.existing.equityTotal })}
+                  {/* Existing equity is a PRE-AXIS contribution already reflected in
+                      Opening Cash — shown as a prior-column memo (axis 0), NOT an in-axis
+                      inflow. NEW equity is the funding response and appears in the Net
+                      Cash Required block below (avoids double-counting). */}
+                  {renderFlowRow('(+) Existing Equity Opening (memo)', new Array<number>(N).fill(0), { priorValue: snap.financing.existing.equityTotal })}
                   {(() => {
                     const existingOpening = (() => {
                       let s = 0;
@@ -2912,7 +2921,12 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       {renderFlowRow('Total New Equity Required', equitySplit, { bold: true, priorValue: 0 })}
                     </>
                   )}
-                  {renderStateRow('Closing Cash (after funding, before sweep & dividends)', preSweepClose, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {/* Funding-sizing model's own closing: max(min cash, Cash Available),
+                      i.e. new funding plugs any deficit to the floor and surplus is
+                      retained. This rolls into next period's Opening within THIS model.
+                      The actual post-funding cash (with the real debt/equity split, IDC,
+                      sweep + dividends) is in the two schedules below + the Cash Flow tab. */}
+                  {renderStateRow('Closing Cash (funding-sizing model)', w.cashAvailableBeforeNewDebtPerPeriod.map((v) => Math.max(w.minCashReserve, v)), { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
                 </tbody>
               </table>
             </div>
@@ -2936,8 +2950,8 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {renderStateRow('Opening Cash', realOpening, { priorValue: snap.bs.historicalOpeningCashTotal })}
-                  {renderStateRow('Cash before sweep (after funding)', preSweepClose, { subtotal: true, priorValue: 0 })}
-                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', preSweepClose.map(() => -w.minCashReserve), { negative: true })}
+                  {renderStateRow('Cash before sweep (after funding)', cashBeforeAlloc, { subtotal: true, priorValue: 0 })}
+                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', cashBeforeAlloc.map(() => -w.minCashReserve), { negative: true })}
                   {renderStateRow('Cash Available for Debt + Dividend Payment', excessArr, { subtotal: true, priorValue: 0 })}
                   {sweep.enabled && sweep.eligibleTranches.map((row) => renderFlowRow(
                     `  (−) Sweep: ${row.trancheName} (${row.origin === 'existing' ? 'existing' : 'new'}, priority ${row.priority}, from ${row.startingYear})`,

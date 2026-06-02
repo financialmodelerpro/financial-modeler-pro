@@ -172,6 +172,10 @@ for (const method of [1, 2, 3, 4] as const) {
   check(`SNAPSHOT Method ${method}: equity > 0 in Cash Flow`, equity > 0, `equity=${Math.round(equity)}`);
   check(`SNAPSHOT Method ${method}: BS balances`, bsMax < 1, `maxBSdiff=${Math.round(bsMax)}`);
   check(`SNAPSHOT Method ${method}: Direct CF == Indirect CF (2-pass stable)`, cfTie < 1, `tie=${Math.round(cfTie)}`);
+  // 2026-06-02 audit: the financing reconcile identity must hold for the
+  // gap-sized methods too (it previously expected full capex and raised a
+  // false "Debt+CashEquity vs Funding" warning on Methods 2/3).
+  check(`SNAPSHOT Method ${method}: financing reconciliation ok`, snap.financing.reconciliation.ok, `issues=${snap.financing.reconciliation.issues.join('; ')}`);
   if (method === 1) m1Funding = debt + equity;
   // Gap-sized drawdown: Methods 2/3 fund the NET requirement, so total
   // funding is <= Method 1 (full capex). (Equal only if the gap = capex.)

@@ -438,6 +438,31 @@ console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
 }
 
 // ──────────────────────────────────────────────────────────────────
+// K: Annuity repayment books principal = PMT − interest, NOT the whole PMT
+// (2026-06-02 audit). Prior bug deducted the level payment (P+I) entirely
+// as principal, over-amortizing and closing the loan a period early.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[K] Annuity (equal_total) books principal = PMT − interest');
+{
+  const project = makeFixture({}).project;
+  const phases = [{ id: 'ph1', name: 'P1', constructionStart: 1, constructionPeriods: 0, operationsPeriods: 8, overlapPeriods: 0, startDate: '2025-01-01', status: 'operational' } as unknown as Phase];
+  const axis = buildProjectAxis(project, phases);
+  const tranche = { id: 'an', name: 'Annuity', origin: 'new', phaseId: 'ph1', interestRatePct: 10, repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 5, repaymentStartYear: 2026, capexAllocationPct: 100 } as unknown as FinancingTranche;
+  const debtPerPeriod = [1000, 0, 0, 0, 0, 0, 0, 0]; // drawn at t=0; repay from 2026 (idx1)
+  const r = computeFacilitySchedule(tranche, project, phases, axis, debtPerPeriod, 100);
+  const pmt = 1000 * (0.1 * Math.pow(1.1, 5)) / (Math.pow(1.1, 5) - 1); // 263.797
+  assertNear('K1 principal[1] = PMT − interest (≈163.8, NOT the full PMT)', r.principalRepaid[1], pmt - 100, 0.5);
+  assertNear('K2 outstanding[1] = 1000 − (PMT − 100)', r.outstanding[1], 1000 - (pmt - 100), 0.5);
+  assertNear('K3 NOT repaid early: outstanding[4] > 0', r.outstanding[4] > 0 ? 1 : 0, 1);
+  assertNear('K4 fully repaid at maturity: outstanding[5] = 0', r.outstanding[5], 0, 1);
+  assertNear('K5 total principal repaid = drawn (1000)', r.totalPrincipal, 1000, 1);
+  // equal_principal sub-method stays straight-line (principal = 200/yr).
+  const slTranche = { ...tranche, equalRepaymentSubMethod: 'equal_principal' } as unknown as FinancingTranche;
+  const rsl = computeFacilitySchedule(slTranche, project, phases, axis, debtPerPeriod, 100);
+  assertNear('K6 equal_principal principal[1] = 200 (straight-line)', rsl.principalRepaid[1], 200, 0.5);
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

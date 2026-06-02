@@ -180,7 +180,13 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // covered by existing debt opening (preCapex − debtOpening).
   const existingPreCapex = Math.max(0, fin.existing.preCapexTotal);
   const existingDebtOpening = Math.max(0, fin.existing.debtOutstandingTotal);
-  const existingEquity = Math.max(0, existingPreCapex - existingDebtOpening);
+  // Existing equity = pre-capex NOT covered by existing debt opening. NOT
+  // clamped at 0: the FCFE inception (−preCapex + debtOpening) and the
+  // dividend inception (−existingEquity) must be the SAME number, and the
+  // FCFE build-up's two lines (−preCapex, +debtOpening) must foot to it. An
+  // over-levered existing asset (debt > pre-capex) is a real cash-out at
+  // inception on BOTH streams (2026-06-02 audit fixed the divergence).
+  const existingEquity = existingPreCapex - existingDebtOpening;
   const equityCash = fin.equity.cashPerPeriod;
   const equityInKind = fin.equity.inKindPerPeriod;
   const dividendsPaid = snap.dividends.totalDividendsPerPeriod;

@@ -713,6 +713,13 @@ export interface CashSweepSnapshot {
   eligibleTranches: CashSweepRow[];
   /** Pre-sweep closing cash per period (mirrors directCF before sweep). */
   preSweepClosingCash: number[];
+  /** Cash available at the START of each period's distribution waterfall =
+   *  preSweepClosingCash[t] − cumulative prior-period (sweep + dividend)
+   *  allocations. This is the figure the period's min-cash floor + excess
+   *  are measured against, so excessAvailablePerPeriod = max(0, this − min).
+   *  Use it (not preSweepClosingCash) for the "cash before sweep" row so the
+   *  schedule foots once any earlier period has swept / paid dividends. */
+  cashBeforeAllocationPerPeriod: number[];
   /** Excess available per period before sweep (capped at 0 from below). */
   excessAvailablePerPeriod: number[];
   /** Total sweep applied per period (sum across all tranches). */
@@ -725,9 +732,10 @@ export interface CashSweepSnapshot {
   /** M4 Pass 2Y (2026-05-24): interest savings per period from the
    *  reduced post-sweep balance. interest_savings[t] = sum over
    *  sweep-enabled tranches of (preSweep[t-1] − postSweep[t-1]) × rate.
-   *  Composer subtracts from both totalInterestExpensed (P&L) and the
-   *  cash interest paid (CF) so BS stays balanced AND the model
-   *  captures the real-world benefit of sweeping. */
+   *  DISPLAY-ONLY (V1 limitation, see the CashSweepSnapshot doc above): the
+   *  composer does NOT yet re-derive P&L / CF interest from the lower
+   *  post-sweep balance, so this is surfaced as an informational memo and is
+   *  not folded into totalInterestExpensed or cash interest paid. */
   interestSavingsPerPeriod: number[];
   totalInterestSavings: number;
 }
@@ -901,6 +909,7 @@ export function computeCashWaterfall(args: {
   }
 
   const excessAvailablePerPeriod = new Array<number>(N).fill(0);
+  const cashBeforeAllocationPerPeriod = new Array<number>(N).fill(0);
   const totalSweepPerPeriod = new Array<number>(N).fill(0);
   const totalDividendsPerPeriod = new Array<number>(N).fill(0);
   const adjustedClosingCash = preSweepClosingCash.slice(0, N);
@@ -910,6 +919,7 @@ export function computeCashWaterfall(args: {
   let cumAllocation = 0;
   for (let t = 0; t < N; t++) {
     const cashBefore = (preSweepClosingCash[t] ?? 0) - cumAllocation;
+    cashBeforeAllocationPerPeriod[t] = cashBefore;
     let excess = Math.max(0, cashBefore - minCashReserve);
     excessAvailablePerPeriod[t] = excess;
     if (excess <= 0) {
@@ -1001,9 +1011,10 @@ export function computeCashWaterfall(args: {
   // M4 Pass 2Y (2026-05-24): interest savings from sweep. For each
   // tranche, the per-period balance reduction (preSweep[t-1] −
   // postSweep[t-1]) × periodic rate is the interest payment that
-  // doesn't happen on the post-sweep balance. Aggregate across
-  // tranches; composer subtracts from totalInterestExpensed (P&L)
-  // AND from cash interest paid (CF), symmetric BS adjustment.
+  // doesn't happen on the post-sweep balance. Aggregate across tranches.
+  // DISPLAY-ONLY (V1 limitation): surfaced as an informational memo; the
+  // composer does NOT subtract it from P&L interest or CF (so no asymmetric
+  // BS adjustment). Folding it in is a follow-up pass.
   const interestSavingsPerPeriod = new Array<number>(N).fill(0);
   for (const row of eligible) {
     const tranche = tranches.find((t) => t.id === row.trancheId);
@@ -1026,6 +1037,7 @@ export function computeCashWaterfall(args: {
     minCashReserve,
     eligibleTranches: eligible,
     preSweepClosingCash: preSweepClosingCash.slice(0, N),
+    cashBeforeAllocationPerPeriod,
     excessAvailablePerPeriod,
     totalSweepPerPeriod,
     totalSweep: totalSweepPerPeriod.reduce((s, v) => s + v, 0),
@@ -1937,11 +1949,18 @@ function computeFinancialsSnapshotOnce(
   // the BS — the resulting gap was the user-reported mismatch.
   const priorEquityTotal = financing.existing.equityTotal;
   const equityCumulative = cumulative(equityDraws);
+  // A user-entered project.shareCapital is treated as the OPENING / base
+  // share capital (replacing the derived prior-equity opening); new equity
+  // draws still roll in on top, so the equity side matches the equity cash
+  // that flowed through the Cash Flow into BS Cash. Pinning it to a flat
+  // constant (the prior behaviour) left BS Cash growing with equity draws
+  // while Equity stayed flat, breaking the BS balance (2026-06-02 audit).
+  const openingShareCapital = project.shareCapital != null && project.shareCapital > 0
+    ? project.shareCapital
+    : priorEquityTotal;
   const shareCapital = zeros(N);
   for (let t = 0; t < N; t++) {
-    shareCapital[t] = project.shareCapital != null && project.shareCapital > 0
-      ? project.shareCapital
-      : priorEquityTotal + equityCumulative[t];
+    shareCapital[t] = openingShareCapital + equityCumulative[t];
   }
   const reserveRate = Math.max(0, project.statutoryReserve?.transferRate ?? 0);
   const reserveCapPct = Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0);

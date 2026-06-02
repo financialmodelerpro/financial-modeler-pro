@@ -179,6 +179,14 @@ export function computeFacilitySchedule(
   // grace = 0 the grace window is empty, so this block is a no-op.
 
   const method = tranche.repaymentMethod;
+  // Annuity methods build repBudget as the LEVEL DEBT SERVICE (principal +
+  // interest); the balance loop must therefore book only the PRINCIPAL
+  // portion (service − interest) as a repayment, not the whole payment.
+  // 'equal_principal' / 'straight_line' / YoY / bullet / balloon already put
+  // principal-only amounts in repBudget.
+  const equalSubMethod = tranche.equalRepaymentSubMethod ?? 'equal_total';
+  const isAnnuity = method === 'equal_periodic_amortization'
+    || (method === 'equal_repayment' && equalSubMethod === 'equal_total');
   const repBudget = new Array<number>(N).fill(0);
   if (method === 'manual') {
     // M4 Pass 2h: prefer the year-keyed sibling when present; expand
@@ -206,7 +214,7 @@ export function computeFacilitySchedule(
     //                     equal_periodic_amortization
     //   equal_principal = straight-line - same as legacy straight_line
     // Default sub-mode is equal_total when unset.
-    const subMethod = tranche.equalRepaymentSubMethod ?? 'equal_total';
+    const subMethod = equalSubMethod;
     if (subMethod === 'equal_principal') {
       const slice = totalDrawn / effRepay;
       for (let i = 0; i < effRepay && (repayStartProj + i) < N; i++) {
@@ -320,16 +328,21 @@ export function computeFacilitySchedule(
     } else {
       interestPaid[i] = interest;
     }
-    let pay = Math.min(bal, Math.max(0, repBudget[i] ?? 0));
+    // Annuity (level debt service): principal portion = service − interest.
+    // All other methods put principal-only amounts in repBudget.
+    const scheduled = Math.max(0, repBudget[i] ?? 0);
+    let pay = isAnnuity
+      ? Math.min(bal, Math.max(0, scheduled - interest))
+      : Math.min(bal, scheduled);
     if (sweepsAtMaturity && i === finalRepayIdx && pay < bal) pay = bal;
     principalRepaid[i] = pay;
     bal -= pay;
-    // Pass 28b (2026-05-14): snap rounding remainder to zero so the
-    // closing balance UI doesn't show stray ±100s left over from
-    // PMT / annuity arithmetic. Threshold ±1000 (raw currency units)
-    // per user request - tight enough to catch rounding, loose enough
-    // to not mask a real residual.
-    if (Math.abs(bal) < 1000) bal = 0;
+    // Pass 28b (2026-05-14): snap the rounding remainder to zero so the
+    // closing balance doesn't show stray dust left over from PMT / annuity
+    // arithmetic. RELATIVE tolerance (≤ 1000) so it never eats a real
+    // outstanding balance on a small facility (2026-06-02 audit).
+    const snapTol = Math.max(1, Math.min(1000, (totalDrawn + Math.max(0, openingBalance)) * 1e-4));
+    if (Math.abs(bal) < snapTol) bal = 0;
     outstanding[i] = bal;
   }
 
