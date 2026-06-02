@@ -257,6 +257,7 @@ npx tsx scripts/verify-phase-date-preservation.ts # M4 Pass 2h hybrid storage
 npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + 9L-Fix
 npx tsx scripts/verify-versioning.ts              # session versioning + change_log
 npx tsx scripts/verify-version-naming.ts          # auto version names + rollover
+npx tsx scripts/verify-pdf-export.ts              # full-project PDF export smoke test (pdf-lib)
 
 # Module 1 historical (LOCKED; run only when touching M1 code)
 npx tsx scripts/verify-tab3-regression-2.ts       # Tab 3 regressions
