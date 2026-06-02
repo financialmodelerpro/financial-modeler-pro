@@ -1,22 +1,16 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-06-02. Module 1 LOCKED at M2.0 Pass 58 (base). Module 2 LOCKED at Pass 9N. Module 3 LOCKED at Pass 5d. Module 4 WIP, Financial Statements BALANCE BY CONSTRUCTION (BS-tab AP-link fix `cf6200d`). Module 5 (Returns & Valuation) NEW 2026-06-01 (commits `9095ae7` engine + `19f0292` resolver/UI/sidebar): pure IRR/MOIC/NPV/Payback on FCFF/FCFE/Dividends + terminal value (exit-multiple/perpetuity/none) + RE metrics (Yield on Cost, Cap Rate, DSCR, LTV at Exit, Equity Multiple, Debt Yield, ICR, Cash-on-Cash, Profit Margin). Engine `src/core/calculations/returns/` (pure), resolver `returns-resolvers.ts`, UI `Module5Returns`/`Module5Metrics`, additive `Project.returns` config. Funding Methods 2/3 calculate + GAP-SIZED drawdown via a guarded two-pass in `computeFinancialsSnapshot` (commits `03a18ec` → `7d340fc`); BS balances + Direct==Indirect for all 4 methods. M5 build-up: step-by-step FCFF/FCFE/Dividend derivation tables (commit `1c2d149`). **2026-06-02 — M5 reworked to a SPONSOR-IRR / project-inception view: every stream leads with an INCEPTION period (index 0 = projectStartYear − 1) carrying existing operations. FCFF inception = −existing pre-capex; axis = CFO + CFI (new capex), NO in-kind land line (non-cash, already in CFO via CoS/dep). FCFE inception = −pre-capex + existing debt opening (= −existing equity); axis adds debt draw − principal − interest − in-kind land. In-kind land + existing-debt-opening appear on FCFE only. Per-period bridge FCFE = FCFF + debt draw − principal − interest − in-kind + terminal-equity adj. `fin.existing.{preCapexTotal,debtOutstandingTotal}` feed inception; `ReturnsSnapshot.streamYearLabels` + `buildup.{existingPreCapex,existingDebtOpening,existingEquity}PerPeriod` added; IRR is headline, NPV still computed. verify-returns-snapshot 30→38 (SPONSOR section).** Platform infra: project-switch state-leak fixed + session-based versioning with per-version change_log shipped (commits `ca5c152` + `d25a20b`). **2026-06-02 — Funding Gap sub-tab split into THREE segregated schedules (Method 3 Funding Requirement / Debt Repayment via Cash Sweep / Dividend via Cash Sweep), each ending in its own Closing Cash chained to the Direct CF closing (pre-distribution −sweep = post-sweep −dividend = final); cash-sweep order now EXISTING loans first then priority; NEW `idcConfig.fundingMode: 'conditional'` raises IDC debt only to the extent needed to maintain the minimum cash reserve — in surplus-cash construction periods the interest is PAID IN CASH (still capitalised to the asset basis), via a per-tranche `interestCapitalizedCashPaid` engine reclassification (no new composer balance term: `debtServiceCash = accrued − capitalized + principal` auto-carries the cash outflow). The drawdown ↔ finance cost ↔ balance circularity (the one Excel resolves with iterative calc) is now solved by an ITERATIVE FIXED-POINT LOOP: `computeFinancialsSnapshot` wraps an inner `computeFinancialsSnapshotOnce`, re-deriving `{fundingGap, idcCashBudget}` via `deriveCircularInputs` and re-running until both stop changing (max per-period delta < 1, cap 25 iters); the SAME loop also converges Methods 2/3 gap-sizing (replacing the old single re-pass). Each pass is internally consistent so BS balances + Direct==Indirect at every iteration; convergence pins drawdown + finance cost. Explicit-opts callers still do one pass. BS balances + Direct==Indirect, debt lower than the all-capitalised case.** FULL VERIFIER SUITE GREEN 2026-06-02: 25 scripts, 0 fail (idc-depreciation 113→135 §J conditional IDC, funding-methods 45→59 [IDC] + [CONV] fixed-point, bs-reconciliation +N5 existing-first sweep).**
 
-## 2026-05-31 session, recap + tomorrow's checkpoint
+## Latest financing + returns work (2026-06-02)
 
-**Where we left off (end of 2026-05-31 session):**
-- 7 commits shipped in one session, all on `main` and pushed to remote.
-- Production Supabase **still needs migration 152 applied manually** (paste DDL from `supabase/migrations/152_refm_version_change_log.sql` into the Supabase dashboard SQL editor). The platform works without it (hotfix tolerates missing columns), but the change_log + diff feature is inert until applied.
-- User-reported demo data corruption traced + closed at the root cause.
-- New auto-start session model is live; on first edit a banner says "Editing as Edits YYYY-MM-DD HH:MM — Rename / Dismiss".
+Commits this session, on `main`: `2f5adad` consolidated cash waterfall, `045828f`/`042828f` conditional IDC + segregated schedules, `45ecbc8` Method 3 drawdown table restored above the waterfall, `225b66d` M1→M5 audit (9 fixes), `056add3`/`dbbe580` M5 Returns Pass 1 + final revision, `ea7ac63` M5 terminal 100% payout + Method 3 gap excludes debt repayment.
 
-**For tomorrow's session, pick up here:**
-1. **Verify migration 152 is applied** (or apply it). After that, change_log starts populating on every new session.
-2. **Verify the recovery worked** — user restored a pre-May-30 version on the polluted project via VersionModal History → Pre-May 30 filter → Load. Confirm the workspace reflects the clean snapshot.
-3. **Verify the auto-start banner flow** — make one edit on the restored project; banner should appear, all subsequent edits should land in a single version row, picker tile version count should bump by exactly 1 per session.
-4. **Audit residual calc/schedule bugs** (task #3 from the 2026-05-31 task list, still open). User was seeing what they thought were calc bugs during the demo, but most were likely the state-leak rendering the wrong project. With the leak fixed and the restored snapshot, walk through each module and flag any real numbers that don't reconcile.
-5. **Backlog**: task list at the bottom of CLAUDE-REFM.md, plus the original M4 follow-ups (Funding Methods 2 + 3 cash-deficit driven, per-asset capex non-uniform spread, PIT-handover Unearned negative window).
+- **M5 terminal 100% payout (`ea7ac63`):** at exit no minimum cash is retained, so the retained operating cash (`directCF.closing[exit] − historicalOpeningCashTotal`, floored at 0) is folded into `divPaidAxis[exit]` in returns-resolvers. Distributed Equity then reconciles to FCFE and the dividend build-up still foots the stream. UI: MetricCard labels wrap fully; headline / Development Economics / Exit Analysis trimmed to value-adding cards.
+- **Method 3 gap excludes existing debt repayment (`ea7ac63`):** `computeFundingGap` no longer subtracts `existingDebtRepaymentPerPeriod` from cash-available. Rule (per user): never raise NEW debt to repay OLD debt (no churn); repayment is serviced from cash on hand and only happens once drawdown stops. The real outflow still hits Direct CF + the consolidated waterfall, it just no longer sizes the gap. Open follow-up the user is testing: whether scheduled (non-sweep) tranches should also defer repayment when cash is short (cash-sweep method already gates on surplus).
 
-Two independent platform-infra fixes shipped to close a demo-killing bug + rework the version save UX per user request, then four follow-up hotfixes addressed real-world breakage as the user tested in production.
+**Outstanding ops (carry forward until done):**
+- Migrations **152** (version change_log) + **153** (version_label / task_name / comment) are NOT yet applied to production Supabase. Apply via the dashboard SQL editor. Code is schema-tolerant so the platform runs without them, but the change_log + named-version features stay inert until applied.
+- M4 follow-ups still open: financing/IDC CF residual, capex-past-handover BS gap, opening-cash seed offset (all printed by `verify-m4-reconciliation-broad.ts`), per-asset non-uniform capex spread, PIT-handover Unearned negative window.
 
 ### Project-switch state-leak (commit `ca5c152`)
 
@@ -241,27 +235,34 @@ REFM (Module 1 tabs + shell + modals + Area Program tab) uses **FAST input blue*
 
 ## REFM Verifier Scripts
 
-Active engine + composer coverage (run all on every meaningful change). **486 / 486 sections green, 2026-05-21.**
+Active engine + composer coverage (run all on every meaningful change). **25 scripts, full suite green 2026-06-02.** Per-script counts grow as sections are added, so run a script for its live total rather than trusting a hard-coded number here. Run the whole suite with `for f in scripts/verify-*.ts; do npx tsx "$f"; done` (PowerShell: `Get-ChildItem scripts/verify-*.ts | % { npx tsx $_.FullName }`).
 
 ```bash
-# M2 / M3 / M4 (current focus)
-npx tsx scripts/verify-revenue-rebuild.ts         # M2 Sell + Hospitality + Lease + AR + UR    (133/133)
-npx tsx scripts/verify-escrow.ts                  # M2 Pass 9h escrow + Pass 9h-1/2/3 cleanup  ( 46/ 46)
-npx tsx scripts/verify-opex.ts                    # M3 asset + HQ opex engine                    ( 38/ 38)
-npx tsx scripts/verify-opex-ap.ts                 # M4 Pass 2a Accounts Payable                  ( 24/ 24)
-npx tsx scripts/verify-fixed-assets.ts            # M4 Pass 1 SL + Reducing Balance depreciation ( 82/ 82)
-npx tsx scripts/verify-cost-of-sales-v2.ts        # M2 Pass 9e + Pass 9N cohort tail-catchup    ( 24/ 24)
-npx tsx scripts/verify-idc-depreciation.ts        # M4 Pass 2f IDC additions feeding D&A         ( 22/ 22)
-npx tsx scripts/verify-asset-cost-allocation.ts   # M1 computeAssetCost allocation               ( 14/ 14)
-npx tsx scripts/verify-m4-bs-reconciliation.ts    # M4 BS identities + Pass 2N debt/share-cap   ( 59/ 59)
-npx tsx scripts/verify-phase-date-preservation.ts # M4 Pass 2h hybrid storage + Pass 9k-Fix      ( 37/ 37)
-npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + Pass 9L-Fix       (  7/  7)
+# M2 / M3 / M4 / M5 + financing (current daily loop)
+npx tsx scripts/verify-revenue-rebuild.ts         # M2 Sell + Hospitality + Lease + AR + UR
+npx tsx scripts/verify-escrow.ts                  # M2 Pass 9h escrow + cleanup
+npx tsx scripts/verify-cost-of-sales-v2.ts        # M2 Pass 9e + 9N cohort tail-catchup
+npx tsx scripts/verify-opex.ts                    # M3 asset + HQ opex engine
+npx tsx scripts/verify-opex-ap.ts                 # M4 Pass 2a Accounts Payable
+npx tsx scripts/verify-fixed-assets.ts            # M4 Pass 1 depreciation
+npx tsx scripts/verify-idc-depreciation.ts        # M4 IDC -> D&A + annuity amortization (§K)
+npx tsx scripts/verify-asset-cost-allocation.ts   # M1 computeAssetCost allocation
+npx tsx scripts/verify-m4-bs-reconciliation.ts    # M4 BS identities + debt/share-cap
+npx tsx scripts/verify-m4-reconciliation-broad.ts # M4 Direct==Indirect + BS bridge (broad guard)
+npx tsx scripts/verify-bs-hq-ap-link.ts           # BS HQ-AP link (cf6200d drift guard)
+npx tsx scripts/verify-funding-methods.ts         # Methods 2/3 gap-sizing + conditional IDC + sweep + fixed-point [CONV]
+npx tsx scripts/verify-returns-engine.ts          # M5 pure IRR/MOIC/payback/TV/RE-metrics/analytics
+npx tsx scripts/verify-returns-snapshot.ts        # M5 stream build-up + sponsor-IRR + sources/uses
+npx tsx scripts/verify-phase-date-preservation.ts # M4 Pass 2h hybrid storage
+npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + 9L-Fix
+npx tsx scripts/verify-versioning.ts              # session versioning + change_log
+npx tsx scripts/verify-version-naming.ts          # auto version names + rollover
 
 # Module 1 historical (LOCKED; run only when touching M1 code)
-npx tsx scripts/verify-tab3-regression-2.ts       # Tab 3 Critical Regressions Round 2
+npx tsx scripts/verify-tab3-regression-2.ts       # Tab 3 regressions
 npx tsx scripts/verify-tab2-pass3.ts              # Tab 2 quick fixes
-npx tsx scripts/verify-m20costsCleanup-pass10.ts  # M2.0 Pass 10 Costs cleanup + audit
-npx tsx scripts/verify-m20M.ts                    # M2.0M Financing definitive rewrite
+npx tsx scripts/verify-m20costsCleanup-pass10.ts  # M2.0 Pass 10 Costs cleanup
+npx tsx scripts/verify-m20M.ts                    # M2.0M Financing rewrite
 # Older scripts/verify-m20*.ts remain runnable; not part of the daily loop.
 
 # Playwright e2e
