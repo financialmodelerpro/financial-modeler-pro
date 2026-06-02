@@ -868,9 +868,12 @@ export function computeCashWaterfall(args: {
       postSweepOutstanding = fac.slice(0, N);
       sweepPerPeriod = engSweep.slice(0, N);
       while (sweepPerPeriod.length < N) sweepPerPeriod.push(0);
+      // Pre-sweep opening = the balance entering THIS period before its own
+      // sweep = post-sweep closing + this period's sweep. (Bug fix 2026-06-02:
+      // previously added the CUMULATIVE sweep, so a fully-repaid tranche kept
+      // showing its original opening forever instead of rolling to zero.)
       preSweepOutstanding = new Array<number>(N).fill(0);
-      let cum = 0;
-      for (let t2 = 0; t2 < N; t2++) { cum += sweepPerPeriod[t2] ?? 0; preSweepOutstanding[t2] = (postSweepOutstanding[t2] ?? 0) + cum; }
+      for (let t2 = 0; t2 < N; t2++) preSweepOutstanding[t2] = (postSweepOutstanding[t2] ?? 0) + (sweepPerPeriod[t2] ?? 0);
     } else {
       preSweepOutstanding = fac.slice(0, N);
       postSweepOutstanding = fac.slice(0, N);

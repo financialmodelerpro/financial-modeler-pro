@@ -2983,7 +2983,21 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderFlowRow('= Cash Available', cashAvailableW, { subtotal: true, priorValue: 0 })}
                   {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', cashAvailableW.map(() => -minCash), { negative: true })}
                   {renderFlowRow('= Cash Available for Debt + Dividend', cashForDebtDivW, { subtotal: true, priorValue: 0 })}
-                  {renderFlowRow('(−) Debt Paid (principal, per method incl. sweep)', debtPaidW, { negative: true })}
+                  {/* Debt Paid split per tranche (2026-06-02) so the user sees
+                      which loan is repaid each period. Each line is that
+                      facility's principal repaid (scheduled + sweep); they sum
+                      to the total below, which ties to the Direct CF. */}
+                  {(() => {
+                    const trName = (id: string) => state.financingTranches.find((t) => t.id === id)?.name ?? id;
+                    return [...snap.financing.facilities.entries()]
+                      .filter(([, fac]) => (fac.principalRepaid ?? []).slice(0, N).some((v) => v !== 0))
+                      .map(([id, fac]) => (
+                        <React.Fragment key={`dp_${id}`}>
+                          {renderFlowRow(`  (−) Debt Paid: ${trName(id)}`, fac.principalRepaid.slice(0, N).map((v) => -v), { negative: true, indent: 1, priorValue: 0 })}
+                        </React.Fragment>
+                      ));
+                  })()}
+                  {renderFlowRow('(−) Debt Paid (total principal incl. sweep)', debtPaidW, { negative: true, subtotal: true })}
                   {renderFlowRow('= Cash Available for Dividend', cashForDividendW, { subtotal: true, priorValue: 0 })}
                   {div.enabled && renderFlowRow('(−) Dividend Paid (per policy, EBITDA-capped)', divArr.map((v) => -v), { negative: true })}
                   {renderStateRow('= Closing Cash (ties to Cash Flow tab + Balance Sheet)', finalClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
