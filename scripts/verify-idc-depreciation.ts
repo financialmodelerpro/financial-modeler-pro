@@ -359,6 +359,85 @@ console.log('\n[I] Pass 2Q: integrated Capex + IDC FA roll-forward identity');
 }
 
 // ──────────────────────────────────────────────────────────────────
+// J: Conditional IDC (2026-06-02). fundingMode = 'conditional' pays
+// construction interest in cash up to the per-period surplus-cash budget
+// (remainingIdcBudget), capitalising the shortfall to debt. Interest is
+// still routed to the asset basis. Uses the same 1000-draw, 10% fixture
+// (interest = 100 at t=0).
+//   J1: full budget (>=100) => all paid in cash, debt does NOT grow.
+//   J2: partial budget (40) => 40 cash, 60 capitalised; debt grows 60.
+//   J3: zero/absent budget => behaves like debt_drawdown (all capitalised).
+//   J4: identity capitalized + cashPaid = forAssetBasis (during construction).
+//   J5: budget is decremented (consumed) by the cash paid.
+//   J6: combineDebtService surfaces totalInterestCapitalizedCashPaid and
+//       totalInterestCapitalized + ...CashPaid = totalInterestForAssetBasis.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
+{
+  const runWithBudget = (budget: number[]) => {
+    const f = makeFixture({ capitalize: true, fundingMode: 'conditional' });
+    const axis = buildProjectAxis(f.project, f.phases);
+    const remaining = budget.slice();
+    const r = computeFacilitySchedule(f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100, remaining);
+    return { r, remaining, tranche: f.tranche, axis };
+  };
+
+  // J1: full budget at t=0 (interest=100).
+  {
+    const { r } = runWithBudget([100, 0, 0, 0, 0, 0, 0, 0]);
+    assertNear('J1a full budget: interestPaid[0] = 100 (cash)', r.interestPaid[0], 100);
+    assertNear('J1b full budget: interestCapitalized[0] = 0 (no debt growth)', r.interestCapitalized[0], 0);
+    assertNear('J1c full budget: interestCapitalizedCashPaid[0] = 100', r.interestCapitalizedCashPaid[0], 100);
+    assertNear('J1d full budget: interestForAssetBasis[0] = 100 (asset still built)', r.interestForAssetBasis[0], 100);
+    assertNear('J1e full budget: outstanding[0] = 1000 (no IDC drawdown)', r.outstanding[0], 1000);
+  }
+
+  // J2: partial budget (40) at t=0.
+  {
+    const { r } = runWithBudget([40, 0, 0, 0, 0, 0, 0, 0]);
+    assertNear('J2a partial: interestPaid[0] = 40 (cash)', r.interestPaid[0], 40);
+    assertNear('J2b partial: interestCapitalized[0] = 60 (debt)', r.interestCapitalized[0], 60);
+    assertNear('J2c partial: interestCapitalizedCashPaid[0] = 40', r.interestCapitalizedCashPaid[0], 40);
+    assertNear('J2d partial: interestForAssetBasis[0] = 100', r.interestForAssetBasis[0], 100);
+    assertNear('J2e partial: outstanding[0] = 1060 (1000 + 60 IDC)', r.outstanding[0], 1060);
+  }
+
+  // J3: zero budget => same as debt_drawdown.
+  {
+    const { r } = runWithBudget([0, 0, 0, 0, 0, 0, 0, 0]);
+    assertNear('J3a zero budget: interestCapitalized[0] = 100 (all debt)', r.interestCapitalized[0], 100);
+    assertNear('J3b zero budget: interestPaid[0] = 0', r.interestPaid[0], 0);
+    assertNear('J3c zero budget: outstanding[0] = 1100', r.outstanding[0], 1100);
+  }
+
+  // J4: identity capitalized + cashPaid = forAssetBasis during construction.
+  {
+    const { r } = runWithBudget([40, 0, 0, 0, 0, 0, 0, 0]);
+    for (let t = 0; t < 3; t++) { // construction periods 0..2
+      const sum = (r.interestCapitalized[t] ?? 0) + (r.interestCapitalizedCashPaid[t] ?? 0);
+      assertNear(`J4[t=${t}]: capitalized + cashPaid = forAssetBasis`, sum, r.interestForAssetBasis[t] ?? 0);
+    }
+  }
+
+  // J5: budget consumed by the cash paid.
+  {
+    const { remaining } = runWithBudget([40, 0, 0, 0, 0, 0, 0, 0]);
+    assertNear('J5: remaining budget at t=0 decremented to 0', remaining[0], 0);
+  }
+
+  // J6: combineDebtService surfaces the cash-paid total + asset-basis identity.
+  {
+    const { r, tranche, axis } = runWithBudget([40, 0, 0, 0, 0, 0, 0, 0]);
+    const combined = combineDebtService(new Map([[r.trancheId, r]]), axis, [tranche]);
+    assertNear('J6a combined: totalInterestCapitalizedCashPaid[0] = 40', combined.totalInterestCapitalizedCashPaid[0], 40);
+    for (let t = 0; t < 3; t++) {
+      const lhs = (combined.totalInterestCapitalized[t] ?? 0) + (combined.totalInterestCapitalizedCashPaid[t] ?? 0);
+      assertNear(`J6b[t=${t}]: totalCapitalized + totalCashPaid = totalForAssetBasis`, lhs, combined.totalInterestForAssetBasis[t] ?? 0);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

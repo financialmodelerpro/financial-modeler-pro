@@ -454,6 +454,12 @@ export interface Project {
    *   - fundingMode: 'debt_drawdown' grows the debt balance by the
    *     interest amount (additional drawdown, current default).
    *     'cash' pays the interest from cash flow without growing debt.
+   *     'conditional' (2026-06-02) raises debt for IDC only to the extent
+   *     needed to maintain the minimum cash reserve: in any construction
+   *     period with surplus cash above the minimum, the interest is paid
+   *     in cash; the shortfall (if any) is capitalised to debt. Interest
+   *     is still capitalised to the asset basis in every mode where
+   *     capitalize !== false.
    *
    * All three default to current behaviour (land / true / debt_drawdown)
    * so legacy snapshots are unchanged.
@@ -461,7 +467,7 @@ export interface Project {
   idcConfig?: {
     allocationBasis?: 'land' | 'bua';
     capitalize?: boolean;
-    fundingMode?: 'debt_drawdown' | 'cash';
+    fundingMode?: 'debt_drawdown' | 'cash' | 'conditional';
   };
   /**
    * M5 Returns (2026-06-01): returns + valuation assumptions. Additive;

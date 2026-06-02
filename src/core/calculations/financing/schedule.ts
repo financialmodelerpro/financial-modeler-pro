@@ -34,12 +34,19 @@ export function computeFacilitySchedule(
   axis: ProjectAxis,
   debtPerPeriod: number[],
   sharePct: number,
+  /** Conditional IDC (2026-06-02): MUTABLE per-period cash budget shared
+   *  across all tranches in the orchestrator loop. When fundingMode is
+   *  'conditional', each construction period pays interest in cash up to
+   *  the remaining budget (decrementing it) and capitalises the shortfall
+   *  to debt. Absent / undefined => behaves like 'debt_drawdown'. */
+  remainingIdcBudget?: number[],
 ): FacilityResult {
   const N = axis.totalPeriods;
   const drawSchedule       = new Array<number>(N).fill(0);
   const outstanding        = new Array<number>(N).fill(0);
   const interestAccrued    = new Array<number>(N).fill(0);
   const interestCapitalized = new Array<number>(N).fill(0);
+  const interestCapitalizedCashPaid = new Array<number>(N).fill(0);
   const interestPaid       = new Array<number>(N).fill(0);
   const interestForAssetBasis = new Array<number>(N).fill(0);
   const interestDuringConstruction = new Array<number>(N).fill(0);
@@ -276,14 +283,34 @@ export function computeFacilitySchedule(
     const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
     if (inConstructionWindow) {
       interestDuringConstruction[i] = interest;
-      // Accounting side: where this hits the books.
+      // Accounting side: where this hits the books. The asset is built
+      // with the FULL interest regardless of funding source.
       if (capitalizeInterest) interestForAssetBasis[i] = interest;
       // Funding side: where the cash comes from.
-      if (idcFundingMode === 'debt_drawdown') {
+      if (idcFundingMode === 'cash') {
+        // Always pay in cash, never grow debt.
+        interestPaid[i] = interest;
+      } else if (idcFundingMode === 'conditional') {
+        // Conditional IDC (2026-06-02): pay in cash up to the per-period
+        // surplus-cash budget shared across tranches; capitalise (grow
+        // debt) only the shortfall. Existing-first / priority order in the
+        // orchestrator decides which tranche consumes the budget first.
+        const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
+        const cashPaid = Math.min(interest, avail);
+        const capitalised = interest - cashPaid;
+        if (cashPaid > 0) {
+          interestPaid[i] = cashPaid;
+          interestCapitalizedCashPaid[i] = cashPaid;
+          if (remainingIdcBudget) remainingIdcBudget[i] = avail - cashPaid;
+        }
+        if (capitalised > 0) {
+          interestCapitalized[i] = capitalised;
+          bal += capitalised;
+        }
+      } else {
+        // 'debt_drawdown' (default): grow the debt balance.
         interestCapitalized[i] = interest;
         bal += interest;
-      } else {
-        interestPaid[i] = interest;
       }
     } else {
       interestPaid[i] = interest;
@@ -309,6 +336,7 @@ export function computeFacilitySchedule(
     openingBalance,
     interestAccrued,
     interestCapitalized,
+    interestCapitalizedCashPaid,
     interestPaid,
     interestForAssetBasis,
     interestDuringConstruction,
@@ -328,6 +356,7 @@ export function combineDebtService(
   const totalDrawdown          = new Array<number>(N).fill(0);
   const totalInterestAccrued   = new Array<number>(N).fill(0);
   const totalInterestCapitalized = new Array<number>(N).fill(0);
+  const totalInterestCapitalizedCashPaid = new Array<number>(N).fill(0);
   const totalInterestExpensed  = new Array<number>(N).fill(0);
   const totalInterestForAssetBasis = new Array<number>(N).fill(0);
   const totalPrincipalRepaid   = new Array<number>(N).fill(0);
@@ -350,12 +379,14 @@ export function combineDebtService(
       const draw = r.drawSchedule[i] ?? 0;
       const acc  = r.interestAccrued[i] ?? 0;
       const cap  = r.interestCapitalized[i] ?? 0;
+      const capCash = r.interestCapitalizedCashPaid[i] ?? 0;
       const cash = r.interestPaid[i] ?? 0;
       const ab   = r.interestForAssetBasis[i] ?? 0;
       const prin = r.principalRepaid[i] ?? 0;
       totalDrawdown[i]               += draw;
       totalInterestAccrued[i]        += acc;
       totalInterestCapitalized[i]    += cap;
+      totalInterestCapitalizedCashPaid[i] += capCash;
       totalInterestForAssetBasis[i]  += ab;
       totalPrincipalRepaid[i]        += prin;
       // M4 Pass 2O: P&L expense = accrual basis = accrued - asset basis.
@@ -389,6 +420,7 @@ export function combineDebtService(
     totalDrawdown,
     totalInterestAccrued,
     totalInterestCapitalized,
+    totalInterestCapitalizedCashPaid,
     totalInterestExpensed,
     totalInterestForAssetBasis,
     totalPrincipalRepaid,

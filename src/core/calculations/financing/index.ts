@@ -58,6 +58,16 @@ export interface FinancingContext {
    * fall back to 0.
    */
   fundingGap?: FundingGapInputs;
+  /**
+   * Conditional IDC (2026-06-02): per-period surplus-cash budget available
+   * to pay construction interest in cash instead of capitalising it to
+   * debt (idcConfig.fundingMode === 'conditional'). Derived from the
+   * post-revenue snapshot's Method 3 waterfall (cash above the minimum
+   * reserve in each construction period) and fed via the snapshot
+   * two-pass. Optional: absent => 'conditional' behaves like
+   * 'debt_drawdown' (everything capitalised).
+   */
+  idcCashBudget?: number[];
 }
 
 export function computeFinancingResult(ctx: FinancingContext): FinancingComputation {
@@ -90,13 +100,36 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   const shares = normaliseFacilityShares(ctx.tranches);
   const existing = buildExistingAggregate(ctx.phases, ctx.tranches, ctx.assets, ctx.project);
 
+  // Conditional IDC (2026-06-02): mutable per-period cash budget shared
+  // across tranches. Each construction period pays interest in cash up to
+  // the remaining budget, capitalising the shortfall. Tranches consume the
+  // budget in EXISTING-first, then priority-ascending order (same ordering
+  // the cash sweep uses) so allocation is deterministic.
+  const remainingIdcBudget = (ctx.idcCashBudget ?? []).slice();
+  const trancheOrder = ctx.tranches.slice().sort((a, b) => {
+    const aEx = a.origin === 'existing';
+    const bEx = b.origin === 'existing';
+    if (aEx !== bEx) return aEx ? -1 : 1;
+    const ap = a.cashSweepConfig?.priority ?? 100;
+    const bp = b.cashSweepConfig?.priority ?? 100;
+    return ap - bp;
+  });
+
+  // Compute schedules in budget-consumption order (existing-first), then
+  // assemble the final map in the ORIGINAL tranche order so downstream
+  // per-tranche tables keep their displayed sequence.
+  const computed = new Map<string, FacilityResult>();
+  for (const t of trancheOrder) {
+    const pct = shares.get(t.id) ?? 0;
+    computed.set(
+      t.id,
+      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget),
+    );
+  }
   const facilities = new Map<string, FacilityResult>();
   for (const t of ctx.tranches) {
-    const pct = shares.get(t.id) ?? 0;
-    facilities.set(
-      t.id,
-      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct),
-    );
+    const r = computed.get(t.id);
+    if (r) facilities.set(t.id, r);
   }
 
   const combined = combineDebtService(facilities, axis, ctx.tranches);

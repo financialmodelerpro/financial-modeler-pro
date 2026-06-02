@@ -288,7 +288,7 @@ export interface ProjectIDCSnapshot {
    *  flowed through P&L Finance Cost instead. */
   capitalize: boolean;
   /** M4 Pass 2O (2026-05-24): funding mode used this run. */
-  fundingMode: 'debt_drawdown' | 'cash';
+  fundingMode: 'debt_drawdown' | 'cash' | 'conditional';
   /** Total interest accrued during construction window (P&L+asset basis
    *  combined). Always populated regardless of capitalize flag, so the
    *  Summary panel can show the underlying interest stream and contrast
@@ -615,6 +615,13 @@ export interface Method3WaterfallSnapshot {
    *  the construction interest. Does NOT move cash (interest is added
    *  to debt balance directly). Shown for transparency. */
   idcDrawdownPerPeriod: number[];
+  /** Conditional IDC (2026-06-02): per-period construction interest PAID
+   *  IN CASH (idcConfig.fundingMode === 'conditional'). Zero under the
+   *  default debt-drawdown mode. This is a real cash outflow already
+   *  reflected in financeCostPaidPerPeriod / Direct CF; surfaced
+   *  separately so the Funding Requirement schedule can show the
+   *  cash-vs-debt split of IDC. */
+  idcCashPaidPerPeriod: number[];
   /** Before-sweep dividends paid per period (negative — Phase 1
    *  operational dividends pay before debt sweep). */
   dividendsBeforeSweepPerPeriod: number[];
@@ -827,7 +834,15 @@ export function computeCashWaterfall(args: {
       totalSwept: 0,
     });
   }
-  eligible.sort((a, b) => a.priority - b.priority);
+  // Sweep order (2026-06-02): EXISTING loans are repaid before NEW ones;
+  // within each origin, lower priority number is paid first. Matches the
+  // user's "first loan priority then new" rule and the conditional-IDC
+  // budget-consumption order in the financing orchestrator.
+  eligible.sort((a, b) =>
+    a.origin === b.origin
+      ? a.priority - b.priority
+      : a.origin === 'existing' ? -1 : 1,
+  );
 
   // Build dividend-enabled phases (before-sweep first, then after-sweep).
   // M4 Pass 2U-Fix (2026-05-24): priority is forced by phase.status —
@@ -1127,12 +1142,25 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // existingPrincipalRepaid covers principal cash out on existing facilities.
   const existingDebtRepaymentPerPeriod = (fin.combined.existingPrincipalRepaid ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -v);
   while (existingDebtRepaymentPerPeriod.length < N) existingDebtRepaymentPerPeriod.push(0);
-  // Finance cost paid: existing + new ops-period cash interest (negative).
-  const financeCostPaidPerPeriod = (fin.combined.totalInterestExpensed ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -v);
-  while (financeCostPaidPerPeriod.length < N) financeCostPaidPerPeriod.push(0);
+  // Finance cost paid: the REAL cash interest = accrued − capitalised
+  // (negative). This is exactly interestPaidArr in the Direct CF
+  // (debtServiceCash − principal), so the waterfall's Closing Cash ties to
+  // directCF.closingCash. Under conditional IDC this INCLUDES the
+  // construction interest paid in cash (which totalInterestExpensed would
+  // omit, since that interest is capitalised to the asset basis). Existing +
+  // new ops-period interest are included identically.
+  const accruedArr = fin.combined.totalInterestAccrued ?? new Array<number>(N).fill(0);
+  const capitalizedArr = fin.combined.totalInterestCapitalized ?? new Array<number>(N).fill(0);
+  const financeCostPaidPerPeriod = new Array<number>(N).fill(0);
+  for (let t = 0; t < N; t++) {
+    financeCostPaidPerPeriod[t] = -((accruedArr[t] ?? 0) - (capitalizedArr[t] ?? 0));
+  }
   // IDC drawdown memo: capitalised interest growing debt (no cash move).
-  const idcDrawdownPerPeriod = (fin.combined.totalInterestCapitalized ?? new Array<number>(N).fill(0)).slice(0, N);
+  const idcDrawdownPerPeriod = capitalizedArr.slice(0, N);
   while (idcDrawdownPerPeriod.length < N) idcDrawdownPerPeriod.push(0);
+  // Conditional IDC (2026-06-02): construction interest paid in cash.
+  const idcCashPaidPerPeriod = (fin.combined.totalInterestCapitalizedCashPaid ?? new Array<number>(N).fill(0)).slice(0, N);
+  while (idcCashPaidPerPeriod.length < N) idcCashPaidPerPeriod.push(0);
   // Before-sweep dividends only (Phase 1 operational). After-sweep
   // dividends are driven by the cash sweep waterfall after debt is
   // repaid, so they're not part of the "Net Cash Required" pre-debt
@@ -1175,6 +1203,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     existingDebtRepaymentPerPeriod,
     financeCostPaidPerPeriod,
     idcDrawdownPerPeriod,
+    idcCashPaidPerPeriod,
     dividendsBeforeSweepPerPeriod,
     cashAvailableBeforeNewDebtPerPeriod,
     minCashReserve,
@@ -1207,7 +1236,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
 
 export function computeFinancialsSnapshot(
   state: FinancialsResolverState,
-  opts?: { fundingGap?: FundingGapInputs },
+  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] },
 ): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
@@ -1228,6 +1257,10 @@ export function computeFinancialsSnapshot(
     // it is fed back via a guarded second pass (see the end of this
     // function); opts.fundingGap is set only on that second pass.
     fundingGap: opts?.fundingGap,
+    // Conditional IDC (2026-06-02): per-period surplus-cash budget for
+    // paying construction interest in cash. Also fed only on the second
+    // pass (derived from pass-1's Method 3 waterfall).
+    idcCashBudget: opts?.idcCashBudget,
   });
 
   const N = revenue.axisLength;
@@ -2046,25 +2079,61 @@ export function computeFinancialsSnapshot(
     bsReconciliation,
   };
 
-  // M5 / funding (2026-06-01): gap-sized drawdown for Methods 2 + 3.
-  // This first pass sized debt/equity from capex (no gap fed). Now that the
-  // full snapshot exists, derive the per-period funding gap and re-run ONCE
-  // with it so external funding is sized to the net requirement (Method 2 =
-  // capex net of pre-sales; Method 3 = the cash deficit to maintain minimum
-  // cash). Guarded: only when no gap was fed (so the second pass does not
-  // recurse) and only when the gap is non-trivial (otherwise the capex-based
-  // first pass stands, keeping the statements funded). Methods 1 + 4 never
-  // enter this branch.
-  const fundingMethod = (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).fundingMethod;
-  if (!opts?.fundingGap && (fundingMethod === 2 || fundingMethod === 3)) {
+  // Second-pass derivations (2026-06-01 gap-sizing + 2026-06-02 conditional
+  // IDC). Pass-1 sized debt/equity from capex with IDC fully capitalised.
+  // Now that the full snapshot exists, derive BOTH:
+  //   (a) the per-period funding gap for Methods 2 + 3 (size external
+  //       funding to the net requirement: Method 2 = capex net of pre-sales;
+  //       Method 3 = the cash deficit to maintain minimum cash), and
+  //   (b) the conditional-IDC cash budget (surplus cash above the minimum
+  //       reserve in each construction period, used to pay IDC in cash
+  //       instead of growing debt).
+  // Both are derived from pass-1 and applied TOGETHER in a single re-run, so
+  // the model never exceeds two passes. Guard re-entry on EITHER opt being
+  // set, so the second pass cannot recurse. Budgets are frozen at pass-1
+  // values (accepted approximation, identical in spirit to the prior
+  // single-iteration gap-sizing + cash-sweep).
+  const finCfg = project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
+  const fundingMethod = finCfg.fundingMethod;
+  const idcConditional = project.idcConfig?.fundingMode === 'conditional';
+  if (!opts?.fundingGap && !opts?.idcCashBudget && ((fundingMethod === 2 || fundingMethod === 3) || idcConditional)) {
     const gap = computeFundingGap(snapResult);
-    const fundingGap: FundingGapInputs = {
-      method2PerPeriod: gap.methodAGapPerPeriod,
-      method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
-    };
-    const relevant = fundingMethod === 2 ? fundingGap.method2PerPeriod : fundingGap.method3PerPeriod;
-    const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-    if (gapTotal > 0) return computeFinancialsSnapshot(state, { fundingGap });
+
+    // (a) Method 2 / 3 gap-sized drawdown.
+    let fundingGap: FundingGapInputs | undefined;
+    if (fundingMethod === 2 || fundingMethod === 3) {
+      const candidate: FundingGapInputs = {
+        method2PerPeriod: gap.methodAGapPerPeriod,
+        method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
+      };
+      const relevant = fundingMethod === 2 ? candidate.method2PerPeriod : candidate.method3PerPeriod;
+      const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+      if (gapTotal > 0) fundingGap = candidate;
+    }
+
+    // (b) Conditional-IDC cash budget. Construction periods are those where
+    // pass-1 capitalised IDC > 0 (everything was capitalised in pass-1).
+    // The budget is the surplus cash above the minimum reserve available in
+    // each such period (before any new-debt drawdown), exactly what the
+    // schedule can divert from debt-growth to cash interest.
+    let idcCashBudget: number[] | undefined;
+    if (idcConditional) {
+      const w = gap.method3Waterfall;
+      const minCash = w.minCashReserve;
+      const idcByPeriod = snapResult.financing.combined.totalInterestCapitalized;
+      const budget = new Array<number>(N).fill(0);
+      let hasBudget = false;
+      for (let t = 0; t < N; t++) {
+        if ((idcByPeriod[t] ?? 0) <= 0) continue; // not a construction-interest period
+        const surplus = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - minCash);
+        if (surplus > 0) { budget[t] = surplus; hasBudget = true; }
+      }
+      if (hasBudget) idcCashBudget = budget;
+    }
+
+    if (fundingGap || idcCashBudget) {
+      return computeFinancialsSnapshot(state, { fundingGap, idcCashBudget });
+    }
   }
 
   return snapResult;

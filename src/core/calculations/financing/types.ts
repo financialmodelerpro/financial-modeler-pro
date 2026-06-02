@@ -93,6 +93,16 @@ export interface FacilityResult {
    *  additional drawdown). Zero when idcConfig.fundingMode === 'cash'.
    *  Used by the financing CF block as "IDC Drawdown". */
   interestCapitalized: number[];
+  /** Conditional IDC (2026-06-02): construction-window interest that was
+   *  PAID IN CASH instead of capitalised to debt, because surplus cash was
+   *  available above the minimum reserve that period. Non-zero only when
+   *  idcConfig.fundingMode === 'conditional' and an idcCashBudget was fed.
+   *  Still added to interestForAssetBasis (the asset is built either way);
+   *  the only difference vs interestCapitalized is the funding source.
+   *  This slice is ALSO in interestPaid (so debtServiceCash carries the
+   *  cash outflow). Kept as a separate field purely for reporting +
+   *  the verifier identity (capitalized + cashPaid = construction interest). */
+  interestCapitalizedCashPaid: number[];
   interestPaid: number[];
   /** M4 Pass 2O (2026-05-24): construction-window interest routed to
    *  asset basis for accounting. Zero when idcConfig.capitalize === false.
@@ -117,6 +127,12 @@ export interface CombinedDebtService {
   /** Sum of FacilityResult.interestCapitalized: amount added to debt
    *  balance (the "additional drawdown" piece). Zero when fundingMode='cash'. */
   totalInterestCapitalized: number[];
+  /** Conditional IDC (2026-06-02): sum of FacilityResult.interestCapitalizedCashPaid
+   *  — construction interest paid in cash (not added to debt) because cash
+   *  was available above the minimum reserve. Already reflected in
+   *  debtServiceCash via the (accrued − capitalized) derivation; surfaced
+   *  here for the Funding Requirement schedule + the verifier identity. */
+  totalInterestCapitalizedCashPaid: number[];
   /** P&L Interest Expense (accrual basis) = totalInterestAccrued -
    *  totalInterestForAssetBasis. Construction interest when capitalize=false
    *  flows through here. M4 Pass 2O. */

@@ -25,7 +25,7 @@ import {
   makeDefaultPhase,
   makeDefaultProject,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap, computeCashWaterfall } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 
 let pass = 0;
 let fail = 0;
@@ -500,6 +500,45 @@ console.log('\n[N] Pass 2S: Cash Sweep identities');
     failures.push(`N4: BS diff ${maxAbs.toFixed(2)} > 1 after sweep wire-up`);
     console.log(`  [FAIL] N4: BS diff ${maxAbs.toFixed(2)} > 1 after sweep wire-up`);
   }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// N5: Conditional-IDC era (2026-06-02) — cash sweep repays EXISTING
+// loans before NEW ones, even when the new tranche's priority NUMBER is
+// lower (which alone would pay it first). Direct computeCashWaterfall
+// call with two sweep-eligible tranches and just enough cash to repay
+// one. Pins origin-dominates-priority ordering.
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[N5] Cash sweep: existing loans repaid before new (origin dominates priority)');
+{
+  const phases = [{ id: 'p1', startDate: '2026-01-01', constructionPeriods: 0, status: 'operational' }] as unknown as Parameters<typeof computeCashWaterfall>[0]['phases'];
+  const mkTranche = (id: string, origin: 'existing' | 'new', priority: number) => ({
+    id, name: id, origin, phaseId: 'p1',
+    repaymentMethod: 'cash_sweep',
+    cashSweepConfig: { enabled: true, priority, startingYear: 2026, sweepRatio: 100 },
+  });
+  // New tranche has the LOWER priority number (would be first by priority);
+  // existing has the HIGHER number. Existing-first must flip the order.
+  const tranches = [mkTranche('nw', 'new', 1), mkTranche('ex', 'existing', 10)] as unknown as Parameters<typeof computeCashWaterfall>[0]['tranches'];
+  const facilityOutstanding = new Map<string, number[]>([
+    ['nw', [1000, 1000, 1000]],
+    ['ex', [1000, 1000, 1000]],
+  ]);
+  // Excess above min = exactly 1000 in period 0 → only ONE tranche can be
+  // fully swept. Existing-first means 'ex' is repaid, 'nw' untouched.
+  const { cashSweep } = computeCashWaterfall({
+    axisLength: 3, projectStartYear: 2026, tranches, phases,
+    facilityOutstanding, preSweepClosingCash: [1100, 100, 100], minCashReserve: 100,
+  });
+  const exRow = cashSweep.eligibleTranches.find((r) => r.trancheId === 'ex');
+  const nwRow = cashSweep.eligibleTranches.find((r) => r.trancheId === 'nw');
+  if (cashSweep.eligibleTranches[0]?.origin === 'existing') {
+    pass++; console.log('  [PASS] N5a: existing tranche sorted first (origin dominates priority)');
+  } else {
+    fail++; failures.push('N5a: existing tranche not sorted first'); console.log('  [FAIL] N5a: existing tranche not sorted first');
+  }
+  assertNear('N5b: existing tranche swept first (totalSwept = 1000)', exRow?.totalSwept ?? -1, 1000);
+  assertNear('N5c: new tranche untouched while existing outstanding (totalSwept = 0)', nwRow?.totalSwept ?? -1, 0);
 }
 
 // ──────────────────────────────────────────────────────────────────

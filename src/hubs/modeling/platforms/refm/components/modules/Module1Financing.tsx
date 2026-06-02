@@ -409,12 +409,13 @@ export default function Module1Financing(): React.JSX.Element {
                   </div>
                   <div>
                     <div style={labelStyle}>Funding Mode (IDC cash)</div>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {pillBtn(fundingMode === 'debt_drawdown', 'Drawdown via Debt', () => setIdcCfg({ fundingMode: 'debt_drawdown' }), 'fd-debt')}
                       {pillBtn(fundingMode === 'cash', 'Pay from Cash Flow', () => setIdcCfg({ fundingMode: 'cash' }), 'fd-cash')}
+                      {pillBtn(fundingMode === 'conditional', 'Conditional (cash if surplus)', () => setIdcCfg({ fundingMode: 'conditional' }), 'fd-cond')}
                     </div>
                     <div style={captionStyle}>
-                      Drawdown: additional debt grows balance to cover interest (no cash impact). Cash: interest paid from operating cash, debt balance unchanged.
+                      Drawdown: additional debt grows balance to cover interest (no cash impact). Cash: interest always paid from operating cash, debt unchanged. Conditional: pay interest in cash only where surplus exists above the minimum cash reserve, capitalising the shortfall to debt, so debt is raised only to the extent the project genuinely needs it.
                     </div>
                   </div>
                 </div>
@@ -2449,7 +2450,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
               background: 'color-mix(in srgb, var(--color-meta, #6b7280) 12%, transparent)',
               color: 'var(--color-meta, #6b7280)', border: '1px solid var(--color-meta, #6b7280)',
-            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : 'Drawdown via Debt'}</span>
+            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : idc.fundingMode === 'conditional' ? 'Conditional (cash if surplus)' : 'Drawdown via Debt'}</span>
           </div>
         );
 
@@ -2753,7 +2754,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> Two sizing views aligned with the Funding Method dropdown in Inputs: <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales gross feasibility) and <strong>Method 3 — Cash Deficit Funding</strong> (full per-period waterfall ending with Net Cash Required). Wiring these into actual debt drawdown sizing lands in a follow-up pass.
+          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, three segregated schedules drive Method 3: <strong>(1) Funding Requirement</strong> (sizes new debt + equity to maintain minimum cash, with conditional IDC), <strong>(2) Debt Repayment via Cash Sweep</strong> (existing loans first, then by priority), and <strong>(3) Dividend via Cash Sweep</strong>. Each ends in its own Closing Cash; the three chain to the Cash Flow tab&apos;s closing balance.
         </div>
       </section>
 
@@ -2784,46 +2785,59 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </div>
       </section>
 
-      {/* M4 Pass 2V (2026-05-24): consolidated Cash Sweep & Dividend
-          Waterfall. Replaces the prior separate Method 3 + Cash Sweep +
-          Dividend Schedule tables with one comprehensive waterfall
-          matching the user's reference model. Per-tranche post-sweep
-          outstanding stays below as a supporting view. */}
+      {/* Three segregated schedules (2026-06-02): the prior consolidated
+          waterfall is split into (1) Method 3 Funding Requirement, (2) Debt
+          Repayment via Cash Sweep, (3) Dividend via Cash Sweep. Each ends in
+          its own Closing Cash so each tier can be verified independently.
+          The three closings chain to the real Cash Flow tab:
+            pre-distribution closing  − sweep    = post-sweep closing
+            post-sweep closing        − dividend = final closing (= Direct CF) */}
       {(() => {
         const w = gap.method3Waterfall;
         const sweep = snap.cashSweep;
         const div = snap.dividends;
         const debtPct = (snap.financing.funding.debtPct ?? 0) / 100;
         const equityPct = (snap.financing.funding.equityPct ?? 0) / 100;
-        const idcAdd = w.idcDrawdownPerPeriod;
+        const idcAdd = w.idcDrawdownPerPeriod;             // IDC capitalised to debt
+        const idcCash = w.idcCashPaidPerPeriod;            // IDC paid in cash (conditional)
+        const hasIdcCash = idcCash.some((v) => v !== 0);
         const debtSplit = w.netCashRequiredPerPeriod.map((v) => v * debtPct);
         const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
         const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
-        // Post-sweep cash available for dividend = cash sweep's
-        // adjustedClosingCash + after-sweep dividends (since those are
-        // already taken out in adjusted closing).
-        const postSweepCashBeforeAfterDiv = sweep.adjustedClosingCash.map(
-          (v, i) => v + div.afterSweepPhases.reduce((s, r) => s + (r.dividendsPerPeriod[i] ?? 0), 0),
-        );
+
+        // Real, reconciled cash chain anchored to the Direct CF closing cash
+        // (which already nets out sweep + dividends). Per period:
+        //   finalClosing                                   = Direct CF closing
+        //   postSweepClosing = finalClosing + dividend[t]   (add dividend back)
+        //   preDistClosing   = postSweepClosing + sweep[t]  (add sweep back)
+        // and openingCash[t] = prior period's final closing.
+        const finalClosing = snap.directCF.closingCashPerPeriod.slice(0, N);
+        const sweepArr = sweep.totalSweepPerPeriod;
+        const divArr = div.totalDividendsPerPeriod;
+        const postSweepClosing = finalClosing.map((v, i) => v + (divArr[i] ?? 0));
+        const preDistClosing = postSweepClosing.map((v, i) => v + (sweepArr[i] ?? 0));
+        const realOpening = finalClosing.map((_, i) =>
+          i === 0 ? snap.bs.historicalOpeningCashTotal : (finalClosing[i - 1] ?? 0));
+
         return (
+          <>
+          {/* ───────── Schedule 1 — Method 3: Funding Requirement ───────── */}
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>Cash Sweep &amp; Dividend Waterfall (Method 3 + Sweep + Dividend, consolidated)</div>
+            <div style={TABLE_TITLE}>1. Method 3 — Funding Requirement</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period waterfall ending with Closing Cash. Order: Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available. − Min Cash floor ({p.fmt(w.minCashReserve)}) = Cash for Debt+Dividend. − Cash Sweep on debt = Cash for Dividend. − After-sweep dividends = Closing Cash. Existing equity + existing debt opening are pre-axis (in the prior column), already reflected in opening cash. The Net Cash Required block at the bottom shows what NEW funding is implied if Cash Available was negative before reaching min cash.
+              Per-period cash waterfall that sizes the NEW funding required to maintain the minimum cash reserve ({p.fmt(w.minCashReserve)}). Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available; − Min Cash = Cash for Debt+Dividend. Where Cash Available is negative, the Net Cash Required block shows the implied new debt + equity. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus cash exists above the minimum, and capitalised to debt only for the shortfall — so the debt drawdown is sized to the genuine gap.' : 'IDC is capitalised to debt (grows the balance directly, no cash).'} Existing equity + existing debt opening are pre-axis (prior column), already reflected in opening cash.
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {/* INFLOWS / OUTFLOWS section */}
                   <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Cash Available for Debt Repayment</td></tr>
                   {renderStateRow('Opening Cash', w.openingCashPerPeriod, { priorValue: snap.bs.historicalOpeningCashTotal })}
                   {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod, { priorValue: 0 })}
                   {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true, priorValue: -snap.financing.existing.preCapexTotal })}
                   {renderFlowRow('(+) Equity Drawdown (Cash)', snap.directCF.equityDrawdownPerPeriod, { priorValue: snap.financing.existing.equityTotal })}
                   {(() => {
-                    // Existing debt opening shown in prior column; in-axis draws follow.
                     const existingOpening = (() => {
                       let s = 0;
                       for (const fac of snap.financing.facilities.values()) {
@@ -2840,46 +2854,11 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderFlowRow('(−) Minimum Cash Requirement', w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
                   {renderFlowRow('Cash Available for Debt + Dividend Payment', w.cashAvailableBeforeNewDebtPerPeriod.map((v) => v - w.minCashReserve), { subtotal: true, priorValue: 0 })}
 
-                  {/* CASH SWEEP section */}
-                  {sweep.enabled && (
-                    <>
-                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Cash Sweep — Debt Repayment Priority</td></tr>
-                      {sweep.eligibleTranches.map((row) => renderFlowRow(
-                        `  (−) Sweep: ${row.trancheName} (priority ${row.priority}, from ${row.startingYear})`,
-                        row.sweepPerPeriod.map((v) => -v),
-                        { negative: true, indent: 1, priorValue: 0 },
-                      ))}
-                      {renderFlowRow('Total Cash Sweep Applied', sweep.totalSweepPerPeriod.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
-                      {renderFlowRow('Cash Available for Dividend (post-sweep)', postSweepCashBeforeAfterDiv, { subtotal: true, priorValue: 0 })}
-                    </>
+                  {hasIdcCash && (
+                    <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — IDC funding split (conditional)</td></tr>
                   )}
-
-                  {/* DIVIDENDS (after sweep) section */}
-                  {div.afterSweepPhases.length > 0 && (
-                    <>
-                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Dividends (after sweep, new phases)</td></tr>
-                      {div.afterSweepPhases.map((row) => renderFlowRow(
-                        `  (−) ${row.phaseName} dividend (${(row.payoutRatio * 100).toFixed(0)}% of cash avail, cap EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
-                        row.dividendsPerPeriod.map((v) => -v),
-                        { negative: true, indent: 1, priorValue: 0 },
-                      ))}
-                    </>
-                  )}
-                  {div.enabled && renderFlowRow('Total Dividend Payment (Phase 1 + new phases)', div.totalDividendsPerPeriod.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
-                  {renderStateRow('Closing Cash', snap.directCF.closingCashPerPeriod, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
-
-                  {/* MEMO + Net Cash Required */}
-                  {idcAdd.some((v) => v !== 0) && (
-                    <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — IDC drawdown is debt-only (no cash; grows balance directly)</td></tr>
-                  )}
-                  {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC Drawdown — capitalised interest', idcAdd, { indent: 1, priorValue: 0 })}
-                  {/* M4 Pass 2Y (2026-05-24): interest savings from sweep. */}
-                  {sweep.enabled && sweep.totalInterestSavings > 0 && (
-                    <>
-                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — interest savings from cash sweep (paid on reduced post-sweep balance)</td></tr>
-                      {renderFlowRow('  (memo) Interest Savings (informational; P&L still uses pre-sweep balance)', sweep.interestSavingsPerPeriod, { indent: 1, priorValue: 0 })}
-                    </>
-                  )}
+                  {hasIdcCash && renderFlowRow('  (memo) IDC paid in cash (surplus available)', idcCash, { indent: 1, priorValue: 0 })}
+                  {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC capitalised to debt (shortfall)', idcAdd, { indent: 1, priorValue: 0 })}
 
                   {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (
                     <>
@@ -2887,45 +2866,112 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       {renderFlowRow('Net Cash Required (= max(0, MinCash − Cash Available))', w.netCashRequiredPerPeriod, { bold: true, priorValue: 0 })}
                       {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2, priorValue: 0 })}
                       {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2, priorValue: 0 })}
-                      {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC Drawdown (debt-only, no cash)', idcAdd, { indent: 1, priorValue: 0 })}
-                      {renderFlowRow('Total New Debt Required (cash + IDC)', totalNewDebt, { bold: true, priorValue: 0 })}
+                      {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC capitalised to debt (no cash)', idcAdd, { indent: 1, priorValue: 0 })}
+                      {renderFlowRow('Total New Debt Required (cash + IDC capitalised)', totalNewDebt, { bold: true, priorValue: 0 })}
                       {renderFlowRow('Total New Equity Required', equitySplit, { bold: true, priorValue: 0 })}
                     </>
                   )}
+                  {renderStateRow('Closing Cash (after funding, before sweep & dividends)', preDistClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
                 </tbody>
               </table>
             </div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-              Lifetime totals: Net Cash Required <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>
-              {sweep.enabled && <> · Cash Sweep applied <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalSweep)}</strong></>}
-              {div.enabled && <> · Dividend paid <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(div.totalDividends)}</strong></>}
-              . Funding ratio per project: <strong>{(snap.financing.funding.debtPct ?? 0).toFixed(0)}%</strong> debt / <strong>{(snap.financing.funding.equityPct ?? 0).toFixed(0)}%</strong> equity. IDC drawdown is debt-only.
+              Lifetime Net Cash Required <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(w.totalNetCashRequired)}</strong>. Funding ratio: <strong>{(snap.financing.funding.debtPct ?? 0).toFixed(0)}%</strong> debt / <strong>{(snap.financing.funding.equityPct ?? 0).toFixed(0)}%</strong> equity.
+              {hasIdcCash && <> IDC paid in cash <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(idcCash.reduce((s, v) => s + v, 0))}</strong>, capitalised to debt <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(idcAdd.reduce((s, v) => s + v, 0))}</strong>.</>}
             </div>
           </section>
+
+          {/* ───────── Schedule 2 — Debt Repayment via Cash Sweep ───────── */}
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>2. Debt Repayment via Cash Sweep</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              {sweep.enabled
+                ? <>Surplus cash above the minimum reserve ({p.fmt(w.minCashReserve)}) is swept to repay debt. Loans are repaid <strong>existing first, then by priority</strong>, each from its own starting year. Starts from the funding schedule&apos;s closing cash and ends with the post-sweep closing cash.</>
+                : <>No tranche has cash sweep enabled. Enable <em>Cash Sweep</em> on a tranche (Inputs tab) to repay it from surplus cash. This schedule is inert until then; dividends below are still paid per the selected policy.</>}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={periodTbl}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {renderStateRow('Opening Cash', realOpening, { priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderStateRow('Cash available before sweep (after funding)', preDistClosing, { subtotal: true, priorValue: 0 })}
+                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', preDistClosing.map(() => -w.minCashReserve), { negative: true })}
+                  {sweep.enabled && sweep.eligibleTranches.map((row) => renderFlowRow(
+                    `  (−) Sweep: ${row.trancheName} (${row.origin === 'existing' ? 'existing' : 'new'}, priority ${row.priority}, from ${row.startingYear})`,
+                    row.sweepPerPeriod.map((v) => -v),
+                    { negative: true, indent: 1, priorValue: 0 },
+                  ))}
+                  {renderFlowRow('(−) Total Cash Sweep Applied', sweepArr.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
+                  {renderStateRow('Closing Cash (after debt sweep)', postSweepClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                </tbody>
+              </table>
+            </div>
+            {sweep.enabled && (
+              <>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 8, marginBottom: 4, fontWeight: 600 }}>Per-Tranche Outstanding (after sweep)</div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={periodTbl}>
+                    {colgroup}
+                    {headerRow}
+                    <tbody>
+                      {sweep.eligibleTranches.map((row) => (
+                        <React.Fragment key={`bal_${row.trancheId}`}>
+                          {renderStateRow(`${row.trancheName} — Pre-sweep closing`, row.preSweepOutstanding, { priorValue: 0 })}
+                          {renderStateRow(`${row.trancheName} — Post-sweep closing`, row.postSweepOutstanding, { subtotal: true, priorValue: 0 })}
+                        </React.Fragment>
+                      ))}
+                      {renderStateRow('Project total debt outstanding (post-sweep)', sweep.adjustedDebtOutstanding, { bold: true, priorValue: 0 })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+                  Lifetime cash sweep applied <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalSweep)}</strong>
+                  {sweep.totalInterestSavings > 0 && <> · interest saved on the reduced balance <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(sweep.totalInterestSavings)}</strong> (informational)</>}.
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* ───────── Schedule 3 — Dividend via Cash Sweep ───────── */}
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>3. Dividend via Cash Sweep</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              {div.enabled
+                ? <>Dividends are paid from the cash remaining after the debt sweep, maintaining the minimum cash reserve ({p.fmt(w.minCashReserve)}) and capped by cumulative phase EBITDA. Dividends are paid per the selected policy <strong>even if debt was not fully repaid via sweep</strong>. Starts from the post-sweep closing cash and ends with the final closing cash, which ties to the Cash Flow tab.</>
+                : <>No phase has a dividend policy enabled. Enable a dividend policy per phase below. This schedule is inert until then.</>}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={periodTbl}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  {renderStateRow('Cash available before dividend (post-sweep)', postSweepClosing, { subtotal: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', postSweepClosing.map(() => -w.minCashReserve), { negative: true })}
+                  {div.beforeSweepPhases.map((row) => renderFlowRow(
+                    `  (−) ${row.phaseName} dividend (before sweep, ${row.mode === 'pct_of_ebitda' ? `${(row.payoutRatio * 100).toFixed(0)}% of EBITDA` : `${(row.payoutRatio * 100).toFixed(0)}% of cash avail`}, cap EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
+                    row.dividendsPerPeriod.map((v) => -v),
+                    { negative: true, indent: 1, priorValue: 0 },
+                  ))}
+                  {div.afterSweepPhases.map((row) => renderFlowRow(
+                    `  (−) ${row.phaseName} dividend (after sweep, ${row.mode === 'pct_of_ebitda' ? `${(row.payoutRatio * 100).toFixed(0)}% of EBITDA` : `${(row.payoutRatio * 100).toFixed(0)}% of cash avail`}, cap EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
+                    row.dividendsPerPeriod.map((v) => -v),
+                    { negative: true, indent: 1, priorValue: 0 },
+                  ))}
+                  {renderFlowRow('(−) Total Dividend Paid', divArr.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
+                  {renderStateRow('Closing Cash (final, ties to Cash Flow tab)', finalClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                </tbody>
+              </table>
+            </div>
+            {div.enabled && (
+              <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+                Lifetime dividend paid <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(div.totalDividends)}</strong>.
+              </div>
+            )}
+          </section>
+          </>
         );
       })()}
-
-      {/* Per-tranche outstanding after sweep — supporting detail */}
-      {snap.cashSweep.enabled && (
-        <section style={sectionStyle}>
-          <div style={TABLE_TITLE}>Per-Tranche Outstanding (after sweep)</div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={periodTbl}>
-              {colgroup}
-              {headerRow}
-              <tbody>
-                {snap.cashSweep.eligibleTranches.map((row) => (
-                  <React.Fragment key={`bal_${row.trancheId}`}>
-                    {renderStateRow(`${row.trancheName} — Pre-sweep closing`, row.preSweepOutstanding, { priorValue: 0 })}
-                    {renderStateRow(`${row.trancheName} — Post-sweep closing`, row.postSweepOutstanding, { subtotal: true, priorValue: 0 })}
-                  </React.Fragment>
-                ))}
-                {renderStateRow('Project total debt outstanding (post-sweep)', snap.cashSweep.adjustedDebtOutstanding, { bold: true, priorValue: 0 })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
       {/* M4 Pass 2T (2026-05-24): Dividend Policy editor + schedule. */}
       <section style={sectionStyle}>

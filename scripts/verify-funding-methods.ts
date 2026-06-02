@@ -180,5 +180,71 @@ for (const method of [1, 2, 3, 4] as const) {
   }
 }
 
+// ── CONDITIONAL IDC (2026-06-02): full engine integration ─────────────
+// Reuses the capex + new-debt + pre-sales fixture. The pre-sales cash
+// collected during construction creates surplus above the minimum cash
+// reserve, so under fundingMode='conditional' the construction interest is
+// paid in cash (not capitalised to debt) up to that surplus. Pins: the
+// statements still balance + tie, debt is lower than the all-capitalised
+// case, the IDC split identity holds, and the two-pass (gap-sizing +
+// IDC budget) is stable.
+function buildIdcState(mode: 'debt_drawdown' | 'conditional', method: 1 | 3 = 1): Parameters<typeof computeFinancialsSnapshot>[0] {
+  const s = buildSnapState(method);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (s.project as any).financing.minimumCashReserve = 100_000;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (s.project as any).idcConfig = { allocationBasis: 'land', capitalize: true, fundingMode: mode };
+  return s;
+}
+console.log('\n[IDC] Conditional IDC: full engine integration');
+{
+  const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
+  const baseline = computeFinancialsSnapshot(buildIdcState('debt_drawdown'));
+  const cond = computeFinancialsSnapshot(buildIdcState('conditional'));
+
+  // Non-vacuous: the baseline fixture must actually produce construction IDC.
+  const idcBaseline = sum(baseline.financing.combined.totalInterestCapitalized);
+  check('IDC: baseline fixture produces construction IDC (non-vacuous)', idcBaseline > 0, `idc=${Math.round(idcBaseline)}`);
+
+  // T3 / T4: statements still balance + tie under conditional IDC.
+  const bsMax = Math.max(...cond.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  const cfTie = Math.max(...cond.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (cond.indirectCF.closingCashPerPeriod[i] ?? 0))));
+  check('IDC conditional: BS balances', bsMax < 1, `maxBSdiff=${Math.round(bsMax)}`);
+  check('IDC conditional: Direct CF == Indirect CF (2-pass stable)', cfTie < 1, `tie=${Math.round(cfTie)}`);
+
+  // T6: BS reconciliation bridge exact.
+  const reco = Math.max(...cond.bsReconciliation.unexplainedPerPeriod.map((v) => Math.abs(v)));
+  check('IDC conditional: BS reconciliation bridge exact', reco < 1, `maxUnexplained=${Math.round(reco)}`);
+
+  // Feature works: some construction interest is paid in cash.
+  const cashIdc = sum(cond.financing.combined.totalInterestCapitalizedCashPaid);
+  check('IDC conditional: construction interest paid in cash > 0 (surplus diverted)', cashIdc > 0, `cashIdc=${Math.round(cashIdc)}`);
+
+  // T2: debt is lower (paying interest in cash avoids both the IDC drawdown
+  // AND the compounding it would cause).
+  const debtBase = sum(baseline.bs.debtOutstandingPerPeriod);
+  const debtCond = sum(cond.bs.debtOutstandingPerPeriod);
+  check('IDC conditional: total debt outstanding <= debt_drawdown', debtCond <= debtBase + 1, `cond=${Math.round(debtCond)} base=${Math.round(debtBase)}`);
+  check('IDC conditional: capitalised IDC <= baseline (some paid in cash)', sum(cond.financing.combined.totalInterestCapitalized) <= idcBaseline + 1);
+
+  // T1: per-period identity capitalised + cash-paid = asset-basis interest.
+  let identityOk = true;
+  for (let t = 0; t < cond.axisLength; t++) {
+    const lhs = (cond.financing.combined.totalInterestCapitalized[t] ?? 0) + (cond.financing.combined.totalInterestCapitalizedCashPaid[t] ?? 0);
+    if (!approx(lhs, cond.financing.combined.totalInterestForAssetBasis[t] ?? 0, 1)) { identityOk = false; break; }
+  }
+  check('IDC conditional: capitalised + cash-paid = asset-basis interest (every period)', identityOk);
+
+  // T7: cash-paid IDC never exceeds the construction-window asset-basis interest.
+  check('IDC conditional: cash-paid IDC <= total construction interest', cashIdc <= sum(cond.financing.combined.totalInterestForAssetBasis) + 1);
+
+  // Method 3 + conditional IDC together (gap-sizing + IDC budget in one re-run).
+  const condM3 = computeFinancialsSnapshot(buildIdcState('conditional', 3));
+  const bsMaxM3 = Math.max(...condM3.bs.bsDifferencePerPeriod.map((v) => Math.abs(v)));
+  const cfTieM3 = Math.max(...condM3.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (condM3.indirectCF.closingCashPerPeriod[i] ?? 0))));
+  check('IDC conditional + Method 3: BS balances (combined two-pass)', bsMaxM3 < 1, `maxBSdiff=${Math.round(bsMaxM3)}`);
+  check('IDC conditional + Method 3: Direct == Indirect (combined two-pass)', cfTieM3 < 1, `tie=${Math.round(cfTieM3)}`);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);
