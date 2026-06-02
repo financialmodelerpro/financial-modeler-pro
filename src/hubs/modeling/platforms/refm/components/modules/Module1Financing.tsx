@@ -346,7 +346,7 @@ export default function Module1Financing(): React.JSX.Element {
             const idcCfg = project.idcConfig ?? {};
             const basis = idcCfg.allocationBasis ?? 'land';
             const capitalize = idcCfg.capitalize !== false;
-            const fundingMode = idcCfg.fundingMode ?? 'debt_drawdown';
+            const fundingMode = idcCfg.fundingMode ?? 'conditional';
             const setIdcCfg = (patch: Partial<NonNullable<typeof project.idcConfig>>) => {
               setProject({ idcConfig: { ...idcCfg, ...patch } });
             };
@@ -2450,7 +2450,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
               background: 'color-mix(in srgb, var(--color-meta, #6b7280) 12%, transparent)',
               color: 'var(--color-meta, #6b7280)', border: '1px solid var(--color-meta, #6b7280)',
-            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : idc.fundingMode === 'conditional' ? 'Conditional (cash if surplus)' : 'Drawdown via Debt'}</span>
+            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : idc.fundingMode === 'debt_drawdown' ? 'Drawdown via Debt' : 'Conditional (cash if surplus)'}</span>
           </div>
         );
 
@@ -2823,9 +2823,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           <>
           {/* ───────── Schedule 1 — Method 3: Funding Requirement ───────── */}
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>1. Method 3 — Funding Requirement</div>
+            <div style={TABLE_TITLE}>1. Method 3 — Cash Deficit Funding</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Per-period cash waterfall that sizes the NEW funding required to maintain the minimum cash reserve ({p.fmt(w.minCashReserve)}). Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available; − Min Cash = Cash for Debt+Dividend. Where Cash Available is negative, the Net Cash Required block shows the implied new debt + equity. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus cash exists above the minimum, and capitalised to debt only for the shortfall — so the debt drawdown is sized to the genuine gap.' : 'IDC is capitalised to debt (grows the balance directly, no cash).'} Existing equity + existing debt opening are pre-axis (prior column), already reflected in opening cash.
+              Per-period cash waterfall that sizes the NEW funding (debt + equity) required to keep cash at the minimum reserve ({p.fmt(w.minCashReserve)}). Opening + Ops + Inv + financing inflows − financing outflows − Phase-1 (before-sweep) dividends = Cash Available. Where Cash Available falls below the minimum, the Net Cash Required block draws new debt + equity to restore it. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus cash exists above the minimum, and capitalised to debt only for the shortfall — so the debt drawdown is sized to the genuine gap.' : 'IDC is capitalised to debt (grows the balance directly, no cash).'} Existing equity + existing debt opening are pre-axis (prior column), already reflected in opening cash. The minimum-cash floor + the surplus available for debt sweep and dividends are shown in the two schedules below.
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
@@ -2850,9 +2850,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Phase 1 / Operational Dividend (before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
-                  {renderFlowRow('Cash Available', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}
-                  {renderFlowRow('(−) Minimum Cash Requirement', w.cashAvailableBeforeNewDebtPerPeriod.map(() => -w.minCashReserve), { negative: true })}
-                  {renderFlowRow('Cash Available for Debt + Dividend Payment', w.cashAvailableBeforeNewDebtPerPeriod.map((v) => v - w.minCashReserve), { subtotal: true, priorValue: 0 })}
+                  {renderFlowRow('Cash Available (before new funding)', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}
 
                   {hasIdcCash && (
                     <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo — IDC funding split (conditional)</td></tr>
@@ -2897,6 +2895,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderStateRow('Opening Cash', realOpening, { priorValue: snap.bs.historicalOpeningCashTotal })}
                   {renderStateRow('Cash available before sweep (after funding)', preDistClosing, { subtotal: true, priorValue: 0 })}
                   {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', preDistClosing.map(() => -w.minCashReserve), { negative: true })}
+                  {renderStateRow('Cash Available for Debt + Dividend Payment', preDistClosing.map((v) => Math.max(0, v - w.minCashReserve)), { subtotal: true, priorValue: 0 })}
                   {sweep.enabled && sweep.eligibleTranches.map((row) => renderFlowRow(
                     `  (−) Sweep: ${row.trancheName} (${row.origin === 'existing' ? 'existing' : 'new'}, priority ${row.priority}, from ${row.startingYear})`,
                     row.sweepPerPeriod.map((v) => -v),

@@ -552,7 +552,7 @@ export function computeIdcSnapshot(
     axisLength: N,
     allocationBasis,
     capitalize: project.idcConfig?.capitalize !== false,
-    fundingMode: project.idcConfig?.fundingMode ?? 'debt_drawdown',
+    fundingMode: project.idcConfig?.fundingMode ?? 'conditional',
     totalConstructionInterestPerPeriod,
     totalIdcPerPeriod,
     byAsset: byAssetIDC,
@@ -2180,7 +2180,10 @@ export function computeFinancialsSnapshot(
 
   const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
   const fundingMethod = finCfg.fundingMethod;
-  const idcConditional = state.project.idcConfig?.fundingMode === 'conditional';
+  // Default 'conditional' (2026-06-02): IDC debt is raised only to maintain
+  // minimum cash; surplus periods pay interest in cash. Override with an
+  // explicit 'debt_drawdown' / 'cash' fundingMode.
+  const idcConditional = (state.project.idcConfig?.fundingMode ?? 'conditional') === 'conditional';
   const needsIteration = fundingMethod === 2 || fundingMethod === 3 || idcConditional;
 
   // No circular input => single pass (Methods 1 + 4 with no conditional IDC).

@@ -58,7 +58,12 @@ export function computeFacilitySchedule(
   // hard-coded behaviour: capitalize=true + fundingMode='debt_drawdown'.
   const idc = project.idcConfig ?? {};
   const capitalizeInterest = idc.capitalize !== false; // default true
-  const idcFundingMode = idc.fundingMode ?? 'debt_drawdown';
+  // Default 2026-06-02: 'conditional' — raise IDC debt only to the extent
+  // needed to maintain minimum cash (pay in cash where surplus exists). The
+  // user's standing rule: "we make drawdown as money required, why draw
+  // extra funds if we have enough cash available." Set 'debt_drawdown' or
+  // 'cash' explicitly to override.
+  const idcFundingMode = idc.fundingMode ?? 'conditional';
 
   // Pass 27 (2026-05-14): effective interest rate = Interbank Rate +
   // Credit Spread when both are present; otherwise fall back to the
