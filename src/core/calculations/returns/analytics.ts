@@ -57,34 +57,61 @@ export function exitAnalysis(args: {
   };
 }
 
-/** Sources & uses of capital over the hold. Operating / pre-sales cash is
- *  the balancing source for uses not covered by equity + debt. */
+/** Sources & uses of capital over the hold, fully reconciled. Sources =
+ *  equity (existing / cash / in-kind) + debt (existing / new) + customer
+ *  collections (pre-sales) + operating cash. Uses = land + construction + IDC
+ *  + reserves/distributions (the balancing line when funding exceeds cost).
+ *  Operating cash is the balancing SOURCE when cost exceeds the other funding;
+ *  reserves/distributions is the balancing USE when funding exceeds cost — so
+ *  totalSources === totalUses always. */
 export function sourcesUses(args: {
   existingEquity: number;
   newEquityCash: number;
   inKindEquity: number;
   existingDebt: number;
   newDebt: number;
+  customerCollections: number;
   land: number;
   construction: number;
   idc: number;
 }): SourcesUses {
-  const { existingEquity, newEquityCash, inKindEquity, existingDebt, newDebt, land, construction, idc } = args;
-  const totalUses = land + construction + idc;
-  const externalSources = existingEquity + newEquityCash + inKindEquity + existingDebt + newDebt;
-  const operatingCashFunding = Math.max(0, totalUses - externalSources);
+  const { existingEquity, newEquityCash, inKindEquity, existingDebt, newDebt, customerCollections, land, construction, idc } = args;
+  const baseUses = land + construction + idc;
+  const nonOpSources = existingEquity + newEquityCash + inKindEquity + existingDebt + newDebt + customerCollections;
+  const operatingCash = Math.max(0, baseUses - nonOpSources);        // funds the gap if cost > funding
+  const reservesDistributions = Math.max(0, nonOpSources - baseUses); // excess funding goes to reserves/distributions
+  const totalSources = nonOpSources + operatingCash;
+  const totalUses = baseUses + reservesDistributions;
   return {
     existingEquity,
     newEquityCash,
     inKindEquity,
     existingDebt,
     newDebt,
-    operatingCashFunding,
-    totalSources: externalSources + operatingCashFunding,
+    customerCollections,
+    operatingCash,
+    totalSources,
     land,
     construction,
     idc,
+    reservesDistributions,
     totalUses,
+  };
+}
+
+/** Capital-structure mix as fractions of total sources (decimals). */
+export function fundingMix(su: SourcesUses): {
+  debtPct: number | null;
+  cashEquityPct: number | null;
+  inKindEquityPct: number | null;
+  customerFundingPct: number | null;
+} {
+  const total = su.totalSources;
+  return {
+    debtPct: safeRatio(su.existingDebt + su.newDebt, total),
+    cashEquityPct: safeRatio(su.existingEquity + su.newEquityCash, total),
+    inKindEquityPct: safeRatio(su.inKindEquity, total),
+    customerFundingPct: safeRatio(su.customerCollections, total),
   };
 }
 

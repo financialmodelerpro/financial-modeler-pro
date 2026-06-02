@@ -33,10 +33,12 @@ const toneColor = (tone: CardTone): string =>
   : tone === 'bad' ? 'var(--color-warning, #92400e)'
   : 'var(--color-heading)';
 
-/** KPI tile: bold headline value + label + optional sub-line. */
-export function MetricCard(props: { label: string; value: string; sub?: string; tone?: CardTone }): React.JSX.Element {
+/** KPI tile: bold headline value + label + optional sub-line. An optional
+ *  `tooltip` adds an ⓘ affordance + native title on hover (metric definition). */
+export function MetricCard(props: { label: string; value: string; sub?: string; tone?: CardTone; tooltip?: string }): React.JSX.Element {
   return (
     <div
+      title={props.tooltip}
       style={{
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-md, 10px)',
@@ -49,7 +51,7 @@ export function MetricCard(props: { label: string; value: string; sub?: string; 
       }}
     >
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {props.label}
+        {props.label}{props.tooltip && <span title={props.tooltip} style={{ cursor: 'help', color: 'var(--color-primary, #1d4ed8)', marginLeft: 4 }}>ⓘ</span>}
       </div>
       <div style={{ fontSize: 20, fontWeight: 800, color: toneColor(props.tone ?? 'neutral'), lineHeight: 1.1 }}>
         {props.value}

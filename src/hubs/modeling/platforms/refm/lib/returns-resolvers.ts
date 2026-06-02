@@ -45,12 +45,12 @@
  */
 import {
   computeReturns, terminalEnterpriseValue, terminalEquityValue,
-  developmentEconomics, exitAnalysis, sourcesUses,
+  developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod,
-  DevelopmentEconomics, ExitAnalysis, SourcesUses,
+  DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
@@ -150,6 +150,7 @@ export interface ReturnsSnapshot {
   developmentEconomics: DevelopmentEconomics;
   exitAnalysis: ExitAnalysis;
   sourcesUses: SourcesUses;
+  fundingMix: FundingMix;
   equityExposure: EquityExposureDetail;
   stabilization: StabilizationMetrics;
   debtAnalytics: DebtAnalytics;
@@ -346,16 +347,24 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     exitDebt: debtAtExit,
   });
 
+  // Customer collections = pre-sales cash received over the hold (net of
+  // escrow held, plus escrow released): real funding from buyers.
+  const customerCollections = Math.max(0,
+    sum(snap.revenue.projectTotals.presalesCashPerPeriod)
+    - sum(snap.escrow.projectTotals.heldPerPeriod)
+    + sum(snap.escrow.projectTotals.releasePerPeriod));
   const sourcesUsesBlock = sourcesUses({
     existingEquity: fin.equity.totalExisting,
     newEquityCash: fin.equity.totalCash,
     inKindEquity: fin.equity.totalInKind,
     existingDebt: fin.existing.debtOutstandingTotal,
     newDebt: sum(fin.combined.totalDrawdown) + sum(fin.combined.totalInterestCapitalized),
+    customerCollections,
     land: fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand,
     construction: fin.capex.totals.exclAllLand,
     idc: sum(fin.combined.totalInterestForAssetBasis),
   });
+  const fundingMixBlock = fundingMix(sourcesUsesBlock);
 
   const equityExposureBlock = equityExposure({
     fcfePerPeriod: fcfe,
@@ -401,6 +410,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     developmentEconomics: devEconomics,
     exitAnalysis: exitAnalysisBlock,
     sourcesUses: sourcesUsesBlock,
+    fundingMix: fundingMixBlock,
     equityExposure: equityExposureBlock,
     stabilization: stabilizationBlock,
     debtAnalytics: debtAnalyticsBlock,

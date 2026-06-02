@@ -163,22 +163,35 @@ export interface ExitAnalysis {
   capRate: number | null;
 }
 
-/** Sources & uses of capital over the hold (sources balanced to uses via
- *  operating / pre-sales cash). */
+/** Sources & uses of capital over the hold, fully reconciled
+ *  (totalSources === totalUses). */
 export interface SourcesUses {
   existingEquity: number;
   newEquityCash: number;
   inKindEquity: number;
   existingDebt: number;
   newDebt: number;
-  /** Balancing source: operating + pre-sales cash that funds the remaining
-   *  uses not covered by equity + debt (floored at 0). */
-  operatingCashFunding: number;
+  /** Customer collections / pre-sales cash received during the hold. */
+  customerCollections: number;
+  /** Operating cash generated during the hold that funds remaining uses
+   *  (balancing source; 0 when other funding already covers the cost). */
+  operatingCash: number;
   totalSources: number;
   land: number;
   construction: number;
   idc: number;
+  /** Reserves / distributions: the balancing USE when total funding exceeds
+   *  development cost (0 when funding is tight). */
+  reservesDistributions: number;
   totalUses: number;
+}
+
+/** Capital-structure mix as fractions of total sources. */
+export interface FundingMix {
+  debtPct: number | null;
+  cashEquityPct: number | null;
+  inKindEquityPct: number | null;
+  customerFundingPct: number | null;
 }
 
 /** Expanded equity-exposure detail. */

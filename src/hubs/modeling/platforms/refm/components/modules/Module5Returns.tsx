@@ -51,6 +51,7 @@ export default function Module5Returns(): React.JSX.Element {
   const de = rs.developmentEconomics;
   const ex = rs.exitAnalysis;
   const su = rs.sourcesUses;
+  const fm = rs.fundingMix;
   const ee = rs.equityExposure;
   const st = rs.stabilization;
   const da = rs.debtAnalytics;
@@ -94,7 +95,7 @@ export default function Module5Returns(): React.JSX.Element {
   const streamRows: M4Row[] = [
     toRow('FCFF, unlevered project', rs.fcffPerPeriod, { isSubtotal: true }),
     toRow('FCFE, levered equity', rs.fcfePerPeriod, { isSubtotal: true }),
-    toRow('Dividends, realised equity', rs.dividendStreamPerPeriod, { isSubtotal: true }),
+    toRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { isSubtotal: true }),
     toRow('Memo: NOI (recurring)', noiStream, { indent: 1 }),
   ];
 
@@ -102,7 +103,7 @@ export default function Module5Returns(): React.JSX.Element {
   const streamSummary: Array<{ key: string; label: string; s: typeof r.fcff }> = [
     { key: 'fcff', label: 'FCFF (unlevered project)', s: r.fcff },
     { key: 'fcfe', label: 'FCFE (levered equity)', s: r.fcfe },
-    { key: 'dividends', label: 'Dividends (realised equity)', s: r.dividends },
+    { key: 'dividends', label: 'Distributed Equity (realized distributions)', s: r.dividends },
   ];
 
   const irrTone = (irr: number | null) => (irr === null ? 'neutral' : irr >= cfg.discountRate ? 'good' : 'bad');
@@ -110,18 +111,21 @@ export default function Module5Returns(): React.JSX.Element {
   // Step-by-step build-up rows (so the derivation is transparent).
   const b = rs.buildup;
   const fcffBuildupRows: M4Row[] = [
-    toRow('(-) Existing Pre-Capex (at inception)', b.existingPreCapexPerPeriod, { indent: 1 }),
+    toRow('(-) Historical Development Investment', b.existingPreCapexPerPeriod, { indent: 1 }),
     toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
     toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
     toRow('(+) Terminal Enterprise Value', b.terminalEnterprisePerPeriod, { indent: 1 }),
     toRow('= FCFF (unlevered project)', rs.fcffPerPeriod, { isTotal: true }),
   ];
+  // FCFE build-up — equity-centric. Existing equity = historical investment
+  // net of the debt opening (the two inception lines combine to existing
+  // equity). New CASH equity is the funding of the negative-FCFE periods
+  // (noted in the caption); in-kind equity is shown explicitly.
   const fcfeBuildupRows: M4Row[] = [
-    toRow('(-) Existing Pre-Capex (at inception)', b.existingPreCapexPerPeriod, { indent: 1 }),
-    toRow('(+) Existing Debt Opening (drawdown at inception)', b.existingDebtOpeningPerPeriod, { indent: 1 }),
+    toRow('(-) Existing Equity Investment (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
     toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
     toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
-    toRow('(-) In-kind Land Contribution', b.inKindLandPerPeriod, { indent: 1 }),
+    toRow('(-) In-Kind Equity Investment', b.inKindLandPerPeriod, { indent: 1 }),
     toRow('(+) Debt Drawdown', b.debtDrawPerPeriod, { indent: 1 }),
     toRow('(-) Principal Repayment', b.principalRepayPerPeriod, { indent: 1 }),
     toRow('(-) Interest Paid', b.interestPaidPerPeriod, { indent: 1 }),
@@ -129,9 +133,9 @@ export default function Module5Returns(): React.JSX.Element {
     toRow('= FCFE (levered equity)', rs.fcfePerPeriod, { isTotal: true }),
   ];
   const dividendBuildupRows: M4Row[] = [
-    toRow('(-) Existing Equity (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
-    toRow('(-) Cash Equity Contributed', b.equityCashPerPeriod, { indent: 1 }),
-    toRow('(-) In-kind Equity Contributed', b.equityInKindPerPeriod, { indent: 1 }),
+    toRow('(-) Existing Equity Investment (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
+    toRow('(-) New Cash Equity Investment', b.equityCashPerPeriod, { indent: 1 }),
+    toRow('(-) In-Kind Equity Investment', b.equityInKindPerPeriod, { indent: 1 }),
     toRow('(+) Dividends Distributed (cash-sweep waterfall)', b.dividendsDistributedPerPeriod, { indent: 1 }),
     toRow('(+) Terminal Equity Value', b.terminalEquityPerPeriod, { indent: 1 }),
     toRow('= Net Equity Cash Flow (dividend basis)', rs.dividendStreamPerPeriod, { isTotal: true }),
@@ -141,8 +145,8 @@ export default function Module5Returns(): React.JSX.Element {
     <div data-testid="module5-returns" style={{ padding: 'var(--sp-3)', width: '100%' }}>
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Returns on three cash-flow bases: <strong>FCFF</strong> (unlevered, to all capital providers),{' '}
-        <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Dividends</strong>{' '}
-        (actually distributed equity cash). Terminal value is added in the exit year per the assumptions below.
+        <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Distributed Equity</strong>{' '}
+        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted — IRR / MOIC / equity exposure / yield + exit metrics are the focus.
       </p>
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
@@ -151,9 +155,9 @@ export default function Module5Returns(): React.JSX.Element {
       <MetricGrid min={155}>
         <MetricCard label="Project IRR (FCFF)" value={fmtPct(r.fcff.irr)} sub={`MOIC ${fmtX(r.fcff.moic)}`} tone={irrTone(r.fcff.irr)} />
         <MetricCard label="Equity IRR (FCFE)" value={fmtPct(r.fcfe.irr)} sub={`MOIC ${fmtX(r.fcfe.moic)}`} tone={irrTone(r.fcfe.irr)} />
-        <MetricCard label="Dividend IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} />
+        <MetricCard label="Distributed Equity IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in). Distinct from FCFE IRR, which is the levered free cash flow available to equity." />
         <MetricCard label="Equity Multiple" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
-        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit after financing / GDV" tone={(de.developmentMargin ?? 0) >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit after financing / GDV" tone={(de.developmentMargin ?? 0) >= 0 ? 'good' : 'bad'} tooltip="Development Margin = Profit After Financing ÷ GDV. Profit After Financing = GDV − Total Development Cost − Total Financing Cost." />
         <MetricCard label="Payback (FCFE)" value={fmtYears(r.fcfe.paybackPeriod)} sub="undiscounted" />
         <MetricCard label="Payback (FCFF)" value={fmtYears(r.fcff.paybackPeriod)} sub="undiscounted" />
         <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
@@ -164,11 +168,11 @@ export default function Module5Returns(): React.JSX.Element {
       <MetricGrid min={155}>
         <MetricCard label="GDV (Gross Dev Value)" value={fmt(de.gdv)} sub={currency} />
         <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
-        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="interest over the hold" />
+        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="all interest over the hold" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
         <MetricCard label="Profit Before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV − dev cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
         <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" />
-        <MetricCard label="Cost-to-Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tooltip="Development Margin = Profit After Financing ÷ GDV." />
+        <MetricCard label="Cost-to-Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" tooltip="Cost-to-Value = Total Development Cost ÷ GDV." />
       </MetricGrid>
 
       {/* ── Exit Analysis ── */}
@@ -180,7 +184,7 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Equity Value" value={fmt(ex.exitEquityValue)} sub="EV − debt at exit" />
         <MetricCard label="Debt at Exit" value={fmt(ex.exitDebt)} sub={currency} />
         <MetricCard label="LTV at Exit" value={fmtPct(ex.ltvAtExit)} sub="debt / EV" />
-        <MetricCard label="Debt Yield" value={fmtPct(ex.debtYield)} sub="NOI / debt" />
+        <MetricCard label="Debt Yield" value={fmtPct(ex.debtYield)} sub="NOI / debt" tooltip="Debt Yield = Stabilized NOI ÷ Debt Balance (at exit). A lender's downside metric — the unlevered cash return on the loan if the asset is taken over." />
         <MetricCard label="Cap Rate at Exit" value={fmtPct(ex.capRate)} sub="NOI / EV" />
       </MetricGrid>
 
@@ -195,7 +199,8 @@ export default function Module5Returns(): React.JSX.Element {
             ['In-Kind Equity (land)', su.inKindEquity],
             ['Existing Debt', su.existingDebt],
             ['New Debt (incl. capitalised IDC)', su.newDebt],
-            ['Operating / Pre-Sales Cash', su.operatingCashFunding],
+            ['Customer Collections / Pre-Sales', su.customerCollections],
+            ['Operating Cash Generated', su.operatingCash],
           ]}
           total={su.totalSources}
           fmt={fmt}
@@ -204,20 +209,30 @@ export default function Module5Returns(): React.JSX.Element {
           title="Uses"
           rows={[
             ['Land', su.land],
-            ['Construction (non-land capex)', su.construction],
-            ['Interest During Construction (IDC)', su.idc],
+            ['Construction & Infrastructure', su.construction],
+            ['IDC Capitalized During Construction', su.idc],
+            ['Reserves / Distributions', su.reservesDistributions],
           ]}
           total={su.totalUses}
           fmt={fmt}
         />
       </div>
 
+      {/* ── Funding Mix (capital structure) ── */}
+      <SectionTitle>Funding Mix</SectionTitle>
+      <MetricGrid min={150}>
+        <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
+        <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
+        <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
+        <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
+      </MetricGrid>
+
       {/* ── Equity Exposure ── */}
       <SectionTitle>Equity Exposure</SectionTitle>
       <MetricGrid min={155}>
         <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
         <MetricCard label="Average Equity Invested" value={fmt(ee.averageEquityInvested)} sub="mean while committed" />
-        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" />
+        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" tooltip="Equity at Risk = the maximum cumulative equity invested at any point — the deepest the sponsor is in before distributions begin to return capital." />
         <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
         <MetricCard label="First Positive CF Year" value={ee.firstPositiveCFYear !== null ? String(ee.firstPositiveCFYear) : 'n/a'} sub="FCFE turns positive" />
         <MetricCard label="First Dividend Year" value={ee.firstDividendYear !== null ? String(ee.firstDividendYear) : 'n/a'} sub="first distribution" />
@@ -229,7 +244,7 @@ export default function Module5Returns(): React.JSX.Element {
           <SectionTitle>Stabilization (income assets)</SectionTitle>
           <MetricGrid min={155}>
             <MetricCard label="Stabilised NOI" value={fmt(st.stabilisedNOI)} sub={currency} />
-            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" />
+            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" tooltip="Yield on Cost = Stabilized NOI ÷ Total Development Cost — the going-in unlevered yield once the asset is stabilised." />
             <MetricCard label="Stabilization Year" value={st.stabilizationYear !== null ? String(st.stabilizationYear) : 'n/a'} sub="NOI ≥ 95% of stabilised" />
           </MetricGrid>
         </>
@@ -245,20 +260,19 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Debt Tenor" value={fmtYears(da.tenorYears)} sub="first draw to repaid" />
       </MetricGrid>
 
-      {/* Per-stream IRR / MOIC / NPV / Payback / profit table */}
+      {/* Per-stream IRR / MOIC / profit table (NPV + Payback removed — Payback
+          is in the KPI cards; NPV is not a primary real-estate metric). */}
       <section style={{ marginBottom: 'var(--sp-3)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 'var(--sp-1)' }}>
           Returns by Cash-Flow Basis
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
             <thead>
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                 <th style={{ textAlign: 'left', padding: '6px 10px' }}>Basis</th>
                 <th style={{ textAlign: 'right', padding: '6px 10px' }}>IRR</th>
                 <th style={{ textAlign: 'right', padding: '6px 10px' }}>MOIC</th>
-                <th style={{ textAlign: 'right', padding: '6px 10px' }}>NPV</th>
-                <th style={{ textAlign: 'right', padding: '6px 10px' }}>Payback</th>
                 <th style={{ textAlign: 'right', padding: '6px 10px' }}>Invested</th>
                 <th style={{ textAlign: 'right', padding: '6px 10px' }}>Returned</th>
                 <th style={{ textAlign: 'right', padding: '6px 10px' }}>Net Profit</th>
@@ -270,8 +284,6 @@ export default function Module5Returns(): React.JSX.Element {
                   <td style={{ textAlign: 'left', padding: '6px 10px', fontWeight: 600 }}>{label}</td>
                   <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmtPct(s.irr)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmtX(s.moic)}</td>
-                  <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmt(s.npv)}</td>
-                  <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmtYears(s.paybackPeriod)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmt(s.totalOutflow)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 10px' }}>{fmt(s.totalInflow)}</td>
                   <td style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 600 }}>{fmt(s.netProfit)}</td>
@@ -285,7 +297,7 @@ export default function Module5Returns(): React.JSX.Element {
       {/* Per-period signed cash-flow streams */}
       <M4PeriodTable
         title={`Return Cash-Flow Streams (hold to ${rs.exitYearLabel})`}
-        caption="Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Dividends (equity) cells. NOI is the recurring hospitality + lease income net of operating cost."
+        caption="Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Distributed Equity (equity) cells. NOI is the recurring hospitality + lease income net of operating cost."
         yearLabels={axisLabels}
         rows={streamRows}
         currency={currency}
@@ -308,7 +320,7 @@ export default function Module5Returns(): React.JSX.Element {
       />
       <M4PeriodTable
         title="FCFE Build-Up (levered, free cash to equity)"
-        caption="Free Cash Flow to Equity = Unlevered Free Cash Flow plus debt drawdown, less principal repayment and interest paid, plus the terminal equity value (enterprise value less debt at exit) at exit. The negative periods are the equity required after debt service."
+        caption="Free Cash Flow to Equity = existing equity investment (at inception) + project cash (Operations + Investing) − in-kind equity + debt drawdown − principal repayment − interest paid + terminal equity value at exit. The NEGATIVE periods are the NEW cash equity the sponsor must inject; in-kind + existing equity are shown explicitly. Distributed Equity (below) shows all three equity contributions side-by-side with the distributions."
         yearLabels={axisLabels}
         rows={fcfeBuildupRows}
         currency={currency}
@@ -316,8 +328,8 @@ export default function Module5Returns(): React.JSX.Element {
         priorYearLabel={inceptionLabel}
       />
       <M4PeriodTable
-        title="Dividend Build-Up (realised equity cash)"
-        caption="Realised equity cash = dividends actually distributed by the cash-sweep waterfall, less cash + in-kind equity contributed, plus the terminal equity value at exit. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
+        title="Distributed Equity Build-Up (realized distributions)"
+        caption="Realized equity cash = dividends actually distributed by the cash-sweep waterfall, less the equity invested (existing + new cash + in-kind), plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
         yearLabels={axisLabels}
         rows={dividendBuildupRows}
         currency={currency}

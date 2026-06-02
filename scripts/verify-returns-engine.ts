@@ -25,7 +25,7 @@ import {
 } from '../src/core/calculations/returns/metrics';
 import { computeReturns, summariseStream } from '../src/core/calculations/returns';
 import {
-  developmentEconomics, exitAnalysis, sourcesUses,
+  developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from '../src/core/calculations/returns/analytics';
 import type { ReturnsInput } from '../src/core/calculations/returns/types';
@@ -141,11 +141,22 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   check('exit: capRate = 100/1250 = 8%', near(ex.capRate, 0.08));
   check('exit: zero debt => debtYield null', exitAnalysis({ exitYearLabel: 0, exitNOI: 100, exitEBITDA: 0, exitEnterpriseValue: 1250, exitEquityValue: 1250, exitDebt: 0 }).debtYield === null);
 
-  // Sources & uses: operating cash balances uses not covered by equity+debt.
-  const su = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 50, existingDebt: 0, newDebt: 300, land: 150, construction: 600, idc: 40 });
-  check('S&U: totalUses = 790', near(su.totalUses, 790));
-  check('S&U: operatingCashFunding = 790 − 650 = 140', near(su.operatingCashFunding, 140));
+  // Sources & uses: operating cash balances the gap when cost > funding.
+  const su = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 50, existingDebt: 0, newDebt: 300, customerCollections: 0, land: 150, construction: 600, idc: 40 });
+  check('S&U: totalUses base = 790 (no surplus)', near(su.totalUses, 790));
+  check('S&U: operatingCash = 790 − 650 = 140', near(su.operatingCash, 140));
+  check('S&U: reservesDistributions = 0 (cost > funding)', near(su.reservesDistributions, 0));
   check('S&U: totalSources = totalUses (balanced)', near(su.totalSources, su.totalUses));
+  // Over-funded case: pre-sales push funding above cost -> reserves/distributions.
+  const su2 = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 0, existingDebt: 0, newDebt: 300, customerCollections: 400, land: 150, construction: 600, idc: 40 });
+  check('S&U over-funded: operatingCash = 0', near(su2.operatingCash, 0));
+  check('S&U over-funded: reserves = 1000 − 790 = 210', near(su2.reservesDistributions, 210));
+  check('S&U over-funded: balanced', near(su2.totalSources, su2.totalUses));
+  // Funding mix sums to ~100% (customer 400/1000 = 40%, debt 300/1000 = 30%).
+  const mix = fundingMix(su2);
+  check('mix: customer funding = 40%', near(mix.customerFundingPct, 0.40));
+  check('mix: debt = 30%', near(mix.debtPct, 0.30));
+  check('mix: cash equity = 30%', near(mix.cashEquityPct, 0.30));
 
   // Equity exposure on a signed FCFE stream.
   const ee = equityExposure({
