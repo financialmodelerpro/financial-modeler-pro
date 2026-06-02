@@ -2805,17 +2805,23 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
         const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
 
-        // Real, reconciled cash chain anchored to the Direct CF closing cash
-        // (which already nets out sweep + dividends). Per period:
-        //   finalClosing                                   = Direct CF closing
-        //   postSweepClosing = finalClosing + dividend[t]   (add dividend back)
-        //   preDistClosing   = postSweepClosing + sweep[t]  (add sweep back)
-        // and openingCash[t] = prior period's final closing.
+        // Cash chain straight from the AUTHORITATIVE snapshot arrays (no
+        // per-period reconstruction). The cash sweep waterfall already
+        // computes each of these consistently:
+        //   preSweepClose = closing after funding, BEFORE sweep/dividend
+        //                   (monotonic running cash) — Method 3's closing.
+        //   excessArr     = surplus above the minimum reserve available for
+        //                   debt sweep + dividend this period.
+        //   sweepArr      = total cash sweep applied this period.
+        //   cashForDividend = excess remaining after the sweep.
+        //   finalClosing  = closing after sweep AND dividends (= Direct CF
+        //                   closing, the BS cash).
         const finalClosing = snap.directCF.closingCashPerPeriod.slice(0, N);
+        const preSweepClose = sweep.preSweepClosingCash.slice(0, N);
+        const excessArr = sweep.excessAvailablePerPeriod.slice(0, N);
         const sweepArr = sweep.totalSweepPerPeriod;
         const divArr = div.totalDividendsPerPeriod;
-        const postSweepClosing = finalClosing.map((v, i) => v + (divArr[i] ?? 0));
-        const preDistClosing = postSweepClosing.map((v, i) => v + (sweepArr[i] ?? 0));
+        const cashForDividend = excessArr.map((v, i) => Math.max(0, v - (sweepArr[i] ?? 0)));
         const realOpening = finalClosing.map((_, i) =>
           i === 0 ? snap.bs.historicalOpeningCashTotal : (finalClosing[i - 1] ?? 0));
 
@@ -2869,7 +2875,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       {renderFlowRow('Total New Equity Required', equitySplit, { bold: true, priorValue: 0 })}
                     </>
                   )}
-                  {renderStateRow('Closing Cash (after funding, before sweep & dividends)', preDistClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderStateRow('Closing Cash (after funding, before sweep & dividends)', preSweepClose, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
                 </tbody>
               </table>
             </div>
@@ -2884,8 +2890,8 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             <div style={TABLE_TITLE}>2. Debt Repayment via Cash Sweep</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
               {sweep.enabled
-                ? <>Surplus cash above the minimum reserve ({p.fmt(w.minCashReserve)}) is swept to repay debt. Loans are repaid <strong>existing first, then by priority</strong>, each from its own starting year. Starts from the funding schedule&apos;s closing cash and ends with the post-sweep closing cash.</>
-                : <>No tranche has cash sweep enabled. Enable <em>Cash Sweep</em> on a tranche (Inputs tab) to repay it from surplus cash. This schedule is inert until then; dividends below are still paid per the selected policy.</>}
+                ? <>Each period&apos;s surplus above the minimum reserve ({p.fmt(w.minCashReserve)}) — the "Cash Available for Debt + Dividend Payment" — is swept to repay debt, <strong>existing loans first, then by priority</strong>, each only from its own starting year and only to the extent cash is available (a loan with a future start year, or a year with no surplus, simply does not sweep). Whatever surplus remains after the sweep carries to the dividend schedule below.</>
+                : <>No tranche has cash sweep enabled. Enable <em>Cash Sweep</em> on a tranche (Inputs tab) to repay it from surplus cash. Debt then repays on its normal schedule (shown in the funding schedule&apos;s Finance Cost + the Cash Flow tab) and the surplus above the minimum reserve flows straight to dividends below.</>}
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
@@ -2893,16 +2899,16 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {renderStateRow('Opening Cash', realOpening, { priorValue: snap.bs.historicalOpeningCashTotal })}
-                  {renderStateRow('Cash available before sweep (after funding)', preDistClosing, { subtotal: true, priorValue: 0 })}
-                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', preDistClosing.map(() => -w.minCashReserve), { negative: true })}
-                  {renderStateRow('Cash Available for Debt + Dividend Payment', preDistClosing.map((v) => Math.max(0, v - w.minCashReserve)), { subtotal: true, priorValue: 0 })}
+                  {renderStateRow('Cash before sweep (after funding)', preSweepClose, { subtotal: true, priorValue: 0 })}
+                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', preSweepClose.map(() => -w.minCashReserve), { negative: true })}
+                  {renderStateRow('Cash Available for Debt + Dividend Payment', excessArr, { subtotal: true, priorValue: 0 })}
                   {sweep.enabled && sweep.eligibleTranches.map((row) => renderFlowRow(
                     `  (−) Sweep: ${row.trancheName} (${row.origin === 'existing' ? 'existing' : 'new'}, priority ${row.priority}, from ${row.startingYear})`,
                     row.sweepPerPeriod.map((v) => -v),
                     { negative: true, indent: 1, priorValue: 0 },
                   ))}
                   {renderFlowRow('(−) Total Cash Sweep Applied', sweepArr.map((v) => -v), { negative: true, bold: true, priorValue: 0 })}
-                  {renderStateRow('Closing Cash (after debt sweep)', postSweepClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderStateRow('Cash Available for Dividend (after sweep)', cashForDividend, { subtotal: true, priorValue: 0 })}
                 </tbody>
               </table>
             </div>
@@ -2937,7 +2943,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             <div style={TABLE_TITLE}>3. Dividend via Cash Sweep</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
               {div.enabled
-                ? <>Dividends are paid from the cash remaining after the debt sweep, maintaining the minimum cash reserve ({p.fmt(w.minCashReserve)}) and capped by cumulative phase EBITDA. Dividends are paid per the selected policy <strong>even if debt was not fully repaid via sweep</strong>. Starts from the post-sweep closing cash and ends with the final closing cash, which ties to the Cash Flow tab.</>
+                ? <>Dividends are paid from the cash remaining after the debt sweep ("Cash Available for Dividend"), maintaining the minimum cash reserve ({p.fmt(w.minCashReserve)}) and capped by cumulative phase EBITDA. Dividends are paid per the selected policy <strong>even if debt was not fully repaid via sweep</strong> (or if no sweep is configured). Ends with the final closing cash, which ties to the Cash Flow tab.</>
                 : <>No phase has a dividend policy enabled. Enable a dividend policy per phase below. This schedule is inert until then.</>}
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -2945,8 +2951,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 {colgroup}
                 {headerRow}
                 <tbody>
-                  {renderStateRow('Cash available before dividend (post-sweep)', postSweepClosing, { subtotal: true, priorValue: snap.bs.historicalOpeningCashTotal })}
-                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', postSweepClosing.map(() => -w.minCashReserve), { negative: true })}
+                  {renderStateRow('Cash Available for Dividend (after sweep, above min reserve)', cashForDividend, { subtotal: true, priorValue: 0 })}
                   {div.beforeSweepPhases.map((row) => renderFlowRow(
                     `  (−) ${row.phaseName} dividend (before sweep, ${row.mode === 'pct_of_ebitda' ? `${(row.payoutRatio * 100).toFixed(0)}% of EBITDA` : `${(row.payoutRatio * 100).toFixed(0)}% of cash avail`}, cap EBITDA ${p.fmt(row.totalPhaseEbitda)})`,
                     row.dividendsPerPeriod.map((v) => -v),
