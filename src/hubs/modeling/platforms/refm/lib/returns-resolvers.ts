@@ -6,16 +6,38 @@
  * cash-flow streams, the terminal value, and the real-estate metric
  * feeders, then calls computeReturns. No engine (M1-M4) path is touched.
  *
+ * SPONSOR-IRR / PROJECT-INCEPTION view (2026-06-02). Real-estate sponsors
+ * measure returns from project inception, including existing operations
+ * already in the ground at t=0, new investments going forward, and in-kind
+ * contributions at their fair value when contributed. Every stream therefore
+ * leads with an INCEPTION period (index 0 = projectStartYear − 1) carrying
+ * the existing capital, then the axis years 2026..exit. Streams are E+1 long.
+ *
  * Cash-flow definitions (documented so the UI + verifier agree):
- *   FCFF (unlevered / project) = CFO + CFI - in-kind land, + terminal EV
- *     at exit. Pre-financing project cash flow to all capital providers.
- *     Tax is the modelled (levered) tax, the standard project-IRR
- *     convention for this kind of feasibility model.
- *   FCFE (levered / equity free cash flow) = FCFF + debt drawdown
- *     - principal repaid - interest paid, + terminal EQUITY value at exit.
- *     The negative periods are the equity actually required after debt.
- *   Dividends (realised distributions) = -(cash + in-kind equity
- *     contributed) + dividends distributed, + terminal equity at exit.
+ *   FCFF (unlevered / to all capital providers):
+ *     inception: − existing pre-capex
+ *     axis:      + CFO + CFI (new construction capex). NO in-kind land line
+ *                (land is non-cash and already flows through CFO via CoS /
+ *                depreciation; adding it would double-count).
+ *     exit:      + terminal enterprise value
+ *   FCFE (levered / to equity):
+ *     inception: − existing pre-capex + existing debt opening (= − existing
+ *                equity contribution)
+ *     axis:      FCFF axis + debt drawdown − principal − interest − in-kind
+ *                land (the landowner is an equity investor contributing in
+ *                non-cash form; their IRR is measured against its fair value)
+ *     exit:      + terminal equity value (EV − debt at exit)
+ *   Dividends (realised equity cash):
+ *     inception: − existing equity
+ *     axis:      − (cash + in-kind equity contributed) + dividends distributed
+ *     exit:      + terminal equity value
+ *
+ * Bridge identity per period: FCFE = FCFF + debt drawdown − principal −
+ * interest − in-kind equity + terminal-equity adjustment (the in-kind +
+ * existing-debt-opening lines appear on FCFE only, never on FCFF).
+ *
+ * IRR is the headline metric (sponsor equity IRR from inception); NPV at the
+ * user-set discount rate is still computed for completeness.
  *
  * Exit handling: cash flows are taken through the exit year (default last
  * active year). Periods AFTER exit are dropped and the terminal value is
@@ -65,11 +87,20 @@ export function resolveReturnsConfig(project: Project, axisLength: number): Retu
  * the step-by-step derivation (not just the final signed number). All
  * arrays are truncated to the hold horizon (exit + 1).
  */
+// All build-up arrays are length E+1: index 0 is the INCEPTION period
+// (projectStartYear − 1, the "existing operations at t=0" column); indices
+// 1..E are the project axis years through exit. The sponsor-IRR view starts
+// the stream at inception so existing equity + existing debt + in-kind land
+// appear as real capital movements (see the 2026-06-02 sponsor-IRR rework).
 export interface ReturnsBuildup {
+  // Inception (2025) capital already in the ground at project start.
+  existingPreCapexPerPeriod: number[];  // (-) existing pre-capex (FCFF + FCFE)
+  existingDebtOpeningPerPeriod: number[];// (+) existing debt opening drawdown (FCFE)
+  existingEquityPerPeriod: number[];    // (-) existing equity = preCapex − debt (dividend)
   // FCFF (unlevered) build-up
   cfoPerPeriod: number[];               // (+) cash from operations
   cfiPerPeriod: number[];               // (+) cash from investing (= -capex)
-  inKindLandPerPeriod: number[];        // (-) in-kind land contributed
+  inKindLandPerPeriod: number[];        // (-) in-kind land contributed (FCFE only)
   terminalEnterprisePerPeriod: number[];// (+) terminal enterprise value (exit only)
   // FCFE (levered) extra lines on top of unlevered FCFF
   debtDrawPerPeriod: number[];          // (+) debt drawdown
@@ -87,7 +118,12 @@ export interface ReturnsSnapshot {
   yearLabels: number[];
   config: ReturnsConfig;
   exitYearLabel: number;
-  /** Signed per-period streams (truncated at exit), for display + audit. */
+  /** Year labels for the signed streams: index 0 = inception
+   *  (projectStartYear − 1), indices 1..E = axis years through exit.
+   *  Length matches the stream arrays (E+1). */
+  streamYearLabels: number[];
+  /** Signed per-period streams, sponsor-IRR view. Index 0 = inception
+   *  (existing operations at t=0), indices 1..E = axis years through exit. */
   fcffPerPeriod: number[];
   fcfePerPeriod: number[];
   dividendStreamPerPeriod: number[];
@@ -136,15 +172,33 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // (so an exit during a dip still reports a sensible stabilised figure).
   const stabilisedNOI = Math.max(exitNOI, ...noiPerPeriod.slice(0, E), 0);
 
-  // Terminal value. Exit-multiple is applied to stabilised NOI; perpetuity
-  // to the exit-year unlevered free cash flow.
-  const fcffPreExit = new Array<number>(N).fill(0);
-  for (let t = 0; t < N; t++) {
-    fcffPreExit[t] = (dcf.cashFromOperationsPerPeriod[t] ?? 0)
-      + (dcf.cashFromInvestmentPerPeriod[t] ?? 0)
-      - (dcf.equityInKindDrawdownPerPeriod[t] ?? 0);
-  }
-  const exitFcff = fcffPreExit[exit] ?? 0;
+  // ── Sponsor-IRR inception view (2026-06-02) ─────────────────────────
+  // Existing operations already in the ground at project start (the prior
+  // / inception column = projectStartYear − 1). These are real capital
+  // movements that MUST appear in the streams or the equity IRR is inflated
+  // / infinite. Existing equity = existing pre-capex funded by anything not
+  // covered by existing debt opening (preCapex − debtOpening).
+  const existingPreCapex = Math.max(0, fin.existing.preCapexTotal);
+  const existingDebtOpening = Math.max(0, fin.existing.debtOutstandingTotal);
+  const existingEquity = Math.max(0, existingPreCapex - existingDebtOpening);
+  const equityCash = fin.equity.cashPerPeriod;
+  const equityInKind = fin.equity.inKindPerPeriod;
+  const dividendsPaid = snap.dividends.totalDividendsPerPeriod;
+
+  // Axis-period (2026 onward) component slices.
+  const sliceE = (arr: number[]): number[] => arr.slice(0, E).map((v) => v ?? 0);
+  const cfoAxis = sliceE(dcf.cashFromOperationsPerPeriod);
+  const cfiAxis = sliceE(dcf.cashFromInvestmentPerPeriod);  // new construction capex (cash)
+  const inKindAxis = sliceE(equityInKind);                  // in-kind land contributed
+  const debtDrawAxis = sliceE(dcf.debtDrawdownPerPeriod);
+  const principalAxis = sliceE(dcf.debtRepaymentPerPeriod); // already negative
+  const interestAxis = sliceE(dcf.interestPaidPerPeriod);   // already negative
+  const equityCashAxis = sliceE(equityCash);
+  const divPaidAxis = sliceE(dividendsPaid);
+
+  // ── Terminal value (exit-multiple on stabilised NOI; perpetuity on the
+  // exit-year unlevered free cash flow = CFO + CFI, no in-kind). ─────────
+  const exitFcff = (cfoAxis[exit] ?? 0) + (cfiAxis[exit] ?? 0);
   const tvEnterprise = terminalEnterpriseValue({
     method: cfg.terminalMethod,
     exitMetric: cfg.terminalMethod === 'perpetuity' ? exitFcff : stabilisedNOI,
@@ -154,51 +208,66 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   });
   const debtAtExit = bs.debtOutstandingPerPeriod[exit] ?? 0;
   // Terminal EQUITY value = sale proceeds (EV) net of the loan payoff at
-  // exit. Cash on the balance sheet is deliberately NOT added: it was
-  // already counted within the FCFE / dividend streams as it was earned
-  // (adding it again double-counts), and a 'none' terminal method then
-  // correctly books zero residual.
+  // exit. Cash on the balance sheet is deliberately NOT added (already
+  // counted within the FCFE / dividend streams as it was earned).
   const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
 
-  // ── Stream 1: FCFF (unlevered) ──────────────────────────────────────
-  const fcff = fcffPreExit.slice(0, E);
-  fcff[exit] = (fcff[exit] ?? 0) + tvEnterprise;
+  // Helper: build an (E+1)-length stream — index 0 = inception, 1..E = axis.
+  const incep = (inceptionVal: number, axisArr: number[]): number[] => {
+    const out = new Array<number>(E + 1).fill(0);
+    out[0] = inceptionVal;
+    for (let t = 0; t < E; t++) out[t + 1] = axisArr[t] ?? 0;
+    return out;
+  };
+  const atExitAxis = (value: number): number[] => { const a = new Array<number>(E).fill(0); a[exit] = value; return a; };
 
-  // ── Stream 2: FCFE (levered) ────────────────────────────────────────
-  const fcfe = new Array<number>(E).fill(0);
-  for (let t = 0; t < E; t++) {
-    fcfe[t] = (fcffPreExit[t] ?? 0)
-      + (dcf.debtDrawdownPerPeriod[t] ?? 0)
-      + (dcf.debtRepaymentPerPeriod[t] ?? 0)  // already negative
-      + (dcf.interestPaidPerPeriod[t] ?? 0);  // already negative
-  }
-  fcfe[exit] = (fcfe[exit] ?? 0) + tvEquity;
+  // ── Stream 1: FCFF (unlevered, to all capital providers) ────────────
+  //   inception: − existing pre-capex
+  //   axis:      + CFO + CFI (new capex). NO in-kind land (it is non-cash
+  //              and already flows through CFO via CoS / depreciation).
+  //   exit:      + terminal enterprise value
+  const fcffAxis = cfoAxis.map((v, t) => v + (cfiAxis[t] ?? 0));
+  fcffAxis[exit] = (fcffAxis[exit] ?? 0) + tvEnterprise;
+  const fcff = incep(-existingPreCapex, fcffAxis);
 
-  // ── Stream 3: Dividends (realised equity) ───────────────────────────
-  const equityCash = fin.equity.cashPerPeriod;
-  const equityInKind = fin.equity.inKindPerPeriod;
-  const dividendsPaid = snap.dividends.totalDividendsPerPeriod;
-  const dividendStream = new Array<number>(E).fill(0);
-  for (let t = 0; t < E; t++) {
-    dividendStream[t] = -((equityCash[t] ?? 0) + (equityInKind[t] ?? 0)) + (dividendsPaid[t] ?? 0);
-  }
-  dividendStream[exit] = (dividendStream[exit] ?? 0) + tvEquity;
+  // ── Stream 2: FCFE (levered, free cash to equity) ───────────────────
+  //   inception: − existing pre-capex + existing debt opening (= − existing equity)
+  //   axis:      FCFF axis + debt drawdown − principal − interest − in-kind land
+  //   exit:      + terminal equity value
+  const fcfeAxis = cfoAxis.map((v, t) =>
+    v + (cfiAxis[t] ?? 0)
+    + (debtDrawAxis[t] ?? 0)
+    + (principalAxis[t] ?? 0)   // already negative
+    + (interestAxis[t] ?? 0)    // already negative
+    - (inKindAxis[t] ?? 0));    // in-kind land is an equity outflow
+  fcfeAxis[exit] = (fcfeAxis[exit] ?? 0) + tvEquity;
+  const fcfe = incep(-existingPreCapex + existingDebtOpening, fcfeAxis);
 
-  // ── Step-by-step build-up components (truncated to the hold) ─────────
-  const sliceE = (arr: number[]): number[] => arr.slice(0, E).map((v) => v ?? 0);
-  const atExit = (value: number): number[] => { const a = new Array<number>(E).fill(0); a[exit] = value; return a; };
+  // ── Stream 3: Dividends (realised equity cash) ──────────────────────
+  //   inception: − existing equity
+  //   axis:      − (cash + in-kind equity contributed) + dividends distributed
+  //   exit:      + terminal equity value
+  const dividendAxis = equityCashAxis.map((v, t) =>
+    -(v + (inKindAxis[t] ?? 0)) + (divPaidAxis[t] ?? 0));
+  dividendAxis[exit] = (dividendAxis[exit] ?? 0) + tvEquity;
+  const dividendStream = incep(-existingEquity, dividendAxis);
+
+  // ── Step-by-step build-up components (E+1, index 0 = inception) ──────
   const buildup = {
-    cfoPerPeriod: sliceE(dcf.cashFromOperationsPerPeriod),
-    cfiPerPeriod: sliceE(dcf.cashFromInvestmentPerPeriod),
-    inKindLandPerPeriod: sliceE(dcf.equityInKindDrawdownPerPeriod).map((v) => -v),
-    terminalEnterprisePerPeriod: atExit(tvEnterprise),
-    debtDrawPerPeriod: sliceE(dcf.debtDrawdownPerPeriod),
-    principalRepayPerPeriod: sliceE(dcf.debtRepaymentPerPeriod),
-    interestPaidPerPeriod: sliceE(dcf.interestPaidPerPeriod),
-    terminalEquityPerPeriod: atExit(tvEquity),
-    equityCashPerPeriod: sliceE(equityCash).map((v) => -v),
-    equityInKindPerPeriod: sliceE(equityInKind).map((v) => -v),
-    dividendsDistributedPerPeriod: sliceE(dividendsPaid),
+    existingPreCapexPerPeriod: incep(-existingPreCapex, new Array<number>(E).fill(0)),
+    existingDebtOpeningPerPeriod: incep(existingDebtOpening, new Array<number>(E).fill(0)),
+    existingEquityPerPeriod: incep(-existingEquity, new Array<number>(E).fill(0)),
+    cfoPerPeriod: incep(0, cfoAxis),
+    cfiPerPeriod: incep(0, cfiAxis),
+    inKindLandPerPeriod: incep(0, inKindAxis.map((v) => -v)),
+    terminalEnterprisePerPeriod: incep(0, atExitAxis(tvEnterprise)),
+    debtDrawPerPeriod: incep(0, debtDrawAxis),
+    principalRepayPerPeriod: incep(0, principalAxis),
+    interestPaidPerPeriod: incep(0, interestAxis),
+    terminalEquityPerPeriod: incep(0, atExitAxis(tvEquity)),
+    equityCashPerPeriod: incep(0, equityCashAxis.map((v) => -v)),
+    equityInKindPerPeriod: incep(0, inKindAxis.map((v) => -v)),
+    dividendsDistributedPerPeriod: incep(0, divPaidAxis),
   };
 
   // ── Real-estate metric feeders ──────────────────────────────────────
@@ -213,7 +282,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   ).map((v, i) => v + fin.equity.totalExisting); // existing equity is in from t=0
 
   const input: ReturnsInput = {
-    axisLength: E,
+    axisLength: E + 1, // inception + axis through exit
     fcff: { perPeriod: fcff },
     fcfe: { perPeriod: fcfe },
     dividends: { perPeriod: dividendStream },
@@ -244,6 +313,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     yearLabels: snap.yearLabels,
     config: cfg,
     exitYearLabel: snap.yearLabels[exit] ?? (snap.projectStartYear + exit),
+    streamYearLabels: [snap.projectStartYear - 1, ...snap.yearLabels.slice(0, E)],
     fcffPerPeriod: fcff,
     fcfePerPeriod: fcfe,
     dividendStreamPerPeriod: dividendStream,

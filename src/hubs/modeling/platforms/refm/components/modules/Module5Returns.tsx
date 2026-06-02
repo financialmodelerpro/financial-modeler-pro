@@ -69,14 +69,26 @@ export default function Module5Returns(): React.JSX.Element {
     });
   };
 
-  // Cash-flow streams table over the hold horizon (through exit).
-  const E = cfg.exitYearOffset + 1;
-  const streamYearLabels = rs.yearLabels.slice(0, E);
+  // Cash-flow streams over the hold horizon. Sponsor-IRR view: index 0 of
+  // each stream is the INCEPTION period (projectStartYear − 1), which maps to
+  // the table's prior-year column; indices 1..E are the axis years to exit.
+  const axisLabels = rs.streamYearLabels.slice(1);
+  const inceptionLabel = rs.streamYearLabels[0];
+  // Build an M4Row from an (E+1) stream array: prior column = inception,
+  // values = axis years, Total = full lifetime sum (incl. inception).
+  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
+    label,
+    values: arr.slice(1),
+    priorValue: arr[0] ?? 0,
+    totalOverride: fmt(arr.reduce((s, v) => s + (v ?? 0), 0)),
+    ...opts,
+  });
+  const noiStream = [0, ...rs.noiPerPeriod.slice(0, axisLabels.length)];
   const streamRows: M4Row[] = [
-    { label: 'FCFF, unlevered project', values: rs.fcffPerPeriod, isSubtotal: true },
-    { label: 'FCFE, levered equity', values: rs.fcfePerPeriod, isSubtotal: true },
-    { label: 'Dividends, realised equity', values: rs.dividendStreamPerPeriod, isSubtotal: true },
-    { label: 'Memo: NOI (recurring)', values: rs.noiPerPeriod.slice(0, E), indent: 1 },
+    toRow('FCFF, unlevered project', rs.fcffPerPeriod, { isSubtotal: true }),
+    toRow('FCFE, levered equity', rs.fcfePerPeriod, { isSubtotal: true }),
+    toRow('Dividends, realised equity', rs.dividendStreamPerPeriod, { isSubtotal: true }),
+    toRow('Memo: NOI (recurring)', noiStream, { indent: 1 }),
   ];
 
   // Per-stream summary table.
@@ -90,33 +102,32 @@ export default function Module5Returns(): React.JSX.Element {
 
   // Step-by-step build-up rows (so the derivation is transparent).
   const b = rs.buildup;
-  const sumRows = (...arrs: number[][]): number[] =>
-    streamYearLabels.map((_, i) => arrs.reduce((s, a) => s + (a[i] ?? 0), 0));
-  const unleveredFcff = sumRows(b.cfoPerPeriod, b.cfiPerPeriod, b.inKindLandPerPeriod);
   const fcffBuildupRows: M4Row[] = [
-    { label: '(+) Cash from Operations', values: b.cfoPerPeriod, indent: 1 },
-    { label: '(+) Cash from Investing (capex)', values: b.cfiPerPeriod, indent: 1 },
-    { label: '(-) In-kind land contributed', values: b.inKindLandPerPeriod, indent: 1 },
-    { label: '(+) Terminal Enterprise Value', values: b.terminalEnterprisePerPeriod, indent: 1 },
-    { label: '= FCFF (unlevered project)', values: rs.fcffPerPeriod, isTotal: true },
+    toRow('(-) Existing Pre-Capex (at inception)', b.existingPreCapexPerPeriod, { indent: 1 }),
+    toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
+    toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
+    toRow('(+) Terminal Enterprise Value', b.terminalEnterprisePerPeriod, { indent: 1 }),
+    toRow('= FCFF (unlevered project)', rs.fcffPerPeriod, { isTotal: true }),
   ];
   const fcfeBuildupRows: M4Row[] = [
-    { label: 'Cash from Operations', values: b.cfoPerPeriod, indent: 1 },
-    { label: 'Cash from Investing (capex)', values: b.cfiPerPeriod, indent: 1 },
-    { label: '(-) In-kind land contributed', values: b.inKindLandPerPeriod, indent: 1 },
-    { label: '= Unlevered Free Cash Flow', values: unleveredFcff, isSubtotal: true },
-    { label: '(+) Debt Drawdown', values: b.debtDrawPerPeriod, indent: 1 },
-    { label: '(-) Principal Repayment', values: b.principalRepayPerPeriod, indent: 1 },
-    { label: '(-) Interest Paid', values: b.interestPaidPerPeriod, indent: 1 },
-    { label: '(+) Terminal Equity Value', values: b.terminalEquityPerPeriod, indent: 1 },
-    { label: '= FCFE (levered equity)', values: rs.fcfePerPeriod, isTotal: true },
+    toRow('(-) Existing Pre-Capex (at inception)', b.existingPreCapexPerPeriod, { indent: 1 }),
+    toRow('(+) Existing Debt Opening (drawdown at inception)', b.existingDebtOpeningPerPeriod, { indent: 1 }),
+    toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
+    toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
+    toRow('(-) In-kind Land Contribution', b.inKindLandPerPeriod, { indent: 1 }),
+    toRow('(+) Debt Drawdown', b.debtDrawPerPeriod, { indent: 1 }),
+    toRow('(-) Principal Repayment', b.principalRepayPerPeriod, { indent: 1 }),
+    toRow('(-) Interest Paid', b.interestPaidPerPeriod, { indent: 1 }),
+    toRow('(+) Terminal Equity Value', b.terminalEquityPerPeriod, { indent: 1 }),
+    toRow('= FCFE (levered equity)', rs.fcfePerPeriod, { isTotal: true }),
   ];
   const dividendBuildupRows: M4Row[] = [
-    { label: '(-) Cash Equity Contributed', values: b.equityCashPerPeriod, indent: 1 },
-    { label: '(-) In-kind Equity Contributed', values: b.equityInKindPerPeriod, indent: 1 },
-    { label: '(+) Dividends Distributed (cash-sweep waterfall)', values: b.dividendsDistributedPerPeriod, indent: 1 },
-    { label: '(+) Terminal Equity Value', values: b.terminalEquityPerPeriod, indent: 1 },
-    { label: '= Net Equity Cash Flow (dividend basis)', values: rs.dividendStreamPerPeriod, isTotal: true },
+    toRow('(-) Existing Equity (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
+    toRow('(-) Cash Equity Contributed', b.equityCashPerPeriod, { indent: 1 }),
+    toRow('(-) In-kind Equity Contributed', b.equityInKindPerPeriod, { indent: 1 }),
+    toRow('(+) Dividends Distributed (cash-sweep waterfall)', b.dividendsDistributedPerPeriod, { indent: 1 }),
+    toRow('(+) Terminal Equity Value', b.terminalEquityPerPeriod, { indent: 1 }),
+    toRow('= Net Equity Cash Flow (dividend basis)', rs.dividendStreamPerPeriod, { isTotal: true }),
   ];
 
   return (
@@ -186,11 +197,11 @@ export default function Module5Returns(): React.JSX.Element {
       <M4PeriodTable
         title={`Return Cash-Flow Streams (hold to ${rs.exitYearLabel})`}
         caption="Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Dividends (equity) cells. NOI is the recurring hospitality + lease income net of operating cost."
-        yearLabels={streamYearLabels}
+        yearLabels={axisLabels}
         rows={streamRows}
         currency={currency}
         fmt={fmt}
-        priorYearLabel={snap.projectStartYear - 1}
+        priorYearLabel={inceptionLabel}
       />
 
       {/* Step-by-step build-ups so the derivation is transparent */}
@@ -200,29 +211,29 @@ export default function Module5Returns(): React.JSX.Element {
       <M4PeriodTable
         title="FCFF Build-Up (unlevered, to all capital providers)"
         caption="Free Cash Flow to Firm = Cash from Operations + Cash from Investing (capex) less in-kind land contributed, plus the terminal enterprise value at exit. Pre-financing: interest and debt are excluded."
-        yearLabels={streamYearLabels}
+        yearLabels={axisLabels}
         rows={fcffBuildupRows}
         currency={currency}
         fmt={fmt}
-        priorYearLabel={snap.projectStartYear - 1}
+        priorYearLabel={inceptionLabel}
       />
       <M4PeriodTable
         title="FCFE Build-Up (levered, free cash to equity)"
         caption="Free Cash Flow to Equity = Unlevered Free Cash Flow plus debt drawdown, less principal repayment and interest paid, plus the terminal equity value (enterprise value less debt at exit) at exit. The negative periods are the equity required after debt service."
-        yearLabels={streamYearLabels}
+        yearLabels={axisLabels}
         rows={fcfeBuildupRows}
         currency={currency}
         fmt={fmt}
-        priorYearLabel={snap.projectStartYear - 1}
+        priorYearLabel={inceptionLabel}
       />
       <M4PeriodTable
         title="Dividend Build-Up (realised equity cash)"
         caption="Realised equity cash = dividends actually distributed by the cash-sweep waterfall, less cash + in-kind equity contributed, plus the terminal equity value at exit. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
-        yearLabels={streamYearLabels}
+        yearLabels={axisLabels}
         rows={dividendBuildupRows}
         currency={currency}
         fmt={fmt}
-        priorYearLabel={snap.projectStartYear - 1}
+        priorYearLabel={inceptionLabel}
       />
     </div>
   );
