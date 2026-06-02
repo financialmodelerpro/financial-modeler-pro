@@ -78,10 +78,16 @@ export function computeReturns(input: ReturnsInput): ReturnsResult {
 export { npv, irr, moic, paybackPeriod, peakExposure } from './irr';
 export { terminalEnterpriseValue, terminalEquityValue } from './terminalValue';
 export {
+  developmentEconomics, exitAnalysis, sourcesUses,
+  equityExposure, stabilizationMetrics, debtAnalytics,
+} from './analytics';
+export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,
 } from './metrics';
 export type {
   CashFlowStream, StreamReturns, ReturnsInput, ReturnsResult, RealEstateMetrics,
   TerminalMethod, TerminalValueInput,
+  DevelopmentEconomics, ExitAnalysis, SourcesUses,
+  EquityExposureDetail, StabilizationMetrics, DebtAnalytics,
 } from './types';

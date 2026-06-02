@@ -45,8 +45,14 @@
  */
 import {
   computeReturns, terminalEnterpriseValue, terminalEquityValue,
+  developmentEconomics, exitAnalysis, sourcesUses,
+  equityExposure, stabilizationMetrics, debtAnalytics,
 } from '@/src/core/calculations/returns';
-import type { ReturnsResult, ReturnsInput, TerminalMethod } from '@/src/core/calculations/returns';
+import type {
+  ReturnsResult, ReturnsInput, TerminalMethod,
+  DevelopmentEconomics, ExitAnalysis, SourcesUses,
+  EquityExposureDetail, StabilizationMetrics, DebtAnalytics,
+} from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
 
@@ -140,6 +146,13 @@ export interface ReturnsSnapshot {
   /** Total dividends distributed over the hold (cash-sweep waterfall). */
   totalDividendsDistributed: number;
   result: ReturnsResult;
+  // ── M5 Pass 1 analytics (2026-06-02) ──
+  developmentEconomics: DevelopmentEconomics;
+  exitAnalysis: ExitAnalysis;
+  sourcesUses: SourcesUses;
+  equityExposure: EquityExposureDetail;
+  stabilization: StabilizationMetrics;
+  debtAnalytics: DebtAnalytics;
 }
 
 function cumulative(arr: number[]): number[] {
@@ -314,12 +327,64 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     },
   };
 
+  const result = computeReturns(input);
+  const exitYearLabel = snap.yearLabels[exit] ?? (snap.projectStartYear + exit);
+  const streamYearLabels = [snap.projectStartYear - 1, ...snap.yearLabels.slice(0, E)];
+
+  // ── M5 Pass 1 analytics (2026-06-02) ──────────────────────────────────
+  const sum = (arr: number[], len = N): number => arr.slice(0, len).reduce((s, v) => s + (v ?? 0), 0);
+  const gdv = totalRevenue; // total project revenue over the hold = GDV
+  const totalFinancingCost = sum(fin.combined.totalInterestAccrued);
+  const devEconomics = developmentEconomics(gdv, totalDevelopmentCost, totalFinancingCost);
+
+  const exitAnalysisBlock = exitAnalysis({
+    exitYearLabel,
+    exitNOI,
+    exitEBITDA: pl.ebitdaPerPeriod[exit] ?? 0,
+    exitEnterpriseValue: tvEnterprise,
+    exitEquityValue: tvEquity,
+    exitDebt: debtAtExit,
+  });
+
+  const sourcesUsesBlock = sourcesUses({
+    existingEquity: fin.equity.totalExisting,
+    newEquityCash: fin.equity.totalCash,
+    inKindEquity: fin.equity.totalInKind,
+    existingDebt: fin.existing.debtOutstandingTotal,
+    newDebt: sum(fin.combined.totalDrawdown) + sum(fin.combined.totalInterestCapitalized),
+    land: fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand,
+    construction: fin.capex.totals.exclAllLand,
+    idc: sum(fin.combined.totalInterestForAssetBasis),
+  });
+
+  const equityExposureBlock = equityExposure({
+    fcfePerPeriod: fcfe,
+    streamYearLabels,
+    cumulativeEquityPerPeriod: cumulativeEquity.slice(0, N),
+    totalEquityRequired: totalEquityInvested,
+    dividendsPerPeriod: dividendsPaid.slice(0, N),
+    axisYearLabels: snap.yearLabels,
+  });
+
+  const stabilizationBlock = stabilizationMetrics({
+    noiPerPeriod,
+    stabilisedNOI,
+    stabilisedYieldOnCost: result.realEstate.yieldOnCost,
+    axisYearLabels: snap.yearLabels,
+  });
+
+  const debtAnalyticsBlock = debtAnalytics({
+    debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod.slice(0, N),
+    exitIdx: exit,
+    axisYearLabels: snap.yearLabels,
+  });
+
   return {
     axisLength: N,
     yearLabels: snap.yearLabels,
     config: cfg,
-    exitYearLabel: snap.yearLabels[exit] ?? (snap.projectStartYear + exit),
-    streamYearLabels: [snap.projectStartYear - 1, ...snap.yearLabels.slice(0, E)],
+    exitYearLabel,
+    streamYearLabels,
     fcffPerPeriod: fcff,
     fcfePerPeriod: fcfe,
     dividendStreamPerPeriod: dividendStream,
@@ -332,6 +397,12 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     totalDevelopmentCost,
     totalEquityInvested,
     totalDividendsDistributed: totalDividends,
-    result: computeReturns(input),
+    result,
+    developmentEconomics: devEconomics,
+    exitAnalysis: exitAnalysisBlock,
+    sourcesUses: sourcesUsesBlock,
+    equityExposure: equityExposureBlock,
+    stabilization: stabilizationBlock,
+    debtAnalytics: debtAnalyticsBlock,
   };
 }

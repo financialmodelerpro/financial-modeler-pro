@@ -24,6 +24,10 @@ import {
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries,
 } from '../src/core/calculations/returns/metrics';
 import { computeReturns, summariseStream } from '../src/core/calculations/returns';
+import {
+  developmentEconomics, exitAnalysis, sourcesUses,
+  equityExposure, stabilizationMetrics, debtAnalytics,
+} from '../src/core/calculations/returns/analytics';
 import type { ReturnsInput } from '../src/core/calculations/returns/types';
 
 let pass = 0, fail = 0;
@@ -119,6 +123,59 @@ check('computeReturns: yieldOnCost = 9%', near(res.realEstate.yieldOnCost, 0.09)
 check('computeReturns: developmentSpread = YoC - cap', res.realEstate.developmentSpread !== null && near(res.realEstate.developmentSpread, 0.09 - 95 / 1583, 1e-4));
 check('computeReturns: dscrMin = 1.5', near(res.realEstate.dscrMin, 1.5));
 check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1).npv === res.fcff.npv);
+
+// ── M5 Pass 1 analytics (2026-06-02) ──────────────────────────────────
+{
+  // Development economics: GDV 1000, dev cost 700, financing 50.
+  const de = developmentEconomics(1000, 700, 50);
+  check('devEcon: profitBeforeFinancing = 300', near(de.profitBeforeFinancing, 300));
+  check('devEcon: profitAfterFinancing = 250', near(de.profitAfterFinancing, 250));
+  check('devEcon: developmentMargin = 25%', near(de.developmentMargin, 0.25));
+  check('devEcon: costToValue = 70%', near(de.costToValue, 0.70));
+  check('devEcon: GDV 0 => null margin', developmentEconomics(0, 700, 50).developmentMargin === null);
+
+  // Exit analysis ratios.
+  const ex = exitAnalysis({ exitYearLabel: 2035, exitNOI: 100, exitEBITDA: 120, exitEnterpriseValue: 1250, exitEquityValue: 800, exitDebt: 450 });
+  check('exit: LTV = 450/1250 = 36%', near(ex.ltvAtExit, 0.36));
+  check('exit: debtYield = 100/450', near(ex.debtYield, 100 / 450, 1e-6));
+  check('exit: capRate = 100/1250 = 8%', near(ex.capRate, 0.08));
+  check('exit: zero debt => debtYield null', exitAnalysis({ exitYearLabel: 0, exitNOI: 100, exitEBITDA: 0, exitEnterpriseValue: 1250, exitEquityValue: 1250, exitDebt: 0 }).debtYield === null);
+
+  // Sources & uses: operating cash balances uses not covered by equity+debt.
+  const su = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 50, existingDebt: 0, newDebt: 300, land: 150, construction: 600, idc: 40 });
+  check('S&U: totalUses = 790', near(su.totalUses, 790));
+  check('S&U: operatingCashFunding = 790 − 650 = 140', near(su.operatingCashFunding, 140));
+  check('S&U: totalSources = totalUses (balanced)', near(su.totalSources, su.totalUses));
+
+  // Equity exposure on a signed FCFE stream.
+  const ee = equityExposure({
+    fcfePerPeriod: [-100, -50, 30, 80, 120],
+    streamYearLabels: [2025, 2026, 2027, 2028, 2029],
+    cumulativeEquityPerPeriod: [100, 150, 150, 150, 150],
+    totalEquityRequired: 150,
+    dividendsPerPeriod: [0, 0, 0, 25, 40],
+    axisYearLabels: [2025, 2026, 2027, 2028, 2029],
+  });
+  check('equityExp: maxNegativeCumulativeCF = 150 (after −100,−50)', near(ee.maxNegativeCumulativeCF, 150));
+  check('equityExp: firstPositiveCFYear = 2027', ee.firstPositiveCFYear === 2027);
+  check('equityExp: firstDividendYear = 2028', ee.firstDividendYear === 2028);
+  check('equityExp: equityAtRisk = 150', near(ee.equityAtRisk, 150));
+  check('equityExp: averageEquityInvested = mean(100,150,150,150,150)=140', near(ee.averageEquityInvested, 140));
+
+  // Stabilization: NOI ramps to 100; stabilises (≥95) at 2028.
+  const st = stabilizationMetrics({ noiPerPeriod: [0, 40, 80, 96, 100], stabilisedNOI: 100, stabilisedYieldOnCost: 0.09, axisYearLabels: [2025, 2026, 2027, 2028, 2029] });
+  check('stab: hasIncomeAssets = true', st.hasIncomeAssets === true);
+  check('stab: stabilizationYear = 2028 (first ≥95)', st.stabilizationYear === 2028);
+  check('stab: no income => null year', stabilizationMetrics({ noiPerPeriod: [0, 0, 0], stabilisedNOI: 0, stabilisedYieldOnCost: null, axisYearLabels: [2025, 2026, 2027] }).stabilizationYear === null);
+
+  // Debt analytics: peak 1000, repaid to 200 at exit (idx 4).
+  const da = debtAnalytics({ debtOutstandingPerPeriod: [1000, 800, 600, 400, 200, 0], exitIdx: 4, axisYearLabels: [2025, 2026, 2027, 2028, 2029, 2030] });
+  check('debt: peakDebt = 1000', near(da.peakDebt, 1000));
+  check('debt: remainingDebtAtExit = 200', near(da.remainingDebtAtExit, 200));
+  check('debt: paydownPct = (1000−200)/1000 = 80%', near(da.paydownPct, 0.80));
+  check('debt: avgDebtOutstanding = mean(1000,800,600,400,200)=600', near(da.averageDebtOutstanding, 600));
+  check('debt: tenor = 2029−2025+1 = 5 yrs (to last outstanding)', da.tenorYears === 5);
+}
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (failures.length) { console.log('Failures:'); failures.forEach((f) => console.log('  - ' + f)); }

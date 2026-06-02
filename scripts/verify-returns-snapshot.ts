@@ -143,6 +143,31 @@ console.log('=== M5 Returns snapshot integration ===');
   check('perpetuity TV = exitFCFF x (1+g)/(r-g)', near(rsP.terminalEnterpriseValue, expectedTv), `got ${rsP.terminalEnterpriseValue} exp ${expectedTv}`);
 }
 
+// ── M5 Pass 1 analytics wired onto the snapshot (2026-06-02) ──────────
+{
+  const state = buildState();
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const de = rs.developmentEconomics, ex = rs.exitAnalysis, su = rs.sourcesUses;
+  // Development economics ties to the snapshot.
+  check('PASS1: GDV = total revenue over hold', near(de.gdv, rs.totalDevelopmentCost >= 0 ? de.gdv : 0) && de.gdv > 0);
+  check('PASS1: profitBeforeFinancing = GDV − dev cost', near(de.profitBeforeFinancing, de.gdv - de.totalDevelopmentCost));
+  check('PASS1: profitAfterFinancing = before − financing cost', near(de.profitAfterFinancing, de.profitBeforeFinancing - de.totalFinancingCost));
+  check('PASS1: devEcon.totalDevelopmentCost = rs.totalDevelopmentCost', near(de.totalDevelopmentCost, rs.totalDevelopmentCost));
+  // Exit analysis ties to the terminal value + exit NOI.
+  check('PASS1: exit EV = terminalEnterpriseValue', near(ex.exitEnterpriseValue, rs.terminalEnterpriseValue));
+  check('PASS1: exit equity = terminalEquityValue', near(ex.exitEquityValue, rs.terminalEquityValue));
+  check('PASS1: exit NOI = rs.exitNOI', near(ex.exitNOI, rs.exitNOI));
+  // Sources & uses balance.
+  check('PASS1: sources = uses (balanced)', near(su.totalSources, su.totalUses));
+  check('PASS1: totalUses = land + construction + IDC', near(su.totalUses, su.land + su.construction + su.idc));
+  // Equity exposure + debt analytics present + sane.
+  check('PASS1: equity totalRequired = rs.totalEquityInvested', near(rs.equityExposure.totalEquityRequired, rs.totalEquityInvested));
+  check('PASS1: debt remainingAtExit = bs debt at exit', near(rs.debtAnalytics.remainingDebtAtExit, Math.max(0, snap.bs.debtOutstandingPerPeriod[rs.config.exitYearOffset] ?? 0)));
+  check('PASS1: debt paydownPct in [0,1] or null', rs.debtAnalytics.paydownPct === null || (rs.debtAnalytics.paydownPct >= 0 && rs.debtAnalytics.paydownPct <= 1.0001));
+  check('PASS1: stabilization hasIncomeAssets (hotel fixture)', rs.stabilization.hasIncomeAssets === true);
+}
+
 // ── Sponsor-IRR / project-inception view (2026-06-02) ─────────────────
 // Existing operations at inception (t=0 = projectStartYear − 1), in-kind
 // land on FCFE only, and the per-period FCFE = FCFF + financing bridge.

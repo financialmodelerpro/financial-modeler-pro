@@ -47,6 +47,13 @@ export default function Module5Returns(): React.JSX.Element {
 
   const cfg = rs.config;
   const r = rs.result;
+  // M5 Pass 1 analytics blocks.
+  const de = rs.developmentEconomics;
+  const ex = rs.exitAnalysis;
+  const su = rs.sourcesUses;
+  const ee = rs.equityExposure;
+  const st = rs.stabilization;
+  const da = rs.debtAnalytics;
 
   const assumptions: AssumptionsValue = {
     discountRatePct: cfg.discountRate * 100,
@@ -140,20 +147,102 @@ export default function Module5Returns(): React.JSX.Element {
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
 
-      {/* Headline KPIs */}
+      {/* ── Headline returns (NPV moved to the per-basis table below) ── */}
       <MetricGrid min={155}>
         <MetricCard label="Project IRR (FCFF)" value={fmtPct(r.fcff.irr)} sub={`MOIC ${fmtX(r.fcff.moic)}`} tone={irrTone(r.fcff.irr)} />
         <MetricCard label="Equity IRR (FCFE)" value={fmtPct(r.fcfe.irr)} sub={`MOIC ${fmtX(r.fcfe.moic)}`} tone={irrTone(r.fcfe.irr)} />
         <MetricCard label="Dividend IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} />
         <MetricCard label="Equity Multiple" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
-        <MetricCard label={`NPV @ ${(cfg.discountRate * 100).toFixed(1)}% (FCFF)`} value={fmt(r.fcff.npv)} sub={currency} tone={r.fcff.npv >= 0 ? 'good' : 'bad'} />
-        <MetricCard label={`NPV @ ${(cfg.discountRate * 100).toFixed(1)}% (FCFE)`} value={fmt(r.fcfe.npv)} sub={currency} tone={r.fcfe.npv >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Payback (FCFF)" value={fmtYears(r.fcff.paybackPeriod)} sub="undiscounted" />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit after financing / GDV" tone={(de.developmentMargin ?? 0) >= 0 ? 'good' : 'bad'} />
         <MetricCard label="Payback (FCFE)" value={fmtYears(r.fcfe.paybackPeriod)} sub="undiscounted" />
-        <MetricCard label="Terminal Value (EV)" value={fmt(rs.terminalEnterpriseValue)} sub={`exit ${rs.exitYearLabel}`} />
-        <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt at exit" />
-        <MetricCard label="Total Equity Invested" value={fmt(rs.totalEquityInvested)} sub="cash + in-kind + existing" />
-        <MetricCard label="Peak Equity Exposure" value={fmt(r.realEstate.peakEquity)} sub="max cumulative equity" />
+        <MetricCard label="Payback (FCFF)" value={fmtYears(r.fcff.paybackPeriod)} sub="undiscounted" />
+        <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
+      </MetricGrid>
+
+      {/* ── Development Economics ── */}
+      <SectionTitle>Development Economics</SectionTitle>
+      <MetricGrid min={155}>
+        <MetricCard label="GDV (Gross Dev Value)" value={fmt(de.gdv)} sub={currency} />
+        <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
+        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="interest over the hold" />
+        <MetricCard label="Profit Before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV − dev cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" />
+        <MetricCard label="Cost-to-Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
+      </MetricGrid>
+
+      {/* ── Exit Analysis ── */}
+      <SectionTitle>Exit Analysis (exit {ex.exitYearLabel})</SectionTitle>
+      <MetricGrid min={150}>
+        <MetricCard label="Exit NOI" value={fmt(ex.exitNOI)} sub={currency} />
+        <MetricCard label="Exit EBITDA" value={fmt(ex.exitEBITDA)} sub={currency} />
+        <MetricCard label="Enterprise Value" value={fmt(ex.exitEnterpriseValue)} sub="at exit" />
+        <MetricCard label="Equity Value" value={fmt(ex.exitEquityValue)} sub="EV − debt at exit" />
+        <MetricCard label="Debt at Exit" value={fmt(ex.exitDebt)} sub={currency} />
+        <MetricCard label="LTV at Exit" value={fmtPct(ex.ltvAtExit)} sub="debt / EV" />
+        <MetricCard label="Debt Yield" value={fmtPct(ex.debtYield)} sub="NOI / debt" />
+        <MetricCard label="Cap Rate at Exit" value={fmtPct(ex.capRate)} sub="NOI / EV" />
+      </MetricGrid>
+
+      {/* ── Sources & Uses ── */}
+      <SectionTitle>Sources &amp; Uses of Capital</SectionTitle>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
+        <SourcesUsesTable
+          title="Sources"
+          rows={[
+            ['Existing Equity', su.existingEquity],
+            ['New Equity (cash)', su.newEquityCash],
+            ['In-Kind Equity (land)', su.inKindEquity],
+            ['Existing Debt', su.existingDebt],
+            ['New Debt (incl. capitalised IDC)', su.newDebt],
+            ['Operating / Pre-Sales Cash', su.operatingCashFunding],
+          ]}
+          total={su.totalSources}
+          fmt={fmt}
+        />
+        <SourcesUsesTable
+          title="Uses"
+          rows={[
+            ['Land', su.land],
+            ['Construction (non-land capex)', su.construction],
+            ['Interest During Construction (IDC)', su.idc],
+          ]}
+          total={su.totalUses}
+          fmt={fmt}
+        />
+      </div>
+
+      {/* ── Equity Exposure ── */}
+      <SectionTitle>Equity Exposure</SectionTitle>
+      <MetricGrid min={155}>
+        <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
+        <MetricCard label="Average Equity Invested" value={fmt(ee.averageEquityInvested)} sub="mean while committed" />
+        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" />
+        <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
+        <MetricCard label="First Positive CF Year" value={ee.firstPositiveCFYear !== null ? String(ee.firstPositiveCFYear) : 'n/a'} sub="FCFE turns positive" />
+        <MetricCard label="First Dividend Year" value={ee.firstDividendYear !== null ? String(ee.firstDividendYear) : 'n/a'} sub="first distribution" />
+      </MetricGrid>
+
+      {/* ── Stabilization (income assets) ── */}
+      {st.hasIncomeAssets && (
+        <>
+          <SectionTitle>Stabilization (income assets)</SectionTitle>
+          <MetricGrid min={155}>
+            <MetricCard label="Stabilised NOI" value={fmt(st.stabilisedNOI)} sub={currency} />
+            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" />
+            <MetricCard label="Stabilization Year" value={st.stabilizationYear !== null ? String(st.stabilizationYear) : 'n/a'} sub="NOI ≥ 95% of stabilised" />
+          </MetricGrid>
+        </>
+      )}
+
+      {/* ── Debt Analytics ── */}
+      <SectionTitle>Debt Analytics</SectionTitle>
+      <MetricGrid min={155}>
+        <MetricCard label="Peak Debt" value={fmt(da.peakDebt)} sub="max outstanding" />
+        <MetricCard label="Average Debt Outstanding" value={fmt(da.averageDebtOutstanding)} sub="mean while drawn" />
+        <MetricCard label="Remaining Debt at Exit" value={fmt(da.remainingDebtAtExit)} sub={currency} />
+        <MetricCard label="Debt Paydown" value={fmtPct(da.paydownPct)} sub="(peak − exit) / peak" />
+        <MetricCard label="Debt Tenor" value={fmtYears(da.tenorYears)} sub="first draw to repaid" />
       </MetricGrid>
 
       {/* Per-stream IRR / MOIC / NPV / Payback / profit table */}
@@ -235,6 +324,45 @@ export default function Module5Returns(): React.JSX.Element {
         fmt={fmt}
         priorYearLabel={inceptionLabel}
       />
+    </div>
+  );
+}
+
+/** Section heading used between the KPI grids. */
+function SectionTitle(props: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
+      {props.children}
+    </div>
+  );
+}
+
+/** Sources / Uses ledger: labelled rows + a bold total. */
+function SourcesUsesTable(props: {
+  title: string;
+  rows: Array<[string, number]>;
+  total: number;
+  fmt: (n: number) => string;
+}): React.JSX.Element {
+  return (
+    <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md, 10px)', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', padding: '6px 10px', fontWeight: 700, fontSize: 12 }}>
+        {props.title}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <tbody>
+          {props.rows.map(([label, value], i) => (
+            <tr key={i} style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <td style={{ textAlign: 'left', padding: '5px 10px', color: 'var(--color-heading)' }}>{label}</td>
+              <td style={{ textAlign: 'right', padding: '5px 10px' }}>{props.fmt(value)}</td>
+            </tr>
+          ))}
+          <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+            <td style={{ textAlign: 'left', padding: '6px 10px', fontWeight: 800, color: 'var(--color-heading)' }}>Total {props.title}</td>
+            <td style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 800, color: 'var(--color-heading)' }}>{props.fmt(props.total)}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

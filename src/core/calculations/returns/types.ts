@@ -129,6 +129,94 @@ export interface ReturnsInput {
   };
 }
 
+// ── M5 Pass 1 analytics (2026-06-02) ──────────────────────────────────
+// Development / exit / sources-uses / equity-exposure / stabilization /
+// debt blocks. Pure functions in analytics.ts; the resolver maps the
+// financials snapshot onto their primitive inputs.
+
+/** Development economics (project profitability before/after financing). */
+export interface DevelopmentEconomics {
+  /** Gross Development Value = total project revenue over the hold. */
+  gdv: number;
+  totalDevelopmentCost: number;
+  totalFinancingCost: number;
+  /** GDV − total development cost (unlevered profit). */
+  profitBeforeFinancing: number;
+  /** GDV − total development cost − total financing cost (levered profit). */
+  profitAfterFinancing: number;
+  /** profitAfterFinancing / GDV (decimal); null if GDV ≤ 0. */
+  developmentMargin: number | null;
+  /** total development cost / GDV (decimal); null if GDV ≤ 0. */
+  costToValue: number | null;
+}
+
+/** Exit-year snapshot (the values the terminal value is built on). */
+export interface ExitAnalysis {
+  exitYearLabel: number;
+  exitNOI: number;
+  exitEBITDA: number;
+  exitEnterpriseValue: number;
+  exitEquityValue: number;
+  exitDebt: number;
+  ltvAtExit: number | null;
+  debtYield: number | null;
+  capRate: number | null;
+}
+
+/** Sources & uses of capital over the hold (sources balanced to uses via
+ *  operating / pre-sales cash). */
+export interface SourcesUses {
+  existingEquity: number;
+  newEquityCash: number;
+  inKindEquity: number;
+  existingDebt: number;
+  newDebt: number;
+  /** Balancing source: operating + pre-sales cash that funds the remaining
+   *  uses not covered by equity + debt (floored at 0). */
+  operatingCashFunding: number;
+  totalSources: number;
+  land: number;
+  construction: number;
+  idc: number;
+  totalUses: number;
+}
+
+/** Expanded equity-exposure detail. */
+export interface EquityExposureDetail {
+  totalEquityRequired: number;
+  averageEquityInvested: number;
+  /** Most-negative cumulative equity cash flow (peak FCFE exposure, ≥ 0). */
+  maxNegativeCumulativeCF: number;
+  /** Year label of the first period FCFE turns positive; null if never. */
+  firstPositiveCFYear: number | null;
+  /** Year label of the first dividend distribution; null if none. */
+  firstDividendYear: number | null;
+  /** Peak cumulative equity invested (equity at risk). */
+  equityAtRisk: number;
+}
+
+/** Stabilization metrics for income-producing (Operate / Lease) assets. */
+export interface StabilizationMetrics {
+  stabilisedNOI: number;
+  stabilisedYieldOnCost: number | null;
+  /** First year NOI reaches the stabilisation threshold (≥ 95% of stabilised);
+   *  null if there are no income assets. */
+  stabilizationYear: number | null;
+  hasIncomeAssets: boolean;
+}
+
+/** Debt analytics over the hold. */
+export interface DebtAnalytics {
+  peakDebt: number;
+  averageDebtOutstanding: number;
+  remainingDebtAtExit: number;
+  /** (peak − remaining at exit) / peak (decimal); null if peak ≤ 0. */
+  paydownPct: number | null;
+  /** Years from first drawdown to fully repaid (or to exit if still
+   *  outstanding); null if no debt. */
+  tenorYears: number | null;
+}
+
 /** Full returns output (engine -> UI). */
 export interface ReturnsResult {
   fcff: StreamReturns;
