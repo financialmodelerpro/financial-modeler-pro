@@ -141,6 +141,15 @@ export default function Module1Financing(): React.JSX.Element {
     [project, phases, assets, subUnits, parcels, costLines, costOverrides,
      landAllocationMode, financingTranches, equityContributions],
   );
+  // Use the FULL snapshot's financing result so every Financing schedule
+  // (Debt Movement, Combined Debt Service, Funding, etc.) reflects the SAME
+  // converged numbers the Financial Statements use: gap-sized drawdown
+  // (Methods 2/3), conditional IDC (cash vs debt per period), and the cash
+  // sweep. Previously this module ran a standalone computeFinancingResult
+  // that only knew the funding gap, so its IDC + debt balances diverged from
+  // the FS once conditional IDC / cash sweep were active.
+  const result = fundingSnap.financing;
+  const cashSweep = fundingSnap.cashSweep;
   const fundingGap = useMemo(() => {
     const g = computeFundingGap(fundingSnap);
     return {
@@ -148,20 +157,6 @@ export default function Module1Financing(): React.JSX.Element {
       method3PerPeriod: g.method3Waterfall.netCashRequiredPerPeriod,
     };
   }, [fundingSnap]);
-
-  const result = useMemo(
-    () => computeFinancingResult({
-      project, phases, parcels, assets, subUnits,
-      costLines, costOverrides,
-      landAllocationMode,
-      financingConfig,
-      tranches:            financingTranches,
-      equityContributions,
-      fundingGap,
-    }),
-    [project, phases, parcels, assets, subUnits, costLines, costOverrides,
-     landAllocationMode, financingConfig, financingTranches, equityContributions, fundingGap],
-  );
 
   const setFinancingConfigPatch = (patch: Partial<ProjectFinancingConfig>) => {
     setProject({ financing: { ...financingConfig, ...patch } });
@@ -862,6 +857,7 @@ export default function Module1Financing(): React.JSX.Element {
       {subTab === 'schedules' && (
         <SchedulesView
           result={result}
+          cashSweep={cashSweep}
           tranches={financingTranches}
           axis={axis}
           fmt={fmt}
@@ -2126,6 +2122,10 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
 
 interface SchedulesProps {
   result: ReturnType<typeof computeFinancingResult>;
+  /** Cash-sweep snapshot so the per-facility Debt Movement reflects the
+   *  sweep repayments (Principal Repaid) + post-sweep Closing balance, not
+   *  just the engine's scheduled method. */
+  cashSweep: import('../../lib/financials-resolvers').CashSweepSnapshot;
   tranches: FinancingTranche[];
   axis: ReturnType<typeof buildResultsPeriodAxis>;
   fmt: (n: number) => string;
@@ -2248,6 +2248,37 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     borderBottom: '1px solid var(--color-border)',
   };
 
+  // Cash-sweep overlay: a sweep-eligible facility's repayment comes from the
+  // cash sweep (computed in the full snapshot), not the engine's scheduled
+  // method. Combine the scheduled principal with the sweep, and use the
+  // post-sweep balance for Closing, so the per-facility Debt Movement matches
+  // the cash-sweep schedule + the Balance Sheet.
+  const sweepRowFor = (id: string) => p.cashSweep.eligibleTranches.find((e) => e.trancheId === id);
+  const repaidWithSweep = (r: NonNullable<ReturnType<typeof p.result.facilities.get>>, id: string): number[] => {
+    const sw = sweepRowFor(id)?.sweepPerPeriod ?? [];
+    return r.principalRepaid.map((v, i) => v + (sw[i] ?? 0));
+  };
+  const closingWithSweep = (r: NonNullable<ReturnType<typeof p.result.facilities.get>>, id: string): number[] => {
+    const row = sweepRowFor(id);
+    return row ? row.postSweepOutstanding : r.outstanding;
+  };
+  // Total cash sweep by origin, aligned to the combined arrays' length, for
+  // the Combined Debt Service principal-repaid + debt-service lines.
+  const combinedLen = p.result.combined.totalPrincipalRepaid.length;
+  const sweepByOrigin = (origin: 'existing' | 'new'): number[] => {
+    const out = new Array<number>(combinedLen).fill(0);
+    for (const e of p.cashSweep.eligibleTranches) {
+      if (e.origin !== origin) continue;
+      for (let i = 0; i < combinedLen; i++) out[i] += e.sweepPerPeriod[i] ?? 0;
+    }
+    return out;
+  };
+  const existingSweep = sweepByOrigin('existing');
+  const newSweep = sweepByOrigin('new');
+  const totalSweepAll = existingSweep.map((v, i) => v + (newSweep[i] ?? 0));
+  const hasAnySweep = totalSweepAll.some((v) => v !== 0);
+  const addArr = (a: number[], b: number[]): number[] => a.map((v, i) => v + (b[i] ?? 0));
+
   return (
     <>
       {hasActiveExisting && (
@@ -2260,8 +2291,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         // openingBalance is a PRE-AXIS carry-forward. Show it in the
         // prior-year column on Opening + Closing rows.
         const priorBal = Math.max(0, t.openingBalance ?? 0);
-        const opening = openingSeries(r.outstanding, priorBal);
+        const closing = closingWithSweep(r, t.id);
+        const opening = openingSeries(closing, priorBal);
+        const principalRepaid = repaidWithSweep(r, t.id);
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
+        const swept = sweepRowFor(t.id) !== undefined;
         return (
           <section key={`ex_${t.id}`} style={{ ...sectionStyle, borderColor: 'var(--color-warning, #92400e)' }}>
             <div style={TABLE_TITLE}>{t.name}</div>
@@ -2274,8 +2308,8 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {renderFlowRow('Capex Drawdown', r.drawSchedule, { priorValue: 0 })}
                   {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized, { priorValue: 0 })}
                   {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true, priorValue: priorBal })}
-                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true, priorValue: 0 })}
-                  {renderStateRow('Closing', r.outstanding, { bold: true, priorValue: priorBal })}
+                  {renderFlowRow(swept ? 'Principal Repaid (incl. cash sweep)' : 'Principal Repaid', principalRepaid, { negative: true, priorValue: 0 })}
+                  {renderStateRow('Closing', closing, { bold: true, priorValue: priorBal })}
                 </tbody>
               </table>
             </div>
@@ -2289,8 +2323,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
-        const opening = openingSeries(r.outstanding, 0);
+        const closing = closingWithSweep(r, t.id);
+        const opening = openingSeries(closing, 0);
+        const principalRepaid = repaidWithSweep(r, t.id);
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
+        const swept = sweepRowFor(t.id) !== undefined;
         return (
           <section key={t.id} style={sectionStyle}>
             <div style={TABLE_TITLE}>{t.name}</div>
@@ -2303,8 +2340,8 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {renderFlowRow('Capex Drawdown', r.drawSchedule)}
                   {renderFlowRow('IDC Drawdown (capitalized interest)', r.interestCapitalized)}
                   {renderFlowRow('Total Drawdown', totalDrawdown, { bold: true })}
-                  {renderFlowRow('Principal Repaid', r.principalRepaid, { negative: true })}
-                  {renderStateRow('Closing', r.outstanding, { bold: true })}
+                  {renderFlowRow(swept ? 'Principal Repaid (incl. cash sweep)' : 'Principal Repaid', principalRepaid, { negative: true })}
+                  {renderStateRow('Closing', closing, { bold: true })}
                 </tbody>
               </table>
             </div>
@@ -2332,12 +2369,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               {hasActiveExisting && renderFlowRow('Interest Expensed - Existing', p.result.combined.existingInterestExpensed, { negative: true })}
               {newTranches.length > 0 && renderFlowRow('Interest Expensed - New', p.result.combined.newInterestExpensed, { negative: true })}
               {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { bold: true, negative: true })}
-              {hasActiveExisting && renderFlowRow('Principal Repaid - Existing', p.result.combined.existingPrincipalRepaid, { negative: true })}
-              {newTranches.length > 0 && renderFlowRow('Principal Repaid - New', p.result.combined.newPrincipalRepaid, { negative: true })}
-              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { bold: true, negative: true })}
-              {hasActiveExisting && renderFlowRow('Debt Service - Existing', p.result.combined.existingDebtServiceCash, { negative: true })}
-              {newTranches.length > 0 && renderFlowRow('Debt Service - New', p.result.combined.newDebtServiceCash, { negative: true })}
-              {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
+              {hasActiveExisting && renderFlowRow(hasAnySweep ? 'Principal Repaid - Existing (incl. sweep)' : 'Principal Repaid - Existing', addArr(p.result.combined.existingPrincipalRepaid, existingSweep), { negative: true })}
+              {newTranches.length > 0 && renderFlowRow(hasAnySweep ? 'Principal Repaid - New (incl. sweep)' : 'Principal Repaid - New', addArr(p.result.combined.newPrincipalRepaid, newSweep), { negative: true })}
+              {renderFlowRow('Total Principal Repaid', addArr(p.result.combined.totalPrincipalRepaid, totalSweepAll), { bold: true, negative: true })}
+              {hasActiveExisting && renderFlowRow('Debt Service - Existing', addArr(p.result.combined.existingDebtServiceCash, existingSweep), { negative: true })}
+              {newTranches.length > 0 && renderFlowRow('Debt Service - New', addArr(p.result.combined.newDebtServiceCash, newSweep), { negative: true })}
+              {renderFlowRow('Total Debt Service (Cash)', addArr(p.result.combined.debtServiceCash, totalSweepAll), { bold: true, negative: true })}
             </tbody>
           </table>
         </div>
