@@ -1234,12 +1234,19 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   let openingC = snap.bs.historicalOpeningCashTotal;
   for (let t = 0; t < N; t++) {
     openingCashPerPeriod[t] = openingC;
+    // Existing debt repayment is DELIBERATELY EXCLUDED from the funding gap
+    // (2026-06-02, per user): the rule is "for new drawdowns we don't count
+    // repayment, repayment only happens once drawdown stops." Subtracting
+    // existing-debt repayment here drained cash below the minimum and raised
+    // NEW debt purely to service the OLD debt, i.e. churn (borrowing to repay).
+    // Repayment is serviced from cash on hand / operations, never from a fresh
+    // drawdown, so it does not size the gap. (The real outflow still hits the
+    // actual Direct CF and the consolidated cash waterfall.)
     const cashAvail = openingC
       + (cashFromOpsPerPeriod[t] ?? 0)
       + (cashFromInvPerPeriod[t] ?? 0)
       + (existingEquityDrawdownPerPeriod[t] ?? 0)
       + (existingDebtDrawdownPerPeriod[t] ?? 0)
-      + (existingDebtRepaymentPerPeriod[t] ?? 0) // already negative
       + (financeCostPaidPerPeriod[t] ?? 0)       // already negative
       + (dividendsBeforeSweepPerPeriod[t] ?? 0); // already negative
     cashAvailableBeforeNewDebtPerPeriod[t] = cashAvail;

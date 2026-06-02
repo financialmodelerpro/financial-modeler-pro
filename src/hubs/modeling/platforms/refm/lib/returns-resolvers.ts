@@ -215,6 +215,15 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const interestAxis = sliceE(dcf.interestPaidPerPeriod);   // already negative
   const equityCashAxis = sliceE(equityCash);
   const divPaidAxis = sliceE(dividendsPaid);
+  // Terminal 100% payout (2026-06-02): at exit the project distributes 100%
+  // to shareholders (no minimum cash retained), so the retained operating cash
+  // generated during the hold (closing cash at exit, net of the pre-existing
+  // opening-cash seed) is added to the exit-year distribution. This releases
+  // everything the dividend policy held back, so Distributed Equity reconciles
+  // to FCFE. Folded into divPaidAxis so the build-up still sums to the stream.
+  const terminalRetainedCash = Math.max(0,
+    (snap.directCF.closingCashPerPeriod[exit] ?? 0) - snap.bs.historicalOpeningCashTotal);
+  divPaidAxis[exit] = (divPaidAxis[exit] ?? 0) + terminalRetainedCash;
 
   // ── Terminal value (exit-multiple on stabilised NOI; perpetuity on the
   // exit-year unlevered free cash flow = CFO + CFI, no in-kind). ─────────
@@ -263,10 +272,12 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   fcfeAxis[exit] = (fcfeAxis[exit] ?? 0) + tvEquity;
   const fcfe = incep(-existingPreCapex + existingDebtOpening, fcfeAxis);
 
-  // ── Stream 3: Dividends (realised equity cash) ──────────────────────
+  // ── Stream 3: Distributed Equity (realized equity cash) ─────────────
   //   inception: − existing equity
   //   axis:      − (cash + in-kind equity contributed) + dividends distributed
-  //   exit:      + terminal equity value
+  //   exit:      + terminal equity value + TERMINAL 100% PAYOUT of retained cash
+  // The terminal 100% payout is already folded into divPaidAxis[exit] above,
+  // so it flows through both the stream and the build-up consistently.
   const dividendAxis = equityCashAxis.map((v, t) =>
     -(v + (inKindAxis[t] ?? 0)) + (divPaidAxis[t] ?? 0));
   dividendAxis[exit] = (dividendAxis[exit] ?? 0) + tvEquity;

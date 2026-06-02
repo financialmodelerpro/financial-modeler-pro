@@ -151,41 +151,34 @@ export default function Module5Returns(): React.JSX.Element {
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
 
-      {/* ── Headline returns (NPV moved to the per-basis table below) ── */}
+      {/* ── Headline returns. NPV + Payback + Development Margin removed from
+            here (2026-06-02): Returns tab focuses on IRR / MOIC / equity; the
+            margin + exit ratios live in the RE Metrics tab. ── */}
       <MetricGrid min={155}>
         <MetricCard label="Project IRR (FCFF)" value={fmtPct(r.fcff.irr)} sub={`MOIC ${fmtX(r.fcff.moic)}`} tone={irrTone(r.fcff.irr)} />
         <MetricCard label="Equity IRR (FCFE)" value={fmtPct(r.fcfe.irr)} sub={`MOIC ${fmtX(r.fcfe.moic)}`} tone={irrTone(r.fcfe.irr)} />
-        <MetricCard label="Distributed Equity IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in). Distinct from FCFE IRR, which is the levered free cash flow available to equity." />
+        <MetricCard label="Distributed Equity IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in). With the terminal-year 100% payout this matches the Equity IRR (FCFE)." />
         <MetricCard label="Equity Multiple" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
-        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit after financing / GDV" tone={(de.developmentMargin ?? 0) >= 0 ? 'good' : 'bad'} tooltip="Development Margin = Profit After Financing ÷ GDV. Profit After Financing = GDV − Total Development Cost − Total Financing Cost." />
-        <MetricCard label="Payback (FCFE)" value={fmtYears(r.fcfe.paybackPeriod)} sub="undiscounted" />
-        <MetricCard label="Payback (FCFF)" value={fmtYears(r.fcff.paybackPeriod)} sub="undiscounted" />
         <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
       </MetricGrid>
 
-      {/* ── Development Economics ── */}
+      {/* ── Development Economics (absolute $ figures; margins / ratios are in
+            the RE Metrics tab) ── */}
       <SectionTitle>Development Economics</SectionTitle>
       <MetricGrid min={155}>
-        <MetricCard label="GDV (Gross Dev Value)" value={fmt(de.gdv)} sub={currency} />
         <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
         <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="all interest over the hold" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
         <MetricCard label="Profit Before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV − dev cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
         <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tooltip="Development Margin = Profit After Financing ÷ GDV." />
-        <MetricCard label="Cost-to-Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" tooltip="Cost-to-Value = Total Development Cost ÷ GDV." />
       </MetricGrid>
 
-      {/* ── Exit Analysis ── */}
+      {/* ── Exit Analysis (exit-year income + debt; exit ratios — LTV / Debt
+            Yield / Cap Rate — are in the RE Metrics tab) ── */}
       <SectionTitle>Exit Analysis (exit {ex.exitYearLabel})</SectionTitle>
       <MetricGrid min={150}>
         <MetricCard label="Exit NOI" value={fmt(ex.exitNOI)} sub={currency} />
         <MetricCard label="Exit EBITDA" value={fmt(ex.exitEBITDA)} sub={currency} />
-        <MetricCard label="Enterprise Value" value={fmt(ex.exitEnterpriseValue)} sub="at exit" />
-        <MetricCard label="Equity Value" value={fmt(ex.exitEquityValue)} sub="EV − debt at exit" />
         <MetricCard label="Debt at Exit" value={fmt(ex.exitDebt)} sub={currency} />
-        <MetricCard label="LTV at Exit" value={fmtPct(ex.ltvAtExit)} sub="debt / EV" />
-        <MetricCard label="Debt Yield" value={fmtPct(ex.debtYield)} sub="NOI / debt" tooltip="Debt Yield = Stabilized NOI ÷ Debt Balance (at exit). A lender's downside metric — the unlevered cash return on the loan if the asset is taken over." />
-        <MetricCard label="Cap Rate at Exit" value={fmtPct(ex.capRate)} sub="NOI / EV" />
       </MetricGrid>
 
       {/* ── Sources & Uses ── */}

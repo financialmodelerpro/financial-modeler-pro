@@ -2895,7 +2895,10 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                     for (const fac of snap.financing.facilities.values()) existingOpening += Math.max(0, fac.openingBalance ?? 0);
                     return renderFlowRow('(+) Existing Debt Opening Balance', new Array<number>(N).fill(0), { priorValue: existingOpening });
                   })()}
-                  {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {/* Existing debt repayment is intentionally NOT a line here: the
+                      funding gap never sizes new debt to repay old debt (no churn).
+                      Repayment is serviced from cash on hand and appears in the
+                      consolidated cash waterfall + Direct CF below, not in sizing. */}
                   {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Operational Dividend (before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {renderFlowRow('Cash Available (before new funding)', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}

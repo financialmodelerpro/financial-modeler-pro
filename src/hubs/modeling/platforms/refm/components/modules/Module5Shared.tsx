@@ -50,7 +50,7 @@ export function MetricCard(props: { label: string; value: string; sub?: string; 
         minWidth: 0,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.25 }}>
         {props.label}{props.tooltip && <span title={props.tooltip} style={{ cursor: 'help', color: 'var(--color-primary, #1d4ed8)', marginLeft: 4 }}>ⓘ</span>}
       </div>
       <div style={{ fontSize: 20, fontWeight: 800, color: toneColor(props.tone ?? 'neutral'), lineHeight: 1.1 }}>
