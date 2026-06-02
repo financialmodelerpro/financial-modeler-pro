@@ -1234,7 +1234,14 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   };
 }
 
-export function computeFinancialsSnapshot(
+/**
+ * Single-pass snapshot computation. Threads the supplied fundingGap +
+ * idcCashBudget into the financing engine and returns the resulting
+ * statements WITHOUT any re-run. The exported `computeFinancialsSnapshot`
+ * wraps this in an iterative fixed-point loop (see below) to resolve the
+ * gap-sizing + conditional-IDC circularity.
+ */
+function computeFinancialsSnapshotOnce(
   state: FinancialsResolverState,
   opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] },
 ): ProjectFinancialsSnapshot {
@@ -2079,62 +2086,126 @@ export function computeFinancialsSnapshot(
     bsReconciliation,
   };
 
-  // Second-pass derivations (2026-06-01 gap-sizing + 2026-06-02 conditional
-  // IDC). Pass-1 sized debt/equity from capex with IDC fully capitalised.
-  // Now that the full snapshot exists, derive BOTH:
-  //   (a) the per-period funding gap for Methods 2 + 3 (size external
-  //       funding to the net requirement: Method 2 = capex net of pre-sales;
-  //       Method 3 = the cash deficit to maintain minimum cash), and
-  //   (b) the conditional-IDC cash budget (surplus cash above the minimum
-  //       reserve in each construction period, used to pay IDC in cash
-  //       instead of growing debt).
-  // Both are derived from pass-1 and applied TOGETHER in a single re-run, so
-  // the model never exceeds two passes. Guard re-entry on EITHER opt being
-  // set, so the second pass cannot recurse. Budgets are frozen at pass-1
-  // values (accepted approximation, identical in spirit to the prior
-  // single-iteration gap-sizing + cash-sweep).
-  const finCfg = project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
-  const fundingMethod = finCfg.fundingMethod;
-  const idcConditional = project.idcConfig?.fundingMode === 'conditional';
-  if (!opts?.fundingGap && !opts?.idcCashBudget && ((fundingMethod === 2 || fundingMethod === 3) || idcConditional)) {
-    const gap = computeFundingGap(snapResult);
+  return snapResult;
+}
 
-    // (a) Method 2 / 3 gap-sized drawdown.
-    let fundingGap: FundingGapInputs | undefined;
-    if (fundingMethod === 2 || fundingMethod === 3) {
-      const candidate: FundingGapInputs = {
-        method2PerPeriod: gap.methodAGapPerPeriod,
-        method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
-      };
-      const relevant = fundingMethod === 2 ? candidate.method2PerPeriod : candidate.method3PerPeriod;
-      const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-      if (gapTotal > 0) fundingGap = candidate;
-    }
+/**
+ * Derive the funding gap (Methods 2/3) + conditional-IDC cash budget from a
+ * computed snapshot. These are the two circular inputs that feed back into
+ * the financing engine: the gap sizes external funding to the net cash
+ * requirement, and the IDC budget is the surplus cash above the minimum
+ * reserve available in each construction period to pay interest in cash
+ * (rather than drawing more debt). Pure derivation, no recomputation.
+ */
+function deriveCircularInputs(
+  snap: ProjectFinancialsSnapshot,
+  fundingMethod: number,
+  idcConditional: boolean,
+): { fundingGap?: FundingGapInputs; idcCashBudget?: number[] } {
+  const N = snap.axisLength;
+  const gap = computeFundingGap(snap);
 
-    // (b) Conditional-IDC cash budget. Construction periods are those where
-    // pass-1 capitalised IDC > 0 (everything was capitalised in pass-1).
-    // The budget is the surplus cash above the minimum reserve available in
-    // each such period (before any new-debt drawdown), exactly what the
-    // schedule can divert from debt-growth to cash interest.
-    let idcCashBudget: number[] | undefined;
-    if (idcConditional) {
-      const w = gap.method3Waterfall;
-      const minCash = w.minCashReserve;
-      const idcByPeriod = snapResult.financing.combined.totalInterestCapitalized;
-      const budget = new Array<number>(N).fill(0);
-      let hasBudget = false;
-      for (let t = 0; t < N; t++) {
-        if ((idcByPeriod[t] ?? 0) <= 0) continue; // not a construction-interest period
-        const surplus = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - minCash);
-        if (surplus > 0) { budget[t] = surplus; hasBudget = true; }
-      }
-      if (hasBudget) idcCashBudget = budget;
-    }
-
-    if (fundingGap || idcCashBudget) {
-      return computeFinancialsSnapshot(state, { fundingGap, idcCashBudget });
-    }
+  // (a) Method 2 / 3 gap-sized drawdown.
+  let fundingGap: FundingGapInputs | undefined;
+  if (fundingMethod === 2 || fundingMethod === 3) {
+    const candidate: FundingGapInputs = {
+      method2PerPeriod: gap.methodAGapPerPeriod,
+      method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
+    };
+    const relevant = fundingMethod === 2 ? candidate.method2PerPeriod : candidate.method3PerPeriod;
+    const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    if (gapTotal > 0) fundingGap = candidate;
   }
 
-  return snapResult;
+  // (b) Conditional-IDC cash budget. Construction periods are those where
+  // this iteration's capitalised + cash-paid IDC > 0. The budget is the
+  // surplus cash above the minimum reserve available in each such period
+  // (before any new-debt drawdown), which the schedule diverts from
+  // debt-growth to cash interest.
+  let idcCashBudget: number[] | undefined;
+  if (idcConditional) {
+    const w = gap.method3Waterfall;
+    const minCash = w.minCashReserve;
+    const cap = snap.financing.combined.totalInterestCapitalized;
+    const capCash = snap.financing.combined.totalInterestCapitalizedCashPaid;
+    const budget = new Array<number>(N).fill(0);
+    let hasBudget = false;
+    for (let t = 0; t < N; t++) {
+      const constructionInterest = (cap[t] ?? 0) + (capCash[t] ?? 0);
+      if (constructionInterest <= 0) continue; // not a construction-interest period
+      const surplus = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - minCash);
+      if (surplus > 0) { budget[t] = surplus; hasBudget = true; }
+    }
+    if (hasBudget) idcCashBudget = budget;
+  }
+
+  return { fundingGap, idcCashBudget };
+}
+
+/** Max absolute per-period difference between two (possibly undefined) arrays. */
+function maxArrDelta(a: number[] | undefined, b: number[] | undefined): number {
+  const len = Math.max(a?.length ?? 0, b?.length ?? 0);
+  let m = 0;
+  for (let i = 0; i < len; i++) m = Math.max(m, Math.abs((a?.[i] ?? 0) - (b?.[i] ?? 0)));
+  return m;
+}
+
+/**
+ * Public snapshot entry point with an ITERATIVE fixed-point solver for the
+ * gap-sizing + conditional-IDC circularity (2026-06-02).
+ *
+ * The circularity (exactly the one Excel resolves with iterative calc
+ * enabled): the IDC / funding drawdown depends on the finance cost, which
+ * depends on the debt balance, which depends on the drawdown. Method 2/3
+ * gap-sizing has the same loop (debt sized to the cash deficit, which moves
+ * once the debt service changes).
+ *
+ * We recompute the snapshot feeding back the derived (fundingGap,
+ * idcCashBudget) until they stop changing (max per-period delta < TOL) or a
+ * safety iteration cap is hit. Each step is internally consistent, so the BS
+ * balances + Direct == Indirect at every iteration; convergence just pins the
+ * drawdown + finance cost to their self-consistent values.
+ *
+ * When called WITH explicit opts (tests / internal), a single pass runs with
+ * those inputs honoured verbatim, so existing callers keep their behaviour.
+ */
+export function computeFinancialsSnapshot(
+  state: FinancialsResolverState,
+  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] },
+): ProjectFinancialsSnapshot {
+  // Explicit-opts call (e.g. a verifier feeding a fixed gap/budget): one pass.
+  if (opts?.fundingGap || opts?.idcCashBudget) {
+    return computeFinancialsSnapshotOnce(state, opts);
+  }
+
+  const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
+  const fundingMethod = finCfg.fundingMethod;
+  const idcConditional = state.project.idcConfig?.fundingMode === 'conditional';
+  const needsIteration = fundingMethod === 2 || fundingMethod === 3 || idcConditional;
+
+  // No circular input => single pass (Methods 1 + 4 with no conditional IDC).
+  let snap = computeFinancialsSnapshotOnce(state, undefined);
+  if (!needsIteration) return snap;
+
+  // Iterate to a fixed point. TOL is in currency units; MAX_ITERS caps the
+  // work (convergence is geometric for sub-100% interest rates, so a handful
+  // of passes is typical). The last accepted inputs produced `snap`.
+  const TOL = 1;
+  const MAX_ITERS = 25;
+  let applied: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] } = {};
+  for (let iter = 0; iter < MAX_ITERS; iter++) {
+    const derived = deriveCircularInputs(snap, fundingMethod, idcConditional);
+    // Converged when the newly-derived inputs match the inputs that produced
+    // the current snapshot (treat undefined as all-zero).
+    const gapDelta = Math.max(
+      maxArrDelta(derived.fundingGap?.method2PerPeriod, applied.fundingGap?.method2PerPeriod),
+      maxArrDelta(derived.fundingGap?.method3PerPeriod, applied.fundingGap?.method3PerPeriod),
+    );
+    const idcDelta = maxArrDelta(derived.idcCashBudget, applied.idcCashBudget);
+    if (iter > 0 && gapDelta < TOL && idcDelta < TOL) break;
+    if (!derived.fundingGap && !derived.idcCashBudget) break; // nothing to feed
+    applied = derived;
+    snap = computeFinancialsSnapshotOnce(state, derived);
+  }
+  return snap;
 }

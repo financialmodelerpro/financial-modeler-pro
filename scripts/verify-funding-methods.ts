@@ -17,7 +17,7 @@
 import { computeFundingRequirement, type FundingGapInputs } from '../src/core/calculations/financing/funding';
 import type { CapexAggregate } from '../src/core/calculations/financing/types';
 import type { ProjectFinancingConfig } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0;
@@ -244,6 +244,39 @@ console.log('\n[IDC] Conditional IDC: full engine integration');
   const cfTieM3 = Math.max(...condM3.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (condM3.indirectCF.closingCashPerPeriod[i] ?? 0))));
   check('IDC conditional + Method 3: BS balances (combined two-pass)', bsMaxM3 < 1, `maxBSdiff=${Math.round(bsMaxM3)}`);
   check('IDC conditional + Method 3: Direct == Indirect (combined two-pass)', cfTieM3 < 1, `tie=${Math.round(cfTieM3)}`);
+}
+
+// ── CONVERGENCE: the iterative solver reaches a FIXED POINT ────────────
+// The conditional-IDC / gap-sizing circularity (drawdown -> finance cost ->
+// balance -> drawdown) is resolved by iterating to convergence, like Excel
+// with iterative calc enabled. This pins that the converged snapshot IS a
+// fixed point: re-deriving its own gap + IDC budget and applying one more
+// explicit pass reproduces the same debt + closing cash (no drift).
+console.log('\n[CONV] Iterative solver converges to a fixed point');
+{
+  const state = buildIdcState('conditional', 3);
+  const snapA = computeFinancialsSnapshot(state);
+  const N = snapA.axisLength;
+  const gap = computeFundingGap(snapA);
+  const w = gap.method3Waterfall;
+  const minCash = w.minCashReserve;
+  const cap = snapA.financing.combined.totalInterestCapitalized;
+  const capCash = snapA.financing.combined.totalInterestCapitalizedCashPaid;
+  const budget = Array.from({ length: N }, (_, t) =>
+    ((cap[t] ?? 0) + (capCash[t] ?? 0)) > 0
+      ? Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - minCash)
+      : 0);
+  const fundingGap: FundingGapInputs = { method2PerPeriod: gap.methodAGapPerPeriod, method3PerPeriod: w.netCashRequiredPerPeriod };
+  // One explicit pass with snapA's OWN derived inputs.
+  const snapB = computeFinancialsSnapshot(state, { fundingGap, idcCashBudget: budget });
+  const debtDelta = Math.max(...snapA.bs.debtOutstandingPerPeriod.map((v, i) => Math.abs(v - (snapB.bs.debtOutstandingPerPeriod[i] ?? 0))));
+  const cashDelta = Math.max(...snapA.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (snapB.directCF.closingCashPerPeriod[i] ?? 0))));
+  const idcDelta = Math.abs(
+    snapA.financing.combined.totalInterestCapitalizedCashPaid.reduce((s, v) => s + v, 0)
+    - snapB.financing.combined.totalInterestCapitalizedCashPaid.reduce((s, v) => s + v, 0));
+  check('CONV: debt outstanding is a fixed point (re-applying derived inputs is stable)', debtDelta < 5, `debtDelta=${Math.round(debtDelta)}`);
+  check('CONV: closing cash is a fixed point', cashDelta < 5, `cashDelta=${Math.round(cashDelta)}`);
+  check('CONV: cash-paid IDC is a fixed point', idcDelta < 5, `idcDelta=${Math.round(idcDelta)}`);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
