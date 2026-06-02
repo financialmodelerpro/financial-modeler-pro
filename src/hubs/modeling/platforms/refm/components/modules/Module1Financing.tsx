@@ -2791,7 +2791,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, a single <strong>consolidated cash waterfall</strong> walks Opening Cash → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing, for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and the Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows as supporting detail.
+          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, <strong>(1) Method 3 — Cash Deficit Funding</strong> sizes the new debt + equity drawdown each period to maintain the minimum cash, then <strong>(2) the Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows as supporting detail.
         </div>
       </section>
 
@@ -2836,6 +2836,13 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         const idcAdd = w.idcDrawdownPerPeriod;             // IDC capitalised to debt
         const idcCash = w.idcCashPaidPerPeriod;            // IDC paid in cash (conditional)
         const hasIdcCash = idcCash.some((v) => v !== 0);
+        // Funding-sizing split (Method 3 drawdown table): the gap drawn as
+        // new debt + equity at the project ratio, plus capitalised IDC.
+        const debtPct = (snap.financing.funding.debtPct ?? 0) / 100;
+        const equityPct = (snap.financing.funding.equityPct ?? 0) / 100;
+        const debtSplit = w.netCashRequiredPerPeriod.map((v) => v * debtPct);
+        const equitySplit = w.netCashRequiredPerPeriod.map((v) => v * equityPct);
+        const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
         const finalClosing = snap.directCF.closingCashPerPeriod.slice(0, N);
         const divArr = div.totalDividendsPerPeriod;
         const realOpening = finalClosing.map((_, i) =>
@@ -2862,6 +2869,58 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
 
         return (
           <>
+          {/* Method 3 — Cash Deficit Funding (DRAWDOWN SIZING). Restored as its
+              own table (2026-06-02): this sizes the NEW funding (debt + equity)
+              required each period to maintain the minimum cash reserve. The
+              consolidated waterfall below then applies repayments + dividends.
+              This table is the authority for the drawdown; the waterfall reads
+              the same engine result for its Debt Drawdown line. */}
+          <section style={sectionStyle}>
+            <div style={TABLE_TITLE}>1. Method 3 — Cash Deficit Funding (Drawdown Sizing)</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+              Sizes the NEW funding required each period to keep cash at the minimum reserve ({p.fmt(minCash)}). Opening + Ops + Inv + existing financing − finance cost = Cash Available; where it falls below the floor, Net Cash Required is drawn as New Debt + New Equity at the project ratio. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus exists, capitalised to debt only for the shortfall.' : 'IDC is capitalised to debt.'} Existing equity / debt opening are pre-axis (prior column). The actual cash movements (repayments, sweep, dividends, closing) are in the waterfall below.
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={periodTbl}>
+                {colgroup}
+                {headerRow}
+                <tbody>
+                  <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Cash Available for Funding</td></tr>
+                  {renderStateRow('Opening Cash', w.openingCashPerPeriod, { priorValue: snap.bs.historicalOpeningCashTotal })}
+                  {renderFlowRow('(+) Cash from Operations', w.cashFromOpsPerPeriod, { priorValue: 0 })}
+                  {renderFlowRow('(+) Cash from Investments', w.cashFromInvPerPeriod, { negative: true, priorValue: -snap.financing.existing.preCapexTotal })}
+                  {renderFlowRow('(+) Existing Equity Opening (memo)', new Array<number>(N).fill(0), { priorValue: snap.financing.existing.equityTotal })}
+                  {(() => {
+                    let existingOpening = 0;
+                    for (const fac of snap.financing.facilities.values()) existingOpening += Math.max(0, fac.openingBalance ?? 0);
+                    return renderFlowRow('(+) Existing Debt Opening Balance', new Array<number>(N).fill(0), { priorValue: existingOpening });
+                  })()}
+                  {w.existingDebtRepaymentPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Existing Debt Repayment', w.existingDebtRepaymentPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Operational Dividend (before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {renderFlowRow('Cash Available (before new funding)', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}
+                  {hasIdcCash && renderFlowRow('  (memo) IDC paid in cash (surplus)', idcCash, { indent: 1, priorValue: 0 })}
+                  {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC capitalised to debt (shortfall)', idcAdd, { indent: 1, priorValue: 0 })}
+                  {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (
+                    <>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Net Cash Required — NEW funding drawn each period</td></tr>
+                      {renderFlowRow('Net Cash Required (= max(0, MinCash − Cash Available))', w.netCashRequiredPerPeriod, { bold: true, priorValue: 0 })}
+                      {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2, priorValue: 0 })}
+                      {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2, priorValue: 0 })}
+                      {idcAdd.some((v) => v !== 0) && renderFlowRow('(+) IDC capitalised to debt (no cash)', idcAdd, { indent: 1, priorValue: 0 })}
+                      {renderFlowRow('Total New Debt Required (cash + IDC capitalised)', totalNewDebt, { bold: true, priorValue: 0 })}
+                      {renderFlowRow('Total New Equity Required', equitySplit, { bold: true, priorValue: 0 })}
+                    </>
+                  )}
+                  {renderStateRow('Closing Cash (after funding, before sweep & dividends)', w.cashAvailableBeforeNewDebtPerPeriod.map((v) => Math.max(minCash, v)), { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
+              Lifetime new funding: debt <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(totalNewDebt.reduce((s, v) => s + v, 0))}</strong> (incl. capitalised IDC) · equity <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(equitySplit.reduce((s, v) => s + v, 0))}</strong>. Ratio <strong>{(snap.financing.funding.debtPct ?? 0).toFixed(0)}%</strong> debt / <strong>{(snap.financing.funding.equityPct ?? 0).toFixed(0)}%</strong> equity.
+            </div>
+          </section>
+
           {/* Consolidated cash waterfall (2026-06-02): ONE table in accounting
               order — Operations -> Debt -> Dividend -> Closing — read straight
               from the Direct CF line items. The cash sweep is now applied IN
@@ -2871,9 +2930,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               balance (no phantom interest). The running total ties to the Cash
               Flow tab's closing + the Balance Sheet cash. */}
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>Cash Waterfall (Operations &rarr; Debt &rarr; Dividend &rarr; Closing)</div>
+            <div style={TABLE_TITLE}>2. Cash Waterfall (Operations &rarr; Debt &rarr; Dividend &rarr; Closing)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              One waterfall for all repayment methods. Debt Drawdown is sized to maintain the minimum cash reserve ({p.fmt(minCash)}); Debt Paid is the principal repaid per the chosen method (scheduled for Equal Repayment / YoY %, or swept from surplus for Cash Sweep). Interest accrues on the period-closing balance, so a fully-repaid tranche stops accruing. Every line is the Direct Cash Flow's own figure, so Closing Cash equals the Cash Flow tab + Balance Sheet cash. Existing equity / debt opening + in-kind land are pre-axis or non-cash (prior-column / memo).
+              The actual period cash flow for all repayment methods. <strong>Debt Drawdown</strong> is the CASH new debt drawn (sized in the Method 3 table above; capitalised IDC is non-cash so it is not a cash inflow here). <strong>Debt Paid</strong> is the principal repaid per the chosen method (scheduled for Equal Repayment / YoY %, or swept from surplus for Cash Sweep). Interest accrues on the period-closing balance, so a fully-repaid tranche stops accruing. Every line is the Direct Cash Flow's own figure, so Closing Cash equals the Cash Flow tab + Balance Sheet cash. Existing equity / debt opening + in-kind land are pre-axis or non-cash (prior-column / memo).
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
