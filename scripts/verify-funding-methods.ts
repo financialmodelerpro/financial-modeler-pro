@@ -279,5 +279,49 @@ console.log('\n[CONV] Iterative solver converges to a fixed point');
   check('CONV: cash-paid IDC is a fixed point', idcDelta < 5, `idcDelta=${Math.round(idcDelta)}`);
 }
 
+// ── CONDITIONAL IDC: per-period (cash-short years capitalise, surplus years
+// pay cash) ───────────────────────────────────────────────────────────
+// Pins the user's 2026-06-02 case: with conditional IDC, an EARLY cash-short
+// construction year still capitalises IDC to debt, while a LATER construction
+// year that has surplus cash above the minimum reserve pays its IDC in cash
+// (no drawdown). Sales (and their cash) land in the last construction year,
+// so the early years are cash-negative and the last is cash-positive.
+console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when short, cash when surplus)');
+{
+  const buildLate = (mode: 'debt_drawdown' | 'conditional'): Parameters<typeof computeFinancialsSnapshot>[0] => {
+    const project = makeDefaultProject();
+    project.startDate = '2026-01-01';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (project as any).financing = { fundingMethod: 1, parcelFunding: [], fixedRatio: { debtPct: 100, equityPct: 0 }, minimumCashReserve: 50_000 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (project as any).idcConfig = { allocationBasis: 'land', capitalize: true, fundingMode: mode };
+    const p1 = { ...makeDefaultPhase(), id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 3, operationsPeriods: 6, overlapPeriods: 0 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sell: any = { id: 'a1', phaseId: 'p1', name: 'Tower', type: '', strategy: 'Sell', visible: true, gfaSqm: 50000, buaSqm: 50000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
+      revenue: { sell: { assetId: 'a1', subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0, 0, 1, 0, 0, 0, 0, 0], postSalesVelocityByPhase: [] }], cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [1], positionsByPhase: [0] }, recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' }, indexation: { method: 'none' } } } };
+    const su = { id: 'su1', assetId: 'a1', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 50000, unitPrice: 5000 };
+    const parcel = { id: 'parcel1', phaseId: 'p1', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { project, phases: [p1], assets: [sell], subUnits: [su], parcels: [parcel], costLines: makeDefaultCostLines('p1', 3), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [makeDefaultFinancingTranche('t1', 'p1')], equityContributions: [] } as any;
+  };
+  const base = computeFinancialsSnapshot(buildLate('debt_drawdown'));
+  const cond = computeFinancialsSnapshot(buildLate('conditional'));
+  const capB = base.financing.combined.totalInterestCapitalized;
+  const capC = cond.financing.combined.totalInterestCapitalized;
+  const cashC = cond.financing.combined.totalInterestCapitalizedCashPaid;
+  // Baseline (debt_drawdown): every construction year capitalises, none cash.
+  check('IDC-LATE baseline: early construction year capitalises (idx 0)', (capB[0] ?? 0) > 0);
+  check('IDC-LATE baseline: late construction year capitalises (idx 2)', (capB[2] ?? 0) > 0);
+  // Conditional: cash-short early years STILL capitalise; the surplus late
+  // year pays IDC in cash (no drawdown).
+  check('IDC-LATE conditional: cash-short early year still capitalises (idx 0)', (capC[0] ?? 0) > 0 && (cashC[0] ?? 0) === 0, `cap0=${Math.round(capC[0] ?? 0)} cash0=${Math.round(cashC[0] ?? 0)}`);
+  check('IDC-LATE conditional: surplus late year pays IDC in cash, not debt (idx 2)', (cashC[2] ?? 0) > 0 && (capC[2] ?? 0) < (capB[2] ?? 0), `cash2=${Math.round(cashC[2] ?? 0)} capC2=${Math.round(capC[2] ?? 0)} capB2=${Math.round(capB[2] ?? 0)}`);
+  // Whole-project: conditional draws less debt than always-capitalise.
+  const debtB = base.bs.debtOutstandingPerPeriod.reduce((s, v) => s + v, 0);
+  const debtC = cond.bs.debtOutstandingPerPeriod.reduce((s, v) => s + v, 0);
+  check('IDC-LATE conditional: total debt outstanding < always-capitalise', debtC < debtB, `cond=${Math.round(debtC)} base=${Math.round(debtB)}`);
+  check('IDC-LATE conditional: BS balances', Math.max(...cond.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);
