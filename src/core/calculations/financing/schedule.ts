@@ -67,7 +67,7 @@ export function computeFacilitySchedule(
   // hard-coded behaviour: capitalize=true + fundingMode='debt_drawdown'.
   const idc = project.idcConfig ?? {};
   const capitalizeInterest = idc.capitalize !== false; // default true
-  // Default 2026-06-02: 'conditional' — raise IDC debt only to the extent
+  // Default 2026-06-02: 'conditional', raise IDC debt only to the extent
   // needed to maintain minimum cash (pay in cash where surplus exists). The
   // user's standing rule: "we make drawdown as money required, why draw
   // extra funds if we have enough cash available." Set 'debt_drawdown' or

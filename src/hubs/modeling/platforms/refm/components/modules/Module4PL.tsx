@@ -140,7 +140,7 @@ export default function Module4PL(): React.JSX.Element {
     const cosTotal = phaseFiltered ? sumAssetsSeries(residentialAssets, 'cosPerPeriod') : p.cosPerPeriod;
     const hospOpex = phaseFiltered ? sumAssetsSeries(hospitalityAssets, 'opexPerPeriod') : p.hospitalityOpexPerPeriod;
     const retailOpex = phaseFiltered ? sumAssetsSeries(retailAssets, 'opexPerPeriod') : p.retailOpexPerPeriod;
-    // HQ Opex: project-only — no phase ownership.
+    // HQ Opex: project-only, no phase ownership.
     const hqOpex = p.hqOpexPerPeriod;
     const totalOpex = hospOpex.map((v, i) => v + retailOpex[i] + hqOpex[i]);
 

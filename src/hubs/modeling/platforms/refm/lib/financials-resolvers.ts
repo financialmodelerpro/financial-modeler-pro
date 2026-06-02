@@ -132,7 +132,7 @@ export interface ProjectDirectCF {
   capexPerPeriod: number[];                // negative
   cashFromInvestmentPerPeriod: number[];
   // Financing
-  /** M4 Pass 2P (2026-05-24): cash equity only — what actually moves
+  /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
    *  as a memo. */
   equityDrawdownPerPeriod: number[];
@@ -163,7 +163,7 @@ export interface ProjectIndirectCF {
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
-  /** M4 Pass 2P (2026-05-24): cash equity only — what actually moves
+  /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
    *  as a memo (NOT included in cashFromFinancingPerPeriod). */
   equityDrawdownPerPeriod: number[];
@@ -270,11 +270,11 @@ export interface AssetIDCRow {
   cumulativeIdcPerPeriod: number[];
   /** Total IDC capitalised across the axis. */
   totalIdc: number;
-  /** M4 Pass 2O: Operate/Lease only — depreciation derived from this
+  /** M4 Pass 2O: Operate/Lease only, depreciation derived from this
    *  asset's IDC additions (straight-line over useful life from handover).
    *  Zero for Sell / Sell+Manage (IDC there unwinds through CoS instead). */
   depreciationPerPeriod: number[];
-  /** M4 Pass 2O: Operate/Lease only — closing NBV of capitalised IDC. */
+  /** M4 Pass 2O: Operate/Lease only, closing NBV of capitalised IDC. */
   closingNbvPerPeriod: number[];
 }
 
@@ -568,19 +568,19 @@ export function computeIdcSnapshot(
  * Two methods for sizing the project's required external funding
  * (debt + equity to be raised within the project axis):
  *
- *   Method A — Capex vs Pre-Sales (gross feasibility view):
+ *   Method A, Capex vs Pre-Sales (gross feasibility view):
  *     gap[t] = capex[t] − (preSalesCash[t] − escrowHeld[t])
  *     i.e. cash capex less the portion of pre-sales actually
  *     available (Pre-Sales received minus the amount held in escrow).
  *     Simple. Ignores opex, AR, AP, tax, interest. Useful as a
  *     sanity check + a baseline for early feasibility.
  *
- *   Method B — Pre-financing CF deficit (full waterfall):
+ *   Method B, Pre-financing CF deficit (full waterfall):
  *     gap[t] = −(cashFromOps[t] + cashFromInv[t]) when negative
  *              0                                  otherwise.
  *     I.e. whatever the operations + investing CF can't fund itself
  *     becomes the period's funding requirement. Accounts for opex,
- *     AR/AP timing, tax, interest paid, escrow movement — the
+ *     AR/AP timing, tax, interest paid, escrow movement, the
  *     "true" feasibility gap.
  *
  * Both methods produce per-period + cumulative + grand total. The
@@ -590,7 +590,7 @@ export function computeIdcSnapshot(
  */
 /**
  * M4 Pass 2U (2026-05-24): Method 3 detailed waterfall snapshot.
- * Per-period cash waterfall arriving at "Net Cash Required" — the
+ * Per-period cash waterfall arriving at "Net Cash Required", the
  * funding-gap output that NEW debt drawdown should cover. Matches the
  * user's reference layout (Opening Cash → ... → Cash Available Before
  * New Debt → vs Minimum Cash → Net Cash Required).
@@ -622,7 +622,7 @@ export interface Method3WaterfallSnapshot {
    *  separately so the Funding Requirement schedule can show the
    *  cash-vs-debt split of IDC. */
   idcCashPaidPerPeriod: number[];
-  /** Before-sweep dividends paid per period (negative — Phase 1
+  /** Before-sweep dividends paid per period (negative, Phase 1
    *  operational dividends pay before debt sweep). */
   dividendsBeforeSweepPerPeriod: number[];
   /** Cash available BEFORE any new debt drawdown is added. */
@@ -683,7 +683,7 @@ export interface FundingGapSnapshot {
  *   remaining outstanding balance and its sweepRatio.
  *
  * V1 limitation: this iteration does NOT re-derive future interest from
- * the lower post-sweep balance — the snapshot's interestAccrued curve
+ * the lower post-sweep balance, the snapshot's interestAccrued curve
  * stays as the financing engine emitted it. This means an actual sweep
  * would save more interest than this display shows, leaving a small
  * residual excess cash in later years. Tighter iteration lands in a
@@ -744,8 +744,7 @@ export interface CashSweepSnapshot {
  * M4 Pass 2T (2026-05-24): Dividend snapshot. Driven by per-phase
  * Phase.dividendPolicy. Per period:
  *   excess = preSweepClosingCash − minCashReserve − cumPriorAllocations
- *   1. before_sweep dividends paid first (priority over cash sweep —
- *      typical for operational phases that already produce cash and
+ *   1. before_sweep dividends paid first (priority over cash sweep,  *      typical for operational phases that already produce cash and
  *      want to distribute before new-debt sweep).
  *   2. cash sweep on debt facilities (priority order across tranches).
  *   3. after_sweep dividends paid last (new phases, after debt repays).
@@ -833,8 +832,13 @@ export function computeCashWaterfall(args: {
    *  dividend is distributed, applied to every phase. Unset => default to the
    *  year after the last construction period ends. */
   dividendStartYear?: number;
+  /** Project-level dividend policy (2026-06-02): one enabled / payoutRatio /
+   *  mode applied to EVERY phase. When provided it is authoritative; when
+   *  undefined the engine falls back to the legacy per-phase
+   *  Phase.dividendPolicy (back-compat). */
+  projectDividendPolicy?: { enabled?: boolean; payoutRatio?: number; mode?: 'cash_above_min' | 'pct_of_ebitda' };
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy } = args;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
@@ -917,7 +921,10 @@ export function computeCashWaterfall(args: {
   );
   const effectiveDividendStartYear = dividendStartYear ?? projectDividendDefaultYear;
   const buildPhaseRow = (phase: Phase, priority: 'before_sweep' | 'after_sweep'): DividendPhaseRow | null => {
-    const policy = phase.dividendPolicy ?? {};
+    // Project-level policy is authoritative when provided (one rule for every
+    // phase); otherwise fall back to the legacy per-phase policy (back-compat).
+    const useProject = projectDividendPolicy !== undefined;
+    const policy = useProject ? (projectDividendPolicy ?? {}) : (phase.dividendPolicy ?? {});
     if (policy.enabled !== true) return null;
     if (statusPriority(phase) !== priority) return null;
     const startingYear = effectiveDividendStartYear;
@@ -1066,7 +1073,7 @@ export function computeCashWaterfall(args: {
     //    the opening-cash floor as a liquidating dividend (bypasses the
     //    per-phase EBITDA cap). Booked into totalDividendsPerPeriod so it flows
     //    as a real dividend through the Direct CF, the BS (retained earnings),
-    //    and the Returns module — the cash-sweep dividend then ties to FCFE /
+    //    and the Returns module, the cash-sweep dividend then ties to FCFE /
     //    Distributed Equity. Only when dividends are enabled for the project.
     if (dividendsEnabled && terminalPayoutPeriod !== undefined && t === terminalPayoutPeriod) {
       const floor = Math.max(0, terminalCashFloor ?? 0);
@@ -1190,7 +1197,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // M4 Pass 2T-Fix (2026-05-24): pre-sales are LAGGED by one period in
   // the funding gap formula. Per Ahmad 2026-05-24 (Excel formula
   // =IF((I52-H57)>0,I52-H57,0)): "we are not received on day 1 of the
-  // year" — so the cash available to fund THIS year's capex is the
+  // year", so the cash available to fund THIS year's capex is the
   // PREVIOUS year's collected pre-sales (net), not this year's.
   // First-period gap = full capex (no prior-year pre-sales).
   for (let t = 0; t < N; t++) {
@@ -1202,7 +1209,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const methodATotalGap = methodAGapPerPeriod.reduce((s, v) => s + v, 0);
 
   // Method B inputs. M4 Pass 2T-Fix #2 (2026-05-24): same one-period
-  // lag as Method A — this year's capex is funded by LAST year's
+  // lag as Method A, this year's capex is funded by LAST year's
   // operating cash flow (we don't receive ops cash on Day 1 of the
   // year). preFinancingNetCfLagged[t] = cashFromInv[t] + cashFromOps[t-1].
   // First period gap = full |cashFromInv[0]| (no prior-year ops).
@@ -1723,7 +1730,7 @@ function computeFinancialsSnapshotOnce(
   // non-cash equity contribution recognised on BS as Land + Share
   // Capital simultaneously; it does NOT flow through Cash from
   // Investment. Previously this was the larger inclAllLand which
-  // washed against in-kind equity in cashFromFin — both sides wrong,
+  // washed against in-kind equity in cashFromFin, both sides wrong,
   // net BS Cash accidentally right. Now both sides clean.
   const capexFull = financing.capex.perPeriod.exclLandInKind; // length = totalPeriods
   const capexProj = capexFull.slice(0, N);
@@ -1735,7 +1742,7 @@ function computeFinancialsSnapshotOnce(
   // (land contributed in-kind by parcel owners) is a non-cash equity
   // recognition. Previously cashFromFin summed cash + in-kind, which
   // washed against an over-stated capex outflow (capex.inclAllLand)
-  // — both sides individually wrong, BS Cash accidentally correct.
+  //, both sides individually wrong, BS Cash accidentally correct.
   // Now cashFromInv uses capex.exclLandInKind and cashFromFin uses
   // equityCashArr. Net BS Cash unchanged; both lines individually right.
   // equityDraws kept as the cumulative basis for Share Capital roll-up
@@ -1899,6 +1906,7 @@ function computeFinancialsSnapshotOnce(
     terminalPayoutPeriod: Math.max(0, Math.min(N - 1, project.returns?.exitYearOffset ?? (N - 1))),
     terminalCashFloor: historicalOpeningCashTotal,
     dividendStartYear: project.dividendStartYear,
+    projectDividendPolicy: project.dividendPolicy,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;
@@ -2064,7 +2072,7 @@ function computeFinancialsSnapshotOnce(
   // pre-axis equity opening (financing.existing.equityTotal) so it
   // matches BS Schedules E1 closing balance. Previously only
   // cumulative new draws were counted, leaving existing equity off
-  // the BS — the resulting gap was the user-reported mismatch.
+  // the BS, the resulting gap was the user-reported mismatch.
   const priorEquityTotal = financing.existing.equityTotal;
   const equityCumulative = cumulative(equityDraws);
   // A user-entered project.shareCapital is treated as the OPENING / base
@@ -2280,8 +2288,8 @@ function deriveCircularInputs(
   // (c) Cash-sweep budget = the per-period cash available for debt + dividend
   // (surplus above the minimum reserve, net of prior-period allocations) from
   // THIS pass's cash waterfall. The engine's sweep-eligible tranches repay
-  // from it (existing-first / priority), so the balance — and the interest on
-  // it — follows the sweep. Fed back via the two-pass; converges as paying
+  // from it (existing-first / priority), so the balance, and the interest on
+  // it, follows the sweep. Fed back via the two-pass; converges as paying
   // debt lowers interest, which frees more cash to sweep.
   let sweepBudget: number[] | undefined;
   if (hasSweep && snap.cashSweep.enabled) {
@@ -2289,8 +2297,8 @@ function deriveCircularInputs(
     // reconstructed sweep-independently from the authoritative closing cash:
     //   preDist[t] = directCF.closing[t] + sweep[t] + dividend[t]
     // (adds this period's distributions back to the real closing). This is
-    // stable across iterations — it depends only on ops / financing / interest
-    // (which converge), NOT on the sweep amount itself — so feeding it back as
+    // stable across iterations, it depends only on ops / financing / interest
+    // (which converge), NOT on the sweep amount itself, so feeding it back as
     // the sweep budget converges instead of oscillating.
     const minCash = snap.cashSweep.minCashReserve;
     const closing = snap.directCF.closingCashPerPeriod;
@@ -2354,7 +2362,7 @@ export function computeFinancialsSnapshot(
   const idcConditional = (state.project.idcConfig?.fundingMode ?? 'conditional') === 'conditional';
   // Cash sweep (2026-06-02): a sweep-eligible tranche means the sweep repayment
   // (and the interest that follows the swept balance) must be resolved by the
-  // iterative two-pass — the sweep needs cumulative cash, computed in the cash
+  // iterative two-pass, the sweep needs cumulative cash, computed in the cash
   // waterfall, then fed back to the engine so interest accrues on the swept
   // balance (no phantom interest).
   const hasSweep = state.financingTranches.some((t) =>

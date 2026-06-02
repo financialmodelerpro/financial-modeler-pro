@@ -91,7 +91,7 @@ export function expandPhaseLocalToAxis(
   // once, after which the engine started reading byPhase exclusively.
   // If the project axis later extended (new phase added, operations
   // years increased), byPhase stayed one or more entries short of the
-  // new axis — producing 0 at the last operations year(s) even though
+  // new axis, producing 0 at the last operations year(s) even though
   // the user-facing UI showed an occupancy value (read from legacy).
   //
   // Merge rule:

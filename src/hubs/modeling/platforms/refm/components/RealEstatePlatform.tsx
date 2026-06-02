@@ -599,7 +599,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       return;
     }
     // No edits, no session. Treat as "fork current state as a new
-    // named version" — same modal, start-session mode.
+    // named version", same modal, start-session mode.
     setNameVersionModalMode('start-session');
     setEditingVersionLabel(null);
     setNameVersionModalOpen(true);
@@ -1075,7 +1075,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
               }}
             >
               <span>
-                ✏️ Editing as <strong>{sessionStartedToast}</strong> — all changes
+                ✏️ Editing as <strong>{sessionStartedToast}</strong>, all changes
                 in this session save to one version. Use{' '}
                 <strong>📌 Save Version</strong> in the topbar to rename it.
               </span>

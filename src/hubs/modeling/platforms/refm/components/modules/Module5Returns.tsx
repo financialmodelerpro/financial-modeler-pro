@@ -117,7 +117,7 @@ export default function Module5Returns(): React.JSX.Element {
     toRow('(+) Terminal Enterprise Value', b.terminalEnterprisePerPeriod, { indent: 1 }),
     toRow('= FCFF (unlevered project)', rs.fcffPerPeriod, { isTotal: true }),
   ];
-  // FCFE build-up — equity-centric. Existing equity = historical investment
+  // FCFE build-up, equity-centric. Existing equity = historical investment
   // net of the debt opening (the two inception lines combine to existing
   // equity). New CASH equity is the funding of the negative-FCFE periods
   // (noted in the caption); in-kind equity is shown explicitly.
@@ -146,7 +146,7 @@ export default function Module5Returns(): React.JSX.Element {
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Returns on three cash-flow bases: <strong>FCFF</strong> (unlevered, to all capital providers),{' '}
         <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Distributed Equity</strong>{' '}
-        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted — IRR / MOIC / equity exposure / yield + exit metrics are the focus.
+        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted, IRR / MOIC / equity exposure / yield + exit metrics are the focus.
       </p>
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
@@ -172,8 +172,8 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
       </MetricGrid>
 
-      {/* ── Exit Analysis (exit-year income + debt; exit ratios — LTV / Debt
-            Yield / Cap Rate — are in the RE Metrics tab) ── */}
+      {/* ── Exit Analysis (exit-year income + debt; exit ratios, LTV / Debt
+            Yield / Cap Rate, are in the RE Metrics tab) ── */}
       <SectionTitle>Exit Analysis (exit {ex.exitYearLabel})</SectionTitle>
       <MetricGrid min={150}>
         <MetricCard label="Exit NOI" value={fmt(ex.exitNOI)} sub={currency} />
@@ -225,7 +225,7 @@ export default function Module5Returns(): React.JSX.Element {
       <MetricGrid min={155}>
         <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
         <MetricCard label="Average Equity Invested" value={fmt(ee.averageEquityInvested)} sub="mean while committed" />
-        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" tooltip="Equity at Risk = the maximum cumulative equity invested at any point — the deepest the sponsor is in before distributions begin to return capital." />
+        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" tooltip="Equity at Risk = the maximum cumulative equity invested at any point, the deepest the sponsor is in before distributions begin to return capital." />
         <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
         <MetricCard label="First Positive CF Year" value={ee.firstPositiveCFYear !== null ? String(ee.firstPositiveCFYear) : 'n/a'} sub="FCFE turns positive" />
         <MetricCard label="First Dividend Year" value={ee.firstDividendYear !== null ? String(ee.firstDividendYear) : 'n/a'} sub="first distribution" />
@@ -237,7 +237,7 @@ export default function Module5Returns(): React.JSX.Element {
           <SectionTitle>Stabilization (income assets)</SectionTitle>
           <MetricGrid min={155}>
             <MetricCard label="Stabilised NOI" value={fmt(st.stabilisedNOI)} sub={currency} />
-            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" tooltip="Yield on Cost = Stabilized NOI ÷ Total Development Cost — the going-in unlevered yield once the asset is stabilised." />
+            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" tooltip="Yield on Cost = Stabilized NOI ÷ Total Development Cost, the going-in unlevered yield once the asset is stabilised." />
             <MetricCard label="Stabilization Year" value={st.stabilizationYear !== null ? String(st.stabilizationYear) : 'n/a'} sub="NOI ≥ 95% of stabilised" />
           </MetricGrid>
         </>
@@ -253,7 +253,7 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Debt Tenor" value={fmtYears(da.tenorYears)} sub="first draw to repaid" />
       </MetricGrid>
 
-      {/* Per-stream IRR / MOIC / profit table (NPV + Payback removed — Payback
+      {/* Per-stream IRR / MOIC / profit table (NPV + Payback removed, Payback
           is in the KPI cards; NPV is not a primary real-estate metric). */}
       <section style={{ marginBottom: 'var(--sp-3)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 'var(--sp-1)' }}>

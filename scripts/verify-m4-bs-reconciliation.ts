@@ -503,7 +503,7 @@ console.log('\n[N] Pass 2S: Cash Sweep identities');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// N5: Conditional-IDC era (2026-06-02) — cash sweep repays EXISTING
+// N5: Conditional-IDC era (2026-06-02), cash sweep repays EXISTING
 // loans before NEW ones, even when the new tranche's priority NUMBER is
 // lower (which alone would pay it first). Direct computeCashWaterfall
 // call with two sweep-eligible tranches and just enough cash to repay

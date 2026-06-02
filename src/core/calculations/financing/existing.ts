@@ -71,7 +71,7 @@ export function buildExistingAggregate(
   for (const t of tranches) {
     if (t.origin !== 'existing') continue;
     const ob = Math.max(0, t.openingBalance ?? 0);
-    // Skip if origination falls inside the project axis — the financing
+    // Skip if origination falls inside the project axis, the financing
     // engine already routes that openingBalance through drawSchedule.
     const origYear = t.originationYear;
     const isInAxisRaised = Number.isFinite(projectStartYear)

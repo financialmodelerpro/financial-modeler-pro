@@ -2051,7 +2051,7 @@ interface EquityReqProps {
 function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
   const N = p.axis.activeLabels.length;
   // M4 Pass 2V (2026-05-24): add prior-year column. Existing equity
-  // is a PRE-AXIS event — render it in the prior column and zero its
+  // is a PRE-AXIS event, render it in the prior column and zero its
   // axis entries.
   const nonLabelPct = nonLabelColumnPct(2 + N);
   const periodTbl = periodTableStyle(2 + N);
@@ -2106,7 +2106,7 @@ function EquityRequiredTable(p: EquityReqProps): React.JSX.Element {
               <td style={priorTotalCell}>{p.fmt(p.equity.totalExisting)}</td>
               {total.map((v, i) => {
                 // Subtract existing equity that was lumped into axis t=0
-                // by the financing engine — we've moved it to prior col.
+                // by the financing engine, we've moved it to prior col.
                 const axisOnly = i === 0 ? v - p.equity.totalExisting : v;
                 return <td key={i} style={ROW_GRAND_TOTAL.num}>{p.fmt(axisOnly)}</td>;
               })}
@@ -2461,7 +2461,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         );
       })()}
 
-      {/* M4 Pass 2O (2026-05-24): IDC Allocation — by-asset breakdown.
+      {/* M4 Pass 2O (2026-05-24): IDC Allocation, by-asset breakdown.
           Source = financing.totalInterestForAssetBasis, allocated per
           project.idcConfig.allocationBasis. Routed downstream to CoS
           (Sell) or Fixed Assets+D&A (Operate/Lease). */}
@@ -2506,7 +2506,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 
         return (
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>IDC Allocation — by Asset (YoY + Total)</div>
+            <div style={TABLE_TITLE}>IDC Allocation, by Asset (YoY + Total)</div>
             {policyChips}
 
             {/* Summary table: per-asset IDC YoY + Total + share %. Always
@@ -2518,7 +2518,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 {headerRow}
                 <tbody>
                   {assetRows.length === 0 ? (
-                    <tr><td colSpan={3 + N} style={ROW_DATA.name}>No non-companion assets — IDC allocation has nothing to distribute.</td></tr>
+                    <tr><td colSpan={3 + N} style={ROW_DATA.name}>No non-companion assets, IDC allocation has nothing to distribute.</td></tr>
                   ) : (
                     <>
                       {assetRows.map((r) => {
@@ -2552,7 +2552,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   {!idc.capitalize && (
                     <tr>
                       <td colSpan={3 + N} style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-warning, #92400e)' }}>
-                        Capitalize=OFF — construction interest below is expensed to P&L Finance Cost instead of allocated to assets.
+                        Capitalize=OFF, construction interest below is expensed to P&L Finance Cost instead of allocated to assets.
                       </td>
                     </tr>
                   )}
@@ -2570,7 +2570,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {idc.capitalize && sellRows.length > 0 && (
               <div style={{ marginTop: 'var(--sp-2)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                  Routed to CoS via Inventory (Sell / Sell+Manage — augments capex basis, unwinds via revenue recognition)
+                  Routed to CoS via Inventory (Sell / Sell+Manage, augments capex basis, unwinds via revenue recognition)
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={periodTbl}>
@@ -2601,7 +2601,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
             {idc.capitalize && opLeaseRows.length > 0 && (
               <div style={{ marginTop: 'var(--sp-2)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                  Routed to Fixed Assets → D&A (Operate / Lease — adds to depreciable basis at handover, straight-line over useful life)
+                  Routed to Fixed Assets → D&A (Operate / Lease, adds to depreciable basis at handover, straight-line over useful life)
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={periodTbl}>
@@ -2792,15 +2792,15 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2 — Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, <strong>(1) Method 3 — Cash Deficit Funding</strong> sizes the new debt + equity drawdown each period to maintain the minimum cash, then <strong>(2) the Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows as supporting detail.
+          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2, Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, <strong>(1) Method 3, Cash Deficit Funding</strong> sizes the new debt + equity drawdown each period to maintain the minimum cash, then <strong>(2) the Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows as supporting detail.
         </div>
       </section>
 
-      {/* Method 2 — Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
+      {/* Method 2, Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
       <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Method 2 — Net Funding Requirement (Capex vs Pre-Sales)</div>
+        <div style={TABLE_TITLE}>Method 2, Net Funding Requirement (Capex vs Pre-Sales)</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Gap = MAX(0, Capex<sub>t</sub> − Pre-Sales net<sub>t−1</sub>). Pre-Sales are <strong>lagged one year</strong> — this year's capex is funded from LAST year's collected pre-sales (we don't receive on Day 1 of the year). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
+          Gap = MAX(0, Capex<sub>t</sub> − Pre-Sales net<sub>t−1</sub>). Pre-Sales are <strong>lagged one year</strong>, this year's capex is funded from LAST year's collected pre-sales (we don't receive on Day 1 of the year). Pre-Sales net = Gross − Inaccessible funds locked (escrow held) + Release of inaccessible funds. Floored at 0: a surplus in one period doesn't reduce next period's funding line. Surplus carry-over is captured in Method B.
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={periodTbl}>
@@ -2870,14 +2870,14 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
 
         return (
           <>
-          {/* Method 3 — Cash Deficit Funding (DRAWDOWN SIZING). Restored as its
+          {/* Method 3, Cash Deficit Funding (DRAWDOWN SIZING). Restored as its
               own table (2026-06-02): this sizes the NEW funding (debt + equity)
               required each period to maintain the minimum cash reserve. The
               consolidated waterfall below then applies repayments + dividends.
               This table is the authority for the drawdown; the waterfall reads
               the same engine result for its Debt Drawdown line. */}
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>1. Method 3 — Cash Deficit Funding (Drawdown Sizing)</div>
+            <div style={TABLE_TITLE}>1. Method 3, Cash Deficit Funding (Drawdown Sizing)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
               Sizes the NEW funding required each period to keep cash at the minimum reserve ({p.fmt(minCash)}). Opening + Ops + Inv + existing financing − finance cost = Cash Available; where it falls below the floor, Net Cash Required is drawn as New Debt + New Equity at the project ratio. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus exists, capitalised to debt only for the shortfall.' : 'IDC is capitalised to debt.'} Existing equity / debt opening are pre-axis (prior column). The actual cash movements (repayments, sweep, dividends, closing) are in the waterfall below.
             </div>
@@ -2907,7 +2907,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC capitalised to debt (shortfall)', idcAdd, { indent: 1, priorValue: 0 })}
                   {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (
                     <>
-                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Net Cash Required — NEW funding drawn each period</td></tr>
+                      <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>Net Cash Required, NEW funding drawn each period</td></tr>
                       {renderFlowRow('Net Cash Required (= max(0, MinCash − Cash Available))', w.netCashRequiredPerPeriod, { bold: true, priorValue: 0 })}
                       {renderFlowRow(`  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, debtSplit, { indent: 2, priorValue: 0 })}
                       {renderFlowRow(`  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, equitySplit, { indent: 2, priorValue: 0 })}
@@ -2926,7 +2926,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           </section>
 
           {/* Consolidated cash waterfall (2026-06-02): ONE table in accounting
-              order — Operations -> Debt -> Dividend -> Closing — read straight
+              order, Operations -> Debt -> Dividend -> Closing, read straight
               from the Direct CF line items. The cash sweep is now applied IN
               the financing engine, so Debt Drawdown / Debt Paid / Interest
               already reflect the chosen repayment method (Equal Repayment /
@@ -2984,9 +2984,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   <tbody>
                     {sweep.eligibleTranches.map((row) => (
                       <React.Fragment key={`sw_${row.trancheId}`}>
-                        {renderStateRow(`${row.trancheName} — Opening (pre-sweep)`, row.preSweepOutstanding, { priorValue: 0 })}
-                        {renderFlowRow(`  ${row.trancheName} — Sweep Applied (${row.origin}, priority ${row.priority}, from ${row.startingYear})`, row.sweepPerPeriod.map((v) => -v), { negative: true, indent: 1, priorValue: 0 })}
-                        {renderStateRow(`${row.trancheName} — Closing (post-sweep)`, row.postSweepOutstanding, { subtotal: true, priorValue: 0 })}
+                        {renderStateRow(`${row.trancheName}, Opening (pre-sweep)`, row.preSweepOutstanding, { priorValue: 0 })}
+                        {renderFlowRow(`  ${row.trancheName}, Sweep Applied (${row.origin}, priority ${row.priority}, from ${row.startingYear})`, row.sweepPerPeriod.map((v) => -v), { negative: true, indent: 1, priorValue: 0 })}
+                        {renderStateRow(`${row.trancheName}, Closing (post-sweep)`, row.postSweepOutstanding, { subtotal: true, priorValue: 0 })}
                       </React.Fragment>
                     ))}
                     {renderStateRow('Project total debt outstanding (post-sweep)', sweep.adjustedDebtOutstanding, { bold: true, priorValue: 0 })}
@@ -2999,14 +2999,12 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         );
       })()}
 
-      {/* M4 Pass 2T (2026-05-24): Dividend Policy editor + schedule. */}
+      {/* Dividend Policy: one project-level rule (2026-06-02). */}
       <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Dividend Policy — per Phase</div>
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
+        <div style={TABLE_TITLE}>Dividend Policy</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
           Dividends are paid <strong>after debt</strong>: each period the cash sweep repays debt first, then surplus cash above the minimum reserve is distributed per the policy below. In the exit year the model pays 100% to shareholders (no minimum cash retained) so the dividend ties to FCFE in the Returns module.
         </div>
-        {/* Project-level dividend start year (2026-06-02): one control for the
-            whole project. Default = the year after the last construction ends. */}
         {(() => {
           const defaultStartYear = Math.max(
             snap.projectStartYear,
@@ -3016,95 +3014,80 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               return ph.status === 'operational' ? snap.projectStartYear : psy + cp;
             }),
           );
+          // Current project-level policy, with a legacy fallback (any phase
+          // enabled / first phase payout + mode) so older snapshots show their
+          // effective value until the user edits it.
+          const dp = state.project.dividendPolicy;
+          const legacyEnabled = state.phases.some((ph) => ph.dividendPolicy?.enabled === true);
+          const legacyPhase = state.phases.find((ph) => ph.dividendPolicy?.enabled === true);
+          const enabled = dp?.enabled ?? legacyEnabled;
+          const payoutRatio = dp?.payoutRatio ?? legacyPhase?.dividendPolicy?.payoutRatio ?? 0;
+          const mode = dp?.mode ?? legacyPhase?.dividendPolicy?.mode ?? 'cash_above_min';
           const startYear = state.project.dividendStartYear ?? defaultStartYear;
+          const setDp = (patch: Partial<NonNullable<typeof dp>>) =>
+            state.setProject({ dividendPolicy: { enabled, payoutRatio, mode, ...patch } });
+          const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
+            <button
+              key={key}
+              type="button"
+              onClick={onClick}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                fontWeight: 600,
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+          const fieldLabel: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--color-heading)', display: 'block', marginBottom: 4 };
           return (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>Dividend Start Year</label>
-              <input
-                type="number"
-                value={startYear}
-                onChange={(e) => state.setProject({ dividendStartYear: Math.max(1900, Number(e.target.value) || defaultStartYear) })}
-                style={{ ...inputStyle, width: 90 }}
-              />
-              <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
-                first year any dividend is paid (default {defaultStartYear}, after the last construction period)
-              </span>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div>
+                <label style={fieldLabel}>Pay Dividends</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {pillBtn(enabled, 'On', () => setDp({ enabled: true }), 'on')}
+                  {pillBtn(!enabled, 'Off', () => setDp({ enabled: false }), 'off')}
+                </div>
+              </div>
+              <div>
+                <label style={fieldLabel}>Payout Ratio</label>
+                <PercentageInput
+                  value={payoutRatio}
+                  onChange={(v) => setDp({ payoutRatio: v })}
+                  style={{ ...inputStyle, width: 90 }}
+                />
+              </div>
+              <div>
+                <label style={fieldLabel}>Basis</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {pillBtn(mode === 'cash_above_min', 'Cash above min', () => setDp({ mode: 'cash_above_min' }), 'm-cash')}
+                  {pillBtn(mode === 'pct_of_ebitda', '% of EBITDA', () => setDp({ mode: 'pct_of_ebitda' }), 'm-ebitda')}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  {mode === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
+                </div>
+              </div>
+              <div>
+                <label style={fieldLabel}>Start Year</label>
+                <input
+                  type="number"
+                  value={startYear}
+                  onChange={(e) => state.setProject({ dividendStartYear: Math.max(1900, Number(e.target.value) || defaultStartYear) })}
+                  style={{ ...inputStyle, width: 90 }}
+                />
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  default {defaultStartYear} (after the last construction period)
+                </div>
+              </div>
             </div>
           );
         })()}
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr>
-              <th style={CELL_HEADER}>Phase</th>
-              <th style={CELL_HEADER}>Status</th>
-              <th style={CELL_HEADER}>Waterfall Position</th>
-              <th style={CELL_HEADER}>Enable Dividend</th>
-              <th style={CELL_HEADER}>Payout Ratio</th>
-              <th style={CELL_HEADER}>Basis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.phases.map((ph) => {
-              const pol = ph.dividendPolicy ?? {};
-              const enabled = pol.enabled === true;
-              // Dividends always pay after the sweep (single after-debt policy);
-              // the start year is project-level (above the table), not per phase.
-              const waterfallPos = 'After sweep (debt repays first)';
-              const payoutRatio = pol.payoutRatio ?? 0;
-              const updatePolicy = (patch: Partial<NonNullable<typeof ph.dividendPolicy>>) => {
-                state.updatePhase(ph.id, { dividendPolicy: { ...(ph.dividendPolicy ?? {}), ...patch } });
-              };
-              const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={onClick}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
-                    background: active ? 'var(--color-navy)' : 'var(--color-surface)',
-                    color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
-                    fontWeight: 600,
-                    fontSize: 10,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {label}
-                </button>
-              );
-              return (
-                <tr key={ph.id}>
-                  <td style={ROW_DATA.name}>{ph.name}</td>
-                  <td style={ROW_DATA.name}>{ph.status ?? 'planning'}</td>
-                  <td style={{ ...ROW_DATA.name, fontStyle: 'italic', color: 'var(--color-text-muted)', fontSize: 11 }}>{waterfallPos}</td>
-                  <td style={ROW_DATA.name}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {pillBtn(enabled, 'On', () => updatePolicy({ enabled: true }), 'on')}
-                      {pillBtn(!enabled, 'Off', () => updatePolicy({ enabled: false }), 'off')}
-                    </div>
-                  </td>
-                  <td style={ROW_DATA.name}>
-                    <PercentageInput
-                      value={payoutRatio}
-                      onChange={(v) => updatePolicy({ payoutRatio: v })}
-                      style={{ ...inputStyle, width: 80 }}
-                    />
-                  </td>
-                  <td style={ROW_DATA.name}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {pillBtn((pol.mode ?? 'cash_above_min') === 'cash_above_min', 'Cash above min', () => updatePolicy({ mode: 'cash_above_min' }), 'm-cash')}
-                      {pillBtn(pol.mode === 'pct_of_ebitda', '% of EBITDA', () => updatePolicy({ mode: 'pct_of_ebitda' }), 'm-ebitda')}
-                    </div>
-                    <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                      {(pol.mode ?? 'cash_above_min') === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
       </section>
     </>
   );

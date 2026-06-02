@@ -479,6 +479,24 @@ export interface Project {
    */
   dividendStartYear?: number;
   /**
+   * Project-level dividend policy (2026-06-02). One rule for the whole
+   * project (replaces the per-phase Phase.dividendPolicy editor):
+   *   - enabled: pay dividends at all.
+   *   - payoutRatio: % (0..100) of the distributable amount paid each period
+   *     from dividendStartYear onward (the exit year always pays 100%).
+   *   - mode: 'cash_above_min' sizes the payout off the cash above the minimum
+   *     reserve (after the debt sweep); 'pct_of_ebitda' sizes it off the
+   *     period EBITDA, still gated by available cash. Cumulative dividends stay
+   *     capped by cumulative EBITDA.
+   * When set, it drives EVERY phase. When unset, the engine falls back to the
+   * legacy per-phase Phase.dividendPolicy (back-compat for older snapshots).
+   */
+  dividendPolicy?: {
+    enabled?: boolean;
+    payoutRatio?: number;
+    mode?: 'cash_above_min' | 'pct_of_ebitda';
+  };
+  /**
    * M5 Returns (2026-06-01): returns + valuation assumptions. Additive;
    * absent => the resolver applies sensible defaults (10% discount rate,
    * exit at the last axis year, exit-multiple terminal value of 8x

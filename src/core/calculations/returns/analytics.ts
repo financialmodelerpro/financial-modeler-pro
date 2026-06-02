@@ -1,5 +1,5 @@
 /**
- * M5 Returns — Pass 1 analytics (2026-06-02).
+ * M5 Returns, Pass 1 analytics (2026-06-02).
  *
  * Pure functions producing the Development Economics / Exit Analysis /
  * Sources & Uses / Equity Exposure / Stabilization / Debt Analytics blocks.
@@ -62,7 +62,7 @@ export function exitAnalysis(args: {
  *  collections (pre-sales) + operating cash. Uses = land + construction + IDC
  *  + reserves/distributions (the balancing line when funding exceeds cost).
  *  Operating cash is the balancing SOURCE when cost exceeds the other funding;
- *  reserves/distributions is the balancing USE when funding exceeds cost — so
+ *  reserves/distributions is the balancing USE when funding exceeds cost, so
  *  totalSources === totalUses always. */
 export function sourcesUses(args: {
   existingEquity: number;

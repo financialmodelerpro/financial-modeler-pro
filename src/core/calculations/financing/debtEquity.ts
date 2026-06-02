@@ -90,11 +90,11 @@ export function computeDebtEquitySplit(
   const landEquityFrac = 1 - landDebtFrac;
 
   // M4 Pass 2Z (2026-05-24): stamp in-kind per parcel at the OWNING
-  // phase's projected i=0 axis index — mirrors the asset-side
+  // phase's projected i=0 axis index, mirrors the asset-side
   // projection rule in aggregateProjectCapex / fixed-assets-resolvers
   // (projIdx = Math.max(0, offset - 1) post Pass 2W). Previously the
   // sum lumped at axis[0] regardless of phase, leaving Phase 3+
-  // (offset >= 2) with Y0 equity but no matching Land asset — peak
+  // (offset >= 2) with Y0 equity but no matching Land asset, peak
   // contributor to the user's 1.4M BS construction-year imbalance.
   const projStart = project?.startDate
     ? new Date(project.startDate).getUTCFullYear()

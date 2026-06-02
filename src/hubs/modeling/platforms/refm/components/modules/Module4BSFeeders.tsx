@@ -13,7 +13,7 @@
  *     A1. Residential Sales Receivables (M2 milestone)
  *     A2. Operating Receivables (M4 Pass 2g DSO)
  *     A3. Inventory (Residential WIP, M2 CoS)
- *     A4. Restricted Cash (Escrow) — M2 Pass 9h; restricted-cash asset
+ *     A4. Restricted Cash (Escrow), M2 Pass 9h; restricted-cash asset
  *   LIABILITIES:
  *     L1. Accounts Payable (M3 Pass 2a DPO)
  *     L2. Unearned Revenue (M2 off-plan advances)
@@ -100,7 +100,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
             // Each Sell + Sell+Manage parent contributes its
             // bundle.ar (which is buildAccountsReceivable(presalesSV,
             // presalesCash)). The project totals are SUMS of the
-            // per-asset closings — guaranteed to equal the M2 Output
+            // per-asset closings, guaranteed to equal the M2 Output
             // numbers asset-for-asset. The previous SDO-inclusive
             // billed/collected lines were confusing because the SDO
             // terms cancelled (revenue=cash same period) yet showed
@@ -194,7 +194,7 @@ export default function Module4BSFeeders(): React.JSX.Element {
           })()}
         />
 
-        {/* A4: Restricted Cash (Escrow) — the developer's pre-sales cash
+        {/* A4: Restricted Cash (Escrow), the developer's pre-sales cash
             held in escrow and released back per milestones. It is an
             ASSET (restricted cash), not a liability. */}
         <M4PeriodTable

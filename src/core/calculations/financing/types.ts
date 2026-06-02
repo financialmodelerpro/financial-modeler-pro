@@ -133,7 +133,7 @@ export interface CombinedDebtService {
    *  balance (the "additional drawdown" piece). Zero when fundingMode='cash'. */
   totalInterestCapitalized: number[];
   /** Conditional IDC (2026-06-02): sum of FacilityResult.interestCapitalizedCashPaid
-   *  — construction interest paid in cash (not added to debt) because cash
+   *, construction interest paid in cash (not added to debt) because cash
    *  was available above the minimum reserve. Already reflected in
    *  debtServiceCash via the (accrued − capitalized) derivation; surfaced
    *  here for the Funding Requirement schedule + the verifier identity. */

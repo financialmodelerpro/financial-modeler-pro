@@ -238,7 +238,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // counted within the FCFE / dividend streams as it was earned).
   const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
 
-  // Helper: build an (E+1)-length stream — index 0 = inception, 1..E = axis.
+  // Helper: build an (E+1)-length stream, index 0 = inception, 1..E = axis.
   const incep = (inceptionVal: number, axisArr: number[]): number[] => {
     const out = new Array<number>(E + 1).fill(0);
     out[0] = inceptionVal;
