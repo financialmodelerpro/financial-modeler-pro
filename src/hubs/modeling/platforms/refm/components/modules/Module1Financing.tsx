@@ -2805,6 +2805,100 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     );
   };
 
+  // Dividend Policy editor (Cash Sweep tab). Defined here so it can render at
+  // the TOP of the sweep view, inputs above the output waterfall they drive.
+  const dividendPolicySection = (
+      <section style={sectionStyle}>
+        <div style={TABLE_TITLE}>Dividend Policy</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+          Dividends are paid <strong>after debt</strong>: each period the cash sweep repays debt first, then surplus cash above the minimum reserve is distributed per the policy below. In the exit year the model pays 100% to shareholders (no minimum cash retained) so the dividend ties to FCFE in the Returns module.
+        </div>
+        {(() => {
+          const defaultStartYear = Math.max(
+            snap.projectStartYear,
+            ...state.phases.map((ph) => {
+              const psy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
+              const cp = Math.max(0, ph.constructionPeriods ?? 0);
+              return ph.status === 'operational' ? snap.projectStartYear : psy + cp;
+            }),
+          );
+          // Current project-level policy, with a legacy fallback (any phase
+          // enabled / first phase payout + mode) so older snapshots show their
+          // effective value until the user edits it.
+          const dp = state.project.dividendPolicy;
+          const legacyEnabled = state.phases.some((ph) => ph.dividendPolicy?.enabled === true);
+          const legacyPhase = state.phases.find((ph) => ph.dividendPolicy?.enabled === true);
+          const enabled = dp?.enabled ?? legacyEnabled;
+          const payoutRatio = dp?.payoutRatio ?? legacyPhase?.dividendPolicy?.payoutRatio ?? 0;
+          const mode = dp?.mode ?? legacyPhase?.dividendPolicy?.mode ?? 'cash_above_min';
+          const startYear = state.project.dividendStartYear ?? defaultStartYear;
+          const setDp = (patch: Partial<NonNullable<typeof dp>>) =>
+            state.setProject({ dividendPolicy: { enabled, payoutRatio, mode, ...patch } });
+          const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
+            <button
+              key={key}
+              type="button"
+              onClick={onClick}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
+                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
+                color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                fontWeight: 600,
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+          const fieldLabel: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--color-heading)', display: 'block', marginBottom: 4 };
+          return (
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div>
+                <label style={fieldLabel}>Pay Dividends</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {pillBtn(enabled, 'On', () => setDp({ enabled: true }), 'on')}
+                  {pillBtn(!enabled, 'Off', () => setDp({ enabled: false }), 'off')}
+                </div>
+              </div>
+              <div>
+                <label style={fieldLabel}>Payout Ratio</label>
+                <PercentageInput
+                  value={payoutRatio}
+                  onChange={(v) => setDp({ payoutRatio: v })}
+                  style={{ ...inputStyle, width: 90 }}
+                />
+              </div>
+              <div>
+                <label style={fieldLabel}>Basis</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {pillBtn(mode === 'cash_above_min', 'Cash above min', () => setDp({ mode: 'cash_above_min' }), 'm-cash')}
+                  {pillBtn(mode === 'pct_of_ebitda', '% of EBITDA', () => setDp({ mode: 'pct_of_ebitda' }), 'm-ebitda')}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  {mode === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
+                </div>
+              </div>
+              <div>
+                <label style={fieldLabel}>Start Year</label>
+                <input
+                  type="number"
+                  value={startYear}
+                  onChange={(e) => state.setProject({ dividendStartYear: Math.max(1900, Number(e.target.value) || defaultStartYear) })}
+                  style={{ ...inputStyle, width: 90 }}
+                />
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  default {defaultStartYear} (after the last construction period)
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+  );
+
   return (
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
@@ -2815,11 +2909,15 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             </>
           ) : (
             <>
-              <strong style={{ color: 'var(--color-heading)' }}>Cash Sweep.</strong> The <strong>Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown and the dividend policy follow. The funding sizing (Method 2 + Method 3) is in the <strong>Funding Gap</strong> tab.
+              <strong style={{ color: 'var(--color-heading)' }}>Cash Sweep.</strong> Set the <strong>Dividend Policy</strong> below, then the <strong>Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows. The funding sizing (Method 2 + Method 3) is in the <strong>Funding Gap</strong> tab.
             </>
           )}
         </div>
       </section>
+
+      {/* Dividend Policy at the TOP of the Cash Sweep tab (input above the
+          output waterfall it drives). */}
+      {p.view === 'sweep' && dividendPolicySection}
 
       {/* Method 2, Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
       {p.view === 'gap' && (
@@ -3043,100 +3141,6 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           </>
         );
       })()}
-
-      {/* Dividend Policy: one project-level rule (2026-06-02). Lives in the
-          Cash Sweep tab (the dividend is part of the cash waterfall). */}
-      {p.view === 'sweep' && (
-      <section style={sectionStyle}>
-        <div style={TABLE_TITLE}>Dividend Policy</div>
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
-          Dividends are paid <strong>after debt</strong>: each period the cash sweep repays debt first, then surplus cash above the minimum reserve is distributed per the policy below. In the exit year the model pays 100% to shareholders (no minimum cash retained) so the dividend ties to FCFE in the Returns module.
-        </div>
-        {(() => {
-          const defaultStartYear = Math.max(
-            snap.projectStartYear,
-            ...state.phases.map((ph) => {
-              const psy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
-              const cp = Math.max(0, ph.constructionPeriods ?? 0);
-              return ph.status === 'operational' ? snap.projectStartYear : psy + cp;
-            }),
-          );
-          // Current project-level policy, with a legacy fallback (any phase
-          // enabled / first phase payout + mode) so older snapshots show their
-          // effective value until the user edits it.
-          const dp = state.project.dividendPolicy;
-          const legacyEnabled = state.phases.some((ph) => ph.dividendPolicy?.enabled === true);
-          const legacyPhase = state.phases.find((ph) => ph.dividendPolicy?.enabled === true);
-          const enabled = dp?.enabled ?? legacyEnabled;
-          const payoutRatio = dp?.payoutRatio ?? legacyPhase?.dividendPolicy?.payoutRatio ?? 0;
-          const mode = dp?.mode ?? legacyPhase?.dividendPolicy?.mode ?? 'cash_above_min';
-          const startYear = state.project.dividendStartYear ?? defaultStartYear;
-          const setDp = (patch: Partial<NonNullable<typeof dp>>) =>
-            state.setProject({ dividendPolicy: { enabled, payoutRatio, mode, ...patch } });
-          const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
-            <button
-              key={key}
-              type="button"
-              onClick={onClick}
-              style={{
-                padding: '5px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
-                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
-                color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
-                fontWeight: 600,
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          );
-          const fieldLabel: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--color-heading)', display: 'block', marginBottom: 4 };
-          return (
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <div>
-                <label style={fieldLabel}>Pay Dividends</label>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {pillBtn(enabled, 'On', () => setDp({ enabled: true }), 'on')}
-                  {pillBtn(!enabled, 'Off', () => setDp({ enabled: false }), 'off')}
-                </div>
-              </div>
-              <div>
-                <label style={fieldLabel}>Payout Ratio</label>
-                <PercentageInput
-                  value={payoutRatio}
-                  onChange={(v) => setDp({ payoutRatio: v })}
-                  style={{ ...inputStyle, width: 90 }}
-                />
-              </div>
-              <div>
-                <label style={fieldLabel}>Basis</label>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {pillBtn(mode === 'cash_above_min', 'Cash above min', () => setDp({ mode: 'cash_above_min' }), 'm-cash')}
-                  {pillBtn(mode === 'pct_of_ebitda', '% of EBITDA', () => setDp({ mode: 'pct_of_ebitda' }), 'm-ebitda')}
-                </div>
-                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
-                  {mode === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
-                </div>
-              </div>
-              <div>
-                <label style={fieldLabel}>Start Year</label>
-                <input
-                  type="number"
-                  value={startYear}
-                  onChange={(e) => state.setProject({ dividendStartYear: Math.max(1900, Number(e.target.value) || defaultStartYear) })}
-                  style={{ ...inputStyle, width: 90 }}
-                />
-                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
-                  default {defaultStartYear} (after the last construction period)
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-      </section>
-      )}
     </>
   );
 }
