@@ -90,7 +90,7 @@ function ensureConfig(cfg: ProjectFinancingConfig | undefined): ProjectFinancing
 }
 
 export default function Module1Financing(): React.JSX.Element {
-  const [subTab, setSubTab] = useState<'inputs' | 'schedules' | 'fundingGap'>('inputs');
+  const [subTab, setSubTab] = useState<'inputs' | 'schedules' | 'fundingGap' | 'cashSweep'>('inputs');
 
   const {
     project, phases, parcels, assets, subUnits,
@@ -228,6 +228,7 @@ export default function Module1Financing(): React.JSX.Element {
           { key: 'inputs', label: 'Inputs' },
           { key: 'schedules', label: 'Schedules' },
           { key: 'fundingGap', label: 'Funding Gap' },
+          { key: 'cashSweep', label: 'Cash Sweep' },
         ] as const).map((t) => (
           <button
             key={t.key}
@@ -869,6 +870,17 @@ export default function Module1Financing(): React.JSX.Element {
 
       {subTab === 'fundingGap' && (
         <FundingGapView
+          view="gap"
+          axis={axis}
+          fmt={fmt}
+          currency={currency}
+          cropProject={cropProject}
+        />
+      )}
+
+      {subTab === 'cashSweep' && (
+        <FundingGapView
+          view="sweep"
           axis={axis}
           fmt={fmt}
           currency={currency}
@@ -2693,6 +2705,11 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 // ── Funding Gap sub-tab (M4 Pass 2R, 2026-05-24) ──────────────────────
 
 interface FundingGapProps {
+  /** 'gap' renders the funding-sizing sections (Method 2 + Method 3 drawdown
+   *  sizing); 'sweep' renders the cash waterfall + per-tranche sweep + dividend
+   *  policy. The two share the same snapshot computation but live in separate
+   *  Financing sub-tabs (Funding Gap / Cash Sweep). */
+  view: 'gap' | 'sweep';
   axis: ReturnType<typeof buildResultsPeriodAxis>;
   fmt: (n: number) => string;
   currency: string;
@@ -2792,11 +2809,20 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     <>
       <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2, Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, <strong>(1) Method 3, Cash Deficit Funding</strong> sizes the new debt + equity drawdown each period to maintain the minimum cash, then <strong>(2) the Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown follows as supporting detail.
+          {p.view === 'gap' ? (
+            <>
+              <strong style={{ color: 'var(--color-heading)' }}>Funding Gap.</strong> <strong>Method 2, Net Funding Requirement</strong> (Capex vs Pre-Sales) sizes funding to the feasibility gap. Below it, <strong>Method 3, Cash Deficit Funding</strong> sizes the new debt + equity drawdown each period to maintain the minimum cash. The actual repayments, cash sweep, and dividends are in the <strong>Cash Sweep</strong> tab.
+            </>
+          ) : (
+            <>
+              <strong style={{ color: 'var(--color-heading)' }}>Cash Sweep.</strong> The <strong>Cash Waterfall</strong> walks Opening → Operations → Investing → financing inflows → Interest → Debt Paid → Dividend → Closing for whichever repayment method is selected (Equal Repayment / Year-on-Year % / Cash Sweep). The cash sweep is applied in the engine schedule, so debt drawdown, principal, and interest all reflect the method and Closing Cash ties to the Cash Flow tab + Balance Sheet. A per-tranche sweep / outstanding breakdown and the dividend policy follow. The funding sizing (Method 2 + Method 3) is in the <strong>Funding Gap</strong> tab.
+            </>
+          )}
         </div>
       </section>
 
       {/* Method 2, Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
+      {p.view === 'gap' && (
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Method 2, Net Funding Requirement (Capex vs Pre-Sales)</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
@@ -2822,6 +2848,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           Grand total gap (A): <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(gap.methodATotalGap)}</strong>
         </div>
       </section>
+      )}
 
       {/* Three segregated schedules (2026-06-02): the prior consolidated
           waterfall is split into (1) Method 3 Funding Requirement, (2) Debt
@@ -2876,8 +2903,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               consolidated waterfall below then applies repayments + dividends.
               This table is the authority for the drawdown; the waterfall reads
               the same engine result for its Debt Drawdown line. */}
+          {p.view === 'gap' && (
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>1. Method 3, Cash Deficit Funding (Drawdown Sizing)</div>
+            <div style={TABLE_TITLE}>Method 3, Cash Deficit Funding (Drawdown Sizing)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
               Sizes the NEW funding required each period to keep cash at the minimum reserve ({p.fmt(minCash)}). Opening + Ops + Inv + existing financing − finance cost = Cash Available; where it falls below the floor, Net Cash Required is drawn as New Debt + New Equity at the project ratio. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus exists, capitalised to debt only for the shortfall.' : 'IDC is capitalised to debt.'} Existing equity / debt opening are pre-axis (prior column). The actual cash movements (repayments, sweep, dividends, closing) are in the waterfall below.
             </div>
@@ -2924,7 +2952,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               Lifetime new funding: debt <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(totalNewDebt.reduce((s, v) => s + v, 0))}</strong> (incl. capitalised IDC) · equity <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(equitySplit.reduce((s, v) => s + v, 0))}</strong>. Ratio <strong>{(snap.financing.funding.debtPct ?? 0).toFixed(0)}%</strong> debt / <strong>{(snap.financing.funding.equityPct ?? 0).toFixed(0)}%</strong> equity.
             </div>
           </section>
+          )}
 
+          {p.view === 'sweep' && (<>
           {/* Consolidated cash waterfall (2026-06-02): ONE table in accounting
               order, Operations -> Debt -> Dividend -> Closing, read straight
               from the Direct CF line items. The cash sweep is now applied IN
@@ -2995,11 +3025,14 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               </div>
             </section>
           )}
+          </>)}
           </>
         );
       })()}
 
-      {/* Dividend Policy: one project-level rule (2026-06-02). */}
+      {/* Dividend Policy: one project-level rule (2026-06-02). Lives in the
+          Cash Sweep tab (the dividend is part of the cash waterfall). */}
+      {p.view === 'sweep' && (
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Dividend Policy</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
@@ -3089,6 +3122,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           );
         })()}
       </section>
+      )}
     </>
   );
 }
