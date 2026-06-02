@@ -214,16 +214,13 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const principalAxis = sliceE(dcf.debtRepaymentPerPeriod); // already negative
   const interestAxis = sliceE(dcf.interestPaidPerPeriod);   // already negative
   const equityCashAxis = sliceE(equityCash);
+  // Terminal 100% payout (2026-06-02) is now booked in the FINANCING ENGINE
+  // (computeCashWaterfall): the exit period retains no minimum cash and
+  // distributes all cash above the opening-cash seed as a real liquidating
+  // dividend. It is therefore ALREADY in dividendsPaid (= totalDividendsPerPeriod),
+  // so divPaidAxis carries it through to the Distributed Equity stream and the
+  // build-up, and it ties to the Direct CF + BS. No Returns-only adjustment.
   const divPaidAxis = sliceE(dividendsPaid);
-  // Terminal 100% payout (2026-06-02): at exit the project distributes 100%
-  // to shareholders (no minimum cash retained), so the retained operating cash
-  // generated during the hold (closing cash at exit, net of the pre-existing
-  // opening-cash seed) is added to the exit-year distribution. This releases
-  // everything the dividend policy held back, so Distributed Equity reconciles
-  // to FCFE. Folded into divPaidAxis so the build-up still sums to the stream.
-  const terminalRetainedCash = Math.max(0,
-    (snap.directCF.closingCashPerPeriod[exit] ?? 0) - snap.bs.historicalOpeningCashTotal);
-  divPaidAxis[exit] = (divPaidAxis[exit] ?? 0) + terminalRetainedCash;
 
   // ── Terminal value (exit-multiple on stabilised NOI; perpetuity on the
   // exit-year unlevered free cash flow = CFO + CFI, no in-kind). ─────────

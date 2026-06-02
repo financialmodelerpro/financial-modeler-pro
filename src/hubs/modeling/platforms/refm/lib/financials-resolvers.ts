@@ -786,9 +786,15 @@ export interface DividendSnapshot {
   enabled: boolean;
   beforeSweepPhases: DividendPhaseRow[];
   afterSweepPhases: DividendPhaseRow[];
-  /** Per-period total dividends (sum across all phases, before + after). */
+  /** Per-period total dividends (sum across all phases, before + after,
+   *  INCLUDING any terminal 100% payout). */
   totalDividendsPerPeriod: number[];
   totalDividends: number;
+  /** Terminal 100% payout per period (2026-06-02): the liquidating
+   *  distribution booked in the exit period that releases all cash above the
+   *  opening-cash floor (no minimum cash retained at exit). Already included
+   *  in totalDividendsPerPeriod; surfaced separately for transparency. */
+  terminalPayoutPerPeriod: number[];
 }
 
 /**
@@ -816,8 +822,15 @@ export function computeCashWaterfall(args: {
    *  facilityOutstanding for display, and only the dividends consume excess.
    *  Absent => legacy overlay behaviour (the waterfall computes the sweep). */
   engineSweepByTranche?: Map<string, number[]>;
+  /** Terminal 100% payout (2026-06-02). When dividends are enabled, in the
+   *  terminalPayoutPeriod the model retains NO minimum cash and distributes
+   *  all cash above terminalCashFloor (the opening-cash seed) as a liquidating
+   *  dividend, so the cash-sweep dividend ties to FCFE / Distributed Equity in
+   *  the Returns module. Undefined period => no terminal payout. */
+  terminalPayoutPeriod?: number;
+  terminalCashFloor?: number;
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor } = args;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
@@ -879,14 +892,13 @@ export function computeCashWaterfall(args: {
       : a.origin === 'existing' ? -1 : 1,
   );
 
-  // Build dividend-enabled phases (before-sweep first, then after-sweep).
-  // M4 Pass 2U-Fix (2026-05-24): priority is forced by phase.status —
-  // operational phases pay BEFORE the cash sweep (Phase 1 first claim
-  // on cash); non-operational (construction) phases pay AFTER sweep.
-  // User no longer toggles this in the UI; the legacy policy.priority
-  // field stays on schema for back-compat but is ignored.
-  const statusPriority = (phase: Phase): 'before_sweep' | 'after_sweep' =>
-    phase.status === 'operational' ? 'before_sweep' : 'after_sweep';
+  // Dividends are paid AFTER debt (2026-06-02, per user): every phase pays
+  // after the cash sweep, so debt is always serviced before any distribution
+  // and the surplus above the minimum reserve is what's distributed (with the
+  // exit year paying 100%). The before-sweep tier is retired; the legacy
+  // per-phase policy.priority field stays on schema for back-compat but is
+  // ignored. (`_phase` kept for signature parity with buildPhaseRow.)
+  const statusPriority = (_phase: Phase): 'before_sweep' | 'after_sweep' => 'after_sweep';
   const buildPhaseRow = (phase: Phase, priority: 'before_sweep' | 'after_sweep'): DividendPhaseRow | null => {
     const policy = phase.dividendPolicy ?? {};
     if (policy.enabled !== true) return null;
@@ -939,6 +951,8 @@ export function computeCashWaterfall(args: {
   const cashBeforeAllocationPerPeriod = new Array<number>(N).fill(0);
   const totalSweepPerPeriod = new Array<number>(N).fill(0);
   const totalDividendsPerPeriod = new Array<number>(N).fill(0);
+  const terminalPayoutPerPeriod = new Array<number>(N).fill(0);
+  const dividendsEnabled = beforeSweepPhases.length > 0 || afterSweepPhases.length > 0;
   const adjustedClosingCash = preSweepClosingCash.slice(0, N);
   while (adjustedClosingCash.length < N) adjustedClosingCash.push(0);
 
@@ -1033,6 +1047,22 @@ export function computeCashWaterfall(args: {
       totalDividendsPerPeriod[t] += div;
       excess -= div;
     }
+    // 4. Terminal 100% payout (2026-06-02). In the exit/terminal period the
+    //    model retains NO minimum cash: distribute every remaining unit above
+    //    the opening-cash floor as a liquidating dividend (bypasses the
+    //    per-phase EBITDA cap). Booked into totalDividendsPerPeriod so it flows
+    //    as a real dividend through the Direct CF, the BS (retained earnings),
+    //    and the Returns module — the cash-sweep dividend then ties to FCFE /
+    //    Distributed Equity. Only when dividends are enabled for the project.
+    if (dividendsEnabled && terminalPayoutPeriod !== undefined && t === terminalPayoutPeriod) {
+      const floor = Math.max(0, terminalCashFloor ?? 0);
+      const allocSoFar = (sweepInEngine ? 0 : totalSweepPerPeriod[t]) + totalDividendsPerPeriod[t];
+      const terminalExtra = Math.max(0, cashBefore - allocSoFar - floor);
+      if (terminalExtra > 0) {
+        totalDividendsPerPeriod[t] += terminalExtra;
+        terminalPayoutPerPeriod[t] += terminalExtra;
+      }
+    }
     // When the engine applied the sweep, it is ALREADY reflected in
     // preSweepClosingCash (via debtRepays), so only the dividends reduce cash
     // here; otherwise both the (overlay) sweep + dividends reduce it.
@@ -1092,11 +1122,12 @@ export function computeCashWaterfall(args: {
   };
   const dividends: DividendSnapshot = {
     axisLength: N,
-    enabled: beforeSweepPhases.length > 0 || afterSweepPhases.length > 0,
+    enabled: dividendsEnabled,
     beforeSweepPhases,
     afterSweepPhases,
     totalDividendsPerPeriod,
     totalDividends: totalDividendsPerPeriod.reduce((s, v) => s + v, 0),
+    terminalPayoutPerPeriod,
   };
   return { cashSweep, dividends };
 }
@@ -1848,6 +1879,11 @@ function computeFinancialsSnapshotOnce(
     minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
     phaseEbitdaPerPeriod: phaseEbitdaForWaterfall,
     engineSweepByTranche,
+    // Terminal 100% payout in the exit period (default last axis year): no
+    // minimum cash retained, distribute down to the opening-cash seed so the
+    // dividend ties to FCFE / Distributed Equity in Returns.
+    terminalPayoutPeriod: Math.max(0, Math.min(N - 1, project.returns?.exitYearOffset ?? (N - 1))),
+    terminalCashFloor: historicalOpeningCashTotal,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;

@@ -284,9 +284,13 @@ export default function Module4BalanceSheet(): React.JSX.Element {
 
   rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: totalLandEFiltered, isTotal: true, totalOverride: fmt(totalLandEFiltered[N - 1] ?? 0), priorValue: phaseFiltered ? 0 : priorLandE });
 
-  // BS Check
+  // BS Check. Tolerance (2026-06-02, per user): a residual under ~1,000 is
+  // rounding noise on a project measured in the billions, so treat it as
+  // balanced rather than alarming. A relative floor (1 ppm of total L+E) keeps
+  // small projects honest.
   const maxAbsDiff = Math.max(...bsDiffFiltered.map((v) => Math.abs(v)));
-  const balances = maxAbsDiff < 0.5;
+  const bsTolerance = Math.max(1000, Math.abs(totalLandEFiltered[N - 1] ?? 0) * 1e-6);
+  const balances = maxAbsDiff < bsTolerance;
   rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bsDiffFiltered, isTotal: true, totalOverride: fmt(maxAbsDiff), priorValue: phaseFiltered ? 0 : (priorTotalAssets - priorLandE) });
 
   return (

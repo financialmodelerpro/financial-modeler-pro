@@ -3002,7 +3002,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       <section style={sectionStyle}>
         <div style={TABLE_TITLE}>Dividend Policy — per Phase</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-          Dividend waterfall: (1) <strong>Before-sweep</strong> dividends pay first — typical for operational phases (Phase 1) already producing cash. (2) <strong>Cash Sweep</strong> on debt. (3) <strong>After-sweep</strong> dividends — typical for new construction phases (debt repays first). Each step respects the project minimum cash reserve.
+          Dividends are paid <strong>after debt</strong>: each period the cash sweep repays debt first, then surplus cash above the minimum reserve is distributed per the policy below. In the exit year the model pays 100% to shareholders (no minimum cash retained) so the dividend ties to FCFE in the Returns module.
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
@@ -3025,7 +3025,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               const cp = Math.max(0, ph.constructionPeriods ?? 0);
               const defaultStart = ph.status === 'operational' ? projStart : phaseStartYear + cp;
               // Waterfall position is auto-assigned by status (M4 Pass 2U-Fix).
-              const waterfallPos = ph.status === 'operational' ? 'Before sweep (Phase 1 first claim)' : 'After sweep (debt repays first)';
+              const waterfallPos = 'After sweep (debt repays first)';
               const startingYear = pol.startingYear ?? defaultStart;
               const payoutRatio = pol.payoutRatio ?? 0;
               const updatePolicy = (patch: Partial<NonNullable<typeof ph.dividendPolicy>>) => {
@@ -3092,36 +3092,6 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           </tbody>
         </table>
       </section>
-
-      {/* Dividend per-phase EBITDA cap detail (supporting view; main
-          waterfall already shows the dividend line per phase). */}
-      {snap.dividends.enabled && (
-        <section style={sectionStyle}>
-          <div style={TABLE_TITLE}>Dividend Detail — per Phase EBITDA Cap</div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-            Per phase EBITDA (Revenue − CoS − Opex, before D&A / interest / tax) caps cumulative dividends. Shows the EBITDA budget, cash available at the time of dividend, and resulting dividend per period.
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={periodTbl}>
-              {colgroup}
-              {headerRow}
-              <tbody>
-                {[...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases].map((row) => (
-                  <React.Fragment key={`detail_${row.phaseId}`}>
-                    <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic' }}>{row.phaseName} ({row.priority === 'before_sweep' ? 'before sweep' : 'after sweep'})</td></tr>
-                    {renderFlowRow(`  ${row.phaseName} EBITDA (cap source, cum. cap ${p.fmt(row.totalPhaseEbitda)})`, row.phaseEbitdaPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
-                    {renderFlowRow(`  Cash available for dividend (${row.priority === 'before_sweep' ? 'above min reserve' : 'after debt sweep'})`, row.cashAvailableForDividendPerPeriod, { indent: 1, priorValue: 0 })}
-                    {renderFlowRow(`  Dividend = MIN(EBITDA budget, ${row.mode === 'pct_of_ebitda' ? `cash, EBITDA × ${(row.payoutRatio * 100).toFixed(0)}%` : `cash × ${(row.payoutRatio * 100).toFixed(0)}%`})`, row.dividendsPerPeriod, { indent: 1, subtotal: true, priorValue: 0 })}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6 }}>
-            Grand total dividends: <strong style={{ color: 'var(--color-heading)' }}>{p.fmt(snap.dividends.totalDividends)}</strong>.
-          </div>
-        </section>
-      )}
     </>
   );
 }
