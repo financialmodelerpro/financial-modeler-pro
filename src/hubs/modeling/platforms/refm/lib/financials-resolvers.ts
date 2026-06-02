@@ -829,8 +829,12 @@ export function computeCashWaterfall(args: {
    *  the Returns module. Undefined period => no terminal payout. */
   terminalPayoutPeriod?: number;
   terminalCashFloor?: number;
+  /** Project-level dividend start year (2026-06-02): the first year ANY
+   *  dividend is distributed, applied to every phase. Unset => default to the
+   *  year after the last construction period ends. */
+  dividendStartYear?: number;
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear } = args;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
@@ -899,14 +903,24 @@ export function computeCashWaterfall(args: {
   // per-phase policy.priority field stays on schema for back-compat but is
   // ignored. (`_phase` kept for signature parity with buildPhaseRow.)
   const statusPriority = (_phase: Phase): 'before_sweep' | 'after_sweep' => 'after_sweep';
+  // Project-level dividend start year (2026-06-02): one start year for every
+  // phase. Default = the year after the LAST construction period ends (the
+  // latest first-operating-year across phases), so dividends begin only once
+  // the whole development is operational. The user can override it.
+  const projectDividendDefaultYear = Math.max(
+    projectStartYear,
+    ...phases.map((ph) => {
+      const psy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : projectStartYear;
+      const cp = Math.max(0, ph.constructionPeriods ?? 0);
+      return ph.status === 'operational' ? projectStartYear : psy + cp;
+    }),
+  );
+  const effectiveDividendStartYear = dividendStartYear ?? projectDividendDefaultYear;
   const buildPhaseRow = (phase: Phase, priority: 'before_sweep' | 'after_sweep'): DividendPhaseRow | null => {
     const policy = phase.dividendPolicy ?? {};
     if (policy.enabled !== true) return null;
     if (statusPriority(phase) !== priority) return null;
-    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-    const cp = Math.max(0, phase.constructionPeriods ?? 0);
-    const defaultStartingYear = phase.status === 'operational' ? projectStartYear : phaseStartYear + cp;
-    const startingYear = policy.startingYear ?? defaultStartingYear;
+    const startingYear = effectiveDividendStartYear;
     const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
     const payoutRatio = Math.max(0, Math.min(1, (policy.payoutRatio ?? 0) / 100));
     const mode: 'cash_above_min' | 'pct_of_ebitda' = policy.mode === 'pct_of_ebitda' ? 'pct_of_ebitda' : 'cash_above_min';
@@ -1884,6 +1898,7 @@ function computeFinancialsSnapshotOnce(
     // dividend ties to FCFE / Distributed Equity in Returns.
     terminalPayoutPeriod: Math.max(0, Math.min(N - 1, project.returns?.exitYearOffset ?? (N - 1))),
     terminalCashFloor: historicalOpeningCashTotal,
+    dividendStartYear: project.dividendStartYear,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;

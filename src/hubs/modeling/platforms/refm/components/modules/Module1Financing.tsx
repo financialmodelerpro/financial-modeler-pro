@@ -2716,6 +2716,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       financingTranches: s.financingTranches,
       equityContributions: s.equityContributions,
       updatePhase: s.updatePhase,
+      setProject: s.setProject,
     })),
   );
   const snap = useMemo(() => computeFinancialsSnapshot(state), [state]);
@@ -3004,6 +3005,33 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
           Dividends are paid <strong>after debt</strong>: each period the cash sweep repays debt first, then surplus cash above the minimum reserve is distributed per the policy below. In the exit year the model pays 100% to shareholders (no minimum cash retained) so the dividend ties to FCFE in the Returns module.
         </div>
+        {/* Project-level dividend start year (2026-06-02): one control for the
+            whole project. Default = the year after the last construction ends. */}
+        {(() => {
+          const defaultStartYear = Math.max(
+            snap.projectStartYear,
+            ...state.phases.map((ph) => {
+              const psy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
+              const cp = Math.max(0, ph.constructionPeriods ?? 0);
+              return ph.status === 'operational' ? snap.projectStartYear : psy + cp;
+            }),
+          );
+          const startYear = state.project.dividendStartYear ?? defaultStartYear;
+          return (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>Dividend Start Year</label>
+              <input
+                type="number"
+                value={startYear}
+                onChange={(e) => state.setProject({ dividendStartYear: Math.max(1900, Number(e.target.value) || defaultStartYear) })}
+                style={{ ...inputStyle, width: 90 }}
+              />
+              <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                first year any dividend is paid (default {defaultStartYear}, after the last construction period)
+              </span>
+            </div>
+          );
+        })()}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
@@ -3011,7 +3039,6 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               <th style={CELL_HEADER}>Status</th>
               <th style={CELL_HEADER}>Waterfall Position</th>
               <th style={CELL_HEADER}>Enable Dividend</th>
-              <th style={CELL_HEADER}>Start Year</th>
               <th style={CELL_HEADER}>Payout Ratio</th>
               <th style={CELL_HEADER}>Basis</th>
             </tr>
@@ -3020,13 +3047,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
             {state.phases.map((ph) => {
               const pol = ph.dividendPolicy ?? {};
               const enabled = pol.enabled === true;
-              const projStart = snap.projectStartYear;
-              const phaseStartYear = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : projStart;
-              const cp = Math.max(0, ph.constructionPeriods ?? 0);
-              const defaultStart = ph.status === 'operational' ? projStart : phaseStartYear + cp;
-              // Waterfall position is auto-assigned by status (M4 Pass 2U-Fix).
+              // Dividends always pay after the sweep (single after-debt policy);
+              // the start year is project-level (above the table), not per phase.
               const waterfallPos = 'After sweep (debt repays first)';
-              const startingYear = pol.startingYear ?? defaultStart;
               const payoutRatio = pol.payoutRatio ?? 0;
               const updatePolicy = (patch: Partial<NonNullable<typeof ph.dividendPolicy>>) => {
                 state.updatePhase(ph.id, { dividendPolicy: { ...(ph.dividendPolicy ?? {}), ...patch } });
@@ -3060,15 +3083,6 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       {pillBtn(enabled, 'On', () => updatePolicy({ enabled: true }), 'on')}
                       {pillBtn(!enabled, 'Off', () => updatePolicy({ enabled: false }), 'off')}
                     </div>
-                  </td>
-                  <td style={ROW_DATA.name}>
-                    <input
-                      type="number"
-                      value={startingYear}
-                      onChange={(e) => updatePolicy({ startingYear: Math.max(1900, Number(e.target.value) || defaultStart) })}
-                      style={{ ...inputStyle, width: 80 }}
-                    />
-                    <div style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>default {defaultStart}</div>
                   </td>
                   <td style={ROW_DATA.name}>
                     <PercentageInput

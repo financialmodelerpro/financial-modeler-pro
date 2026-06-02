@@ -470,6 +470,15 @@ export interface Project {
     fundingMode?: 'debt_drawdown' | 'cash' | 'conditional';
   };
   /**
+   * Project-level dividend start year (2026-06-02). Dividends are a single
+   * after-debt policy; this is the first year ANY dividend is distributed
+   * (no distribution before it; the exit year still pays 100%). Unset =>
+   * the engine defaults to the year after the last construction period ends.
+   * Replaces the legacy per-phase dividendPolicy.startingYear, which is now
+   * ignored.
+   */
+  dividendStartYear?: number;
+  /**
    * M5 Returns (2026-06-01): returns + valuation assumptions. Additive;
    * absent => the resolver applies sensible defaults (10% discount rate,
    * exit at the last axis year, exit-multiple terminal value of 8x
