@@ -1,298 +1,218 @@
 'use client';
 
 /**
- * ExportModal.tsx (M2.0b restored brand-styled export picker)
+ * ExportModal.tsx
  *
- * Phase M2.0b (2026-05-06): brings back the FMP brand option grid
- * (PDF basic / PDF full / PDF white-label / Excel static / Excel
- * formula model) with per-tier plan badges and unlock states.
+ * Export picker for the REFM platform. Two steps:
+ *   1. Format grid (PDF full report is live; the rest are flagged as upcoming,
+ *      Excel is the next pass).
+ *   2. Module selection: pick which modules to include, then Generate PDF.
+ *      The module list is driven from the MODULES registry (modules-config.ts),
+ *      not hardcoded, so new modules auto-appear here when they ship. Default =
+ *      all enabled modules.
  *
- * Adapted to v5: the export pipelines (lib/export/*) still consume
- * the legacy v3/v4 hierarchy. Until they are rebuilt against v5
- * (M2.1), the modal surfaces the option grid but every Download
- * button writes a "rebuilding in M2.1" notice in lieu of running.
- * Plan-gated rows still surface their lock + Upgrade CTA.
+ * The PDF itself is rendered by lib/pdf/generateProjectPdf.ts, which reads the
+ * same store state the UI reads (no new calculations). pdf-lib is imported
+ * lazily so it stays out of the initial bundle.
  */
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PLAN_COLOR as TOKEN_PLAN_COLOR } from '@/src/styles/tokens';
-
-type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
-
-interface ExportOption {
-  key: string;
-  icon: string;
-  label: string;
-  description: string;
-  featureKey: string;
-  requiredPlan: SubscriptionPlan;
-  available: boolean;
-}
+import { MODULES } from '../../lib/modules-config';
+import { useModule1Store } from '../../lib/state/module1-store';
 
 interface ExportModalProps {
   open: boolean;
   onClose: () => void;
   canAccess?: (featureKey: string) => boolean;
+  projectName?: string | null;
+  versionLabel?: string | null;
 }
 
-const PLAN_COLOR: Record<SubscriptionPlan, string> = {
-  free: 'var(--color-grey-mid)',
-  professional: 'var(--color-navy)',
-  enterprise: TOKEN_PLAN_COLOR.enterprise.color,
-};
-const PLAN_LABEL: Record<SubscriptionPlan, string> = {
-  free: 'Free',
-  professional: 'Professional',
-  enterprise: 'Enterprise',
-};
+// Modules that currently have a PDF exporter wired (lib/pdf/generateProjectPdf).
+// A module not in this set still appears in the picker (so the list stays
+// registry-driven) but is disabled with a "no export yet" hint.
+const EXPORTABLE = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
 
 export default function ExportModal({
   open,
   onClose,
-  canAccess,
+  projectName,
+  versionLabel,
 }: ExportModalProps): React.JSX.Element | null {
-  const [notice, setNotice] = useState<string | null>(null);
+  const [step, setStep] = useState<'options' | 'modules'>('options');
+  const [selected, setSelected] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(MODULES.filter((m) => !m.disabled && EXPORTABLE.has(m.key)).map((m) => [m.key, true])),
+  );
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
   if (typeof document === 'undefined') return null;
 
-  const access = canAccess ?? (() => false);
+  const close = (): void => { setStep('options'); setError(null); onClose(); };
 
-  const options: ExportOption[] = [
-    {
-      key: 'pdf_basic',
-      icon: '📄',
-      label: 'PDF, Basic Report',
-      description: 'Summary financials, project overview',
-      featureKey: 'pdf_basic',
-      requiredPlan: 'free',
-      available: false,
-    },
-    {
-      key: 'pdf_full',
-      icon: '📋',
-      label: 'PDF, Full Report',
-      description: 'All modules, schedules, charts',
-      featureKey: 'pdf_full',
-      requiredPlan: 'professional',
-      available: false,
-    },
-    {
-      key: 'pdf_whitelabel',
-      icon: '🏷️',
-      label: 'PDF, White-Label',
-      description: 'Branded report with client logo',
-      featureKey: 'pdf_whitelabel',
-      requiredPlan: 'enterprise',
-      available: false,
-    },
-    {
-      key: 'excel_static',
-      icon: '📊',
-      label: 'Excel, Static',
-      description: 'Pre-calculated values, formatted',
-      featureKey: 'excel_static',
-      requiredPlan: 'professional',
-      available: false,
-    },
-    {
-      key: 'excel_formula',
-      icon: '⚡',
-      label: 'Excel, Formula Model',
-      description: 'Live formulas, full auditability',
-      featureKey: 'excel_formula',
-      requiredPlan: 'enterprise',
-      available: false,
-    },
-  ];
+  // Registry-driven module rows: every enabled module appears; ones without an
+  // exporter yet are shown disabled so the list is honest + future-proof.
+  const moduleRows = MODULES.filter((m) => !m.disabled || EXPORTABLE.has(m.key));
 
-  const handleClick = (opt: ExportOption): void => {
-    if (!access(opt.featureKey)) return;
-    setNotice(
-      `${opt.label} export is being rebuilt against the v5 schema. It returns in M2.1 once revenue + statements ship.`,
-    );
+  const toggle = (key: string): void => setSelected((s) => ({ ...s, [key]: !s[key] }));
+  const selectedKeys = moduleRows.filter((m) => EXPORTABLE.has(m.key) && selected[m.key]).map((m) => m.key);
+
+  const handleGenerate = async (): Promise<void> => {
+    setError(null);
+    setGenerating(true);
+    try {
+      const { generateProjectPdf } = await import('../../lib/pdf/generateProjectPdf');
+      const state = useModule1Store.getState();
+      const name = projectName || state.project?.name || 'Project';
+      const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+      const bytes = await generateProjectPdf({
+        state,
+        projectName: name,
+        versionLabel: versionLabel ?? null,
+        dateLabel,
+        selectedModuleKeys: selectedKeys,
+      });
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = name.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'project';
+      a.download = `${safeName}_report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      close();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'PDF generation failed.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const headerStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '18px 24px 16px', borderBottom: '1px solid var(--color-border)',
   };
 
   const content = (
     <div
       style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 2000,
+        position: 'fixed', inset: 0, zIndex: 2000,
         background: 'color-mix(in srgb, var(--color-heading) 55%, transparent)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
       }}
-      onClick={onClose}
+      onClick={close}
       role="dialog"
       aria-modal="true"
       data-testid="export-modal"
     >
       <div
         style={{
-          background: 'var(--color-surface)',
-          borderRadius: 14,
-          boxShadow: 'var(--shadow-modal)',
-          width: '100%',
-          maxWidth: 480,
-          overflow: 'hidden',
-          fontFamily: 'Inter, sans-serif',
+          background: 'var(--color-surface)', borderRadius: 14, boxShadow: 'var(--shadow-modal)',
+          width: '100%', maxWidth: 480, overflow: 'hidden', fontFamily: 'Inter, sans-serif',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '18px 24px 16px',
-            borderBottom: '1px solid var(--color-border)',
-          }}
-        >
+        <div style={headerStyle}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-heading)' }}>Export</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-heading)' }}>
+              {step === 'options' ? 'Export' : 'Export PDF, Select Modules'}
+            </div>
             <div style={{ fontSize: 12, color: 'var(--color-meta)', marginTop: 2 }}>
-              Choose an export format
+              {step === 'options' ? 'Choose an export format' : 'Pick the modules to include in the report'}
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={close}
             data-testid="export-modal-close"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-muted)',
-              fontSize: 20,
-              lineHeight: 1,
-              padding: 4,
-            }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 20, lineHeight: 1, padding: 4 }}
           >
             ✕
           </button>
         </div>
 
-        <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {options.map((opt) => {
-            const unlocked = access(opt.featureKey);
-            const planColor = PLAN_COLOR[opt.requiredPlan];
-            const planLabel = PLAN_LABEL[opt.requiredPlan];
-
-            return (
-              <div
-                key={opt.key}
-                data-testid={`export-option-${opt.key}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                  padding: '12px 14px',
-                  borderRadius: 8,
-                  border: unlocked
-                    ? '1.5px solid var(--color-border)'
-                    : `1.5px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
-                  background: unlocked
-                    ? 'var(--color-surface)'
-                    : `color-mix(in srgb, ${planColor} 2%, transparent)`,
-                  cursor: unlocked ? 'pointer' : 'default',
-                }}
-                onClick={() => unlocked && handleClick(opt)}
-              >
-                <span style={{ fontSize: 22, flexShrink: 0 }}>{opt.icon}</span>
-
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: unlocked ? 'var(--color-heading)' : 'var(--color-meta)',
-                      }}
-                    >
-                      {opt.label}
-                    </span>
-                    {!unlocked && (
-                      <span
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 800,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          background: `color-mix(in srgb, ${planColor} 9%, transparent)`,
-                          color: planColor,
-                          border: `1px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
-                          letterSpacing: '0.07em',
-                          textTransform: 'uppercase',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {planLabel}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>
-                    {opt.description}
-                  </div>
-                </div>
-
-                <div style={{ flexShrink: 0 }}>
-                  {unlocked ? (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: 'var(--color-on-primary-navy)',
-                        background: 'var(--color-primary)',
-                        padding: '5px 12px',
-                        borderRadius: 6,
-                      }}
-                    >
-                      Download
-                    </span>
-                  ) : (
-                    <a
-                      href="/settings"
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: 'var(--color-on-primary-navy)',
-                        background: planColor,
-                        padding: '5px 10px',
-                        borderRadius: 6,
-                        textDecoration: 'none',
-                        whiteSpace: 'nowrap',
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      🔒 Upgrade
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {notice && (
-            <div
-              role="status"
-              data-testid="export-modal-notice"
+        {step === 'options' && (
+          <div style={{ padding: '14px 16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              type="button"
+              data-testid="export-option-pdf_full"
+              onClick={() => setStep('modules')}
               style={{
-                background: 'var(--color-warning-bg)',
-                border: '1px solid var(--color-warning)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '10px 12px',
-                fontSize: 12,
-                color: 'var(--color-heading)',
-                marginTop: 4,
+                display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
+                borderRadius: 8, border: '1.5px solid var(--color-navy)', background: 'var(--color-navy-pale, #F4F7FC)',
+                cursor: 'pointer', textAlign: 'left',
               }}
             >
-              {notice}
+              <span style={{ fontSize: 22 }}>📋</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Full Report</div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>All inputs &amp; outputs, module by module, platform-styled</div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '8px 4px 0' }}>
+              Excel export (static values + live formula model) is the next pass.
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {step === 'modules' && (
+          <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {moduleRows.map((m) => {
+              const exportable = EXPORTABLE.has(m.key);
+              const checked = exportable && !!selected[m.key];
+              return (
+                <label
+                  key={m.key}
+                  data-testid={`export-module-${m.key}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--color-border)',
+                    background: checked ? 'var(--color-navy-pale, #F4F7FC)' : 'var(--color-surface)',
+                    cursor: exportable ? 'pointer' : 'default', opacity: exportable ? 1 : 0.5,
+                  }}
+                >
+                  <input type="checkbox" checked={checked} disabled={!exportable} onChange={() => exportable && toggle(m.key)} />
+                  <span style={{ fontSize: 18 }}>{m.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Module {m.num}, {m.shortLabel}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{exportable ? m.longLabel : 'Export coming with this module'}</div>
+                  </div>
+                </label>
+              );
+            })}
+
+            {error && (
+              <div role="alert" data-testid="export-modal-error" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning)', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'var(--color-heading)' }}>
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+              <button type="button" onClick={() => setStep('options')} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                ← Back
+              </button>
+              <button
+                type="button"
+                data-testid="export-generate-pdf"
+                onClick={handleGenerate}
+                disabled={generating || selectedKeys.length === 0}
+                style={{
+                  fontSize: 13, fontWeight: 700, color: 'var(--color-on-primary-navy)',
+                  background: selectedKeys.length === 0 ? 'var(--color-grey-mid)' : 'var(--color-primary)',
+                  padding: '8px 18px', borderRadius: 8, border: 'none',
+                  cursor: generating || selectedKeys.length === 0 ? 'default' : 'pointer',
+                  opacity: generating ? 0.7 : 1,
+                }}
+              >
+                {generating ? 'Generating…' : `Generate PDF (${selectedKeys.length})`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

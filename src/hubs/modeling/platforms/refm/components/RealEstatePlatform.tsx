@@ -1251,6 +1251,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         canAccess={canAccess}
+        projectName={activeProjectData?.name ?? null}
+        versionLabel={activeVersionData?.name ?? null}
       />
       {upgradePrompt && (
         <div
