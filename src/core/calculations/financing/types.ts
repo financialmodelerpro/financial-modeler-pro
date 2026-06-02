@@ -116,6 +116,11 @@ export interface FacilityResult {
    *  for existing facilities. */
   interestDuringConstruction: number[];
   principalRepaid: number[];
+  /** Cash sweep (2026-06-02): the portion of principalRepaid that came from
+   *  the cash-sweep budget (vs the scheduled repayment method). Included in
+   *  principalRepaid + outstanding; surfaced separately for the per-tranche
+   *  sweep breakdown. */
+  sweepRepaid: number[];
   totalDrawn: number;
   totalInterest: number;
   totalPrincipal: number;
@@ -141,6 +146,10 @@ export interface CombinedDebtService {
    *  basis (IDC source for the composer's allocation). M4 Pass 2O. */
   totalInterestForAssetBasis: number[];
   totalPrincipalRepaid: number[];
+  /** Cash sweep (2026-06-02): the sweep portion of totalPrincipalRepaid
+   *  (the rest is the scheduled repayment method). For the consolidated
+   *  waterfall's "Debt Paid (sweep)" line. */
+  totalSweepRepaid: number[];
   debtServiceCash: number[];
   // Pass 31 (2026-05-14): existing-vs-new breakdowns so the Combined
   // Debt Service table can render a separate line for each origin

@@ -327,5 +327,61 @@ console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when
   check('IDC-LATE conditional: BS balances', Math.max(...cond.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
 }
 
+// ── CASH SWEEP wired through Schedule → CF → BS → P&L (2026-06-02) ─────
+// The sweep is now applied IN the financing engine (single source), so the
+// per-tranche schedule's outstanding declines from the sweep, interest
+// follows the swept balance (no phantom interest), and CF / BS / P&L read it.
+console.log('\n[SWEEP] Repayment method wired: engine schedule is the single source');
+{
+  // Strong pre-sales cash + a NEW cash-sweep loan funding capex (matched by
+  // the asset, so the BS balances). Surplus repays it down via the sweep.
+  const s = buildSnapState(1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (s.project as any).financing.minimumCashReserve = 50_000;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  s.financingTranches = [{ ...makeDefaultFinancingTranche('t1', 'p1'), interestRatePct: 6, interbankRatePct: 0, creditSpreadPct: 6, repaymentMethod: 'cash_sweep', cashSweepConfig: { enabled: true, priority: 100, startingYear: 2028, sweepRatio: 100 } }] as any;
+  const snap = computeFinancialsSnapshot(s);
+  const fac = snap.financing.facilities.get('t1')!;
+  const N = snap.axisLength;
+  const sum = (a: number[]) => a.reduce((x, v) => x + (v ?? 0), 0);
+  const peak = fac.outstanding.reduce((m, v) => Math.max(m, v ?? 0), 0);
+
+  check('SWEEP: engine applied sweep (sweepRepaid > 0)', sum(fac.sweepRepaid) > 0, `swept=${Math.round(sum(fac.sweepRepaid))}`);
+  check('SWEEP: sweep pays the balance DOWN (closing < peak)', (fac.outstanding[N - 1] ?? 0) < peak - 1, `closing=${Math.round(fac.outstanding[N - 1] ?? 0)} peak=${Math.round(peak)}`);
+
+  // No phantom interest: in any period whose OPENING balance is 0, interest = 0.
+  let phantomOk = true;
+  for (let t = 1; t < N; t++) {
+    if ((fac.outstanding[t - 1] ?? 0) < 1 && (fac.interestAccrued[t] ?? 0) > 1) { phantomOk = false; break; }
+  }
+  check('SWEEP: no phantom interest (zero balance => zero interest)', phantomOk);
+
+  // BS Debt per period = schedule closing balance per period (single source).
+  let bsOk = true;
+  for (let t = 0; t < N; t++) {
+    if (Math.abs((snap.bs.debtOutstandingPerPeriod[t] ?? 0) - (fac.outstanding[t] ?? 0)) > 1) { bsOk = false; break; }
+  }
+  check('SWEEP: BS Debt per period = schedule closing balance', bsOk);
+
+  // CF Principal Repayment per period = schedule principal repaid (incl sweep).
+  let cfPrinOk = true;
+  for (let t = 0; t < N; t++) {
+    const cfPrin = -(snap.directCF.debtRepaymentPerPeriod[t] ?? 0); // CF stores negative
+    if (Math.abs(cfPrin - (fac.principalRepaid[t] ?? 0)) > 1) { cfPrinOk = false; break; }
+  }
+  check('SWEEP: CF Principal Repayment = schedule principal repaid (incl sweep)', cfPrinOk);
+
+  // P&L Finance Cost per period = combined interest expensed (on swept balance).
+  let plOk = true;
+  for (let t = 0; t < N; t++) {
+    if (Math.abs((snap.pl.interestExpensePerPeriod[t] ?? 0) - (snap.financing.combined.totalInterestExpensed[t] ?? 0)) > 1) { plOk = false; break; }
+  }
+  check('SWEEP: P&L Finance Cost = schedule interest expensed', plOk);
+
+  // Statements still tie.
+  check('SWEEP: BS balances', Math.max(...snap.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
+  check('SWEEP: Direct CF == Indirect CF', Math.max(...snap.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (snap.indirectCF.closingCashPerPeriod[i] ?? 0)))) < 1);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

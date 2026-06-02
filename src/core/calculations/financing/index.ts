@@ -68,6 +68,14 @@ export interface FinancingContext {
    * 'debt_drawdown' (everything capitalised).
    */
   idcCashBudget?: number[];
+  /**
+   * Cash-sweep budget (2026-06-02): per-period cash available for debt
+   * repayment (after min cash + dividends-before-sweep). Sweep-eligible
+   * tranches repay principal from it (existing-first / priority order),
+   * reducing the balance so interest follows. Derived from pass-1 of the
+   * snapshot two-pass. Absent => no sweep repayment.
+   */
+  sweepBudget?: number[];
 }
 
 export function computeFinancingResult(ctx: FinancingContext): FinancingComputation {
@@ -106,6 +114,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   // budget in EXISTING-first, then priority-ascending order (same ordering
   // the cash sweep uses) so allocation is deterministic.
   const remainingIdcBudget = (ctx.idcCashBudget ?? []).slice();
+  const remainingSweepBudget = (ctx.sweepBudget ?? []).slice();
   const trancheOrder = ctx.tranches.slice().sort((a, b) => {
     const aEx = a.origin === 'existing';
     const bEx = b.origin === 'existing';
@@ -123,7 +132,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     const pct = shares.get(t.id) ?? 0;
     computed.set(
       t.id,
-      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget),
+      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget, remainingSweepBudget),
     );
   }
   const facilities = new Map<string, FacilityResult>();

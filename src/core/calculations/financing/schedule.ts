@@ -40,6 +40,14 @@ export function computeFacilitySchedule(
    *  the remaining budget (decrementing it) and capitalises the shortfall
    *  to debt. Absent / undefined => behaves like 'debt_drawdown'. */
   remainingIdcBudget?: number[],
+  /** Cash-sweep budget (2026-06-02): MUTABLE per-period cash available for
+   *  debt repayment, shared across tranches in the orchestrator loop (in
+   *  existing-first / priority order). A sweep-eligible tranche repays
+   *  principal from this budget each period from its starting year, reducing
+   *  the balance so interest follows (no phantom interest on a swept-to-zero
+   *  balance). The sweep is now part of the ENGINE schedule (single source of
+   *  truth), not a downstream overlay. */
+  remainingSweepBudget?: number[],
 ): FacilityResult {
   const N = axis.totalPeriods;
   const drawSchedule       = new Array<number>(N).fill(0);
@@ -51,6 +59,7 @@ export function computeFacilitySchedule(
   const interestForAssetBasis = new Array<number>(N).fill(0);
   const interestDuringConstruction = new Array<number>(N).fill(0);
   const principalRepaid    = new Array<number>(N).fill(0);
+  const sweepRepaid        = new Array<number>(N).fill(0);
 
   // M4 Pass 2O (2026-05-24): IDC policy. Capitalize controls ACCOUNTING
   // (asset basis vs P&L); fundingMode controls FUNDING (debt growth vs
@@ -155,6 +164,21 @@ export function computeFacilitySchedule(
   const interestStartProj = (isExisting && tranche.interestStartYear && Number.isFinite(tranche.interestStartYear))
     ? Math.max(0, tranche.interestStartYear - projectStartYear)
     : 0;
+
+  // Cash sweep (2026-06-02): now applied IN the engine so the balance
+  // (and hence interest) follows the sweep. A tranche is sweep-eligible when
+  // its repayment method is cash_sweep OR cashSweepConfig.enabled. It repays
+  // principal from the shared sweep budget each period from its start year
+  // (default: repayment start), capped by sweepRatio and its outstanding.
+  const sweepCfg = tranche.cashSweepConfig ?? {};
+  const sweepEligible = tranche.repaymentMethod === 'cash_sweep'
+    || tranche.repaymentMethod === 'cashsweep_from_period'
+    || tranche.repaymentMethod === 'cashsweep_min_cash'
+    || sweepCfg.enabled === true;
+  const sweepStartProj = sweepCfg.startingYear && Number.isFinite(sweepCfg.startingYear)
+    ? Math.max(0, Math.min(N - 1, sweepCfg.startingYear - projectStartYear))
+    : repayStartProj;
+  const sweepRatio = Math.max(0, Math.min(1, (sweepCfg.sweepRatio ?? 100) / 100));
 
   // Pass 24b (2026-05-14): for fixed-count methods, fall back to the
   // remaining axis tail when the user leaves Repayment Periods at 0.
@@ -337,6 +361,20 @@ export function computeFacilitySchedule(
     if (sweepsAtMaturity && i === finalRepayIdx && pay < bal) pay = bal;
     principalRepaid[i] = pay;
     bal -= pay;
+    // Cash sweep (2026-06-02): repay additional principal from the shared
+    // cash-available-for-debt budget, from the tranche's start year, capped
+    // by sweepRatio and the remaining balance. Reduces bal so the NEXT
+    // period's interest accrues on the swept balance (no phantom interest).
+    if (sweepEligible && i >= sweepStartProj && bal > 0 && remainingSweepBudget) {
+      const avail = Math.max(0, remainingSweepBudget[i] ?? 0);
+      const sweepPay = Math.min(bal, avail * sweepRatio, avail);
+      if (sweepPay > 0) {
+        sweepRepaid[i] = sweepPay;
+        principalRepaid[i] += sweepPay;
+        bal -= sweepPay;
+        remainingSweepBudget[i] = avail - sweepPay;
+      }
+    }
     // Pass 28b (2026-05-14): snap the rounding remainder to zero so the
     // closing balance doesn't show stray dust left over from PMT / annuity
     // arithmetic. RELATIVE tolerance (≤ 1000) so it never eats a real
@@ -359,6 +397,7 @@ export function computeFacilitySchedule(
     interestForAssetBasis,
     interestDuringConstruction,
     principalRepaid,
+    sweepRepaid,
     totalDrawn,
     totalInterest: interestAccrued.reduce((s, v) => s + v, 0),
     totalPrincipal: principalRepaid.reduce((s, v) => s + v, 0),
@@ -378,6 +417,7 @@ export function combineDebtService(
   const totalInterestExpensed  = new Array<number>(N).fill(0);
   const totalInterestForAssetBasis = new Array<number>(N).fill(0);
   const totalPrincipalRepaid   = new Array<number>(N).fill(0);
+  const totalSweepRepaid       = new Array<number>(N).fill(0);
   // Pass 31 (2026-05-14): existing vs new origin breakdowns.
   const existingInterestAccrued  = new Array<number>(N).fill(0);
   const existingInterestExpensed = new Array<number>(N).fill(0);
@@ -401,12 +441,14 @@ export function combineDebtService(
       const cash = r.interestPaid[i] ?? 0;
       const ab   = r.interestForAssetBasis[i] ?? 0;
       const prin = r.principalRepaid[i] ?? 0;
+      const swp  = r.sweepRepaid[i] ?? 0;
       totalDrawdown[i]               += draw;
       totalInterestAccrued[i]        += acc;
       totalInterestCapitalized[i]    += cap;
       totalInterestCapitalizedCashPaid[i] += capCash;
       totalInterestForAssetBasis[i]  += ab;
       totalPrincipalRepaid[i]        += prin;
+      totalSweepRepaid[i]            += swp;
       // M4 Pass 2O: P&L expense = accrual basis = accrued - asset basis.
       // When capitalize=true (default), construction interest goes to
       // asset basis and the P&L line is 0 during construction. When
@@ -442,6 +484,7 @@ export function combineDebtService(
     totalInterestExpensed,
     totalInterestForAssetBasis,
     totalPrincipalRepaid,
+    totalSweepRepaid,
     debtServiceCash,
     existingInterestAccrued,
     existingInterestExpensed,

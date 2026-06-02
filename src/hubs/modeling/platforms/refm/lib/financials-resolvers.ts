@@ -809,8 +809,16 @@ export function computeCashWaterfall(args: {
    *  cap cumulative dividends per phase. Phases not in the map are
    *  treated as zero EBITDA (no dividend allowed). */
   phaseEbitdaPerPeriod?: Map<string, number[]>;
+  /** Cash sweep (2026-06-02): when the sweep has ALREADY been applied in the
+   *  financing engine (pass-2 of the two-pass), this maps trancheId → the
+   *  engine's sweep-repaid per period. computeCashWaterfall then does NOT
+   *  re-sweep: it reads these amounts + the (already post-sweep)
+   *  facilityOutstanding for display, and only the dividends consume excess.
+   *  Absent => legacy overlay behaviour (the waterfall computes the sweep). */
+  engineSweepByTranche?: Map<string, number[]>;
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche } = args;
+  const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
   const eligible: CashSweepRow[] = [];
@@ -828,6 +836,25 @@ export function computeCashWaterfall(args: {
     const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
     const priority = cfg.priority ?? 100;
     const sweepRatio = Math.max(0, Math.min(1, (cfg.sweepRatio ?? 100) / 100));
+    // When the engine already swept, `fac` IS the post-sweep balance; the
+    // sweep amounts come from the engine and the pre-sweep balance is the
+    // post-sweep balance plus the cumulative sweep already applied.
+    const engSweep = engineSweepByTranche?.get(t.id);
+    let preSweepOutstanding: number[];
+    let postSweepOutstanding: number[];
+    let sweepPerPeriod: number[];
+    if (sweepInEngine && engSweep) {
+      postSweepOutstanding = fac.slice(0, N);
+      sweepPerPeriod = engSweep.slice(0, N);
+      while (sweepPerPeriod.length < N) sweepPerPeriod.push(0);
+      preSweepOutstanding = new Array<number>(N).fill(0);
+      let cum = 0;
+      for (let t2 = 0; t2 < N; t2++) { cum += sweepPerPeriod[t2] ?? 0; preSweepOutstanding[t2] = (postSweepOutstanding[t2] ?? 0) + cum; }
+    } else {
+      preSweepOutstanding = fac.slice(0, N);
+      postSweepOutstanding = fac.slice(0, N);
+      sweepPerPeriod = new Array<number>(N).fill(0);
+    }
     eligible.push({
       trancheId: t.id,
       trancheName: t.name,
@@ -836,10 +863,10 @@ export function computeCashWaterfall(args: {
       startingYear,
       startingYearAxisIdx,
       sweepRatio,
-      preSweepOutstanding: fac.slice(0, N),
-      postSweepOutstanding: fac.slice(0, N),
-      sweepPerPeriod: new Array<number>(N).fill(0),
-      totalSwept: 0,
+      preSweepOutstanding,
+      postSweepOutstanding,
+      sweepPerPeriod,
+      totalSwept: sweepPerPeriod.reduce((s, v) => s + v, 0),
     });
   }
   // Sweep order (2026-06-02): EXISTING loans are repaid before NEW ones;
@@ -915,6 +942,14 @@ export function computeCashWaterfall(args: {
   const adjustedClosingCash = preSweepClosingCash.slice(0, N);
   while (adjustedClosingCash.length < N) adjustedClosingCash.push(0);
 
+  // When the engine applied the sweep, seed the per-period sweep total from
+  // the engine result (the forward pass below will NOT re-sweep).
+  if (sweepInEngine) {
+    for (const row of eligible) {
+      for (let t = 0; t < N; t++) totalSweepPerPeriod[t] += row.sweepPerPeriod[t] ?? 0;
+    }
+  }
+
   // Forward pass with the full waterfall.
   let cumAllocation = 0;
   for (let t = 0; t < N; t++) {
@@ -954,19 +989,25 @@ export function computeCashWaterfall(args: {
       totalDividendsPerPeriod[t] += div;
       excess -= div;
     }
-    // 2. Cash sweep on debt.
-    for (const row of eligible) {
-      if (t < row.startingYearAxisIdx || excess <= 0) continue;
-      const remaining = Math.max(0, row.postSweepOutstanding[t] ?? 0);
-      if (remaining <= 0) continue;
-      const sweepable = Math.min(excess * row.sweepRatio, remaining, excess);
-      if (sweepable <= 0) continue;
-      row.sweepPerPeriod[t] = (row.sweepPerPeriod[t] ?? 0) + sweepable;
-      row.totalSwept += sweepable;
-      totalSweepPerPeriod[t] += sweepable;
-      excess -= sweepable;
-      for (let u = t; u < N; u++) {
-        row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
+    // 2. Cash sweep on debt. Skipped when the engine already applied the
+    //    sweep (sweepInEngine): the sweep is already reflected in
+    //    preSweepClosingCash + the per-tranche post-sweep balances, and
+    //    totalSweepPerPeriod is taken from the engine result. `excess` here is
+    //    therefore the cash remaining for dividends (post-sweep).
+    if (!sweepInEngine) {
+      for (const row of eligible) {
+        if (t < row.startingYearAxisIdx || excess <= 0) continue;
+        const remaining = Math.max(0, row.postSweepOutstanding[t] ?? 0);
+        if (remaining <= 0) continue;
+        const sweepable = Math.min(excess * row.sweepRatio, remaining, excess);
+        if (sweepable <= 0) continue;
+        row.sweepPerPeriod[t] = (row.sweepPerPeriod[t] ?? 0) + sweepable;
+        row.totalSwept += sweepable;
+        totalSweepPerPeriod[t] += sweepable;
+        excess -= sweepable;
+        for (let u = t; u < N; u++) {
+          row.postSweepOutstanding[u] = Math.max(0, row.postSweepOutstanding[u] - sweepable);
+        }
       }
     }
     // 3. After-sweep dividends. Same EBITDA cap. Cash available at this
@@ -992,9 +1033,12 @@ export function computeCashWaterfall(args: {
       totalDividendsPerPeriod[t] += div;
       excess -= div;
     }
-    const totalAllocatedThisPeriod = totalSweepPerPeriod[t] + totalDividendsPerPeriod[t];
-    cumAllocation += totalAllocatedThisPeriod;
-    adjustedClosingCash[t] = cashBefore - totalAllocatedThisPeriod;
+    // When the engine applied the sweep, it is ALREADY reflected in
+    // preSweepClosingCash (via debtRepays), so only the dividends reduce cash
+    // here; otherwise both the (overlay) sweep + dividends reduce it.
+    const allocThisPeriod = (sweepInEngine ? 0 : totalSweepPerPeriod[t]) + totalDividendsPerPeriod[t];
+    cumAllocation += allocThisPeriod;
+    adjustedClosingCash[t] = cashBefore - allocThisPeriod;
   }
 
   // Adjusted debt outstanding = post-sweep eligible + raw non-eligible.
@@ -1255,7 +1299,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
  */
 function computeFinancialsSnapshotOnce(
   state: FinancialsResolverState,
-  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] },
+  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] },
 ): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
@@ -1280,6 +1324,10 @@ function computeFinancialsSnapshotOnce(
     // paying construction interest in cash. Also fed only on the second
     // pass (derived from pass-1's Method 3 waterfall).
     idcCashBudget: opts?.idcCashBudget,
+    // Cash sweep (2026-06-02): per-period cash-available-for-debt budget;
+    // sweep-eligible tranches repay from it IN the engine so interest follows
+    // the swept balance. Fed by the snapshot two-pass (deriveCircularInputs).
+    sweepBudget: opts?.sweepBudget,
   });
 
   const N = revenue.axisLength;
@@ -1761,8 +1809,14 @@ function computeFinancialsSnapshotOnce(
   // does NOT re-derive future interest from the lower post-sweep
   // balance, so a tighter follow-up will close any residual.
   const facilityOutstandingForSweep = new Map<string, number[]>();
+  // When opts.sweepBudget was fed, the engine ALREADY applied the sweep
+  // (fac.outstanding is post-sweep, fac.sweepRepaid holds the amounts). The
+  // cash waterfall then reads the engine sweep instead of re-computing it.
+  const sweepInEngine = !!opts?.sweepBudget;
+  const engineSweepByTranche = sweepInEngine ? new Map<string, number[]>() : undefined;
   for (const [trancheId, fac] of financing.facilities) {
     facilityOutstandingForSweep.set(trancheId, fac.outstanding.slice(0, N));
+    if (engineSweepByTranche) engineSweepByTranche.set(trancheId, fac.sweepRepaid.slice(0, N));
   }
   // M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA = sum across assets in
   // the phase. Caps cumulative dividends per phase at cumulative EBITDA.
@@ -1786,6 +1840,7 @@ function computeFinancialsSnapshotOnce(
     preSweepClosingCash: closingCash,
     minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
     phaseEbitdaPerPeriod: phaseEbitdaForWaterfall,
+    engineSweepByTranche,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;
@@ -1797,9 +1852,14 @@ function computeFinancialsSnapshotOnce(
   while (sweepPerPeriodPos.length < N) sweepPerPeriodPos.push(0);
   const dividendsPerPeriodPos = dividends.totalDividendsPerPeriod.slice(0, N);
   while (dividendsPerPeriodPos.length < N) dividendsPerPeriodPos.push(0);
-  const debtRepaysAdj = debtRepays.map((v, i) => v + (sweepPerPeriodPos[i] ?? 0));
-  const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
-  const netCfAdj = netCf.map((v, i) => v - (sweepPerPeriodPos[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
+  // When the sweep is in the engine, it is ALREADY in debtRepays (=
+  // totalPrincipalRepaid) → cashFromFin → closingCash, so do NOT fold it again
+  // here (that would double-count). Only the dividends remain to fold. When
+  // the sweep is the overlay (no engine sweep), fold both as before.
+  const sweepFold = sweepInEngine ? new Array<number>(N).fill(0) : sweepPerPeriodPos;
+  const debtRepaysAdj = debtRepays.map((v, i) => v + (sweepFold[i] ?? 0));
+  const cashFromFinAdj = cashFromFin.map((v, i) => v - (sweepFold[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
+  const netCfAdj = netCf.map((v, i) => v - (sweepFold[i] ?? 0) - (dividendsPerPeriodPos[i] ?? 0));
   // Direct CF closing = explicit running sum of the Direct net cash flow
   // (every line item summed period by period), seeded with pre-existing
   // operational cash. This is the single source of truth for BS Cash, so
@@ -2120,7 +2180,8 @@ function deriveCircularInputs(
   snap: ProjectFinancialsSnapshot,
   fundingMethod: number,
   idcConditional: boolean,
-): { fundingGap?: FundingGapInputs; idcCashBudget?: number[] } {
+  hasSweep: boolean,
+): { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] } {
   const N = snap.axisLength;
   const gap = computeFundingGap(snap);
 
@@ -2158,7 +2219,37 @@ function deriveCircularInputs(
     if (hasBudget) idcCashBudget = budget;
   }
 
-  return { fundingGap, idcCashBudget };
+  // (c) Cash-sweep budget = the per-period cash available for debt + dividend
+  // (surplus above the minimum reserve, net of prior-period allocations) from
+  // THIS pass's cash waterfall. The engine's sweep-eligible tranches repay
+  // from it (existing-first / priority), so the balance — and the interest on
+  // it — follows the sweep. Fed back via the two-pass; converges as paying
+  // debt lowers interest, which frees more cash to sweep.
+  let sweepBudget: number[] | undefined;
+  if (hasSweep && snap.cashSweep.enabled) {
+    // Budget = the PRE-distribution cash available above the minimum reserve,
+    // reconstructed sweep-independently from the authoritative closing cash:
+    //   preDist[t] = directCF.closing[t] + sweep[t] + dividend[t]
+    // (adds this period's distributions back to the real closing). This is
+    // stable across iterations — it depends only on ops / financing / interest
+    // (which converge), NOT on the sweep amount itself — so feeding it back as
+    // the sweep budget converges instead of oscillating.
+    const minCash = snap.cashSweep.minCashReserve;
+    const closing = snap.directCF.closingCashPerPeriod;
+    const sweepArr = snap.cashSweep.totalSweepPerPeriod;
+    const divArr = snap.dividends.totalDividendsPerPeriod;
+    const budget = new Array<number>(N).fill(0);
+    let hasBudget = false;
+    for (let t = 0; t < N; t++) {
+      const preDist = (closing[t] ?? 0) + (sweepArr[t] ?? 0) + (divArr[t] ?? 0);
+      const v = Math.max(0, preDist - minCash);
+      budget[t] = v;
+      if (v > 0) hasBudget = true;
+    }
+    if (hasBudget) sweepBudget = budget;
+  }
+
+  return { fundingGap, idcCashBudget, sweepBudget };
 }
 
 /** Max absolute per-period difference between two (possibly undefined) arrays. */
@@ -2190,10 +2281,10 @@ function maxArrDelta(a: number[] | undefined, b: number[] | undefined): number {
  */
 export function computeFinancialsSnapshot(
   state: FinancialsResolverState,
-  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] },
+  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] },
 ): ProjectFinancialsSnapshot {
   // Explicit-opts call (e.g. a verifier feeding a fixed gap/budget): one pass.
-  if (opts?.fundingGap || opts?.idcCashBudget) {
+  if (opts?.fundingGap || opts?.idcCashBudget || opts?.sweepBudget) {
     return computeFinancialsSnapshotOnce(state, opts);
   }
 
@@ -2203,9 +2294,19 @@ export function computeFinancialsSnapshot(
   // minimum cash; surplus periods pay interest in cash. Override with an
   // explicit 'debt_drawdown' / 'cash' fundingMode.
   const idcConditional = (state.project.idcConfig?.fundingMode ?? 'conditional') === 'conditional';
-  const needsIteration = fundingMethod === 2 || fundingMethod === 3 || idcConditional;
+  // Cash sweep (2026-06-02): a sweep-eligible tranche means the sweep repayment
+  // (and the interest that follows the swept balance) must be resolved by the
+  // iterative two-pass — the sweep needs cumulative cash, computed in the cash
+  // waterfall, then fed back to the engine so interest accrues on the swept
+  // balance (no phantom interest).
+  const hasSweep = state.financingTranches.some((t) =>
+    t.repaymentMethod === 'cash_sweep'
+    || t.repaymentMethod === 'cashsweep_from_period'
+    || t.repaymentMethod === 'cashsweep_min_cash'
+    || t.cashSweepConfig?.enabled === true);
+  const needsIteration = fundingMethod === 2 || fundingMethod === 3 || idcConditional || hasSweep;
 
-  // No circular input => single pass (Methods 1 + 4 with no conditional IDC).
+  // No circular input => single pass (Methods 1 + 4, no conditional IDC, no sweep).
   let snap = computeFinancialsSnapshotOnce(state, undefined);
   if (!needsIteration) return snap;
 
@@ -2214,9 +2315,9 @@ export function computeFinancialsSnapshot(
   // of passes is typical). The last accepted inputs produced `snap`.
   const TOL = 1;
   const MAX_ITERS = 25;
-  let applied: { fundingGap?: FundingGapInputs; idcCashBudget?: number[] } = {};
+  let applied: { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] } = {};
   for (let iter = 0; iter < MAX_ITERS; iter++) {
-    const derived = deriveCircularInputs(snap, fundingMethod, idcConditional);
+    const derived = deriveCircularInputs(snap, fundingMethod, idcConditional, hasSweep);
     // Converged when the newly-derived inputs match the inputs that produced
     // the current snapshot (treat undefined as all-zero).
     const gapDelta = Math.max(
@@ -2224,8 +2325,9 @@ export function computeFinancialsSnapshot(
       maxArrDelta(derived.fundingGap?.method3PerPeriod, applied.fundingGap?.method3PerPeriod),
     );
     const idcDelta = maxArrDelta(derived.idcCashBudget, applied.idcCashBudget);
-    if (iter > 0 && gapDelta < TOL && idcDelta < TOL) break;
-    if (!derived.fundingGap && !derived.idcCashBudget) break; // nothing to feed
+    const sweepDelta = maxArrDelta(derived.sweepBudget, applied.sweepBudget);
+    if (iter > 0 && gapDelta < TOL && idcDelta < TOL && sweepDelta < TOL) break;
+    if (!derived.fundingGap && !derived.idcCashBudget && !derived.sweepBudget) break; // nothing to feed
     applied = derived;
     snap = computeFinancialsSnapshotOnce(state, derived);
   }
