@@ -2,14 +2,14 @@
 **Last updated: 2026-06-02.**
 
 **Module status (REFM platform), one line each. Full narrative + commits live in [CLAUDE-REFM.md](CLAUDE-REFM.md), NOT here:**
-- **Module 1 (Setup / Costs / Financing)**: LOCKED at M2.0 Pass 58 (base). Funding Methods 2/3 gap-sized; conditional IDC + cash-sweep + dividend waterfall live; iterative fixed-point solver in `computeFinancialsSnapshot`.
+- **Module 1 (Setup / Costs / Financing)**: LOCKED at M2.0 Pass 58 (base). Funding Methods 2/3 gap-sized; conditional IDC + iterative fixed-point solver. Financing sub-tabs: Inputs / Schedules / Funding Gap / Cash Sweep. Dividends are ONE project-level after-debt policy (`Project.dividendPolicy` + `dividendStartYear`) with a terminal 100% payout in the engine.
 - **Module 2 (Revenue + CoS + Schedules + Escrow)**: LOCKED at Pass 9N.
 - **Module 3 (Operating Expenses)**: LOCKED at Pass 5d.
 - **Module 4 (Financial Statements)**: WIP. BS balances by construction; Direct CF == Indirect CF every period.
 - **Module 5 (Returns & Valuation)**: Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics).
-- **Platform infra**: project-switch state-leak fixed; session-based versioning with per-version change_log; schema-tolerant reads; paginated version history.
+- **Platform infra**: project-switch state-leak fixed; session-based versioning with per-version change_log; schema-tolerant reads; paginated version history. **PDF export** (full project, module-by-module, `lib/pdf/generateProjectPdf.ts` on pdf-lib; Excel export next).
 
-Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-REFM.md](CLAUDE-REFM.md). Full suite green via `npx tsx scripts/verify-*.ts` (25 scripts).
+Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-REFM.md](CLAUDE-REFM.md). Full suite green via `npx tsx scripts/verify-*.ts` (26 scripts).
 
 **M2 lock conventions** (apply to M3+ unless overridden):
 - The reference Excel at repo root is the verification benchmark, not a behavioural spec. Every reference-specific behaviour stays configurable; never hard-code currency, locale, escrow, or DSO defaults into engine paths.
