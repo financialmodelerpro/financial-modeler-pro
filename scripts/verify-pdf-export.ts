@@ -121,7 +121,7 @@ async function main(): Promise<void> {
   try {
     const doc2 = await PDFDocument.create();
     doc2.registerFontkit(fontkit);
-    const f = await doc2.embedFont(Buffer.from(INTER_REGULAR_B64, 'base64'), { subset: true });
+    const f = await doc2.embedFont(Buffer.from(INTER_REGULAR_B64, 'base64'), { subset: false });
     fontName = f.name;
     const pg = doc2.addPage([220, 80]);
     pg.drawText('Δ = Assets − Liab  ·  € 1,234', { x: 10, y: 40, size: 12, font: f });

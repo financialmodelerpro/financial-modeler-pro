@@ -1194,12 +1194,19 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
 
   const doc = await PDFDocument.create();
   // Embed Inter (the platform UI font) so the PDF matches the app visually and
-  // supports full Unicode. Glyph subsetting keeps the output small even though
-  // the source TTF is embedded inline as base64. fontkit is required by pdf-lib
-  // for any non-standard (custom) font.
+  // supports full Unicode. fontkit is required by pdf-lib for any non-standard
+  // (custom) font.
+  //
+  // subset: FALSE on purpose. pdf-lib's fontkit glyph-subsetting emits a subset
+  // font program (e.g. "Inter-Bold-3398") that strict readers (Adobe Acrobat,
+  // some print pipelines) reject with "cannot extract the embedded font ...,
+  // some characters may not display or print correctly", crashing every page
+  // that references it. Embedding the FULL, unmodified TTF is the reliable path
+  // (the same fonts embed cleanly elsewhere); the file is larger but valid in
+  // every viewer.
   doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(b64ToBytes(INTER_REGULAR_B64), { subset: true });
-  const bold = await doc.embedFont(b64ToBytes(INTER_BOLD_B64), { subset: true });
+  const font = await doc.embedFont(b64ToBytes(INTER_REGULAR_B64), { subset: false });
+  const bold = await doc.embedFont(b64ToBytes(INTER_BOLD_B64), { subset: false });
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     pageW: PAGE_W_P, pageH: PAGE_H_P, landscape: false,
