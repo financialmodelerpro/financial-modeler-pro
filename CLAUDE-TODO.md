@@ -4,6 +4,22 @@
 
 ---
 
+## ⭐ NEXT SESSION, 2026-06-04 (Cases follow-ups, then Reports)
+
+**Context:** Scenario/case management shipped 2026-06-03 (commits `bb19ae6` Phase 1 + `2682a35` Phase 2). Management Case = base; Downside + Upside are field-override cases; topbar Case switcher + Returns "Case Comparison" tab are live. Full design + status in memory `project_cases_feature_plan.md` and [CLAUDE-REFM.md](CLAUDE-REFM.md).
+
+**Pick up tomorrow, in order:**
+
+1. **Verify the cases feature in-browser** (Ahmad): switch Management → Downside/Upside, edit a few inputs, confirm overrides record + Reset works, confirm Case Comparison KPIs + deltas look right, confirm save/reload round-trips cases.
+2. **Case follow-up A, viewing shouldn't start an edit session.** Switching the active case currently marks the project dirty (persists last-viewed case) and can auto-start a version session just from viewing. Exclude `activeCaseId`-only changes from the dirty detection (`module1-sync` onStoreChange / hasUncommittedEdits), keeping cases-content + base edits as real edits.
+3. **Case follow-up B (optional), inline override badges.** Per-input "≠ Management" badge + Reset on a scenario case, across the 5 modules. Deferred in Phase 1 (Case Manager + comparison tab cover visibility). Decide if it's worth the cross-module input plumbing.
+4. **Case follow-up C (optional), describe scenario edits in the change_log.** `diffSnapshots` doesn't yet walk `cases`, so scenario-only edits save with an empty change_log. Extend the diff to summarise per-case override changes if version history needs it.
+5. **Then: start the Reports phase** (Module 6). Scope a reporting surface that can pull the Case Comparison + each module's outputs (builds on the PDF export work). Open a fresh scope-pass before coding.
+
+**Done last session (for reference):** PDF export full per-asset breakdowns + per-line/per-stage capex; versioning generic-naming fix; M5 flexible partner equity split; RE Metrics dropped Per-Asset Economics + added development/income-exit/hospitality/residential/lease KPIs; cases Phase 1 + 2.
+
+---
+
 ## ACTIVE FOLLOW-UP, Rename RESEND_WEBHOOK_SECRET to EMAIL_BRIDGE_BEARER_SECRET (2026-05-11)
 
 After the Brevo re-migration, the env var name `RESEND_WEBHOOK_SECRET` is misleading: it doubles as the bearer token for `POST /api/email/send` (used by the Google Apps Script bridge) and has nothing to do with Resend anymore. Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. Steps:
@@ -38,8 +54,10 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 | Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9N. 133/133 + 46/46 verifier sections green. |
 | Module 3 | Operating Expenses | **LOCKED** at Pass 5d. 38/38 + 24/24 verifier sections green. |
 | Module 4 | Financial Statements | WIP. Schedules / P&L / CF / BS surfaces shipped. **Balances by construction**: BS reconciles AND Direct == Indirect closing cash every period (verified under escrow + handover/over-time recognition). 2026-05-25 root causes closed: escrow = restricted-cash asset (not liability); residential P&L revenue uses recognised series (matches Module 2). Per-line Reconciliation Bridge on the BS tab. 703 verifier sections green across 11 scripts (m4-bs-reconciliation 184). |
-| Module 5 | Returns & Valuation | Not started. |
-| Module 6 | Reports & Visualizations | Not started. |
+| Module 5 | Returns & Valuation | **Live.** IRR/MOIC/NPV/Payback on FCFF/FCFE/Dividends + terminal value + RE metrics + multi-partner returns (per-type % split) + exit/sensitivity/per-asset blocks. RE Metrics tab carries development / income-exit / hospitality / residential / lease KPIs. Returns tabs: Returns / RE Metrics / **Case Comparison**. |
+| Module 6 | Reports & Visualizations | Not started (next phase). |
+
+**Cases (scenario management), shipped 2026-06-03:** Management Case = base; Downside + Upside are field-override cases (renamable, add custom). Topbar Case switcher + Returns Case Comparison tab. Engine `lib/cases/applyOverrides.ts`, verify-cases 19/19. See the NEXT SESSION block above for follow-ups.
 
 ## Remaining backlog
 
