@@ -660,6 +660,14 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Cash available (before new funding)', m3.cashAvailableBeforeNewDebtPerPeriod.slice(0, yl.length), 'none', 'subtotal'),
     periodRow('Net cash required (= funding drawn)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum', 'total'),
   ])));
+  // Side-by-side comparison: what each funding method would require per year,
+  // regardless of which one is currently selected (matching the platform's
+  // method picker preview).
+  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Funding Requirement by Method (year-on-year)', py, yl, [
+    periodRow('Method 1: Fund full capex', gap.capexPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Method 2: Net funding gap (capex vs pre-sales)', gap.methodAGapPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Method 3: Cash deficit (full waterfall)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum'),
+  ])));
 
   // Tab 4: Financing / Schedules.
   for (const [id, f] of fin.facilities) {
@@ -697,8 +705,26 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Total equity', eq.totalPerPeriod.slice(0, yl.length), 'sum', 'total'),
   ])));
 
-  // Tab 4: Financing / Cash Sweep.
+  // Tab 4: Financing / Cash Sweep. Debt Paid is split per tranche (existing
+  // facilities first, then by sweep priority, then list order) so the waterfall
+  // reads exactly like the platform's Cash Sweep tab.
   const dcf = snap.directCF;
+  const trMeta = (id: string) => state.financingTranches.find((t) => t.id === id);
+  const orderedFacilities = [...fin.facilities.entries()]
+    .filter(([id, f]) => anyNonZero(f.principalRepaid))
+    .map(([id, f], listIdx) => {
+      const t = trMeta(id);
+      const isExisting = t?.origin === 'existing';
+      const priority = t?.cashSweepConfig?.priority ?? 100;
+      return { id, f, isExisting, priority, listIdx };
+    })
+    .sort((a, b) => {
+      if (a.isExisting !== b.isExisting) return a.isExisting ? -1 : 1;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.listIdx - b.listIdx;
+    });
+  const debtPaidRows = orderedFacilities.map(({ id, f, isExisting }) =>
+    periodRow(`Debt paid, ${trName(id)}${isExisting ? ' (existing)' : ''}`, f.principalRepaid.slice(0, yl.length), 'sum'));
   items.push(tTable('Tab 4: Financing / Cash Sweep', 'schedules', periodTable('Cash Waterfall (consolidated)', py, yl, [
     periodRow('Opening cash', dcf.openingCashPerPeriod.slice(0, yl.length), 'none', undefined, snap.bs.historicalOpeningCashTotal),
     periodRow('Cash from operations', dcf.cashFromOperationsPerPeriod.slice(0, yl.length), 'sum'),
@@ -706,7 +732,8 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Equity drawdown', dcf.equityDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
     periodRow('Debt drawdown', dcf.debtDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.debtOutstandingTotal),
     periodRow('Interest paid', dcf.interestPaidPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Debt repaid', dcf.debtRepaymentPerPeriod.slice(0, yl.length), 'sum'),
+    ...debtPaidRows,
+    periodRow('Total debt paid (incl. sweep)', dcf.debtRepaymentPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
     periodRow('Dividends paid', dcf.dividendsPaidPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Closing cash', dcf.closingCashPerPeriod.slice(0, yl.length), 'last', 'total'),
   ])));
@@ -770,11 +797,19 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   ])));
   for (const [id, r] of rev.bySellAsset) {
     if (!anyNonZero(r.presalesRevenuePerPeriod) && !anyNonZero(r.postSalesRevenuePerPeriod)) continue;
+    const totalSaleValue = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
     items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Residential (Sell), ${assetName(id)}`, py, yl, [
-      periodRow('Pre-sales revenue', r.presalesRevenuePerPeriod, 'sum'),
-      periodRow('Post-sales revenue', r.postSalesRevenuePerPeriod, 'sum'),
-      periodRow('Cash collected', r.cashCollectedPerPeriod, 'sum', 'subtotal'),
-      periodRow('Revenue recognised', r.recognitionPerPeriod, 'sum', 'subtotal'),
+      strPeriodRow('Pre-sales units', r.presalesUnitsPerPeriod.map((v) => fmt.int(v))),
+      strPeriodRow('Post-sales units', r.postSalesUnitsPerPeriod.map((v) => fmt.int(v))),
+      periodRow('Pre-sales revenue (sale value)', r.presalesRevenuePerPeriod, 'sum'),
+      periodRow('Post-sales revenue (sale value)', r.postSalesRevenuePerPeriod, 'sum'),
+      periodRow('Total sale value', totalSaleValue, 'sum', 'subtotal'),
+      periodRow('Pre-sales cash collected', r.presalesCashPerPeriod, 'sum'),
+      periodRow('Post-sales cash collected', r.postSalesCashPerPeriod, 'sum'),
+      periodRow('Total cash collected', r.cashCollectedPerPeriod, 'sum', 'subtotal'),
+      periodRow('Pre-sales recognised', r.presalesRecognitionPerPeriod, 'sum'),
+      periodRow('Post-sales recognised', r.postSalesRecognitionPerPeriod, 'sum'),
+      periodRow('Total revenue recognised', r.recognitionPerPeriod, 'sum', 'total'),
     ])));
     const cashRows = r.cashVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
     if (cashRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Cash Vintage Matrix, ${assetName(id)}`, py, yl, cashRows)));
@@ -804,10 +839,12 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     ])));
   }
 
-  // Tab 3: Cost of Sales.
-  items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable('Cost of Sales (project total)', py, yl, [
-    periodRow('Cost of sales', pl.cosPerPeriod, 'sum', 'subtotal'),
-  ])));
+  // Tab 3: Cost of Sales. Per-asset CoS in one summary (each asset a row),
+  // then the per-asset roll-forward detail below.
+  const cosAssets = [...snap.byAssetSchedules.entries()].filter(([, b]) => anyNonZero(b.cos.perPeriod));
+  items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable('Cost of Sales by Asset', py, yl,
+    cosAssets.map(([id, b]) => periodRow(assetName(id), b.cos.perPeriod.slice(0, yl.length), 'sum'))
+      .concat([periodRow('Total cost of sales', pl.cosPerPeriod, 'sum', 'total')]))));
   for (const [id, b] of snap.byAssetSchedules) {
     if (!anyNonZero(b.cos.perPeriod)) continue;
     items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable(`Cost of Sales, ${assetName(id)}`, py, yl, [
@@ -1035,6 +1072,28 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Net cash flow', icf.netCashFlowPerPeriod, 'sum'),
     periodRow('Closing cash', icf.closingCashPerPeriod, 'last', 'total'),
   ])));
+  // Per-asset cash flow detail (asset-line-wise, matching the platform): the
+  // operating cash drivers split by asset. Balance Sheet stays project-level
+  // (the engine does not split equity / debt / cash by asset).
+  const assetCFs = [...snap.perAssetCF.values()];
+  if (assetCFs.length) {
+    const cfRows = assetCFs.filter((a) => anyNonZero(a.revenueReceivedPerPeriod));
+    if (cfRows.length) {
+      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Revenue Received by Asset', py, yl,
+        cfRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.revenueReceivedPerPeriod, 'sum'))
+          .concat([periodRow('Total revenue received', cf.revenueReceivedPerPeriod, 'sum', 'total')]))));
+    }
+    const opexRows = assetCFs.filter((a) => anyNonZero(a.opexPaidPerPeriod));
+    if (opexRows.length) {
+      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Opex Paid by Asset', py, yl,
+        opexRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.opexPaidPerPeriod, 'sum')))));
+    }
+    const capexRows = assetCFs.filter((a) => anyNonZero(a.capexPerPeriod));
+    if (capexRows.length) {
+      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Capex by Asset', py, yl,
+        capexRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.capexPerPeriod, 'sum')))));
+    }
+  }
 
   // Tab 5: Balance Sheet.
   items.push(tTable('Tab 5: Balance Sheet', 'outputs', periodTable('Balance Sheet', py, yl, [
