@@ -81,6 +81,8 @@ export {
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from './analytics';
+export { computePartnerReturns } from './partners';
+export type { PartnerInput, PartnerResult, PartnersSnapshot } from './partners';
 export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,

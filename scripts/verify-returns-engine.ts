@@ -28,6 +28,7 @@ import {
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from '../src/core/calculations/returns/analytics';
+import { computePartnerReturns } from '../src/core/calculations/returns/partners';
 import type { ReturnsInput } from '../src/core/calculations/returns/types';
 
 let pass = 0, fail = 0;
@@ -186,6 +187,59 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   check('debt: paydownPct = (1000−200)/1000 = 80%', near(da.paydownPct, 0.80));
   check('debt: avgDebtOutstanding = mean(1000,800,600,400,200)=600', near(da.averageDebtOutstanding, 600));
   check('debt: tenor = 2029−2025+1 = 5 yrs (to last outstanding)', da.tenorYears === 5);
+}
+
+// ── M5 Pass 2: multi-partner equity returns ───────────────────────────
+{
+  // Two partners, auto shareholding from contributions (600 / 400 = 60/40).
+  // dividends per period [0,400,400], exit at idx 2, terminal equity 1000.
+  const ps = computePartnerReturns({
+    partners: [
+      { id: 'A', name: 'Sponsor', cashContribution: 600, inKindContribution: 0, existingContribution: 0 },
+      { id: 'B', name: 'JV', cashContribution: 400, inKindContribution: 0, existingContribution: 0 },
+    ],
+    dividendsPerPeriod: [0, 400, 400],
+    terminalEquityValue: 1000,
+    exitIdx: 2,
+    totalProjectEquity: 1000,
+    streamYearLabels: [2025, 2026, 2027, 2028],
+  });
+  check('partner: auto share A = 60%', near(ps.partners[0].shareholdingPct, 0.6));
+  check('partner: auto share B = 40%', near(ps.partners[1].shareholdingPct, 0.4));
+  check('partner: shareholding sums to 100%', near(ps.shareholdingSum, 1));
+  check('partner: contributions reconcile (1000 == 1000)', ps.contributionsReconcile && near(ps.contributionDelta, 0));
+  check('partner A dividends = 800 x 0.6 = 480', near(ps.partners[0].dividendsReceived, 480));
+  check('partner A terminal = 1000 x 0.6 = 600', near(ps.partners[0].terminalDistribution, 600));
+  check('partner A returned = 1080', near(ps.partners[0].totalCashReturned, 1080));
+  check('partner A equity multiple = 1080/600 = 1.8x', near(ps.partners[0].equityMultiple, 1.8));
+  check('partner A MOIC matches stream', near(ps.partners[0].moic, 1.8));
+  check('partner A IRR finite', ps.partners[0].irr !== null && Number.isFinite(ps.partners[0].irr));
+  check('partner stream A inception = -600', near(ps.partners[0].cashFlowStream[0], -600));
+  // Sum of partner streams = lumped project equity stream (lifetime).
+  const partnerLifetime = ps.totalStream.reduce((s, v) => s + v, 0);
+  check('partner total stream lifetime = -1000 + 800 + 1000 = 800', near(partnerLifetime, 800));
+  check('partner total stream[exit] = div + terminal = 1400', near(ps.totalStream[3], 1400));
+  check('partner not manual mode (auto)', ps.manualMode === false);
+
+  // Manual override: share ignores contribution split.
+  const psm = computePartnerReturns({
+    partners: [
+      { id: 'A', name: 'Sponsor', cashContribution: 100, inKindContribution: 0, existingContribution: 0, manualShareholdingPct: 70 },
+      { id: 'B', name: 'JV', cashContribution: 900, inKindContribution: 0, existingContribution: 0, manualShareholdingPct: 30 },
+    ],
+    dividendsPerPeriod: [0, 0, 1000],
+    terminalEquityValue: 0,
+    exitIdx: 2,
+    totalProjectEquity: 1000,
+    streamYearLabels: [2025, 2026, 2027, 2028],
+  });
+  check('partner manual: share A = 70% (override, not 10%)', near(psm.partners[0].shareholdingPct, 0.7));
+  check('partner manual mode flagged', psm.manualMode === true);
+  check('partner manual: dividends A = 1000 x 0.7 = 700', near(psm.partners[0].dividendsReceived, 700));
+
+  // Empty partners => empty snapshot, no throw.
+  const pe = computePartnerReturns({ partners: [], dividendsPerPeriod: [0, 100], terminalEquityValue: 0, exitIdx: 1, totalProjectEquity: 0, streamYearLabels: [2025, 2026, 2027] });
+  check('partner: empty input => no partners', pe.partners.length === 0);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

@@ -18,6 +18,8 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, fmtYears, type AssumptionsValue } from './Module5Shared';
+import { FAST_INPUT } from './_shared/inputStyles';
+import type { ProjectPartner } from '../../lib/state/module1-types';
 
 export default function Module5Returns(): React.JSX.Element {
   const state = useModule1Store(
@@ -161,6 +163,18 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Equity Multiple" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
         <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
       </MetricGrid>
+
+      {/* ── M5 Pass 2: Equity Partners ── */}
+      <PartnersSection
+        partners={project.partners ?? []}
+        snapshot={rs.partners}
+        streamPriorLabel={inceptionLabel}
+        streamAxisLabels={axisLabels}
+        equityTotals={{ cash: snap.financing.equity.totalCash, inKind: snap.financing.equity.totalInKind, existing: snap.financing.equity.totalExisting }}
+        fmt={fmt}
+        currency={currency}
+        onChange={(next) => state.setProject({ partners: next })}
+      />
 
       {/* ── Development Economics (absolute $ figures; margins / ratios are in
             the RE Metrics tab) ── */}
@@ -341,6 +355,170 @@ function SectionTitle(props: { children: React.ReactNode }): React.JSX.Element {
     </div>
   );
 }
+
+/** M5 Pass 2: equity-partner inputs + per-partner returns + stream table. */
+function PartnersSection(props: {
+  partners: ProjectPartner[];
+  snapshot: import('@/src/core/calculations/returns').PartnersSnapshot;
+  streamPriorLabel: number;
+  streamAxisLabels: number[];
+  equityTotals: { cash: number; inKind: number; existing: number };
+  fmt: (n: number) => string;
+  currency: string;
+  onChange: (next: ProjectPartner[]) => void;
+}): React.JSX.Element {
+  const { partners, snapshot, streamPriorLabel, streamAxisLabels, equityTotals, fmt, onChange } = props;
+  const rows = snapshot.partners;
+  const manualMode = snapshot.manualMode;
+
+  const update = (id: string, patch: Partial<ProjectPartner>): void =>
+    onChange(partners.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const remove = (id: string): void => onChange(partners.filter((p) => p.id !== id));
+  const addPartner = (): void =>
+    onChange([...partners, { id: `p_${Date.now()}_${partners.length}`, name: `Partner ${partners.length + 1}`, cashContribution: 0, inKindContribution: 0, existingContribution: 0 }]);
+  const seedSponsor = (): void =>
+    onChange([{ id: `sponsor_${Date.now()}`, name: 'Sponsor', cashContribution: equityTotals.cash, inKindContribution: equityTotals.inKind, existingContribution: equityTotals.existing }]);
+  const setMode = (mode: 'auto' | 'manual'): void => {
+    if (mode === 'manual') onChange(partners.map((p, i) => ({ ...p, manualShareholdingPct: Number((( rows[i]?.shareholdingPct ?? 0) * 100).toFixed(4)) })));
+    else onChange(partners.map((p) => ({ ...p, manualShareholdingPct: undefined })));
+  };
+
+  const numCell = (v: number | undefined, onSet: (n: number) => void): React.JSX.Element => (
+    <input type="number" value={Number.isFinite(v) ? v : 0} onChange={(e) => onSet(parseFloat(e.target.value) || 0)} style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} />
+  );
+  const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11 };
+  const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', fontSize: 11, borderBottom: '1px solid var(--color-border)' };
+  const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+
+  const Chip = ({ ok, text }: { ok: boolean; text: string }): React.JSX.Element => (
+    <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, marginRight: 8,
+      color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+      background: ok ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-warning-bg, #fef3c7)' }}>
+      {ok ? '✓ ' : '⚠ '}{text}
+    </span>
+  );
+
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Equity Partners</div>
+        {partners.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+            <button type="button" onClick={() => setMode('auto')} style={pillStyle(!manualMode)}>Auto %</button>
+            <button type="button" onClick={() => setMode('manual')} style={pillStyle(manualMode)}>Manual %</button>
+          </div>
+        )}
+      </div>
+
+      {partners.length === 0 ? (
+        <div style={{ border: '1px dashed var(--color-border)', borderRadius: 8, padding: 'var(--sp-2)', fontSize: 12, color: 'var(--color-meta)' }}>
+          Split the project equity across partners (sponsor / JV / landowner) to see per-partner IRR, MOIC and Equity Multiple.{' '}
+          <button type="button" onClick={seedSponsor} style={addBtn}>Add Sponsor (100%)</button>{' '}
+          <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>
+        </div>
+      ) : (
+        <>
+          {/* Inputs */}
+          <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-1)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={thL}>Partner</th>
+                  <th style={th}>New Cash</th>
+                  <th style={th}>In-Kind</th>
+                  <th style={th}>Existing</th>
+                  <th style={th}>Total Invested</th>
+                  <th style={th}>Shareholding %</th>
+                  <th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {partners.map((p, i) => {
+                  const r = rows[i];
+                  return (
+                    <tr key={p.id}>
+                      <td style={tdL}><input value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} style={{ ...FAST_INPUT, width: '100%' }} /></td>
+                      <td style={td}>{numCell(p.cashContribution, (n) => update(p.id, { cashContribution: n }))}</td>
+                      <td style={td}>{numCell(p.inKindContribution, (n) => update(p.id, { inKindContribution: n }))}</td>
+                      <td style={td}>{numCell(p.existingContribution, (n) => update(p.id, { existingContribution: n }))}</td>
+                      <td style={td}>{fmt(r?.totalEquityInvested ?? 0)}</td>
+                      <td style={td}>
+                        {manualMode
+                          ? numCell(p.manualShareholdingPct, (n) => update(p.id, { manualShareholdingPct: n }))
+                          : fmtPct(r?.shareholdingPct ?? 0)}
+                      </td>
+                      <td style={td}><button type="button" onClick={() => remove(p.id)} style={removeBtn} title="Remove partner">✕</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginBottom: 'var(--sp-2)' }}>
+            <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>{' '}
+            <Chip ok={snapshot.contributionsReconcile} text={`Contributions ${fmt(snapshot.totalContributions)} vs equity ${fmt(snapshot.totalProjectEquity)} (Δ ${fmt(snapshot.contributionDelta)})`} />
+            <Chip ok={snapshot.shareholdingReconciles} text={`Shareholding ${fmtPct(snapshot.shareholdingSum)}`} />
+          </div>
+
+          {/* Per-partner outputs */}
+          <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={thL}>Partner</th>
+                  <th style={th}>Invested</th>
+                  <th style={th}>Share %</th>
+                  <th style={th}>Dividends</th>
+                  <th style={th}>Terminal</th>
+                  <th style={th}>Returned</th>
+                  <th style={th}>IRR</th>
+                  <th style={th}>MOIC</th>
+                  <th style={th}>Equity Mult.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ ...tdL, fontWeight: 600 }}>{r.name}</td>
+                    <td style={td}>{fmt(r.totalEquityInvested)}</td>
+                    <td style={td}>{fmtPct(r.shareholdingPct)}</td>
+                    <td style={td}>{fmt(r.dividendsReceived)}</td>
+                    <td style={td}>{fmt(r.terminalDistribution)}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>{fmt(r.totalCashReturned)}</td>
+                    <td style={{ ...td, fontWeight: 700 }}>{fmtPct(r.irr)}</td>
+                    <td style={td}>{fmtX(r.moic)}</td>
+                    <td style={td}>{fmtX(r.equityMultiple)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Per-partner cash-flow streams */}
+          <M4PeriodTable
+            title="Partner Cash-Flow Streams"
+            caption="Signed cash flows by shareholding: inception = −equity contributed (prior column), each period = dividend share, exit adds the terminal equity share. The Total column is each partner's lifetime net; the Total row sums all partners (ties to the project Distributed Equity stream over the hold)."
+            yearLabels={streamAxisLabels}
+            rows={[
+              ...rows.map((r) => ({ label: r.name, values: r.cashFlowStream.slice(1), priorValue: r.cashFlowStream[0] ?? 0, totalOverride: fmt(r.cashFlowStream.reduce((s, v) => s + (v ?? 0), 0)) } as M4Row)),
+              { label: 'Total (all partners)', values: snapshot.totalStream.slice(1), priorValue: snapshot.totalStream[0] ?? 0, totalOverride: fmt(snapshot.totalStream.reduce((s, v) => s + (v ?? 0), 0)), isTotal: true } as M4Row,
+            ]}
+            currency={props.currency}
+            fmt={fmt}
+            priorYearLabel={streamPriorLabel}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+const pillBase: React.CSSProperties = { border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 };
+const pillStyle = (active: boolean): React.CSSProperties => ({ ...pillBase, background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)' });
+const addBtn: React.CSSProperties = { border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'var(--color-primary)', color: 'var(--color-on-primary-navy)' };
+const addBtnGhost: React.CSSProperties = { border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)' };
+const removeBtn: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13 };
 
 /** Sources / Uses ledger: labelled rows + a bold total. */
 function SourcesUsesTable(props: {

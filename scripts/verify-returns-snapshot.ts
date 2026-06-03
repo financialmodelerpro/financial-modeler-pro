@@ -237,6 +237,35 @@ console.log('=== M5 Returns snapshot integration ===');
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));
 }
 
+// ── M5 Pass 2: multi-partner equity returns wired onto the snapshot ────
+{
+  // Baseline (no partners) to read the project equity grand total.
+  const base = buildState();
+  const baseSnap = computeFinancialsSnapshot(base);
+  const baseRs = computeReturnsSnapshot(baseSnap, base.project);
+  const equity = baseRs.totalEquityInvested;
+
+  // One Sponsor at 100% manual, cash = project equity => reconciles.
+  const state = buildState();
+  state.project.partners = [{ id: 'sponsor', name: 'Sponsor', cashContribution: equity, inKindContribution: 0, existingContribution: 0, manualShareholdingPct: 100 }];
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const P = rs.partners;
+  check('PARTNERS: snapshot carries the partners block', Array.isArray(P.partners) && P.partners.length === 1);
+  check('PARTNERS: sponsor shareholding = 100%', near(P.partners[0].shareholdingPct, 1));
+  check('PARTNERS: contributions reconcile to project equity', P.contributionsReconcile, `Δ=${P.contributionDelta}`);
+  check('PARTNERS: shareholding reconciles to 100%', P.shareholdingReconciles);
+  // Sum of partner streams (lifetime) ties to the project Distributed Equity stream.
+  const partnerLifetime = P.totalStream.reduce((s, v) => s + v, 0);
+  const projLifetime = rs.dividendStreamPerPeriod.reduce((s, v) => s + v, 0);
+  check('PARTNERS: Σ partner streams (lifetime) == project Distributed Equity stream', near(partnerLifetime, projLifetime), `partner=${partnerLifetime} proj=${projLifetime}`);
+  check('PARTNERS: sponsor IRR finite or null', P.partners[0].irr === null || Number.isFinite(P.partners[0].irr));
+  check('PARTNERS: dividends received >= 0', P.partners[0].dividendsReceived >= 0);
+
+  // No partners => empty block, project-level only.
+  check('PARTNERS: baseline (no partners) => empty block', baseRs.partners.partners.length === 0);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (failures.length) { console.log('Failures:'); failures.forEach((f) => console.log('  - ' + f)); }
 process.exit(fail > 0 ? 1 : 0);

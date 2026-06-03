@@ -46,12 +46,12 @@
 import {
   computeReturns, terminalEnterpriseValue, terminalEquityValue,
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
-  equityExposure, stabilizationMetrics, debtAnalytics,
+  equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
-  EquityExposureDetail, StabilizationMetrics, DebtAnalytics,
+  EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
@@ -154,6 +154,8 @@ export interface ReturnsSnapshot {
   equityExposure: EquityExposureDetail;
   stabilization: StabilizationMetrics;
   debtAnalytics: DebtAnalytics;
+  /** M5 Pass 2: per-partner equity returns (empty .partners when none set). */
+  partners: PartnersSnapshot;
 }
 
 function cumulative(arr: number[]): number[] {
@@ -396,6 +398,26 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     axisYearLabels: snap.yearLabels,
   });
 
+  // ── M5 Pass 2: multi-partner equity returns ──────────────────────────
+  // Partners share the operating distributions (divPaidAxis, which already
+  // includes the terminal 100% payout) + the terminal equity value, by
+  // shareholding. Reconciles against the project equity grand total.
+  const partnersBlock = computePartnerReturns({
+    partners: (project.partners ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      cashContribution: Math.max(0, p.cashContribution ?? 0),
+      inKindContribution: Math.max(0, p.inKindContribution ?? 0),
+      existingContribution: Math.max(0, p.existingContribution ?? 0),
+      manualShareholdingPct: p.manualShareholdingPct,
+    })),
+    dividendsPerPeriod: divPaidAxis,
+    terminalEquityValue: tvEquity,
+    exitIdx: exit,
+    totalProjectEquity: totalEquityInvested,
+    streamYearLabels,
+  });
+
   return {
     axisLength: N,
     yearLabels: snap.yearLabels,
@@ -422,5 +444,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     equityExposure: equityExposureBlock,
     stabilization: stabilizationBlock,
     debtAnalytics: debtAnalyticsBlock,
+    partners: partnersBlock,
   };
 }

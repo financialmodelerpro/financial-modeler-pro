@@ -263,6 +263,25 @@ export const PROJECT_TYPES: readonly ProjectType[] = [
   'Custom',
 ] as const;
 
+/**
+ * M5 Pass 2 equity partner. Contributions are absolute currency amounts;
+ * shareholding is auto-derived from total contribution unless
+ * `manualShareholdingPct` is set (override mode, 0-100). All fields except
+ * id + name are optional and default to 0.
+ */
+export interface ProjectPartner {
+  id: string;
+  name: string;
+  /** New cash equity contributed during the project. */
+  cashContribution?: number;
+  /** In-kind (e.g. land) equity contributed. */
+  inKindContribution?: number;
+  /** Equity already funded in an operational/existing phase. */
+  existingContribution?: number;
+  /** Manual shareholding override (0-100). Unset => auto from contributions. */
+  manualShareholdingPct?: number;
+}
+
 export interface Project {
   name: string;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
@@ -516,6 +535,14 @@ export interface Project {
     /** Perpetuity growth rate g (perpetuity method, decimal). */
     perpetuityGrowth?: number;
   };
+  /**
+   * M5 Pass 2: equity partners (sponsor / JV / landowner). Splits the
+   * project's total equity across investors so M5 can show per-partner
+   * IRR / MOIC / Equity Multiple. Additive + optional: when empty / undefined
+   * M5 stays project-level only. Consumed only by the returns resolver; never
+   * touches an M1-M4 engine path.
+   */
+  partners?: ProjectPartner[];
   /**
    * Module 3 Opex: project-wide HQ / corporate opex line items
    * (fixed_baseline or pct_of_total_rev only). Per-asset opex lives
