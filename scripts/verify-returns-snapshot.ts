@@ -9,7 +9,7 @@
  * Run: npx tsx scripts/verify-returns-snapshot.ts
  */
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
-import { computeReturnsSnapshot, resolveReturnsConfig } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
+import { computeReturnsSnapshot, resolveReturnsConfig, computeReturnsSensitivity } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { terminalEnterpriseValue } from '../src/core/calculations/returns';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -235,6 +235,25 @@ console.log('=== M5 Returns snapshot integration ===');
 
   // Existing equity is in the equity IRR stream, so it is finite (not infinite).
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));
+}
+
+// ── M5 Pass 2: sensitivity grid ───────────────────────────────────────
+{
+  const state = buildState();
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const s = rs.sensitivity;
+  check('SENS: default grid present (Exit Cap Rate x Sales Price)', s.xVariable === 'exit_cap_rate' && s.yVariable === 'sales_price_pct');
+  check('SENS: grid dims = yValues x xValues', s.irr.length === s.yValues.length && s.irr.every((r) => r.length === s.xValues.length));
+  check('SENS: base equity IRR ties to headline FCFE IRR', (s.baseEquityIrr === null && rs.result.fcfe.irr === null) || near(s.baseEquityIrr ?? NaN, rs.result.fcfe.irr ?? NaN, 1e-6));
+
+  // Sales Price x Construction Cost both carry a neutral 0 value, so that cell
+  // == the headline Equity IRR (the canonical base-case-in-grid check).
+  const g = computeReturnsSensitivity(snap, state.project, 'sales_price_pct', 'construction_cost_pct');
+  const xi = g.xValues.findIndex((v) => v === 0);
+  const yi = g.yValues.findIndex((v) => v === 0);
+  check('SENS: neutral axes include a 0 (base) value', xi >= 0 && yi >= 0);
+  check('SENS: base cell (0,0) == headline Equity IRR', (g.irr[yi][xi] === null && rs.result.fcfe.irr === null) || near(g.irr[yi][xi] ?? NaN, rs.result.fcfe.irr ?? NaN, 1e-6));
 }
 
 // ── M5 Pass 2: per-asset breakdown ────────────────────────────────────

@@ -9,11 +9,12 @@
  *
  * All math lives in returns-resolvers.ts -> core/calculations/returns.
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
-import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
+import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
+import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
+import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
@@ -299,6 +300,9 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Debt Tenor" value={fmtYears(da.tenorYears)} sub="first draw to repaid" />
       </MetricGrid>
 
+      {/* ── M5 Pass 2: Two-way Sensitivity (Equity IRR) ── */}
+      <SensitivitySection snap={snap} project={project} />
+
       {/* Per-stream IRR / MOIC / profit table (NPV + Payback removed, Payback
           is in the KPI cards; NPV is not a primary real-estate metric). */}
       <section style={{ marginBottom: 'var(--sp-3)' }}>
@@ -385,6 +389,82 @@ function SectionTitle(props: { children: React.ReactNode }): React.JSX.Element {
     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
       {props.children}
     </div>
+  );
+}
+
+/** M5 Pass 2: two-way sensitivity grid on Equity IRR. */
+const SENS_VARS: Array<{ v: SensitivityVariable; label: string; kind: 'rate' | 'shock' }> = [
+  { v: 'exit_cap_rate', label: 'Exit Cap Rate', kind: 'rate' },
+  { v: 'discount_rate', label: 'Discount Rate', kind: 'rate' },
+  { v: 'sales_price_pct', label: 'Sales Price', kind: 'shock' },
+  { v: 'adr_pct', label: 'ADR', kind: 'shock' },
+  { v: 'construction_cost_pct', label: 'Construction Cost', kind: 'shock' },
+];
+function sensValueLabel(v: SensitivityVariable, x: number): string {
+  const kind = SENS_VARS.find((s) => s.v === v)?.kind ?? 'shock';
+  if (kind === 'rate') return `${(x * 100).toFixed(1)}%`;
+  return `${x >= 0 ? '+' : ''}${(x * 100).toFixed(0)}%`;
+}
+function SensitivitySection(props: {
+  snap: ProjectFinancialsSnapshot;
+  project: import('../../lib/state/module1-types').Project;
+}): React.JSX.Element {
+  const [xVar, setXVar] = useState<SensitivityVariable>('exit_cap_rate');
+  const [yVar, setYVar] = useState<SensitivityVariable>('sales_price_pct');
+  const grid = useMemo(() => computeReturnsSensitivity(props.snap, props.project, xVar, yVar), [props.snap, props.project, xVar, yVar]);
+  const irrPct = (v: number | null): string => (v === null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+  // Heatmap: green when >= base equity IRR, amber when below.
+  const base = grid.baseEquityIrr;
+  const cellBg = (v: number | null): string => {
+    if (v === null || base === null) return 'transparent';
+    return v >= base ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-warning-bg, #fef3c7)';
+  };
+  const sel: React.CSSProperties = { ...FAST_INPUT, cursor: 'pointer', width: 'auto' };
+  const th: React.CSSProperties = { padding: '5px 8px', fontSize: 11, textAlign: 'right' };
+
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }}>
+      <SectionTitle>Sensitivity, Equity IRR (FCFE)</SectionTitle>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 'var(--sp-1)', flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>
+          Columns:{' '}
+          <select value={xVar} onChange={(e) => setXVar(e.target.value as SensitivityVariable)} style={sel}>
+            {SENS_VARS.map((s) => <option key={s.v} value={s.v} disabled={s.v === yVar}>{s.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>
+          Rows:{' '}
+          <select value={yVar} onChange={(e) => setYVar(e.target.value as SensitivityVariable)} style={sel}>
+            {SENS_VARS.map((s) => <option key={s.v} value={s.v} disabled={s.v === xVar}>{s.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Equity IRR across combinations. Exit Cap Rate and Discount Rate are exact; Sales Price, ADR and Construction Cost are proportional cash-flow shocks (approximate, not a full re-forecast). Green = at or above the base-case Equity IRR ({irrPct(base)}).
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ ...th, textAlign: 'left' }}>{SENS_VARS.find((s) => s.v === yVar)?.label} \\ {SENS_VARS.find((s) => s.v === xVar)?.label}</th>
+              {grid.xValues.map((xv, i) => <th key={i} style={th}>{sensValueLabel(xVar, xv)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {grid.yValues.map((yv, yi) => (
+              <tr key={yi}>
+                <td style={{ padding: '5px 8px', fontSize: 11, fontWeight: 700, background: 'var(--color-grey-pale, #f3f4f6)', color: 'var(--color-heading)' }}>{sensValueLabel(yVar, yv)}</td>
+                {grid.xValues.map((_, xi) => (
+                  <td key={xi} style={{ padding: '5px 10px', fontSize: 12, textAlign: 'right', borderBottom: '1px solid var(--color-border)', background: cellBg(grid.irr[yi][xi]) }}>
+                    {irrPct(grid.irr[yi][xi])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

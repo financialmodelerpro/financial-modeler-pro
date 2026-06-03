@@ -29,6 +29,8 @@ import {
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from '../src/core/calculations/returns/analytics';
 import { computePartnerReturns } from '../src/core/calculations/returns/partners';
+import { buildSponsorStreamsForExit } from '../src/core/calculations/returns/streamBuild';
+import { computeSensitivity } from '../src/core/calculations/returns/sensitivity';
 import type { ReturnsInput } from '../src/core/calculations/returns/types';
 
 let pass = 0, fail = 0;
@@ -240,6 +242,47 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   // Empty partners => empty snapshot, no throw.
   const pe = computePartnerReturns({ partners: [], dividendsPerPeriod: [0, 100], terminalEquityValue: 0, exitIdx: 1, totalProjectEquity: 0, streamYearLabels: [2025, 2026, 2027] });
   check('partner: empty input => no partners', pe.partners.length === 0);
+}
+
+// ── M5 Pass 2: two-way sensitivity ────────────────────────────────────
+{
+  const inputs = {
+    cfoAxis: [0, 0, 500, 500, 500, 500],
+    cfiAxis: [-1000, -500, 0, 0, 0, 0],
+    inKindAxis: [0, 0, 0, 0, 0, 0],
+    debtDrawAxis: [600, 300, 0, 0, 0, 0],
+    principalAxis: [0, 0, -150, -150, -150, -150],
+    interestAxis: [0, -50, -40, -30, -20, -10],
+    noiPerPeriod: [0, 0, 500, 500, 500, 500],
+    debtOutstandingPerPeriod: [600, 900, 750, 600, 450, 300],
+    existingPreCapex: 0,
+    existingDebtOpening: 0,
+  };
+  const terminal = { method: 'exit_multiple' as const, exitMultiple: 8, perpetuityGrowth: 0.02, discountRate: 0.10 };
+  const baseFcfe = buildSponsorStreamsForExit(inputs, 5, terminal).fcfe;
+  const baseIrr = irr(baseFcfe);
+
+  // Neutral cell (no shock) == base equity IRR.
+  const g0 = computeSensitivity({ inputs, terminal, exitIdx: 5, x: { variable: 'sales_price_pct', values: [0] }, y: { variable: 'construction_cost_pct', values: [0] } });
+  check('sensitivity: neutral cell == base equity IRR', (g0.irr[0][0] === null && baseIrr === null) || near(g0.irr[0][0] ?? NaN, baseIrr ?? NaN, 1e-9));
+  check('sensitivity: baseEquityIrr == base', (g0.baseEquityIrr === null && baseIrr === null) || near(g0.baseEquityIrr ?? NaN, baseIrr ?? NaN, 1e-9));
+  check('sensitivity: implied exit cap rate = NOI/EV = 500/4000 = 12.5%', near(g0.impliedExitCapRate, 0.125));
+
+  // Lower exit cap rate => higher EV => higher IRR.
+  const gc = computeSensitivity({ inputs, terminal, exitIdx: 5, x: { variable: 'exit_cap_rate', values: [0.05, 0.10] }, y: { variable: 'sales_price_pct', values: [0] } });
+  check('sensitivity: lower cap rate gives higher IRR', (gc.irr[0][0] ?? -1) > (gc.irr[0][1] ?? -1));
+
+  // +10% construction cost => lower IRR than base (0%).
+  const gk = computeSensitivity({ inputs, terminal, exitIdx: 5, x: { variable: 'construction_cost_pct', values: [0, 0.10] }, y: { variable: 'sales_price_pct', values: [0] } });
+  check('sensitivity: +10% construction cost lowers IRR', (gk.irr[0][1] ?? 1) < (gk.irr[0][0] ?? 1));
+
+  // +10% sales price => higher IRR than base.
+  const gp = computeSensitivity({ inputs, terminal, exitIdx: 5, x: { variable: 'sales_price_pct', values: [0, 0.10] }, y: { variable: 'construction_cost_pct', values: [0] } });
+  check('sensitivity: +10% sales price raises IRR', (gp.irr[0][1] ?? -1) > (gp.irr[0][0] ?? -1));
+
+  // Grid dimensions match the axis lengths.
+  const gd = computeSensitivity({ inputs, terminal, exitIdx: 5, x: { variable: 'exit_cap_rate', values: [0.07, 0.08, 0.09] }, y: { variable: 'sales_price_pct', values: [-0.05, 0, 0.05] } });
+  check('sensitivity: grid is yValues x xValues', gd.irr.length === 3 && gd.irr.every((r) => r.length === 3));
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

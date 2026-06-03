@@ -48,12 +48,13 @@ import {
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
   buildSponsorStreamsForExit, exitYearAnalysis, computePerAssetReturns,
+  computeSensitivity, defaultSensitivityValues,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
-  ExitYearRow, PerAssetSnapshot,
+  ExitYearRow, PerAssetSnapshot, SensitivityGrid, SensitivityVariable, SponsorStreamInputs,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
@@ -162,6 +163,60 @@ export interface ReturnsSnapshot {
   exitYears: ExitYearRow[];
   /** M5 Pass 2: per-asset revenue / cost / profit / yield-on-cost breakdown. */
   perAsset: PerAssetSnapshot;
+  /** M5 Pass 2: default two-way sensitivity grid (Exit Cap Rate x Sales Price).
+   *  The UI re-runs computeReturnsSensitivity when the user picks variables. */
+  sensitivity: SensitivityGrid;
+}
+
+/** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
+ *  a snapshot, for the sensitivity grid (resolver default + UI re-runs). */
+function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project): {
+  inputs: SponsorStreamInputs; exitIdx: number; discountRate: number;
+  terminal: { method: TerminalMethod; exitMultiple: number; perpetuityGrowth: number; discountRate: number };
+} {
+  const N = snap.axisLength;
+  const cfg = resolveReturnsConfig(project, N);
+  const dcf = snap.directCF, pl = snap.pl, fin = snap.financing, bs = snap.bs;
+  const noi = new Array<number>(N).fill(0);
+  for (let t = 0; t < N; t++) {
+    noi[t] = (pl.hospitalityRevenuePerPeriod[t] ?? 0) + (pl.retailRevenuePerPeriod[t] ?? 0)
+      - (pl.hospitalityOpexPerPeriod[t] ?? 0) - (pl.retailOpexPerPeriod[t] ?? 0);
+  }
+  const sl = (a: number[]): number[] => a.slice(0, N).map((v) => v ?? 0);
+  return {
+    inputs: {
+      cfoAxis: sl(dcf.cashFromOperationsPerPeriod),
+      cfiAxis: sl(dcf.cashFromInvestmentPerPeriod),
+      inKindAxis: sl(fin.equity.inKindPerPeriod),
+      debtDrawAxis: sl(dcf.debtDrawdownPerPeriod),
+      principalAxis: sl(dcf.debtRepaymentPerPeriod),
+      interestAxis: sl(dcf.interestPaidPerPeriod),
+      noiPerPeriod: noi,
+      debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
+      existingPreCapex: Math.max(0, fin.existing.preCapexTotal),
+      existingDebtOpening: Math.max(0, fin.existing.debtOutstandingTotal),
+    },
+    exitIdx: cfg.exitYearOffset,
+    discountRate: cfg.discountRate,
+    terminal: { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate },
+  };
+}
+
+/** M5 Pass 2: re-run the sensitivity grid for a user-chosen variable pair. */
+export function computeReturnsSensitivity(
+  snap: ProjectFinancialsSnapshot,
+  project: Project,
+  xVar: SensitivityVariable,
+  yVar: SensitivityVariable,
+): SensitivityGrid {
+  const s = sponsorInputsFromSnap(snap, project);
+  return computeSensitivity({
+    inputs: s.inputs,
+    terminal: s.terminal,
+    exitIdx: s.exitIdx,
+    x: { variable: xVar, values: defaultSensitivityValues(xVar, s.discountRate) },
+    y: { variable: yVar, values: defaultSensitivityValues(yVar, s.discountRate) },
+  });
 }
 
 function cumulative(arr: number[]): number[] {
@@ -413,23 +468,33 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const candidateExitIdxs: number[] = [];
   for (let i = startIdx; i < N; i++) candidateExitIdxs.push(i);
   if (!candidateExitIdxs.includes(exit)) candidateExitIdxs.push(exit);
+  const sponsorInputsFull: SponsorStreamInputs = {
+    cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
+    cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v) => v ?? 0),
+    inKindAxis: equityInKind.slice(0, N).map((v) => v ?? 0),
+    debtDrawAxis: dcf.debtDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
+    principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
+    interestAxis: dcf.interestPaidPerPeriod.slice(0, N).map((v) => v ?? 0),
+    noiPerPeriod,
+    debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
+    existingPreCapex,
+    existingDebtOpening,
+  };
   const exitYears = exitYearAnalysis({
-    inputs: {
-      cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
-      cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v) => v ?? 0),
-      inKindAxis: equityInKind.slice(0, N).map((v) => v ?? 0),
-      debtDrawAxis: dcf.debtDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
-      principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
-      interestAxis: dcf.interestPaidPerPeriod.slice(0, N).map((v) => v ?? 0),
-      noiPerPeriod,
-      debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
-      existingPreCapex,
-      existingDebtOpening,
-    },
+    inputs: sponsorInputsFull,
     terminal: terminalCfg,
     candidateExitIdxs,
     selectedExitIdx: exit,
     axisYearLabels: snap.yearLabels,
+  });
+
+  // ── M5 Pass 2: default sensitivity grid (Exit Cap Rate x Sales Price) ─
+  const sensitivity = computeSensitivity({
+    inputs: sponsorInputsFull,
+    terminal: terminalCfg,
+    exitIdx: exit,
+    x: { variable: 'exit_cap_rate', values: defaultSensitivityValues('exit_cap_rate', cfg.discountRate) },
+    y: { variable: 'sales_price_pct', values: defaultSensitivityValues('sales_price_pct', cfg.discountRate) },
   });
 
   // ── M5 Pass 2: per-asset breakdown (unlevered drivers; financing is
@@ -480,5 +545,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     partners: partnersBlock,
     exitYears,
     perAsset,
+    sensitivity,
   };
 }
