@@ -443,6 +443,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // Partners share the operating distributions (divPaidAxis, which already
   // includes the terminal 100% payout) + the terminal equity value, by
   // shareholding. Reconciles against the project equity grand total.
+  // Per-type equity TOTALS aligned with the Distributed-Equity stream so the
+  // partner streams sum back to it: new cash + in-kind are the axis draw totals
+  // through exit; existing equity is the inception amount (preCapex − debt).
+  const totalCashEquity = equityCashAxis.reduce((s, v) => s + (v ?? 0), 0);
+  const totalInKindEquity = inKindAxis.reduce((s, v) => s + (v ?? 0), 0);
   const partnersBlock = computePartnerReturns({
     partners: (project.partners ?? []).map((p) => ({
       id: p.id,
@@ -452,15 +457,19 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       existingContribution: Math.max(0, p.existingContribution ?? 0),
       manualShareholdingPct: p.manualShareholdingPct,
     })),
+    totalCash: totalCashEquity,
+    totalInKind: totalInKindEquity,
+    totalExisting: Math.max(0, existingEquity),
+    cashAxisPerPeriod: equityCashAxis,
+    inKindAxisPerPeriod: inKindAxis,
     dividendsPerPeriod: divPaidAxis,
     terminalEquityValue: tvEquity,
     exitIdx: exit,
-    totalProjectEquity: totalEquityInvested,
     streamYearLabels,
     // No explicit partners => default a single 100% Sponsor holding the
-    // project's full equity (cash + in-kind + existing), so the section
-    // renders the actual equity injections; the user then splits it.
-    defaultBreakdown: { cash: fin.equity.totalCash, inKind: fin.equity.totalInKind, existing: fin.equity.totalExisting },
+    // project's full equity (new cash + in-kind + existing), reconciled per
+    // type; the user then splits each type across partners.
+    defaultToSponsor: true,
   });
 
   // ── M5 Pass 2: exit-year analysis (hold-vs-sell timing) ──────────────

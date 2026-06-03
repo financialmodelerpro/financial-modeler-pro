@@ -300,32 +300,36 @@ console.log('=== M5 Returns snapshot integration ===');
 // ── M5 Pass 2: multi-partner equity returns wired onto the snapshot ────
 {
   // Baseline (no partners) to read the project equity grand total.
+  // Baseline (no explicit partners) => synthesized Sponsor holding the FULL
+  // equity, reconciled per type, so the section renders the equity by type.
   const base = buildState();
   const baseSnap = computeFinancialsSnapshot(base);
   const baseRs = computeReturnsSnapshot(baseSnap, base.project);
-  const equity = baseRs.totalEquityInvested;
+  const bp = baseRs.partners;
+  check('PARTNERS: baseline synthesizes one Sponsor at 100%', bp.isSynthetic === true && bp.partners.length === 1 && near(bp.partners[0].shareholdingPct, 1));
+  check('PARTNERS: synth Sponsor holds the full project equity', near(bp.partners[0].totalEquityInvested, bp.totalProjectEquity));
+  check('PARTNERS: every equity type reconciles (synth default)', bp.cashReconciles && bp.inKindReconciles && bp.existingReconciles);
 
-  // One Sponsor at 100% manual, cash = project equity => reconciles.
+  // Split EACH equity type 60/40 across two partners => still reconciles per
+  // type, shares 60/40, and the per-period Σ ties to the project stream.
   const state = buildState();
-  state.project.partners = [{ id: 'sponsor', name: 'Sponsor', cashContribution: equity, inKindContribution: 0, existingContribution: 0, manualShareholdingPct: 100 }];
+  state.project.partners = [
+    { id: 'A', name: 'Sponsor', cashContribution: bp.totalCash * 0.6, inKindContribution: bp.totalInKind * 0.6, existingContribution: bp.totalExisting * 0.6 },
+    { id: 'B', name: 'JV', cashContribution: bp.totalCash * 0.4, inKindContribution: bp.totalInKind * 0.4, existingContribution: bp.totalExisting * 0.4 },
+  ];
   const snap = computeFinancialsSnapshot(state);
   const rs = computeReturnsSnapshot(snap, state.project);
   const P = rs.partners;
-  check('PARTNERS: snapshot carries the partners block', Array.isArray(P.partners) && P.partners.length === 1);
-  check('PARTNERS: sponsor shareholding = 100%', near(P.partners[0].shareholdingPct, 1));
-  check('PARTNERS: contributions reconcile to project equity', P.contributionsReconcile, `Δ=${P.contributionDelta}`);
+  check('PARTNERS: two partners present', P.partners.length === 2);
+  check('PARTNERS: each equity type reconciles after split', P.cashReconciles && P.inKindReconciles && P.existingReconciles);
+  check('PARTNERS: shares = 60 / 40', near(P.partners[0].shareholdingPct, 0.6) && near(P.partners[1].shareholdingPct, 0.4));
   check('PARTNERS: shareholding reconciles to 100%', P.shareholdingReconciles);
-  // Sum of partner streams (lifetime) ties to the project Distributed Equity stream.
-  const partnerLifetime = P.totalStream.reduce((s, v) => s + v, 0);
-  const projLifetime = rs.dividendStreamPerPeriod.reduce((s, v) => s + v, 0);
-  check('PARTNERS: Σ partner streams (lifetime) == project Distributed Equity stream', near(partnerLifetime, projLifetime), `partner=${partnerLifetime} proj=${projLifetime}`);
-  check('PARTNERS: sponsor IRR finite or null', P.partners[0].irr === null || Number.isFinite(P.partners[0].irr));
-  check('PARTNERS: dividends received >= 0', P.partners[0].dividendsReceived >= 0);
-
-  // No explicit partners => default a single Sponsor holding the FULL project
-  // equity (reconciled at 100%), so the section renders the equity injections.
-  check('PARTNERS: baseline (no partners) => synthesized Sponsor at 100%', baseRs.partners.isSynthetic === true && baseRs.partners.partners.length === 1 && near(baseRs.partners.partners[0].shareholdingPct, 1));
-  check('PARTNERS: default Sponsor holds full project equity', near(baseRs.partners.partners[0].totalEquityInvested, baseRs.totalEquityInvested) && baseRs.partners.contributionsReconcile);
+  // Per-period Σ partner streams === the project Distributed-Equity stream
+  // (the partner stream uses the SAME yearly FCFE/DDM construction, scaled).
+  const tol = (x: number) => Math.max(1, Math.abs(x) * 1e-6);
+  check('PARTNERS: per-period Σ partner streams == project Distributed-Equity stream',
+    P.totalStream.every((v, i) => Math.abs(v - (rs.dividendStreamPerPeriod[i] ?? 0)) <= tol(rs.dividendStreamPerPeriod[i] ?? 0)));
+  check('PARTNERS: partner IRRs finite or null', P.partners.every((r) => r.irr === null || Number.isFinite(r.irr)));
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

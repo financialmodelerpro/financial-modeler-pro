@@ -171,7 +171,6 @@ export default function Module5Returns(): React.JSX.Element {
         snapshot={rs.partners}
         streamPriorLabel={inceptionLabel}
         streamAxisLabels={axisLabels}
-        equityTotals={{ cash: snap.financing.equity.totalCash, inKind: snap.financing.equity.totalInKind, existing: snap.financing.equity.totalExisting }}
         fmt={fmt}
         currency={currency}
         onChange={(next) => state.setProject({ partners: next })}
@@ -468,29 +467,25 @@ function SensitivitySection(props: {
   );
 }
 
-/** M5 Pass 2: equity-partner inputs + per-partner returns + stream table. */
+/** M5 Pass 2: equity-by-type allocation matrix + per-partner returns + streams. */
 function PartnersSection(props: {
   partners: ProjectPartner[];
   snapshot: import('@/src/core/calculations/returns').PartnersSnapshot;
   streamPriorLabel: number;
   streamAxisLabels: number[];
-  equityTotals: { cash: number; inKind: number; existing: number };
   fmt: (n: number) => string;
   currency: string;
   onChange: (next: ProjectPartner[]) => void;
 }): React.JSX.Element {
-  const { partners, snapshot, streamPriorLabel, streamAxisLabels, equityTotals, fmt, onChange } = props;
+  const { partners, snapshot, streamPriorLabel, streamAxisLabels, fmt, onChange } = props;
   const rows = snapshot.partners;
   const manualMode = snapshot.manualMode;
 
-  // Default to a single "Sponsor" holding the project's FULL equity (new cash +
-  // in-kind + existing) when no partners are set yet, so the section renders
-  // the actual equity injections (reconciled at 100%) and the user just splits
-  // them. Mirrors the engine's synthesized default (snapshot.isSynthetic); the
-  // first edit / add materializes it into project.partners.
+  // Default to one Sponsor holding the project's full equity PER TYPE (matches
+  // the engine's synthesized default); the first edit / add materializes it.
   const effectivePartners: ProjectPartner[] = partners.length
     ? partners
-    : [{ id: 'sponsor', name: 'Sponsor', cashContribution: Math.max(0, equityTotals.cash), inKindContribution: Math.max(0, equityTotals.inKind), existingContribution: Math.max(0, equityTotals.existing) }];
+    : [{ id: 'sponsor', name: 'Sponsor', cashContribution: snapshot.totalCash, inKindContribution: snapshot.totalInKind, existingContribution: snapshot.totalExisting }];
 
   const update = (id: string, patch: Partial<ProjectPartner>): void =>
     onChange(effectivePartners.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -518,6 +513,15 @@ function PartnersSection(props: {
     </span>
   );
 
+  // Equity broken out BY TYPE (rows). Each type carries its project total and
+  // is allocated across partners (columns); each row must reconcile.
+  type EqKey = 'cashContribution' | 'inKindContribution' | 'existingContribution';
+  const equityTypes: Array<{ key: EqKey; label: string; total: number; allocated: number; ok: boolean }> = [
+    { key: 'cashContribution', label: 'New Cash Equity', total: snapshot.totalCash, allocated: snapshot.allocatedCash, ok: snapshot.cashReconciles },
+    { key: 'inKindContribution', label: 'In-Kind Equity (land)', total: snapshot.totalInKind, allocated: snapshot.allocatedInKind, ok: snapshot.inKindReconciles },
+    { key: 'existingContribution', label: 'Existing Equity', total: snapshot.totalExisting, allocated: snapshot.allocatedExisting, ok: snapshot.existingReconciles },
+  ];
+
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
@@ -528,50 +532,62 @@ function PartnersSection(props: {
         </div>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Defaults to one Sponsor holding the project&apos;s full equity (new cash + in-kind + existing). Add partners and move the contributions between them to split ownership; shareholding auto-computes from contributions (or switch to Manual %).
+        Equity is shown by type with its project total; allocate each type across partners so every row reconciles. Shareholding auto-computes from total contribution (or switch to Manual %). Each partner&apos;s IRR is a yearly equity IRR (contributions timed as they occur, dividends + terminal by shareholding), the same basis as the project FCFE / Distributed-Equity stream.
       </div>
 
       {(
         <>
-          {/* Inputs (default = one Sponsor holding the full project equity) */}
+          {/* Equity allocation matrix: types (rows) x partners (columns). */}
           <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-1)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
               <thead>
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={thL}>Partner</th>
-                  <th style={th}>New Cash</th>
-                  <th style={th}>In-Kind</th>
-                  <th style={th}>Existing</th>
-                  <th style={th}>Total Invested</th>
-                  <th style={th}>Shareholding %</th>
-                  <th style={th}></th>
+                  <th style={thL}>Equity Type</th>
+                  <th style={th}>Project Total</th>
+                  {effectivePartners.map((p) => (
+                    <th key={p.id} style={th}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                        <input value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} style={{ ...FAST_INPUT, width: 100, color: 'var(--color-heading)' }} />
+                        <button type="button" onClick={() => remove(p.id)} style={{ ...removeBtn, color: 'var(--color-on-primary-navy)' }} title="Remove partner">✕</button>
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {effectivePartners.map((p, i) => {
-                  const r = rows[i];
-                  return (
-                    <tr key={p.id}>
-                      <td style={tdL}><input value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} style={{ ...FAST_INPUT, width: '100%' }} /></td>
-                      <td style={td}>{numCell(p.cashContribution, (n) => update(p.id, { cashContribution: n }))}</td>
-                      <td style={td}>{numCell(p.inKindContribution, (n) => update(p.id, { inKindContribution: n }))}</td>
-                      <td style={td}>{numCell(p.existingContribution, (n) => update(p.id, { existingContribution: n }))}</td>
-                      <td style={td}>{fmt(r?.totalEquityInvested ?? 0)}</td>
-                      <td style={td}>
-                        {manualMode
-                          ? numCell(p.manualShareholdingPct, (n) => update(p.id, { manualShareholdingPct: n }))
-                          : fmtPct(r?.shareholdingPct ?? 0)}
-                      </td>
-                      <td style={td}><button type="button" onClick={() => remove(p.id)} style={removeBtn} title="Remove partner">✕</button></td>
-                    </tr>
-                  );
-                })}
+                {equityTypes.map((type) => (
+                  <tr key={type.key}>
+                    <td style={tdL}>{type.label}</td>
+                    <td style={{ ...td, color: type.ok ? 'var(--color-heading)' : 'var(--color-warning, #92400e)', fontWeight: 600 }}>
+                      {fmt(type.total)}{type.ok ? '' : ' ⚠'}
+                    </td>
+                    {effectivePartners.map((p) => (
+                      <td key={p.id} style={td}>{numCell(p[type.key], (n) => update(p.id, { [type.key]: n } as Partial<ProjectPartner>))}</td>
+                    ))}
+                  </tr>
+                ))}
+                <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+                  <td style={{ ...tdL, fontWeight: 800 }}>Total Invested</td>
+                  <td style={{ ...td, fontWeight: 800 }}>{fmt(snapshot.totalProjectEquity)}</td>
+                  {effectivePartners.map((p, i) => <td key={p.id} style={{ ...td, fontWeight: 700 }}>{fmt(rows[i]?.totalEquityInvested ?? 0)}</td>)}
+                </tr>
+                <tr>
+                  <td style={tdL}>Shareholding %</td>
+                  <td style={td}>{fmtPct(snapshot.shareholdingSum)}</td>
+                  {effectivePartners.map((p, i) => (
+                    <td key={p.id} style={td}>
+                      {manualMode ? numCell(p.manualShareholdingPct, (n) => update(p.id, { manualShareholdingPct: n })) : fmtPct(rows[i]?.shareholdingPct ?? 0)}
+                    </td>
+                  ))}
+                </tr>
               </tbody>
             </table>
           </div>
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>{' '}
-            <Chip ok={snapshot.contributionsReconcile} text={`Contributions ${fmt(snapshot.totalContributions)} vs equity ${fmt(snapshot.totalProjectEquity)} (Δ ${fmt(snapshot.contributionDelta)})`} />
+            {equityTypes.map((type) => (
+              <Chip key={type.key} ok={type.ok} text={`${type.label}: ${fmt(type.allocated)} / ${fmt(type.total)}`} />
+            ))}
             <Chip ok={snapshot.shareholdingReconciles} text={`Shareholding ${fmtPct(snapshot.shareholdingSum)}`} />
           </div>
 
