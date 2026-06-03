@@ -50,6 +50,8 @@ export default function ExportModal({
   const [sections, setSections] = useState<Record<string, { inputs: boolean; outputs: boolean; schedules: boolean }>>(() =>
     Object.fromEntries(MODULES.filter((m) => EXPORTABLE.has(m.key)).map((m) => [m.key, { inputs: true, outputs: true, schedules: true }])),
   );
+  // PDF display scale (default Millions for readability on large projects).
+  const [pdfScale, setPdfScale] = useState<'thousands' | 'millions'>('millions');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +84,7 @@ export default function ExportModal({
         dateLabel,
         selectedModuleKeys: selectedKeys,
         moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
+        displayScale: pdfScale,
       });
       const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -171,7 +174,22 @@ export default function ExportModal({
         {step === 'modules' && (
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
-              The Cover and Project Description pages are always included. Pick modules and which parts of each to render.
+              The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Number scale:</span>
+              {(['thousands', 'millions'] as const).map((s) => (
+                <label key={s} data-testid={`export-scale-${s}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px', textTransform: 'capitalize',
+                  color: pdfScale === s ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                  background: pdfScale === s ? 'var(--color-navy)' : 'var(--color-surface)',
+                }}>
+                  <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => setPdfScale(s)} style={{ display: 'none' }} />
+                  {s}
+                </label>
+              ))}
+              <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>(Millions recommended)</span>
             </div>
             {moduleRows.map((m) => {
               const exportable = EXPORTABLE.has(m.key);

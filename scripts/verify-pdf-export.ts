@@ -158,11 +158,18 @@ async function main(): Promise<void> {
   check('part toggle drops content (m1 outputs-only < m1 all)', m1OutputsOnly.length < m1All.length, `out=${m1OutputsOnly.length} all=${m1All.length}`);
   check('part toggle still valid PDF', (await pageCount(m1OutputsOnly)) >= 2, '');
 
-  // Empty selection still produces cover + description (both mandatory).
+  // Empty selection still produces cover + executive summary (both mandatory).
   const coverOnly = await generateProjectPdf({
     state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [],
   });
-  check('empty selection => cover + description (2 pages)', (await pageCount(coverOnly)) === 2, '');
+  check('empty selection => cover + exec summary (2 pages)', (await pageCount(coverOnly)) === 2, '');
+
+  // Display scale option: thousands produces a (generally) larger byte stream
+  // than millions for the same content (more digits per cell), and both are
+  // valid multi-page documents.
+  const millions = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions' });
+  const thousands = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'thousands' });
+  check('scale option produces valid PDFs (millions + thousands)', (await pageCount(millions)) >= 15 && (await pageCount(thousands)) >= 15, '');
 
   // Data-layer reconciliation: the PDF renders this exact snapshot, so if it
   // balances + the two CF methods tie, the printed numbers match the UI.

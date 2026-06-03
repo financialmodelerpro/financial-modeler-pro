@@ -1,40 +1,32 @@
 /**
  * generateProjectPdf.ts
  *
- * Full-project PDF report for the REFM platform. Renders ONE document that
+ * Full-project PDF report for the REFM platform. ONE landscape document that
  * walks every selected module in platform tab order, covering inputs, outputs
- * and schedules, styled with the platform navy headers + accounting number
- * format. No new calculations: it reads the same snapshots the UI reads
- * (computeFinancialsSnapshot + computeReturnsSnapshot) and renders them.
+ * and schedules, styled with the platform navy headers + Inter font +
+ * accounting number format. No new calculations: it reads the same snapshots
+ * the UI reads (computeFinancialsSnapshot + computeReturnsSnapshot).
  *
- * Structure:
- *   - Cover page (portrait): project name, version + comment, date, location /
- *     currency / scale / horizon, headline KPIs, subtle FMP branding.
- *   - Project Description page (portrait): project metadata, phases table,
- *     assets grouped by phase. The "About the Project" page.
- *   - Per module (landscape), each starting on a new page: a navy header, then
- *     the module's Inputs / Outputs / Schedules sub-sections in tab order.
- *   - Footer on every page: page number + project name + version.
+ * Structure (all pages landscape A4):
+ *   - Page 1: clean Cover (project name + subtitle + date).
+ *   - Page 2: Executive Summary (auto narrative + KPI cards + composition +
+ *     financial structure).
+ *   - Then one page per module TAB / sub-tab (each starts a new page), header =
+ *     "Module N: Name  ·  Tab  ·  Sub-tab"; within a tab, Inputs then Outputs
+ *     then Schedules bands.
+ *   - Footer on every page: page number + project + FMP branding tagline.
  *
- * Each module returns a ModuleContent { inputs, outputs, schedules }; the caller
- * picks which modules + which of the three parts to include (moduleSections).
- * Wide period tables split across pages: the label + Total columns and the
- * header row repeat on each column-chunk, and rows overflowing the page height
- * continue on a new page with the header repeated. Module pages are landscape
- * A4; the cover + description are portrait A4.
- *
- * The renderer is pure (state in, bytes out) so the verifier can exercise it
- * headless. pdf-lib is the only dependency (already in package.json).
+ * Period tables lead with the prior-year column (projectStartYear − 1) then the
+ * project years, matching the platform axis everywhere. Wide tables split
+ * across pages (label + Total repeat per chunk). Numbers are scaled (Millions
+ * by default, user-selectable in the Export modal) so large figures stay
+ * readable. The renderer is pure (state in, bytes out).
  */
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import {
-  formatAccounting,
-  formatArea,
-  formatInteger,
-  type DisplayScale,
-} from '@/src/core/formatters';
+import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea } from '@/src/core/calculations';
+import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import INTER_REGULAR_B64 from './fonts/interRegular';
 import INTER_BOLD_B64 from './fonts/interBold';
 import {
@@ -45,7 +37,6 @@ import {
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { MODULES } from '../modules-config';
 
-// Decode a base64 string to bytes in both Node (Buffer) and the browser (atob).
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
   const bin = atob(b64);
@@ -54,8 +45,9 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-// ── Table model ───────────────────────────────────────────────────────────
+// ── Table / item model ───────────────────────────────────────────────────────
 export type RowEmphasis = 'data' | 'subtotal' | 'total' | 'heading';
+export type PartKind = 'inputs' | 'outputs' | 'schedules';
 
 export interface PdfTableRow {
   cells: Array<string | number | null>;
@@ -64,81 +56,72 @@ export interface PdfTableRow {
 
 export interface PdfTable {
   title: string;
-  /** 'period': cells = [label, Total, ...periodValues] with column splitting.
-   *  'grid': arbitrary columns, no splitting (used for KV + small lists). */
   kind: 'period' | 'grid';
-  /** Column headers. For 'period': ['', 'Total', y1, y2, ...]. */
+  /** period: ['', 'Total', priorYear, y1, y2, ...]; grid: arbitrary columns. */
   columns: string[];
   rows: PdfTableRow[];
-  /** Grid alignment: 'kv' keeps the value column left-aligned (label/value
-   *  lists); 'data' right-aligns every column after the first (number grids). */
   align?: 'kv' | 'data';
 }
 
-/** A module's content, split into the three selectable parts. */
-export interface ModuleContent {
-  inputs: PdfTable[];
-  outputs: PdfTable[];
-  schedules: PdfTable[];
-}
+export interface PdfCard { label: string; value: string; sub?: string }
 
-/** Per-module part selection (missing flags default to true / included). */
-export interface ModuleSectionSelection {
-  inputs?: boolean;
-  outputs?: boolean;
-  schedules?: boolean;
-}
+export type PdfItem =
+  | { type: 'table'; table: PdfTable }
+  | { type: 'cards'; title: string; cards: PdfCard[] }
+  | { type: 'paragraph'; title?: string; text: string };
+
+/** A table/cards/paragraph tagged with the tab it belongs to + its part. */
+export interface TaggedItem { tab: string; part: PartKind; item: PdfItem }
+
+/** Module content: a flat tagged list; the assembler groups by tab. */
+export type ModuleContent = TaggedItem[];
+
+export interface ModuleSectionSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
 
 export interface GenerateProjectPdfOptions {
   state: FinancialsResolverState;
   projectName: string;
   versionLabel?: string | null;
-  /** Optional version comment, printed under the version on the cover. */
   versionComment?: string | null;
-  /** Caller-supplied date string (the engine never reads the clock). */
   dateLabel: string;
-  /** Module keys to include (e.g. ['module1','module4']). */
   selectedModuleKeys: string[];
-  /** Per-module Inputs / Outputs / Schedules toggles. Missing module or
-   *  missing flag => that part is included. */
   moduleSections?: Record<string, ModuleSectionSelection>;
+  /** Display scale for the PDF (overrides the project setting). Default millions. */
+  displayScale?: DisplayScale;
 }
 
 // ── Colors / layout ─────────────────────────────────────────────────────────
-const NAVY = rgb(0x1b / 255, 0x4f / 255, 0x8a / 255);        // --color-navy
-const NAVY_DARK = rgb(0x1b / 255, 0x3a / 255, 0x6b / 255);   // --color-navy-dark
+const NAVY = rgb(0x1b / 255, 0x4f / 255, 0x8a / 255);
+const NAVY_DARK = rgb(0x1b / 255, 0x3a / 255, 0x6b / 255);
 const WHITE = rgb(1, 1, 1);
 const TEXT = rgb(0.12, 0.16, 0.22);
 const MUTED = rgb(0.42, 0.46, 0.52);
-const SUBTOTAL_FILL = rgb(0.90, 0.93, 0.97);                 // navy ~12% mix
-const PART_FILL = rgb(0.84, 0.89, 0.96);                     // sub-section band
+const SUBTOTAL_FILL = rgb(0.90, 0.93, 0.97);
+const PART_FILL = rgb(0.84, 0.89, 0.96);
+const CARD_FILL = rgb(0.97, 0.98, 1);
 const BORDER = rgb(0.82, 0.85, 0.89);
 
-const PAGE_W_L = 841.89; // A4 landscape
-const PAGE_H_L = 595.28;
-const PAGE_W_P = 595.28; // A4 portrait
-const PAGE_H_P = 841.89;
+const PAGE_W = 841.89; // A4 landscape only
+const PAGE_H = 595.28;
 const MARGIN = 34;
 const HEADER_BAND_H = 30;
-const FOOTER_H = 22;
+const FOOTER_H = 24;
+const CONTENT_W = PAGE_W - 2 * MARGIN;
 const CONTENT_BOTTOM = MARGIN + FOOTER_H;
 
-const LABEL_COL_W = 200;
-const TOTAL_COL_W = 66;
-const PERIOD_COL_W = 50;
+const LABEL_COL_W = 188;
+const TOTAL_COL_W = 72;
+const PERIOD_COL_W = 52;
 const ROW_H = 14;
 const HEADER_ROW_H = 16;
 const TITLE_H = 18;
 const PART_H = 20;
 const SECTION_GAP = 10;
-// Period tables only render on landscape pages, so size the chunk to the
-// landscape content width.
-const PERIODS_PER_PAGE = Math.max(
-  1,
-  Math.floor((PAGE_W_L - 2 * MARGIN - LABEL_COL_W - TOTAL_COL_W) / PERIOD_COL_W),
-);
+const PERIODS_PER_PAGE = Math.max(1, Math.floor((CONTENT_W - LABEL_COL_W - TOTAL_COL_W) / PERIOD_COL_W));
 
-// ── Internal render context ─────────────────────────────────────────────────
+const PART_LABEL: Record<PartKind, string> = { inputs: 'Inputs', outputs: 'Outputs', schedules: 'Schedules' };
+
+// ── Render context ────────────────────────────────────────────────────────────
 interface Ctx {
   doc: PDFDocument;
   font: PDFFont;
@@ -146,37 +129,30 @@ interface Ctx {
   pages: PDFPage[];
   page: PDFPage;
   y: number;
-  pageW: number;
-  pageH: number;
-  landscape: boolean;
   projectName: string;
-  versionLabel: string;
-  currentModuleHeader?: string;
+  unitLabel: string;
+  currentHeader?: string;
 }
 
-const contentW = (ctx: Ctx): number => ctx.pageW - 2 * MARGIN;
-
-function newPage(ctx: Ctx, opts: { landscape: boolean; headerTitle?: string }): void {
-  ctx.landscape = opts.landscape;
-  ctx.pageW = opts.landscape ? PAGE_W_L : PAGE_W_P;
-  ctx.pageH = opts.landscape ? PAGE_H_L : PAGE_H_P;
-  const page = ctx.doc.addPage([ctx.pageW, ctx.pageH]);
+function newPage(ctx: Ctx, headerTitle?: string): void {
+  const page = ctx.doc.addPage([PAGE_W, PAGE_H]);
   ctx.pages.push(page);
   ctx.page = page;
-  if (opts.headerTitle) {
-    drawHeaderBand(ctx, opts.headerTitle);
-    ctx.y = ctx.pageH - HEADER_BAND_H - 8;
+  if (headerTitle) {
+    drawHeaderBand(ctx, headerTitle);
+    ctx.y = PAGE_H - HEADER_BAND_H - 10;
   } else {
-    ctx.y = ctx.pageH - MARGIN;
+    ctx.y = PAGE_H - MARGIN;
   }
 }
 
 function drawHeaderBand(ctx: Ctx, title: string): void {
-  const { page, bold } = ctx;
-  page.drawRectangle({ x: 0, y: ctx.pageH - HEADER_BAND_H, width: ctx.pageW, height: HEADER_BAND_H, color: NAVY });
-  page.drawText(fitText(title, bold, 13, ctx.pageW - 2 * MARGIN), {
-    x: MARGIN, y: ctx.pageH - HEADER_BAND_H + 9, size: 13, font: bold, color: WHITE,
-  });
+  ctx.page.drawRectangle({ x: 0, y: PAGE_H - HEADER_BAND_H, width: PAGE_W, height: HEADER_BAND_H, color: NAVY });
+  ctx.page.drawText(fitText(title, ctx.bold, 12, CONTENT_W - 180), { x: MARGIN, y: PAGE_H - HEADER_BAND_H + 10, size: 12, font: ctx.bold, color: WHITE });
+  // Unit note on the right of the header band.
+  const u = ctx.unitLabel;
+  const uw = ctx.font.widthOfTextAtSize(u, 8);
+  ctx.page.drawText(u, { x: PAGE_W - MARGIN - uw, y: PAGE_H - HEADER_BAND_H + 11, size: 8, font: ctx.font, color: rgb(0.85, 0.9, 0.97) });
 }
 
 function fitText(text: string, font: PDFFont, size: number, maxW: number): string {
@@ -193,7 +169,7 @@ function fitText(text: string, font: PDFFont, size: number, maxW: number): strin
 
 function drawCell(
   ctx: Ctx, text: string, x: number, w: number, y: number,
-  opts: { align?: 'left' | 'right'; font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> },
+  opts: { align?: 'left' | 'right' | 'center'; font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> },
 ): void {
   const font = opts.font ?? ctx.font;
   const size = opts.size ?? 8;
@@ -201,40 +177,32 @@ function drawCell(
   const pad = 4;
   const fitted = fitText(text, font, size, w - 2 * pad);
   const tw = font.widthOfTextAtSize(fitted, size);
-  const tx = opts.align === 'right' ? x + w - pad - tw : x + pad;
+  const tx = opts.align === 'right' ? x + w - pad - tw : opts.align === 'center' ? x + (w - tw) / 2 : x + pad;
   ctx.page.drawText(fitted, { x: tx, y: y + 4, size, font, color });
 }
 
-// ── Number formatting bundle ────────────────────────────────────────────────
+// ── Number formatting ─────────────────────────────────────────────────────────
 interface Fmt {
   scale: DisplayScale;
   dec: number;
-  /** Period-table passthrough: number → accounting, string → as-is. */
   cell: (v: string | number | null) => string;
-  /** Currency (scaled accounting). */
   money: (v: number | null | undefined) => string;
-  /** Area (sqm, never scaled). */
   area: (v: number | null | undefined) => string;
-  /** Integer count (never scaled). */
   int: (v: number | null | undefined) => string;
-  /** Decimal fraction → percent (0.184 → "18.4%"). */
   pct: (v: number | null | undefined, d?: number) => string;
-  /** Already-in-percent-units value → percent string (12.34 → "12.34%"). */
   pctRaw: (v: number | null | undefined, d?: number) => string;
-  /** Multiple (1.85 → "1.85x"). */
   mult: (v: number | null | undefined) => string;
 }
 
-function makeFmt(state: FinancialsResolverState): Fmt {
-  const scale: DisplayScale = state.project.displayScale ?? 'full';
-  const dec = state.project.displayDecimals ?? 0;
+function makeFmt(scale: DisplayScale): Fmt {
+  const dec = scale === 'full' ? 0 : scale === 'millions' ? 1 : 0;
   const money = (v: number | null | undefined): string =>
     v === null || v === undefined || !Number.isFinite(v) ? '' : formatAccounting(v, scale, dec);
   const finite = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v);
   return {
     scale, dec, money,
     cell: (v) => (v === null || v === undefined ? '' : typeof v === 'string' ? v : !Number.isFinite(v) ? '' : formatAccounting(v, scale, dec)),
-    area: (v) => formatArea(v ?? 0, (dec as 0 | 1 | 2 | 3)),
+    area: (v) => formatArea(v ?? 0, 0),
     int: (v) => formatInteger(v ?? 0),
     pct: (v, d = 1) => (finite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a'),
     pctRaw: (v, d = 2) => (finite(v) ? `${v.toFixed(d)}%` : 'n/a'),
@@ -242,18 +210,20 @@ function makeFmt(state: FinancialsResolverState): Fmt {
   };
 }
 
-// ── Period-table column layout ───────────────────────────────────────────────
+function unitLabel(currency: string, scale: DisplayScale): string {
+  if (scale === 'thousands') return `All figures in ${currency} '000`;
+  if (scale === 'millions') return `All figures in ${currency} millions`;
+  return `All figures in ${currency}`;
+}
+
+// ── Drawing primitives ──────────────────────────────────────────────────────
 function chunkRanges(nPeriods: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
-  for (let s = 0; s < Math.max(1, nPeriods); s += PERIODS_PER_PAGE) {
-    out.push([s, Math.min(nPeriods, s + PERIODS_PER_PAGE)]);
-  }
+  for (let s = 0; s < Math.max(1, nPeriods); s += PERIODS_PER_PAGE) out.push([s, Math.min(nPeriods, s + PERIODS_PER_PAGE)]);
   return out.length ? out : [[0, 0]];
 }
 
-function emphasisStyle(em: RowEmphasis | undefined): {
-  fill?: ReturnType<typeof rgb>; color: ReturnType<typeof rgb>; bold: boolean;
-} {
+function emphasisStyle(em: RowEmphasis | undefined): { fill?: ReturnType<typeof rgb>; color: ReturnType<typeof rgb>; bold: boolean } {
   switch (em) {
     case 'total': return { fill: NAVY, color: WHITE, bold: true };
     case 'subtotal': return { fill: SUBTOTAL_FILL, color: TEXT, bold: true };
@@ -263,64 +233,96 @@ function emphasisStyle(em: RowEmphasis | undefined): {
 }
 
 function ensureSpace(ctx: Ctx, need: number): void {
-  if (ctx.y - need < CONTENT_BOTTOM) newPage(ctx, { landscape: ctx.landscape, headerTitle: ctx.currentModuleHeader });
+  if (ctx.y - need < CONTENT_BOTTOM) newPage(ctx, ctx.currentHeader);
 }
 
 function drawTitle(ctx: Ctx, title: string): void {
   ensureSpace(ctx, TITLE_H);
   ctx.y -= TITLE_H;
-  drawCell(ctx, title, MARGIN, contentW(ctx), ctx.y, { font: ctx.bold, size: 10, color: NAVY_DARK });
+  drawCell(ctx, title, MARGIN, CONTENT_W, ctx.y, { font: ctx.bold, size: 10, color: NAVY_DARK });
 }
 
 function drawPartHeader(ctx: Ctx, label: string): void {
   ensureSpace(ctx, PART_H + 4);
   ctx.y -= PART_H;
-  ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: contentW(ctx), height: PART_H, color: PART_FILL });
-  drawCell(ctx, label, MARGIN, contentW(ctx), ctx.y + 2, { font: ctx.bold, size: 10, color: NAVY_DARK });
+  ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: PART_H, color: PART_FILL });
+  drawCell(ctx, label, MARGIN, CONTENT_W, ctx.y + 2, { font: ctx.bold, size: 10, color: NAVY_DARK });
   ctx.y -= 4;
+}
+
+function drawParagraph(ctx: Ctx, text: string, size = 9): void {
+  const maxW = CONTENT_W - 4;
+  const words = text.split(' ');
+  let line = '';
+  const flush = (): void => {
+    if (!line) return;
+    ensureSpace(ctx, 13);
+    ctx.y -= 13;
+    drawCell(ctx, line, MARGIN, CONTENT_W, ctx.y, { size, color: TEXT });
+    line = '';
+  };
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.font.widthOfTextAtSize(test, size) > maxW) { flush(); line = w; } else line = test;
+  }
+  flush();
+  ctx.y -= 4;
+}
+
+function drawCards(ctx: Ctx, title: string, cards: PdfCard[]): void {
+  if (title) drawTitle(ctx, title);
+  const perRow = 4, gap = 8, ch = 50;
+  const cw = (CONTENT_W - (perRow - 1) * gap) / perRow;
+  for (let i = 0; i < cards.length; i += perRow) {
+    ensureSpace(ctx, ch + 6);
+    ctx.y -= ch;
+    cards.slice(i, i + perRow).forEach((cd, j) => {
+      const x = MARGIN + j * (cw + gap);
+      ctx.page.drawRectangle({ x, y: ctx.y, width: cw, height: ch, borderColor: BORDER, borderWidth: 1, color: CARD_FILL });
+      drawCell(ctx, cd.label.toUpperCase(), x + 8, cw - 12, ctx.y + ch - 16, { size: 7, font: ctx.bold, color: MUTED });
+      drawCell(ctx, cd.value, x + 8, cw - 12, ctx.y + ch - 36, { size: 13, font: ctx.bold, color: NAVY_DARK });
+      if (cd.sub) drawCell(ctx, cd.sub, x + 8, cw - 12, ctx.y + 2, { size: 7, color: MUTED });
+    });
+    ctx.y -= 6;
+  }
+  ctx.y -= SECTION_GAP - 4;
 }
 
 function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
   drawTitle(ctx, table.title);
   const nCols = table.columns.length;
   const dataAlign = table.align !== 'kv';
-  const firstW = Math.min(280, contentW(ctx) * 0.42);
-  const restW = (contentW(ctx) - firstW) / Math.max(1, nCols - 1);
+  const firstW = Math.min(300, CONTENT_W * 0.40);
+  const restW = (CONTENT_W - firstW) / Math.max(1, nCols - 1);
   const colX = (i: number): number => MARGIN + (i === 0 ? 0 : firstW + (i - 1) * restW);
   const colW = (i: number): number => (i === 0 ? firstW : restW);
   const drawHeader = (): void => {
     ensureSpace(ctx, HEADER_ROW_H);
     ctx.y -= HEADER_ROW_H;
-    ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: contentW(ctx), height: HEADER_ROW_H, color: NAVY });
-    table.columns.forEach((c, i) =>
-      drawCell(ctx, c, colX(i), colW(i), ctx.y, { align: i === 0 || !dataAlign ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
+    ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: HEADER_ROW_H, color: NAVY });
+    table.columns.forEach((c, i) => drawCell(ctx, c, colX(i), colW(i), ctx.y, { align: i === 0 || !dataAlign ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
   };
   drawHeader();
   for (const r of table.rows) {
-    if (ctx.y - ROW_H < CONTENT_BOTTOM) { newPage(ctx, { landscape: ctx.landscape, headerTitle: ctx.currentModuleHeader }); drawHeader(); }
+    if (ctx.y - ROW_H < CONTENT_BOTTOM) { newPage(ctx, ctx.currentHeader); drawHeader(); }
     ctx.y -= ROW_H;
     const st = emphasisStyle(r.emphasis);
-    if (st.fill) ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: contentW(ctx), height: ROW_H, color: st.fill });
+    if (st.fill) ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: ROW_H, color: st.fill });
     r.cells.forEach((cell, i) => {
       const align: 'left' | 'right' = i === 0 ? 'left' : dataAlign ? 'right' : 'left';
-      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, {
-        align, font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color,
-      });
+      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color });
     });
   }
   ctx.y -= SECTION_GAP;
 }
 
 function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
-  const periodHeaders = table.columns.slice(2);
+  const periodHeaders = table.columns.slice(2); // [priorYear, ...years]
   const ranges = chunkRanges(periodHeaders.length);
   ranges.forEach(([from, to], ci) => {
     const chunkCount = to - from;
     const totalRowW = LABEL_COL_W + TOTAL_COL_W + chunkCount * PERIOD_COL_W;
-    const colX = (k: number): number =>
-      k === 0 ? MARGIN
-        : k === 1 ? MARGIN + LABEL_COL_W
-          : MARGIN + LABEL_COL_W + TOTAL_COL_W + (k - 2) * PERIOD_COL_W;
+    const colX = (k: number): number => k === 0 ? MARGIN : k === 1 ? MARGIN + LABEL_COL_W : MARGIN + LABEL_COL_W + TOTAL_COL_W + (k - 2) * PERIOD_COL_W;
     const colW = (k: number): number => (k === 0 ? LABEL_COL_W : k === 1 ? TOTAL_COL_W : PERIOD_COL_W);
     const headerLabels = ['', 'Total', ...periodHeaders.slice(from, to)];
     drawTitle(ctx, ci === 0 ? table.title : `${table.title} (continued)`);
@@ -328,365 +330,344 @@ function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
       ensureSpace(ctx, HEADER_ROW_H);
       ctx.y -= HEADER_ROW_H;
       ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: totalRowW, height: HEADER_ROW_H, color: NAVY });
-      headerLabels.forEach((c, k) =>
-        drawCell(ctx, c, colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
+      headerLabels.forEach((c, k) => drawCell(ctx, c, colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
     };
     drawHeader();
     for (const r of table.rows) {
-      if (ctx.y - ROW_H < CONTENT_BOTTOM) { newPage(ctx, { landscape: ctx.landscape, headerTitle: ctx.currentModuleHeader }); drawHeader(); }
+      if (ctx.y - ROW_H < CONTENT_BOTTOM) { newPage(ctx, ctx.currentHeader); drawHeader(); }
       ctx.y -= ROW_H;
       const st = emphasisStyle(r.emphasis);
       if (st.fill) ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: totalRowW, height: ROW_H, color: st.fill });
       const cells = [r.cells[0], r.cells[1], ...r.cells.slice(2 + from, 2 + to)];
-      cells.forEach((cell, k) =>
-        drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, {
-          align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color,
-        }));
+      cells.forEach((cell, k) => drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color }));
     }
     ctx.y -= SECTION_GAP;
   });
 }
 
-// ── Cover page ──────────────────────────────────────────────────────────────
-function drawCover(ctx: Ctx, opts: GenerateProjectPdfOptions, kpis: Array<[string, string]>, metaLines: string[]): void {
-  newPage(ctx, { landscape: false });
-  const { page, bold, font } = ctx;
-  const W = ctx.pageW, H = ctx.pageH;
-  page.drawRectangle({ x: 0, y: H - 190, width: W, height: 190, color: NAVY });
-  page.drawText('Project Financial Report', { x: MARGIN, y: H - 70, size: 24, font: bold, color: WHITE });
-  page.drawText(fitText(opts.projectName || 'Untitled Project', bold, 18, W - 2 * MARGIN), {
-    x: MARGIN, y: H - 104, size: 18, font: bold, color: WHITE,
-  });
-  let vy = H - 130;
-  if (opts.versionLabel) {
-    page.drawText(fitText(opts.versionLabel, font, 11, W - 2 * MARGIN), { x: MARGIN, y: vy, size: 11, font, color: WHITE });
-    vy -= 16;
-  }
-  if (opts.versionComment) {
-    page.drawText(fitText(opts.versionComment, font, 9, W - 2 * MARGIN), { x: MARGIN, y: vy, size: 9, font, color: rgb(0.85, 0.9, 0.97) });
-    vy -= 14;
-  }
-  page.drawText(opts.dateLabel, { x: MARGIN, y: vy, size: 9, font, color: rgb(0.85, 0.9, 0.97) });
-
-  // Meta lines (location / currency / scale / horizon)
-  let my = H - 230;
-  for (const line of metaLines) {
-    page.drawText(fitText(line, font, 10, W - 2 * MARGIN), { x: MARGIN, y: my, size: 10, font, color: TEXT });
-    my -= 16;
-  }
-
-  // KPI grid (rows of 2)
-  const cols = 2;
-  const gap = 12;
-  const boxW = (W - 2 * MARGIN - (cols - 1) * gap) / cols;
-  const boxH = 64;
-  const yTop = my - 16;
-  kpis.forEach(([label, value], i) => {
-    const r = Math.floor(i / cols), c = i % cols;
-    const x = MARGIN + c * (boxW + gap);
-    const y = yTop - r * (boxH + gap);
-    page.drawRectangle({ x, y: y - boxH, width: boxW, height: boxH, borderColor: BORDER, borderWidth: 1, color: rgb(0.98, 0.99, 1) });
-    page.drawText(fitText(label.toUpperCase(), bold, 8, boxW - 16), { x: x + 10, y: y - 20, size: 8, font: bold, color: MUTED });
-    page.drawText(fitText(value, bold, 17, boxW - 16), { x: x + 10, y: y - 46, size: 17, font: bold, color: NAVY_DARK });
-  });
-
-  // Subtle FMP branding at the foot of the cover.
-  page.drawText('Financial Modeler Pro', { x: MARGIN, y: MARGIN + 4, size: 9, font: bold, color: MUTED });
+function drawItem(ctx: Ctx, item: PdfItem, fmt: Fmt): void {
+  if (item.type === 'table') { item.table.kind === 'period' ? drawPeriodTable(ctx, item.table, fmt) : drawGridTable(ctx, item.table, fmt); }
+  else if (item.type === 'cards') drawCards(ctx, item.title, item.cards);
+  else { if (item.title) drawTitle(ctx, item.title); drawParagraph(ctx, item.text); }
 }
 
-// ── Footers (page numbers, drawn after all content) ─────────────────────────
+// ── Cover + footer ────────────────────────────────────────────────────────────
+function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: string): void {
+  newPage(ctx);
+  ctx.page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: NAVY });
+  const cy = PAGE_H / 2 + 30;
+  drawCell(ctx, projectName || 'Untitled Project', MARGIN, CONTENT_W, cy, { align: 'center', font: ctx.bold, size: 30, color: NAVY_DARK });
+  drawCell(ctx, subtitle, MARGIN, CONTENT_W, cy - 40, { align: 'center', size: 13, color: MUTED });
+  ctx.page.drawRectangle({ x: PAGE_W / 2 - 60, y: cy - 56, width: 120, height: 2, color: NAVY });
+  drawCell(ctx, dateLabel, MARGIN, CONTENT_W, cy - 84, { align: 'center', size: 10, color: TEXT });
+  drawCell(ctx, 'Financial Modeler Pro', MARGIN, CONTENT_W, MARGIN + 56, { align: 'center', font: ctx.bold, size: 11, color: NAVY });
+  drawCell(ctx, 'Institutional-grade real estate financial modeling & feasibility', MARGIN, CONTENT_W, MARGIN + 40, { align: 'center', size: 8, color: MUTED });
+}
+
 function drawFooters(ctx: Ctx): void {
   const total = ctx.pages.length;
   ctx.pages.forEach((page, i) => {
-    const w = page.getWidth();
-    const text = `Page ${i + 1} of ${total}   ·   ${ctx.projectName}${ctx.versionLabel ? '  ·  ' + ctx.versionLabel : ''}`;
-    page.drawText(fitText(text, ctx.font, 8, w - 2 * MARGIN), { x: MARGIN, y: MARGIN, size: 8, font: ctx.font, color: MUTED });
+    page.drawText(`Page ${i + 1} of ${total}   ·   ${ctx.projectName}`, { x: MARGIN, y: MARGIN, size: 8, font: ctx.font, color: MUTED });
+    const tag = 'Financial Modeler Pro · financialmodelerpro.com';
+    const tw = ctx.font.widthOfTextAtSize(tag, 8);
+    page.drawText(tag, { x: PAGE_W - MARGIN - tw, y: MARGIN, size: 8, font: ctx.font, color: MUTED });
   });
 }
 
-// ── Builders: shared helpers ─────────────────────────────────────────────────
+// ── Builder helpers ───────────────────────────────────────────────────────────
 const sum = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
 const last = (a: number[]): number => a[a.length - 1] ?? 0;
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
-function row(cells: Array<string | number | null>, emphasis?: RowEmphasis): PdfTableRow {
-  return { cells, emphasis };
-}
+function row(cells: Array<string | number | null>, emphasis?: RowEmphasis): PdfTableRow { return { cells, emphasis }; }
 
-function periodRow(label: string, values: number[], total: 'sum' | 'last' | 'none', emphasis?: RowEmphasis): PdfTableRow {
+/** Period row: leads with [label, total, prior, ...values]. */
+function periodRow(label: string, values: number[], total: 'sum' | 'last' | 'none', emphasis?: RowEmphasis, prior: number | null = 0): PdfTableRow {
   const t = total === 'sum' ? sum(values) : total === 'last' ? last(values) : null;
-  return { cells: [label, t, ...values], emphasis };
+  return { cells: [label, t, prior, ...values], emphasis };
 }
-
-/** Period row whose period cells are pre-formatted strings (ratios / %). */
-function strPeriodRow(label: string, strs: string[], total: string | number | null = '', emphasis?: RowEmphasis): PdfTableRow {
-  return { cells: [label, total, ...strs], emphasis };
+function strPeriodRow(label: string, strs: string[], total: string | number | null = '', emphasis?: RowEmphasis, prior: string | number | null = ''): PdfTableRow {
+  return { cells: [label, total, prior, ...strs], emphasis };
 }
-
-function periodTable(title: string, yearLabels: number[], rows: PdfTableRow[]): PdfTable {
-  return { title, kind: 'period', columns: ['', 'Total', ...yearLabels.map(String)], rows };
+function periodTable(title: string, priorYear: number, yearLabels: number[], rows: PdfTableRow[]): PdfTable {
+  return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows };
 }
-
 function kvTable(title: string, pairs: Array<[string, string]>): PdfTable {
   return { title, kind: 'grid', columns: ['Field', 'Value'], align: 'kv', rows: pairs.map(([a, b]) => row([a, b])) };
 }
-
 const indexLabel = (ix?: { method?: string; rate?: number }): string => {
   if (!ix || !ix.method || ix.method === 'none') return 'None';
   const m = ix.method === 'single_rate' ? 'Flat' : ix.method === 'yoy_compound' ? 'Compound' : ix.method === 'yoy_per_period' ? 'Per-Year' : ix.method === 'step' ? 'Step' : ix.method;
   return ix.rate !== undefined && ix.rate !== null ? `${m} ${(ix.rate * 100).toFixed(1)}%` : m;
 };
+/** Tagged-item helpers. */
+const tItem = (tab: string, part: PartKind, item: PdfItem): TaggedItem => ({ tab, part, item });
+const tTable = (tab: string, part: PartKind, table: PdfTable): TaggedItem => tItem(tab, part, { type: 'table', table });
+const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): TaggedItem => tItem(tab, part, { type: 'cards', title, cards });
 
-// ── Project description (about) page ─────────────────────────────────────────
-function buildDescriptionTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt): PdfTable[] {
+// ── Executive summary ─────────────────────────────────────────────────────────
+function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: ReturnsSnapshot | null, state: FinancialsResolverState, fmt: Fmt): void {
   const p = state.project;
-  const tables: PdfTable[] = [];
   const startYear = snap.projectStartYear;
   const endYear = startYear + snap.axisLength - 1;
-  tables.push(kvTable('About the Project', [
-    ['Project name', p.name || '(unnamed)'],
-    ['Project type', String(p.projectType ?? '-')],
-    ['Location', [p.location, p.country].filter(Boolean).join(', ') || '-'],
-    ['Currency', p.currency],
-    ['Display scale', String(p.displayScale ?? 'full')],
-    ['Model horizon', `${snap.axisLength} years (${startYear} to ${endYear})`],
-    ['Start date', p.startDate ?? '-'],
-    ['Status', String(p.status ?? '-')],
-    ['Financial terminology', p.financialTerminology ?? 'standard'],
-  ]));
+  const fin = snap.financing;
+  const assets = state.assets.filter((a) => a.visible !== false);
+  const landSqm = state.parcels.length
+    ? state.parcels.reduce((s, pa) => s + (pa.area ?? 0), 0)
+    : assets.reduce((s, a) => s + (a.landAllocation?.sqm ?? a.landAreaSqm ?? 0), 0);
+  const byStrategy = new Map<string, number>();
+  for (const a of assets) byStrategy.set(a.strategy, (byStrategy.get(a.strategy) ?? 0) + 1);
+  const compStr = [...byStrategy.entries()].map(([s, n]) => `${n} ${s}`).join(', ');
+  const landCost = Math.max(0, fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand);
+  const constructionCost = fin.capex.totals.exclAllLand;
+  const gdv = sum(snap.pl.totalRevenuePerPeriod);
 
-  // Phases summary.
-  tables.push({
-    title: 'Phases', kind: 'grid', align: 'data',
-    columns: ['Phase', 'Status', 'Start', 'Constr. yrs', 'Ops yrs', 'End'],
-    rows: state.phases.map((ph) => {
-      const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : startYear;
-      const cp = ph.constructionPeriods ?? 0;
-      const ops = ph.operationsPeriods ?? 0;
-      return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(cp), fmt.int(ops), String(sy + cp + ops - 1)]);
-    }),
-  });
+  drawCell(ctx, 'Executive Summary', MARGIN, CONTENT_W, ctx.y - 16, { font: ctx.bold, size: 16, color: NAVY_DARK });
+  ctx.y -= 28;
 
-  // Assets grouped by phase.
-  for (const ph of state.phases) {
-    const assets = state.assets.filter((a) => a.phaseId === ph.id && a.visible !== false);
-    if (!assets.length) continue;
-    tables.push({
-      title: `Assets, ${ph.name}`, kind: 'grid', align: 'data',
-      columns: ['Asset', 'Strategy', 'Type', 'BUA (sqm)', 'Sub-units'],
-      rows: assets.map((a) => {
-        const su = state.subUnits.filter((u) => u.assetId === a.id);
-        const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
-        return row([a.name, a.strategy, a.type || '-', fmt.area(bua), fmt.int(su.length)]);
-      }),
-    });
+  const loc = [p.location, p.country].filter(Boolean).join(', ') || 'the project location';
+  const narrative =
+    `${p.name || 'This project'} is a ${String(p.projectType ?? 'mixed-use')} real estate development in ${loc}, ` +
+    `developed on ${fmt.area(landSqm)} sqm of land across ${state.phases.length} ` +
+    `${state.phases.length === 1 ? 'phase' : 'phases'}, comprising ${assets.length} ` +
+    `${assets.length === 1 ? 'asset' : 'assets'}${compStr ? ` (${compStr})` : ''}. ` +
+    `The model spans ${snap.axisLength} years (${startYear} to ${endYear}). ` +
+    `Total development cost is ${fmt.money(fin.capex.totals.inclAllLand)} ` +
+    `(${fmt.money(landCost)} land + ${fmt.money(constructionCost)} construction), funded ` +
+    `${fmt.pctRaw(fin.funding.debtPct, 0)} debt / ${fmt.pctRaw(fin.funding.equityPct, 0)} equity. ` +
+    `Projected gross development value is ${fmt.money(gdv)}` +
+    (returns ? `, yielding a project IRR of ${fmt.pct(returns.result.fcff.irr, 1)} and an equity IRR of ${fmt.pct(returns.result.fcfe.irr, 1)}.` : '.');
+  drawParagraph(ctx, narrative, 9);
+  ctx.y -= 4;
+
+  // KPI cards (incl. Dividend IRR / MOIC, Land + Construction split).
+  const cards: PdfCard[] = [];
+  if (returns) {
+    const r = returns.result;
+    cards.push({ label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered (FCFF)' });
+    cards.push({ label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered (FCFE)' });
+    cards.push({ label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' });
+    cards.push({ label: 'Dividend IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'distributed equity' });
+    cards.push({ label: 'Dividend MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributions / invested' });
   }
-  return tables;
+  cards.push({ label: 'Total Dev Cost', value: fmt.money(fin.capex.totals.inclAllLand), sub: 'incl. land' });
+  cards.push({ label: 'Land Cost', value: fmt.money(landCost), sub: 'land only' });
+  cards.push({ label: 'Construction Cost', value: fmt.money(constructionCost), sub: 'excl. land' });
+  cards.push({ label: 'Total Revenue (GDV)', value: fmt.money(gdv), sub: 'over the hold' });
+  cards.push({ label: 'Peak Debt', value: fmt.money(Math.max(0, ...snap.bs.debtOutstandingPerPeriod)), sub: 'max outstanding' });
+  drawCards(ctx, 'Headline KPIs', cards);
+
+  // Asset composition.
+  drawGridTable(ctx, {
+    title: 'Asset Composition', kind: 'grid', align: 'data',
+    columns: ['Phase', 'Asset', 'Strategy', 'BUA (sqm)', 'Sub-units'],
+    rows: assets.map((a) => {
+      const ph = state.phases.find((x) => x.id === a.phaseId);
+      const su = state.subUnits.filter((u) => u.assetId === a.id);
+      const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
+      return row([ph?.name ?? '-', a.name, a.strategy, fmt.area(bua), fmt.int(su.length)]);
+    }),
+  }, fmt);
+
+  // Financial structure.
+  drawGridTable(ctx, kvTable('Financial Structure', [
+    ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
+    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
+    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
+    ['Total new debt', fmt.money(sum(snap.directCF.debtDrawdownPerPeriod))],
+    ['Total equity (cash + in-kind + existing)', fmt.money(fin.equity.grandTotal)],
+    ['Existing debt opening', fmt.money(fin.existing.debtOutstandingTotal)],
+    ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
+  ]), fmt);
 }
 
 // ── Module 1: Setup & Financial Structure ───────────────────────────────────
-function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt): ModuleContent {
+function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const p = state.project;
   const fin = snap.financing;
   const yl = snap.yearLabels;
   const trName = (id: string): string => state.financingTranches.find((t) => t.id === id)?.name ?? id;
+  const items: ModuleContent = [];
 
-  // ── Inputs ──
-  const inputs: PdfTable[] = [];
-  inputs.push(kvTable('Tab 1: Project Setup, Project Identity', [
+  // Tab 1: Project Setup.
+  items.push(tTable('Tab 1: Project Setup', 'inputs', kvTable('Project Identity', [
     ['Project name', p.name || '(unnamed)'],
     ['Currency', p.currency],
     ['Location', [p.location, p.country].filter(Boolean).join(', ') || '-'],
     ['Start date', p.startDate ?? '-'],
     ['Status', String(p.status ?? '-')],
     ['Tax rate', fmt.pct(p.tax?.rate ?? 0, 1)],
-  ]));
-  inputs.push({
-    title: 'Tab 1: Phases', kind: 'grid', align: 'data',
+  ])));
+  items.push(tTable('Tab 1: Project Setup', 'inputs', {
+    title: 'Phases', kind: 'grid', align: 'data',
     columns: ['Phase', 'Status', 'Start', 'Constr. yrs', 'Ops yrs'],
     rows: state.phases.map((ph) => {
       const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
       return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
     }),
-  });
-  // Historical baseline per operational phase.
+  }));
   const opPhases = state.phases.filter((ph) => ph.status === 'operational' && ph.historicalBaseline);
   if (opPhases.length) {
-    inputs.push({
-      title: 'Tab 1: Historical Baseline (operational phases)', kind: 'grid', align: 'data',
+    items.push(tTable('Tab 1: Project Setup', 'inputs', {
+      title: 'Historical Baseline (operational phases)', kind: 'grid', align: 'data',
       columns: ['Phase', 'Capex', 'Equity', 'Debt drawn', 'Debt o/s', 'NBV', 'Opening cash'],
       rows: opPhases.map((ph) => {
         const b = ph.historicalBaseline!;
         return row([ph.name, fmt.money(b.historicalCapexTotal), fmt.money(b.historicalEquityContributed), fmt.money(b.historicalDebtDrawn), fmt.money(b.currentDebtOutstanding), fmt.money(b.netBookValueFixedAssets), fmt.money(b.historicalOpeningCash ?? 0)]);
       }),
-    });
+    }));
   }
-  // Tab 2: assets + sub-units per phase.
+
+  // Tab 2: Assets & Sub-units.
   for (const ph of state.phases) {
     const assets = state.assets.filter((a) => a.phaseId === ph.id && a.visible !== false);
     if (!assets.length) continue;
-    inputs.push({
-      title: `Tab 2: Assets & Sub-units, ${ph.name}`, kind: 'grid', align: 'data',
+    items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
+      title: `Assets, ${ph.name}`, kind: 'grid', align: 'data',
       columns: ['Asset', 'Strategy', 'Type', 'BUA (sqm)', 'Land (sqm)'],
       rows: assets.map((a) => {
         const su = state.subUnits.filter((u) => u.assetId === a.id);
         const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
-        const land = a.landAllocation?.sqm ?? a.landAreaSqm ?? 0;
-        return row([a.name, a.strategy, a.type || '-', fmt.area(bua), fmt.area(land)]);
+        return row([a.name, a.strategy, a.type || '-', fmt.area(bua), fmt.area(a.landAllocation?.sqm ?? a.landAreaSqm ?? 0)]);
       }),
-    });
+    }));
     for (const a of assets) {
       const su = state.subUnits.filter((u) => u.assetId === a.id);
       if (!su.length) continue;
-      inputs.push({
-        title: `Tab 2: Sub-units, ${a.name}`, kind: 'grid', align: 'data',
+      items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
+        title: `Sub-units, ${a.name}`, kind: 'grid', align: 'data',
         columns: ['Sub-unit', 'Category', 'Metric', 'Qty', 'Unit price / ADR'],
         rows: su.map((u) => row([u.name, u.category, u.metric, u.metric === 'area' ? fmt.area(u.metricValue) : fmt.int(u.metricValue), fmt.int(u.startingAdr ?? u.unitPrice ?? 0)])),
-      });
+      }));
     }
   }
-  // Tab 3: cost lines per phase.
+
+  // Tab 3: Capex (cost line inputs + per-period output).
   for (const ph of state.phases) {
     const lines = state.costLines.filter((c) => c.phaseId === ph.id && c.targetAssetId === undefined && !c.disabled);
     if (!lines.length) continue;
-    inputs.push({
-      title: `Tab 3: Costs, ${ph.name}`, kind: 'grid', align: 'data',
+    items.push(tTable('Tab 3: Capex', 'inputs', {
+      title: `Cost Lines, ${ph.name}`, kind: 'grid', align: 'data',
       columns: ['Cost line', 'Stage', 'Scope', 'Method', 'Value'],
       rows: lines.map((c) => row([c.name, String(c.stage ?? '-'), String(c.scope ?? '-'), String(c.method ?? '-'), c.method === 'fixed' ? fmt.money(c.value) : fmt.int(c.value)])),
-    });
+    }));
   }
-  // Tab 4: financing settings + parcels + tranches.
-  inputs.push(kvTable('Tab 4: Project Financing Settings', [
-    ['Funding method', String(p.financing?.fundingMethod ?? '-')],
-    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
-    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
-    ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
-  ]));
-  if (state.parcels.length) {
-    inputs.push({
-      title: 'Tab 4: Land Funding per Parcel', kind: 'grid', align: 'data',
-      columns: ['Parcel', 'Area (sqm)', 'Rate', 'Cash %', 'In-kind %', 'Cash value'],
-      rows: state.parcels.map((pa) => row([pa.name, fmt.area(pa.area), fmt.int(pa.rate), fmt.pctRaw(pa.cashPct, 0), fmt.pctRaw(pa.inKindPct, 0), fmt.money(pa.area * pa.rate * (pa.cashPct / 100))])),
-    });
-  }
-  if (state.financingTranches.length) {
-    inputs.push({
-      title: 'Tab 4: Debt Facilities', kind: 'grid', align: 'data',
-      columns: ['Tranche', 'Origin', 'Opening bal.', 'Rate %', 'Repayment', 'Drawdown'],
-      rows: state.financingTranches.map((t) => {
-        const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
-        return row([t.name, t.origin === 'existing' ? 'existing' : 'new', fmt.money(t.openingBalance ?? 0), fmt.pctRaw(rate, 2), String(t.repaymentMethod ?? '-'), String(t.drawdownMethod ?? '-')]);
-      }),
-    });
-  }
-
-  // ── Outputs ──
-  const outputs: PdfTable[] = [];
-  outputs.push(kvTable('Funding & Capital Stack', [
-    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
-    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
-    ['Total new debt', fmt.money(sum(snap.directCF.debtDrawdownPerPeriod))],
-    ['Total cash equity', fmt.money(sum(snap.directCF.equityDrawdownPerPeriod))],
-    ['In-kind equity', fmt.money(sum(snap.directCF.equityInKindDrawdownPerPeriod))],
-    ['Existing pre-capex', fmt.money(fin.existing.preCapexTotal)],
-    ['Existing debt opening', fmt.money(fin.existing.debtOutstandingTotal)],
-    ['Existing equity', fmt.money(fin.existing.equityTotal)],
-  ]));
-  outputs.push(kvTable('Funding Requirement (per method)', [
-    ['Method 1 (Total Capex)', fmt.money(fin.funding.method1)],
-    ['Method 2', fmt.money(fin.funding.method2)],
-    ['Method 3 (Cash Deficit)', fmt.money(fin.funding.method3)],
-    ['Method 4 (Specified)', fmt.money(fin.funding.method4)],
-    ['Selected', fmt.money(fin.funding.selected)],
-    ['Selected method', String(fin.funding.selectedMethodId)],
-  ]));
-  // Capex breakdown (period).
   const cap = fin.capex.perPeriod;
-  outputs.push(periodTable('Capex Breakdown', yl, [
+  items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Breakdown by Year', py, yl, [
     periodRow('Land (cash)', cap.landCash, 'sum'),
     periodRow('Land (in-kind)', cap.landInKind, 'sum'),
     periodRow('Construction & soft (non-land)', cap.nonLand, 'sum'),
     periodRow('Total capex (excl. in-kind land)', cap.exclLandInKind, 'sum', 'subtotal'),
     periodRow('Total capex (incl. all land)', cap.inclAllLand, 'sum', 'total'),
-  ]));
-  // Debt drawdown by facility.
-  if (fin.facilities.size) {
-    outputs.push(periodTable('Total Debt Required by Facility', yl,
-      [...fin.facilities.entries()]
-        .filter(([, f]) => anyNonZero(f.drawSchedule) || anyNonZero(f.interestCapitalized))
-        .map(([id, f]) => periodRow(trName(id), f.drawSchedule.slice(0, yl.length), 'sum'))
-        .concat([periodRow('Total drawdown', fin.combined.totalDrawdown.slice(0, yl.length), 'sum', 'total')])));
+  ])));
+
+  // Tab 4: Financing / Inputs.
+  items.push(tTable('Tab 4: Financing / Inputs', 'inputs', kvTable('Project Financing Settings', [
+    ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
+    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
+    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
+    ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
+  ])));
+  if (state.parcels.length) {
+    items.push(tTable('Tab 4: Financing / Inputs', 'inputs', {
+      title: 'Land Funding per Parcel', kind: 'grid', align: 'data',
+      columns: ['Parcel', 'Area (sqm)', 'Rate', 'Cash %', 'In-kind %', 'Cash value'],
+      rows: state.parcels.map((pa) => row([pa.name, fmt.area(pa.area), fmt.int(pa.rate), fmt.pctRaw(pa.cashPct, 0), fmt.pctRaw(pa.inKindPct, 0), fmt.money(pa.area * pa.rate * (pa.cashPct / 100))])),
+    }));
   }
-  outputs.push(kvTable('Total Equity Required', [
+  if (state.financingTranches.length) {
+    items.push(tTable('Tab 4: Financing / Inputs', 'inputs', {
+      title: 'Debt Facilities', kind: 'grid', align: 'data',
+      columns: ['Tranche', 'Origin', 'Opening bal.', 'Rate %', 'Repayment', 'Drawdown'],
+      rows: state.financingTranches.map((t) => {
+        const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
+        return row([t.name, t.origin === 'existing' ? 'existing' : 'new', fmt.money(t.openingBalance ?? 0), fmt.pctRaw(rate, 2), String(t.repaymentMethod ?? '-'), String(t.drawdownMethod ?? '-')]);
+      }),
+    }));
+  }
+  // Funding requirement, named methods + selected by year.
+  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', kvTable('Funding Requirement by Method', [
+    [`Method 1 (${FUNDING_METHOD_LABELS[1]})`, fmt.money(fin.funding.method1)],
+    [`Method 2 (${FUNDING_METHOD_LABELS[2]})`, fmt.money(fin.funding.method2)],
+    [`Method 3 (${FUNDING_METHOD_LABELS[3]})`, fmt.money(fin.funding.method3)],
+    [`Method 4 (${FUNDING_METHOD_LABELS[4]})`, fmt.money(fin.funding.method4)],
+    [`Selected (${FUNDING_METHOD_LABELS[fin.funding.selectedMethodId]})`, fmt.money(fin.funding.selected)],
+  ])));
+  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', periodTable(`Selected Funding Requirement by Year (${FUNDING_METHOD_LABELS[fin.funding.selectedMethodId]})`, py, yl, [
+    periodRow('Funding need (capex)', fin.funding.selectedByPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Min cash reserve add-on', fin.funding.minCashByPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Total funding need', fin.funding.totalFundingNeedByPeriod.slice(0, yl.length), 'sum', 'total'),
+  ])));
+  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', kvTable('Total Equity Required', [
     ['Cash equity', fmt.money(fin.equity.totalCash)],
     ['In-kind equity', fmt.money(fin.equity.totalInKind)],
     ['Existing equity', fmt.money(fin.equity.totalExisting)],
     ['Grand total equity', fmt.money(fin.equity.grandTotal)],
-  ]));
+  ])));
 
-  // ── Schedules ──
-  const schedules: PdfTable[] = [];
+  // Tab 4: Financing / Schedules.
   for (const [id, f] of fin.facilities) {
     if (!anyNonZero(f.drawSchedule) && !anyNonZero(f.outstanding) && !anyNonZero(f.principalRepaid)) continue;
-    schedules.push(periodTable(`Debt Movement, ${trName(id)}`, yl, [
+    items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable(`Debt Movement, ${trName(id)}`, py, yl, [
       periodRow('Drawdown', f.drawSchedule.slice(0, yl.length), 'sum'),
       periodRow('Interest accrued', f.interestAccrued.slice(0, yl.length), 'sum'),
       periodRow('Interest capitalised (IDC)', f.interestCapitalized.slice(0, yl.length), 'sum'),
       periodRow('Interest paid', f.interestPaid.slice(0, yl.length), 'sum'),
       periodRow('Principal repaid', f.principalRepaid.slice(0, yl.length), 'sum'),
-      periodRow('Sweep repaid', f.sweepRepaid.slice(0, yl.length), 'sum'),
-      periodRow('Closing balance', f.outstanding.slice(0, yl.length), 'last', 'total'),
-    ]));
+      periodRow('Closing balance', f.outstanding.slice(0, yl.length), 'last', 'total', f.openingBalance ?? 0),
+    ])));
   }
   const cds = fin.combined;
-  schedules.push(periodTable('Combined Debt Service', yl, [
+  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('Combined Debt Service', py, yl, [
     periodRow('Total drawdown', cds.totalDrawdown.slice(0, yl.length), 'sum'),
     periodRow('Interest accrued', cds.totalInterestAccrued.slice(0, yl.length), 'sum'),
     periodRow('Interest capitalised', cds.totalInterestCapitalized.slice(0, yl.length), 'sum'),
     periodRow('Interest expensed (P&L)', cds.totalInterestExpensed.slice(0, yl.length), 'sum'),
     periodRow('Principal repaid', cds.totalPrincipalRepaid.slice(0, yl.length), 'sum'),
     periodRow('Debt service (cash)', cds.debtServiceCash.slice(0, yl.length), 'sum', 'subtotal'),
-  ]));
+  ])));
   const idc = snap.idc;
-  schedules.push(periodTable('IDC Summary', yl, [
+  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('IDC Summary', py, yl, [
     periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('IDC capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('IDC NBV (closing)', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
-  ]));
+  ])));
   const eq = fin.equity;
-  schedules.push(periodTable('Equity Movement', yl, [
+  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('Equity Movement', py, yl, [
     periodRow('Cash equity', eq.cashPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('In-kind equity', eq.inKindPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Existing equity', eq.existingEquityPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Existing equity', eq.existingEquityPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
     periodRow('Total equity', eq.totalPerPeriod.slice(0, yl.length), 'sum', 'total'),
-  ]));
+  ])));
+
+  // Tab 4: Financing / Cash Sweep.
   const dcf = snap.directCF;
-  schedules.push(periodTable('Cash Waterfall (consolidated)', yl, [
-    periodRow('Opening cash', dcf.openingCashPerPeriod.slice(0, yl.length), 'none'),
+  items.push(tTable('Tab 4: Financing / Cash Sweep', 'schedules', periodTable('Cash Waterfall (consolidated)', py, yl, [
+    periodRow('Opening cash', dcf.openingCashPerPeriod.slice(0, yl.length), 'none', undefined, snap.bs.historicalOpeningCashTotal),
     periodRow('Cash from operations', dcf.cashFromOperationsPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Cash from investing', dcf.cashFromInvestmentPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Equity drawdown', dcf.equityDrawdownPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Debt drawdown', dcf.debtDrawdownPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Equity drawdown', dcf.equityDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
+    periodRow('Debt drawdown', dcf.debtDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.debtOutstandingTotal),
     periodRow('Interest paid', dcf.interestPaidPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Debt repaid', dcf.debtRepaymentPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Dividends paid', dcf.dividendsPaidPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Closing cash', dcf.closingCashPerPeriod.slice(0, yl.length), 'last', 'total'),
-  ]));
+  ])));
 
-  return { inputs, outputs, schedules };
+  return items;
 }
 
 // ── Module 2: Revenue ────────────────────────────────────────────────────────
-function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt): ModuleContent {
+function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
   const rev = snap.revenue;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const items: ModuleContent = [];
 
-  // ── Inputs ──
-  const inputs: PdfTable[] = [];
-  inputs.push({
-    title: 'Tab 1: Revenue Configuration by Asset', kind: 'grid', align: 'data',
+  // Tab 1: Revenue Inputs.
+  items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
+    title: 'Revenue Configuration by Asset', kind: 'grid', align: 'data',
     columns: ['Asset', 'Strategy', 'Key driver', 'Indexation'],
     rows: state.assets.filter((a) => a.visible !== false).map((a) => {
       const r = a.revenue ?? {};
@@ -695,15 +676,10 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         const recog = s?.recognitionProfile?.method === 'point_in_time' ? `PIT (${s?.recognitionProfile?.pointInTimeYear ?? 'handover'})` : 'Over time';
         return row([a.name, a.strategy, `Recognition: ${recog}`, indexLabel(s?.indexation)]);
       }
-      if (a.strategy === 'Operate') {
-        const o = r.operate;
-        return row([a.name, a.strategy, `Starting ADR ${fmt.int(o?.startingADR ?? 0)}`, indexLabel(o?.adrIndexation)]);
-      }
-      const l = r.lease;
-      return row([a.name, 'Lease', `Base rate ${fmt.int(l?.baseRate ?? 0)}`, indexLabel(l?.rentIndexation)]);
+      if (a.strategy === 'Operate') return row([a.name, a.strategy, `Starting ADR ${fmt.int(a.revenue?.operate?.startingADR ?? 0)}`, indexLabel(a.revenue?.operate?.adrIndexation)]);
+      return row([a.name, 'Lease', `Base rate ${fmt.int(a.revenue?.lease?.baseRate ?? 0)}`, indexLabel(a.revenue?.lease?.rentIndexation)]);
     }),
-  });
-  // Cash + recognition profiles for Sell assets.
+  }));
   for (const a of state.assets) {
     const s = a.revenue?.sell;
     if (!s) continue;
@@ -711,45 +687,41 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     const recogPct = s.recognitionProfile?.percentages ?? [];
     if (!cashPct.length && !recogPct.length) continue;
     const n = Math.max(cashPct.length, recogPct.length);
-    const posCols = Array.from({ length: n }, (_, i) => `P${i + 1}`);
-    inputs.push({
-      title: `Tab 1: Cash & Recognition Profile, ${a.name}`, kind: 'grid', align: 'data',
-      columns: ['Profile', ...posCols],
+    const cols = Array.from({ length: n }, (_, i) => `Yr ${i + 1}`);
+    items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
+      title: `Cash & Recognition Profile, ${a.name} (relative to sale year)`, kind: 'grid', align: 'data',
+      columns: ['Profile', ...cols],
       rows: [
         row(['Cash payment %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((cashPct[i] ?? 0) * 100, 1))]),
         ...(recogPct.length ? [row(['Recognition %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((recogPct[i] ?? 0) * 100, 1))])] : []),
       ],
-    });
+    }));
   }
 
-  // ── Outputs ──
-  const outputs: PdfTable[] = [];
+  // Tab 2: Revenue Output.
   const pl = snap.pl;
-  outputs.push(periodTable('Project Revenue Summary', yl, [
+  items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable('Project Revenue Summary', py, yl, [
     periodRow('Residential revenue', pl.residentialRevenuePerPeriod, 'sum'),
     periodRow('Hospitality revenue', pl.hospitalityRevenuePerPeriod, 'sum'),
     periodRow('Retail revenue', pl.retailRevenuePerPeriod, 'sum'),
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum', 'total'),
-  ]));
-  // Per Sell asset.
+  ])));
   for (const [id, r] of rev.bySellAsset) {
     if (!anyNonZero(r.presalesRevenuePerPeriod) && !anyNonZero(r.postSalesRevenuePerPeriod)) continue;
-    outputs.push(periodTable(`Residential (Sell), ${assetName(id)}`, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Residential (Sell), ${assetName(id)}`, py, yl, [
       periodRow('Pre-sales revenue', r.presalesRevenuePerPeriod, 'sum'),
       periodRow('Post-sales revenue', r.postSalesRevenuePerPeriod, 'sum'),
       periodRow('Cash collected', r.cashCollectedPerPeriod, 'sum', 'subtotal'),
       periodRow('Revenue recognised', r.recognitionPerPeriod, 'sum', 'subtotal'),
-    ]));
-    // Vintage matrices (cohort year × year).
+    ])));
     const cashRows = r.cashVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (cashRows.length) outputs.push(periodTable(`Cash Vintage Matrix, ${assetName(id)}`, yl, cashRows));
+    if (cashRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Cash Vintage Matrix, ${assetName(id)}`, py, yl, cashRows)));
     const recRows = r.recognitionVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (recRows.length) outputs.push(periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, yl, recRows));
+    if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, py, yl, recRows)));
   }
-  // Per Hospitality asset.
   for (const [id, r] of rev.byHospitalityAsset) {
     if (!anyNonZero(r.totalRevenuePerPeriod)) continue;
-    outputs.push(periodTable(`Hospitality, ${assetName(id)}`, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Hospitality, ${assetName(id)}`, py, yl, [
       strPeriodRow('Available room nights', r.availableRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupied room nights', r.occupiedRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
@@ -758,98 +730,98 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('F&B revenue', r.fbRevenuePerPeriod, 'sum'),
       periodRow('Other revenue', r.otherRevenuePerPeriod, 'sum'),
       periodRow('Total revenue', r.totalRevenuePerPeriod, 'sum', 'total'),
-    ]));
+    ])));
   }
-  // Per Lease asset.
   for (const [id, r] of rev.byLeaseAsset) {
     if (!anyNonZero(r.totalRevenuePerPeriod)) continue;
-    outputs.push(periodTable(`Lease, ${assetName(id)}`, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Lease, ${assetName(id)}`, py, yl, [
       strPeriodRow('Occupied area (sqm)', r.occupiedAreaPerPeriod.map((v) => fmt.area(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
       strPeriodRow('Indexed rate', r.indexedRatePerPeriod.map((v) => fmt.int(v))),
       periodRow('Total revenue', r.totalRevenuePerPeriod, 'sum', 'total'),
-    ]));
+    ])));
   }
-  // Cost of Sales (Tab 3).
-  outputs.push(periodTable('Cost of Sales (project total)', yl, [
+
+  // Tab 3: Cost of Sales.
+  items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable('Cost of Sales (project total)', py, yl, [
     periodRow('Cost of sales', pl.cosPerPeriod, 'sum', 'subtotal'),
-  ]));
+  ])));
   for (const [id, b] of snap.byAssetSchedules) {
     if (!anyNonZero(b.cos.perPeriod)) continue;
-    outputs.push(periodTable(`Cost of Sales, ${assetName(id)}`, yl, [
+    items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable(`Cost of Sales, ${assetName(id)}`, py, yl, [
       periodRow('Cost of sales', b.cos.perPeriod.slice(0, yl.length), 'sum'),
       periodRow('Gross margin', b.cos.grossMarginPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
       periodRow('Cumulative CoS', b.cos.cumulativePerPeriod.slice(0, yl.length), 'last'),
-    ]));
+    ])));
   }
 
-  // ── Schedules (AR / Unearned / Escrow) ──
-  const schedules: PdfTable[] = [];
+  // Tab 4: Schedules (AR / Unearned / Escrow).
   for (const [id, b] of snap.byAssetSchedules) {
     if (!anyNonZero(b.ar.perPeriod) && !anyNonZero(b.unearned.perPeriod)) continue;
-    schedules.push(periodTable(`Accounts Receivable & Unearned, ${assetName(id)}`, yl, [
+    items.push(tTable('Tab 4: Schedules', 'schedules', periodTable(`Accounts Receivable & Unearned, ${assetName(id)}`, py, yl, [
       periodRow('AR opening', b.ar.openingPerPeriod.slice(0, yl.length), 'none'),
       periodRow('AR change', b.ar.changePerPeriod.slice(0, yl.length), 'sum'),
       periodRow('AR closing', b.ar.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
       periodRow('Unearned opening', b.unearned.openingPerPeriod.slice(0, yl.length), 'none'),
       periodRow('Unearned change', b.unearned.changePerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Unearned closing', b.unearned.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
-    ]));
+    ])));
   }
   const esc = snap.escrow.projectTotals;
   if (anyNonZero(esc.heldPerPeriod) || anyNonZero(esc.releasePerPeriod)) {
-    schedules.push(periodTable('Escrow Movement (project total)', yl, [
+    items.push(tTable('Tab 4: Schedules', 'schedules', periodTable('Escrow Movement (project total)', py, yl, [
       periodRow('Pre-sales cash', esc.preSalesCashPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Held', esc.heldPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Released', esc.releasePerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Net movement', esc.netMovementPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Cumulative balance', esc.cumulativeBalancePerPeriod.slice(0, yl.length), 'last', 'total'),
-    ]));
+    ])));
   }
 
-  return { inputs, outputs, schedules };
+  return items;
 }
 
 // ── Module 3: Operating Expenses ─────────────────────────────────────────────
-function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt): ModuleContent {
+const opexValueDisplay = (mode: string, value: number, fmt: Fmt): string =>
+  // Fixed / per-unit modes are currency; everything else is a % stored as a
+  // DECIMAL (0.25 = 25%), so multiply by 100 (fmt.pct), never show the raw 0.25.
+  mode === 'fixed_baseline' || mode.startsWith('per_') ? fmt.money(value) : fmt.pct(value, 2);
+
+function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
   const opex = snap.opex;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const items: ModuleContent = [];
 
-  // ── Inputs ──
-  const inputs: PdfTable[] = [];
+  // Tab 1: Opex Inputs.
   for (const a of state.assets) {
     const lines = a.opex?.lines ?? [];
     if (!lines.length) continue;
-    inputs.push({
-      title: `Tab 1: Opex Inputs, ${a.name}`, kind: 'grid', align: 'data',
+    items.push(tTable('Tab 1: Opex Inputs', 'inputs', {
+      title: `Opex Inputs, ${a.name}`, kind: 'grid', align: 'data',
       columns: ['Line', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'],
       rows: lines.filter((l) => !l.disabled).map((l) => row([
-        l.name, String(l.category), String(l.mode),
-        l.mode === 'fixed_baseline' || l.mode.startsWith('per_') ? fmt.money(l.value) : fmt.pctRaw(l.value, 2),
+        l.name, String(l.category), String(l.mode), opexValueDisplay(l.mode, l.value, fmt),
         l.useAssetDefault ? `(default) ${indexLabel(a.opex?.defaultIndexation)}` : indexLabel(l.indexation),
         l.rateMode === 'yoy' ? 'YoY' : 'Single',
       ])),
-    });
+    }));
   }
   const hqLines = state.project.hqOpex?.lines ?? [];
   if (hqLines.length) {
-    inputs.push({
-      title: 'Tab 1: HQ / Corporate Opex Inputs', kind: 'grid', align: 'data',
+    items.push(tTable('Tab 1: Opex Inputs', 'inputs', {
+      title: 'HQ / Corporate Opex Inputs', kind: 'grid', align: 'data',
       columns: ['Line', 'Category', 'Mode', 'Value', 'Indexation'],
-      rows: hqLines.filter((l) => !l.disabled).map((l) => row([l.name, String(l.category), String(l.mode), fmt.money(l.value), indexLabel(l.indexation)])),
-    });
+      rows: hqLines.filter((l) => !l.disabled).map((l) => row([l.name, String(l.category), String(l.mode), opexValueDisplay(l.mode, l.value, fmt), indexLabel(l.indexation)])),
+    }));
   }
 
-  // ── Outputs ──
-  const outputs: PdfTable[] = [];
+  // Tab 2: Opex Output.
   for (const [id, r] of opex.byAsset) {
     if (!anyNonZero(r.totalOpexPerPeriod)) continue;
     const a = state.assets.find((x) => x.id === id);
-    const lineRows: PdfTableRow[] = (r.perLinePerPeriod ?? []).map((arr, i) =>
-      periodRow(a?.opex?.lines?.[i]?.name ?? `Line ${i + 1}`, arr.slice(0, yl.length), 'sum'),
-    ).filter((rr) => (rr.cells[1] as number) !== 0);
-    outputs.push(periodTable(`Opex, ${assetName(id)}`, yl, [
+    const lineRows = (r.perLinePerPeriod ?? []).map((arr, i) => periodRow(a?.opex?.lines?.[i]?.name ?? `Line ${i + 1}`, arr.slice(0, yl.length), 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
+    items.push(tTable('Tab 2: Opex Output', 'outputs', periodTable(`Opex, ${assetName(id)}`, py, yl, [
       ...lineRows,
       periodRow('Direct costs', r.directCostsPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
       periodRow('Indirect costs', r.indirectCostsPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
@@ -858,10 +830,10 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Total opex', r.totalOpexPerPeriod.slice(0, yl.length), 'sum', 'total'),
       periodRow('GOP', r.gopPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('NOI', r.noiPerPeriod.slice(0, yl.length), 'sum'),
-    ]));
+    ])));
   }
   const pt = opex.projectTotals;
-  outputs.push(periodTable('Project Total Opex', yl, [
+  items.push(tTable('Tab 2: Opex Output', 'outputs', periodTable('Project Total Opex', py, yl, [
     periodRow('Direct costs', pt.directCostsPerPeriod, 'sum'),
     periodRow('Indirect costs', pt.indirectCostsPerPeriod, 'sum'),
     periodRow('Management fees', pt.managementFeePerPeriod, 'sum'),
@@ -869,45 +841,61 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Asset opex total', pt.totalOpexPerPeriod, 'sum', 'subtotal'),
     periodRow('HQ / corporate opex', opex.hq.totalOpexPerPeriod, 'sum'),
     periodRow('Total opex (incl. HQ)', opex.totalOpexPerPeriodInclHQ, 'sum', 'total'),
-  ]));
+  ])));
 
-  // ── Schedules (AP) ──
-  const schedules: PdfTable[] = [];
+  // Tab 3: AP Schedules.
   const ap = snap.ap;
   for (const [id, r] of ap.byAsset) {
     if (!anyNonZero(r.opexIncurredPerPeriod)) continue;
-    schedules.push(periodTable(`Accounts Payable, ${assetName(id)} (DPO ${r.effectiveApDays})`, yl, [
+    items.push(tTable('Tab 3: Schedules', 'schedules', periodTable(`Accounts Payable, ${assetName(id)} (DPO ${r.effectiveApDays})`, py, yl, [
       periodRow('Opex incurred', r.opexIncurredPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Opening AP', r.result.openingPerPeriod.slice(0, yl.length), 'none'),
       periodRow('Closing AP', r.result.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
       periodRow('Cash paid', r.result.cashPaidPerPeriod.slice(0, yl.length), 'sum'),
-    ]));
+    ])));
   }
   const apt = ap.projectTotals;
-  schedules.push(periodTable('Accounts Payable (project total)', yl, [
+  items.push(tTable('Tab 3: Schedules', 'schedules', periodTable('Accounts Payable (project total)', py, yl, [
     periodRow('Opex incurred', apt.opexIncurredPerPeriod, 'sum'),
     periodRow('Opening AP', apt.openingApPerPeriod, 'none'),
     periodRow('Change in AP', apt.changeApPerPeriod, 'sum'),
     periodRow('Closing AP', apt.closingApPerPeriod, 'last', 'subtotal'),
     periodRow('Cash paid', apt.cashPaidPerPeriod, 'sum', 'total'),
-  ]));
+  ])));
 
-  return { inputs, outputs, schedules };
+  return items;
 }
 
 // ── Module 4: Financial Statements ───────────────────────────────────────────
-function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt): ModuleContent {
+function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
   const { pl, directCF: cf, indirectCF: icf, bs, fixedAssets: fa } = snap;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const items: ModuleContent = [];
 
-  // ── Schedules (Tab 1: Fixed Assets + IDC) ──
-  const schedules: PdfTable[] = [];
+  // Tab 1: Schedules (IDC pool + working capital).
+  const idc = snap.idc;
+  items.push(tTable('Tab 1: Schedules', 'schedules', periodTable('IDC Pool', py, yl, [
+    periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('IDC NBV closing', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
+  ])));
+  const apt = snap.ap.projectTotals;
+  items.push(tTable('Tab 1: Schedules', 'schedules', periodTable('Working Capital', py, yl, [
+    periodRow('Accounts receivable (closing)', bs.arPerPeriod.slice(0, yl.length), 'last'),
+    periodRow('Residential receivables (closing)', bs.residentialReceivablesPerPeriod.slice(0, yl.length), 'last'),
+    periodRow('Inventory / WIP (closing)', bs.inventoryPerPeriod.slice(0, yl.length), 'last'),
+    periodRow('Accounts payable (closing)', apt.closingApPerPeriod.slice(0, yl.length), 'last'),
+    periodRow('Unearned revenue (closing)', bs.unearnedRevenuePerPeriod.slice(0, yl.length), 'last'),
+  ])));
+
+  // Tab 2: Fixed Assets.
   for (const [id, r] of fa.byAsset) {
     const dep = r.depreciable;
     if (!anyNonZero(dep.closingNBVPerPeriod) && !anyNonZero(r.land.closingPerPeriod)) continue;
-    schedules.push(periodTable(`Fixed Assets, ${assetName(id)}`, yl, [
-      periodRow('Land opening', r.land.openingPerPeriod.slice(0, yl.length), 'none'),
+    items.push(tTable('Tab 2: Fixed Assets', 'outputs', periodTable(`Fixed Assets, ${assetName(id)}`, py, yl, [
+      periodRow('Land opening', r.land.openingPerPeriod.slice(0, yl.length), 'none', undefined, r.land.openingAtAxisStart),
       periodRow('Land additions', r.land.additionsPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Land closing', r.land.closingPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
       periodRow('Depreciable opening NBV', dep.openingNBVPerPeriod.slice(0, yl.length), 'none'),
@@ -915,26 +903,18 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Depreciation', dep.depreciationPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Depreciable closing NBV', dep.closingNBVPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
       periodRow('Combined closing (Land + NBV)', r.combinedClosingPerPeriod.slice(0, yl.length), 'last', 'total'),
-    ]));
+    ])));
   }
   const fpt = fa.projectTotals;
-  schedules.push(periodTable('Fixed Assets (project total)', yl, [
+  items.push(tTable('Tab 2: Fixed Assets', 'outputs', periodTable('Fixed Assets (project total)', py, yl, [
     periodRow('Land closing', fpt.land.closingPerPeriod, 'last'),
     periodRow('Depreciation', fpt.depreciable.depreciationPerPeriod, 'sum'),
     periodRow('Depreciable closing NBV', fpt.depreciable.closingNBVPerPeriod, 'last', 'subtotal'),
     periodRow('Combined closing', fpt.combinedClosingPerPeriod, 'last', 'total'),
-  ]));
-  const idc = snap.idc;
-  schedules.push(periodTable('IDC Pool', yl, [
-    periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC NBV closing', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
-  ]));
+  ])));
 
-  // ── Outputs (P&L / CF / BS) ──
-  const outputs: PdfTable[] = [];
-  outputs.push(periodTable('Profit & Loss', yl, [
+  // Tab 3: P&L.
+  items.push(tTable('Tab 3: P&L', 'outputs', periodTable('Profit & Loss', py, yl, [
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
     periodRow('Cost of sales', pl.cosPerPeriod, 'sum'),
     periodRow('Operating expenses', pl.totalOpexPerPeriod, 'sum'),
@@ -945,8 +925,10 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
     periodRow('Tax / Zakat', pl.taxPerPeriod, 'sum'),
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
-  ]));
-  outputs.push(periodTable('Cash Flow, Direct', yl, [
+  ])));
+
+  // Tab 4: Cash Flow (Direct + Indirect).
+  items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Cash Flow, Direct', py, yl, [
     periodRow('Revenue received', cf.revenueReceivedPerPeriod, 'sum'),
     periodRow('Escrow held', cf.escrowHeldPerPeriod, 'sum'),
     periodRow('Escrow released', cf.escrowReleasePerPeriod, 'sum'),
@@ -964,8 +946,8 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Cash from financing', cf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
     periodRow('Net cash flow', cf.netCashFlowPerPeriod, 'sum'),
     periodRow('Closing cash', cf.closingCashPerPeriod, 'last', 'total'),
-  ]));
-  outputs.push(periodTable('Cash Flow, Indirect', yl, [
+  ])));
+  items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Cash Flow, Indirect', py, yl, [
     periodRow('Profit after tax', icf.patPerPeriod, 'sum'),
     periodRow('Depreciation & amortization', icf.daPerPeriod, 'sum'),
     periodRow('Interest expense add-back', icf.interestExpensePerPeriod, 'sum'),
@@ -979,9 +961,11 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Cash from financing', icf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
     periodRow('Net cash flow', icf.netCashFlowPerPeriod, 'sum'),
     periodRow('Closing cash', icf.closingCashPerPeriod, 'last', 'total'),
-  ]));
-  outputs.push(periodTable('Balance Sheet', yl, [
-    periodRow('Cash', bs.cashPerPeriod, 'last'),
+  ])));
+
+  // Tab 5: Balance Sheet.
+  items.push(tTable('Tab 5: Balance Sheet', 'outputs', periodTable('Balance Sheet', py, yl, [
+    periodRow('Cash', bs.cashPerPeriod, 'last', undefined, bs.historicalOpeningCashTotal),
     periodRow('Receivables (operating)', bs.arPerPeriod, 'last'),
     periodRow('Residential receivables', bs.residentialReceivablesPerPeriod, 'last'),
     periodRow('Inventory (WIP)', bs.inventoryPerPeriod, 'last'),
@@ -991,72 +975,66 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Total assets', bs.totalAssetsPerPeriod, 'last', 'subtotal'),
     periodRow('Accounts payable', bs.apPerPeriod, 'last'),
     periodRow('Unearned revenue', bs.unearnedRevenuePerPeriod, 'last'),
-    periodRow('Debt outstanding', bs.debtOutstandingPerPeriod, 'last'),
+    periodRow('Debt outstanding', bs.debtOutstandingPerPeriod, 'last', undefined, snap.financing.existing.debtOutstandingTotal),
     periodRow('Total liabilities', bs.totalLiabilitiesPerPeriod, 'last', 'subtotal'),
     periodRow('Share capital', bs.shareCapitalPerPeriod, 'last'),
     periodRow('Statutory reserve', bs.statutoryReservePerPeriod, 'last'),
     periodRow('Retained earnings', bs.retainedEarningsPerPeriod, 'last'),
     periodRow('Total equity', bs.totalEquityPerPeriod, 'last', 'subtotal'),
     periodRow('Liabilities + equity', bs.totalLiabilitiesAndEquityPerPeriod, 'last', 'total'),
-    periodRow('BS check (Δ = Assets − L&E)', bs.bsDifferencePerPeriod, 'last'),
-  ]));
+    periodRow('BS check (Assets less L&E)', bs.bsDifferencePerPeriod, 'last'),
+  ])));
 
-  return { inputs: [], outputs, schedules };
+  return items;
 }
 
 // ── Module 5: Returns & Valuation ────────────────────────────────────────────
-function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, fmt: Fmt): ModuleContent {
+function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const r = returns.result;
   const re = r.realEstate;
   const cfg = returns.config;
   const syl = returns.streamYearLabels;
   const yl = returns.yearLabels;
+  const items: ModuleContent = [];
+  const streamPrior = syl[0] ?? py;
+  const streamYears = syl.slice(1);
 
-  // ── Inputs (assumptions) ──
-  const inputs: PdfTable[] = [];
-  inputs.push(kvTable('Returns Assumptions', [
+  // Tab 1: Returns (KPI cards + tables).
+  items.push(tTable('Tab 1: Returns', 'inputs', kvTable('Returns Assumptions', [
     ['Discount rate', fmt.pct(cfg.discountRate, 2)],
     ['Exit year', String(returns.exitYearLabel)],
     ['Terminal value method', String(cfg.terminalMethod)],
     ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`],
     ['Perpetuity growth', fmt.pct(cfg.perpetuityGrowth, 2)],
-  ]));
-
-  // ── Outputs ──
-  const outputs: PdfTable[] = [];
-  outputs.push(kvTable('Headline Returns', [
-    ['Project IRR (FCFF)', fmt.pct(r.fcff.irr, 1)],
-    ['Equity IRR (FCFE)', fmt.pct(r.fcfe.irr, 1)],
-    ['Distributed Equity IRR', fmt.pct(r.dividends.irr, 1)],
-    ['Equity multiple (FCFE)', fmt.mult(r.fcfe.moic)],
-    ['FCFE NPV', fmt.money(r.fcfe.npv)],
-    ['FCFE payback (yrs)', r.fcfe.paybackPeriod === null ? 'n/a' : r.fcfe.paybackPeriod.toFixed(1)],
-    ['Terminal equity value', fmt.money(returns.terminalEquityValue)],
+  ])));
+  items.push(tCards('Tab 1: Returns', 'outputs', 'Headline Returns', [
+    { label: 'Project IRR (FCFF)', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered' },
+    { label: 'Equity IRR (FCFE)', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered' },
+    { label: 'Distributed Equity IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'on distributions' },
+    { label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' },
+    { label: 'Dividend MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributed equity' },
+    { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
   ]));
   const de = returns.developmentEconomics;
-  outputs.push(kvTable('Development Economics', [
-    ['Gross development value (GDV)', fmt.money(de.gdv)],
-    ['Total development cost', fmt.money(de.totalDevelopmentCost)],
-    ['Total financing cost', fmt.money(de.totalFinancingCost)],
-    ['Profit before financing', fmt.money(de.profitBeforeFinancing)],
-    ['Profit after financing', fmt.money(de.profitAfterFinancing)],
-    ['Development margin', fmt.pct(de.developmentMargin, 1)],
-    ['Cost to value', fmt.pct(de.costToValue, 1)],
+  items.push(tCards('Tab 1: Returns', 'outputs', 'Development Economics', [
+    { label: 'GDV', value: fmt.money(de.gdv) },
+    { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
+    { label: 'Financing Cost', value: fmt.money(de.totalFinancingCost) },
+    { label: 'Profit Before Fin.', value: fmt.money(de.profitBeforeFinancing) },
+    { label: 'Profit After Fin.', value: fmt.money(de.profitAfterFinancing) },
+    { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1) },
   ]));
   const ex = returns.exitAnalysis;
-  outputs.push(kvTable('Exit Analysis', [
-    ['Exit year', String(ex.exitYearLabel)],
-    ['Exit NOI', fmt.money(ex.exitNOI)],
-    ['Exit EBITDA', fmt.money(ex.exitEBITDA)],
-    ['Exit enterprise value', fmt.money(ex.exitEnterpriseValue)],
-    ['Exit equity value', fmt.money(ex.exitEquityValue)],
-    ['Exit debt', fmt.money(ex.exitDebt)],
-    ['LTV at exit', fmt.pct(ex.ltvAtExit, 1)],
-    ['Debt yield', fmt.pct(ex.debtYield, 1)],
-    ['Cap rate', fmt.pct(ex.capRate, 2)],
+  items.push(tCards('Tab 1: Returns', 'outputs', `Exit Analysis (${ex.exitYearLabel})`, [
+    { label: 'Exit NOI', value: fmt.money(ex.exitNOI) },
+    { label: 'Exit EBITDA', value: fmt.money(ex.exitEBITDA) },
+    { label: 'Enterprise Value', value: fmt.money(ex.exitEnterpriseValue) },
+    { label: 'Equity Value', value: fmt.money(ex.exitEquityValue) },
+    { label: 'Debt at Exit', value: fmt.money(ex.exitDebt) },
+    { label: 'LTV at Exit', value: fmt.pct(ex.ltvAtExit, 1) },
   ]));
   const su = returns.sourcesUses;
-  outputs.push({
+  items.push(tTable('Tab 1: Returns', 'outputs', {
     title: 'Sources & Uses', kind: 'grid', align: 'data', columns: ['Sources', 'Amount', 'Uses', 'Amount'],
     rows: [
       row(['Existing equity', fmt.money(su.existingEquity), 'Land', fmt.money(su.land)]),
@@ -1068,122 +1046,123 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
       row(['Operating cash', fmt.money(su.operatingCash), '', '']),
       row(['Total sources', fmt.money(su.totalSources), 'Total uses', fmt.money(su.totalUses)], 'total'),
     ],
-  });
+  }));
   const ee = returns.equityExposure;
-  outputs.push(kvTable('Equity Exposure', [
-    ['Total equity required', fmt.money(ee.totalEquityRequired)],
-    ['Average equity invested', fmt.money(ee.averageEquityInvested)],
-    ['Peak equity at risk', fmt.money(ee.equityAtRisk)],
-    ['Max negative cumulative CF', fmt.money(ee.maxNegativeCumulativeCF)],
-    ['First positive CF year', ee.firstPositiveCFYear === null ? 'n/a' : String(ee.firstPositiveCFYear)],
-    ['First dividend year', ee.firstDividendYear === null ? 'n/a' : String(ee.firstDividendYear)],
-  ]));
-  const sb = returns.stabilization;
-  outputs.push(kvTable('Stabilization Metrics', [
-    ['Stabilised NOI', fmt.money(sb.stabilisedNOI)],
-    ['Stabilised yield on cost', fmt.pct(sb.stabilisedYieldOnCost, 2)],
-    ['Stabilization year', sb.stabilizationYear === null ? 'n/a' : String(sb.stabilizationYear)],
-    ['Has income assets', sb.hasIncomeAssets ? 'Yes' : 'No'],
-  ]));
   const da = returns.debtAnalytics;
-  outputs.push(kvTable('Debt Analytics', [
-    ['Peak debt', fmt.money(da.peakDebt)],
-    ['Average debt outstanding', fmt.money(da.averageDebtOutstanding)],
-    ['Remaining debt at exit', fmt.money(da.remainingDebtAtExit)],
-    ['Paydown %', fmt.pct(da.paydownPct, 1)],
-    ['Tenor (yrs)', da.tenorYears === null ? 'n/a' : da.tenorYears.toFixed(1)],
+  items.push(tCards('Tab 1: Returns', 'outputs', 'Equity Exposure & Debt Analytics', [
+    { label: 'Total Equity Required', value: fmt.money(ee.totalEquityRequired) },
+    { label: 'Avg Equity Invested', value: fmt.money(ee.averageEquityInvested) },
+    { label: 'Equity at Risk', value: fmt.money(ee.equityAtRisk) },
+    { label: 'Peak Debt', value: fmt.money(da.peakDebt) },
+    { label: 'Debt Paydown', value: fmt.pct(da.paydownPct, 1) },
+    { label: 'Debt Tenor', value: da.tenorYears === null ? 'n/a' : `${da.tenorYears.toFixed(0)} yrs` },
   ]));
-  outputs.push(kvTable('Real Estate Metrics', [
-    ['Yield on cost', fmt.pct(re.yieldOnCost, 2)],
-    ['Cap rate at exit', fmt.pct(re.capRateAtExit, 2)],
-    ['Development spread', fmt.pct(re.developmentSpread, 2)],
-    ['Profit on cost', fmt.pct(re.profitOnCost, 1)],
-    ['Profit margin', fmt.pct(re.profitMargin, 1)],
-    ['Cash-on-cash (avg)', fmt.pct(re.cashOnCashAvg, 1)],
-    ['LTV at exit', fmt.pct(re.ltvAtExit, 1)],
-    ['Equity multiple', fmt.mult(re.equityMultiple)],
-    ['Debt yield', fmt.pct(re.debtYield, 1)],
-    ['DSCR (min / avg)', `${re.dscrMin === null ? 'n/a' : re.dscrMin.toFixed(2)} / ${re.dscrAvg === null ? 'n/a' : re.dscrAvg.toFixed(2)}`],
-    ['ICR (min)', re.icrMin === null ? 'n/a' : re.icrMin.toFixed(2)],
+  // Exit-year analysis (Pass 2) as a table.
+  if (returns.exitYears?.length) {
+    items.push(tTable('Tab 1: Returns', 'outputs', {
+      title: 'Exit-Year Analysis (hold vs sell)', kind: 'grid', align: 'data',
+      columns: ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
+      rows: returns.exitYears.map((x) => row([
+        `${x.exitYearLabel}${x.isSelected ? ' (selected)' : ''}`, fmt.money(x.enterpriseValue), fmt.money(x.equityValue),
+        fmt.pct(x.fcffIrr, 1), fmt.pct(x.fcfeIrr, 1), fmt.mult(x.equityMoic),
+      ], x.isSelected ? 'subtotal' : undefined)),
+    }));
+  }
+  // Partners (Pass 2) if present.
+  if (returns.partners?.partners.length) {
+    items.push(tTable('Tab 1: Returns', 'outputs', {
+      title: 'Equity Partners', kind: 'grid', align: 'data',
+      columns: ['Partner', 'Invested', 'Share %', 'Dividends', 'Terminal', 'IRR', 'MOIC'],
+      rows: returns.partners.partners.map((pn) => row([pn.name, fmt.money(pn.totalEquityInvested), fmt.pct(pn.shareholdingPct, 1), fmt.money(pn.dividendsReceived), fmt.money(pn.terminalDistribution), fmt.pct(pn.irr, 1), fmt.mult(pn.moic)])),
+    }));
+  }
+
+  // Tab 2: RE Metrics (cards + coverage + per-asset).
+  items.push(tCards('Tab 2: RE Metrics', 'outputs', 'Profitability & Yield', [
+    { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
+    { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
+    { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2) },
+    { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1) },
+    { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
+    { label: 'Equity Multiple', value: fmt.mult(re.equityMultiple) },
   ]));
-  // Coverage by year (DSCR / ICR / Cash-on-cash).
+  items.push(tCards('Tab 2: RE Metrics', 'outputs', 'Leverage & Coverage', [
+    { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
+    { label: 'Debt Yield', value: fmt.pct(re.debtYield, 1) },
+    { label: 'Min DSCR', value: fmt.mult(re.dscrMin) },
+    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg) },
+    { label: 'Min Interest Cover', value: fmt.mult(re.icrMin) },
+    { label: 'Avg Cash-on-Cash', value: fmt.pct(re.cashOnCashAvg, 1) },
+  ]));
   if (anyNonZero(re.dscrPerPeriod) || anyNonZero(re.icrPerPeriod)) {
-    outputs.push(periodTable('Coverage Ratios by Year', yl, [
+    items.push(tTable('Tab 2: RE Metrics', 'outputs', periodTable('Coverage Ratios by Year', py, yl, [
       strPeriodRow('DSCR', re.dscrPerPeriod.map((v) => (v ? v.toFixed(2) : '-'))),
-      strPeriodRow('ICR', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-'))),
+      strPeriodRow('Interest cover', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-'))),
       strPeriodRow('Cash-on-cash %', re.cashOnCashPerPeriod.map((v) => (v ? fmt.pct(v, 1) : '-'))),
-    ]));
+    ])));
+  }
+  if (returns.perAsset?.rows.length) {
+    items.push(tTable('Tab 2: RE Metrics', 'outputs', {
+      title: 'Per-Asset Economics', kind: 'grid', align: 'data',
+      columns: ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
+      rows: returns.perAsset.rows.map((a) => row([a.assetName, a.strategy, fmt.money(a.totalRevenue), fmt.money(a.totalCost), fmt.money(a.profit), fmt.pct(a.profitMargin, 1), a.isIncomeAsset ? fmt.pct(a.yieldOnCost, 1) : 'n/a'])),
+    }));
   }
 
-  // ── Schedules (cash-flow streams + build-ups) ──
-  const schedules: PdfTable[] = [];
-  schedules.push(periodTable('Sponsor Cash-Flow Streams', syl, [
-    periodRow('FCFF (unlevered)', returns.fcffPerPeriod, 'sum'),
-    periodRow('FCFE (levered)', returns.fcfePerPeriod, 'sum'),
-    periodRow('Distributed equity', returns.dividendStreamPerPeriod, 'sum'),
-  ]));
+  // Tab 3: Cash Flow Streams.
   const bu = returns.buildup;
-  schedules.push(periodTable('FCFF Build-up', syl, [
-    periodRow('(−) Existing pre-capex', bu.existingPreCapexPerPeriod, 'sum'),
-    periodRow('(+) Cash from operations', bu.cfoPerPeriod, 'sum'),
-    periodRow('(+) Cash from investing', bu.cfiPerPeriod, 'sum'),
-    periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod, 'sum'),
-    periodRow('= FCFF', returns.fcffPerPeriod, 'sum', 'total'),
-  ]));
-  schedules.push(periodTable('FCFE Build-up', syl, [
-    periodRow('FCFF', returns.fcffPerPeriod, 'sum'),
-    periodRow('(+) Existing debt opening', bu.existingDebtOpeningPerPeriod, 'sum'),
-    periodRow('(+) Debt drawdown', bu.debtDrawPerPeriod, 'sum'),
-    periodRow('(−) Principal repaid', bu.principalRepayPerPeriod, 'sum'),
-    periodRow('(−) Interest paid', bu.interestPaidPerPeriod, 'sum'),
-    periodRow('(−) In-kind land', bu.inKindLandPerPeriod, 'sum'),
-    periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod, 'sum'),
-    periodRow('= FCFE', returns.fcfePerPeriod, 'sum', 'total'),
-  ]));
-  schedules.push(periodTable('Distributed Equity Build-up', syl, [
-    periodRow('(−) Cash equity contributed', bu.equityCashPerPeriod, 'sum'),
-    periodRow('(−) In-kind equity contributed', bu.equityInKindPerPeriod, 'sum'),
-    periodRow('(+) Dividends distributed', bu.dividendsDistributedPerPeriod, 'sum'),
-    periodRow('= Distributed equity', returns.dividendStreamPerPeriod, 'sum', 'total'),
-  ]));
+  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
+    periodRow('FCFF (unlevered)', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
+    periodRow('FCFE (levered)', returns.fcfePerPeriod.slice(1), 'sum', undefined, returns.fcfePerPeriod[0] ?? 0),
+    periodRow('Distributed equity', returns.dividendStreamPerPeriod.slice(1), 'sum', undefined, returns.dividendStreamPerPeriod[0] ?? 0),
+  ])));
+  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('FCFF Build-up', streamPrior, streamYears, [
+    periodRow('(-) Existing pre-capex', bu.existingPreCapexPerPeriod.slice(1), 'sum', undefined, bu.existingPreCapexPerPeriod[0] ?? 0),
+    periodRow('(+) Cash from operations', bu.cfoPerPeriod.slice(1), 'sum', undefined, bu.cfoPerPeriod[0] ?? 0),
+    periodRow('(+) Cash from investing', bu.cfiPerPeriod.slice(1), 'sum', undefined, bu.cfiPerPeriod[0] ?? 0),
+    periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod.slice(1), 'sum', undefined, bu.terminalEnterprisePerPeriod[0] ?? 0),
+    periodRow('= FCFF', returns.fcffPerPeriod.slice(1), 'sum', 'total', returns.fcffPerPeriod[0] ?? 0),
+  ])));
+  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('FCFE Build-up', streamPrior, streamYears, [
+    periodRow('FCFF', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
+    periodRow('(+) Existing debt opening', bu.existingDebtOpeningPerPeriod.slice(1), 'sum', undefined, bu.existingDebtOpeningPerPeriod[0] ?? 0),
+    periodRow('(+) Debt drawdown', bu.debtDrawPerPeriod.slice(1), 'sum', undefined, bu.debtDrawPerPeriod[0] ?? 0),
+    periodRow('(-) Principal repaid', bu.principalRepayPerPeriod.slice(1), 'sum', undefined, bu.principalRepayPerPeriod[0] ?? 0),
+    periodRow('(-) Interest paid', bu.interestPaidPerPeriod.slice(1), 'sum', undefined, bu.interestPaidPerPeriod[0] ?? 0),
+    periodRow('(-) In-kind land', bu.inKindLandPerPeriod.slice(1), 'sum', undefined, bu.inKindLandPerPeriod[0] ?? 0),
+    periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod.slice(1), 'sum', undefined, bu.terminalEquityPerPeriod[0] ?? 0),
+    periodRow('= FCFE', returns.fcfePerPeriod.slice(1), 'sum', 'total', returns.fcfePerPeriod[0] ?? 0),
+  ])));
 
-  return { inputs, outputs, schedules };
+  return items;
 }
 
-// ── Section assembly ─────────────────────────────────────────────────────────
-interface BuiltSection {
-  title: string;
-  content: ModuleContent;
-  sel: ModuleSectionSelection;
-}
+// ── Assembly ──────────────────────────────────────────────────────────────────
+function includePart(flag: boolean | undefined): boolean { return flag !== false; }
 
-function buildSections(
-  snap: ProjectFinancialsSnapshot,
-  returns: ReturnsSnapshot | null,
-  state: FinancialsResolverState,
-  fmt: Fmt,
-  selected: Set<string>,
-  moduleSections: Record<string, ModuleSectionSelection>,
-): BuiltSection[] {
-  const out: BuiltSection[] = [];
-  for (const m of MODULES) {
-    if (!selected.has(m.key)) continue;
-    let content: ModuleContent | null = null;
-    if (m.key === 'module1') content = buildModule1(snap, state, fmt);
-    else if (m.key === 'module2') content = buildModule2(snap, state, fmt);
-    else if (m.key === 'module3') content = buildModule3(snap, state, fmt);
-    else if (m.key === 'module4') content = buildModule4(snap, state, fmt);
-    else if (m.key === 'module5') content = returns ? buildModule5(returns, state, fmt) : null;
-    else continue; // modules 6+ have no exporter yet (registry-driven, auto-skip)
-    if (!content) continue;
-    const sel = moduleSections[m.key] ?? {};
-    out.push({ title: `Module ${m.num}, ${m.longLabel}`, content, sel });
+function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: ModuleSectionSelection, fmt: Fmt): void {
+  // Group by tab (stable order), keeping only selected parts.
+  const order: string[] = [];
+  const byTab = new Map<string, TaggedItem[]>();
+  for (const it of items) {
+    if (!includePart(sel[it.part])) continue;
+    if (!byTab.has(it.tab)) { byTab.set(it.tab, []); order.push(it.tab); }
+    byTab.get(it.tab)!.push(it);
   }
-  return out;
-}
-
-function includePart(flag: boolean | undefined): boolean {
-  return flag !== false; // missing => included
+  for (const tab of order) {
+    const tabItems = byTab.get(tab)!;
+    const header = `${moduleLabel}  ·  ${tab}`;
+    newPage(ctx, header);
+    ctx.currentHeader = header;
+    let curPart: PartKind | null = null;
+    for (const part of ['inputs', 'outputs', 'schedules'] as PartKind[]) {
+      const partItems = tabItems.filter((i) => i.part === part);
+      for (const ti of partItems) {
+        if (ti.part !== curPart) { drawPartHeader(ctx, PART_LABEL[part]); curPart = ti.part; }
+        drawItem(ctx, ti.item, fmt);
+      }
+    }
+  }
 }
 
 // ── Public entry ─────────────────────────────────────────────────────────────
@@ -1193,78 +1172,42 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }
 
   const doc = await PDFDocument.create();
-  // Embed Inter (the platform UI font) so the PDF matches the app visually and
-  // supports full Unicode. fontkit is required by pdf-lib for any non-standard
-  // (custom) font.
-  //
-  // subset: FALSE on purpose. pdf-lib's fontkit glyph-subsetting emits a subset
-  // font program (e.g. "Inter-Bold-3398") that strict readers (Adobe Acrobat,
-  // some print pipelines) reject with "cannot extract the embedded font ...,
-  // some characters may not display or print correctly", crashing every page
-  // that references it. Embedding the FULL, unmodified TTF is the reliable path
-  // (the same fonts embed cleanly elsewhere); the file is larger but valid in
-  // every viewer.
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(b64ToBytes(INTER_REGULAR_B64), { subset: false });
   const bold = await doc.embedFont(b64ToBytes(INTER_BOLD_B64), { subset: false });
+
+  const p = opts.state.project;
+  const scale: DisplayScale = opts.displayScale ?? 'millions';
+  const fmt = makeFmt(scale);
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
-    pageW: PAGE_W_P, pageH: PAGE_H_P, landscape: false,
     projectName: opts.projectName || 'Untitled Project',
-    versionLabel: opts.versionLabel ?? '',
+    unitLabel: unitLabel(p.currency ?? 'SAR', scale),
   };
-  const fmt = makeFmt(opts.state);
-  const p = opts.state.project;
 
-  // Cover KPIs.
-  const kpis: Array<[string, string]> = [];
-  if (returns) {
-    const r = returns.result;
-    kpis.push(['Project IRR', fmt.pct(r.fcff.irr, 1)]);
-    kpis.push(['Equity IRR', fmt.pct(r.fcfe.irr, 1)]);
-    kpis.push(['Equity Multiple', fmt.mult(r.fcfe.moic)]);
-    kpis.push(['Total Dev Cost', fmt.money(returns.developmentEconomics.totalDevelopmentCost)]);
-  }
-  kpis.push(['Total Revenue', fmt.money(sum(snap.pl.totalRevenuePerPeriod))]);
-  kpis.push(['Peak Debt', fmt.money(Math.max(0, ...snap.bs.debtOutstandingPerPeriod))]);
+  // Page 1: clean cover.
+  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Feasibility Study', opts.dateLabel);
 
-  const startYear = snap.projectStartYear;
-  const endYear = startYear + snap.axisLength - 1;
-  const scaleLabel = p.displayScale === 'thousands' ? `${p.currency} '000` : p.displayScale === 'millions' ? `${p.currency} M` : p.currency;
-  const metaLines = [
-    `Location: ${[p.location, p.country].filter(Boolean).join(', ') || '-'}`,
-    `Currency / scale: ${scaleLabel}`,
-    `Model horizon: ${snap.axisLength} years (${startYear} to ${endYear})`,
-    `Project type: ${String(p.projectType ?? '-')}`,
-  ];
+  // Page 2: executive summary.
+  newPage(ctx, 'Executive Summary');
+  ctx.currentHeader = 'Executive Summary';
+  buildExecSummary(ctx, snap, returns, opts.state, fmt);
 
-  drawCover(ctx, opts, kpis, metaLines);
-
-  // Project description page (mandatory).
-  newPage(ctx, { landscape: false, headerTitle: 'Project Description' });
-  ctx.currentModuleHeader = 'Project Description';
-  for (const t of buildDescriptionTables(snap, opts.state, fmt)) {
-    if (t.kind === 'period') drawPeriodTable(ctx, t, fmt);
-    else drawGridTable(ctx, t, fmt);
-  }
-
-  // Module sections.
-  const sections = buildSections(snap, returns, opts.state, fmt, new Set(opts.selectedModuleKeys), opts.moduleSections ?? {});
-  for (const section of sections) {
-    const parts: Array<[string, PdfTable[]]> = [];
-    if (includePart(section.sel.inputs) && section.content.inputs.length) parts.push(['Inputs', section.content.inputs]);
-    if (includePart(section.sel.outputs) && section.content.outputs.length) parts.push(['Outputs', section.content.outputs]);
-    if (includePart(section.sel.schedules) && section.content.schedules.length) parts.push(['Schedules', section.content.schedules]);
-    if (!parts.length) continue;
-    newPage(ctx, { landscape: true, headerTitle: section.title });
-    ctx.currentModuleHeader = section.title;
-    for (const [partLabel, tables] of parts) {
-      drawPartHeader(ctx, partLabel);
-      for (const table of tables) {
-        if (table.kind === 'period') drawPeriodTable(ctx, table, fmt);
-        else drawGridTable(ctx, table, fmt);
-      }
-    }
+  // Modules.
+  const py = snap.projectStartYear - 1;
+  const sel = opts.moduleSections ?? {};
+  const selectedKeys = new Set(opts.selectedModuleKeys);
+  for (const m of MODULES) {
+    if (!selectedKeys.has(m.key)) continue;
+    let content: ModuleContent | null = null;
+    if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py);
+    else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
+    else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
+    else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
+    else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py) : null;
+    else continue;
+    if (!content || !content.length) continue;
+    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt);
   }
 
   drawFooters(ctx);
