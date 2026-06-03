@@ -570,7 +570,10 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     }
   }
 
-  // Tab 3: Capex (cost line inputs + per-period output).
+  // Tab 3: Capex (cost line inputs + per-period output). The Amount column
+  // shows the engine's exact computed total for EVERY line (rate-based as
+  // well as fixed), pulled from the per-line aggregate.
+  const lineTotals = fin.capex.perLineTotals ?? {};
   for (const ph of state.phases) {
     const lines = state.costLines.filter((c) => c.phaseId === ph.id && c.targetAssetId === undefined && !c.disabled);
     if (!lines.length) continue;
@@ -580,7 +583,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       rows: lines.map((c) => row([
         c.name, String(c.stage ?? '-'), costBasisLabel(c.method),
         c.method === 'fixed' ? fmt.money(c.value) : fmt.int(c.value),
-        c.method === 'fixed' ? fmt.money(c.value) : '(rate x metric)',
+        fmt.money(lineTotals[c.id] ?? (c.method === 'fixed' ? c.value : 0)),
       ])),
     }));
   }
@@ -592,6 +595,21 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Total capex (excl. in-kind land)', cap.exclLandInKind, 'sum', 'subtotal'),
     periodRow('Total capex (incl. all land)', cap.inclAllLand, 'sum', 'total'),
   ])));
+  // Full Capex Results by construction stage (matching the Capex Results tab):
+  // one row per stage that carries cost, reconciling to total capex.
+  const ps = fin.capex.perStagePerPeriod;
+  if (ps) {
+    const stageDefs: Array<[string, string]> = [
+      ['land', 'Land'], ['hard', 'Hard (construction)'], ['soft', 'Soft costs'], ['operating', 'Operating (capitalised)'],
+    ];
+    const stageRows = stageDefs
+      .filter(([key]) => anyNonZero(ps[key] ?? []))
+      .map(([key, label]) => periodRow(label, (ps[key] ?? []).slice(0, yl.length), 'sum'));
+    if (stageRows.length) {
+      items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Results by Stage', py, yl,
+        stageRows.concat([periodRow('Total capex (incl. all land)', cap.inclAllLand.slice(0, yl.length), 'sum', 'total')]))));
+    }
+  }
 
   // Tab 4: Financing / Inputs.
   items.push(tTable('Tab 4: Financing / Inputs', 'inputs', kvTable('Project Financing Settings', [

@@ -35,6 +35,14 @@ export interface CapexAggregate {
     landInKind: number[];
     nonLand: number[];
   };
+  // 2026-06-03: per-line + per-stage breakdowns surfaced so exports can
+  // show the exact computed Amount for every cost line (rate-based as well
+  // as fixed) and the full per-stage Capex Results schedule. Optional so
+  // hand-built fixtures that only need the totals stay valid.
+  /** Total computed amount per cost-line id, summed across all assets. */
+  perLineTotals?: Record<string, number>;
+  /** Per construction stage, per project-period currency schedule (length = axis.totalPeriods). */
+  perStagePerPeriod?: Record<string, number[]>;
 }
 
 export interface FundingRequirement {

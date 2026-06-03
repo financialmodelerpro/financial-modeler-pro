@@ -27,6 +27,7 @@ import {
   makeDefaultProject,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost } from '../src/core/calculations';
+import { aggregateProjectCapex } from '../src/core/calculations/financing/capex';
 
 let pass = 0;
 let fail = 0;
@@ -185,6 +186,37 @@ console.log('\n[F] disabled cost line zeroes out');
   const b = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [line], [], 'autoByBua');
   assertNear('F1: disabled line total = 0', b.byLineId['lZ'] ?? 0, 0);
   assertNear('F2: disabled line perPeriod sum = 0', b.perPeriod.reduce((s, v) => s + v, 0), 0);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// G: aggregateProjectCapex surfaces per-line totals + per-stage schedule
+//    that reconcile to the project capex (2026-06-03, powers the PDF
+//    Cost Lines Amount column + Capex Results by Stage table)
+// ──────────────────────────────────────────────────────────────────
+console.log('\n[G] aggregateProjectCapex per-line + per-stage reconciliation');
+{
+  const { project, phase, assets, parcels, subUnits } = buildFixture();
+  const lines: CostLine[] = [
+    { id: 'gh', phaseId: phase.id, name: 'Hard', method: 'rate_per_bua', value: 1000,
+      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share', startPeriod: 0, endPeriod: 3, phasing: 'even' },
+    { id: 'gs', phaseId: phase.id, name: 'Soft', method: 'percent_of_construction', value: 10,
+      stage: 'soft', scope: 'direct', allocationBasis: 'bua_share', startPeriod: 0, endPeriod: 3, phasing: 'even' },
+  ];
+  const axis = { totalPeriods: 6, phaseOffsets: new Map([[phase.id, 0]]) };
+  const agg = aggregateProjectCapex(
+    { project, phases: [phase], parcels, assets, subUnits, costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua', parcelFunding: [] },
+    axis,
+  );
+  // Hard across both assets = 1000 × (60,000 + 40,000) = 100M; soft = 10% = 10M.
+  assertNear('G1: perLineTotals.gh = 100M', agg.perLineTotals?.['gh'] ?? 0, 100_000_000);
+  assertNear('G2: perLineTotals.gs = 10M', agg.perLineTotals?.['gs'] ?? 0, 10_000_000);
+  const sumStage = (k: string) => (agg.perStagePerPeriod?.[k] ?? []).reduce((s, v) => s + v, 0);
+  assertNear('G3: per-stage hard sum = 100M', sumStage('hard'), 100_000_000);
+  assertNear('G4: per-stage soft sum = 10M', sumStage('soft'), 10_000_000);
+  // Per-stage total reconciles to total capex (incl. all land).
+  const stageGrand = ['land', 'hard', 'soft', 'operating'].reduce((s, k) => s + sumStage(k), 0);
+  const inclAllLand = agg.perPeriod.inclAllLand.reduce((s, v) => s + v, 0);
+  assertNear('G5: sum(all stages) = total capex (incl. all land)', stageGrand, inclAllLand);
 }
 
 // ──────────────────────────────────────────────────────────────────
