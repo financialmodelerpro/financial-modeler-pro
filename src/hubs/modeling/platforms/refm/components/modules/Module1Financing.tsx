@@ -3076,7 +3076,12 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   {renderFlowRow('(−) Cash from Investing (capex)', cfi, { negative: true, priorValue: -snap.financing.existing.preCapexTotal })}
                   {renderFlowRow('(+) Equity Drawdown (Cash)', equityCashW, { priorValue: snap.financing.existing.equityTotal })}
                   {hasInKind && renderFlowRow('(+) Equity In-Kind (memo, non-cash)', inKindW, { indent: 1, priorValue: 0 })}
-                  {renderFlowRow('(+) Debt Drawdown (incl. additional to maintain min cash)', debtDrawW, { priorValue: 0 })}
+                  {/* Existing loan opening shown in the prior column, symmetric
+                      with the Equity Drawdown row above (existing equity opening).
+                      debtOutstandingTotal is the pre-axis-raised existing debt
+                      (in-axis existing draws already flow through the axis cells,
+                      so they are excluded here to avoid a double-count). */}
+                  {renderFlowRow('(+) Debt Drawdown (incl. additional to maintain min cash)', debtDrawW, { priorValue: snap.financing.existing.debtOutstandingTotal })}
                   {renderFlowRow('(−) Interest Paid', interestPaidW, { negative: true })}
                   {renderFlowRow('= Cash Available', cashAvailableW, { subtotal: true, priorValue: 0 })}
                   {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', cashAvailableW.map(() => -minCash), { negative: true })}
@@ -3087,8 +3092,19 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       to the total below, which ties to the Direct CF. */}
                   {(() => {
                     const trName = (id: string) => state.financingTranches.find((t) => t.id === id)?.name ?? id;
+                    // Order the per-tranche Debt Paid rows by the SEQUENCE in
+                    // which each loan is actually repaid: the tranche whose first
+                    // principal payment lands earliest lists first (mirrors the
+                    // cash-sweep priority, so a higher-priority tranche, e.g. T1,
+                    // sits above the loan repaid after it). Stable sort keeps the
+                    // facilities-map order for same-period ties.
+                    const firstPaidIdx = (repaid: number[]) => {
+                      const i = repaid.slice(0, N).findIndex((v) => v !== 0);
+                      return i === -1 ? Number.POSITIVE_INFINITY : i;
+                    };
                     return [...snap.financing.facilities.entries()]
                       .filter(([, fac]) => (fac.principalRepaid ?? []).slice(0, N).some((v) => v !== 0))
+                      .sort(([, a], [, b]) => firstPaidIdx(a.principalRepaid ?? []) - firstPaidIdx(b.principalRepaid ?? []))
                       .map(([id, fac]) => (
                         <React.Fragment key={`dp_${id}`}>
                           {renderFlowRow(`  (−) Debt Paid: ${trName(id)}`, fac.principalRepaid.slice(0, N).map((v) => -v), { negative: true, indent: 1, priorValue: 0 })}

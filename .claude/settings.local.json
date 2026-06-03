@@ -205,7 +205,8 @@
       "Bash(Get-ChildItem *)",
       "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep \"const.*Input.*:.*=\" {} | head -3')",
       "Bash(awk ' *)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "PowerShell(npm run *)"
     ]
   }
 }
