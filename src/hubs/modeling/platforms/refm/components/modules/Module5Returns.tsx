@@ -195,6 +195,38 @@ export default function Module5Returns(): React.JSX.Element {
         <MetricCard label="Debt at Exit" value={fmt(ex.exitDebt)} sub={currency} />
       </MetricGrid>
 
+      {/* ── M5 Pass 2: Exit-Year Analysis (hold vs sell timing) ── */}
+      <SectionTitle>Exit-Year Analysis (hold vs sell timing)</SectionTitle>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year.
+      </div>
+      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ textAlign: 'left', padding: '6px 10px' }}>Exit Year</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Enterprise Value</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity Value</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Project IRR</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity IRR</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity MOIC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rs.exitYears.map((row) => (
+              <tr key={row.exitIdx} style={{ borderBottom: '1px solid var(--color-border)', background: row.isSelected ? 'var(--color-navy-pale, #F4F7FC)' : 'transparent', fontWeight: row.isSelected ? 700 : 400 }}>
+                <td style={{ textAlign: 'left', padding: '5px 10px' }}>{row.exitYearLabel}{row.isSelected ? '  ◀ selected' : ''}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.enterpriseValue)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.equityValue)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcffIrr)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcfeIrr)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtX(row.equityMoic)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {/* ── Sources & Uses ── */}
       <SectionTitle>Sources &amp; Uses of Capital</SectionTitle>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>

@@ -237,6 +237,25 @@ console.log('=== M5 Returns snapshot integration ===');
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));
 }
 
+// ── M5 Pass 2: exit-year analysis ─────────────────────────────────────
+{
+  const state = buildState();
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  check('EXITYEARS: rows present', Array.isArray(rs.exitYears) && rs.exitYears.length > 0);
+  check('EXITYEARS: exactly one selected row', rs.exitYears.filter((r) => r.isSelected).length === 1);
+  const sel = rs.exitYears.find((r) => r.isSelected)!;
+  check('EXITYEARS: selected exitIdx = config exit', sel.exitIdx === rs.config.exitYearOffset);
+  // The selected-year row is rebuilt by the SAME shared builder as the headline,
+  // so its IRR / EV / equity value must match the headline returns exactly.
+  check('EXITYEARS: selected Equity IRR == headline FCFE IRR', (sel.fcfeIrr === null && rs.result.fcfe.irr === null) || near(sel.fcfeIrr ?? NaN, rs.result.fcfe.irr ?? NaN, 1e-6));
+  check('EXITYEARS: selected Project IRR == headline FCFF IRR', (sel.fcffIrr === null && rs.result.fcff.irr === null) || near(sel.fcffIrr ?? NaN, rs.result.fcff.irr ?? NaN, 1e-6));
+  check('EXITYEARS: selected EV == terminal enterprise value', near(sel.enterpriseValue, rs.terminalEnterpriseValue));
+  check('EXITYEARS: selected equity value == terminal equity value', near(sel.equityValue, rs.terminalEquityValue));
+  check('EXITYEARS: rows sorted ascending by exit index', rs.exitYears.every((r, i, a) => i === 0 || r.exitIdx > a[i - 1].exitIdx));
+  check('EXITYEARS: every row has finite or null IRRs (no NaN)', rs.exitYears.every((r) => (r.fcfeIrr === null || Number.isFinite(r.fcfeIrr)) && (r.fcffIrr === null || Number.isFinite(r.fcffIrr))));
+}
+
 // ── M5 Pass 2: multi-partner equity returns wired onto the snapshot ────
 {
   // Baseline (no partners) to read the project equity grand total.

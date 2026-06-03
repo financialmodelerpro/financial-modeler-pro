@@ -44,14 +44,16 @@
  * added to the exit-year flow.
  */
 import {
-  computeReturns, terminalEnterpriseValue, terminalEquityValue,
+  computeReturns,
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
+  buildSponsorStreamsForExit, exitYearAnalysis,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
+  ExitYearRow,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
@@ -156,6 +158,8 @@ export interface ReturnsSnapshot {
   debtAnalytics: DebtAnalytics;
   /** M5 Pass 2: per-partner equity returns (empty .partners when none set). */
   partners: PartnersSnapshot;
+  /** M5 Pass 2: hold-vs-sell exit-year analysis (one row per candidate exit). */
+  exitYears: ExitYearRow[];
 }
 
 function cumulative(arr: number[]): number[] {
@@ -224,22 +228,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // build-up, and it ties to the Direct CF + BS. No Returns-only adjustment.
   const divPaidAxis = sliceE(dividendsPaid);
 
-  // ── Terminal value (exit-multiple on stabilised NOI; perpetuity on the
-  // exit-year unlevered free cash flow = CFO + CFI, no in-kind). ─────────
-  const exitFcff = (cfoAxis[exit] ?? 0) + (cfiAxis[exit] ?? 0);
-  const tvEnterprise = terminalEnterpriseValue({
-    method: cfg.terminalMethod,
-    exitMetric: cfg.terminalMethod === 'perpetuity' ? exitFcff : stabilisedNOI,
-    exitMultiple: cfg.exitMultiple,
-    perpetuityGrowth: cfg.perpetuityGrowth,
-    discountRate: cfg.discountRate,
-  });
-  const debtAtExit = bs.debtOutstandingPerPeriod[exit] ?? 0;
-  // Terminal EQUITY value = sale proceeds (EV) net of the loan payoff at
-  // exit. Cash on the balance sheet is deliberately NOT added (already
-  // counted within the FCFE / dividend streams as it was earned).
-  const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
-
   // Helper: build an (E+1)-length stream, index 0 = inception, 1..E = axis.
   const incep = (inceptionVal: number, axisArr: number[]): number[] => {
     const out = new Array<number>(E + 1).fill(0);
@@ -249,27 +237,23 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   };
   const atExitAxis = (value: number): number[] => { const a = new Array<number>(E).fill(0); a[exit] = value; return a; };
 
-  // ── Stream 1: FCFF (unlevered, to all capital providers) ────────────
-  //   inception: − existing pre-capex
-  //   axis:      + CFO + CFI (new capex). NO in-kind land (it is non-cash
-  //              and already flows through CFO via CoS / depreciation).
-  //   exit:      + terminal enterprise value
-  const fcffAxis = cfoAxis.map((v, t) => v + (cfiAxis[t] ?? 0));
-  fcffAxis[exit] = (fcffAxis[exit] ?? 0) + tvEnterprise;
-  const fcff = incep(-existingPreCapex, fcffAxis);
-
-  // ── Stream 2: FCFE (levered, free cash to equity) ───────────────────
-  //   inception: − existing pre-capex + existing debt opening (= − existing equity)
-  //   axis:      FCFF axis + debt drawdown − principal − interest − in-kind land
-  //   exit:      + terminal equity value
-  const fcfeAxis = cfoAxis.map((v, t) =>
-    v + (cfiAxis[t] ?? 0)
-    + (debtDrawAxis[t] ?? 0)
-    + (principalAxis[t] ?? 0)   // already negative
-    + (interestAxis[t] ?? 0)    // already negative
-    - (inKindAxis[t] ?? 0));    // in-kind land is an equity outflow
-  fcfeAxis[exit] = (fcfeAxis[exit] ?? 0) + tvEquity;
-  const fcfe = incep(-existingPreCapex + existingDebtOpening, fcfeAxis);
+  // ── FCFF + FCFE streams + terminal value (shared builder, also driving
+  // the exit-year analysis loop so the selected-year row matches exactly).
+  // Terminal value: exit-multiple on stabilised NOI; perpetuity on the
+  // exit-year unlevered free cash flow (CFO + CFI). FCFF has NO in-kind land
+  // line; FCFE carries it as an equity outflow. ─────────────────────────
+  const sponsorInputs = {
+    cfoAxis, cfiAxis, inKindAxis, debtDrawAxis, principalAxis, interestAxis,
+    noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
+    existingPreCapex, existingDebtOpening,
+  };
+  const terminalCfg = { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate };
+  const streams = buildSponsorStreamsForExit(sponsorInputs, exit, terminalCfg);
+  const tvEnterprise = streams.terminalEnterpriseValue;
+  const tvEquity = streams.terminalEquityValue;
+  const debtAtExit = bs.debtOutstandingPerPeriod[exit] ?? 0;
+  const fcff = streams.fcff;
+  const fcfe = streams.fcfe;
 
   // ── Stream 3: Distributed Equity (realized equity cash) ─────────────
   //   inception: − existing equity
@@ -418,6 +402,34 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     streamYearLabels,
   });
 
+  // ── M5 Pass 2: exit-year analysis (hold-vs-sell timing) ──────────────
+  // Candidate exits run from the first operating year (first positive NOI,
+  // else the model midpoint) through the last axis year; always include the
+  // selected exit. Each row rebuilds the streams via the same shared builder.
+  const firstOpsIdx = noiPerPeriod.findIndex((v) => (v ?? 0) > 0);
+  const startIdx = firstOpsIdx >= 0 ? firstOpsIdx : Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
+  const candidateExitIdxs: number[] = [];
+  for (let i = startIdx; i < N; i++) candidateExitIdxs.push(i);
+  if (!candidateExitIdxs.includes(exit)) candidateExitIdxs.push(exit);
+  const exitYears = exitYearAnalysis({
+    inputs: {
+      cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
+      cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v) => v ?? 0),
+      inKindAxis: equityInKind.slice(0, N).map((v) => v ?? 0),
+      debtDrawAxis: dcf.debtDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
+      principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
+      interestAxis: dcf.interestPaidPerPeriod.slice(0, N).map((v) => v ?? 0),
+      noiPerPeriod,
+      debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
+      existingPreCapex,
+      existingDebtOpening,
+    },
+    terminal: terminalCfg,
+    candidateExitIdxs,
+    selectedExitIdx: exit,
+    axisYearLabels: snap.yearLabels,
+  });
+
   return {
     axisLength: N,
     yearLabels: snap.yearLabels,
@@ -445,5 +457,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     stabilization: stabilizationBlock,
     debtAnalytics: debtAnalyticsBlock,
     partners: partnersBlock,
+    exitYears,
   };
 }

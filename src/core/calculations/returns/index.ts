@@ -83,6 +83,10 @@ export {
 } from './analytics';
 export { computePartnerReturns } from './partners';
 export type { PartnerInput, PartnerResult, PartnersSnapshot } from './partners';
+export { buildSponsorStreamsForExit } from './streamBuild';
+export type { SponsorStreamInputs, SponsorStreams, TerminalConfig } from './streamBuild';
+export { exitYearAnalysis } from './exitYearAnalysis';
+export type { ExitYearRow } from './exitYearAnalysis';
 export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,
