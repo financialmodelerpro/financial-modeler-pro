@@ -6,10 +6,12 @@
  * Export picker for the REFM platform. Two steps:
  *   1. Format grid (PDF full report is live; the rest are flagged as upcoming,
  *      Excel is the next pass).
- *   2. Module selection: pick which modules to include, then Generate PDF.
- *      The module list is driven from the MODULES registry (modules-config.ts),
- *      not hardcoded, so new modules auto-appear here when they ship. Default =
- *      all enabled modules.
+ *   2. Module selection: pick which modules to include AND, per module, which
+ *      of Inputs / Outputs / Schedules to render, then Generate PDF. The module
+ *      list is driven from the MODULES registry (modules-config.ts), not
+ *      hardcoded, so new modules auto-appear here when they ship. Default = all
+ *      enabled modules with all three parts. The Cover + Project Description
+ *      pages are mandatory and always rendered.
  *
  * The PDF itself is rendered by lib/pdf/generateProjectPdf.ts, which reads the
  * same store state the UI reads (no new calculations). pdf-lib is imported
@@ -44,6 +46,10 @@ export default function ExportModal({
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(MODULES.filter((m) => !m.disabled && EXPORTABLE.has(m.key)).map((m) => [m.key, true])),
   );
+  // Per-module Inputs / Outputs / Schedules toggles. Default all on.
+  const [sections, setSections] = useState<Record<string, { inputs: boolean; outputs: boolean; schedules: boolean }>>(() =>
+    Object.fromEntries(MODULES.filter((m) => EXPORTABLE.has(m.key)).map((m) => [m.key, { inputs: true, outputs: true, schedules: true }])),
+  );
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +63,8 @@ export default function ExportModal({
   const moduleRows = MODULES.filter((m) => !m.disabled || EXPORTABLE.has(m.key));
 
   const toggle = (key: string): void => setSelected((s) => ({ ...s, [key]: !s[key] }));
+  const togglePart = (key: string, part: 'inputs' | 'outputs' | 'schedules'): void =>
+    setSections((s) => ({ ...s, [key]: { ...(s[key] ?? { inputs: true, outputs: true, schedules: true }), [part]: !(s[key]?.[part] ?? true) } }));
   const selectedKeys = moduleRows.filter((m) => EXPORTABLE.has(m.key) && selected[m.key]).map((m) => m.key);
 
   const handleGenerate = async (): Promise<void> => {
@@ -73,6 +81,7 @@ export default function ExportModal({
         versionLabel: versionLabel ?? null,
         dateLabel,
         selectedModuleKeys: selectedKeys,
+        moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
       });
       const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -112,7 +121,7 @@ export default function ExportModal({
       <div
         style={{
           background: 'var(--color-surface)', borderRadius: 14, boxShadow: 'var(--shadow-modal)',
-          width: '100%', maxWidth: 480, overflow: 'hidden', fontFamily: 'Inter, sans-serif',
+          width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto', fontFamily: 'Inter, sans-serif',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -161,27 +170,52 @@ export default function ExportModal({
 
         {step === 'modules' && (
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
+              The Cover and Project Description pages are always included. Pick modules and which parts of each to render.
+            </div>
             {moduleRows.map((m) => {
               const exportable = EXPORTABLE.has(m.key);
               const checked = exportable && !!selected[m.key];
+              const sec = sections[m.key] ?? { inputs: true, outputs: true, schedules: true };
               return (
-                <label
+                <div
                   key={m.key}
                   data-testid={`export-module-${m.key}`}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 8,
+                    display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 12px', borderRadius: 8,
                     border: '1px solid var(--color-border)',
                     background: checked ? 'var(--color-navy-pale, #F4F7FC)' : 'var(--color-surface)',
-                    cursor: exportable ? 'pointer' : 'default', opacity: exportable ? 1 : 0.5,
+                    opacity: exportable ? 1 : 0.5,
                   }}
                 >
-                  <input type="checkbox" checked={checked} disabled={!exportable} onChange={() => exportable && toggle(m.key)} />
-                  <span style={{ fontSize: 18 }}>{m.icon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Module {m.num}, {m.shortLabel}</div>
-                    <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{exportable ? m.longLabel : 'Export coming with this module'}</div>
-                  </div>
-                </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: exportable ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={checked} disabled={!exportable} onChange={() => exportable && toggle(m.key)} />
+                    <span style={{ fontSize: 18 }}>{m.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Module {m.num}, {m.shortLabel}</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{exportable ? m.longLabel : 'Export coming with this module'}</div>
+                    </div>
+                  </label>
+                  {exportable && checked && (
+                    <div style={{ display: 'flex', gap: 8, paddingLeft: 30 }}>
+                      {(['inputs', 'outputs', 'schedules'] as const).map((part) => (
+                        <label
+                          key={part}
+                          data-testid={`export-part-${m.key}-${part}`}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+                            color: sec[part] ? 'var(--color-navy)' : 'var(--color-muted)',
+                            border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 8px',
+                            background: sec[part] ? 'var(--color-surface)' : 'transparent', cursor: 'pointer', textTransform: 'capitalize',
+                          }}
+                        >
+                          <input type="checkbox" checked={sec[part]} onChange={() => togglePart(m.key, part)} />
+                          {part}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
 

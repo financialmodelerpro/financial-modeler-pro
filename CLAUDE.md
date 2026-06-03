@@ -7,7 +7,7 @@
 - **Module 3 (Operating Expenses)**: LOCKED at Pass 5d.
 - **Module 4 (Financial Statements)**: WIP. BS balances by construction; Direct CF == Indirect CF every period.
 - **Module 5 (Returns & Valuation)**: Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics).
-- **Platform infra**: project-switch state-leak fixed; session-based versioning with per-version change_log; schema-tolerant reads; paginated version history. **PDF export** (full project, module-by-module, `lib/pdf/generateProjectPdf.ts` on pdf-lib; Excel export next).
+- **Platform infra**: project-switch state-leak fixed; session-based versioning with per-version change_log; schema-tolerant reads; paginated version history. **PDF full-project report** (`lib/pdf/generateProjectPdf.ts` on pdf-lib): cover + project-description + every module's Inputs/Outputs/Schedules in tab order, with a per-module part picker in `ExportModal`; Excel export next.
 
 Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-REFM.md](CLAUDE-REFM.md). Full suite green via `npx tsx scripts/verify-*.ts` (26 scripts).
 
