@@ -297,6 +297,21 @@ export interface ProjectPartner {
   manualShareholdingPct?: number;
 }
 
+// ── Scenario / case management (2026-06-03) ─────────────────────────────────
+// A "case" is the base model plus a set of field OVERRIDES. The base case (the
+// "Management Case" by default) holds the full model in the top-level snapshot
+// fields and carries no overrides; scenario cases (Downside / Upside / custom)
+// store only the fields they change, keyed by the same path scheme diffSnapshots
+// emits (e.g. "assets[id=X].revenue.sell.pricePerUnit"). Value changes only:
+// a case never adds or removes whole entities. See lib/cases/applyOverrides.ts.
+export interface ProjectCase {
+  id: string;
+  name: string;
+  role: 'base' | 'scenario';
+  /** Field overrides keyed by diffSnapshots path. Always empty for the base case. */
+  overrides: Record<string, unknown>;
+}
+
 export interface Project {
   name: string;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')

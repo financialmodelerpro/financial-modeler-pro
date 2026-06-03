@@ -20,6 +20,7 @@ import type { Role, PermissionMap } from '@/src/core/types/settings.types';
 import { ROLE_META, useBrandingStore } from '@/src/core/state';
 import { getPlatformLogo, DEFAULT_BRANDING } from '@/src/core/branding';
 import OfficeColorPicker from '@/src/shared/components/ui/OfficeColorPicker';
+import CaseSwitcher from './CaseSwitcher';
 import type { StorageProject } from './RealEstatePlatform';
 
 interface TopbarProps {
@@ -242,6 +243,10 @@ export default function Topbar({
           <span className="ctx-arrow">▼</span>
         </span>
       </button>
+
+      {/* Scenario / case switcher (2026-06-03). Self-contained: reads the
+          module1 store directly, so it needs no Topbar props. */}
+      <CaseSwitcher />
 
       {lastSavedAt && !hasUnsaved && (
         <span

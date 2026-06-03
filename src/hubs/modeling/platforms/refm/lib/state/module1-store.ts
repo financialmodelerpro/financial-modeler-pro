@@ -28,6 +28,7 @@ import type {
   FinancingTranche,
   EquityContribution,
   LandAllocationMode,
+  ProjectCase,
 } from './module1-types';
 import {
   DEFAULT_PHASE_ID,
@@ -39,6 +40,13 @@ import {
   makeCompanionSubUnit,
   makeDefaultFinancingTranche,
 } from './module1-types';
+import {
+  applyOverrides,
+  buildOverrides,
+  seedCases,
+  baseCaseId,
+  normaliseCases,
+} from '../cases/applyOverrides';
 
 // ── Project-axis array shift helpers ────────────────────────────────────────
 // REMOVED 2026-05-20: the per-phase-date-change cascade was disabled because
@@ -82,6 +90,17 @@ export interface Module1Store {
   // key is in this list, so a migration notice fires exactly once
   // per project across reloads (assuming user saves at least once).
   migrationsApplied: string[];
+
+  // ── Scenario / case management (2026-06-03) ──
+  // The top-level model fields above always hold the ACTIVE case's effective
+  // (merged) model, so every component + setter is case-agnostic. `cases` is
+  // the registry (Management base + scenario cases), `activeCaseId` the one
+  // being viewed/edited, and `baseSnapshot` the Management/base model that
+  // scenario overrides are applied to. Persistence flushes the active case
+  // into the registry via extractPersistSnapshot().
+  cases: ProjectCase[];
+  activeCaseId: string;
+  baseSnapshot: HydrateSnapshot;
 
   // UI-only active selectors (not persisted)
   activePhaseId: string;
@@ -131,6 +150,22 @@ export interface Module1Store {
   setActivePhaseId: (id: string) => void;
   setActiveAssetId: (id: string | null) => void;
 
+  // ── Case management ──
+  /** Switch the active case: flushes the current case's edits into the
+   *  registry, then loads the target case's effective model into the store. */
+  setActiveCase: (caseId: string) => void;
+  /** Add a new scenario case (override-only, empty overrides). */
+  addCase: (name?: string) => void;
+  renameCase: (caseId: string, name: string) => void;
+  /** Remove a scenario case (the base case cannot be removed). */
+  removeCase: (caseId: string) => void;
+  /** Clear ALL overrides on a scenario case (reset it fully to base). */
+  clearCaseOverrides: (caseId: string) => void;
+  /** Reset one overridden field (by diff path) on the active scenario to base. */
+  resetOverridePath: (path: string) => void;
+  /** Build the persisted snapshot: base model fields + flushed cases + activeCaseId. */
+  extractPersistSnapshot: () => HydrateSnapshot;
+
   hydrate: (snapshot: HydrateSnapshot) => void;
 }
 
@@ -148,7 +183,29 @@ export type HydrateSnapshot = Pick<Module1Store,
   | 'financingTranches'
   | 'equityContributions'
   | 'migrationsApplied'
->;
+> & {
+  // Scenario cases ride along in the persisted snapshot (versioned together).
+  // Optional so legacy snapshots without them stay valid; hydrate auto-seeds.
+  // The top-level model fields above represent the BASE (Management) model in
+  // the persisted form; the live store holds the active case's merged model.
+  cases?: ProjectCase[];
+  activeCaseId?: string;
+};
+
+// The model-only fields (everything a base/effective snapshot carries, minus
+// the case metadata). Used to pick the base model out of the live store.
+const MODEL_KEYS = [
+  'project', 'phases', 'parcels', 'landAllocationMode', 'assets', 'subUnits',
+  'costLines', 'costOverrides', 'financingTranches', 'equityContributions',
+  'migrationsApplied',
+] as const;
+
+/** Pick the model-only snapshot (no case metadata) from a store-like object. */
+function pickModel(s: Record<string, unknown>): HydrateSnapshot {
+  const out = {} as HydrateSnapshot;
+  for (const k of MODEL_KEYS) (out as Record<string, unknown>)[k] = s[k];
+  return out;
+}
 
 // P10-Fix 4 (2026-05-12): sub-unit -> companion bookkeeper. Recomputes
 // `unitsFromParent` on every companion asset based on its parent's
@@ -257,8 +314,14 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
 
 // ── Store factory ──────────────────────────────────────────────────────────
 export function createModule1Store() {
-  return create<Module1Store>((set) => ({
+  return create<Module1Store>((set, get) => ({
     ...DEFAULT_MODULE1_STATE,
+
+    // Case state: a fresh project seeds Management (base) + Downside + Upside,
+    // with the base model mirroring the default model.
+    cases: seedCases(),
+    activeCaseId: baseCaseId(seedCases()),
+    baseSnapshot: pickModel(DEFAULT_MODULE1_STATE as unknown as Record<string, unknown>),
 
     activePhaseId: DEFAULT_PHASE_ID,
     activeAssetId: null,
@@ -535,13 +598,125 @@ export function createModule1Store() {
     setActivePhaseId: (id) => set({ activePhaseId: id }),
     setActiveAssetId: (id) => set({ activeAssetId: id }),
 
-    hydrate: (snapshot) => set({
-      ...snapshot,
-      // Pass 43 (2026-05-14): coerce to array so legacy snapshots
-      // without the marker field still satisfy the store contract.
-      migrationsApplied: snapshot.migrationsApplied ?? [],
-      activePhaseId: snapshot.phases[0]?.id ?? DEFAULT_PHASE_ID,
-      activeAssetId: null,
+    // ── Case management ──
+    // Flush the current active case into (baseSnapshot, cases): base-active
+    // refreshes the base from the live model; scenario-active recomputes that
+    // case's overrides via diff. Returns the flushed pair without mutating.
+    setActiveCase: (caseId) => set((s) => {
+      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      const baseId = baseCaseId(s.cases);
+      let baseSnapshot = s.baseSnapshot;
+      let cases = s.cases;
+      if (s.activeCaseId === baseId) {
+        baseSnapshot = liveModel;
+      } else {
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: buildOverrides(s.baseSnapshot, liveModel) } : c);
+      }
+      const target = cases.find((c) => c.id === caseId) ?? cases.find((c) => c.id === baseId)!;
+      const model = target.role === 'base' ? baseSnapshot : applyOverrides(baseSnapshot, target.overrides);
+      return {
+        ...model,
+        migrationsApplied: model.migrationsApplied ?? [],
+        baseSnapshot,
+        cases,
+        activeCaseId: target.id,
+        activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID,
+        activeAssetId: null,
+      };
+    }),
+
+    addCase: (name) => set((s) => {
+      const n = s.cases.filter((c) => c.role === 'scenario').length + 1;
+      const id = `case_${s.cases.length}_${Math.max(0, ...s.cases.map((c) => c.name.length))}`;
+      const newCase: ProjectCase = { id, name: name?.trim() || `Case ${n}`, role: 'scenario', overrides: {} };
+      return { cases: [...s.cases, newCase] };
+    }),
+
+    renameCase: (caseId, name) => set((s) => ({
+      cases: s.cases.map((c) => c.id === caseId ? { ...c, name: name.trim() || c.name } : c),
+    })),
+
+    removeCase: (caseId) => set((s) => {
+      const target = s.cases.find((c) => c.id === caseId);
+      if (!target || target.role === 'base') return {}; // never remove the base case
+      const cases = s.cases.filter((c) => c.id !== caseId);
+      // If the removed case was active, fall back to the base case's model.
+      if (s.activeCaseId === caseId) {
+        const baseId = baseCaseId(cases);
+        const base = cases.find((c) => c.id === baseId)!;
+        const model = s.baseSnapshot;
+        return {
+          ...model,
+          migrationsApplied: model.migrationsApplied ?? [],
+          cases,
+          activeCaseId: base.id,
+          activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID,
+          activeAssetId: null,
+        };
+      }
+      return { cases };
+    }),
+
+    clearCaseOverrides: (caseId) => set((s) => {
+      const target = s.cases.find((c) => c.id === caseId);
+      if (!target || target.role === 'base') return {};
+      const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: {} } : c);
+      // If it's the active case, reload its (now empty) model = base.
+      if (s.activeCaseId === caseId) {
+        const model = s.baseSnapshot;
+        return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
+      }
+      return { cases };
+    }),
+
+    // Reset one overridden field on the ACTIVE scenario back to base: drop the
+    // path from the override map and re-merge so the live model reflects base.
+    resetOverridePath: (path) => set((s) => {
+      const baseId = baseCaseId(s.cases);
+      if (s.activeCaseId === baseId) return {}; // base has no overrides
+      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      const current = buildOverrides(s.baseSnapshot, liveModel);
+      delete current[path];
+      const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
+      const model = applyOverrides(s.baseSnapshot, current);
+      return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
+    }),
+
+    extractPersistSnapshot: () => {
+      const s = get();
+      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      const baseId = baseCaseId(s.cases);
+      let baseModel = s.baseSnapshot;
+      let cases = s.cases;
+      if (s.activeCaseId === baseId) {
+        baseModel = liveModel;
+      } else {
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: buildOverrides(s.baseSnapshot, liveModel) } : c);
+      }
+      return { ...baseModel, cases, activeCaseId: s.activeCaseId };
+    },
+
+    hydrate: (snapshot) => set(() => {
+      const cases = normaliseCases(snapshot.cases);
+      const baseId = baseCaseId(cases);
+      const activeCaseId = snapshot.activeCaseId && cases.some((c) => c.id === snapshot.activeCaseId)
+        ? snapshot.activeCaseId
+        : baseId;
+      // The persisted top-level fields ARE the base model.
+      const baseModel = pickModel(snapshot as unknown as Record<string, unknown>);
+      const active = cases.find((c) => c.id === activeCaseId)!;
+      const model = active.role === 'base' ? baseModel : applyOverrides(baseModel, active.overrides);
+      return {
+        ...model,
+        // Pass 43 (2026-05-14): coerce to array so legacy snapshots
+        // without the marker field still satisfy the store contract.
+        migrationsApplied: model.migrationsApplied ?? [],
+        baseSnapshot: baseModel,
+        cases,
+        activeCaseId,
+        activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID,
+        activeAssetId: null,
+      };
     }),
   }));
 }

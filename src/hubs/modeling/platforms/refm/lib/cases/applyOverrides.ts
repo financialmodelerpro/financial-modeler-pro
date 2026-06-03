@@ -1,0 +1,155 @@
+/**
+ * Case merge engine (2026-06-03).
+ *
+ * A scenario case stores a flat map of field OVERRIDES keyed by the SAME path
+ * scheme `diffSnapshots` emits (e.g. "project.financing.fundingMethod",
+ * "assets[id=hotel1].revenue.sell.pricePerUnit", "costLines[id=L1].value",
+ * "costOverrides[a::l].value", "landAllocationMode"). `applyOverrides` is the
+ * inverse of `diffSnapshots`: it deep-clones the base model snapshot and sets
+ * every override path onto the clone, producing the case's EFFECTIVE model that
+ * the pure compute pipeline (computeFinancialsSnapshot -> computeReturnsSnapshot)
+ * then runs on.
+ *
+ * Value changes only: an override targets an EXISTING field on an existing
+ * entity. If the path points at a missing array element (entity not in the base
+ * roster) the override is silently skipped, never created. `buildOverrides`
+ * derives the map from an edited snapshot by reusing `diffSnapshots`, so the
+ * path grammar stays in exactly one place.
+ */
+import type { HydrateSnapshot } from '../state/module1-store';
+import type { ProjectCase } from '../state/module1-types';
+import { diffSnapshots } from '../persistence/snapshot-diff';
+
+// JSON deep clone: the model snapshot is always JSON-serialisable, and this
+// matches the equality semantics used by snapshotsEqual / autosave.
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
+
+// Parse one path token into either a plain key or an array selector. Array
+// selectors are "key[id=X]" (id-keyed arrays) or "key[a::l]" (compound-keyed
+// costOverrides). Tokens never contain dots (entity ids use _ and digits).
+const SELECTOR = /^([A-Za-z0-9_]+)\[(.+)\]$/;
+
+type Indexable = Record<string, unknown>;
+
+function findElement(arr: unknown[], selector: string): Indexable | undefined {
+  if (selector.startsWith('id=')) {
+    const id = selector.slice(3);
+    return arr.find((e) => (e as Indexable | null)?.['id'] === id) as Indexable | undefined;
+  }
+  if (selector.includes('::')) {
+    const [assetId, lineId] = selector.split('::');
+    return arr.find((e) => {
+      const r = e as Indexable | null;
+      return String(r?.['assetId'] ?? '') === assetId && String(r?.['lineId'] ?? '') === lineId;
+    }) as Indexable | undefined;
+  }
+  const idx = Number(selector);
+  return Number.isInteger(idx) ? (arr[idx] as Indexable | undefined) : undefined;
+}
+
+/** Set `value` at `path` inside `root`, walking nested objects + id-keyed
+ *  arrays. No-op when an intermediate array element does not exist (value-only:
+ *  never create a new entity). */
+function setByPath(root: Indexable, path: string, value: unknown): void {
+  const tokens = path.split('.');
+  let cur: Indexable = root;
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const last = i === tokens.length - 1;
+    const sel = SELECTOR.exec(tok);
+    if (sel) {
+      const arr = cur[sel[1]];
+      if (!Array.isArray(arr)) return;
+      const el = findElement(arr, sel[2]);
+      if (!el) return; // entity not in the base roster: skip (value-only)
+      if (last) { Object.assign(el, clone(value)); return; }
+      cur = el;
+    } else {
+      if (last) { cur[tok] = clone(value); return; }
+      const next = cur[tok];
+      if (next == null || typeof next !== 'object') cur[tok] = {};
+      cur = cur[tok] as Indexable;
+    }
+  }
+}
+
+/** Read the value at `path` from a snapshot (mirror of setByPath). Returns
+ *  undefined when the path or an intermediate entity is missing. Used by the
+ *  Case Manager to show the base value next to the override. */
+export function getByPath(root: HydrateSnapshot, path: string): unknown {
+  const tokens = path.split('.');
+  let cur: unknown = root;
+  for (const tok of tokens) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    const sel = SELECTOR.exec(tok);
+    if (sel) {
+      const arr = (cur as Indexable)[sel[1]];
+      if (!Array.isArray(arr)) return undefined;
+      cur = findElement(arr, sel[2]);
+    } else {
+      cur = (cur as Indexable)[tok];
+    }
+  }
+  return cur;
+}
+
+/** Deep-clone `base` and apply every override path. Returns the case's
+ *  effective model snapshot. */
+export function applyOverrides(base: HydrateSnapshot, overrides: Record<string, unknown> | undefined): HydrateSnapshot {
+  const out = clone(base);
+  if (!overrides) return out;
+  for (const [path, value] of Object.entries(overrides)) {
+    setByPath(out as unknown as Indexable, path, value);
+  }
+  return out;
+}
+
+/** Derive the override map for a scenario case from its edited snapshot vs the
+ *  base, reusing diffSnapshots so the path grammar lives in one place. Adds /
+ *  updates store the new value; removes store undefined. */
+export function buildOverrides(base: HydrateSnapshot, edited: HydrateSnapshot): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const entry of diffSnapshots(base, edited)) {
+    if (entry.path === '<root>') continue; // not a field path
+    out[entry.path] = entry.after;
+  }
+  return out;
+}
+
+// ── Seeding + helpers ───────────────────────────────────────────────────────
+
+/** The default case set: Management (base) + Downside + Upside (scenarios). */
+export function seedCases(): ProjectCase[] {
+  return [
+    { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
+    { id: 'case_downside', name: 'Downside', role: 'scenario', overrides: {} },
+    { id: 'case_upside', name: 'Upside', role: 'scenario', overrides: {} },
+  ];
+}
+
+/** The base ("Management") case id, falling back to the first case. */
+export function baseCaseId(cases: ProjectCase[]): string {
+  return (cases.find((c) => c.role === 'base') ?? cases[0])?.id ?? 'case_management';
+}
+
+/** Normalise a cases array: guarantee exactly one base case and non-empty list.
+ *  Used on hydrate so legacy snapshots (no cases) auto-seed and malformed
+ *  arrays self-heal. */
+export function normaliseCases(cases: ProjectCase[] | undefined): ProjectCase[] {
+  if (!cases || cases.length === 0) return seedCases();
+  const bases = cases.filter((c) => c.role === 'base');
+  if (bases.length === 1) return cases;
+  if (bases.length === 0) {
+    // Promote the first case to base.
+    return cases.map((c, i) => (i === 0 ? { ...c, role: 'base' as const, overrides: {} } : c));
+  }
+  // More than one base: keep the first, demote the rest to scenarios.
+  let seen = false;
+  return cases.map((c) => {
+    if (c.role !== 'base') return c;
+    if (!seen) { seen = true; return c; }
+    return { ...c, role: 'scenario' as const };
+  });
+}

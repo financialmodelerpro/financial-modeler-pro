@@ -63,7 +63,7 @@
  *     pollute the new project's no-op detection.
  */
 
-import { useModule1Store, type HydrateSnapshot, DEFAULT_MODULE1_STATE } from '../state/module1-store';
+import { useModule1Store, type HydrateSnapshot } from '../state/module1-store';
 import { hydrationFromAnySnapshot, hydrationFromAnySnapshotChecked } from '../state/module1-migrate';
 import {
   loadProject,
@@ -105,15 +105,13 @@ let hasFiredNeedsName    = false;
 let isStartingSession    = false;
 
 // ── Snapshot extraction ─────────────────────────────────────────────────────
-const SNAPSHOT_KEYS = Object.keys(DEFAULT_MODULE1_STATE) as Array<keyof HydrateSnapshot>;
-
+// Persistence snapshot = the BASE (Management) model fields + the scenario
+// cases registry + activeCaseId. The store flushes the active case's edits
+// into the registry, so what we persist is always the canonical base model
+// plus per-case overrides (never the active case's merged model). See
+// module1-store extractPersistSnapshot().
 function extractSnapshot(): HydrateSnapshot {
-  const s = useModule1Store.getState();
-  const out = {} as HydrateSnapshot;
-  for (const k of SNAPSHOT_KEYS) {
-    (out as Record<string, unknown>)[k] = s[k];
-  }
-  return out;
+  return useModule1Store.getState().extractPersistSnapshot();
 }
 
 function computeAssetMix(snapshot: HydrateSnapshot): string[] {
