@@ -26,7 +26,8 @@
  * The renderer is pure (state in, bytes out) so the verifier can exercise it
  * headless. pdf-lib is the only dependency (already in package.json).
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import {
   formatAccounting,
   formatArea,
@@ -34,6 +35,8 @@ import {
   type DisplayScale,
 } from '@/src/core/formatters';
 import { computeSubUnitArea } from '@/src/core/calculations';
+import INTER_REGULAR_B64 from './fonts/interRegular';
+import INTER_BOLD_B64 from './fonts/interBold';
 import {
   computeFinancialsSnapshot,
   type ProjectFinancialsSnapshot,
@@ -41,6 +44,15 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { MODULES } from '../modules-config';
+
+// Decode a base64 string to bytes in both Node (Buffer) and the browser (atob).
+function b64ToBytes(b64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 // ── Table model ───────────────────────────────────────────────────────────
 export type RowEmphasis = 'data' | 'subtotal' | 'total' | 'heading';
@@ -986,7 +998,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Retained earnings', bs.retainedEarningsPerPeriod, 'last'),
     periodRow('Total equity', bs.totalEquityPerPeriod, 'last', 'subtotal'),
     periodRow('Liabilities + equity', bs.totalLiabilitiesAndEquityPerPeriod, 'last', 'total'),
-    periodRow('BS check (assets less L&E)', bs.bsDifferencePerPeriod, 'last'),
+    periodRow('BS check (Δ = Assets − L&E)', bs.bsDifferencePerPeriod, 'last'),
   ]));
 
   return { inputs: [], outputs, schedules };
@@ -1112,7 +1124,7 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
   ]));
   const bu = returns.buildup;
   schedules.push(periodTable('FCFF Build-up', syl, [
-    periodRow('(-)Existing pre-capex', bu.existingPreCapexPerPeriod, 'sum'),
+    periodRow('(−) Existing pre-capex', bu.existingPreCapexPerPeriod, 'sum'),
     periodRow('(+) Cash from operations', bu.cfoPerPeriod, 'sum'),
     periodRow('(+) Cash from investing', bu.cfiPerPeriod, 'sum'),
     periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod, 'sum'),
@@ -1122,15 +1134,15 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
     periodRow('FCFF', returns.fcffPerPeriod, 'sum'),
     periodRow('(+) Existing debt opening', bu.existingDebtOpeningPerPeriod, 'sum'),
     periodRow('(+) Debt drawdown', bu.debtDrawPerPeriod, 'sum'),
-    periodRow('(-)Principal repaid', bu.principalRepayPerPeriod, 'sum'),
-    periodRow('(-)Interest paid', bu.interestPaidPerPeriod, 'sum'),
-    periodRow('(-)In-kind land', bu.inKindLandPerPeriod, 'sum'),
+    periodRow('(−) Principal repaid', bu.principalRepayPerPeriod, 'sum'),
+    periodRow('(−) Interest paid', bu.interestPaidPerPeriod, 'sum'),
+    periodRow('(−) In-kind land', bu.inKindLandPerPeriod, 'sum'),
     periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod, 'sum'),
     periodRow('= FCFE', returns.fcfePerPeriod, 'sum', 'total'),
   ]));
   schedules.push(periodTable('Distributed Equity Build-up', syl, [
-    periodRow('(-)Cash equity contributed', bu.equityCashPerPeriod, 'sum'),
-    periodRow('(-)In-kind equity contributed', bu.equityInKindPerPeriod, 'sum'),
+    periodRow('(−) Cash equity contributed', bu.equityCashPerPeriod, 'sum'),
+    periodRow('(−) In-kind equity contributed', bu.equityInKindPerPeriod, 'sum'),
     periodRow('(+) Dividends distributed', bu.dividendsDistributedPerPeriod, 'sum'),
     periodRow('= Distributed equity', returns.dividendStreamPerPeriod, 'sum', 'total'),
   ]));
@@ -1181,8 +1193,13 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }
 
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  // Embed Inter (the platform UI font) so the PDF matches the app visually and
+  // supports full Unicode. Glyph subsetting keeps the output small even though
+  // the source TTF is embedded inline as base64. fontkit is required by pdf-lib
+  // for any non-standard (custom) font.
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(b64ToBytes(INTER_REGULAR_B64), { subset: true });
+  const bold = await doc.embedFont(b64ToBytes(INTER_BOLD_B64), { subset: true });
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     pageW: PAGE_W_P, pageH: PAGE_H_P, landscape: false,

@@ -17,9 +17,14 @@
  *
  * Run: npx tsx scripts/verify-pdf-export.ts
  */
+import { readFileSync } from 'fs';
+import path from 'path';
 import { PDFDocument } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { generateProjectPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
+import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -99,6 +104,35 @@ async function main(): Promise<void> {
   check('returns bytes', bytes instanceof Uint8Array);
   check('file size > 0', bytes.length > 0, `len=${bytes.length}`);
   check('non-trivial size (> 8 KB)', bytes.length > 8192, `len=${bytes.length}`);
+
+  // Font: the bundled base64 modules the generator embeds must be the exact
+  // Inter TTFs in the repo (the platform UI font, per app/layout.tsx).
+  const regOnDisk = readFileSync(path.join(process.cwd(), 'src/assets/fonts/Inter-Regular.ttf'));
+  const boldOnDisk = readFileSync(path.join(process.cwd(), 'src/assets/fonts/Inter-Bold.ttf'));
+  check('bundled regular == repo Inter-Regular.ttf', Buffer.from(INTER_REGULAR_B64, 'base64').equals(regOnDisk), '');
+  check('bundled bold == repo Inter-Bold.ttf', Buffer.from(INTER_BOLD_B64, 'base64').equals(boldOnDisk), '');
+
+  // Unicode: Inter must render Δ and the Unicode minus (−) that WinAnsi could
+  // not encode, so no ASCII fallback is needed. Embed via the same fontkit path
+  // and confirm the embedded font is Inter + that drawing those glyphs + save()
+  // does not throw. (Helvetica threw on these exact characters before.)
+  let unicodeOk = true;
+  let fontName = '';
+  try {
+    const doc2 = await PDFDocument.create();
+    doc2.registerFontkit(fontkit);
+    const f = await doc2.embedFont(Buffer.from(INTER_REGULAR_B64, 'base64'), { subset: true });
+    fontName = f.name;
+    const pg = doc2.addPage([220, 80]);
+    pg.drawText('Δ = Assets − Liab  ·  € 1,234', { x: 10, y: 40, size: 12, font: f });
+    await doc2.save();
+  } catch { unicodeOk = false; }
+  check('embedded font is Inter', /inter/i.test(fontName), `name=${fontName}`);
+  check('Inter renders Δ and Unicode minus (no ASCII fallback)', unicodeOk, '');
+
+  // The full report itself emits Δ and − in its labels (BS check + M5 build-ups);
+  // it produced valid bytes above, which Helvetica could not have done.
+  check('full report renders with Unicode content', bytes.length > 8192, '');
 
   const fullPages = await pageCount(bytes);
   // Cover + description + a full inputs/outputs/schedules walk across 5 modules

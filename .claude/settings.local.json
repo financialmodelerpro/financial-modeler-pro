@@ -209,7 +209,8 @@
       "PowerShell(npm run *)",
       "Bash(Select-Object -ExpandProperty Name)",
       "Bash(Sort-Object)",
-      "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 40)"
+      "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 25)"
     ]
   }
 }
