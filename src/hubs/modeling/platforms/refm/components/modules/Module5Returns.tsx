@@ -479,60 +479,117 @@ function PartnersSection(props: {
 }): React.JSX.Element {
   const { partners, snapshot, streamPriorLabel, streamAxisLabels, fmt, onChange } = props;
   const rows = snapshot.partners;
-  const manualMode = snapshot.manualMode;
 
-  // Default to one Sponsor holding the project's full equity PER TYPE (matches
-  // the engine's synthesized default); the first edit / add materializes it.
+  // Equity broken out BY TYPE. Each type carries its project total (from
+  // financing) and partners hold a PERCENTAGE share of it. The shares across
+  // partners always sum to 100, so the amounts always reconcile to the total.
+  type EqKey = 'cash' | 'inKind' | 'existing';
+  const PCT_FIELD: Record<EqKey, 'cashPct' | 'inKindPct' | 'existingPct'> = {
+    cash: 'cashPct', inKind: 'inKindPct', existing: 'existingPct',
+  };
+  const equityTypes: Array<{ key: EqKey; label: string; total: number }> = [
+    { key: 'cash',     label: 'New Cash Equity',        total: snapshot.totalCash },
+    { key: 'inKind',   label: 'In-Kind Equity (land)',  total: snapshot.totalInKind },
+    { key: 'existing', label: 'Existing Equity',        total: snapshot.totalExisting },
+  ];
+
+  // Default to one Sponsor holding 100% of every type (matches the engine's
+  // synthesized default); the first edit / add materializes real partners.
   const effectivePartners: ProjectPartner[] = partners.length
     ? partners
-    : [{ id: 'sponsor', name: 'Sponsor', cashContribution: snapshot.totalCash, inKindContribution: snapshot.totalInKind, existingContribution: snapshot.totalExisting }];
+    : [{ id: 'sponsor', name: 'Sponsor', cashPct: 100, inKindPct: 100, existingPct: 100 }];
 
-  const update = (id: string, patch: Partial<ProjectPartner>): void =>
-    onChange(effectivePartners.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const remove = (id: string): void => onChange(effectivePartners.filter((p) => p.id !== id));
-  const addPartner = (): void =>
-    onChange([...effectivePartners, { id: `p_${Date.now()}_${effectivePartners.length}`, name: `Partner ${effectivePartners.length + 1}`, cashContribution: 0, inKindContribution: 0, existingContribution: 0 }]);
-  const setMode = (mode: 'auto' | 'manual'): void => {
-    if (mode === 'manual') onChange(effectivePartners.map((p, i) => ({ ...p, manualShareholdingPct: Number(((rows[i]?.shareholdingPct ?? 0) * 100).toFixed(4)) })));
-    else onChange(effectivePartners.map((p) => ({ ...p, manualShareholdingPct: undefined })));
+  const pctOf = (p: ProjectPartner, key: EqKey): number => {
+    const v = p[PCT_FIELD[key]];
+    return Number.isFinite(v) ? (v as number) : 0;
+  };
+  const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
+
+  // Re-balance one equity type so the shares across partners always sum to
+  // 100: the edited partner takes newPct, the remainder is spread over the
+  // others in proportion to their current shares (equally when they are all
+  // zero). This is what makes the split fully flexible, change any amount or
+  // %, and the others auto-adjust to keep the project total intact.
+  const rebalance = (list: ProjectPartner[], key: EqKey, editedId: string, newPctRaw: number): ProjectPartner[] => {
+    const field = PCT_FIELD[key];
+    const newPct = Math.max(0, Math.min(100, newPctRaw));
+    const others = list.filter((p) => p.id !== editedId);
+    const remaining = 100 - newPct;
+    const sumOthers = others.reduce((s, p) => s + pctOf(p, key), 0);
+    return list.map((p) => {
+      if (p.id === editedId) return { ...p, [field]: round4(newPct) };
+      let v: number;
+      if (others.length === 0) v = 0;
+      else if (sumOthers > 1e-9) v = (pctOf(p, key) / sumOthers) * remaining;
+      else v = remaining / others.length;
+      return { ...p, [field]: round4(v) };
+    });
+  };
+  // Normalise a type's shares to sum to 100 across the list (after a remove).
+  const normalise = (list: ProjectPartner[], key: EqKey): ProjectPartner[] => {
+    if (list.length === 0) return list;
+    const field = PCT_FIELD[key];
+    const total = list.reduce((s, p) => s + pctOf(p, key), 0);
+    return list.map((p) => ({ ...p, [field]: round4(total > 1e-9 ? (pctOf(p, key) / total) * 100 : 100 / list.length) }));
   };
 
-  const numCell = (v: number | undefined, onSet: (n: number) => void): React.JSX.Element => (
-    <input type="number" value={Number.isFinite(v) ? v : 0} onChange={(e) => onSet(parseFloat(e.target.value) || 0)} style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} />
-  );
+  const setPct = (key: EqKey, id: string, pct: number): void =>
+    onChange(rebalance(effectivePartners, key, id, pct));
+  const setAmount = (key: EqKey, id: string, amount: number, total: number): void =>
+    onChange(rebalance(effectivePartners, key, id, total > 0 ? (amount / total) * 100 : 0));
+  const setName = (id: string, name: string): void =>
+    onChange(effectivePartners.map((p) => (p.id === id ? { ...p, name } : p)));
+  const addPartner = (): void => {
+    // Equal-split every type across the new roster (1 -> 100%, 2 -> 50/50,
+    // 3 -> 33.33% ...), per the "auto divide" requirement.
+    const added: ProjectPartner = { id: `p_${Date.now()}_${effectivePartners.length}`, name: `Partner ${effectivePartners.length + 1}` };
+    const next = [...effectivePartners, added];
+    const eq = round4(100 / next.length);
+    onChange(next.map((p) => ({ ...p, cashPct: eq, inKindPct: eq, existingPct: eq })));
+  };
+  const remove = (id: string): void => {
+    let next = effectivePartners.filter((p) => p.id !== id);
+    for (const t of equityTypes) next = normalise(next, t.key);
+    onChange(next);
+  };
+
   const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11 };
   const thL: React.CSSProperties = { ...th, textAlign: 'left' };
   const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', fontSize: 11, borderBottom: '1px solid var(--color-border)' };
   const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
 
-  const Chip = ({ ok, text }: { ok: boolean; text: string }): React.JSX.Element => (
-    <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, marginRight: 8,
-      color: ok ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
-      background: ok ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-warning-bg, #fef3c7)' }}>
-      {ok ? '✓ ' : '⚠ '}{text}
-    </span>
-  );
-
-  // Equity broken out BY TYPE (rows). Each type carries its project total and
-  // is allocated across partners (columns); each row must reconcile.
-  type EqKey = 'cashContribution' | 'inKindContribution' | 'existingContribution';
-  const equityTypes: Array<{ key: EqKey; label: string; total: number; allocated: number; ok: boolean }> = [
-    { key: 'cashContribution', label: 'New Cash Equity', total: snapshot.totalCash, allocated: snapshot.allocatedCash, ok: snapshot.cashReconciles },
-    { key: 'inKindContribution', label: 'In-Kind Equity (land)', total: snapshot.totalInKind, allocated: snapshot.allocatedInKind, ok: snapshot.inKindReconciles },
-    { key: 'existingContribution', label: 'Existing Equity', total: snapshot.totalExisting, allocated: snapshot.allocatedExisting, ok: snapshot.existingReconciles },
-  ];
+  // One partner cell per equity type: amount (top) + % (bottom), both editable
+  // and linked (amount = % x project total). Editing either rebalances the
+  // others.
+  const allocCell = (p: ProjectPartner, type: { key: EqKey; total: number }): React.JSX.Element => {
+    const pct = pctOf(p, type.key);
+    const amount = (type.total * pct) / 100;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch' }}>
+        <input
+          type="number" value={Math.round(amount)} disabled={type.total <= 0}
+          onChange={(e) => setAmount(type.key, p.id, parseFloat(e.target.value) || 0, type.total)}
+          style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} title="Amount"
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <input
+            type="number" value={round4(pct)}
+            onChange={(e) => setPct(type.key, p.id, parseFloat(e.target.value) || 0)}
+            style={{ ...FAST_INPUT, width: '100%', textAlign: 'right', fontSize: 10 }} title="Share %"
+          />
+          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>%</span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Equity Partners</div>
-        <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-          <button type="button" onClick={() => setMode('auto')} style={pillStyle(!manualMode)}>Auto %</button>
-          <button type="button" onClick={() => setMode('manual')} style={pillStyle(manualMode)}>Manual %</button>
-        </div>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Equity is shown by type with its project total; allocate each type across partners so every row reconciles. Shareholding auto-computes from total contribution (or switch to Manual %). Each partner&apos;s IRR is a yearly equity IRR (contributions timed as they occur, dividends + terminal by shareholding), the same basis as the project FCFE / Distributed-Equity stream.
+        Each equity type shows its project total split across partners as both an amount and a %, both editable. With one partner it holds 100%; adding a partner auto-divides equally (50% each for two, 33.33% for three). Change any amount or % and the others auto-adjust so each type always sums to its total. Shareholding (the dividend / terminal share) is each partner&apos;s total equity over the project total, and each partner&apos;s IRR is a yearly equity IRR on the same basis as the project FCFE / Distributed-Equity stream.
       </div>
 
       {(
@@ -547,8 +604,8 @@ function PartnersSection(props: {
                   {effectivePartners.map((p) => (
                     <th key={p.id} style={th}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                        <input value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} style={{ ...FAST_INPUT, width: 100, color: 'var(--color-heading)' }} />
-                        <button type="button" onClick={() => remove(p.id)} style={{ ...removeBtn, color: 'var(--color-on-primary-navy)' }} title="Remove partner">✕</button>
+                        <input value={p.name} onChange={(e) => setName(p.id, e.target.value)} style={{ ...FAST_INPUT, width: 100, color: 'var(--color-heading)' }} />
+                        <button type="button" onClick={() => remove(p.id)} style={{ ...removeBtn, color: 'var(--color-on-primary-navy)' }} title="Remove partner" disabled={effectivePartners.length <= 1}>✕</button>
                       </div>
                     </th>
                   ))}
@@ -558,11 +615,9 @@ function PartnersSection(props: {
                 {equityTypes.map((type) => (
                   <tr key={type.key}>
                     <td style={tdL}>{type.label}</td>
-                    <td style={{ ...td, color: type.ok ? 'var(--color-heading)' : 'var(--color-warning, #92400e)', fontWeight: 600 }}>
-                      {fmt(type.total)}{type.ok ? '' : ' ⚠'}
-                    </td>
+                    <td style={{ ...td, fontWeight: 600 }}>{fmt(type.total)}</td>
                     {effectivePartners.map((p) => (
-                      <td key={p.id} style={td}>{numCell(p[type.key], (n) => update(p.id, { [type.key]: n } as Partial<ProjectPartner>))}</td>
+                      <td key={p.id} style={td}>{allocCell(p, type)}</td>
                     ))}
                   </tr>
                 ))}
@@ -575,20 +630,14 @@ function PartnersSection(props: {
                   <td style={tdL}>Shareholding %</td>
                   <td style={td}>{fmtPct(snapshot.shareholdingSum)}</td>
                   {effectivePartners.map((p, i) => (
-                    <td key={p.id} style={td}>
-                      {manualMode ? numCell(p.manualShareholdingPct, (n) => update(p.id, { manualShareholdingPct: n })) : fmtPct(rows[i]?.shareholdingPct ?? 0)}
-                    </td>
+                    <td key={p.id} style={td}>{fmtPct(rows[i]?.shareholdingPct ?? 0)}</td>
                   ))}
                 </tr>
               </tbody>
             </table>
           </div>
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>{' '}
-            {equityTypes.map((type) => (
-              <Chip key={type.key} ok={type.ok} text={`${type.label}: ${fmt(type.allocated)} / ${fmt(type.total)}`} />
-            ))}
-            <Chip ok={snapshot.shareholdingReconciles} text={`Shareholding ${fmtPct(snapshot.shareholdingSum)}`} />
+            <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>
           </div>
 
           {/* Per-partner outputs */}
@@ -644,8 +693,6 @@ function PartnersSection(props: {
   );
 }
 
-const pillBase: React.CSSProperties = { border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 };
-const pillStyle = (active: boolean): React.CSSProperties => ({ ...pillBase, background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)' });
 const addBtnGhost: React.CSSProperties = { border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)' };
 const removeBtn: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13 };
 

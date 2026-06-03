@@ -272,13 +272,28 @@ export const PROJECT_TYPES: readonly ProjectType[] = [
 export interface ProjectPartner {
   id: string;
   name: string;
-  /** New cash equity contributed during the project. */
+  // 2026-06-03 (M5 partners flexible split): partners now hold a PERCENTAGE
+  // share of each equity TYPE. The project sets the per-type total (from
+  // financing); each partner takes cashPct / inKindPct / existingPct of it,
+  // and the per-type shares across partners always sum to 100 (the UI auto-
+  // balances on every edit). The resolver derives the absolute contribution
+  // (pct/100 x type total) before the returns engine runs, so the shares
+  // stay correct even when the project's equity totals change.
+  /** Share of total new cash equity (0-100). */
+  cashPct?: number;
+  /** Share of total in-kind (land) equity (0-100). */
+  inKindPct?: number;
+  /** Share of total existing equity (0-100). */
+  existingPct?: number;
+  // ── Legacy absolute amounts (pre-2026-06-03). Kept for back-compat; the
+  // resolver falls back to these only when the matching *Pct is unset. ──
+  /** @deprecated use cashPct. New cash equity contributed during the project. */
   cashContribution?: number;
-  /** In-kind (e.g. land) equity contributed. */
+  /** @deprecated use inKindPct. In-kind (e.g. land) equity contributed. */
   inKindContribution?: number;
-  /** Equity already funded in an operational/existing phase. */
+  /** @deprecated use existingPct. Equity already funded in an operational/existing phase. */
   existingContribution?: number;
-  /** Manual shareholding override (0-100). Unset => auto from contributions. */
+  /** @deprecated Manual shareholding override (0-100). Unset => auto from contributions. */
   manualShareholdingPct?: number;
 }
 

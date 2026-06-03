@@ -330,6 +330,21 @@ console.log('=== M5 Returns snapshot integration ===');
   check('PARTNERS: per-period Σ partner streams == project Distributed-Equity stream',
     P.totalStream.every((v, i) => Math.abs(v - (rs.dividendStreamPerPeriod[i] ?? 0)) <= tol(rs.dividendStreamPerPeriod[i] ?? 0)));
   check('PARTNERS: partner IRRs finite or null', P.partners.every((r) => r.irr === null || Number.isFinite(r.irr)));
+
+  // Percentage-based split (the flexible UI model): partners hold a % of each
+  // type; the resolver derives the absolute contribution = pct/100 x total.
+  // 70/30 across every type => shares 70/30, amounts reconcile to the totals.
+  const stateP = buildState();
+  stateP.project.partners = [
+    { id: 'A', name: 'Sponsor', cashPct: 70, inKindPct: 70, existingPct: 70 },
+    { id: 'B', name: 'JV', cashPct: 30, inKindPct: 30, existingPct: 30 },
+  ];
+  const snapP = computeFinancialsSnapshot(stateP);
+  const PP = computeReturnsSnapshot(snapP, stateP.project).partners;
+  check('PARTNERS(pct): two partners present', PP.partners.length === 2);
+  check('PARTNERS(pct): shares = 70 / 30', near(PP.partners[0].shareholdingPct, 0.7) && near(PP.partners[1].shareholdingPct, 0.3));
+  check('PARTNERS(pct): allocated cash = 70% of total', near(PP.allocatedCash, PP.totalCash) && near(PP.partners[0].cashContribution, PP.totalCash * 0.7));
+  check('PARTNERS(pct): every equity type reconciles', PP.cashReconciles && PP.inKindReconciles && PP.existingReconciles);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

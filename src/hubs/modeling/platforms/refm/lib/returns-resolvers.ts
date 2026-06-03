@@ -448,18 +448,26 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // through exit; existing equity is the inception amount (preCapex − debt).
   const totalCashEquity = equityCashAxis.reduce((s, v) => s + (v ?? 0), 0);
   const totalInKindEquity = inKindAxis.reduce((s, v) => s + (v ?? 0), 0);
+  const totalExistingEquity = Math.max(0, existingEquity);
+  // Partners hold a PERCENTAGE share of each equity type; derive the absolute
+  // contribution (pct/100 x type total) here so the engine keeps working on
+  // absolute amounts. Legacy snapshots with absolute *Contribution fields and
+  // no *Pct fall back to the stored amount.
+  const pctAmt = (pct: number | undefined, total: number, legacy: number | undefined): number =>
+    pct != null && Number.isFinite(pct)
+      ? Math.max(0, Math.min(100, pct)) / 100 * total
+      : Math.max(0, legacy ?? 0);
   const partnersBlock = computePartnerReturns({
     partners: (project.partners ?? []).map((p) => ({
       id: p.id,
       name: p.name,
-      cashContribution: Math.max(0, p.cashContribution ?? 0),
-      inKindContribution: Math.max(0, p.inKindContribution ?? 0),
-      existingContribution: Math.max(0, p.existingContribution ?? 0),
-      manualShareholdingPct: p.manualShareholdingPct,
+      cashContribution: pctAmt(p.cashPct, totalCashEquity, p.cashContribution),
+      inKindContribution: pctAmt(p.inKindPct, totalInKindEquity, p.inKindContribution),
+      existingContribution: pctAmt(p.existingPct, totalExistingEquity, p.existingContribution),
     })),
     totalCash: totalCashEquity,
     totalInKind: totalInKindEquity,
-    totalExisting: Math.max(0, existingEquity),
+    totalExisting: totalExistingEquity,
     cashAxisPerPeriod: equityCashAxis,
     inKindAxisPerPeriod: inKindAxis,
     dividendsPerPeriod: divPaidAxis,
