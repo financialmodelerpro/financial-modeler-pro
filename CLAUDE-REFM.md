@@ -258,8 +258,8 @@ npx tsx scripts/verify-m4-bs-reconciliation.ts    # M4 BS identities + debt/shar
 npx tsx scripts/verify-m4-reconciliation-broad.ts # M4 Direct==Indirect + BS bridge (broad guard)
 npx tsx scripts/verify-bs-hq-ap-link.ts           # BS HQ-AP link (cf6200d drift guard)
 npx tsx scripts/verify-funding-methods.ts         # Methods 2/3 gap-sizing + conditional IDC + sweep + fixed-point [CONV]
-npx tsx scripts/verify-returns-engine.ts          # M5 pure IRR/MOIC/payback/TV/RE-metrics/analytics
-npx tsx scripts/verify-returns-snapshot.ts        # M5 stream build-up + sponsor-IRR + sources/uses
+npx tsx scripts/verify-returns-engine.ts          # M5 pure IRR/MOIC/payback/TV/RE-metrics/analytics + Pass 2 partners/sensitivity (101)
+npx tsx scripts/verify-returns-snapshot.ts        # M5 stream build-up + sponsor-IRR + sources/uses + Pass 2 partners/exit-year/per-asset/sensitivity (81)
 npx tsx scripts/verify-phase-date-preservation.ts # M4 Pass 2h hybrid storage
 npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + 9L-Fix
 npx tsx scripts/verify-versioning.ts              # session versioning + change_log
