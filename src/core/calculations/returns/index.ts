@@ -87,6 +87,8 @@ export { buildSponsorStreamsForExit } from './streamBuild';
 export type { SponsorStreamInputs, SponsorStreams, TerminalConfig } from './streamBuild';
 export { exitYearAnalysis } from './exitYearAnalysis';
 export type { ExitYearRow } from './exitYearAnalysis';
+export { computePerAssetReturns } from './perAsset';
+export type { AssetReturnInput, AssetReturnRow, PerAssetSnapshot } from './perAsset';
 export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,

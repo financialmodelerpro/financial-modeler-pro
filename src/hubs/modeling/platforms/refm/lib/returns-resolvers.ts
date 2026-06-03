@@ -47,13 +47,13 @@ import {
   computeReturns,
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
-  buildSponsorStreamsForExit, exitYearAnalysis,
+  buildSponsorStreamsForExit, exitYearAnalysis, computePerAssetReturns,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
-  ExitYearRow,
+  ExitYearRow, PerAssetSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
@@ -160,6 +160,8 @@ export interface ReturnsSnapshot {
   partners: PartnersSnapshot;
   /** M5 Pass 2: hold-vs-sell exit-year analysis (one row per candidate exit). */
   exitYears: ExitYearRow[];
+  /** M5 Pass 2: per-asset revenue / cost / profit / yield-on-cost breakdown. */
+  perAsset: PerAssetSnapshot;
 }
 
 function cumulative(arr: number[]): number[] {
@@ -430,6 +432,25 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     axisYearLabels: snap.yearLabels,
   });
 
+  // ── M5 Pass 2: per-asset breakdown (unlevered drivers; financing is
+  // project-level so no per-asset IRR is attempted). Phase grouping is done
+  // in the UI, which has the asset->phase map; rows carry only the asset id. ─
+  const perAsset = computePerAssetReturns(
+    [...snap.perAssetPL.values()].map((pl) => {
+      const cf = snap.perAssetCF.get(pl.assetId);
+      return {
+        assetId: pl.assetId,
+        assetName: pl.assetName,
+        phaseId: '',
+        phaseName: '',
+        strategy: pl.strategy,
+        revenuePerPeriod: pl.revenuePerPeriod,
+        opexPerPeriod: pl.opexPerPeriod,
+        capexPerPeriod: cf?.capexPerPeriod ?? new Array<number>(N).fill(0),
+      };
+    }),
+  );
+
   return {
     axisLength: N,
     yearLabels: snap.yearLabels,
@@ -458,5 +479,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     debtAnalytics: debtAnalyticsBlock,
     partners: partnersBlock,
     exitYears,
+    perAsset,
   };
 }

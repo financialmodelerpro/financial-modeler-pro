@@ -237,6 +237,28 @@ console.log('=== M5 Returns snapshot integration ===');
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));
 }
 
+// ── M5 Pass 2: per-asset breakdown ────────────────────────────────────
+{
+  const state = buildState();
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const pa = rs.perAsset;
+  check('PERASSET: one row per asset in the P&L', pa.rows.length === snap.perAssetPL.size && pa.rows.length > 0);
+  // Per-asset revenue reconciles to the project total revenue (full axis).
+  const projRevenue = snap.pl.totalRevenuePerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+  check('PERASSET: Σ asset revenue == project total revenue', near(pa.totalRevenue, projRevenue), `assets=${pa.totalRevenue} proj=${projRevenue}`);
+  // Profit identity: total profit == total revenue − total cost.
+  check('PERASSET: totalProfit == totalRevenue − totalCost', near(pa.totalProfit, pa.totalRevenue - pa.totalCost));
+  // Each row's profit = revenue − cost.
+  check('PERASSET: each row profit = revenue − cost', pa.rows.every((r) => near(r.profit, r.totalRevenue - r.totalCost)));
+  // Yield on cost only for income assets.
+  check('PERASSET: yieldOnCost null for non-income assets', pa.rows.every((r) => r.isIncomeAsset || r.yieldOnCost === null));
+  // The hotel fixture is an Operate (income) asset; income assets with a
+  // positive cost basis must carry a (non-null) yield on cost.
+  check('PERASSET: an Operate (income) asset row exists', pa.rows.some((r) => r.strategy === 'Operate'));
+  check('PERASSET: income asset with cost > 0 has a yield on cost', pa.rows.filter((r) => r.isIncomeAsset && r.totalCost > 0).every((r) => r.yieldOnCost !== null));
+}
+
 // ── M5 Pass 2: exit-year analysis ─────────────────────────────────────
 {
   const state = buildState();

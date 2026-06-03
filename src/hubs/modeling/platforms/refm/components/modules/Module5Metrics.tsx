@@ -101,6 +101,75 @@ export default function Module5Metrics(): React.JSX.Element {
         fmt={fmt}
         priorYearLabel={snap.projectStartYear - 1}
       />
+
+      {/* ── M5 Pass 2: Per-Asset breakdown (grouped by phase) ── */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+        Per-Asset Economics
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Unlevered drivers per asset. Asset-level IRR is not shown: financing (debt, dividends, terminal value) is project-level and cannot be cleanly isolated per asset, so this shows revenue, cost, profit, margin and (income assets only) yield on cost. Grouped by phase.
+      </div>
+      {(() => {
+        const phaseOf = new Map<string, string>();
+        for (const a of state.assets) phaseOf.set(a.id, a.phaseId);
+        const phaseLabel = new Map<string, string>();
+        for (const ph of state.phases) phaseLabel.set(ph.id, ph.name);
+        const groups = new Map<string, typeof rs.perAsset.rows>();
+        for (const row of rs.perAsset.rows) {
+          const pid = phaseOf.get(row.assetId) ?? '__none__';
+          if (!groups.has(pid)) groups.set(pid, []);
+          groups.get(pid)!.push(row);
+        }
+        const th: React.CSSProperties = { textAlign: 'right', padding: '5px 10px' };
+        const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+        const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', borderBottom: '1px solid var(--color-border)' };
+        const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+        return (
+          <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 760 }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={thL}>Asset</th>
+                  <th style={thL}>Strategy</th>
+                  <th style={th}>Revenue</th>
+                  <th style={th}>Cost (capex)</th>
+                  <th style={th}>Profit</th>
+                  <th style={th}>Margin</th>
+                  <th style={th}>Yield on Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...groups.entries()].map(([pid, gRows]) => (
+                  <React.Fragment key={pid}>
+                    <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+                      <td colSpan={7} style={{ ...tdL, fontWeight: 800, color: 'var(--color-heading)' }}>{phaseLabel.get(pid) ?? 'Unassigned'}</td>
+                    </tr>
+                    {gRows.map((r) => (
+                      <tr key={r.assetId}>
+                        <td style={tdL}>{r.assetName}</td>
+                        <td style={tdL}>{r.strategy}</td>
+                        <td style={td}>{fmt(r.totalRevenue)}</td>
+                        <td style={td}>{fmt(r.totalCost)}</td>
+                        <td style={{ ...td, fontWeight: 600, color: r.profit >= 0 ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)' }}>{fmt(r.profit)}</td>
+                        <td style={td}>{fmtPct(r.profitMargin)}</td>
+                        <td style={td}>{r.isIncomeAsset ? fmtPct(r.yieldOnCost) : 'n/a'}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', fontWeight: 800 }}>
+                  <td style={{ ...tdL, color: 'var(--color-on-primary-navy)' }} colSpan={2}>Project Total</td>
+                  <td style={th}>{fmt(rs.perAsset.totalRevenue)}</td>
+                  <td style={th}>{fmt(rs.perAsset.totalCost)}</td>
+                  <td style={th}>{fmt(rs.perAsset.totalProfit)}</td>
+                  <td style={th}>{fmtPct(rs.perAsset.totalRevenue > 0 ? rs.perAsset.totalProfit / rs.perAsset.totalRevenue : null)}</td>
+                  <td style={th}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 }
