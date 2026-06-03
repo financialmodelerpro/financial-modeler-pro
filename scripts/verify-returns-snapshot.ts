@@ -12,6 +12,7 @@ import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/l
 import { computeReturnsSnapshot, resolveReturnsConfig, computeReturnsSensitivity } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { terminalEnterpriseValue } from '../src/core/calculations/returns';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { applyOverrides } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -345,6 +346,29 @@ console.log('=== M5 Returns snapshot integration ===');
   check('PARTNERS(pct): shares = 70 / 30', near(PP.partners[0].shareholdingPct, 0.7) && near(PP.partners[1].shareholdingPct, 0.3));
   check('PARTNERS(pct): allocated cash = 70% of total', near(PP.allocatedCash, PP.totalCash) && near(PP.partners[0].cashContribution, PP.totalCash * 0.7));
   check('PARTNERS(pct): every equity type reconciles', PP.cashReconciles && PP.inKindReconciles && PP.existingReconciles);
+}
+
+// ── CASES: the Case Comparison pipeline (applyOverrides -> compute) ──────────
+// Drives each case through the same real engines the comparison tab uses.
+{
+  const st: any = buildState();
+  const baseModel: any = {
+    project: st.project, phases: st.phases, parcels: st.parcels, landAllocationMode: st.landAllocationMode,
+    assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides,
+    financingTranches: st.financingTranches, equityContributions: st.equityContributions, migrationsApplied: [],
+  };
+  const baseRs = computeReturnsSnapshot(computeFinancialsSnapshot(baseModel), baseModel.project);
+
+  // Empty override reproduces the base case exactly (what the base column shows).
+  const sameModel = applyOverrides(baseModel, {});
+  const sameRs = computeReturnsSnapshot(computeFinancialsSnapshot(sameModel as any), (sameModel as any).project);
+  check('CASES: empty override reproduces base exit NOI', near(sameRs.exitNOI, baseRs.exitNOI));
+
+  // An Upside override (double the hotel ADR) raises NOI; base is untouched.
+  const upModel = applyOverrides(baseModel, { 'subUnits[id=su1].startingAdr': 1800 });
+  const upRs = computeReturnsSnapshot(computeFinancialsSnapshot(upModel as any), (upModel as any).project);
+  check('CASES: ADR override raises exit NOI vs base', upRs.exitNOI > baseRs.exitNOI + 1);
+  check('CASES: base model not mutated by applyOverrides', st.subUnits[0].startingAdr === 900);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

@@ -58,6 +58,7 @@ import Module4CashFlow from './modules/Module4CashFlow';
 import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module5Returns from './modules/Module5Returns';
 import Module5Metrics from './modules/Module5Metrics';
+import Module5CaseComparison from './modules/Module5CaseComparison';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 
@@ -223,6 +224,7 @@ export const m4Tabs = [
 export const m5Tabs = [
   { key: 'm5-returns', icon: '📈', label: '1. Returns', step: 1 },
   { key: 'm5-metrics', icon: '🏷️', label: '2. RE Metrics', step: 2 },
+  { key: 'm5-cases', icon: '🔀', label: '3. Case Comparison', step: 3 },
 ];
 
 // Universal module → sub-tabs map. Any module key that needs a sidebar
@@ -959,6 +961,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           </div>
           {m5ActiveTab === 'm5-returns' && <Module5Returns />}
           {m5ActiveTab === 'm5-metrics' && <Module5Metrics />}
+          {m5ActiveTab === 'm5-cases' && <Module5CaseComparison />}
         </div>
       );
     }
