@@ -47,6 +47,7 @@ export default function Module5Metrics(): React.JSX.Element {
   const fmt = makeFmt(scale, decimals);
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
   const m = rs.result.realEstate;
+  const de = rs.developmentEconomics;
 
   const dscrTone = m.dscrMin === null ? 'neutral' : m.dscrMin >= 1.2 ? 'good' : 'bad';
   const ltvTone = m.ltvAtExit === null ? 'neutral' : m.ltvAtExit <= 0.6 ? 'good' : 'bad';
@@ -102,72 +103,76 @@ export default function Module5Metrics(): React.JSX.Element {
         priorYearLabel={snap.projectStartYear - 1}
       />
 
-      {/* ── M5 Pass 2: Per-Asset breakdown (grouped by phase) ── */}
+      {/* Development economics (real-estate residual / profit view) */}
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-        Per-Asset Economics
+        Development Economics
       </div>
-      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Unlevered drivers per asset. Asset-level IRR is not shown: financing (debt, dividends, terminal value) is project-level and cannot be cleanly isolated per asset, so this shows revenue, cost, profit, margin and (income assets only) yield on cost. Grouped by phase.
+      <MetricGrid min={150}>
+        <MetricCard label="Gross Development Value" value={fmt(de.gdv)} sub={`GDV, ${currency}`} />
+        <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub={currency} />
+        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub={currency} />
+        <MetricCard label="Profit before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV less cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Profit after Financing" value={fmt(de.profitAfterFinancing)} sub="less financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : 'neutral'} />
+        <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
+      </MetricGrid>
+
+      {/* Income + exit profile (going-in vs exit, NOI) */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+        Income and Exit Profile
       </div>
+      <MetricGrid min={150}>
+        <MetricCard label="Stabilised NOI" value={fmt(rs.stabilisedNOI)} sub={currency} />
+        <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
+        <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
+        <MetricCard label="Going-in Yield on Cost" value={fmtPct(m.yieldOnCost)} sub="stabilised NOI / cost" />
+        <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
+        <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
+        <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
+      </MetricGrid>
+
+      {/* Hospitality operations (only when the project has Operate assets with
+          room-night demand). Operating KPIs are blended across the hold and
+          across hospitality assets: ADR / RevPAR are per-night rates (NOT
+          scaled like the currency figures), occupancy is occupied / available. */}
       {(() => {
-        const phaseOf = new Map<string, string>();
-        for (const a of state.assets) phaseOf.set(a.id, a.phaseId);
-        const phaseLabel = new Map<string, string>();
-        for (const ph of state.phases) phaseLabel.set(ph.id, ph.name);
-        const groups = new Map<string, typeof rs.perAsset.rows>();
-        for (const row of rs.perAsset.rows) {
-          const pid = phaseOf.get(row.assetId) ?? '__none__';
-          if (!groups.has(pid)) groups.set(pid, []);
-          groups.get(pid)!.push(row);
+        const hosp = [...snap.revenue.byHospitalityAsset.values()];
+        const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+        let avail = 0, occRn = 0, rooms = 0, fb = 0, other = 0, totalHosp = 0;
+        for (const h of hosp) {
+          avail += sumArr(h.availableRoomNightsPerPeriod);
+          occRn += sumArr(h.occupiedRoomNightsPerPeriod);
+          rooms += sumArr(h.roomsRevenuePerPeriod);
+          fb += sumArr(h.fbRevenuePerPeriod);
+          other += sumArr(h.otherRevenuePerPeriod);
+          totalHosp += sumArr(h.totalRevenuePerPeriod);
         }
-        const th: React.CSSProperties = { textAlign: 'right', padding: '5px 10px' };
-        const thL: React.CSSProperties = { ...th, textAlign: 'left' };
-        const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', borderBottom: '1px solid var(--color-border)' };
-        const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+        if (avail <= 0) return null; // no hospitality demand => hide the section
+        const occupancy = avail > 0 ? occRn / avail : null;
+        const adr = occRn > 0 ? rooms / occRn : null;
+        const revpar = avail > 0 ? rooms / avail : null;
+        const ccy = project.currency ?? 'SAR';
+        const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
+        const intFmt = (v: number): string => Math.round(v).toLocaleString();
         return (
-          <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 760 }}>
-              <thead>
-                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={thL}>Asset</th>
-                  <th style={thL}>Strategy</th>
-                  <th style={th}>Revenue</th>
-                  <th style={th}>Cost (capex)</th>
-                  <th style={th}>Profit</th>
-                  <th style={th}>Margin</th>
-                  <th style={th}>Yield on Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...groups.entries()].map(([pid, gRows]) => (
-                  <React.Fragment key={pid}>
-                    <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
-                      <td colSpan={7} style={{ ...tdL, fontWeight: 800, color: 'var(--color-heading)' }}>{phaseLabel.get(pid) ?? 'Unassigned'}</td>
-                    </tr>
-                    {gRows.map((r) => (
-                      <tr key={r.assetId}>
-                        <td style={tdL}>{r.assetName}</td>
-                        <td style={tdL}>{r.strategy}</td>
-                        <td style={td}>{fmt(r.totalRevenue)}</td>
-                        <td style={td}>{fmt(r.totalCost)}</td>
-                        <td style={{ ...td, fontWeight: 600, color: r.profit >= 0 ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)' }}>{fmt(r.profit)}</td>
-                        <td style={td}>{fmtPct(r.profitMargin)}</td>
-                        <td style={td}>{r.isIncomeAsset ? fmtPct(r.yieldOnCost) : 'n/a'}</td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', fontWeight: 800 }}>
-                  <td style={{ ...tdL, color: 'var(--color-on-primary-navy)' }} colSpan={2}>Project Total</td>
-                  <td style={th}>{fmt(rs.perAsset.totalRevenue)}</td>
-                  <td style={th}>{fmt(rs.perAsset.totalCost)}</td>
-                  <td style={th}>{fmt(rs.perAsset.totalProfit)}</td>
-                  <td style={th}>{fmtPct(rs.perAsset.totalRevenue > 0 ? rs.perAsset.totalProfit / rs.perAsset.totalRevenue : null)}</td>
-                  <td style={th}></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+              Hospitality Operations
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+              Blended across all hospitality (Operate) assets over the hold. ADR and RevPAR are per-night rates in {ccy} (not scaled); occupancy is occupied / available room nights.
+            </div>
+            <MetricGrid min={150}>
+              <MetricCard label="Occupancy" value={fmtPct(occupancy)} sub="occupied / available nights" />
+              <MetricCard label="ADR" value={rate(adr)} sub={`${ccy} / occupied night`} />
+              <MetricCard label="RevPAR" value={rate(revpar)} sub={`${ccy} / available night`} />
+              <MetricCard label="Rooms Revenue" value={fmt(rooms)} sub={currency} />
+              <MetricCard label="F&B Revenue" value={fmt(fb)} sub={currency} />
+              <MetricCard label="Other Revenue" value={fmt(other)} sub={currency} />
+              <MetricCard label="Total Hospitality Revenue" value={fmt(totalHosp)} sub={currency} />
+              <MetricCard label="Available Room Nights" value={intFmt(avail)} sub="capacity over hold" />
+            </MetricGrid>
+          </>
         );
       })()}
     </div>
