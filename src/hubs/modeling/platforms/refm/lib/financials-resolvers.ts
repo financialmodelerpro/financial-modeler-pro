@@ -837,15 +837,18 @@ export function computeCashWaterfall(args: {
    *  undefined the engine falls back to the legacy per-phase
    *  Phase.dividendPolicy (back-compat). */
   projectDividendPolicy?: { enabled?: boolean; payoutRatio?: number; mode?: 'cash_above_min' | 'pct_of_ebitda' };
+  /** Project-level cash-sweep settings (2026-06-03): one Starting Year + Sweep
+   *  Ratio for every sweep loan (precedence over the legacy per-tranche cfg). */
+  projectSweep?: { startingYear?: number; sweepRatioPct?: number };
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy, projectSweep } = args;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
   const eligible: CashSweepRow[] = [];
   for (const t of tranches) {
     const cfg = t.cashSweepConfig ?? {};
-    const useSweep = (t.repaymentMethod === 'cash_sweep') || (cfg.enabled === true);
+    const useSweep = (t.repaymentMethod === 'cash_sweep') || (t.repaymentMethod === 'cashsweep_from_period') || (t.repaymentMethod === 'cashsweep_min_cash') || (cfg.enabled === true);
     if (!useSweep) continue;
     const fac = facilityOutstanding.get(t.id);
     if (!fac) continue;
@@ -853,10 +856,11 @@ export function computeCashWaterfall(args: {
     const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const cp = Math.max(0, phase?.constructionPeriods ?? 0);
     const defaultStartingYear = phaseStartYear + cp;
-    const startingYear = cfg.startingYear ?? defaultStartingYear;
+    // Project-level cash-sweep settings win over the legacy per-tranche cfg.
+    const startingYear = projectSweep?.startingYear ?? cfg.startingYear ?? defaultStartingYear;
     const startingYearAxisIdx = Math.max(0, Math.min(N - 1, startingYear - projectStartYear));
     const priority = cfg.priority ?? 100;
-    const sweepRatio = Math.max(0, Math.min(1, (cfg.sweepRatio ?? 100) / 100));
+    const sweepRatio = Math.max(0, Math.min(1, (projectSweep?.sweepRatioPct ?? cfg.sweepRatio ?? 100) / 100));
     // When the engine already swept, `fac` IS the post-sweep balance; the
     // sweep amounts come from the engine and the pre-sweep balance is the
     // post-sweep balance plus the cumulative sweep already applied.
@@ -1910,6 +1914,7 @@ function computeFinancialsSnapshotOnce(
     terminalCashFloor: historicalOpeningCashTotal,
     dividendStartYear: project.dividendStartYear,
     projectDividendPolicy: project.dividendPolicy,
+    projectSweep: project.financing?.cashSweep,
   });
   const cashSweep = waterfall.cashSweep;
   const dividends = waterfall.dividends;

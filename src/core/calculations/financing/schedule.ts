@@ -175,19 +175,20 @@ export function computeFacilitySchedule(
     || tranche.repaymentMethod === 'cashsweep_from_period'
     || tranche.repaymentMethod === 'cashsweep_min_cash'
     || sweepCfg.enabled === true;
-  // Cash sweep starts AFTER capex by default (construction must be funded
-  // first; you don't sweep operating cash while you're still building), or
-  // from a user-selected year (cashSweepConfig.startingYear). 2026-06-03: the
-  // fallback was repayStartProj, which is 0 for EXISTING facilities, so the
-  // sweep ran during construction and dribbled tiny repayments out of the
-  // little surplus left after capex. Defaulting to constructionEndProj defers
-  // the sweep to the first post-construction period, where operating cash is
-  // free to repay debt in full. constructionEndProj is 0 for all-operational
-  // projects (no capex window), so they sweep from year 0 as before.
-  const sweepStartProj = sweepCfg.startingYear && Number.isFinite(sweepCfg.startingYear)
-    ? Math.max(0, Math.min(N - 1, sweepCfg.startingYear - projectStartYear))
+  // Cash sweep settings are PROJECT-LEVEL (2026-06-03): one Starting Year +
+  // Sweep Ratio applied to every sweep loan, instead of three per-loan inputs.
+  // Precedence: project-level cashSweep > legacy per-tranche cashSweepConfig
+  // (back-compat) > default. The sweep starts AFTER capex by default
+  // (constructionEndProj = first post-construction year): you fund construction
+  // first, then sweep operating surplus. constructionEndProj is 0 for
+  // all-operational projects (no capex window), so they sweep from year 0.
+  const projectSweep = project.financing?.cashSweep ?? {};
+  const effSweepStartYear = projectSweep.startingYear ?? sweepCfg.startingYear;
+  const sweepStartProj = effSweepStartYear !== undefined && Number.isFinite(effSweepStartYear)
+    ? Math.max(0, Math.min(N - 1, effSweepStartYear - projectStartYear))
     : Math.max(0, Math.min(N - 1, constructionEndProj));
-  const sweepRatio = Math.max(0, Math.min(1, (sweepCfg.sweepRatio ?? 100) / 100));
+  const effSweepRatioPct = projectSweep.sweepRatioPct ?? sweepCfg.sweepRatio ?? 100;
+  const sweepRatio = Math.max(0, Math.min(1, effSweepRatioPct / 100));
 
   // Pass 24b (2026-05-14): for fixed-count methods, fall back to the
   // remaining axis tail when the user leaves Repayment Periods at 0.

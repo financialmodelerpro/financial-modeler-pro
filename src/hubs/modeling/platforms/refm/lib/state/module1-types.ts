@@ -2223,6 +2223,21 @@ export interface ProjectFinancingConfig {
   phaseFilter?: string;
   /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   assetFilter?: string;
+  /**
+   * Project-level cash sweep settings (2026-06-03). ONE setting applied to
+   * EVERY cash-sweep facility, instead of three per-loan inputs. Sweep
+   * eligibility is still per-loan (the loan's repayment method = Cash Sweep);
+   * these control WHEN it starts and HOW much of the surplus it takes.
+   *   startingYear  calendar year the sweep begins (default = construction end,
+   *                 i.e. the first post-capex year).
+   *   sweepRatioPct % of each period's excess cash applied to debt (default 100).
+   * Repayment order across multiple sweep loans is automatic: existing loans
+   * first, then the order they are listed.
+   */
+  cashSweep?: {
+    startingYear?: number;
+    sweepRatioPct?: number;
+  };
 }
 
 export const ASSET_FILTER_COMBINED = '__combined__';

@@ -1341,25 +1341,15 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         />
       )}
 
-      {/* M4 Pass 2S (2026-05-24): Cash Sweep editor renders whenever the
-          tranche's repayment method is cash_sweep OR cashSweepConfig.enabled
-          is true (lets sweep stack on top of another scheduled method). */}
-      {(t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true || t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && !isExisting && (() => {
-        // Default startingYear = construction end + 1 of owning phase.
-        const phase = p.phases.find((ph) => ph.id === t.phaseId);
-        const phaseStartYear = phase?.startDate
-          ? new Date(phase.startDate).getUTCFullYear()
-          : p.projectStartYear;
-        const cp = Math.max(0, phase?.constructionPeriods ?? 0);
-        const defaultStartingYear = phaseStartYear + cp;
-        return (
-          <CashSweepEditor
-            config={t.cashSweepConfig}
-            defaultStartingYear={defaultStartingYear}
-            onChange={(cfg) => onUpdate(t.id, { cashSweepConfig: cfg })}
-          />
-        );
-      })()}
+      {/* Cash sweep timing + ratio are PROJECT-LEVEL (2026-06-03): set once for
+          every sweep loan in the Cash Sweep tab, instead of three per-loan
+          inputs. Selecting the Cash Sweep repayment method is all that's needed
+          here; ordering across loans is automatic (existing-first, then order). */}
+      {(t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true || t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') && (
+        <div style={{ marginTop: 'var(--sp-1)', fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+          Cash sweep starting year + ratio are set once for all loans on the <strong>Cash Sweep</strong> tab (Cash Sweep Settings). Loans are repaid existing-first, then in the order listed.
+        </div>
+      )}
 
       {/* Pass 53 (2026-05-14): Existing Operations panel
           relocated BELOW the rate + repayment rows so the user
@@ -1676,53 +1666,6 @@ function YoYScheduleEditor(p: YoYScheduleEditorProps): React.JSX.Element {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Cash Sweep editor ──────────────────────────────────────────────────
-
-interface CashSweepEditorProps {
-  config: { enabled?: boolean; priority?: number; startingYear?: number; sweepRatio?: number } | undefined;
-  onChange: (cfg: { enabled?: boolean; priority?: number; startingYear?: number; sweepRatio?: number }) => void;
-  /** Default starting year suggestion (construction end + 1 of owning phase). */
-  defaultStartingYear: number;
-}
-
-function CashSweepEditor(p: CashSweepEditorProps): React.JSX.Element {
-  const cfg = p.config ?? {};
-  const startingYear = cfg.startingYear ?? p.defaultStartingYear;
-  const sweepRatio = cfg.sweepRatio ?? 100;
-  const priority = cfg.priority ?? 100;
-  return (
-    <div style={{ marginTop: 'var(--sp-1)', padding: 'var(--sp-1)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-      <div>
-        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Priority (lower = paid first)</label>
-        <input
-          type="number"
-          value={priority}
-          onChange={(e) => p.onChange({ ...cfg, priority: Math.max(0, Number(e.target.value) || 0) })}
-          style={inputStyle}
-        />
-      </div>
-      <div>
-        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Starting Year (calendar)</label>
-        <input
-          type="number"
-          value={startingYear}
-          onChange={(e) => p.onChange({ ...cfg, startingYear: Math.max(1900, Number(e.target.value) || p.defaultStartingYear) })}
-          style={inputStyle}
-        />
-        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>Default: {p.defaultStartingYear} (construction end + 1)</div>
-      </div>
-      <div>
-        <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Ratio % of excess cash</label>
-        <PercentageInput
-          value={sweepRatio}
-          onChange={(v) => p.onChange({ ...cfg, sweepRatio: v })}
-          style={inputStyle}
-        />
-      </div>
     </div>
   );
 }
@@ -2788,6 +2731,47 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     );
   };
 
+  // Project-level Cash Sweep settings (2026-06-03): ONE Starting Year + Sweep
+  // Ratio for EVERY sweep loan, replacing the three per-loan inputs. Repayment
+  // order across loans is automatic (existing-first, then listed order).
+  const hasSweepLoan = state.financingTranches.some((t) =>
+    t.repaymentMethod === 'cash_sweep' || t.repaymentMethod === 'cashsweep_from_period'
+    || t.repaymentMethod === 'cashsweep_min_cash' || t.cashSweepConfig?.enabled === true);
+  const defaultSweepStartYear = Math.max(
+    snap.projectStartYear,
+    ...state.phases.map((ph) => {
+      const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
+      return ph.status === 'operational' ? sy : sy + Math.max(0, ph.constructionPeriods ?? 0);
+    }),
+  );
+  const csCfg = state.project.financing?.cashSweep ?? {};
+  const setCashSweep = (patch: { startingYear?: number; sweepRatioPct?: number }): void => {
+    const fin = (state.project.financing ?? {}) as NonNullable<typeof state.project.financing>;
+    state.setProject({ financing: { ...fin, cashSweep: { ...(fin.cashSweep ?? {}), ...patch } } });
+  };
+  const cashSweepSettingsSection = (
+    <section style={sectionStyle}>
+      <div style={TABLE_TITLE}>Cash Sweep Settings</div>
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+        Applies to <strong>every loan</strong> whose repayment method is Cash Sweep, set once here (no per-loan inputs). Loans are repaid <strong>existing-first</strong>, then in the order listed, from each period&apos;s surplus cash above the minimum reserve.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(190px, 1fr))', gap: 12, maxWidth: 540 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Starting Year (calendar)</label>
+          <input type="number" value={csCfg.startingYear ?? defaultSweepStartYear}
+            onChange={(e) => setCashSweep({ startingYear: Math.max(1900, Number(e.target.value) || defaultSweepStartYear) })}
+            style={inputStyle} />
+          <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>Default: {defaultSweepStartYear} (after capex). Sweep repayments begin this year.</div>
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Sweep Ratio (% of excess cash)</label>
+          <PercentageInput value={csCfg.sweepRatioPct ?? 100} onChange={(v) => setCashSweep({ sweepRatioPct: v })} style={inputStyle} />
+          <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>Share of each period&apos;s surplus applied to debt. Default 100%.</div>
+        </div>
+      </div>
+    </section>
+  );
+
   // Dividend Policy editor (Cash Sweep tab). Defined here so it can render at
   // the TOP of the sweep view, inputs above the output waterfall they drive.
   const dividendPolicySection = (
@@ -2898,8 +2882,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
         </div>
       </section>
 
-      {/* Dividend Policy at the TOP of the Cash Sweep tab (input above the
-          output waterfall it drives). */}
+      {/* Cash Sweep Settings + Dividend Policy at the TOP of the Cash Sweep tab
+          (inputs above the output waterfall they drive). */}
+      {p.view === 'sweep' && hasSweepLoan && cashSweepSettingsSection}
       {p.view === 'sweep' && dividendPolicySection}
 
       {/* Method 2, Net Funding Requirement (Capex vs Pre-Sales waterfall) */}
@@ -3075,19 +3060,27 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       to the total below, which ties to the Direct CF. */}
                   {(() => {
                     const trName = (id: string) => state.financingTranches.find((t) => t.id === id)?.name ?? id;
-                    // Order the per-tranche Debt Paid rows by the SEQUENCE in
-                    // which each loan is actually repaid: the tranche whose first
-                    // principal payment lands earliest lists first (mirrors the
-                    // cash-sweep priority, so a higher-priority tranche, e.g. T1,
-                    // sits above the loan repaid after it). Stable sort keeps the
-                    // facilities-map order for same-period ties.
+                    // Order the per-tranche Debt Paid rows to MIRROR the engine's
+                    // repayment sequence: EXISTING loans first, then by cash-sweep
+                    // priority (lower paid first), then by the period the first
+                    // principal payment lands. This matches the orchestrator's
+                    // existing-first / priority sweep order (and the user's
+                    // "existing loans first, new after"). Stable for full ties.
                     const firstPaidIdx = (repaid: number[]) => {
                       const i = repaid.slice(0, N).findIndex((v) => v !== 0);
                       return i === -1 ? Number.POSITIVE_INFINITY : i;
                     };
+                    const orderKey = (id: string, repaid: number[]): [number, number, number] => {
+                      const tr = state.financingTranches.find((t) => t.id === id);
+                      return [tr?.origin === 'existing' ? 0 : 1, tr?.cashSweepConfig?.priority ?? 100, firstPaidIdx(repaid)];
+                    };
                     return [...snap.financing.facilities.entries()]
                       .filter(([, fac]) => (fac.principalRepaid ?? []).slice(0, N).some((v) => v !== 0))
-                      .sort(([, a], [, b]) => firstPaidIdx(a.principalRepaid ?? []) - firstPaidIdx(b.principalRepaid ?? []))
+                      .sort(([ida, a], [idb, b]) => {
+                        const ka = orderKey(ida, a.principalRepaid ?? []);
+                        const kb = orderKey(idb, b.principalRepaid ?? []);
+                        return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
+                      })
                       .map(([id, fac]) => (
                         <React.Fragment key={`dp_${id}`}>
                           {renderFlowRow(`  (−) Debt Paid: ${trName(id)}`, fac.principalRepaid.slice(0, N).map((v) => -v), { negative: true, indent: 1, priorValue: 0 })}

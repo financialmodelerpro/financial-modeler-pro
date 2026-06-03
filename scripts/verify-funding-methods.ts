@@ -480,6 +480,14 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
     if (Math.abs(bal - (ex.outstanding[i] ?? 0)) > 1) rollOk = false;
   }
   check('sweep defers past capex: existing facility roll reconciles', rollOk);
+
+  // Project-level cashSweep.startingYear governs ALL sweep loans (one setting,
+  // not per-loan). Set it to 2031 (axis index 5) and assert no sweep before then.
+  state.project.financing.cashSweep = { startingYear: 2031, sweepRatioPct: 100 };
+  const snap2 = computeFinancialsSnapshot(state);
+  const ex2 = snap2.financing.facilities.get('exDebt')!;
+  const before2031 = ex2.sweepRepaid.slice(0, 5).reduce((s, v) => s + (v ?? 0), 0);
+  check('project-level sweep startingYear=2031 applied to all loans (no sweep before 2031)', approx(before2031, 0, 1), `before=${before2031}`);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
