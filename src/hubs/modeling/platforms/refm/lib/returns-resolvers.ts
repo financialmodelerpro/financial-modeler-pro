@@ -457,6 +457,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     exitIdx: exit,
     totalProjectEquity: totalEquityInvested,
     streamYearLabels,
+    // No explicit partners => default a single 100% Sponsor holding the
+    // project's full equity (cash + in-kind + existing), so the section
+    // renders the actual equity injections; the user then splits it.
+    defaultBreakdown: { cash: fin.equity.totalCash, inKind: fin.equity.totalInKind, existing: fin.equity.totalExisting },
   });
 
   // ── M5 Pass 2: exit-year analysis (hold-vs-sell timing) ──────────────

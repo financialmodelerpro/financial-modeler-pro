@@ -64,6 +64,9 @@ export interface PartnersSnapshot {
   shareholdingReconciles: boolean;
   /** Whether ANY partner used a manual shareholding (override mode). */
   manualMode: boolean;
+  /** True when no explicit partners were set and a single 100% "Sponsor"
+   *  holding the project's full equity was synthesized as the default. */
+  isSynthetic: boolean;
   streamYearLabels: number[];
   /** Σ partner streams per period (the table's Total column). */
   totalStream: number[];
@@ -87,8 +90,23 @@ export function computePartnerReturns(args: {
   exitIdx: number;
   totalProjectEquity: number;
   streamYearLabels: number[];
+  /** When no explicit partners are set, seed a single 100% "Sponsor" holding
+   *  the project's full equity (new cash + in-kind + existing) so the section
+   *  shows the actual equity injections by default; the user then splits it. */
+  defaultBreakdown?: { cash: number; inKind: number; existing: number };
 }): PartnersSnapshot {
-  const { partners, dividendsPerPeriod, terminalEquityValue, exitIdx, totalProjectEquity, streamYearLabels } = args;
+  const { dividendsPerPeriod, terminalEquityValue, exitIdx, totalProjectEquity, streamYearLabels, defaultBreakdown } = args;
+  let partners = args.partners;
+  let isSynthetic = false;
+  if (partners.length === 0 && defaultBreakdown) {
+    const cash = Math.max(0, defaultBreakdown.cash);
+    const inKind = Math.max(0, defaultBreakdown.inKind);
+    const existing = Math.max(0, defaultBreakdown.existing);
+    if (cash + inKind + existing > 0) {
+      partners = [{ id: '__sponsor__', name: 'Sponsor', cashContribution: cash, inKindContribution: inKind, existingContribution: existing }];
+      isSynthetic = true;
+    }
+  }
   const E = Math.max(0, exitIdx + 1);
   const streamLen = E + 1; // inception + axis 0..exit
 
@@ -149,6 +167,7 @@ export function computePartnerReturns(args: {
     shareholdingSum,
     shareholdingReconciles: Math.abs(shareholdingSum - 1) <= 1e-4,
     manualMode,
+    isSynthetic,
     streamYearLabels,
     totalStream,
   };

@@ -322,8 +322,10 @@ console.log('=== M5 Returns snapshot integration ===');
   check('PARTNERS: sponsor IRR finite or null', P.partners[0].irr === null || Number.isFinite(P.partners[0].irr));
   check('PARTNERS: dividends received >= 0', P.partners[0].dividendsReceived >= 0);
 
-  // No partners => empty block, project-level only.
-  check('PARTNERS: baseline (no partners) => empty block', baseRs.partners.partners.length === 0);
+  // No explicit partners => default a single Sponsor holding the FULL project
+  // equity (reconciled at 100%), so the section renders the equity injections.
+  check('PARTNERS: baseline (no partners) => synthesized Sponsor at 100%', baseRs.partners.isSynthetic === true && baseRs.partners.partners.length === 1 && near(baseRs.partners.partners[0].shareholdingPct, 1));
+  check('PARTNERS: default Sponsor holds full project equity', near(baseRs.partners.partners[0].totalEquityInvested, baseRs.totalEquityInvested) && baseRs.partners.contributionsReconcile);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

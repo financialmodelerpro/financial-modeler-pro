@@ -483,16 +483,23 @@ function PartnersSection(props: {
   const rows = snapshot.partners;
   const manualMode = snapshot.manualMode;
 
+  // Default to a single "Sponsor" holding the project's FULL equity (new cash +
+  // in-kind + existing) when no partners are set yet, so the section renders
+  // the actual equity injections (reconciled at 100%) and the user just splits
+  // them. Mirrors the engine's synthesized default (snapshot.isSynthetic); the
+  // first edit / add materializes it into project.partners.
+  const effectivePartners: ProjectPartner[] = partners.length
+    ? partners
+    : [{ id: 'sponsor', name: 'Sponsor', cashContribution: Math.max(0, equityTotals.cash), inKindContribution: Math.max(0, equityTotals.inKind), existingContribution: Math.max(0, equityTotals.existing) }];
+
   const update = (id: string, patch: Partial<ProjectPartner>): void =>
-    onChange(partners.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const remove = (id: string): void => onChange(partners.filter((p) => p.id !== id));
+    onChange(effectivePartners.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const remove = (id: string): void => onChange(effectivePartners.filter((p) => p.id !== id));
   const addPartner = (): void =>
-    onChange([...partners, { id: `p_${Date.now()}_${partners.length}`, name: `Partner ${partners.length + 1}`, cashContribution: 0, inKindContribution: 0, existingContribution: 0 }]);
-  const seedSponsor = (): void =>
-    onChange([{ id: `sponsor_${Date.now()}`, name: 'Sponsor', cashContribution: equityTotals.cash, inKindContribution: equityTotals.inKind, existingContribution: equityTotals.existing }]);
+    onChange([...effectivePartners, { id: `p_${Date.now()}_${effectivePartners.length}`, name: `Partner ${effectivePartners.length + 1}`, cashContribution: 0, inKindContribution: 0, existingContribution: 0 }]);
   const setMode = (mode: 'auto' | 'manual'): void => {
-    if (mode === 'manual') onChange(partners.map((p, i) => ({ ...p, manualShareholdingPct: Number((( rows[i]?.shareholdingPct ?? 0) * 100).toFixed(4)) })));
-    else onChange(partners.map((p) => ({ ...p, manualShareholdingPct: undefined })));
+    if (mode === 'manual') onChange(effectivePartners.map((p, i) => ({ ...p, manualShareholdingPct: Number(((rows[i]?.shareholdingPct ?? 0) * 100).toFixed(4)) })));
+    else onChange(effectivePartners.map((p) => ({ ...p, manualShareholdingPct: undefined })));
   };
 
   const numCell = (v: number | undefined, onSet: (n: number) => void): React.JSX.Element => (
@@ -515,23 +522,18 @@ function PartnersSection(props: {
     <section style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Equity Partners</div>
-        {partners.length > 0 && (
-          <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-            <button type="button" onClick={() => setMode('auto')} style={pillStyle(!manualMode)}>Auto %</button>
-            <button type="button" onClick={() => setMode('manual')} style={pillStyle(manualMode)}>Manual %</button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+          <button type="button" onClick={() => setMode('auto')} style={pillStyle(!manualMode)}>Auto %</button>
+          <button type="button" onClick={() => setMode('manual')} style={pillStyle(manualMode)}>Manual %</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Defaults to one Sponsor holding the project&apos;s full equity (new cash + in-kind + existing). Add partners and move the contributions between them to split ownership; shareholding auto-computes from contributions (or switch to Manual %).
       </div>
 
-      {partners.length === 0 ? (
-        <div style={{ border: '1px dashed var(--color-border)', borderRadius: 8, padding: 'var(--sp-2)', fontSize: 12, color: 'var(--color-meta)' }}>
-          Split the project equity across partners (sponsor / JV / landowner) to see per-partner IRR, MOIC and Equity Multiple.{' '}
-          <button type="button" onClick={seedSponsor} style={addBtn}>Add Sponsor (100%)</button>{' '}
-          <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>
-        </div>
-      ) : (
+      {(
         <>
-          {/* Inputs */}
+          {/* Inputs (default = one Sponsor holding the full project equity) */}
           <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-1)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
               <thead>
@@ -546,7 +548,7 @@ function PartnersSection(props: {
                 </tr>
               </thead>
               <tbody>
-                {partners.map((p, i) => {
+                {effectivePartners.map((p, i) => {
                   const r = rows[i];
                   return (
                     <tr key={p.id}>
@@ -628,7 +630,6 @@ function PartnersSection(props: {
 
 const pillBase: React.CSSProperties = { border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 };
 const pillStyle = (active: boolean): React.CSSProperties => ({ ...pillBase, background: active ? 'var(--color-navy)' : 'var(--color-surface)', color: active ? 'var(--color-on-primary-navy)' : 'var(--color-heading)' });
-const addBtn: React.CSSProperties = { border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'var(--color-primary)', color: 'var(--color-on-primary-navy)' };
 const addBtnGhost: React.CSSProperties = { border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)' };
 const removeBtn: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13 };
 

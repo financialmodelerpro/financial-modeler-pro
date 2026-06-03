@@ -239,9 +239,16 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   check('partner manual mode flagged', psm.manualMode === true);
   check('partner manual: dividends A = 1000 x 0.7 = 700', near(psm.partners[0].dividendsReceived, 700));
 
-  // Empty partners => empty snapshot, no throw.
+  // Empty partners + no default => empty snapshot, no throw.
   const pe = computePartnerReturns({ partners: [], dividendsPerPeriod: [0, 100], terminalEquityValue: 0, exitIdx: 1, totalProjectEquity: 0, streamYearLabels: [2025, 2026, 2027] });
-  check('partner: empty input => no partners', pe.partners.length === 0);
+  check('partner: empty input + no default => no partners', pe.partners.length === 0 && pe.isSynthetic === false);
+
+  // Empty partners + defaultBreakdown => synthesize one Sponsor with FULL equity.
+  const pdef = computePartnerReturns({ partners: [], dividendsPerPeriod: [0, 400, 400], terminalEquityValue: 1000, exitIdx: 2, totalProjectEquity: 1000, streamYearLabels: [2025, 2026, 2027, 2028], defaultBreakdown: { cash: 600, inKind: 300, existing: 100 } });
+  check('partner default: synthesizes 1 Sponsor (isSynthetic)', pdef.partners.length === 1 && pdef.isSynthetic === true);
+  check('partner default: Sponsor holds full equity (1000)', near(pdef.partners[0].totalEquityInvested, 1000));
+  check('partner default: Sponsor 100% shareholding', near(pdef.partners[0].shareholdingPct, 1));
+  check('partner default: contributions reconcile to project equity', pdef.contributionsReconcile && near(pdef.contributionDelta, 0));
 }
 
 // ── M5 Pass 2: two-way sensitivity ────────────────────────────────────

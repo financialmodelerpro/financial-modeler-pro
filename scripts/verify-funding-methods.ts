@@ -441,5 +441,46 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
   }
 }
 
+// ── Cash sweep defaults to starting AFTER capex (2026-06-03) ─────────────
+// An existing facility in a project that is still building should NOT be swept
+// during construction (operating cash funds capex first); the sweep defers to
+// the first post-construction period unless cashSweepConfig.startingYear is set.
+{
+  const A = (n: number, f = 0): number[] => Array(n).fill(f);
+  const project: any = makeDefaultProject();
+  project.startDate = '2026-01-01';
+  project.tax = { rate: 0.15 };
+  project.financing = { fundingMethod: 2, minimumCashReserve: 50000, parcelFunding: [], viewMode: 'combined' };
+  // Existing operational hotel throwing off cash from year 0.
+  const pOps: any = { ...makeDefaultPhase(), id: 'pOps', name: 'Existing', startDate: '2026-01-01', status: 'operational', constructionPeriods: 0, operationsPeriods: 12, overlapPeriods: 0 };
+  const hotel: any = { id: 'H1', phaseId: 'pOps', name: 'Existing Hotel', type: '', strategy: 'Operate', visible: true, gfaSqm: 0, buaSqm: 20000, sellableBuaSqm: 0, parkingBaysRequired: 0, usefulLifeYears: 20, historicalPreCapex: 3000000, historicalEquityAmount: 600000, revenue: { operate: { assetId: 'H1', daysPerYear: 365, startingADR: 900, adrIndexation: { method: 'none' }, occupancyPerPeriodByPhase: A(13, 0.8), guestsPerOccupiedRoom: 1.5, fb: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(13), indexation: { method: 'none' } }, otherRevenue: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(13), indexation: { method: 'none' } } } }, opex: { defaultIndexation: { method: 'none' }, lines: [{ id: 'o1', name: 'Rooms cost', category: 'direct_rooms', mode: 'fixed_baseline', value: 3000000, indexation: { method: 'none' }, useAssetDefault: true, rateMode: 'single' }] } };
+  const su: any = { id: 'su1', assetId: 'H1', name: 'Keys', category: 'Operable', metric: 'units', metricValue: 120, unitArea: 0, unitPrice: 900, startingAdr: 900 };
+  // New development phase that builds for 3 years (capex window).
+  const pDev: any = { ...makeDefaultPhase(), id: 'pDev', name: 'Dev', startDate: '2026-01-01', status: 'planning', constructionPeriods: 3, operationsPeriods: 6, overlapPeriods: 0 };
+  const hotel2: any = { id: 'H2', phaseId: 'pDev', name: 'New Hotel', type: '', strategy: 'Operate', visible: true, gfaSqm: 0, buaSqm: 30000, sellableBuaSqm: 0, parkingBaysRequired: 0, usefulLifeYears: 20, revenue: { operate: { assetId: 'H2', daysPerYear: 365, startingADR: 800, adrIndexation: { method: 'none' }, occupancyPerPeriodByPhase: A(13, 0.7), guestsPerOccupiedRoom: 1.5, fb: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(13), indexation: { method: 'none' } }, otherRevenue: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(13), indexation: { method: 'none' } } } }, opex: { defaultIndexation: { method: 'none' }, lines: [{ id: 'o2', name: 'Rooms cost', category: 'direct_rooms', mode: 'fixed_baseline', value: 5000000, indexation: { method: 'none' }, useAssetDefault: true, rateMode: 'single' }] } };
+  const su2: any = { id: 'su2', assetId: 'H2', name: 'Keys', category: 'Operable', metric: 'units', metricValue: 150, unitArea: 0, unitPrice: 800, startingAdr: 800 };
+  const exTr = { ...makeDefaultFinancingTranche('exDebt', 'pOps'), name: 'Existing Senior', origin: 'existing', openingBalance: 2_400_000, originationYear: 2025, interestRatePct: 6, repaymentMethod: 'cash_sweep', cashSweepConfig: { enabled: true, priority: 1, sweepRatio: 100 } };
+  const state: any = { project, phases: [pOps, pDev], assets: [hotel, hotel2], subUnits: [su, su2], parcels: [{ id: 'pcl', phaseId: 'pDev', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 }], costLines: makeDefaultCostLines('pDev', 3), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [exTr], equityContributions: [] };
+  const snap = computeFinancialsSnapshot(state);
+  const ex = snap.financing.facilities.get('exDebt')!;
+  // Dev construction window = axis indices 0,1,2 (3 years). The existing
+  // facility must NOT sweep during construction (deferred to after capex).
+  const sweptDuringConstruction = (ex.sweepRepaid[0] ?? 0) + (ex.sweepRepaid[1] ?? 0) + (ex.sweepRepaid[2] ?? 0);
+  check('sweep defers past capex: no existing-facility sweep during the 3yr construction', approx(sweptDuringConstruction, 0, 1), `swept=${sweptDuringConstruction}`);
+  const sweptAfter = ex.sweepRepaid.slice(3).reduce((s, v) => s + (v ?? 0), 0);
+  check('sweep defers past capex: sweep DOES run after construction', sweptAfter > 0, `after=${sweptAfter}`);
+  // Accounting still holds: facility roll reconciles (opening+draw-repaid=closing).
+  // (BS-balance-by-construction is guarded comprehensively by
+  // verify-m4-reconciliation-broad; deferring WHEN principal is repaid keeps
+  // cash + debt reducing together, so balance is preserved.)
+  let bal = Math.max(0, ex.openingBalance ?? 0);
+  let rollOk = true;
+  for (let i = 0; i < snap.axisLength; i++) {
+    bal += (ex.drawSchedule[i] ?? 0) + (ex.interestCapitalized[i] ?? 0) - (ex.principalRepaid[i] ?? 0);
+    if (Math.abs(bal - (ex.outstanding[i] ?? 0)) > 1) rollOk = false;
+  }
+  check('sweep defers past capex: existing facility roll reconciles', rollOk);
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);
