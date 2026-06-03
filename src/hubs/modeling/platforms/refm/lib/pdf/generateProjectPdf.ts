@@ -31,6 +31,7 @@ import INTER_REGULAR_B64 from './fonts/interRegular';
 import INTER_BOLD_B64 from './fonts/interBold';
 import {
   computeFinancialsSnapshot,
+  computeFundingGap,
   type ProjectFinancialsSnapshot,
   type FinancialsResolverState,
 } from '../financials-resolvers';
@@ -271,7 +272,7 @@ function drawParagraph(ctx: Ctx, text: string, size = 9): void {
 
 function drawCards(ctx: Ctx, title: string, cards: PdfCard[]): void {
   if (title) drawTitle(ctx, title);
-  const perRow = 4, gap = 8, ch = 50;
+  const perRow = 4, gap = 8, ch = 44;
   const cw = (CONTENT_W - (perRow - 1) * gap) / perRow;
   for (let i = 0; i < cards.length; i += perRow) {
     ensureSpace(ctx, ch + 6);
@@ -279,9 +280,9 @@ function drawCards(ctx: Ctx, title: string, cards: PdfCard[]): void {
     cards.slice(i, i + perRow).forEach((cd, j) => {
       const x = MARGIN + j * (cw + gap);
       ctx.page.drawRectangle({ x, y: ctx.y, width: cw, height: ch, borderColor: BORDER, borderWidth: 1, color: CARD_FILL });
-      drawCell(ctx, cd.label.toUpperCase(), x + 8, cw - 12, ctx.y + ch - 16, { size: 7, font: ctx.bold, color: MUTED });
-      drawCell(ctx, cd.value, x + 8, cw - 12, ctx.y + ch - 36, { size: 13, font: ctx.bold, color: NAVY_DARK });
-      if (cd.sub) drawCell(ctx, cd.sub, x + 8, cw - 12, ctx.y + 2, { size: 7, color: MUTED });
+      drawCell(ctx, cd.label.toUpperCase(), x + 8, cw - 12, ctx.y + ch - 14, { size: 7, font: ctx.bold, color: MUTED });
+      drawCell(ctx, cd.value, x + 8, cw - 12, ctx.y + ch - 31, { size: 13, font: ctx.bold, color: NAVY_DARK });
+      if (cd.sub) drawCell(ctx, cd.sub, x + 8, cw - 12, ctx.y + 1, { size: 6.5, color: MUTED });
     });
     ctx.y -= 6;
   }
@@ -292,7 +293,10 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
   drawTitle(ctx, table.title);
   const nCols = table.columns.length;
   const dataAlign = table.align !== 'kv';
-  const firstW = Math.min(300, CONTENT_W * 0.40);
+  // Multi-column data grids get a narrower label column so the number columns
+  // are wide enough to show scaled figures without truncation (fixes the
+  // "36,820,510,001,…" overflow). KV (2-col) keeps a wide value column.
+  const firstW = nCols <= 2 ? Math.min(320, CONTENT_W * 0.45) : Math.min(220, CONTENT_W * 0.28);
   const restW = (CONTENT_W - firstW) / Math.max(1, nCols - 1);
   const colX = (i: number): number => MARGIN + (i === 0 ? 0 : firstW + (i - 1) * restW);
   const colW = (i: number): number => (i === 0 ? firstW : restW);
@@ -366,11 +370,16 @@ function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: s
 
 function drawFooters(ctx: Ctx): void {
   const total = ctx.pages.length;
+  const barH = 18;
+  const barY = 12;
   ctx.pages.forEach((page, i) => {
-    page.drawText(`Page ${i + 1} of ${total}   ·   ${ctx.projectName}`, { x: MARGIN, y: MARGIN, size: 8, font: ctx.font, color: MUTED });
+    // Navy footer bar matching the header band; text sits inside it.
+    page.drawRectangle({ x: 0, y: barY, width: PAGE_W, height: barH, color: NAVY });
+    const left = `Page ${i + 1} of ${total}   ·   ${ctx.projectName}   ·   ${ctx.unitLabel}`;
+    page.drawText(fitText(left, ctx.font, 8, PAGE_W * 0.62), { x: MARGIN, y: barY + 6, size: 8, font: ctx.font, color: WHITE });
     const tag = 'Financial Modeler Pro · financialmodelerpro.com';
-    const tw = ctx.font.widthOfTextAtSize(tag, 8);
-    page.drawText(tag, { x: PAGE_W - MARGIN - tw, y: MARGIN, size: 8, font: ctx.font, color: MUTED });
+    const tw = ctx.bold.widthOfTextAtSize(tag, 8);
+    page.drawText(tag, { x: PAGE_W - MARGIN - tw, y: barY + 6, size: 8, font: ctx.bold, color: WHITE });
   });
 }
 
@@ -391,6 +400,27 @@ function strPeriodRow(label: string, strs: string[], total: string | number | nu
 }
 function periodTable(title: string, priorYear: number, yearLabels: number[], rows: PdfTableRow[]): PdfTable {
   return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows };
+}
+/** Human label for a cost line's method = what its rate multiplies. */
+function costBasisLabel(method?: string): string {
+  switch (method) {
+    case 'fixed': return 'Fixed (lump sum)';
+    case 'rate_per_land': return 'per Land sqm';
+    case 'rate_per_nda': return 'per NDA sqm';
+    case 'rate_per_roads': return 'per Roads sqm';
+    case 'rate_per_gfa': return 'per GFA sqm';
+    case 'rate_per_bua': return 'per BUA sqm';
+    case 'rate_per_nsa': return 'per NSA sqm';
+    case 'rate_per_unit': return 'per Unit';
+    case 'rate_per_parking_bay': return 'per Parking bay';
+    case 'percent_of_construction': return '% of Construction';
+    case 'percent_of_selected': return '% of Selected lines';
+    case 'percent_of_total_land': return '% of Total land';
+    case 'percent_of_cash_land': return '% of Cash land';
+    case 'percent_of_inkind_land': return '% of In-kind land';
+    case 'percent_of_total_revenue': return '% of Total revenue';
+    default: return method ?? '-';
+  }
 }
 function kvTable(title: string, pairs: Array<[string, string]>): PdfTable {
   return { title, kind: 'grid', columns: ['Field', 'Value'], align: 'kv', rows: pairs.map(([a, b]) => row([a, b])) };
@@ -422,8 +452,8 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const constructionCost = fin.capex.totals.exclAllLand;
   const gdv = sum(snap.pl.totalRevenuePerPeriod);
 
-  drawCell(ctx, 'Executive Summary', MARGIN, CONTENT_W, ctx.y - 16, { font: ctx.bold, size: 16, color: NAVY_DARK });
-  ctx.y -= 28;
+  drawCell(ctx, 'Executive Summary', MARGIN, CONTENT_W, ctx.y - 15, { font: ctx.bold, size: 15, color: NAVY_DARK });
+  ctx.y -= 22;
 
   const loc = [p.location, p.country].filter(Boolean).join(', ') || 'the project location';
   const narrative =
@@ -469,14 +499,12 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     }),
   }, fmt);
 
-  // Financial structure.
+  // Financial structure (compact: 5 essentials so the page stays to one).
   drawGridTable(ctx, kvTable('Financial Structure', [
     ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
-    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
-    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
+    ['Debt / Equity split', `${fmt.pctRaw(fin.funding.debtPct, 0)} / ${fmt.pctRaw(fin.funding.equityPct, 0)}`],
     ['Total new debt', fmt.money(sum(snap.directCF.debtDrawdownPerPeriod))],
     ['Total equity (cash + in-kind + existing)', fmt.money(fin.equity.grandTotal)],
-    ['Existing debt opening', fmt.money(fin.existing.debtOutstandingTotal)],
     ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
   ]), fmt);
 }
@@ -548,8 +576,12 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     if (!lines.length) continue;
     items.push(tTable('Tab 3: Capex', 'inputs', {
       title: `Cost Lines, ${ph.name}`, kind: 'grid', align: 'data',
-      columns: ['Cost line', 'Stage', 'Scope', 'Method', 'Value'],
-      rows: lines.map((c) => row([c.name, String(c.stage ?? '-'), String(c.scope ?? '-'), String(c.method ?? '-'), c.method === 'fixed' ? fmt.money(c.value) : fmt.int(c.value)])),
+      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Amount'],
+      rows: lines.map((c) => row([
+        c.name, String(c.stage ?? '-'), costBasisLabel(c.method),
+        c.method === 'fixed' ? fmt.money(c.value) : fmt.int(c.value),
+        c.method === 'fixed' ? fmt.money(c.value) : '(rate x metric)',
+      ])),
     }));
   }
   const cap = fin.capex.perPeriod;
@@ -598,11 +630,35 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Min cash reserve add-on', fin.funding.minCashByPeriod.slice(0, yl.length), 'sum'),
     periodRow('Total funding need', fin.funding.totalFundingNeedByPeriod.slice(0, yl.length), 'sum', 'total'),
   ])));
-  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', kvTable('Total Equity Required', [
-    ['Cash equity', fmt.money(fin.equity.totalCash)],
-    ['In-kind equity', fmt.money(fin.equity.totalInKind)],
-    ['Existing equity', fmt.money(fin.equity.totalExisting)],
-    ['Grand total equity', fmt.money(fin.equity.grandTotal)],
+  // Total Equity Required, as a year-on-year table (matching the platform's
+  // Equity Movement), with the type totals summarised on the prior column.
+  const eqI = fin.equity;
+  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', periodTable('Total Equity Required (by year)', py, yl, [
+    periodRow('Cash equity', eqI.cashPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('In-kind equity', eqI.inKindPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Existing equity', eqI.existingEquityPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
+    periodRow('Total equity', eqI.totalPerPeriod.slice(0, yl.length), 'sum', 'total'),
+  ])));
+
+  // Tab 4: Financing / Funding Gap (BEFORE Schedules, matching the platform
+  // tab order). Method 2 (Net Funding) + Method 3 (Cash Deficit) waterfalls.
+  const gap = computeFundingGap(snap);
+  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Method 2: Net Funding Requirement (Capex vs Pre-Sales)', py, yl, [
+    periodRow('Total project capex (excl. in-kind land)', gap.capexPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
+    periodRow('Advance received from customer (gross)', gap.preSalesGrossPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Less: escrow held', gap.escrowHeldPerPeriod.slice(0, yl.length).map((v) => -v), 'sum'),
+    periodRow('Add: escrow released', gap.escrowReleasePerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Advance received (net)', gap.preSalesNetPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
+    periodRow('Funding gap = MAX(capex - pre-sales(t-1), 0)', gap.methodAGapPerPeriod.slice(0, yl.length), 'sum', 'total'),
+  ])));
+  const m3 = gap.method3Waterfall;
+  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Method 3: Cash Deficit Funding', py, yl, [
+    periodRow('Opening cash', m3.openingCashPerPeriod.slice(0, yl.length), 'none'),
+    periodRow('Cash from operations', m3.cashFromOpsPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Cash from investing (capex)', m3.cashFromInvPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Finance cost paid', m3.financeCostPaidPerPeriod.slice(0, yl.length), 'sum'),
+    periodRow('Cash available (before new funding)', m3.cashAvailableBeforeNewDebtPerPeriod.slice(0, yl.length), 'none', 'subtotal'),
+    periodRow('Net cash required (= funding drawn)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum', 'total'),
   ])));
 
   // Tab 4: Financing / Schedules.
@@ -686,7 +742,13 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     const cashPct = s.cashPaymentProfile?.percentages ?? [];
     const recogPct = s.recognitionProfile?.percentages ?? [];
     if (!cashPct.length && !recogPct.length) continue;
-    const n = Math.max(cashPct.length, recogPct.length);
+    // Only show the columns that actually carry a non-zero % (trailing zeros
+    // padded out to year 14/15 are noise). n = last index with any value + 1.
+    let n = 0;
+    for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) {
+      if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
+    }
+    if (n === 0) continue;
     const cols = Array.from({ length: n }, (_, i) => `Yr ${i + 1}`);
     items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
       title: `Cash & Recognition Profile, ${a.name} (relative to sale year)`, kind: 'grid', align: 'data',
@@ -926,6 +988,17 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Tax / Zakat', pl.taxPerPeriod, 'sum'),
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
   ])));
+  // Per-asset P&L detail (asset-line-wise, matching the platform): revenue +
+  // EBITDA by asset so the user sees which asset drives each line.
+  const assetPLs = [...snap.perAssetPL.values()];
+  if (assetPLs.length) {
+    items.push(tTable('Tab 3: P&L', 'outputs', periodTable('Revenue by Asset', py, yl,
+      assetPLs.filter((a) => anyNonZero(a.revenuePerPeriod)).map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.revenuePerPeriod, 'sum'))
+        .concat([periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum', 'total')]))));
+    items.push(tTable('Tab 3: P&L', 'outputs', periodTable('EBITDA by Asset', py, yl,
+      assetPLs.filter((a) => anyNonZero(a.ebitdaPerPeriod)).map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.ebitdaPerPeriod, 'sum'))
+        .concat([periodRow('Project EBITDA', pl.ebitdaPerPeriod, 'sum', 'total')]))));
+  }
 
   // Tab 4: Cash Flow (Direct + Indirect).
   items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Cash Flow, Direct', py, yl, [

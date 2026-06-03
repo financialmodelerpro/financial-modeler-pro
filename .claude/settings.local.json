@@ -216,7 +216,8 @@
       "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 5)",
       "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 4)",
       "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 1; npx tsx scripts/verify-m4-reconciliation-broad.ts 2>&1 | Select-Object -Last 1; npx tsx scripts/verify-returns-snapshot.ts 2>&1 | Select-Object -Last 1)",
-      "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 3)"
+      "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 3)",
+      "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 20)"
     ]
   }
 }
