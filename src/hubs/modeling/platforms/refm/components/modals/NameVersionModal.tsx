@@ -61,6 +61,11 @@ interface NameVersionModalProps {
   /** Existing versions of this project, used to compute the next X.Y label.
    *  versionLabel is parsed from each version's name (which embeds _vX.Y_). */
   existingVersions?: ExistingVersionLite[];
+  /** create mode only. When true (default), cancelling discards the in-flight
+   *  edit. When false (promoting an already-persisting auto-session), cancel
+   *  just closes the dialog and keeps the edits. Controls the button label +
+   *  the warning copy so they never lie about what Cancel does. */
+  discardOnCancel?: boolean;
   onConfirm: (result: NameVersionConfirm) => Promise<void> | void;
   onCancel: () => void;
 }
@@ -79,6 +84,7 @@ export default function NameVersionModal({
   currentLabel,
   projectName,
   existingVersions,
+  discardOnCancel = true,
   onConfirm,
   onCancel,
 }: NameVersionModalProps): React.JSX.Element | null {
@@ -248,7 +254,9 @@ export default function NameVersionModal({
               </div>
 
               <div style={{ background: 'var(--color-amber-light, color-mix(in srgb, #f59e0b 15%, transparent))', border: '1px solid var(--color-amber, #f59e0b)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: '12px', color: 'var(--color-amber-dark, #92400e)', marginTop: 'var(--sp-2)' }}>
-                ⓘ If you cancel, your last edit will be discarded and the project will return to the previously loaded version.
+                {discardOnCancel
+                  ? 'ⓘ If you cancel, your last edit will be discarded and the project will return to the previously loaded version.'
+                  : 'ⓘ Your edits are already saved to the current version. Cancel just closes this dialog without naming it yet; nothing is lost.'}
               </div>
             </>
           ) : (
@@ -282,7 +290,7 @@ export default function NameVersionModal({
             data-testid="name-version-modal-cancel"
             disabled={submitting}
           >
-            {isCreate ? 'Discard Edit' : 'Cancel'}
+            {isCreate && discardOnCancel ? 'Discard Edit' : 'Cancel'}
           </button>
           <button
             type="button"

@@ -82,12 +82,18 @@ export async function PATCH(
     snapshot?: HydrateSnapshot;
     label?:    string | null;
     assetMix?: string[];
+    versionLabel?: string | null;
+    taskName?:     string | null;
+    comment?:      string | null;
   };
   try { body = await req.json(); }
   catch { return badRequest('Body must be valid JSON.'); }
 
-  if (body.snapshot === undefined && body.label === undefined) {
-    return badRequest('At least one of snapshot / label is required.');
+  if (
+    body.snapshot === undefined && body.label === undefined &&
+    body.versionLabel === undefined && body.taskName === undefined && body.comment === undefined
+  ) {
+    return badRequest('At least one of snapshot / label / versionLabel / taskName / comment is required.');
   }
 
   // Verify ownership of the parent project + load the existing
@@ -100,7 +106,10 @@ export async function PATCH(
   if (verErr) return serverError(verErr);
   if (!existing) return notFound();
 
-  const patch: { snapshot?: unknown; change_log?: unknown; label?: string | null } = {};
+  const patch: {
+    snapshot?: unknown; change_log?: unknown; label?: string | null;
+    version_label?: string | null; task_name?: string | null; comment?: string | null;
+  } = {};
 
   if (body.snapshot !== undefined) {
     patch.snapshot = body.snapshot;
@@ -119,6 +128,15 @@ export async function PATCH(
   }
   if (body.label !== undefined) {
     patch.label = body.label?.trim() ? body.label.trim() : null;
+  }
+  if (body.versionLabel !== undefined) {
+    patch.version_label = body.versionLabel?.trim() ? body.versionLabel.trim() : null;
+  }
+  if (body.taskName !== undefined) {
+    patch.task_name = body.taskName?.trim() ? body.taskName.trim() : null;
+  }
+  if (body.comment !== undefined) {
+    patch.comment = body.comment?.trim() ? body.comment.trim() : null;
   }
 
   const { row: updatedVersion, error: updErr } = await updateVersion(versionId, patch);

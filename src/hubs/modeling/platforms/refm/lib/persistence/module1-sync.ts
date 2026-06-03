@@ -299,13 +299,25 @@ export async function startEditSession(
     return { versionId: null, error: 'No active project.' };
   }
   if (editingVersionId) {
-    // Session already started (e.g. modal re-opened). Treat as a
-    // label rename rather than creating a duplicate row.
+    // Session already started (typically auto-started on the first edit
+    // with a default "Edits ..." label). Treat this as an in-place
+    // update of the SAME row rather than inserting a duplicate. When the
+    // caller passes naming metadata (the rich create flow), promote the
+    // row: apply the auto-generated label + version_label + task_name +
+    // comment. Otherwise it is just a free-text relabel.
     const trimmed = label.trim() || editingLabel;
-    if (trimmed && trimmed !== editingLabel) {
-      const patch = await patchVersion(activeProjectId, editingVersionId, { label: trimmed });
+    const patchBody: {
+      label?: string | null; versionLabel?: string | null;
+      taskName?: string | null; comment?: string | null;
+    } = {};
+    if (trimmed && trimmed !== editingLabel) patchBody.label = trimmed;
+    if (meta?.versionLabel != null) patchBody.versionLabel = meta.versionLabel;
+    if (meta?.taskName != null)     patchBody.taskName     = meta.taskName;
+    if (meta?.comment != null)      patchBody.comment      = meta.comment;
+    if (Object.keys(patchBody).length > 0) {
+      const patch = await patchVersion(activeProjectId, editingVersionId, patchBody);
       if (patch.error) return { versionId: editingVersionId, error: patch.error };
-      editingLabel = trimmed;
+      if (patchBody.label) editingLabel = trimmed;
     }
     return { versionId: editingVersionId, error: null };
   }

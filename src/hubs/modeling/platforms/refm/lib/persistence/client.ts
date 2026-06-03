@@ -169,6 +169,12 @@ export interface PatchVersionInput {
   snapshot?: HydrateSnapshot;
   label?:    string | null;
   assetMix?: string[];
+  // 2026-06-03: let an in-place PATCH also apply the auto-naming metadata,
+  // so an auto-started session (default "Edits ..." label) can be promoted
+  // to a properly named + commented version without inserting a new row.
+  versionLabel?: string | null;
+  taskName?:     string | null;
+  comment?:      string | null;
 }
 
 export function patchVersion(

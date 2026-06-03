@@ -25,7 +25,9 @@ interface VersionModalProps {
   projectId: string | null;
   projectName?: string | null;
   activeVersionId?: string | null;
-  onSave?: (versionName: string) => void;
+  /** Opens the rich create flow (auto-name + Task + Comment). When omitted,
+   *  the modal is history-only. Replaces the old generic "Version N" save. */
+  onCreateVersion?: () => void;
   onLoadVersion: (versionId: string) => void;
 }
 
@@ -35,13 +37,12 @@ export default function VersionModal({
   projectId,
   projectName,
   activeVersionId,
-  onSave,
+  onCreateVersion,
   onLoadVersion,
 }: VersionModalProps): React.JSX.Element | null {
   const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [versionName, setVersionName] = useState('');
-  const [tab, setTab] = useState<'save' | 'history'>(onSave ? 'save' : 'history');
+  const [tab, setTab] = useState<'save' | 'history'>(onCreateVersion ? 'save' : 'history');
   // Phase M-Versioning (2026-05-31): which version's change log is
   // currently expanded in the history list. null = none expanded.
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
@@ -71,12 +72,10 @@ export default function VersionModal({
   if (!open) return null;
   if (typeof document === 'undefined') return null;
 
-  const handleSave = (): void => {
-    if (!onSave) return;
-    const name = versionName.trim() || `Version ${versions.length + 1}`;
-    onSave(name);
-    setVersionName('');
+  const handleCreate = (): void => {
+    if (!onCreateVersion) return;
     onClose();
+    onCreateVersion();
   };
 
   const content = (
@@ -128,19 +127,19 @@ export default function VersionModal({
               key={t}
               onClick={() => setTab(t)}
               data-testid={`version-tab-${t}`}
-              disabled={t === 'save' && !onSave}
+              disabled={t === 'save' && !onCreateVersion}
               style={{
                 flex: 1,
                 padding: '10px',
                 border: 'none',
                 borderBottom: tab === t ? '2px solid var(--color-primary)' : '2px solid transparent',
                 background: 'none',
-                cursor: t === 'save' && !onSave ? 'not-allowed' : 'pointer',
+                cursor: t === 'save' && !onCreateVersion ? 'not-allowed' : 'pointer',
                 fontWeight: tab === t ? 'var(--fw-semibold)' : 'var(--fw-normal)',
                 color: tab === t ? 'var(--color-primary)' : 'var(--color-meta)',
                 fontSize: 'var(--font-body)',
                 fontFamily: 'Inter, sans-serif',
-                opacity: t === 'save' && !onSave ? 0.5 : 1,
+                opacity: t === 'save' && !onCreateVersion ? 0.5 : 1,
               }}
             >
               {t === 'save' ? 'Save Version' : `History (${versions.length})`}
@@ -157,47 +156,26 @@ export default function VersionModal({
 
           {!projectId ? (
             <div className="alert-info">No project selected. Create or select a project first.</div>
-          ) : tab === 'save' && onSave ? (
+          ) : tab === 'save' && onCreateVersion ? (
             <div>
-              <div style={{ marginBottom: 'var(--sp-2)' }}>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: 'var(--font-meta)',
-                    fontWeight: 'var(--fw-semibold)',
-                    color: 'var(--color-body)',
-                    marginBottom: '6px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                  }}
-                >
-                  Version Name
-                </label>
-                <input
-                  autoFocus
-                  type="text"
-                  value={versionName}
-                  onChange={(e) => setVersionName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSave();
-                    if (e.key === 'Escape') onClose();
-                  }}
-                  placeholder={`Version ${versions.length + 1} (default)`}
-                  data-testid="version-modal-name-input"
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '10px 12px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 'var(--font-body)',
-                    fontFamily: 'Inter, sans-serif',
-                  }}
-                />
-                <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
-                  Leave blank to auto-name as &quot;Version {versions.length + 1}&quot;
-                </div>
-              </div>
+              <p style={{ fontSize: 'var(--font-small)', color: 'var(--color-body)', lineHeight: 1.5, marginBottom: 'var(--sp-2)' }}>
+                Saving creates a named version of the current model state. The
+                name is auto-generated as{' '}
+                <span style={{ fontFamily: 'ui-monospace, monospace' }}>
+                  {(projectName ?? 'Project')}_v1.x_MMDDYYYY_TaskName
+                </span>{' '}
+                and you add a short task name plus a comment describing what
+                changed. You can restore any version later from the history.
+              </p>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCreate}
+                data-testid="version-modal-create"
+                style={{ width: '100%' }}
+              >
+                Create named version
+              </button>
 
               <div
                 style={{
@@ -207,6 +185,7 @@ export default function VersionModal({
                   padding: '10px 12px',
                   fontSize: '12px',
                   color: 'var(--color-green-dark)',
+                  marginTop: 'var(--sp-2)',
                 }}
               >
                 ✓ The current model state (all v5 inputs) will be saved as a snapshot. You can restore
@@ -492,9 +471,9 @@ export default function VersionModal({
           <button className="btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          {tab === 'save' && projectId && onSave && (
-            <button className="btn-primary" onClick={handleSave} data-testid="version-modal-save">
-              Save Version
+          {tab === 'save' && projectId && onCreateVersion && (
+            <button className="btn-primary" onClick={handleCreate} data-testid="version-modal-save">
+              Create named version
             </button>
           )}
         </div>

@@ -420,9 +420,12 @@ export async function insertVersion(insert: {
 export async function updateVersion(
   versionId: string,
   patch: {
-    snapshot?:    unknown;
-    change_log?:  unknown;
-    label?:       string | null;
+    snapshot?:      unknown;
+    change_log?:    unknown;
+    label?:         string | null;
+    version_label?: string | null;
+    task_name?:     string | null;
+    comment?:       string | null;
   },
 ): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
@@ -442,9 +445,9 @@ export async function updateVersion(
     }
     m152Applied = false;
   }
-  // Strip migration-152 fields and retry with base SELECT.
-  const { change_log: _c, ...stripped } = patch;
-  void _c;
+  // Strip migration-152 + migration-153 fields and retry with base SELECT.
+  const { change_log: _c, version_label: _vl, task_name: _tn, comment: _cm, ...stripped } = patch;
+  void _c; void _vl; void _tn; void _cm;
   const { data, error } = await sb
     .from('refm_project_versions')
     .update(stripped)

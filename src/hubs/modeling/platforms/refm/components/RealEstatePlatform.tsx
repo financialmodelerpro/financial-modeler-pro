@@ -558,48 +558,28 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setEditingVersionLabel(null);
   }, []);
 
-  // Phase M-Versioning (2026-05-31): handleSaveVersion now branches:
-  //   - If no editing session yet, calls startEditSession to create a
-  //     new named version branched off the loaded version. All
-  //     subsequent edits will auto-PATCH that same row.
-  //   - If an editing session is already active, this is just a
-  //     label update (snapshot is auto-saved every 1.5 s already).
-  const handleSaveVersion = useCallback(
-    async (versionName: string): Promise<void> => {
-      if (!activeProjectId) return;
-      const res = await startEditSession(versionName);
-      if (res.error) {
-        setLoadError(res.error);
-        return;
-      }
-      if (res.versionId) {
-        setActiveVersionId(res.versionId);
-        setEditingVersionLabel(getSessionState().editingLabel);
-      }
-      setHasUnsaved(false);
-      setLastSavedAt(new Date().toLocaleTimeString());
-    },
-    [activeProjectId],
-  );
+  // Phase M-Versioning: explicit "Save" / "Create version" now always
+  // runs through handleSaveQuick -> NameVersionModal (auto-name + Task +
+  // Comment). The old plain-label handleSaveVersion path is retired so a
+  // version is never named with a bare "Version N" counter.
 
   const handleSaveQuick = useCallback(() => {
     const session = getSessionState();
-    if (session.editingVersionId) {
-      // Already editing; "Save" is a label rename in this state.
+    // A version is "properly named" once it carries the auto-generated
+    // {Project}_vX.Y_date_task label. Auto-started sessions get a default
+    // "Edits ..." label, so the FIRST explicit save must run the rich
+    // naming flow (auto-name + Task + Comment) to promote that row, even
+    // though an editing session already exists.
+    const isRichlyNamed = !!session.editingLabel && /_v\d+\.\d+_/.test(session.editingLabel);
+    if (session.editingVersionId && isRichlyNamed) {
+      // Already a named version; "Save" is a free-text label rename.
       setNameVersionModalMode('rename');
       setEditingVersionLabel(session.editingLabel);
       setNameVersionModalOpen(true);
       return;
     }
-    if (session.hasUncommittedEdits) {
-      // First edit pending name. Open the start-session modal.
-      setNameVersionModalMode('start-session');
-      setEditingVersionLabel(null);
-      setNameVersionModalOpen(true);
-      return;
-    }
-    // No edits, no session. Treat as "fork current state as a new
-    // named version", same modal, start-session mode.
+    // No session yet, OR an auto-started session not yet given a proper
+    // name + comment. Open the rich create flow.
     setNameVersionModalMode('start-session');
     setEditingVersionLabel(null);
     setNameVersionModalOpen(true);
@@ -632,8 +612,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
   );
 
   const handleNameVersionCancel = useCallback((): void => {
-    if (nameVersionModalMode === 'start-session') {
-      // Revert the user's first edit back to the loaded version.
+    // Only discard edits when this was a brand-new fork with NO committed
+    // editing session yet. If a session is already persisting the user's
+    // edits (e.g. auto-started on first edit), Cancel just closes the
+    // dialog and keeps the auto-named version: it never throws away work.
+    const session = getSessionState();
+    if (nameVersionModalMode === 'start-session' && !session.editingVersionId) {
       revertEditSession();
       setHasUnsaved(false);
     }
@@ -1220,7 +1204,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         activeVersionId={activeVersionId}
-        onSave={can('canSave') ? (name) => void handleSaveVersion(name) : undefined}
+        onCreateVersion={can('canSave') ? handleSaveQuick : undefined}
         onLoadVersion={(versionId) => {
           if (activeProjectId) void handleLoadVersion(activeProjectId, versionId);
           setVersionModalOpen(false);
@@ -1233,6 +1217,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         currentLabel={editingVersionLabel}
         projectName={activeProjectData?.name ?? null}
         existingVersions={Object.values(activeProjectData?.versions ?? {}).map((v) => ({ name: v.name, createdAt: v.createdAt }))}
+        discardOnCancel={!getSessionState().editingVersionId}
         onConfirm={handleNameVersionConfirm}
         onCancel={handleNameVersionCancel}
       />
