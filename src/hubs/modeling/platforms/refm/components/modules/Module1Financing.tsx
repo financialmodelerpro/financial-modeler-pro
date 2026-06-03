@@ -2260,36 +2260,19 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
     borderBottom: '1px solid var(--color-border)',
   };
 
-  // Cash-sweep overlay: a sweep-eligible facility's repayment comes from the
-  // cash sweep (computed in the full snapshot), not the engine's scheduled
-  // method. Combine the scheduled principal with the sweep, and use the
-  // post-sweep balance for Closing, so the per-facility Debt Movement matches
-  // the cash-sweep schedule + the Balance Sheet.
+  // Cash sweep is applied IN the financing engine (computeFinancialsSnapshot's
+  // fixed-point feeds the sweep budget back), so fac.principalRepaid +
+  // fac.outstanding AND every combined.* total ALREADY include the sweep, and
+  // they are exactly what the Cash Flow statement + Balance Sheet read. The
+  // schedule must therefore display the engine values DIRECTLY. (Bug fixed
+  // 2026-06-03: this block used to add the sweep again on top of the
+  // already-sweep-inclusive engine numbers, so a cash-sweep facility's
+  // "Principal Repaid" rendered at 2x the real balance reduction and diverged
+  // from the Cash Flow statement, for every funding method. Equal / YoY %
+  // methods were unaffected only because their sweepRepaid is zero.)
+  // sweepRowFor is kept solely to label the row "(incl. cash sweep)".
   const sweepRowFor = (id: string) => p.cashSweep.eligibleTranches.find((e) => e.trancheId === id);
-  const repaidWithSweep = (r: NonNullable<ReturnType<typeof p.result.facilities.get>>, id: string): number[] => {
-    const sw = sweepRowFor(id)?.sweepPerPeriod ?? [];
-    return r.principalRepaid.map((v, i) => v + (sw[i] ?? 0));
-  };
-  const closingWithSweep = (r: NonNullable<ReturnType<typeof p.result.facilities.get>>, id: string): number[] => {
-    const row = sweepRowFor(id);
-    return row ? row.postSweepOutstanding : r.outstanding;
-  };
-  // Total cash sweep by origin, aligned to the combined arrays' length, for
-  // the Combined Debt Service principal-repaid + debt-service lines.
-  const combinedLen = p.result.combined.totalPrincipalRepaid.length;
-  const sweepByOrigin = (origin: 'existing' | 'new'): number[] => {
-    const out = new Array<number>(combinedLen).fill(0);
-    for (const e of p.cashSweep.eligibleTranches) {
-      if (e.origin !== origin) continue;
-      for (let i = 0; i < combinedLen; i++) out[i] += e.sweepPerPeriod[i] ?? 0;
-    }
-    return out;
-  };
-  const existingSweep = sweepByOrigin('existing');
-  const newSweep = sweepByOrigin('new');
-  const totalSweepAll = existingSweep.map((v, i) => v + (newSweep[i] ?? 0));
-  const hasAnySweep = totalSweepAll.some((v) => v !== 0);
-  const addArr = (a: number[], b: number[]): number[] => a.map((v, i) => v + (b[i] ?? 0));
+  const hasAnySweep = p.result.combined.totalSweepRepaid.some((v) => v !== 0);
 
   return (
     <>
@@ -2303,9 +2286,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         // openingBalance is a PRE-AXIS carry-forward. Show it in the
         // prior-year column on Opening + Closing rows.
         const priorBal = Math.max(0, t.openingBalance ?? 0);
-        const closing = closingWithSweep(r, t.id);
+        const closing = r.outstanding;          // engine balance is already post-sweep
         const opening = openingSeries(closing, priorBal);
-        const principalRepaid = repaidWithSweep(r, t.id);
+        const principalRepaid = r.principalRepaid; // already includes the sweep
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         const swept = sweepRowFor(t.id) !== undefined;
         return (
@@ -2335,9 +2318,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
-        const closing = closingWithSweep(r, t.id);
+        const closing = r.outstanding;          // engine balance is already post-sweep
         const opening = openingSeries(closing, 0);
-        const principalRepaid = repaidWithSweep(r, t.id);
+        const principalRepaid = r.principalRepaid; // already includes the sweep
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         const swept = sweepRowFor(t.id) !== undefined;
         return (
@@ -2381,12 +2364,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
               {hasActiveExisting && renderFlowRow('Interest Expensed - Existing', p.result.combined.existingInterestExpensed, { negative: true })}
               {newTranches.length > 0 && renderFlowRow('Interest Expensed - New', p.result.combined.newInterestExpensed, { negative: true })}
               {renderFlowRow('Total Interest Expensed', p.result.combined.totalInterestExpensed, { bold: true, negative: true })}
-              {hasActiveExisting && renderFlowRow(hasAnySweep ? 'Principal Repaid - Existing (incl. sweep)' : 'Principal Repaid - Existing', addArr(p.result.combined.existingPrincipalRepaid, existingSweep), { negative: true })}
-              {newTranches.length > 0 && renderFlowRow(hasAnySweep ? 'Principal Repaid - New (incl. sweep)' : 'Principal Repaid - New', addArr(p.result.combined.newPrincipalRepaid, newSweep), { negative: true })}
-              {renderFlowRow('Total Principal Repaid', addArr(p.result.combined.totalPrincipalRepaid, totalSweepAll), { bold: true, negative: true })}
-              {hasActiveExisting && renderFlowRow('Debt Service - Existing', addArr(p.result.combined.existingDebtServiceCash, existingSweep), { negative: true })}
-              {newTranches.length > 0 && renderFlowRow('Debt Service - New', addArr(p.result.combined.newDebtServiceCash, newSweep), { negative: true })}
-              {renderFlowRow('Total Debt Service (Cash)', addArr(p.result.combined.debtServiceCash, totalSweepAll), { bold: true, negative: true })}
+              {hasActiveExisting && renderFlowRow(hasAnySweep ? 'Principal Repaid - Existing (incl. sweep)' : 'Principal Repaid - Existing', p.result.combined.existingPrincipalRepaid, { negative: true })}
+              {newTranches.length > 0 && renderFlowRow(hasAnySweep ? 'Principal Repaid - New (incl. sweep)' : 'Principal Repaid - New', p.result.combined.newPrincipalRepaid, { negative: true })}
+              {renderFlowRow('Total Principal Repaid', p.result.combined.totalPrincipalRepaid, { bold: true, negative: true })}
+              {hasActiveExisting && renderFlowRow('Debt Service - Existing', p.result.combined.existingDebtServiceCash, { negative: true })}
+              {newTranches.length > 0 && renderFlowRow('Debt Service - New', p.result.combined.newDebtServiceCash, { negative: true })}
+              {renderFlowRow('Total Debt Service (Cash)', p.result.combined.debtServiceCash, { bold: true, negative: true })}
             </tbody>
           </table>
         </div>

@@ -211,7 +211,8 @@
       "Bash(Sort-Object)",
       "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 40)",
       "PowerShell(npx tsx scripts/verify-pdf-export.ts 2>&1 | Select-Object -Last 25)",
-      "PowerShell(npx tsx scripts/verify-returns-engine.ts 2>&1 | Select-Object -Last 2; npx tsx scripts/verify-returns-snapshot.ts 2>&1 | Select-Object -Last 2)"
+      "PowerShell(npx tsx scripts/verify-returns-engine.ts 2>&1 | Select-Object -Last 2; npx tsx scripts/verify-returns-snapshot.ts 2>&1 | Select-Object -Last 2)",
+      "PowerShell(npx tsx scripts/verify-funding-methods.ts 2>&1 | Select-Object -Last 16)"
     ]
   }
 }

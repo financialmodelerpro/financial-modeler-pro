@@ -383,5 +383,63 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
   check('SWEEP: Direct CF == Indirect CF', Math.max(...snap.directCF.closingCashPerPeriod.map((v, i) => Math.abs(v - (snap.indirectCF.closingCashPerPeriod[i] ?? 0)))) < 1);
 }
 
+// ── Cash sweep counted EXACTLY ONCE across schedules + FS, every method ──
+// (2026-06-03 fix) The sweep is applied IN the engine, so fac.principalRepaid /
+// fac.outstanding / combined.* already include it. The Debt Movement schedule
+// and the Cash Flow statement must therefore show the SAME repayment (no
+// display-side re-add that doubled cash-sweep facilities). Pins the contract
+// the UI relies on, for funding Methods 1/2/3.
+{
+  const A = (n: number, f = 0): number[] => Array(n).fill(f);
+  const buildSweep = (method: 1 | 2 | 3): any => {
+    const project: any = makeDefaultProject();
+    project.startDate = '2026-01-01';
+    project.tax = { rate: 0.15 };
+    project.financing = { fundingMethod: method, minimumCashReserve: 50000, parcelFunding: [], viewMode: 'combined' };
+    project.dividendPolicy = { enabled: true, payoutRatio: 100, mode: 'cash_above_min' };
+    const p1: any = { ...makeDefaultPhase(), id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 8, overlapPeriods: 0 };
+    const hotel: any = {
+      id: 'H1', phaseId: 'p1', name: 'Hotel', type: '', strategy: 'Operate', visible: true,
+      gfaSqm: 0, buaSqm: 30000, sellableBuaSqm: 0, parkingBaysRequired: 0, usefulLifeYears: 20,
+      revenue: { operate: { assetId: 'H1', daysPerYear: 365, startingADR: 900, adrIndexation: { method: 'yoy_compound', rate: 0.03 }, occupancyPerPeriodByPhase: A(11, 0.75), guestsPerOccupiedRoom: 1.5, fb: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(11), indexation: { method: 'none' } }, otherRevenue: { mode: 'fixed_amount', fixedAmountPerPeriodByPhase: A(11), indexation: { method: 'none' } } } },
+      opex: { defaultIndexation: { method: 'yoy_compound', rate: 0.03 }, lines: [{ id: 'o1', name: 'Rooms cost', category: 'direct_rooms', mode: 'fixed_baseline', value: 12_000_000, indexation: { method: 'yoy_compound', rate: 0.03 }, useAssetDefault: true, rateMode: 'single' }] },
+    };
+    const su: any = { id: 'su1', assetId: 'H1', name: 'Keys', category: 'Operable', metric: 'units', metricValue: 200, unitArea: 0, unitPrice: 900, startingAdr: 900 };
+    const tr = { ...makeDefaultFinancingTranche('t1', 'p1'), repaymentMethod: 'cash_sweep', cashSweepConfig: { enabled: true, sweepRatio: 100 } };
+    const parcel: any = { id: 'parcel1', phaseId: 'p1', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 };
+    return { project, phases: [p1], assets: [hotel], subUnits: [su], parcels: [parcel], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [tr], equityContributions: [] };
+  };
+  for (const method of [1, 2, 3] as const) {
+    const snap = computeFinancialsSnapshot(buildSweep(method));
+    const cmb = snap.financing.combined;
+    const N = snap.axisLength;
+    // (a) combined.totalPrincipalRepaid == Σ per-facility principalRepaid (sweep once).
+    const sumFac = new Array<number>(N).fill(0);
+    let borrowed = 0;
+    for (const f of snap.financing.facilities.values()) {
+      for (let i = 0; i < N; i++) sumFac[i] += f.principalRepaid[i] ?? 0;
+      borrowed += Math.max(0, f.openingBalance ?? 0)
+        + f.drawSchedule.reduce((s, v) => s + (v ?? 0), 0)
+        + f.interestCapitalized.reduce((s, v) => s + (v ?? 0), 0);
+      // Per-facility roll reconciles: opening + draw + capInt − principalRepaid = outstanding.
+      let bal = Math.max(0, f.openingBalance ?? 0);
+      let ok = true;
+      for (let i = 0; i < N; i++) {
+        bal += (f.drawSchedule[i] ?? 0) + (f.interestCapitalized[i] ?? 0) - (f.principalRepaid[i] ?? 0);
+        if (Math.abs(bal - (f.outstanding[i] ?? 0)) > Math.max(1, borrowed * 1e-6)) ok = false;
+      }
+      check(`M${method} sweep: facility ${f.trancheId} roll reconciles (opening+draw-repaid=closing)`, ok);
+    }
+    const cmbTotal = cmb.totalPrincipalRepaid.reduce((s, v) => s + (v ?? 0), 0);
+    const sumFacTotal = sumFac.reduce((s, v) => s + v, 0);
+    check(`M${method} sweep: combined.totalPrincipalRepaid == Σ facility principalRepaid`, approx(cmbTotal, sumFacTotal, Math.max(1, cmbTotal * 1e-6)), `cmb=${cmbTotal} fac=${sumFacTotal}`);
+    // (b) NOT doubled: cumulative repaid never exceeds cumulative borrowed.
+    check(`M${method} sweep: total principal repaid <= total borrowed (not doubled)`, cmbTotal <= borrowed + Math.max(1, borrowed * 1e-4), `repaid=${cmbTotal} borrowed=${borrowed}`);
+    // (c) Schedule == FS: Direct CF debt repayment magnitude == combined principal repaid.
+    const cfRepay = -snap.directCF.debtRepaymentPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+    check(`M${method} sweep: Cash Flow debt repayment == schedule principal repaid`, approx(cfRepay, cmbTotal, Math.max(1, cmbTotal * 1e-6)), `cf=${cfRepay} sched=${cmbTotal}`);
+  }
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);
