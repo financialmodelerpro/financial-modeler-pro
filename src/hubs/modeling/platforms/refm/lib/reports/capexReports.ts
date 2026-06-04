@@ -15,7 +15,7 @@ import { computeAssetCost, resolveAssetAreaMetrics, type AssetAreaMetrics } from
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 
-export type MetricKind = 'area' | 'count' | 'none';
+export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
 export interface CapexInputLine {
   name: string;
@@ -24,7 +24,11 @@ export interface CapexInputLine {
   /** Rate or fixed value the user entered. */
   rate: number;
   isFixed: boolean;
-  /** Quantity the rate multiplies (BUA/NSA/GFA/land sqm, unit count, etc.). */
+  /** True for percent-of-* methods (rate is a percentage). */
+  isPercent: boolean;
+  /** The basis the rate/percentage multiplies: a quantity (BUA/NSA/land sqm,
+   *  units, bays) for rate lines, or the reference amount (revenue, land value,
+   *  construction total, selected-lines total) for percent lines. */
   metricValue: number | null;
   metricLabel: string;
   metricKind: MetricKind;
@@ -56,8 +60,16 @@ function basisLabel(method?: string): string {
     default: return method ?? '-';
   }
 }
-/** Quantity a rate-based method multiplies (for the Capex input "Quantity" column). */
-function metricFor(method: string | undefined, m: AssetAreaMetrics): { value: number | null; label: string; kind: MetricKind } {
+const isPercentMethod = (method?: string): boolean => !!method && method.startsWith('percent_');
+/** Percent methods: base = amount x 100 / value (value is in percent units, see
+ *  the engine's clamp(v,0,100)/100), i.e. the reference amount the % multiplies. */
+function percentBase(amount: number, value: number, label: string): { value: number | null; label: string; kind: MetricKind } {
+  return { value: value ? (amount * 100) / value : null, label, kind: 'money' };
+}
+/** The basis a cost line's rate/percentage multiplies (for the Capex input
+ *  "Quantity / Basis" column): a physical quantity for rate lines, the reference
+ *  currency amount for percent lines, nothing for a fixed lump sum. */
+function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: number, value: number): { value: number | null; label: string; kind: MetricKind } {
   switch (method) {
     case 'rate_per_land': return { value: m.landSqm, label: 'Land sqm', kind: 'area' };
     case 'rate_per_nda': return { value: m.ndaSqm, label: 'NDA sqm', kind: 'area' };
@@ -67,6 +79,15 @@ function metricFor(method: string | undefined, m: AssetAreaMetrics): { value: nu
     case 'rate_per_nsa': return { value: m.nsa, label: 'NSA sqm', kind: 'area' };
     case 'rate_per_unit': return { value: m.unitCount, label: 'units', kind: 'count' };
     case 'rate_per_parking_bay': return { value: m.parkingBays, label: 'bays', kind: 'count' };
+    case 'percent_of_total_land': return percentBase(amount, value, 'of total land');
+    case 'percent_of_cash_land': return percentBase(amount, value, 'of cash land');
+    case 'percent_of_inkind_land': return percentBase(amount, value, 'of in-kind land');
+    case 'percent_of_selected': return percentBase(amount, value, 'of selected lines');
+    case 'percent_of_construction': return percentBase(amount, value, 'of construction');
+    case 'percent_of_total_revenue':
+    case 'percent_of_revenue_cash':
+    case 'percent_of_revenue_sale':
+      return percentBase(amount, value, 'of total revenue');
     default: return { value: null, label: '', kind: 'none' };
   }
 }
@@ -121,16 +142,17 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       if (!amount) continue;
       const cl = lineById.get(lineId);
       if (!cl) continue;
-      const met = metricFor(cl.method, metrics);
+      const b = basisFor(cl.method, metrics, amount, cl.value);
       lines.push({
         name: cl.name,
         stage: String(cl.stage ?? '-'),
         basis: basisLabel(cl.method),
         rate: cl.value,
         isFixed: cl.method === 'fixed',
-        metricValue: met.value,
-        metricLabel: met.label,
-        metricKind: met.kind,
+        isPercent: isPercentMethod(cl.method),
+        metricValue: b.value,
+        metricLabel: b.label,
+        metricKind: b.kind,
         amount,
       });
     }

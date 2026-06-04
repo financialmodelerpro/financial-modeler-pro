@@ -30,7 +30,9 @@ function buildState(): any {
   const retail: any = { id: 'L1', phaseId: 'p2', name: 'Retail', type: '', strategy: 'Lease', visible: true, gfaSqm: 0, buaSqm: 5000, sellableBuaSqm: 0, parkingBaysRequired: 0, usefulLifeYears: 25,
     revenue: { lease: { assetId: 'L1', baseRate: 1200, rentIndexation: { method: 'yoy_compound', rate: 0.03 }, occupancyPerPeriodByPhase: A(8, 0.9), arDays: 60 } } };
   const suL: any = { id: 'lsu1', assetId: 'L1', name: 'Shops', category: 'Leasable', metric: 'area', metricValue: 5000, unitArea: 0, unitPrice: 1200 };
-  const cl = [...makeDefaultCostLines('p1', 2), ...makeDefaultCostLines('p2', 2)];
+  const cl: any[] = [...makeDefaultCostLines('p1', 2), ...makeDefaultCostLines('p2', 2)];
+  // A percent-of-construction line so the basis column covers % methods.
+  cl.push({ id: 'pct1', phaseId: 'p1', name: 'Contingency', stage: 'soft', method: 'percent_of_construction', value: 10, phasing: 'even', startPeriod: 0, endPeriod: 1 });
   const parcel: any = { id: 'parcel1', phaseId: 'p1', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 };
   return { project, phases: [p1, p2], assets: [resi, retail], subUnits: [suR, suL], parcels: [parcel], costLines: cl, costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [makeDefaultFinancingTranche('t1', 'p1'), makeDefaultFinancingTranche('t2', 'p2')], equityContributions: [] };
 }
@@ -54,6 +56,18 @@ function main(): void {
   check('input tables emitted per asset', rep.inputAssets.length >= 1, `n=${rep.inputAssets.length}`);
   check('input lines carry an engine amount', rep.inputAssets.every((a) => a.lines.every((l) => Number.isFinite(l.amount))));
   check('input total matches sum of line amounts', rep.inputAssets.every((a) => Math.abs(a.total - a.lines.reduce((s, l) => s + l.amount, 0)) < Math.max(1, a.total * 1e-6)));
+
+  // Percent line: basis column = a money basis where amount = basis x rate%.
+  const allLines = rep.inputAssets.flatMap((a) => a.lines);
+  const rateLine = allLines.find((l) => l.metricKind === 'area' && (l.metricValue ?? 0) > 0);
+  check('rate line carries an area/count quantity', !!rateLine);
+  const pctLine = allLines.find((l) => l.name === 'Contingency' && l.isPercent);
+  check('percent line present + flagged isPercent', !!pctLine);
+  if (pctLine) {
+    check('percent line basis is a money amount', pctLine.metricKind === 'money' && (pctLine.metricValue ?? 0) > 0, `kind=${pctLine.metricKind} base=${pctLine.metricValue}`);
+    const reconstructed = (pctLine.metricValue ?? 0) * (pctLine.rate / 100);
+    check('percent line: basis x rate% == amount', Math.abs(reconstructed - pctLine.amount) < Math.max(1, pctLine.amount * 1e-6), `recon=${reconstructed} amount=${pctLine.amount}`);
+  }
 
   for (const title of ['Total Capex (incl. all land)', 'Capex excl. Land In-Kind (cash-impact schedule)', 'Capex excl. Total Land (pure development cost)']) {
     const t = rep.results.find((r) => r.title === title);

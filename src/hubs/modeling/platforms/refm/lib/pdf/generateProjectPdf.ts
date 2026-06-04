@@ -579,23 +579,30 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
     }),
   }));
-  // Historical baseline, transposed to metric-rows x phase-columns so every
-  // value gets a wide cell (the previous 7-column layout crammed large existing-
-  // operations figures together). One column per operational phase.
-  const opPhases = state.phases.filter((ph) => ph.status === 'operational' && ph.historicalBaseline);
-  if (opPhases.length) {
-    const metrics: Array<[string, (b: NonNullable<typeof opPhases[number]['historicalBaseline']>) => number]> = [
-      ['Capex incurred', (b) => b.historicalCapexTotal],
-      ['Equity contributed', (b) => b.historicalEquityContributed],
-      ['Debt drawn', (b) => b.historicalDebtDrawn],
-      ['Debt outstanding', (b) => b.currentDebtOutstanding],
-      ['Net book value (fixed assets)', (b) => b.netBookValueFixedAssets],
-      ['Opening cash', (b) => b.historicalOpeningCash ?? 0],
-    ];
+  // Existing Operations (historical baseline). REBUILT to read the engine's
+  // existing-operations aggregate (snap.financing.existing) instead of the
+  // DEPRECATED phase fields historicalCapexTotal / historicalEquityContributed /
+  // historicalDebtDrawn (no longer read by the engine, see existing.ts; they can
+  // carry stale/garbage legacy data). Pre-capex / equity / debt are derived per
+  // phase from per-asset pre-capex (Land + Building), historicalEquityAmount, and
+  // existing facilities' opening balances; NBV + opening cash come from the
+  // still-used baseline inputs. One column per operational phase + a Total.
+  const ex = fin.existing;
+  const opPhases = state.phases.filter((ph) => ph.status === 'operational');
+  const metricDefs: Array<[string, (ph: typeof opPhases[number]) => number]> = [
+    ['Pre-capex incurred (Land + Building)', (ph) => ex.preCapexByPhase.get(ph.id) ?? 0],
+    ['Existing equity contributed', (ph) => ex.equityByPhase.get(ph.id) ?? 0],
+    ['Existing debt outstanding', (ph) => ex.debtByPhase.get(ph.id) ?? 0],
+    ['Net book value (fixed assets)', (ph) => ph.historicalBaseline?.netBookValueFixedAssets ?? 0],
+    ['Opening cash', (ph) => ph.historicalBaseline?.historicalOpeningCash ?? 0],
+  ];
+  const baselineRows = metricDefs.map(([label, pick]) => ({ label, vals: opPhases.map(pick) }));
+  const baselineHasData = baselineRows.some((r) => r.vals.some((v) => v !== 0));
+  if (opPhases.length && baselineHasData) {
     items.push(tTable('Tab 1: Project Setup', 'inputs', {
-      title: 'Historical Baseline (existing operations)', kind: 'grid', align: 'data',
-      columns: ['Metric', ...opPhases.map((ph) => ph.name)],
-      rows: metrics.map(([label, pick]) => row([label, ...opPhases.map((ph) => fmt.money(pick(ph.historicalBaseline!)))])),
+      title: 'Existing Operations (historical baseline)', kind: 'grid', align: 'data',
+      columns: ['Metric', ...opPhases.map((ph) => ph.name), 'Total'],
+      rows: baselineRows.map((r) => row([r.label, ...r.vals.map((v) => fmt.money(v)), fmt.money(r.vals.reduce((s, v) => s + v, 0))])),
     }));
   }
 
@@ -628,16 +635,25 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // the engine Amount). OUTPUT mirrors the platform Capex Results tab. Both come
   // from the shared builder (lib/reports/capexReports.ts).
   const capexReport = buildCapexReport(snap, state);
+  // The "Quantity / Basis" column shows what each line's rate or percentage
+  // multiplies to produce the Amount: a physical quantity (BUA/NSA/land sqm,
+  // units, bays) for rate lines, or the reference amount (revenue, land value,
+  // construction or selected-lines total) for percent lines; a fixed lump shows
+  // "-". So rate x quantity = amount, and percentage x basis = amount.
+  const basisCell = (l: typeof capexReport.inputAssets[number]['lines'][number]): string => {
+    if (l.metricKind === 'none' || l.metricValue === null) return '-';
+    if (l.metricKind === 'area') return `${fmt.area(l.metricValue)} ${l.metricLabel}`;
+    if (l.metricKind === 'count') return `${fmt.int(l.metricValue)} ${l.metricLabel}`;
+    return `${fmt.money(l.metricValue)} ${l.metricLabel}`; // money basis (percent lines)
+  };
+  const rateCell = (l: typeof capexReport.inputAssets[number]['lines'][number]): string =>
+    l.isFixed ? fmt.money(l.rate) : l.isPercent ? `${l.rate}%` : fmt.int(l.rate);
   for (const ia of capexReport.inputAssets) {
     items.push(tTable('Tab 3: Capex', 'inputs', {
       title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
-      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Quantity', 'Amount'],
-      rows: ia.lines.map((l) => row([
-        l.name, l.stage, l.basis,
-        l.isFixed ? fmt.money(l.rate) : fmt.int(l.rate),
-        l.metricKind === 'none' || l.metricValue === null ? '-' : `${l.metricKind === 'area' ? fmt.area(l.metricValue) : fmt.int(l.metricValue)} ${l.metricLabel}`,
-        fmt.money(l.amount),
-      ])).concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'subtotal')]),
+      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Quantity / Basis', 'Amount'],
+      rows: ia.lines.map((l) => row([l.name, l.stage, l.basis, rateCell(l), basisCell(l), fmt.money(l.amount)]))
+        .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'subtotal')]),
     }));
   }
   // Capex Breakdown by Year (land split summary), then the per-stage + the
