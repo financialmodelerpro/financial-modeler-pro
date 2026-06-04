@@ -20,6 +20,20 @@
 
 ---
 
+## ⭐ EXCEL MODEL EXPORT (in progress, 2026-06-04)
+
+Goal: export the project as a PROFESSIONAL, FORMULA-DRIVEN Excel model (FAST-style), not a data dump. Full architecture + sheet-by-sheet build order in memory `project_excel_export_plan_2026-06-04`.
+
+**Key technique:** every calculated cell is emitted as ExcelJS `{ formula, result }`, a live editable formula PLUS the platform's value cached as the result, so the workbook is dynamic AND opens correct AND is reconcilable in Node (cached result must equal the snapshot). FAST colors (blue inputs / black formulas / green links), inputs only on the Assumptions sheet, defined names for cross-sheet references.
+
+**Files:** `src/hubs/modeling/platforms/refm/lib/excel/{styles,buildModelWorkbook}.ts`; verifier `scripts/verify-excel-export.ts`; ExportModal 3rd option "Excel Model (beta)".
+
+**Status:** Phase 1 (foundation) DONE: Cover/Index, Assumptions (Project/Phases/Returns inputs + defined names), formula-driven Timeline, Checks/legend. verify-excel-export 15/15.
+
+**Remaining phases (one or two sheets per commit, each reconciled):** 2 Capex, 3 Revenue + CoS, 4 Opex, 5 Financing (debt/IDC iterative/sweep/equity), 6 Fixed Assets + Depreciation, 7 Statements (P&L/CF/BS), 8 Returns (Excel IRR/NPV on the streams), 9 final Checks. Reuse the `lib/reports/` builders (capex/cos/opex/financing/m4) for the cached `result` values so Excel ties to the platform + PDF by construction.
+
+---
+
 ## ACTIVE FOLLOW-UP, Rename RESEND_WEBHOOK_SECRET to EMAIL_BRIDGE_BEARER_SECRET (2026-05-11)
 
 After the Brevo re-migration, the env var name `RESEND_WEBHOOK_SECRET` is misleading: it doubles as the bearer token for `POST /api/email/send` (used by the Google Apps Script bridge) and has nothing to do with Resend anymore. Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. Steps:

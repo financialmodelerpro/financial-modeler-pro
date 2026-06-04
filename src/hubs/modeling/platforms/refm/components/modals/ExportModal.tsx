@@ -37,6 +37,18 @@ interface ExportModalProps {
 
 const CURRENT = '__current__';
 
+function triggerDownload(filename: string, data: BlobPart, type: string): void {
+  const blob = new Blob([data], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Display name for a saved version (used in the picker AND as the PDF filename
  *  base, so a downloaded report is named after the version it came from). */
 function versionDisplayName(v: RefmProjectVersionListItem): string {
@@ -91,8 +103,8 @@ export default function ExportModal({
   );
   // PDF display scale (default Millions for readability on large projects).
   const [pdfScale, setPdfScale] = useState<'thousands' | 'millions'>('millions');
-  // Full detailed report vs the concise executive summary.
-  const [reportKind, setReportKind] = useState<'full' | 'summary'>('full');
+  // Full detailed PDF, concise executive-summary PDF, or the Excel model.
+  const [reportKind, setReportKind] = useState<'full' | 'summary' | 'excel'>('full');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,6 +150,16 @@ export default function ExportModal({
         fileBase = vName;
       }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+      const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
+
+      if (reportKind === 'excel') {
+        const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel });
+        triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        close();
+        return;
+      }
+
       const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale };
       const bytes = reportKind === 'summary'
         ? await generateSummaryPdf({ ...common, selectedModuleKeys: [] })
@@ -146,19 +168,10 @@ export default function ExportModal({
             selectedModuleKeys: selectedKeys,
             moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
           });
-      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
-      a.download = `${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      triggerDownload(`${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`, bytes as BlobPart, 'application/pdf');
       close();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF generation failed.');
+      setError(e instanceof Error ? e.message : 'Export failed.');
     } finally {
       setGenerating(false);
     }
@@ -242,18 +255,34 @@ export default function ExportModal({
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
             </button>
-            <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '8px 4px 0' }}>
-              Excel export (static values + live formula model) is the next pass.
-            </div>
+            <button
+              type="button"
+              data-testid="export-option-excel"
+              onClick={() => { setReportKind('excel'); setStep('modules'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
+                borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
+                cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 22 }}>📗</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model (beta)</div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Formula-driven workbook: Assumptions, Timeline and checks (calculation sheets are being added)</div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
+            </button>
           </div>
         )}
 
         {step === 'modules' && (
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
-              {reportKind === 'summary'
-                ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
-                : 'The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.'}
+              {reportKind === 'excel'
+                ? 'The Excel model is a formula-driven workbook: a centralised Assumptions (inputs) sheet, a formula-linked Timeline, and a Checks/legend sheet, with the calculation and statement sheets being added. Pick the version to export below.'
+                : reportKind === 'summary'
+                  ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
+                  : 'The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.'}
             </div>
             {projectId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
@@ -281,7 +310,7 @@ export default function ExportModal({
                 </span>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px' }}>
+            <div style={{ display: reportKind === 'excel' ? 'none' : 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Number scale:</span>
               {(['thousands', 'millions'] as const).map((s) => (
                 <label key={s} data-testid={`export-scale-${s}`} style={{
@@ -368,7 +397,7 @@ export default function ExportModal({
                       opacity: generating ? 0.7 : 1,
                     }}
                   >
-                    {generating ? 'Generating…' : reportKind === 'summary' ? 'Generate Summary PDF' : `Generate PDF (${selectedKeys.length})`}
+                    {generating ? 'Generating…' : reportKind === 'excel' ? 'Generate Excel Model' : reportKind === 'summary' ? 'Generate Summary PDF' : `Generate PDF (${selectedKeys.length})`}
                   </button>
                 );
               })()}
