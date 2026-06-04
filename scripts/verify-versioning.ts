@@ -261,6 +261,46 @@ console.log('\n[I] null / undefined safety');
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// J: Scenario cases registry (Cases follow-up C).
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n[J] Scenario cases diff');
+{
+  const base = deepClone(DEFAULT_MODULE1_STATE) as HydrateSnapshot;
+  const withBaseCase = deepClone(base);
+  withBaseCase.cases = [{ id: 'mgmt', name: 'Management', role: 'base', overrides: {} } as never];
+  withBaseCase.activeCaseId = 'mgmt';
+
+  // J1: base-only registry produces no entries.
+  const diffBaseOnly = diffSnapshots(base, withBaseCase);
+  assertCount('J1: adding only the base case yields no change-log entries', diffBaseOnly.filter((e) => e.path.startsWith('cases')).length, 0);
+
+  // J2: add a scenario case with an override.
+  const withScenario = deepClone(withBaseCase);
+  withScenario.cases = [
+    { id: 'mgmt', name: 'Management', role: 'base', overrides: {} },
+    { id: 'down', name: 'Downside', role: 'override', overrides: { 'assets[id=a1].revenue.sell.pricePerUnit': 900 } },
+  ] as never;
+  const diffAddCase = diffSnapshots(withBaseCase, withScenario).filter((e) => e.path.startsWith('cases'));
+  assertCount('J2: adding a scenario case collapses to one entry', diffAddCase.length, 1);
+  assertEq('J3: add entry path + kind + label', [diffAddCase[0]?.path, diffAddCase[0]?.kind, diffAddCase[0]?.label], ['cases[down]', 'add', 'Case "Downside" added']);
+
+  // J4: change an override value within a scenario case.
+  const edited = deepClone(withScenario);
+  (edited.cases as never as Array<{ id: string; overrides: Record<string, unknown> }>)[1].overrides['assets[id=a1].revenue.sell.pricePerUnit'] = 800;
+  const diffEdit = diffSnapshots(withScenario, edited).filter((e) => e.path.startsWith('cases'));
+  assertCount('J4: one entry for one override value change', diffEdit.length, 1);
+  assertEq('J5: override change path + kind', [diffEdit[0]?.path, diffEdit[0]?.kind], ['cases[down].assets[id=a1].revenue.sell.pricePerUnit', 'update']);
+  assertEq('J6: override change before/after', [diffEdit[0]?.before, diffEdit[0]?.after], [900, 800]);
+
+  // J7: rename a scenario case.
+  const renamed = deepClone(withScenario);
+  (renamed.cases as never as Array<{ id: string; name: string }>)[1].name = 'Bear Case';
+  const diffRename = diffSnapshots(withScenario, renamed).filter((e) => e.path.startsWith('cases'));
+  assertCount('J7: rename yields one entry', diffRename.length, 1);
+  assertEq('J8: rename path + kind + label', [diffRename[0]?.path, diffRename[0]?.kind, diffRename[0]?.label], ['cases[down].name', 'update', 'Case renamed to "Bear Case"']);
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────
 console.log(`\n=== Result: ${pass} pass / ${fail} fail ===`);

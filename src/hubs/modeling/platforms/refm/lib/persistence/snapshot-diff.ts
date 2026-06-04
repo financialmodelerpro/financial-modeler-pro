@@ -214,6 +214,53 @@ function diffCostOverrides(
  * (or both null). Tolerates either side being null / undefined for
  * the "first ever version, no base" case.
  */
+/**
+ * Cases follow-up C (2026-06-04): diff the scenario `cases` registry so
+ * scenario-only edits (which never touch the base model fields) still produce a
+ * change_log. Each case is matched by id; we report case add / remove / rename
+ * and every per-case override path add / remove / update. The Management (base)
+ * case carries no overrides, so it never contributes here.
+ */
+type CaseRec = { id?: unknown; name?: unknown; role?: unknown; overrides?: Record<string, unknown> };
+function diffCases(
+  before: CaseRec[] | null | undefined,
+  after:  CaseRec[] | null | undefined,
+  out: ChangeLogEntry[],
+): void {
+  const beforeCases = before ?? [];
+  const afterCases  = after ?? [];
+  const idOf = (c: CaseRec): string => (typeof c.id === 'string' ? c.id : '');
+  const nameOf = (c: CaseRec): string => (typeof c.name === 'string' && c.name.trim() ? c.name : idOf(c) || 'case');
+  const isBase = (c: CaseRec): boolean => c.role === 'base';
+  const bMap = new Map(beforeCases.map((c) => [idOf(c), c]));
+  const aMap = new Map(afterCases.map((c) => [idOf(c), c]));
+
+  for (const c of afterCases) {
+    if (isBase(c) || bMap.has(idOf(c))) continue;
+    out.push({ path: `cases[${idOf(c)}]`, label: `Case "${nameOf(c)}" added`, before: null, after: nameOf(c), kind: 'add' });
+  }
+  for (const c of beforeCases) {
+    if (isBase(c) || aMap.has(idOf(c))) continue;
+    out.push({ path: `cases[${idOf(c)}]`, label: `Case "${nameOf(c)}" removed`, before: nameOf(c), after: null, kind: 'remove' });
+  }
+  for (const a of afterCases) {
+    const b = bMap.get(idOf(a));
+    if (!b) continue;
+    if (nameOf(b) !== nameOf(a)) {
+      out.push({ path: `cases[${idOf(a)}].name`, label: `Case renamed to "${nameOf(a)}"`, before: nameOf(b), after: nameOf(a), kind: 'update' });
+    }
+    const bo = b.overrides ?? {};
+    const ao = a.overrides ?? {};
+    for (const k of new Set([...Object.keys(bo), ...Object.keys(ao)])) {
+      const bv = bo[k];
+      const av = ao[k];
+      if (deepEqual(bv, av)) continue;
+      const kind: ChangeLogEntry['kind'] = bv === undefined ? 'add' : av === undefined ? 'remove' : 'update';
+      out.push({ path: `cases[${idOf(a)}].${k}`, label: `${nameOf(a)}: ${k}`, before: bv ?? null, after: av ?? null, kind });
+    }
+  }
+}
+
 export function diffSnapshots(
   before: HydrateSnapshot | null | undefined,
   after:  HydrateSnapshot | null | undefined,
@@ -273,6 +320,9 @@ export function diffSnapshots(
     after.costOverrides  as unknown as Record<string, unknown>[],
     out,
   );
+
+  // scenario cases registry (per-case override add/remove/update + rename)
+  diffCases(before.cases as CaseRec[] | undefined, after.cases as CaseRec[] | undefined, out);
 
   return out;
 }
