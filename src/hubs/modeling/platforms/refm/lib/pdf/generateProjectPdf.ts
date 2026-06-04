@@ -39,6 +39,7 @@ import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolve
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
+import { buildCapexReport } from '../reports/capexReports';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES } from '../modules-config';
 
@@ -452,27 +453,6 @@ function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: numbe
   });
   return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows: pdfRows };
 }
-/** Human label for a cost line's method = what its rate multiplies. */
-function costBasisLabel(method?: string): string {
-  switch (method) {
-    case 'fixed': return 'Fixed (lump sum)';
-    case 'rate_per_land': return 'per Land sqm';
-    case 'rate_per_nda': return 'per NDA sqm';
-    case 'rate_per_roads': return 'per Roads sqm';
-    case 'rate_per_gfa': return 'per GFA sqm';
-    case 'rate_per_bua': return 'per BUA sqm';
-    case 'rate_per_nsa': return 'per NSA sqm';
-    case 'rate_per_unit': return 'per Unit';
-    case 'rate_per_parking_bay': return 'per Parking bay';
-    case 'percent_of_construction': return '% of Construction';
-    case 'percent_of_selected': return '% of Selected lines';
-    case 'percent_of_total_land': return '% of Total land';
-    case 'percent_of_cash_land': return '% of Cash land';
-    case 'percent_of_inkind_land': return '% of In-kind land';
-    case 'percent_of_total_revenue': return '% of Total revenue';
-    default: return method ?? '-';
-  }
-}
 function kvTable(title: string, pairs: Array<[string, string]>): PdfTable {
   return { title, kind: 'grid', columns: ['Field', 'Value'], align: 'kv', rows: pairs.map(([a, b]) => row([a, b])) };
 }
@@ -641,23 +621,25 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     }
   }
 
-  // Tab 3: Capex (cost line inputs + per-period output). The Amount column
-  // shows the engine's exact computed total for EVERY line (rate-based as
-  // well as fixed), pulled from the per-line aggregate.
-  const lineTotals = fin.capex.perLineTotals ?? {};
-  for (const ph of state.phases) {
-    const lines = state.costLines.filter((c) => c.phaseId === ph.id && c.targetAssetId === undefined && !c.disabled);
-    if (!lines.length) continue;
+  // Tab 3: Capex. Cost-line INPUT is asset-wise (each contributing line shows
+  // its Quantity = the BUA/NSA/land sqm or unit count the rate multiplies, and
+  // the engine Amount). OUTPUT mirrors the platform Capex Results tab. Both come
+  // from the shared builder (lib/reports/capexReports.ts).
+  const capexReport = buildCapexReport(snap, state);
+  for (const ia of capexReport.inputAssets) {
     items.push(tTable('Tab 3: Capex', 'inputs', {
-      title: `Cost Lines, ${ph.name}`, kind: 'grid', align: 'data',
-      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Amount'],
-      rows: lines.map((c) => row([
-        c.name, String(c.stage ?? '-'), costBasisLabel(c.method),
-        c.method === 'fixed' ? fmt.money(c.value) : fmt.int(c.value),
-        fmt.money(lineTotals[c.id] ?? (c.method === 'fixed' ? c.value : 0)),
-      ])),
+      title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
+      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Quantity', 'Amount'],
+      rows: ia.lines.map((l) => row([
+        l.name, l.stage, l.basis,
+        l.isFixed ? fmt.money(l.rate) : fmt.int(l.rate),
+        l.metricKind === 'none' || l.metricValue === null ? '-' : `${l.metricKind === 'area' ? fmt.area(l.metricValue) : fmt.int(l.metricValue)} ${l.metricLabel}`,
+        fmt.money(l.amount),
+      ])).concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'subtotal')]),
     }));
   }
+  // Capex Breakdown by Year (land split summary), then the per-stage + the
+  // per-asset Results tables (incl all land / excl in-kind / excl all land).
   const cap = fin.capex.perPeriod;
   items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Breakdown by Year', py, yl, [
     periodRow('Land (cash)', cap.landCash, 'sum'),
@@ -666,8 +648,6 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Total capex (excl. in-kind land)', cap.exclLandInKind, 'sum', 'subtotal'),
     periodRow('Total capex (incl. all land)', cap.inclAllLand, 'sum', 'total'),
   ])));
-  // Full Capex Results by construction stage (matching the Capex Results tab):
-  // one row per stage that carries cost, reconciling to total capex.
   const ps = fin.capex.perStagePerPeriod;
   if (ps) {
     const stageDefs: Array<[string, string]> = [
@@ -680,6 +660,9 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Results by Stage', py, yl,
         stageRows.concat([periodRow('Total capex (incl. all land)', cap.inclAllLand.slice(0, yl.length), 'sum', 'total')]))));
     }
+  }
+  for (const t of capexReport.results) {
+    items.push(tTable('Tab 3: Capex', 'outputs', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
 
   // Tab 4: Financing / Inputs.
