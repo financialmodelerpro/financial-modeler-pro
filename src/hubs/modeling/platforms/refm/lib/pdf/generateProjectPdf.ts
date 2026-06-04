@@ -40,6 +40,7 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
+import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES } from '../modules-config';
 
@@ -741,27 +742,13 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Method 3: Cash deficit (full waterfall)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum'),
   ])));
 
-  // Tab 4: Financing / Schedules.
-  for (const [id, f] of fin.facilities) {
-    if (!anyNonZero(f.drawSchedule) && !anyNonZero(f.outstanding) && !anyNonZero(f.principalRepaid)) continue;
-    items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable(`Debt Movement, ${trName(id)}`, py, yl, [
-      periodRow('Drawdown', f.drawSchedule.slice(0, yl.length), 'sum'),
-      periodRow('Interest accrued', f.interestAccrued.slice(0, yl.length), 'sum'),
-      periodRow('Interest capitalised (IDC)', f.interestCapitalized.slice(0, yl.length), 'sum'),
-      periodRow('Interest paid', f.interestPaid.slice(0, yl.length), 'sum'),
-      periodRow('Principal repaid', f.principalRepaid.slice(0, yl.length), 'sum'),
-      periodRow('Closing balance', f.outstanding.slice(0, yl.length), 'last', 'total', f.openingBalance ?? 0),
-    ])));
+  // Tab 4: Financing / Schedules. Mirrors the platform via the shared builder
+  // (per-facility Debt Movement + Finance Cost ledger, Combined Debt Service,
+  // Equity Movement), plus the IDC summary.
+  const fmtFn = (v: number): string => fmt.money(v);
+  for (const t of buildFinancingScheduleTables(snap, state, fmtFn)) {
+    items.push(tTable('Tab 4: Financing / Schedules', 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
-  const cds = fin.combined;
-  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('Combined Debt Service', py, yl, [
-    periodRow('Total drawdown', cds.totalDrawdown.slice(0, yl.length), 'sum'),
-    periodRow('Interest accrued', cds.totalInterestAccrued.slice(0, yl.length), 'sum'),
-    periodRow('Interest capitalised', cds.totalInterestCapitalized.slice(0, yl.length), 'sum'),
-    periodRow('Interest expensed (P&L)', cds.totalInterestExpensed.slice(0, yl.length), 'sum'),
-    periodRow('Principal repaid', cds.totalPrincipalRepaid.slice(0, yl.length), 'sum'),
-    periodRow('Debt service (cash)', cds.debtServiceCash.slice(0, yl.length), 'sum', 'subtotal'),
-  ])));
   const idc = snap.idc;
   items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('IDC Summary', py, yl, [
     periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
@@ -769,46 +756,12 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('IDC NBV (closing)', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
   ])));
-  const eq = fin.equity;
-  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('Equity Movement', py, yl, [
-    periodRow('Cash equity', eq.cashPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('In-kind equity', eq.inKindPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Existing equity', eq.existingEquityPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
-    periodRow('Total equity', eq.totalPerPeriod.slice(0, yl.length), 'sum', 'total'),
-  ])));
 
-  // Tab 4: Financing / Cash Sweep. Debt Paid is split per tranche (existing
-  // facilities first, then by sweep priority, then list order) so the waterfall
-  // reads exactly like the platform's Cash Sweep tab.
-  const dcf = snap.directCF;
-  const trMeta = (id: string) => state.financingTranches.find((t) => t.id === id);
-  const orderedFacilities = [...fin.facilities.entries()]
-    .filter(([id, f]) => anyNonZero(f.principalRepaid))
-    .map(([id, f], listIdx) => {
-      const t = trMeta(id);
-      const isExisting = t?.origin === 'existing';
-      const priority = t?.cashSweepConfig?.priority ?? 100;
-      return { id, f, isExisting, priority, listIdx };
-    })
-    .sort((a, b) => {
-      if (a.isExisting !== b.isExisting) return a.isExisting ? -1 : 1;
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.listIdx - b.listIdx;
-    });
-  const debtPaidRows = orderedFacilities.map(({ id, f, isExisting }) =>
-    periodRow(`Debt paid, ${trName(id)}${isExisting ? ' (existing)' : ''}`, f.principalRepaid.slice(0, yl.length), 'sum'));
-  items.push(tTable('Tab 4: Financing / Cash Sweep', 'schedules', periodTable('Cash Waterfall (consolidated)', py, yl, [
-    periodRow('Opening cash', dcf.openingCashPerPeriod.slice(0, yl.length), 'none', undefined, snap.bs.historicalOpeningCashTotal),
-    periodRow('Cash from operations', dcf.cashFromOperationsPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Cash from investing', dcf.cashFromInvestmentPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Equity drawdown', dcf.equityDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
-    periodRow('Debt drawdown', dcf.debtDrawdownPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.debtOutstandingTotal),
-    periodRow('Interest paid', dcf.interestPaidPerPeriod.slice(0, yl.length), 'sum'),
-    ...debtPaidRows,
-    periodRow('Total debt paid (incl. sweep)', dcf.debtRepaymentPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-    periodRow('Dividends paid', dcf.dividendsPaidPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Closing cash', dcf.closingCashPerPeriod.slice(0, yl.length), 'last', 'total'),
-  ])));
+  // Tab 4: Financing / Cash Sweep. Mirrors the platform Cash Sweep tab (full
+  // waterfall with the min-cash floor + per-tranche Debt Paid + Sweep & Outstanding).
+  for (const t of buildCashSweepTables(snap, state, fmtFn)) {
+    items.push(tTable('Tab 4: Financing / Cash Sweep', 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+  }
 
   return items;
 }
