@@ -38,6 +38,7 @@ import {
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../reports/m4Reports';
+import { buildOpexReport } from '../reports/opexReports';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES } from '../modules-config';
 
@@ -986,7 +987,6 @@ const opexValueDisplay = (mode: string, value: number, fmt: Fmt): string =>
 
 function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
-  const opex = snap.opex;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const items: ModuleContent = [];
 
@@ -1013,32 +1013,12 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     }));
   }
 
-  // Tab 2: Opex Output.
-  for (const [id, r] of opex.byAsset) {
-    if (!anyNonZero(r.totalOpexPerPeriod)) continue;
-    const a = state.assets.find((x) => x.id === id);
-    const lineRows = (r.perLinePerPeriod ?? []).map((arr, i) => periodRow(a?.opex?.lines?.[i]?.name ?? `Line ${i + 1}`, arr.slice(0, yl.length), 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    items.push(tTable('Tab 2: Opex Output', 'outputs', periodTable(`Opex, ${assetName(id)}`, py, yl, [
-      ...lineRows,
-      periodRow('Direct costs', r.directCostsPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-      periodRow('Indirect costs', r.indirectCostsPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-      periodRow('Management fees', r.managementFeePerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-      periodRow('Other charges', r.otherOpexPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-      periodRow('Total opex', r.totalOpexPerPeriod.slice(0, yl.length), 'sum', 'total'),
-      periodRow('GOP', r.gopPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('NOI', r.noiPerPeriod.slice(0, yl.length), 'sum'),
-    ])));
+  // Tab 2: Opex Output. Mirrors the on-screen Opex tab via the shared builder
+  // (lib/reports/opexReports.ts): a Revenue Breakdown + per-category cost tables
+  // per operating asset, then the project rollup.
+  for (const t of buildOpexReport(snap, state)) {
+    items.push(tTable('Tab 2: Opex Output', 'outputs', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
-  const pt = opex.projectTotals;
-  items.push(tTable('Tab 2: Opex Output', 'outputs', periodTable('Project Total Opex', py, yl, [
-    periodRow('Direct costs', pt.directCostsPerPeriod, 'sum'),
-    periodRow('Indirect costs', pt.indirectCostsPerPeriod, 'sum'),
-    periodRow('Management fees', pt.managementFeePerPeriod, 'sum'),
-    periodRow('Other charges', pt.otherOpexPerPeriod, 'sum'),
-    periodRow('Asset opex total', pt.totalOpexPerPeriod, 'sum', 'subtotal'),
-    periodRow('HQ / corporate opex', opex.hq.totalOpexPerPeriod, 'sum'),
-    periodRow('Total opex (incl. HQ)', opex.totalOpexPerPeriodInclHQ, 'sum', 'total'),
-  ])));
 
   // Tab 3: AP Schedules.
   const ap = snap.ap;
