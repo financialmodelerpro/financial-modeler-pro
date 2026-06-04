@@ -1,15 +1,16 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-06-02.**
+**Last updated: 2026-06-04.**
 
 **Module status (REFM platform), one line each. Full narrative + commits live in [CLAUDE-REFM.md](CLAUDE-REFM.md), NOT here:**
 - **Module 1 (Setup / Costs / Financing)**: LOCKED at M2.0 Pass 58 (base). Funding Methods 2/3 gap-sized; conditional IDC + iterative fixed-point solver. Financing sub-tabs: Inputs / Schedules / Funding Gap / Cash Sweep. Dividends are ONE project-level after-debt policy (`Project.dividendPolicy` + `dividendStartYear`) with a terminal 100% payout in the engine.
 - **Module 2 (Revenue + CoS + Schedules + Escrow)**: LOCKED at Pass 9N.
 - **Module 3 (Operating Expenses)**: LOCKED at Pass 5d.
-- **Module 4 (Financial Statements)**: WIP. BS balances by construction; Direct CF == Indirect CF every period.
-- **Module 5 (Returns & Valuation)**: Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics).
-- **Platform infra**: project-switch state-leak fixed; session-based versioning with per-version change_log; schema-tolerant reads; paginated version history. **PDF full-project report** (`lib/pdf/generateProjectPdf.ts` on pdf-lib): cover + project-description + every module's Inputs/Outputs/Schedules in tab order, with a per-module part picker in `ExportModal`; Excel export next.
+- **Module 4 (Financial Statements)**: WIP. BS balances by construction; Direct CF == Indirect CF every period. Phase-filtered P&L stops at EBITDA; phase CF shows Operations+Investing; BS is consolidated-only. P&L/CF/BS render from shared pure builders (`lib/reports/m4Reports.ts`) that the on-screen tabs AND the PDF both consume.
+- **Module 5 (Returns & Valuation)**: Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics + Case Comparison).
+- **Cases (scenarios)**: Management base + override cases; topbar switcher + Returns Case Comparison; per-input "≠ Management" override badge; scenario edits in the change_log; viewing a case never starts an edit session.
+- **Platform infra**: project-switch state-leak fixed; session-based versioning + per-version change_log; schema-tolerant reads; paginated version history. **PDF full-project report** (`lib/pdf/generateProjectPdf.ts` on pdf-lib) mirrors every module tab via shared `lib/reports/` builders (m4/opex/capex/financing/cos), with per-module part picker + number-scale + **version picker** in `ExportModal` (file named after the chosen version); Excel export next. **Auto-updating platform walkthrough guide** (`lib/guide/`, Topbar "Guide" button): in-app view + PDF/Markdown download, structure derived from the MODULES + MODULE_TABS registries.
 
-Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-REFM.md](CLAUDE-REFM.md). Full suite green via `npx tsx scripts/verify-*.ts` (26 scripts).
+Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-REFM.md](CLAUDE-REFM.md). Full suite green via `npx tsx scripts/verify-*.ts`.
 
 **M2 lock conventions** (apply to M3+ unless overridden):
 - The reference Excel at repo root is the verification benchmark, not a behavioural spec. Every reference-specific behaviour stays configurable; never hard-code currency, locale, escrow, or DSO defaults into engine paths.
