@@ -82,6 +82,28 @@ export function setColHeader(cell: Cell, text: string | number, align: 'left' | 
   cell.border = { bottom: { style: 'thin', color: { argb: ARGB.greyMid } } };
 }
 
+export function fillCell(cell: Cell, argb: string): void {
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+}
+/** Solid-fill every cell in a 1-based rectangular range. */
+export function fillRange(ws: ExcelJS.Worksheet, top: number, left: number, bottom: number, right: number, argb: string): void {
+  for (let r = top; r <= bottom; r++) for (let c = left; c <= right; c++) fillCell(ws.getCell(r, c), argb);
+}
+/** Thin box border around a 1-based rectangular range. */
+export function boxBorder(ws: ExcelJS.Worksheet, top: number, left: number, bottom: number, right: number, argb = ARGB.greyMid): void {
+  for (let r = top; r <= bottom; r++) {
+    for (let c = left; c <= right; c++) {
+      const cell = ws.getCell(r, c);
+      const b: Partial<ExcelJS.Borders> = { ...(cell.border ?? {}) };
+      if (r === top) b.top = { style: 'thin', color: { argb } };
+      if (r === bottom) b.bottom = { style: 'thin', color: { argb } };
+      if (c === left) b.left = { style: 'thin', color: { argb } };
+      if (c === right) b.right = { style: 'thin', color: { argb } };
+      cell.border = b;
+    }
+  }
+}
+
 /** Column letter for a 1-based column index (1 -> A, 27 -> AA). */
 export function colLetter(n: number): string {
   let s = '';

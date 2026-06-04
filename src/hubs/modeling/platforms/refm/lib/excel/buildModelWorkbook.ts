@@ -17,9 +17,12 @@
  */
 import ExcelJS from 'exceljs';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../financials-resolvers';
+import { computeReturnsSnapshot } from '../returns-resolvers';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { formatAccounting } from '@/src/core/formatters';
 import {
   ARGB, NUMFMT, fcell, setInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
+  fillCell, fillRange, boxBorder,
 } from './styles';
 
 export interface BuildModelOptions {
@@ -118,7 +121,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Exit multiple (x stabilised NOI)', cfg?.exitMultiple ?? 8, NUMFMT.mult, 'ExitMultiple');
   addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
 
-  ws.views = [{ state: 'frozen', ySplit: 2 }];
+  ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
   return { startYearName: 'ProjectStartYear', axisLength: snap.axisLength };
 }
 
@@ -148,12 +151,12 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
     const prev = colLetter(firstCol + t - 1);
     setFormula(ws.getCell(6, firstCol + t), fcell(t === 0 ? 'ProjectStartYear' : `${prev}6+1`, snap.yearLabels[t] ?? snap.projectStartYear + t), NUMFMT.year, true);
   }
-  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 4 }];
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 4, showGridLines: false }];
 }
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
 function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>): void {
-  const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } } });
+  const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 40;
   ws.getColumn(2).width = 22;
   ws.getColumn(3).width = 40;
@@ -195,31 +198,115 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
 
 // ── Cover / Index ─────────────────────────────────────────────────────────────
 function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions): void {
-  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navyDark } } });
-  ws.getColumn(1).width = 30;
-  ws.getColumn(2).width = 48;
-  ws.mergeCells('A1:B1');
-  setTitle(ws.getCell('A1'), opts.projectName || 'Untitled Project', 22);
-  ws.mergeCells('A2:B2');
-  setLabel(ws.getCell('A2'), 'Real Estate Financial Model (Excel)', { });
+  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navyDark } }, views: [{ showGridLines: false }] });
+  let returns: ReturnType<typeof computeReturnsSnapshot> | null = null;
+  try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }
   const p = opts.state.project;
-  let r = 4;
-  const meta: Array<[string, string]> = [
+  const currency = p.currency ?? 'SAR';
+  const m = (v: number): string => `${currency} ${formatAccounting(v, 'millions', 1)} m`;
+  const pct = (v: number | null): string => (v === null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+
+  // Column layout: A narrow margin, B..G content, H margin.
+  ws.getColumn(1).width = 3;
+  for (let c = 2; c <= 7; c++) ws.getColumn(c).width = 17;
+  ws.getColumn(8).width = 3;
+
+  // Banner.
+  ws.mergeCells('B2:G6');
+  const title = ws.getCell('B2');
+  title.value = opts.projectName || 'Untitled Project';
+  title.font = { name: 'Calibri', size: 28, bold: true, color: { argb: ARGB.white } };
+  title.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  fillRange(ws, 2, 2, 6, 7, ARGB.navy);
+  for (let r = 2; r <= 6; r++) ws.getRow(r).height = 24;
+  ws.mergeCells('B7:G7');
+  const sub = ws.getCell('B7');
+  sub.value = 'Real Estate Financial Model  ·  Excel  ·  Formula-driven';
+  sub.font = { name: 'Calibri', size: 12, color: { argb: ARGB.white } };
+  sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  fillRange(ws, 7, 2, 7, 7, ARGB.navyDark);
+  ws.getRow(7).height = 22;
+
+  // Key facts card (left) + headline KPI tiles (right).
+  let r = 9;
+  ws.mergeCells(r, 2, r, 4);
+  const kfh = ws.getCell(r, 2);
+  kfh.value = 'Project snapshot';
+  kfh.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
+  fillRange(ws, r, 2, r, 4, ARGB.navy);
+  // KPI header (right).
+  ws.mergeCells(r, 5, r, 7);
+  const kpih = ws.getCell(r, 5);
+  kpih.value = 'Headline';
+  kpih.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
+  fillRange(ws, r, 5, r, 7, ARGB.navy);
+  r += 1;
+  const facts: Array<[string, string]> = [
     ['Date', opts.dateLabel],
-    ['Currency', p.currency ?? 'SAR'],
+    ['Currency', currency],
     ['Location', [p.location, p.country].filter(Boolean).join(', ') || '-'],
-    ['Model horizon', `${snap.axisLength} years (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`],
+    ['Horizon', `${snap.axisLength} yrs (${snap.projectStartYear}–${snap.projectStartYear + snap.axisLength - 1})`],
+    ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
+    ['Debt / Equity', `${snap.financing.funding.debtPct.toFixed(0)}% / ${snap.financing.funding.equityPct.toFixed(0)}%`],
   ];
-  for (const [k, v] of meta) { setLabel(ws.getCell(`A${r}`), k, { bold: true }); setLabel(ws.getCell(`B${r}`), v); r += 1; }
+  const factTop = r;
+  facts.forEach(([k, v], i) => {
+    const rr = r + i;
+    const kc = ws.getCell(rr, 2); kc.value = k; kc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+    ws.mergeCells(rr, 3, rr, 4);
+    const vc = ws.getCell(rr, 3); vc.value = v; vc.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    if (i % 2 === 1) fillRange(ws, rr, 2, rr, 4, ARGB.grey);
+  });
+  boxBorder(ws, factTop, 2, factTop + facts.length - 1, 4);
+
+  // KPI tiles (right column), value-over-label, in bordered cells.
+  const kpis: Array<[string, string]> = [
+    ['Total dev cost', m(snap.financing.capex.totals.inclAllLand)],
+    ['Gross dev value', m(snap.pl.totalRevenuePerPeriod.reduce((s, x) => s + x, 0))],
+    ['Project IRR', returns ? pct(returns.result.fcff.irr) : 'n/a'],
+    ['Equity IRR', returns ? pct(returns.result.fcfe.irr) : 'n/a'],
+    ['Peak debt', m(Math.max(0, ...snap.bs.debtOutstandingPerPeriod))],
+    ['Equity multiple', returns ? `${returns.result.fcfe.moic.toFixed(2)}x` : 'n/a'],
+  ];
+  kpis.forEach(([label, value], i) => {
+    const rr = factTop + i;
+    const lc = ws.getCell(rr, 5); lc.value = label; lc.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark }, bold: true };
+    ws.mergeCells(rr, 6, rr, 7);
+    const vc = ws.getCell(rr, 6); vc.value = value; vc.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.navy } };
+    vc.alignment = { horizontal: 'right' };
+    if (i % 2 === 1) fillRange(ws, rr, 5, rr, 7, ARGB.grey);
+  });
+  boxBorder(ws, factTop, 5, factTop + kpis.length - 1, 7);
+  r = factTop + Math.max(facts.length, kpis.length) + 2;
+
+  // Contents.
+  ws.mergeCells(r, 2, r, 7);
+  const ch = ws.getCell(r, 2); ch.value = 'Contents'; ch.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
+  fillRange(ws, r, 2, r, 7, ARGB.navy);
   r += 1;
-  setSectionHeader(ws.getRow(r), 'Contents', 2); r += 1;
-  const index = [SHEETS.assumptions, SHEETS.timeline, SHEETS.checks];
-  for (const name of index) {
-    const cell = ws.getCell(`A${r}`);
-    cell.value = { text: name, hyperlink: `#'${name}'!A1` };
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.linked }, underline: true };
-    r += 1;
-  }
-  r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Financial Modeler Pro  ·  financialmodelerpro.com', { });
+  const index: Array<[string, string]> = [
+    [SHEETS.assumptions, 'All inputs and assumptions (edit here)'],
+    [SHEETS.timeline, 'The model year axis'],
+    [SHEETS.checks, 'Integrity checks and colour legend'],
+  ];
+  const idxTop = r;
+  index.forEach(([name, desc], i) => {
+    const rr = r + i;
+    const nc = ws.getCell(rr, 2);
+    nc.value = { text: `${i + 1}.  ${name}`, hyperlink: `#'${name}'!A1` };
+    nc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.linked }, underline: true };
+    ws.mergeCells(rr, 3, rr, 7);
+    const dc = ws.getCell(rr, 3); dc.value = desc; dc.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    if (i % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
+  });
+  boxBorder(ws, idxTop, 2, idxTop + index.length - 1, 7);
+  r = idxTop + index.length + 2;
+
+  // Colour legend.
+  setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
+  const legend: Array<[string, string]> = [['Input', ARGB.input], ['Formula', ARGB.formula], ['Linked', ARGB.linked]];
+  legend.forEach(([t, argb], i) => { const c = ws.getCell(r, 3 + i); c.value = t; c.font = { name: 'Calibri', size: 10, bold: true, color: { argb } }; });
+  r += 2;
+  const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
+  fillCell(ws.getCell(1, 1), ARGB.white);
 }

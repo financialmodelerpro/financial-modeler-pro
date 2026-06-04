@@ -50,6 +50,12 @@ async function main(): Promise<void> {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
 
+  // Clean look: gridlines hidden on EVERY sheet.
+  const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
+  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Checks']) {
+    check(`gridlines hidden: ${name}`, noGrid(name));
+  }
+
   // Defined names for key scalars (so formulas reference inputs by name).
   const hasName = (n: string): boolean => {
     try { return ((wb.definedNames as any).getRanges(n)?.ranges?.length ?? 0) > 0; } catch { return false; }
