@@ -21,7 +21,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { generateProjectPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
 import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
@@ -179,6 +179,14 @@ async function main(): Promise<void> {
   check('snapshot BS balances by construction', bsBalances, `maxDiff=${Math.max(0, ...snap.bs.bsDifferencePerPeriod.map(Math.abs)).toFixed(2)}`);
   const cfTie = snap.directCF.closingCashPerPeriod.every((v, i) => Math.abs(v - (snap.indirectCF.closingCashPerPeriod[i] ?? 0)) <= 1);
   check('Direct CF closing == Indirect CF closing', cfTie, '');
+
+  // Summary (executive) PDF: a few pages, valid, and far shorter than the full
+  // detailed report.
+  const summary = await generateSummaryPdf({ state: buildState(), projectName: 'Riverside Mixed-Use', versionLabel: 'v1.0', dateLabel: '4 June 2026', selectedModuleKeys: [] });
+  check('summary returns valid bytes', summary instanceof Uint8Array && summary.length > 4096, `len=${summary.length}`);
+  const summaryPages = await pageCount(summary);
+  check('summary is concise (cover + exec + financials + returns, <= 8 pages)', summaryPages >= 3 && summaryPages <= 8, `pages=${summaryPages}`);
+  check('summary is shorter than the full report', summaryPages < fullPages, `summary=${summaryPages} full=${fullPages}`);
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }

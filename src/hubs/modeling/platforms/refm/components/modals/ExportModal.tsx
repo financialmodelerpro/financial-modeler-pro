@@ -91,6 +91,8 @@ export default function ExportModal({
   );
   // PDF display scale (default Millions for readability on large projects).
   const [pdfScale, setPdfScale] = useState<'thousands' | 'millions'>('millions');
+  // Full detailed report vs the concise executive summary.
+  const [reportKind, setReportKind] = useState<'full' | 'summary'>('full');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,7 +114,7 @@ export default function ExportModal({
     setError(null);
     setGenerating(true);
     try {
-      const { generateProjectPdf } = await import('../../lib/pdf/generateProjectPdf');
+      const { generateProjectPdf, generateSummaryPdf } = await import('../../lib/pdf/generateProjectPdf');
       // Resolve the state + naming for the chosen version. "Current" exports the
       // live working draft; a saved version is loaded + resolved to its
       // active-case model (pure, never touches the live store).
@@ -136,21 +138,20 @@ export default function ExportModal({
         fileBase = vName;
       }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-      const bytes = await generateProjectPdf({
-        state,
-        projectName: name,
-        versionLabel: pdfVersionLabel,
-        dateLabel,
-        selectedModuleKeys: selectedKeys,
-        moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
-        displayScale: pdfScale,
-      });
+      const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale };
+      const bytes = reportKind === 'summary'
+        ? await generateSummaryPdf({ ...common, selectedModuleKeys: [] })
+        : await generateProjectPdf({
+            ...common,
+            selectedModuleKeys: selectedKeys,
+            moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
+          });
       const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
-      a.download = `${safeName}.pdf`;
+      a.download = `${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -210,7 +211,7 @@ export default function ExportModal({
             <button
               type="button"
               data-testid="export-option-pdf_full"
-              onClick={() => setStep('modules')}
+              onClick={() => { setReportKind('full'); setStep('modules'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
                 borderRadius: 8, border: '1.5px solid var(--color-navy)', background: 'var(--color-navy-pale, #F4F7FC)',
@@ -224,6 +225,23 @@ export default function ExportModal({
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
             </button>
+            <button
+              type="button"
+              data-testid="export-option-pdf_summary"
+              onClick={() => { setReportKind('summary'); setStep('modules'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
+                borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
+                cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 22 }}>📈</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Executive Summary</div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Key inputs, headline P&amp;L / cash flow / balance sheet, and returns, on a few pages</div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
+            </button>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '8px 4px 0' }}>
               Excel export (static values + live formula model) is the next pass.
             </div>
@@ -233,7 +251,9 @@ export default function ExportModal({
         {step === 'modules' && (
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
-              The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.
+              {reportKind === 'summary'
+                ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
+                : 'The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.'}
             </div>
             {projectId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
@@ -276,7 +296,7 @@ export default function ExportModal({
               ))}
               <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>(Millions recommended)</span>
             </div>
-            {moduleRows.map((m) => {
+            {reportKind === 'full' && moduleRows.map((m) => {
               const exportable = EXPORTABLE.has(m.key);
               const checked = exportable && !!selected[m.key];
               const sec = sections[m.key] ?? { inputs: true, outputs: true, schedules: true };
@@ -332,21 +352,26 @@ export default function ExportModal({
               <button type="button" onClick={() => setStep('options')} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 ← Back
               </button>
-              <button
-                type="button"
-                data-testid="export-generate-pdf"
-                onClick={handleGenerate}
-                disabled={generating || selectedKeys.length === 0}
-                style={{
-                  fontSize: 13, fontWeight: 700, color: 'var(--color-on-primary-navy)',
-                  background: selectedKeys.length === 0 ? 'var(--color-grey-mid)' : 'var(--color-primary)',
-                  padding: '8px 18px', borderRadius: 8, border: 'none',
-                  cursor: generating || selectedKeys.length === 0 ? 'default' : 'pointer',
-                  opacity: generating ? 0.7 : 1,
-                }}
-              >
-                {generating ? 'Generating…' : `Generate PDF (${selectedKeys.length})`}
-              </button>
+              {(() => {
+                const disabled = generating || (reportKind === 'full' && selectedKeys.length === 0);
+                return (
+                  <button
+                    type="button"
+                    data-testid="export-generate-pdf"
+                    onClick={handleGenerate}
+                    disabled={disabled}
+                    style={{
+                      fontSize: 13, fontWeight: 700, color: 'var(--color-on-primary-navy)',
+                      background: disabled && !generating ? 'var(--color-grey-mid)' : 'var(--color-primary)',
+                      padding: '8px 18px', borderRadius: 8, border: 'none',
+                      cursor: disabled ? 'default' : 'pointer',
+                      opacity: generating ? 0.7 : 1,
+                    }}
+                  >
+                    {generating ? 'Generating…' : reportKind === 'summary' ? 'Generate Summary PDF' : `Generate PDF (${selectedKeys.length})`}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}

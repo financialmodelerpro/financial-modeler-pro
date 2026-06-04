@@ -1314,3 +1314,117 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   drawFooters(ctx);
   return doc.save();
 }
+
+// ── Public entry: SUMMARY report ──────────────────────────────────────────────
+/**
+ * A concise, executive summary PDF (not the detailed per-tab report): cover +
+ * executive summary, the key inputs (phases) and the headline financial
+ * statements (P&L / Cash Flow / Balance Sheet, summary lines only), and a
+ * Returns & Valuation page of KPI cards. Reads the same live snapshot as the
+ * full report, so the numbers match. No per-asset / per-phase / schedule detail.
+ */
+export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promise<Uint8Array> {
+  const snap = computeFinancialsSnapshot(opts.state);
+  let returns: ReturnsSnapshot | null = null;
+  try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }
+
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(b64ToBytes(INTER_REGULAR_B64), { subset: false });
+  const bold = await doc.embedFont(b64ToBytes(INTER_BOLD_B64), { subset: false });
+
+  const p = opts.state.project;
+  const scale: DisplayScale = opts.displayScale ?? 'millions';
+  const fmt = makeFmt(scale);
+  const ctx: Ctx = {
+    doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
+    projectName: opts.projectName || 'Untitled Project',
+    unitLabel: unitLabel(p.currency ?? 'SAR', scale),
+  };
+
+  // Cover + executive summary (narrative + KPI cards + composition + structure).
+  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Executive Summary', opts.dateLabel);
+  newPage(ctx, 'Executive Summary');
+  ctx.currentHeader = 'Executive Summary';
+  buildExecSummary(ctx, snap, returns, opts.state, fmt);
+
+  const py = snap.projectStartYear - 1;
+  const yl = snap.yearLabels;
+  const { pl, directCF: cf, bs } = snap;
+
+  // Key inputs + the headline financial statements (summary lines only).
+  newPage(ctx, 'Key Inputs & Financial Summary');
+  ctx.currentHeader = 'Key Inputs & Financial Summary';
+  drawItem(ctx, { type: 'table', table: {
+    title: 'Phases', kind: 'grid', align: 'data',
+    columns: ['Phase', 'Status', 'Start', 'Constr. yrs', 'Ops yrs'],
+    rows: opts.state.phases.map((ph) => {
+      const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
+      return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
+    }),
+  } }, fmt);
+  drawItem(ctx, { type: 'table', table: periodTable('Profit & Loss (summary)', py, yl, [
+    periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
+    periodRow('Cost of sales', pl.cosPerPeriod, 'sum'),
+    periodRow('Operating expenses', pl.totalOpexPerPeriod, 'sum'),
+    periodRow('EBITDA', pl.ebitdaPerPeriod, 'sum', 'subtotal'),
+    periodRow('Depreciation & amortization', pl.daPerPeriod, 'sum'),
+    periodRow('EBIT', pl.ebitPerPeriod, 'sum', 'subtotal'),
+    periodRow('Interest expense', pl.interestExpensePerPeriod, 'sum'),
+    periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
+    periodRow('Tax / Zakat', pl.taxPerPeriod, 'sum'),
+    periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
+  ]) }, fmt);
+  drawItem(ctx, { type: 'table', table: periodTable('Cash Flow (summary)', py, yl, [
+    periodRow('Cash from operations', cf.cashFromOperationsPerPeriod, 'sum', 'subtotal'),
+    periodRow('Cash from investing', cf.cashFromInvestmentPerPeriod, 'sum', 'subtotal'),
+    periodRow('Cash from financing', cf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
+    periodRow('Net cash flow', cf.netCashFlowPerPeriod, 'sum'),
+    periodRow('Closing cash', cf.closingCashPerPeriod, 'last', 'total'),
+  ]) }, fmt);
+  drawItem(ctx, { type: 'table', table: periodTable('Balance Sheet (summary)', py, yl, [
+    periodRow('Cash', bs.cashPerPeriod, 'last', undefined, bs.historicalOpeningCashTotal),
+    periodRow('Total assets', bs.totalAssetsPerPeriod, 'last', 'subtotal'),
+    periodRow('Debt outstanding', bs.debtOutstandingPerPeriod, 'last', undefined, snap.financing.existing.debtOutstandingTotal),
+    periodRow('Total liabilities', bs.totalLiabilitiesPerPeriod, 'last', 'subtotal'),
+    periodRow('Total equity', bs.totalEquityPerPeriod, 'last', 'subtotal'),
+    periodRow('Liabilities + equity', bs.totalLiabilitiesAndEquityPerPeriod, 'last', 'total'),
+  ]) }, fmt);
+
+  // Returns & valuation (KPI cards).
+  if (returns) {
+    newPage(ctx, 'Returns & Valuation');
+    ctx.currentHeader = 'Returns & Valuation';
+    const r = returns.result;
+    const re = r.realEstate;
+    const de = returns.developmentEconomics;
+    const exa = returns.exitAnalysis;
+    drawCards(ctx, 'Headline Returns', [
+      { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered (FCFF)' },
+      { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered (FCFE)' },
+      { label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' },
+      { label: 'Distributed Equity IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'on distributions' },
+      { label: 'Distributed MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributions / invested' },
+      { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
+    ]);
+    drawCards(ctx, 'Development Economics', [
+      { label: 'GDV', value: fmt.money(de.gdv) },
+      { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
+      { label: 'Profit After Financing', value: fmt.money(de.profitAfterFinancing) },
+      { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1) },
+      { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
+      { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
+    ]);
+    drawCards(ctx, `Exit & Leverage (${exa.exitYearLabel})`, [
+      { label: 'Exit Equity Value', value: fmt.money(exa.exitEquityValue) },
+      { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
+      { label: 'Min DSCR', value: fmt.mult(re.dscrMin) },
+      { label: 'Peak Debt', value: fmt.money(Math.max(0, ...bs.debtOutstandingPerPeriod)) },
+      { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
+      { label: 'Equity Multiple', value: fmt.mult(re.equityMultiple) },
+    ]);
+  }
+
+  drawFooters(ctx);
+  return doc.save();
+}
