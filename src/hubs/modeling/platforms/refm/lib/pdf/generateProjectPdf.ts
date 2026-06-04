@@ -41,6 +41,7 @@ import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
+import { buildCostOfSalesReport } from '../reports/cosReports';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES } from '../modules-config';
 
@@ -874,19 +875,12 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     ])));
   }
 
-  // Tab 3: Cost of Sales. Per-asset CoS in one summary (each asset a row),
-  // then the per-asset roll-forward detail below.
-  const cosAssets = [...snap.byAssetSchedules.entries()].filter(([, b]) => anyNonZero(b.cos.perPeriod));
-  items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable('Cost of Sales by Asset', py, yl,
-    cosAssets.map(([id, b]) => periodRow(assetName(id), b.cos.perPeriod.slice(0, yl.length), 'sum'))
-      .concat([periodRow('Total cost of sales', pl.cosPerPeriod, 'sum', 'total')]))));
-  for (const [id, b] of snap.byAssetSchedules) {
-    if (!anyNonZero(b.cos.perPeriod)) continue;
-    items.push(tTable('Tab 3: Cost of Sales', 'outputs', periodTable(`Cost of Sales, ${assetName(id)}`, py, yl, [
-      periodRow('Cost of sales', b.cos.perPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Gross margin', b.cos.grossMarginPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-      periodRow('Cumulative CoS', b.cos.cumulativePerPeriod.slice(0, yl.length), 'last'),
-    ])));
+  // Tab 3: Cost of Sales. Mirrors the platform CoS tab via the shared builder
+  // (per-asset Capex driver + Vintage Matrix with a Total row + Summary +
+  // Inventory roll-forward, then the project totals).
+  const cosFmtFn = (v: number): string => fmt.money(v);
+  for (const t of buildCostOfSalesReport(snap, state, cosFmtFn)) {
+    items.push(tTable('Tab 3: Cost of Sales', 'outputs', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
 
   // Tab 4: Schedules (AR / Unearned / Escrow).
