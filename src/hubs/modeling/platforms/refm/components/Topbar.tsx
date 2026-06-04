@@ -36,6 +36,7 @@ interface TopbarProps {
   onOpenVersions: () => void;
   onOpenRbac: () => void;
   onExportClick?: () => void;
+  onGuideClick?: () => void;
   darkMode: boolean;
   onToggleDark: () => void;
 }
@@ -141,6 +142,7 @@ export default function Topbar({
   onOpenVersions,
   onOpenRbac,
   onExportClick,
+  onGuideClick,
   darkMode,
   onToggleDark,
 }: TopbarProps): React.JSX.Element {
@@ -313,6 +315,17 @@ export default function Topbar({
               Saved
             </>
           )}
+        </button>
+      )}
+
+      {onGuideClick && (
+        <button
+          className="pm-btn"
+          title={'PLATFORM GUIDE\n\nA walkthrough of every module and tab. View it in-app or download it as PDF / Markdown. The guide is generated from the live platform and updates automatically as features change.'}
+          onClick={onGuideClick}
+          data-testid="topbar-open-guide"
+        >
+          Guide
         </button>
       )}
 

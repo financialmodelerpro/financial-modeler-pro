@@ -68,7 +68,9 @@ import VersionModal from './modals/VersionModal';
 import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode, type NameVersionConfirm } from './modals/NameVersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
+import PlatformGuideModal from './modals/PlatformGuideModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
+import { buildPlatformGuide } from '../lib/guide/platformGuide';
 
 import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import { MODULES } from '../lib/modules-config';
@@ -301,6 +303,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const subLoaded = true;
   const [upgradePrompt, setUpgradePrompt] = useState<{ featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // RBAC (admin-only by default; left as user-toggle for testing)
   const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.ADMIN);
@@ -996,6 +999,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         onOpenVersions={() => setVersionModalOpen(true)}
         onOpenRbac={() => setRbacModalOpen(true)}
         onExportClick={() => setExportModalOpen(true)}
+        onGuideClick={() => setGuideOpen(true)}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode((v) => !v)}
       />
@@ -1242,6 +1246,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}
+      />
+      <PlatformGuideModal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        doc={buildPlatformGuide({ modules: MODULES, moduleTabs: MODULE_TABS })}
+        dateLabel={new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
       />
       {upgradePrompt && (
         <div
