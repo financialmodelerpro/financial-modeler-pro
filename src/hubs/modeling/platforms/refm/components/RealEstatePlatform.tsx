@@ -1239,6 +1239,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         canAccess={canAccess}
+        projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}
       />

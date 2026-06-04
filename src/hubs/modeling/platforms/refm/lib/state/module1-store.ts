@@ -207,6 +207,24 @@ function pickModel(s: Record<string, unknown>): HydrateSnapshot {
   return out;
 }
 
+/**
+ * Pure: resolve a persisted version snapshot to its active-case-merged model,
+ * WITHOUT touching the live store. Mirrors `hydrate`'s model resolution so a
+ * saved version can be rendered (e.g. exported to PDF) exactly as it would
+ * appear if loaded. Returns the model fields (a superset of
+ * FinancialsResolverState), so it can be passed straight to the financials
+ * snapshot / PDF generator.
+ */
+export function modelFromSnapshot(snapshot: HydrateSnapshot): HydrateSnapshot {
+  const cases = normaliseCases(snapshot.cases);
+  const activeCaseId = snapshot.activeCaseId && cases.some((c) => c.id === snapshot.activeCaseId)
+    ? snapshot.activeCaseId
+    : baseCaseId(cases);
+  const baseModel = pickModel(snapshot as unknown as Record<string, unknown>);
+  const active = cases.find((c) => c.id === activeCaseId);
+  return active && active.role !== 'base' ? applyOverrides(baseModel, active.overrides) : baseModel;
+}
+
 // P10-Fix 4 (2026-05-12): sub-unit -> companion bookkeeper. Recomputes
 // `unitsFromParent` on every companion asset based on its parent's
 // current Sellable sub-unit count. Returns a new assets array if any

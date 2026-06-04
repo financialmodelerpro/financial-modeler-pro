@@ -18,17 +18,31 @@
  * lazily so it stays out of the initial bundle.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
-import { useModule1Store } from '../../lib/state/module1-store';
+import { useModule1Store, modelFromSnapshot } from '../../lib/state/module1-store';
+import { hydrationFromAnySnapshot } from '../../lib/state/module1-migrate';
+import { listVersions, loadVersion } from '../../lib/persistence/client';
+import type { RefmProjectVersionListItem } from '../../lib/persistence/types';
 
 interface ExportModalProps {
   open: boolean;
   onClose: () => void;
   canAccess?: (featureKey: string) => boolean;
+  projectId?: string | null;
   projectName?: string | null;
   versionLabel?: string | null;
+}
+
+const CURRENT = '__current__';
+
+/** Display name for a saved version (used in the picker AND as the PDF filename
+ *  base, so a downloaded report is named after the version it came from). */
+function versionDisplayName(v: RefmProjectVersionListItem): string {
+  if (v.label && v.label.trim()) return v.label.trim();
+  if (v.version_label) return `v${v.version_label}${v.task_name ? ` ${v.task_name}` : ''}`;
+  return `Version ${v.version_number}`;
 }
 
 // Modules that currently have a PDF exporter wired (lib/pdf/generateProjectPdf).
@@ -39,10 +53,35 @@ const EXPORTABLE = new Set(['module1', 'module2', 'module3', 'module4', 'module5
 export default function ExportModal({
   open,
   onClose,
+  projectId,
   projectName,
   versionLabel,
 }: ExportModalProps): React.JSX.Element | null {
   const [step, setStep] = useState<'options' | 'modules'>('options');
+  // Version picker: which saved version's data to export. Defaults to the most
+  // recent saved version (so the PDF matches the last version saved); the user
+  // can pick any version, or "current working draft" for unsaved edits.
+  const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string>(CURRENT);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    setVersionsLoading(true);
+    listVersions(projectId)
+      .then((res) => {
+        if (cancelled) return;
+        const list = res.data?.versions ?? [];
+        setVersions(list);
+        // Default to the latest saved version (list is newest-first).
+        setSelectedVersionId(list.length ? list[0].id : CURRENT);
+      })
+      .catch(() => { if (!cancelled) setVersions([]); })
+      .finally(() => { if (!cancelled) setVersionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, projectId]);
+
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(MODULES.filter((m) => !m.disabled && EXPORTABLE.has(m.key)).map((m) => [m.key, true])),
   );
@@ -74,13 +113,33 @@ export default function ExportModal({
     setGenerating(true);
     try {
       const { generateProjectPdf } = await import('../../lib/pdf/generateProjectPdf');
-      const state = useModule1Store.getState();
-      const name = projectName || state.project?.name || 'Project';
+      // Resolve the state + naming for the chosen version. "Current" exports the
+      // live working draft; a saved version is loaded + resolved to its
+      // active-case model (pure, never touches the live store).
+      let state = useModule1Store.getState() as Parameters<typeof generateProjectPdf>[0]['state'];
+      let name = projectName || useModule1Store.getState().project?.name || 'Project';
+      let pdfVersionLabel = versionLabel ?? null;
+      let fileBase = name;
+      if (selectedVersionId !== CURRENT && projectId) {
+        const res = await loadVersion(projectId, selectedVersionId);
+        if (res.error || !res.data?.version) throw new Error(res.error || 'Could not load the selected version.');
+        const row = res.data.version;
+        // Migrate the persisted snapshot to the current schema (same pipeline
+        // the store uses on load), then resolve its active-case model, so a
+        // legacy version exports exactly as it would if loaded into the UI.
+        const migrated = hydrationFromAnySnapshot(row.snapshot);
+        state = modelFromSnapshot(migrated) as typeof state;
+        const vName = versionDisplayName(row);
+        name = migrated.project?.name || projectName || name;
+        pdfVersionLabel = row.version_label ? `v${row.version_label}` : (row.label ?? versionLabel ?? null);
+        // The downloaded file is named after the version it came from.
+        fileBase = vName;
+      }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
       const bytes = await generateProjectPdf({
         state,
         projectName: name,
-        versionLabel: versionLabel ?? null,
+        versionLabel: pdfVersionLabel,
         dateLabel,
         selectedModuleKeys: selectedKeys,
         moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
@@ -90,8 +149,8 @@ export default function ExportModal({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const safeName = name.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'project';
-      a.download = `${safeName}_report.pdf`;
+      const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
+      a.download = `${safeName}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -176,6 +235,32 @@ export default function ExportModal({
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
               The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.
             </div>
+            {projectId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Version:</span>
+                <select
+                  data-testid="export-version-select"
+                  value={selectedVersionId}
+                  onChange={(e) => setSelectedVersionId(e.target.value)}
+                  disabled={versionsLoading}
+                  style={{
+                    fontSize: 11, fontWeight: 600, color: 'var(--color-heading)',
+                    border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px',
+                    background: 'var(--color-surface)', maxWidth: 320, cursor: 'pointer',
+                  }}
+                >
+                  <option value={CURRENT}>Current working draft (unsaved)</option>
+                  {versions.map((v, i) => (
+                    <option key={v.id} value={v.id}>
+                      {versionDisplayName(v)}{i === 0 ? ' — latest saved' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>
+                  {versionsLoading ? 'Loading versions…' : 'The file is named after the chosen version.'}
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Number scale:</span>
               {(['thousands', 'millions'] as const).map((s) => (
