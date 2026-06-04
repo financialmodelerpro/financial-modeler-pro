@@ -9,6 +9,7 @@
  */
 import React from 'react';
 import { FAST_INPUT } from './_shared/inputStyles';
+import { OverrideBadge } from './_shared/OverrideBadge';
 
 /** Format a decimal as a percentage; null -> "n/a". */
 export function fmtPct(v: number | null | undefined, dp = 1): string {
@@ -119,7 +120,7 @@ export function AssumptionsPanel(props: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 'var(--sp-2)', alignItems: 'end' }}>
         <div>
-          <label style={labelStyle}>Discount Rate (%)</label>
+          <label style={labelStyle}>Discount Rate (%)<OverrideBadge path="project.returns.discountRate" /></label>
           {numInput(value.discountRatePct, (n) => onChange({ discountRatePct: Math.max(0, n) }))}
         </div>
         <div>
@@ -146,13 +147,13 @@ export function AssumptionsPanel(props: {
         </div>
         {value.terminalMethod === 'exit_multiple' && (
           <div>
-            <label style={labelStyle}>Exit Multiple (x stabilised NOI)</label>
+            <label style={labelStyle}>Exit Multiple (x stabilised NOI)<OverrideBadge path="project.returns.exitMultiple" /></label>
             {numInput(value.exitMultiple, (n) => onChange({ exitMultiple: Math.max(0, n) }), 0.5)}
           </div>
         )}
         {value.terminalMethod === 'perpetuity' && (
           <div>
-            <label style={labelStyle}>Perpetuity Growth (%)</label>
+            <label style={labelStyle}>Perpetuity Growth (%)<OverrideBadge path="project.returns.perpetuityGrowth" /></label>
             {numInput(value.perpetuityGrowthPct, (n) => onChange({ perpetuityGrowthPct: n }), 0.25)}
           </div>
         )}

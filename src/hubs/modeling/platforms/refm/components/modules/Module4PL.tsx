@@ -28,6 +28,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable } from './_shared/m4Table';
 import { buildPLRows } from '../../lib/reports/m4Reports';
+import { OverrideBadge } from './_shared/OverrideBadge';
 
 const SELECT_STYLE: React.CSSProperties = {
   padding: '6px 10px',
@@ -138,7 +139,7 @@ export default function Module4PL(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              {labels.taxRate} (%)
+              {labels.taxRate} (%)<OverrideBadge path="project.tax.rate" />
             </label>
             <input
               type="number"

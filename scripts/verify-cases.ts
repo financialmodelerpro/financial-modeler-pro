@@ -7,6 +7,7 @@
 import {
   applyOverrides,
   buildOverrides,
+  getByPath,
   seedCases,
   baseCaseId,
   normaliseCases,
@@ -111,6 +112,40 @@ console.log('=== verify-cases ===');
   const twoBase: ProjectCase[] = [{ id: 'x', name: 'X', role: 'base', overrides: {} }, { id: 'y', name: 'Y', role: 'base', overrides: {} }];
   const fixed = normaliseCases(twoBase);
   check('F6: normalise keeps exactly one base', fixed.filter((c) => c.role === 'base').length === 1);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// G: OverrideBadge wired paths (Cases follow-up B). For each path a badge is
+// wired to, editing that field must produce a buildOverrides key EXACTLY equal
+// to the badge path (so the badge's getByPath detection + resetOverridePath
+// target the same override) AND getByPath must read base vs edited differently.
+// ──────────────────────────────────────────────────────────────────────────
+{
+  const base = baseSnap();
+  base.project.tax = { rate: 0.15 };
+  base.project.operatingAr = { dsoDays: 30 };
+  base.project.statutoryReserve = { transferRate: 0.1, capOfShareCapital: 0.3 };
+  base.project.shareCapital = 1000;
+  base.project.returns = { discountRate: 0.1, exitMultiple: 8, perpetuityGrowth: 0.02 };
+  const edited = JSON.parse(JSON.stringify(base));
+  edited.project.tax.rate = 0.2;
+  edited.project.operatingAr.dsoDays = 60;
+  edited.project.statutoryReserve.transferRate = 0.05;
+  edited.project.statutoryReserve.capOfShareCapital = 0.25;
+  edited.project.shareCapital = 2000;
+  edited.project.returns.discountRate = 0.12;
+  edited.project.returns.exitMultiple = 10;
+  edited.project.returns.perpetuityGrowth = 0.03;
+  const ov = buildOverrides(base, edited);
+  const wiredPaths = [
+    'project.tax.rate', 'project.operatingAr.dsoDays',
+    'project.statutoryReserve.transferRate', 'project.statutoryReserve.capOfShareCapital',
+    'project.shareCapital', 'project.returns.discountRate', 'project.returns.exitMultiple', 'project.returns.perpetuityGrowth',
+  ];
+  for (const p of wiredPaths) {
+    check(`G: buildOverrides has wired path ${p}`, Object.prototype.hasOwnProperty.call(ov, p));
+    check(`G: getByPath base!=edited for ${p}`, JSON.stringify(getByPath(base, p)) !== JSON.stringify(getByPath(edited, p)));
+  }
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

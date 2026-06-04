@@ -37,6 +37,7 @@ import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { buildBSRows } from '../../lib/reports/m4Reports';
+import { OverrideBadge } from './_shared/OverrideBadge';
 
 export default function Module4BalanceSheet(): React.JSX.Element {
   const state = useModule1Store(
@@ -126,7 +127,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         }}>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Operating AR Days (DSO)
+              Operating AR Days (DSO)<OverrideBadge path="project.operatingAr.dsoDays" />
             </label>
             <input
               type="number"
@@ -167,7 +168,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         }}>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Statutory Reserve Transfer Rate (% of PAT)
+              Statutory Reserve Transfer Rate (% of PAT)<OverrideBadge path="project.statutoryReserve.transferRate" />
             </label>
             <input
               type="number"
@@ -185,7 +186,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Reserve Cap (% of Share Capital)
+              Reserve Cap (% of Share Capital)<OverrideBadge path="project.statutoryReserve.capOfShareCapital" />
             </label>
             <input
               type="number"
@@ -203,7 +204,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Share Capital (optional override)
+              Share Capital (optional override)<OverrideBadge path="project.shareCapital" />
             </label>
             <input
               type="number"
