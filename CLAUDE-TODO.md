@@ -4,19 +4,15 @@
 
 ---
 
-## ⭐ NEXT SESSION, 2026-06-04 (Cases follow-ups, then Reports)
+## ⭐ START HERE TOMORROW, 2026-06-05 (Excel model export, Phase 2: Capex)
 
-**Context:** Scenario/case management shipped 2026-06-03 (commits `bb19ae6` Phase 1 + `2682a35` Phase 2). Management Case = base; Downside + Upside are field-override cases; topbar Case switcher + Returns "Case Comparison" tab are live. Full design + status in memory `project_cases_feature_plan.md` and [CLAUDE-REFM.md](CLAUDE-REFM.md).
+**The active build is the formula-driven Excel model export.** Phase 1 (foundation) is DONE; pick up at **Phase 2 (Capex)** in the "EXCEL MODEL EXPORT" section just below. Read memory `project_excel_export_plan_2026-06-04` first for the architecture + the `{ formula, result }` technique + the sheet-by-sheet build order. Build one or two sheets per commit, each reconciled via `scripts/verify-excel-export.ts`, reusing the `lib/reports/` builders (capex/cos/opex/financing/m4) for the cached `result` values so Excel ties to the platform + PDF by construction. Keep the look: no gridlines, navy section bars, bordered cards, zebra fills, FAST colours.
 
-**Pick up tomorrow, in order:**
+**Awaiting Ahmad's in-browser review (no code blocked on it):** the refreshed Excel cover look; the PDF version picker + Executive Summary PDF; the platform "Guide" button (step-by-step, PDF/Markdown download); the per-input "≠ Management" override badges; the Module 4 phase views (P&L→EBITDA / CF→Ops+Investing / BS consolidated). If anything looks off, fix before continuing the Excel build.
 
-1. **Verify the cases feature in-browser** (Ahmad): switch Management → Downside/Upside, edit a few inputs, confirm overrides record + Reset works, confirm Case Comparison KPIs + deltas look right, confirm save/reload round-trips cases. ALSO verify the PDF version picker + the Module 4 phase views (P&L→EBITDA / CF→Ops+Investing / BS consolidated).
-2. ~~**Case follow-up A, viewing shouldn't start an edit session.**~~ **DONE 2026-06-04 (commit `cdd7312`):** dirty comparison strips `activeCaseId` (`stripVolatile`/`dirtyJson`/`dirtyEqual` in module1-sync); real edits still detected. verify-cases 19/19 + verify-versioning 40/40.
-3. **Case follow-up B (optional), inline override badges.** Per-input "≠ Management" badge + Reset on a scenario case, across the 5 modules. Deferred in Phase 1 (Case Manager + comparison tab cover visibility). Decide if it's worth the cross-module input plumbing.
-4. **Case follow-up C (optional), describe scenario edits in the change_log.** `diffSnapshots` doesn't yet walk `cases`, so scenario-only edits save with an empty change_log. Extend the diff to summarise per-case override changes if version history needs it.
-5. **Reports phase (Module 6):** the PDF FULL-report export now mirrors every module tab (M1 Capex asset-wise + Results / Financing Schedules + Cash Sweep, M2 Revenue + CoS vintage + Escrow, M3 Opex, M4 P&L/CF/BS + per-phase, M5) via shared pure builders in `lib/reports/` (m4/opex/capex/financing/cos) consumed by the PDF, PLUS a version picker (export any saved version, file named after it). Auto-sync follow-up: refactor the M1/M2/M3 on-screen output tabs to ALSO consume the `lib/reports/` builders (only the M4 tabs do today) so structure stays in one place; then Excel export + a Case-Comparison report surface. See memory `project_pdf_mirror_autosync_2026-06-04`.
+**Open follow-up (optional, deferred):** refactor the M1/M2/M3 on-screen output tabs to ALSO consume the `lib/reports/` builders (only the M4 tabs do today) so the on-screen structure shares one source with the PDF. Lower priority than the Excel build.
 
-**Done last session (for reference):** Module 4 phase-view changes + shared-builder auto-sync + version picker + all 13 PDF mirror items (2026-06-04); earlier: PDF export full per-asset breakdowns + per-line/per-stage capex; versioning generic-naming fix; M5 flexible partner equity split; RE Metrics; cases Phase 1 + 2.
+**Done 2026-06-04 (full day, all pushed):** Module 4 phase views + shared-builder auto-sync; PDF version picker; all 13 PDF mirror items (M1 Capex asset-wise + Results, Financing Schedules + Cash Sweep, M2 Revenue + CoS vintage + Escrow, M3 Opex, M4 P&L/CF/BS + per-phase, M5); Executive Summary PDF (`generateSummaryPdf`); historical-baseline rebuild (reads `snap.financing.existing`, drops the deprecated garbage field) + Capex Quantity/Basis column for all line types; auto-updating platform walkthrough Guide (`lib/guide/`, step-by-step, no em-dashes); Cases follow-ups A (viewing ≠ edit session), B (override badges), C (scenario change_log); Excel export Phase 1 foundation + cover redesign + gridlines off. MD optimization pass. Verifiers all green (cases 35, versioning 48, pdf-export 20, platform-guide 32, excel-export 19, capex-report 14, m4-reports 13, + engine suites).
 
 ---
 
@@ -28,9 +24,9 @@ Goal: export the project as a PROFESSIONAL, FORMULA-DRIVEN Excel model (FAST-sty
 
 **Files:** `src/hubs/modeling/platforms/refm/lib/excel/{styles,buildModelWorkbook}.ts`; verifier `scripts/verify-excel-export.ts`; ExportModal 3rd option "Excel Model (beta)".
 
-**Status:** Phase 1 (foundation) DONE: Cover/Index, Assumptions (Project/Phases/Returns inputs + defined names), formula-driven Timeline, Checks/legend. verify-excel-export 15/15.
+**Status:** Phase 1 (foundation) DONE (commits `7d894eb` + `df57cfc`): presentation-grade Cover (navy banner + Project-snapshot card + Headline KPI block + Contents index + legend), Assumptions (Project/Phases/Returns inputs + defined names ProjectStartYear/TaxRate/DebtPct/DiscountRate), formula-driven Timeline, Checks/legend. NO gridlines on any sheet. verify-excel-export 19/19. Wired in ExportModal as "Excel Model (beta)".
 
-**Remaining phases (one or two sheets per commit, each reconciled):** 2 Capex, 3 Revenue + CoS, 4 Opex, 5 Financing (debt/IDC iterative/sweep/equity), 6 Fixed Assets + Depreciation, 7 Statements (P&L/CF/BS), 8 Returns (Excel IRR/NPV on the streams), 9 final Checks. Reuse the `lib/reports/` builders (capex/cos/opex/financing/m4) for the cached `result` values so Excel ties to the platform + PDF by construction.
+**▶ NEXT = Phase 2 (Capex).** Then, one or two sheets per commit (each reconciled): 3 Revenue + CoS, 4 Opex, 5 Financing (debt/IDC iterative/sweep/equity), 6 Fixed Assets + Depreciation, 7 Statements (P&L/CF/BS), 8 Returns (Excel IRR/NPV on the streams), 9 final Checks. Reuse the `lib/reports/` builders (capex/cos/opex/financing/m4) for the cached `result` values so Excel ties to the platform + PDF by construction. Phase 2 specifics: add cost-line inputs + asset area metrics to Assumptions; a Capex sheet with rate×quantity OR %×basis = amount per line per asset, phased onto the Timeline axis (offset rule from capex.ts); cached results from `buildCapexReport` (capexReports.ts). Keep the look (no gridlines, navy bars, bordered cards, zebra fills, FAST colours).
 
 ---
 
