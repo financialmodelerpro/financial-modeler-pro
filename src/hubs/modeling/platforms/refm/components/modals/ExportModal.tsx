@@ -252,7 +252,7 @@ export default function ExportModal({
                   <option value={CURRENT}>Current working draft (unsaved)</option>
                   {versions.map((v, i) => (
                     <option key={v.id} value={v.id}>
-                      {versionDisplayName(v)}{i === 0 ? ' — latest saved' : ''}
+                      {versionDisplayName(v)}{i === 0 ? ' (latest saved)' : ''}
                     </option>
                   ))}
                 </select>

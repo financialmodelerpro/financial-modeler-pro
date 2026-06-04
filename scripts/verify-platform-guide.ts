@@ -73,13 +73,19 @@ async function main(): Promise<void> {
   for (const m of enabled) {
     check(`module section present: ${m.key}`, flat.some((s) => s.id === m.key), m.longLabel);
   }
-  // Coverage: every tab appears (as a bullet) under its module.
+  // Coverage: every tab appears as its own subsection (id = moduleKey/tabKey).
   for (const [mk, tabs] of Object.entries(moduleTabs)) {
-    const sec = flat.find((s) => s.id === mk);
     for (const t of tabs) {
-      check(`tab present in guide: ${mk}/${t.key}`, !!sec && (sec.bullets ?? []).some((b) => b.startsWith(t.label)));
+      check(`tab present in guide: ${mk}/${t.key}`, flat.some((s) => s.id === `${mk}/${t.key}`));
     }
   }
+
+  // Step-by-step: input tabs carry ordered steps the user can follow.
+  const setupTab = flat.find((s) => s.id === 'module1/project-phases');
+  check('Module 1 setup tab has step-by-step steps', !!setupTab && (setupTab.steps?.length ?? 0) >= 3);
+
+  // Project rule: NO em-dashes anywhere in the generated guide.
+  check('guide content has no em-dashes', !allText.includes('—') && !md.includes('—'));
 
   // Markdown serialiser.
   check('markdown non-empty + has H1', md.length > 500 && md.startsWith('# '));

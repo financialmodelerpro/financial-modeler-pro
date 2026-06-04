@@ -12,7 +12,7 @@
  *   - the cover + description pages are always present (empty module selection
  *     still yields a 2-page document);
  *   - the underlying snapshot the PDF renders reconciles (BS balances by
- *     construction, Direct CF closing == Indirect CF closing) — the proxy for
+ *     construction, Direct CF closing == Indirect CF closing), the proxy for
  *     "numbers in the PDF match the UI", since both read the same snapshot.
  *
  * Run: npx tsx scripts/verify-pdf-export.ts

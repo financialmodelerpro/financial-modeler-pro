@@ -81,22 +81,23 @@ function heading(ctx: Ctx, text: string, depth: number): void {
   ctx.page.drawText(text, { x: MARGIN, y: ctx.y, size, font: ctx.bold, color: NAVY_DARK });
   ctx.y -= 8;
 }
-function bullet(ctx: Ctx, text: string): void {
+function listItem(ctx: Ctx, marker: string, text: string): void {
   const size = 10;
   const lineH = size * 1.4;
-  const lines = wrap(text, ctx.font, size, CONTENT_W - 16);
+  const lines = wrap(text, ctx.font, size, CONTENT_W - 22);
   lines.forEach((ln, i) => {
     ensure(ctx, lineH);
     ctx.y -= lineH;
-    if (i === 0) ctx.page.drawText('•', { x: MARGIN + 2, y: ctx.y, size, font: ctx.bold, color: NAVY });
-    ctx.page.drawText(ln, { x: MARGIN + 16, y: ctx.y, size, font: ctx.font, color: TEXT });
+    if (i === 0) ctx.page.drawText(marker, { x: MARGIN + 2, y: ctx.y, size, font: ctx.bold, color: NAVY });
+    ctx.page.drawText(ln, { x: MARGIN + 22, y: ctx.y, size, font: ctx.font, color: TEXT });
   });
   ctx.y -= 3;
 }
 function renderSection(ctx: Ctx, s: GuideSection, depth: number): void {
   heading(ctx, s.title, depth);
   for (const p of s.paragraphs) paragraph(ctx, p);
-  for (const b of s.bullets ?? []) bullet(ctx, b);
+  (s.steps ?? []).forEach((st, i) => listItem(ctx, `${i + 1}.`, st));
+  for (const b of s.bullets ?? []) listItem(ctx, '•', b);
   ctx.y -= 4;
   for (const c of s.children ?? []) renderSection(ctx, c, depth + 1);
 }

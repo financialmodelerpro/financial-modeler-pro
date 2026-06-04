@@ -37,6 +37,13 @@ function Section({ s, depth }: { s: GuideSection; depth: number }): React.JSX.El
       {s.paragraphs.map((p, i) => (
         <p key={i} style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text)', margin: '0 0 8px' }}>{p}</p>
       ))}
+      {!!s.steps?.length && (
+        <ol style={{ margin: '0 0 8px', paddingLeft: 20 }}>
+          {s.steps.map((st, i) => (
+            <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-text)', marginBottom: 4 }}>{st}</li>
+          ))}
+        </ol>
+      )}
       {!!s.bullets?.length && (
         <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
           {s.bullets.map((b, i) => (
