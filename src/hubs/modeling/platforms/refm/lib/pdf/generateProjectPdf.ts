@@ -391,6 +391,22 @@ const sum = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
 const last = (a: number[]): number => a[a.length - 1] ?? 0;
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
+/** Asset's native metric: 'units' only when every sub-unit is units, else
+ *  'area' (mirrors resolveAssetMetric in Module2RevenueOutput). Drives whether
+ *  a Sell asset's volume rows show unit counts or sqm. */
+function assetMetricOf(units: Array<{ metric: 'units' | 'area' }>): 'units' | 'area' {
+  if (units.length === 0) return 'area';
+  const first = units[0].metric;
+  return units.every((u) => u.metric === first) ? first : 'area';
+}
+/** Append a "Total" column-sum row to a vintage matrix (per-period totals down
+ *  each year column), matching the platform VintageMatrix Total row. */
+function vintageTotalRow(matrix: number[][], nPeriods: number): PdfTableRow {
+  const totals = new Array<number>(nPeriods).fill(0);
+  for (const cohort of matrix) for (let i = 0; i < nPeriods; i++) totals[i] += cohort[i] ?? 0;
+  return periodRow('Total', totals, 'sum', 'total');
+}
+
 function row(cells: Array<string | number | null>, emphasis?: RowEmphasis): PdfTableRow { return { cells, emphasis }; }
 
 /** Period row: leads with [label, total, prior, ...values]. */
@@ -850,9 +866,18 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   for (const [id, r] of rev.bySellAsset) {
     if (!anyNonZero(r.presalesRevenuePerPeriod) && !anyNonZero(r.postSalesRevenuePerPeriod)) continue;
     const totalSaleValue = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
+    // Volume row respects the asset's native metric: unit counts for
+    // units-metric assets (apartments / villas), sqm for area-metric assets.
+    // Always reading units made sqm-metric assets show 0 (the reported bug).
+    const metric = assetMetricOf(state.subUnits.filter((u) => u.assetId === id));
+    const useUnits = metric === 'units';
+    const preVol = useUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod;
+    const postVol = useUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
+    const volFmt = useUnits ? (v: number) => fmt.int(v) : (v: number) => fmt.area(v);
+    const volSuffix = useUnits ? 'units' : 'sqm';
     items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Residential (Sell), ${assetName(id)}`, py, yl, [
-      strPeriodRow('Pre-sales units', r.presalesUnitsPerPeriod.map((v) => fmt.int(v))),
-      strPeriodRow('Post-sales units', r.postSalesUnitsPerPeriod.map((v) => fmt.int(v))),
+      strPeriodRow(`Pre-sales ${volSuffix}`, preVol.map(volFmt)),
+      strPeriodRow(`Post-sales ${volSuffix}`, postVol.map(volFmt)),
       periodRow('Pre-sales revenue (sale value)', r.presalesRevenuePerPeriod, 'sum'),
       periodRow('Post-sales revenue (sale value)', r.postSalesRevenuePerPeriod, 'sum'),
       periodRow('Total sale value', totalSaleValue, 'sum', 'subtotal'),
@@ -863,10 +888,11 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Post-sales recognised', r.postSalesRecognitionPerPeriod, 'sum'),
       periodRow('Total revenue recognised', r.recognitionPerPeriod, 'sum', 'total'),
     ])));
+    // Vintage matrices, with a Total row matching the platform VintageMatrix.
     const cashRows = r.cashVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (cashRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Cash Vintage Matrix, ${assetName(id)}`, py, yl, cashRows)));
+    if (cashRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Cash Vintage Matrix, ${assetName(id)}`, py, yl, [...cashRows, vintageTotalRow(r.cashVintageMatrix, yl.length)])));
     const recRows = r.recognitionVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, py, yl, recRows)));
+    if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, py, yl, [...recRows, vintageTotalRow(r.recognitionVintageMatrix, yl.length)])));
   }
   for (const [id, r] of rev.byHospitalityAsset) {
     if (!anyNonZero(r.totalRevenuePerPeriod)) continue;
