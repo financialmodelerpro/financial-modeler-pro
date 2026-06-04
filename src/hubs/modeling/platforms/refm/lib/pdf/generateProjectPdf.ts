@@ -475,6 +475,17 @@ function costBasisLabel(method?: string): string {
 function kvTable(title: string, pairs: Array<[string, string]>): PdfTable {
   return { title, kind: 'grid', columns: ['Field', 'Value'], align: 'kv', rows: pairs.map(([a, b]) => row([a, b])) };
 }
+/** Two key/value pairs per row (4 columns), so a short settings list stays
+ *  compact (used to keep the Executive Summary to a single page). */
+function kv2Table(title: string, pairs: Array<[string, string]>): PdfTable {
+  const rows: PdfTableRow[] = [];
+  for (let i = 0; i < pairs.length; i += 2) {
+    const a = pairs[i];
+    const b = pairs[i + 1];
+    rows.push(row([a[0], a[1], b?.[0] ?? '', b?.[1] ?? '']));
+  }
+  return { title, kind: 'grid', columns: ['Field', 'Value', 'Field', 'Value'], align: 'kv', rows };
+}
 const indexLabel = (ix?: { method?: string; rate?: number }): string => {
   if (!ix || !ix.method || ix.method === 'none') return 'None';
   const m = ix.method === 'single_rate' ? 'Flat' : ix.method === 'yoy_compound' ? 'Compound' : ix.method === 'yoy_per_period' ? 'Per-Year' : ix.method === 'step' ? 'Step' : ix.method;
@@ -549,8 +560,9 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     }),
   }, fmt);
 
-  // Financial structure (compact: 5 essentials so the page stays to one).
-  drawGridTable(ctx, kvTable('Financial Structure', [
+  // Financial structure as two columns (key/value pairs side by side) so the
+  // Executive Summary stays on a single page.
+  drawGridTable(ctx, kv2Table('Financial Structure', [
     ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
     ['Debt / Equity split', `${fmt.pctRaw(fin.funding.debtPct, 0)} / ${fmt.pctRaw(fin.funding.equityPct, 0)}`],
     ['Total new debt', fmt.money(sum(snap.directCF.debtDrawdownPerPeriod))],
@@ -584,15 +596,23 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
     }),
   }));
+  // Historical baseline, transposed to metric-rows x phase-columns so every
+  // value gets a wide cell (the previous 7-column layout crammed large existing-
+  // operations figures together). One column per operational phase.
   const opPhases = state.phases.filter((ph) => ph.status === 'operational' && ph.historicalBaseline);
   if (opPhases.length) {
+    const metrics: Array<[string, (b: NonNullable<typeof opPhases[number]['historicalBaseline']>) => number]> = [
+      ['Capex incurred', (b) => b.historicalCapexTotal],
+      ['Equity contributed', (b) => b.historicalEquityContributed],
+      ['Debt drawn', (b) => b.historicalDebtDrawn],
+      ['Debt outstanding', (b) => b.currentDebtOutstanding],
+      ['Net book value (fixed assets)', (b) => b.netBookValueFixedAssets],
+      ['Opening cash', (b) => b.historicalOpeningCash ?? 0],
+    ];
     items.push(tTable('Tab 1: Project Setup', 'inputs', {
-      title: 'Historical Baseline (operational phases)', kind: 'grid', align: 'data',
-      columns: ['Phase', 'Capex', 'Equity', 'Debt drawn', 'Debt o/s', 'NBV', 'Opening cash'],
-      rows: opPhases.map((ph) => {
-        const b = ph.historicalBaseline!;
-        return row([ph.name, fmt.money(b.historicalCapexTotal), fmt.money(b.historicalEquityContributed), fmt.money(b.historicalDebtDrawn), fmt.money(b.currentDebtOutstanding), fmt.money(b.netBookValueFixedAssets), fmt.money(b.historicalOpeningCash ?? 0)]);
-      }),
+      title: 'Historical Baseline (existing operations)', kind: 'grid', align: 'data',
+      columns: ['Metric', ...opPhases.map((ph) => ph.name)],
+      rows: metrics.map(([label, pick]) => row([label, ...opPhases.map((ph) => fmt.money(pick(ph.historicalBaseline!)))])),
     }));
   }
 
