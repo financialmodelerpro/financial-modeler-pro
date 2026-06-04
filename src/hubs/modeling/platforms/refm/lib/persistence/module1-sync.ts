@@ -114,6 +114,24 @@ function extractSnapshot(): HydrateSnapshot {
   return useModule1Store.getState().extractPersistSnapshot();
 }
 
+// Case follow-up A (2026-06-04): viewing a scenario case must NOT count as an
+// edit. Switching the active case changes only `activeCaseId` in the persist
+// snapshot (the base model + cases content are unchanged when no edits were
+// made), which the dirty / de-dupe gate would otherwise read as a real change
+// and auto-start a version session just from viewing. So the DIRTY COMPARISON
+// strips `activeCaseId`; the snapshot actually saved to the server still carries
+// it (persisting the last-viewed case is fine on a real edit).
+function stripVolatile(s: HydrateSnapshot | null): HydrateSnapshot | null {
+  if (!s) return s;
+  return { ...s, activeCaseId: undefined };
+}
+function dirtyJson(s: HydrateSnapshot): string {
+  return JSON.stringify(stripVolatile(s));
+}
+function dirtyEqual(a: HydrateSnapshot, b: HydrateSnapshot | null): boolean {
+  return snapshotsEqual(stripVolatile(a) as HydrateSnapshot, stripVolatile(b) as HydrateSnapshot | null);
+}
+
 function computeAssetMix(snapshot: HydrateSnapshot): string[] {
   return snapshot.assets.filter(a => a.visible).map(a => a.name);
 }
@@ -147,7 +165,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     const checked = hydrationFromAnySnapshotChecked(serverRes.data.version.snapshot);
     useModule1Store.getState().hydrate(checked.snapshot);
     writeCachedSnapshot(projectId, checked.snapshot);
-    lastSavedJson = JSON.stringify(checked.snapshot);
+    lastSavedJson = dirtyJson(checked.snapshot);
     sessionBaseSnapshot  = checked.snapshot;
     sessionBaseVersionId = serverRes.data.version.id;
     versionId = serverRes.data.version.id;
@@ -161,7 +179,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     if (cached) {
       const checked = hydrationFromAnySnapshotChecked(cached.snapshot);
       useModule1Store.getState().hydrate(checked.snapshot);
-      lastSavedJson = JSON.stringify(checked.snapshot);
+      lastSavedJson = dirtyJson(checked.snapshot);
       sessionBaseSnapshot  = checked.snapshot;
       sessionBaseVersionId = null;  // can't trust cache to know which version
       loaded = 'cache';
@@ -204,7 +222,7 @@ export function attachToProjectFromLocalSnapshot(
   activeProjectId = projectId;
   writeActiveProjectId(projectId);
   writeCachedSnapshot(projectId, snapshot);
-  lastSavedJson        = JSON.stringify(snapshot);
+  lastSavedJson        = dirtyJson(snapshot);
   sessionBaseSnapshot  = snapshot;
   sessionBaseVersionId = versionId;
   editingVersionId     = null;
@@ -248,7 +266,7 @@ export async function loadVersionInto(
     const snap = hydrationFromAnySnapshot(res.data.version.snapshot);
     useModule1Store.getState().hydrate(snap);
     writeCachedSnapshot(projectId, snap);
-    lastSavedJson        = JSON.stringify(snap);
+    lastSavedJson        = dirtyJson(snap);
     sessionBaseSnapshot  = snap;
     sessionBaseVersionId = res.data.version.id;
     editingVersionId     = null;
@@ -277,7 +295,7 @@ export function getSessionState(): SessionState {
     baseVersionId:       sessionBaseVersionId,
     editingVersionId,
     editingLabel,
-    hasUncommittedEdits: !snapshotsEqual(extractSnapshot(), sessionBaseSnapshot),
+    hasUncommittedEdits: !dirtyEqual(extractSnapshot(), sessionBaseSnapshot),
   };
 }
 
@@ -335,7 +353,7 @@ export async function startEditSession(
   }
   editingVersionId = res.data.version.id;
   editingLabel     = res.data.version.label;
-  lastSavedJson    = JSON.stringify(snapshot);
+  lastSavedJson    = dirtyJson(snapshot);
   // From this point onward, the auto-save subscriber will PATCH this
   // version row in place rather than POSTing new versions.
   return { versionId: editingVersionId, error: null };
@@ -349,7 +367,7 @@ export function revertEditSession(): void {
   if (!sessionBaseSnapshot) return;
   isLoading = true;
   useModule1Store.getState().hydrate(sessionBaseSnapshot);
-  lastSavedJson    = JSON.stringify(sessionBaseSnapshot);
+  lastSavedJson    = dirtyJson(sessionBaseSnapshot);
   hasFiredNeedsName = false;
   isStartingSession = false;
   isLoading = false;
@@ -383,14 +401,14 @@ function onStoreChange(): void {
   // (activePhaseId / activeAssetId). The cheap proxy is JSON
   // equality with the last-saved snapshot.
   const snapshot = extractSnapshot();
-  const json     = JSON.stringify(snapshot);
+  const json     = dirtyJson(snapshot);
   if (json === lastSavedJson) return;
 
   // First-edit detection: differs from the session base AND no
   // editing version yet. Auto-start a session with a default label.
   if (!editingVersionId) {
     if (isStartingSession) return;  // POST already in flight.
-    if (snapshotsEqual(snapshot, sessionBaseSnapshot)) return;
+    if (dirtyEqual(snapshot, sessionBaseSnapshot)) return;
     isStartingSession = true;
     void (async () => {
       const label = defaultSessionLabel();
@@ -432,7 +450,7 @@ async function runAutoSave(): Promise<void> {
   const versionId = editingVersionId;
 
   const snapshot = extractSnapshot();
-  const json     = JSON.stringify(snapshot);
+  const json     = dirtyJson(snapshot);
   if (json === lastSavedJson) return;
 
   isSaving = true;
