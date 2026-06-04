@@ -10,13 +10,13 @@
 
 **Pick up tomorrow, in order:**
 
-1. **Verify the cases feature in-browser** (Ahmad): switch Management → Downside/Upside, edit a few inputs, confirm overrides record + Reset works, confirm Case Comparison KPIs + deltas look right, confirm save/reload round-trips cases.
-2. **Case follow-up A, viewing shouldn't start an edit session.** Switching the active case currently marks the project dirty (persists last-viewed case) and can auto-start a version session just from viewing. Exclude `activeCaseId`-only changes from the dirty detection (`module1-sync` onStoreChange / hasUncommittedEdits), keeping cases-content + base edits as real edits.
+1. **Verify the cases feature in-browser** (Ahmad): switch Management → Downside/Upside, edit a few inputs, confirm overrides record + Reset works, confirm Case Comparison KPIs + deltas look right, confirm save/reload round-trips cases. ALSO verify the PDF version picker + the Module 4 phase views (P&L→EBITDA / CF→Ops+Investing / BS consolidated).
+2. ~~**Case follow-up A, viewing shouldn't start an edit session.**~~ **DONE 2026-06-04 (commit `cdd7312`):** dirty comparison strips `activeCaseId` (`stripVolatile`/`dirtyJson`/`dirtyEqual` in module1-sync); real edits still detected. verify-cases 19/19 + verify-versioning 40/40.
 3. **Case follow-up B (optional), inline override badges.** Per-input "≠ Management" badge + Reset on a scenario case, across the 5 modules. Deferred in Phase 1 (Case Manager + comparison tab cover visibility). Decide if it's worth the cross-module input plumbing.
 4. **Case follow-up C (optional), describe scenario edits in the change_log.** `diffSnapshots` doesn't yet walk `cases`, so scenario-only edits save with an empty change_log. Extend the diff to summarise per-case override changes if version history needs it.
-5. **Then: start the Reports phase** (Module 6). Scope a reporting surface that can pull the Case Comparison + each module's outputs (builds on the PDF export work). Open a fresh scope-pass before coding.
+5. **Reports phase (Module 6):** the PDF FULL-report export now mirrors every module tab (M1 Capex asset-wise + Results / Financing Schedules + Cash Sweep, M2 Revenue + CoS vintage + Escrow, M3 Opex, M4 P&L/CF/BS + per-phase, M5) via shared pure builders in `lib/reports/` (m4/opex/capex/financing/cos) consumed by the PDF, PLUS a version picker (export any saved version, file named after it). Auto-sync follow-up: refactor the M1/M2/M3 on-screen output tabs to ALSO consume the `lib/reports/` builders (only the M4 tabs do today) so structure stays in one place; then Excel export + a Case-Comparison report surface. See memory `project_pdf_mirror_autosync_2026-06-04`.
 
-**Done last session (for reference):** PDF export full per-asset breakdowns + per-line/per-stage capex; versioning generic-naming fix; M5 flexible partner equity split; RE Metrics dropped Per-Asset Economics + added development/income-exit/hospitality/residential/lease KPIs; cases Phase 1 + 2.
+**Done last session (for reference):** Module 4 phase-view changes + shared-builder auto-sync + version picker + all 13 PDF mirror items (2026-06-04); earlier: PDF export full per-asset breakdowns + per-line/per-stage capex; versioning generic-naming fix; M5 flexible partner equity split; RE Metrics; cases Phase 1 + 2.
 
 ---
 
