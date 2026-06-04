@@ -36,6 +36,9 @@ import {
   type FinancialsResolverState,
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
+import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../reports/m4Reports';
+import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES } from '../modules-config';
 
 function b64ToBytes(b64: string): Uint8Array {
@@ -400,6 +403,37 @@ function strPeriodRow(label: string, strs: string[], total: string | number | nu
 }
 function periodTable(title: string, priorYear: number, yearLabels: number[], rows: PdfTableRow[]): PdfTable {
   return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows };
+}
+/**
+ * Convert the platform's shared statement row model (M4Row[]) into a PDF period
+ * table, so the PDF mirrors the on-screen Module 4 statements exactly (and stays
+ * in sync automatically: both render from lib/reports/m4Reports.ts). Collapsible
+ * groups are always rendered expanded (print has no interactivity).
+ */
+function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: number[], rows: M4Row[]): PdfTable {
+  const N = yearLabels.length;
+  const indentLabel = (r: M4Row): string => {
+    const pad = '   '.repeat(r.indent ?? 0);
+    const phase = r.phaseLabel ? `  [P${r.phaseLabel}]` : '';
+    return `${pad}${r.label}${phase}`;
+  };
+  const pdfRows: PdfTableRow[] = rows.map((r): PdfTableRow => {
+    const emphasis: RowEmphasis | undefined = r.isTotal
+      ? 'total'
+      : (r.isSubtotal || r.collapseRole === 'header') ? 'subtotal'
+        : r.isSection ? 'heading' : undefined;
+    if (r.isSection && r.values.length === 0) {
+      return { cells: [indentLabel(r), null, null, ...new Array<null>(N).fill(null)], emphasis: 'heading' };
+    }
+    const total: string | number | null = r.totalOverride !== undefined
+      ? r.totalOverride
+      : r.values.reduce((s, v) => s + (v ?? 0), 0);
+    const prior: number | null = r.priorValue ?? null;
+    const values = r.values.slice(0, N);
+    const padded = values.length < N ? [...values, ...new Array<null>(N - values.length).fill(null)] : values;
+    return { cells: [indentLabel(r), total, prior, ...padded], emphasis };
+  });
+  return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows: pdfRows };
 }
 /** Human label for a cost line's method = what its rate multiplies. */
 function costBasisLabel(method?: string): string {
@@ -986,9 +1020,18 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 // ── Module 4: Financial Statements ───────────────────────────────────────────
 function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
-  const { pl, directCF: cf, indirectCF: icf, bs, fixedAssets: fa } = snap;
+  const { bs, fixedAssets: fa } = snap;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const items: ModuleContent = [];
+
+  // P&L / CF / BS render from the SHARED platform row-builders
+  // (lib/reports/m4Reports.ts), so the PDF mirrors the on-screen statements
+  // exactly and stays in sync as rows are added / removed on the platform.
+  const labels = getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
+  const fmtFn = (v: number): string => fmt.money(v);
+  const m4ctx = (filterPhaseId: string): { snap: ProjectFinancialsSnapshot; state: FinancialsResolverState; labels: ReturnType<typeof getFinancialLabels>; filterPhaseId: string; fmt: (v: number) => string } =>
+    ({ snap, state, labels, filterPhaseId, fmt: fmtFn });
+  const hasData = (rows: M4Row[]): boolean => rows.some((r) => r.values.some((v) => v !== 0));
 
   // Tab 1: Schedules (IDC pool + working capital).
   const idc = snap.idc;
@@ -1030,110 +1073,29 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Combined closing', fpt.combinedClosingPerPeriod, 'last', 'total'),
   ])));
 
-  // Tab 3: P&L.
-  items.push(tTable('Tab 3: P&L', 'outputs', periodTable('Profit & Loss', py, yl, [
-    periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
-    periodRow('Cost of sales', pl.cosPerPeriod, 'sum'),
-    periodRow('Operating expenses', pl.totalOpexPerPeriod, 'sum'),
-    periodRow('EBITDA', pl.ebitdaPerPeriod, 'sum', 'subtotal'),
-    periodRow('Depreciation & amortization', pl.daPerPeriod, 'sum'),
-    periodRow('EBIT', pl.ebitPerPeriod, 'sum', 'subtotal'),
-    periodRow('Interest expense', pl.interestExpensePerPeriod, 'sum'),
-    periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
-    periodRow('Tax / Zakat', pl.taxPerPeriod, 'sum'),
-    periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
-  ])));
-  // Per-asset P&L detail (asset-line-wise, matching the platform): revenue +
-  // EBITDA by asset so the user sees which asset drives each line.
-  const assetPLs = [...snap.perAssetPL.values()];
-  if (assetPLs.length) {
-    items.push(tTable('Tab 3: P&L', 'outputs', periodTable('Revenue by Asset', py, yl,
-      assetPLs.filter((a) => anyNonZero(a.revenuePerPeriod)).map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.revenuePerPeriod, 'sum'))
-        .concat([periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum', 'total')]))));
-    items.push(tTable('Tab 3: P&L', 'outputs', periodTable('EBITDA by Asset', py, yl,
-      assetPLs.filter((a) => anyNonZero(a.ebitdaPerPeriod)).map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.ebitdaPerPeriod, 'sum'))
-        .concat([periodRow('Project EBITDA', pl.ebitdaPerPeriod, 'sum', 'total')]))));
-  }
-
-  // Tab 4: Cash Flow (Direct + Indirect).
-  items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Cash Flow, Direct', py, yl, [
-    periodRow('Revenue received', cf.revenueReceivedPerPeriod, 'sum'),
-    periodRow('Escrow held', cf.escrowHeldPerPeriod, 'sum'),
-    periodRow('Escrow released', cf.escrowReleasePerPeriod, 'sum'),
-    periodRow('Opex paid', cf.opexPaidPerPeriod, 'sum'),
-    periodRow('HQ opex paid', cf.hqOpexPaidPerPeriod, 'sum'),
-    periodRow('Tax paid', cf.taxPaidPerPeriod, 'sum'),
-    periodRow('Cash from operations', cf.cashFromOperationsPerPeriod, 'sum', 'subtotal'),
-    periodRow('Capex', cf.capexPerPeriod, 'sum'),
-    periodRow('Cash from investing', cf.cashFromInvestmentPerPeriod, 'sum', 'subtotal'),
-    periodRow('Equity drawdown', cf.equityDrawdownPerPeriod, 'sum'),
-    periodRow('Debt drawdown', cf.debtDrawdownPerPeriod, 'sum'),
-    periodRow('Debt repayment', cf.debtRepaymentPerPeriod, 'sum'),
-    periodRow('Interest paid', cf.interestPaidPerPeriod, 'sum'),
-    periodRow('Dividends paid', cf.dividendsPaidPerPeriod, 'sum'),
-    periodRow('Cash from financing', cf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
-    periodRow('Net cash flow', cf.netCashFlowPerPeriod, 'sum'),
-    periodRow('Closing cash', cf.closingCashPerPeriod, 'last', 'total'),
-  ])));
-  items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Cash Flow, Indirect', py, yl, [
-    periodRow('Profit after tax', icf.patPerPeriod, 'sum'),
-    periodRow('Depreciation & amortization', icf.daPerPeriod, 'sum'),
-    periodRow('Interest expense add-back', icf.interestExpensePerPeriod, 'sum'),
-    periodRow('Cost of sales add-back', icf.costOfSalesAddBackPerPeriod, 'sum'),
-    periodRow('Change in AR', icf.changeInArPerPeriod, 'sum'),
-    periodRow('Change in AP', icf.changeInApPerPeriod, 'sum'),
-    periodRow('Change in unearned', icf.changeInUnearnedPerPeriod, 'sum'),
-    periodRow('Change in escrow', icf.changeInEscrowPerPeriod, 'sum'),
-    periodRow('Cash from operations', icf.cashFromOperationsPerPeriod, 'sum', 'subtotal'),
-    periodRow('Cash from investing', icf.cashFromInvestmentPerPeriod, 'sum', 'subtotal'),
-    periodRow('Cash from financing', icf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
-    periodRow('Net cash flow', icf.netCashFlowPerPeriod, 'sum'),
-    periodRow('Closing cash', icf.closingCashPerPeriod, 'last', 'total'),
-  ])));
-  // Per-asset cash flow detail (asset-line-wise, matching the platform): the
-  // operating cash drivers split by asset. Balance Sheet stays project-level
-  // (the engine does not split equity / debt / cash by asset).
-  const assetCFs = [...snap.perAssetCF.values()];
-  if (assetCFs.length) {
-    const cfRows = assetCFs.filter((a) => anyNonZero(a.revenueReceivedPerPeriod));
-    if (cfRows.length) {
-      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Revenue Received by Asset', py, yl,
-        cfRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.revenueReceivedPerPeriod, 'sum'))
-          .concat([periodRow('Total revenue received', cf.revenueReceivedPerPeriod, 'sum', 'total')]))));
-    }
-    const opexRows = assetCFs.filter((a) => anyNonZero(a.opexPaidPerPeriod));
-    if (opexRows.length) {
-      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Opex Paid by Asset', py, yl,
-        opexRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.opexPaidPerPeriod, 'sum')))));
-    }
-    const capexRows = assetCFs.filter((a) => anyNonZero(a.capexPerPeriod));
-    if (capexRows.length) {
-      items.push(tTable('Tab 4: Cash Flow', 'outputs', periodTable('Capex by Asset', py, yl,
-        capexRows.map((a) => periodRow(`${a.assetName} (${a.strategy})`, a.capexPerPeriod, 'sum')))));
+  // Tab 3: P&L. Full consolidated statement (exact mirror, down to PAT) then a
+  // short per-phase P&L (truncated at EBITDA inside the shared builder).
+  items.push(tTable('Tab 3: P&L', 'outputs', m4RowsToPeriodTable(`${labels.incomeStatementTitle}: Project`, py, yl, buildPLRows(m4ctx('__all__')))));
+  for (const ph of state.phases) {
+    const rows = buildPLRows(m4ctx(ph.id));
+    if (hasData(rows)) {
+      items.push(tTable('Tab 3: P&L', 'outputs', m4RowsToPeriodTable(`${labels.incomeStatementTitle}: ${ph.name} (to ${labels.ebitda})`, py, yl, rows)));
     }
   }
 
-  // Tab 5: Balance Sheet.
-  items.push(tTable('Tab 5: Balance Sheet', 'outputs', periodTable('Balance Sheet', py, yl, [
-    periodRow('Cash', bs.cashPerPeriod, 'last', undefined, bs.historicalOpeningCashTotal),
-    periodRow('Receivables (operating)', bs.arPerPeriod, 'last'),
-    periodRow('Residential receivables', bs.residentialReceivablesPerPeriod, 'last'),
-    periodRow('Inventory (WIP)', bs.inventoryPerPeriod, 'last'),
-    periodRow('Restricted cash (escrow)', bs.escrowRestrictedCashPerPeriod, 'last'),
-    periodRow('Net fixed assets', bs.nbvPerPeriod, 'last'),
-    periodRow('Land', bs.landPerPeriod, 'last'),
-    periodRow('Total assets', bs.totalAssetsPerPeriod, 'last', 'subtotal'),
-    periodRow('Accounts payable', bs.apPerPeriod, 'last'),
-    periodRow('Unearned revenue', bs.unearnedRevenuePerPeriod, 'last'),
-    periodRow('Debt outstanding', bs.debtOutstandingPerPeriod, 'last', undefined, snap.financing.existing.debtOutstandingTotal),
-    periodRow('Total liabilities', bs.totalLiabilitiesPerPeriod, 'last', 'subtotal'),
-    periodRow('Share capital', bs.shareCapitalPerPeriod, 'last'),
-    periodRow('Statutory reserve', bs.statutoryReservePerPeriod, 'last'),
-    periodRow('Retained earnings', bs.retainedEarningsPerPeriod, 'last'),
-    periodRow('Total equity', bs.totalEquityPerPeriod, 'last', 'subtotal'),
-    periodRow('Liabilities + equity', bs.totalLiabilitiesAndEquityPerPeriod, 'last', 'total'),
-    periodRow('BS check (Assets less L&E)', bs.bsDifferencePerPeriod, 'last'),
-  ])));
+  // Tab 4: Cash Flow. Full consolidated Direct + Indirect (exact mirror) then a
+  // per-phase view (Operations + Investing only) from the shared builder.
+  items.push(tTable('Tab 4: Cash Flow', 'outputs', m4RowsToPeriodTable('Cash Flow, Direct Method: Project', py, yl, buildDirectCFRows(m4ctx('__all__')))));
+  items.push(tTable('Tab 4: Cash Flow', 'outputs', m4RowsToPeriodTable('Cash Flow, Indirect Method: Project', py, yl, buildIndirectCFRows(m4ctx('__all__')))));
+  for (const ph of state.phases) {
+    const rows = buildDirectCFRows(m4ctx(ph.id));
+    if (hasData(rows)) {
+      items.push(tTable('Tab 4: Cash Flow', 'outputs', m4RowsToPeriodTable(`Cash Flow: ${ph.name} (Operations + Investing)`, py, yl, rows)));
+    }
+  }
+
+  // Tab 5: Balance Sheet. Consolidated only (exact mirror).
+  items.push(tTable('Tab 5: Balance Sheet', 'outputs', m4RowsToPeriodTable('Balance Sheet: Project', py, yl, buildBSRows(m4ctx('__all__')).rows)));
 
   return items;
 }
