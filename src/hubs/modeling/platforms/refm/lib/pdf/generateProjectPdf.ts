@@ -965,14 +965,31 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Unearned closing', b.unearned.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
     ])));
   }
+  // Tab 5: Escrow. Mirrors the platform Escrow tab's three output tables
+  // (A: Pre-Sales Cash by Asset / B: Balance Roll-Forward / C: Cash Flow Impact).
   const esc = snap.escrow.projectTotals;
   if (anyNonZero(esc.heldPerPeriod) || anyNonZero(esc.releasePerPeriod)) {
-    items.push(tTable('Tab 4: Schedules', 'schedules', periodTable('Escrow Movement (project total)', py, yl, [
-      periodRow('Pre-sales cash', esc.preSalesCashPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Held', esc.heldPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Released', esc.releasePerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Net movement', esc.netMovementPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Cumulative balance', esc.cumulativeBalancePerPeriod.slice(0, yl.length), 'last', 'total'),
+    const escAssets = [...snap.escrow.byAsset.entries()].filter(([, a]) => anyNonZero(a.preSalesCashPerPeriod));
+    // A. Pre-Sales Cash by Asset.
+    items.push(tTable('Tab 5: Escrow', 'schedules', periodTable('A. Pre-Sales Cash by Asset (subject to escrow)', py, yl,
+      escAssets.map(([id, a]) => periodRow(assetName(id), a.preSalesCashPerPeriod.slice(0, yl.length), 'sum'))
+        .concat([periodRow('Total Pre-Sales Cash (all assets)', esc.preSalesCashPerPeriod.slice(0, yl.length), 'sum', 'total')]))));
+    // B. Escrow Balance Roll-Forward (opening + per-asset additions + total / release / closing).
+    const N = yl.length;
+    const opening = new Array<number>(N).fill(0);
+    for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
+    const rollRows: PdfTableRow[] = [periodRow('Opening Balance', opening, 'none', 'subtotal')];
+    rollRows.push(row(['Additions:', null, null, ...new Array<null>(N).fill(null)], 'heading'));
+    for (const [id, a] of escAssets) rollRows.push(periodRow(`   ${assetName(id)}`, a.result.heldPerPeriod.slice(0, N), 'sum'));
+    rollRows.push(periodRow('Total Additions', esc.heldPerPeriod.slice(0, N), 'sum', 'subtotal'));
+    rollRows.push(periodRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), 'sum'));
+    rollRows.push(periodRow('Closing Balance', esc.cumulativeBalancePerPeriod.slice(0, N), 'last', 'total'));
+    items.push(tTable('Tab 5: Escrow', 'schedules', periodTable('B. Escrow Balance Roll-Forward', py, yl, rollRows)));
+    // C. Cash Flow Impact (project totals).
+    items.push(tTable('Tab 5: Escrow', 'schedules', periodTable('C. Cash Flow Impact (project totals)', py, yl, [
+      periodRow('Less: Inaccessible Funds Locked', esc.heldPerPeriod.slice(0, N).map((v) => -v), 'sum'),
+      periodRow('Add: Release of Inaccessible Funds', esc.releasePerPeriod.slice(0, N), 'sum'),
+      periodRow('Net Cash Flow Adjustment (to M4)', esc.cashFlowAdjustmentPerPeriod.slice(0, N), 'sum', 'total'),
     ])));
   }
 
