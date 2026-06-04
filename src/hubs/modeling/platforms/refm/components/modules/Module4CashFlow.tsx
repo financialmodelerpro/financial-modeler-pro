@@ -293,6 +293,13 @@ export default function Module4CashFlow(): React.JSX.Element {
 
     rows.push(...buildInvestmentRows(d.capexPerPeriod, d.cashFromInvestmentPerPeriod));
 
+    // Phase-level CF stops at Investing (per Ahmad 2026-06-04): a phase shows
+    // its Operating + Investing activities only. Financing (equity / debt /
+    // dividends) is raised and serviced at the project level and is not split
+    // per phase, so it (and the Net Cash Flow / opening-closing roll) appears
+    // on the consolidated ("All") view only.
+    if (filterPhaseId !== '__all__') return rows;
+
     rows.push(...buildFinancingRows(d.cashFromFinancingPerPeriod));
 
     // M4 Pass 2R-Fix: prior-column subtotals (existing equity + debt +
@@ -442,6 +449,14 @@ export default function Module4CashFlow(): React.JSX.Element {
     // view (identical cash movements), via the shared builders. Subtotals
     // come from the Indirect view's own (filtered or project-level) arrays.
     rows.push(...buildInvestmentRows(cpx, cfi));
+
+    // Phase-level CF stops at Investing (per Ahmad 2026-06-04): financing +
+    // the Net Cash Flow roll are project-level only (mirrors the Direct view).
+    if (filtered) {
+      void phaseLbl;
+      return rows;
+    }
+
     rows.push(...buildFinancingRows(cff));
     rows.push({ label: 'Net Cash Flow', values: netCf, isTotal: true });
     // Opening / Closing cash. Project view only: it must tie out to the
@@ -465,8 +480,10 @@ export default function Module4CashFlow(): React.JSX.Element {
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>{currency}</div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           Direct CF mirrors the reference v1.16 layout (literal cash in/out). Indirect CF reconstructs cash from
-          {' '}{labels.pat} via D&A and working-capital changes. Both views end with the same Net Cash Flow per
-          period, if they diverge there's a working-capital line missing in the bridge.
+          {' '}{labels.pat} via D&A and working-capital changes. The consolidated ("All") view runs the full
+          statement (Operations + Investing + Financing) and both methods end on the same Net Cash Flow; a single
+          phase shows its Operating + Investing activities only, since financing is raised and serviced at the
+          project level.
         </p>
       </div>
 

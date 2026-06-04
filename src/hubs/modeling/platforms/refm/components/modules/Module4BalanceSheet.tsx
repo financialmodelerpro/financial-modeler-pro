@@ -26,7 +26,7 @@
  * Law default = 10% transfer, 30% of SC cap).
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
@@ -88,16 +88,14 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     });
   };
 
-  // M4 Pass 2M-B1 (2026-05-20): Phase filter buttons. When a phase is
-  // selected, per-asset-summable BS lines (Land, NBV, AR, Inventory,
-  // Residential Receivables, AP, Unearned, Escrow) are decomposed to
-  // that phase's share by summing per-asset slices in the snapshot.
-  // Debt is per-tranche.phaseId. Project-level lines (Cash, Share
-  // Capital, Reserve, Retained, Operating AR) remain project-level
-  // and carry a (project) tag in the row label since they cannot be
-  // cleanly decomposed without a per-phase composer pass.
-  const [filterPhaseId, setFilterPhaseId] = useState<string>('__all__');
-  const phaseFiltered = filterPhaseId !== '__all__';
+  // Balance Sheet is consolidated only (per Ahmad 2026-06-04): the phase
+  // filter was removed because a BS is a point-in-time statement of the whole
+  // entity, and the project-level plug lines (Cash, Share Capital, Reserve,
+  // Retained Earnings) cannot be cleanly attributed to a single phase. The
+  // per-asset / per-tranche decomposition logic below is retained but always
+  // runs over the full project (phaseFiltered is permanently false).
+  const filterPhaseId = '__all__';
+  const phaseFiltered = false;
   const assetIdsInPhase = useMemo(() => {
     const ids = new Set<string>();
     for (const a of state.assets) {
@@ -113,8 +111,6 @@ export default function Module4BalanceSheet(): React.JSX.Element {
     }
     return ids;
   }, [state.financingTranches, filterPhaseId]);
-  const phaseLabelFor = (id: string): string => state.phases.find((p) => p.id === id)?.name ?? '';
-
   // ── Helpers: sum per-period arrays from the snapshot ───────────────
   const N_ = N;
   const zerosN = (): number[] => new Array<number>(N_).fill(0);
@@ -421,41 +417,8 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         </div>
       </PhaseSection>
 
-      {/* M4 Pass 2M-B1 (2026-05-20): phase filter buttons. */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
-        <span style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>View:</span>
-        {[{ id: '__all__', name: 'All' } as const, ...state.phases.map((p) => ({ id: p.id, name: p.name }))].map((opt) => {
-          const active = filterPhaseId === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setFilterPhaseId(opt.id)}
-              style={{
-                padding: '4px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                border: '1px solid',
-                borderColor: active ? 'var(--color-navy)' : 'var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                background: active ? 'var(--color-navy)' : 'var(--color-surface)',
-                color: active ? 'white' : 'var(--color-text)',
-                cursor: 'pointer',
-              }}
-            >
-              {opt.name}
-            </button>
-          );
-        })}
-        {phaseFiltered && (
-          <span style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginLeft: 'var(--sp-1)' }}>
-            Project-level rows (Cash, AR Operating, Share Capital, Reserve, Retained) tagged (project); BS Check may drift when filtered.
-          </span>
-        )}
-      </div>
-
       <M4PeriodTable
-        title={phaseFiltered ? `Balance Sheet: ${phaseLabelFor(filterPhaseId)}` : 'Balance Sheet: Project'}
+        title="Balance Sheet: Project"
         yearLabels={yearLabels}
         currency={currency}
         fmt={fmt}

@@ -257,6 +257,14 @@ export default function Module4PL(): React.JSX.Element {
     rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
 
     rows.push({ label: labels.ebitda, values: ebitda, isTotal: true });
+
+    // Phase-level P&L stops at EBITDA / EBIZDA (per Ahmad 2026-06-04): D&A,
+    // interest, tax and the below-the-line items are project-level (financing +
+    // depreciation are not cleanly attributable to a single phase), so a
+    // phase-filtered view shows the operating result only. The consolidated
+    // ("All") view carries the full statement down to PAT.
+    if (phaseFiltered) return rows;
+
     rows.push({ label: 'Depreciation & Amortization', values: negArr(da), indent: 1 });
     rows.push({ label: labels.ebit, values: ebit, isSubtotal: true });
 
@@ -307,8 +315,9 @@ export default function Module4PL(): React.JSX.Element {
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>{currency}</div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
           Strategy-grouped P&L composed from Module 2 Revenue + CoS, Module 3 Opex, M4 Pass 1 D&A and Module 1
-          financing interest. Asset filter at the top right shows either project totals or one asset's stand-alone
-          contribution (revenue − CoS − opex − D&A; interest + tax stay at project level).
+          financing interest. The phase filter shows either the consolidated project statement (full P&L down to
+          {' '}{labels.pat}) or a single phase, which stops at {labels.ebitda} since D&A, interest and tax are
+          project-level (not cleanly attributable to one phase).
         </p>
       </div>
 
