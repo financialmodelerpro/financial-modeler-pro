@@ -11,6 +11,7 @@
 import ExcelJS from 'exceljs';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -41,18 +42,19 @@ function buildState(): any {
 }
 
 async function main(): Promise<void> {
-  console.log('=== Excel model export test (Phase 1 foundation + Phase 2 Capex) ===');
+  console.log('=== Excel model export test (Phases 1-3: foundation + Capex + Revenue/CoS) ===');
   const state = buildState();
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
 
-  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks']) {
+  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Revenue', 'Cost of Sales', 'Checks'];
+  for (const name of ALL_SHEETS) {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
 
   // Clean look: gridlines hidden on EVERY sheet.
   const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
-  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks']) {
+  for (const name of ALL_SHEETS) {
     check(`gridlines hidden: ${name}`, noGrid(name));
   }
 
@@ -96,12 +98,36 @@ async function main(): Promise<void> {
   const capTol = Math.max(1000, Math.abs(inclSum) * 1e-6);
   check('Capex total reconciles to snapshot (incl. all land)', capResults.some((x) => Math.abs(x - inclSum) <= capTol), `inclSum=${Math.round(inclSum)}`);
 
+  // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
+  const collectResults = (sheet: string): number[] => {
+    const out: number[] = [];
+    wb.getWorksheet(sheet)!.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as any;
+      if (v && typeof v === 'object' && 'formula' in v && typeof v.result === 'number') out.push(v.result);
+    }));
+    return out;
+  };
+  const revResults = collectResults('Revenue');
+  const revSum = snap.pl.totalRevenuePerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+  const revTol = Math.max(1000, Math.abs(revSum) * 1e-6);
+  check('Revenue total reconciles to snapshot total revenue', revResults.some((x) => Math.abs(x - revSum) <= revTol), `revSum=${Math.round(revSum)}`);
+
+  // Cost of Sales (Phase 3): the sheet mirrors the platform Cost of Sales tab
+  // (cosReports, which capitalises IDC into the basis), so it reconciles to the
+  // report's project total, not the P&L's reduced CoS line.
+  const cosReport = buildCostOfSalesReport(snap, state, (v) => String(v));
+  const cosReportTotal = (cosReport.find((t) => t.title === 'Project Total Cost of Sales')?.rows.find((rw) => rw.isTotal)?.values ?? [])
+    .reduce((s, v) => s + (v ?? 0), 0);
+  const cosResults = collectResults('Cost of Sales');
+  const cosTol = Math.max(1000, Math.abs(cosReportTotal) * 1e-6);
+  check('Cost of Sales total reconciles to platform CoS tab', cosResults.some((x) => Math.abs(x - cosReportTotal) <= cosTol), `cosReportTotal=${Math.round(cosReportTotal)}`);
+
   // Valid .xlsx buffer.
   const buf = await generateModelWorkbookBuffer({ state, projectName: 'X', dateLabel: 'd' });
   check('writes a non-trivial .xlsx buffer', buf.byteLength > 4096, `bytes=${buf.byteLength}`);
   const reload = new ExcelJS.Workbook();
   await reload.xlsx.load(buf);
-  check('buffer reloads as a valid workbook with all sheets', ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks'].every((n) => !!reload.getWorksheet(n)));
+  check('buffer reloads as a valid workbook with all sheets', ALL_SHEETS.every((n) => !!reload.getWorksheet(n)));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }

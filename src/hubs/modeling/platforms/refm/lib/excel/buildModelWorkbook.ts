@@ -19,6 +19,7 @@ import ExcelJS from 'exceljs';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
+import { buildCostOfSalesReport, type ReportTable } from '../reports/cosReports';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import {
@@ -32,11 +33,12 @@ export interface BuildModelOptions {
   dateLabel: string;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const snap = computeFinancialsSnapshot(opts.state);
   const capex = buildCapexReport(snap, opts.state);
+  const cos = buildCostOfSalesReport(snap, opts.state, (v) => String(v));
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Financial Modeler Pro';
   wb.created = new Date(0); // deterministic (avoid clock for reproducible output)
@@ -46,7 +48,12 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
   const capexAddrs = addCapex(wb, snap, capex, refs);
-  addChecks(wb, snap, capex, capexAddrs);
+  const revAddr = addRevenue(wb, snap, opts.state, refs);
+  const cosAddr = addCoS(wb, snap, cos, refs);
+  const revTotal = snap.pl.totalRevenuePerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+  const cosTotalRow = cos.find((t) => t.title === 'Project Total Cost of Sales')?.rows.find((rw) => rw.isTotal)?.values ?? [];
+  const cosTotal = cosTotalRow.reduce((s, v) => s + (v ?? 0), 0);
+  addChecks(wb, snap, capex, capexAddrs, { revAddr, revTotal, cosAddr, cosTotal });
   return wb;
 }
 
@@ -305,8 +312,127 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   return { scheduleTotalAddr, buildupTotalAddr };
 }
 
+// ── Shared period-sheet helpers (Timeline-anchored tables) ────────────────────
+const nz = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
+
+/** Write the period header row (label col + year cols linked to Timeline + a
+ *  Total col). Returns the 1-based Total column index. */
+function periodHeader(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number, snap: ReturnType<typeof computeFinancialsSnapshot>, labelCol: string): number {
+  const totalCol = firstCol + N;
+  setColHeader(ws.getCell(r, 1), labelCol, 'left');
+  for (let t = 0; t < N; t++) {
+    const c = firstCol + t;
+    ws.getColumn(c).width = 12;
+    const cell = ws.getCell(r, c);
+    setFormula(cell, fcell(`Timeline!${colLetter(c)}6`, snap.yearLabels[t] ?? snap.projectStartYear + t), NUMFMT.year, true);
+    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
+    cell.alignment = { horizontal: 'right' };
+  }
+  ws.getColumn(totalCol).width = 14;
+  setColHeader(ws.getCell(r, totalCol), 'Total', 'right');
+  return totalCol;
+}
+
+/** A data row of cached per-period values + a Total = SUM formula. */
+function cachedRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number, totalCol: number, label: string, values: number[], opts: { indent?: number; bold?: boolean } = {}): void {
+  setLabel(ws.getCell(`A${r}`), label, opts);
+  for (let t = 0; t < N; t++) {
+    const cell = ws.getCell(r, firstCol + t);
+    cell.value = values[t] ?? 0;
+    cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    cell.numFmt = NUMFMT.money;
+  }
+  const rng = `${colLetter(firstCol)}${r}:${colLetter(firstCol + N - 1)}${r}`;
+  setFormula(ws.getCell(r, totalCol), fcell(`SUM(${rng})`, values.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
+}
+
+/** A total row whose period cells are the SUM of the given source rows (formula),
+ *  with the platform per-period values cached, styled navy. */
+function navySumRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number, totalCol: number, label: string, sourceRows: number[], cachedPerPeriod: number[]): void {
+  setLabel(ws.getCell(`A${r}`), label, { bold: true });
+  for (let t = 0; t < N; t++) {
+    const col = colLetter(firstCol + t);
+    const f = sourceRows.length ? sourceRows.map((rr) => `${col}${rr}`).join('+') : '0';
+    setFormula(ws.getCell(r, firstCol + t), fcell(f, cachedPerPeriod[t] ?? 0), NUMFMT.money);
+  }
+  const rng = `${colLetter(firstCol)}${r}:${colLetter(firstCol + N - 1)}${r}`;
+  setFormula(ws.getCell(r, totalCol), fcell(`SUM(${rng})`, cachedPerPeriod.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
+  fillRange(ws, r, 1, r, totalCol, ARGB.navy);
+  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+}
+
+// ── Revenue (per-asset detail + project summary) ──────────────────────────────
+function addRevenue(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, refs: AssumptionRefs): string {
+  const ws = wb.addWorksheet(SHEETS.revenue, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 34;
+  const N = refs.axisLength;
+  const firstCol = 2;
+  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  setTitle(ws.getCell('A1'), 'Revenue', 16);
+  setLabel(ws.getCell('A2'), 'Recognised revenue by strategy and asset, phased onto the model timeline. Total revenue sums the strategy components.');
+
+  // Project revenue summary (formula total over the three strategy components).
+  let r = 4;
+  setSectionHeader(ws.getRow(r), 'Project revenue summary', firstCol + N); r += 1;
+  const tCol = periodHeader(ws, r, firstCol, N, snap, 'Revenue'); r += 1;
+  const compRows: number[] = [];
+  cachedRow(ws, r, firstCol, N, tCol, 'Residential revenue', snap.pl.residentialRevenuePerPeriod); compRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, tCol, 'Hospitality revenue', snap.pl.hospitalityRevenuePerPeriod); compRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, tCol, 'Retail revenue', snap.pl.retailRevenuePerPeriod); compRows.push(r); r += 1;
+  navySumRow(ws, r, firstCol, N, tCol, 'Total revenue', compRows, snap.pl.totalRevenuePerPeriod);
+  const totalAddr = `'${SHEETS.revenue}'!$${colLetter(tCol)}$${r}`;
+  r += 2;
+
+  // Revenue detail by asset (cached series, informational; row totals are SUM).
+  setSectionHeader(ws.getRow(r), 'Revenue detail by asset', firstCol + N); r += 1;
+  periodHeader(ws, r, firstCol, N, snap, 'Asset'); r += 1;
+  const group = (title: string, entries: Array<[string, number[]]>): void => {
+    const present = entries.filter(([, v]) => nz(v));
+    if (!present.length) return;
+    setLabel(ws.getCell(`A${r}`), title, { bold: true });
+    fillRange(ws, r, 1, r, firstCol + N, ARGB.subtotal); r += 1;
+    for (const [id, v] of present) { cachedRow(ws, r, firstCol, N, firstCol + N, assetName(id), v, { indent: 1 }); r += 1; }
+  };
+  group('Residential / Sell', [...snap.revenue.bySellAsset.entries()].map(([id, rv]) => [id, rv.recognitionPerPeriod] as [string, number[]]));
+  group('Hospitality', [...snap.revenue.byHospitalityAsset.entries()].map(([id, rv]) => [id, rv.totalRevenuePerPeriod] as [string, number[]]));
+  group('Lease / Retail', [...snap.revenue.byLeaseAsset.entries()].map(([id, rv]) => [id, rv.totalRevenuePerPeriod] as [string, number[]]));
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  return totalAddr;
+}
+
+// ── Cost of Sales (per-asset + project total) ─────────────────────────────────
+function addCoS(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, cosTables: ReportTable[], refs: AssumptionRefs): string {
+  const ws = wb.addWorksheet(SHEETS.cos, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 34;
+  const N = refs.axisLength;
+  const firstCol = 2;
+  setTitle(ws.getCell('A1'), 'Cost of Sales', 16);
+  setLabel(ws.getCell('A2'), 'Cost of sales matched to recognised revenue (mirrors the platform Cost of Sales tab). The total sums the per-asset rows.');
+
+  let r = 4;
+  setSectionHeader(ws.getRow(r), 'Cost of sales by asset', firstCol + N); r += 1;
+  const tCol = periodHeader(ws, r, firstCol, N, snap, 'Asset'); r += 1;
+  const totalTable = cosTables.find((t) => t.title === 'Project Total Cost of Sales');
+  const assetRows = (totalTable?.rows ?? []).filter((rw) => !rw.isTotal && !rw.isSection);
+  const rowIdx: number[] = [];
+  const cosTotalCached = new Array<number>(N).fill(0);
+  for (const ar of assetRows) {
+    const vals = ar.values.slice(0, N);
+    cachedRow(ws, r, firstCol, N, tCol, ar.label, vals, { indent: 1 });
+    for (let t = 0; t < N; t++) cosTotalCached[t] += vals[t] ?? 0;
+    rowIdx.push(r); r += 1;
+  }
+  navySumRow(ws, r, firstCol, N, tCol, 'Total cost of sales', rowIdx, cosTotalCached);
+  const totalAddr = `'${SHEETS.cos}'!$${colLetter(tCol)}$${r}`;
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  return totalAddr;
+}
+
 // ── Checks / legend ───────────────────────────────────────────────────────────
-function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, capexAddrs: CapexAddrs): void {
+function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, capexAddrs: CapexAddrs, ext: { revAddr: string; revTotal: number; cosAddr: string; cosTotal: number }): void {
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 40;
   ws.getColumn(2).width = 22;
@@ -351,7 +477,16 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   cs.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.good } };
   setFormula(ws.getCell(`C${r}`), fcell(capexAddrs.scheduleTotalAddr, capex.inputAssets.reduce((s, a) => s + a.total, 0)), NUMFMT.money, true);
   r += 2;
-  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 2 (Capex). Cover, Assumptions, Timeline, Capex and Checks are in place. The remaining calculation sheets (Revenue + Cost of Sales, Opex, Financing, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
+  // Linked lifetime reference totals (become pass/fail cross-checks once the
+  // statement sheets land).
+  setSectionHeader(ws.getRow(r), 'Reference totals (lifetime)', 3); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Total revenue');
+  setFormula(ws.getCell(`C${r}`), fcell(ext.revAddr, ext.revTotal), NUMFMT.money, true);
+  r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Total cost of sales');
+  setFormula(ws.getCell(`C${r}`), fcell(ext.cosAddr, ext.cosTotal), NUMFMT.money, true);
+  r += 2;
+  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 3 (Revenue + Cost of Sales). Cover, Assumptions, Timeline, Capex, Revenue, Cost of Sales and Checks are in place. The remaining calculation sheets (Opex, Financing, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
 }
 
 // ── Cover / Index ─────────────────────────────────────────────────────────────
@@ -446,6 +581,8 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.assumptions, 'All inputs and assumptions (edit here)'],
     [SHEETS.timeline, 'The model year axis'],
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
+    [SHEETS.revenue, 'Recognised revenue by strategy and asset'],
+    [SHEETS.cos, 'Cost of sales matched to recognised revenue'],
     [SHEETS.checks, 'Integrity checks and colour legend'],
   ];
   const idxTop = r;
