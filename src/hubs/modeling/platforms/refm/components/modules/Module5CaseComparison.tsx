@@ -16,36 +16,15 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
-import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
-import { applyOverrides, buildOverrides, baseCaseId } from '../../lib/cases/applyOverrides';
+import { buildOverrides, baseCaseId } from '../../lib/cases/applyOverrides';
+import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
 import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { fmtPct, fmtX } from './Module5Shared';
 
-type KpiKind = 'pct' | 'money' | 'mult';
-interface KpiDef {
-  label: string;
-  kind: KpiKind;
-  sub?: string;
-  get: (rs: ReturnType<typeof computeReturnsSnapshot>) => number | null;
-}
-
-// Headline KPIs, in the same wording as the Returns + RE Metrics tabs.
-const KPIS: KpiDef[] = [
-  { label: 'Project IRR (FCFF)', kind: 'pct', get: (rs) => rs.result.fcff.irr },
-  { label: 'Equity IRR (FCFE)', kind: 'pct', get: (rs) => rs.result.fcfe.irr },
-  { label: 'Distributed-Equity IRR', kind: 'pct', get: (rs) => rs.result.dividends.irr },
-  { label: 'Equity MOIC', kind: 'mult', get: (rs) => rs.result.fcfe.moic },
-  { label: 'Equity Multiple', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
-  { label: 'Gross Development Value', kind: 'money', get: (rs) => rs.developmentEconomics.gdv },
-  { label: 'Total Development Cost', kind: 'money', get: (rs) => rs.totalDevelopmentCost },
-  { label: 'Profit after Financing', kind: 'money', get: (rs) => rs.developmentEconomics.profitAfterFinancing },
-  { label: 'Development Margin', kind: 'pct', sub: 'profit / GDV', get: (rs) => rs.developmentEconomics.developmentMargin },
-  { label: 'Peak Equity', kind: 'money', get: (rs) => rs.result.realEstate.peakEquity },
-  { label: 'Terminal Equity Value', kind: 'money', get: (rs) => rs.terminalEquityValue },
-];
+type KpiKind = CaseKpiKind;
+const KPIS = CASE_KPIS;
 
 export default function Module5CaseComparison(): React.JSX.Element {
   const s = useModule1Store(
@@ -78,28 +57,11 @@ export default function Module5CaseComparison(): React.JSX.Element {
     } as HydrateSnapshot;
     const activeIsBase = s.activeCaseId === baseId;
     const baseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
-
-    return s.cases.map((c) => {
-      let model: HydrateSnapshot;
-      if (c.id === s.activeCaseId) model = liveModel;
-      else if (c.role === 'base') model = baseModel;
-      else model = applyOverrides(baseModel, c.overrides);
-      const values: Record<string, number | null> = {};
-      try {
-        const snap = computeFinancialsSnapshot(model as never);
-        const rs = computeReturnsSnapshot(snap, model.project);
-        for (const k of KPIS) values[k.label] = k.get(rs);
-      } catch {
-        for (const k of KPIS) values[k.label] = null;
-      }
-      const overrideCount = c.role === 'base'
-        ? 0
-        : (c.id === s.activeCaseId
-            // active scenario: count live (possibly unsaved) overrides
-            ? Object.keys(buildOverrides(s.baseSnapshot, liveModel)).length
-            : Object.keys(c.overrides ?? {}).length);
-      return { id: c.id, name: c.name, role: c.role, values, overrideCount };
-    });
+    const activeOverrideCount = activeIsBase ? 0 : Object.keys(buildOverrides(s.baseSnapshot, liveModel)).length;
+    return buildCaseComparisonReport({
+      baseModel, cases: s.cases, activeCaseId: s.activeCaseId,
+      liveActiveModel: liveModel, activeOverrideCount,
+    }).columns;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.cases, s.activeCaseId, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, s.migrationsApplied, baseId]);
 

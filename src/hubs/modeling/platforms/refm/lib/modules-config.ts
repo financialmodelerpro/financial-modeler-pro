@@ -31,6 +31,10 @@ export interface ModuleConfig {
   status: ModuleStatus;
   disabled: boolean;
   disabledReason?: string;
+  /** Planned-content bullets for modules not yet built. Rendered on the PDF
+   *  placeholder page so the exported report covers the whole platform roadmap,
+   *  filling in real content automatically as each module ships. */
+  plannedContent?: string[];
 }
 
 export const MODULES: readonly ModuleConfig[] = [
@@ -100,6 +104,12 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'soon',
     disabled: true,
     disabledReason: 'Coming soon',
+    plannedContent: [
+      'Configurable dashboards across every module',
+      'Charts: revenue, cash flow, capital structure, returns',
+      'Sensitivity tornado + waterfall visuals',
+      'Export-ready visual report packs',
+    ],
   },
   {
     num: 7,
@@ -112,6 +122,12 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'soon',
     disabled: true,
     disabledReason: 'Coming soon',
+    plannedContent: [
+      'Scenario manager beyond the base + override cases',
+      'One- and two-way sensitivity grids',
+      'Tornado charts on key value drivers',
+      'Monte Carlo simulation with outcome distributions',
+    ],
   },
   {
     num: 8,
@@ -124,6 +140,12 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'soon',
     disabled: true,
     disabledReason: 'Coming soon',
+    plannedContent: [
+      'Cross-project roll-up of multiple developments',
+      'Aggregate returns, cash flows and capital needs',
+      'Capital allocation + funding timeline view',
+      'Portfolio-level KPIs and concentration analysis',
+    ],
   },
   {
     num: 9,
@@ -136,6 +158,12 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'soon',
     disabled: true,
     disabledReason: 'Coming soon',
+    plannedContent: [
+      'Comparable transactions feed',
+      'Benchmark cap rates, rents and sale prices',
+      'Construction cost indices',
+      'Location and demand analytics',
+    ],
   },
   {
     num: 10,
@@ -148,6 +176,12 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'pro',
     disabled: true,
     disabledReason: 'Requires Professional plan',
+    plannedContent: [
+      'Shared project access for teams',
+      'Comments and review workflow',
+      'Role-based permissions',
+      'Change notifications and activity log',
+    ],
   },
   {
     num: 11,
@@ -160,5 +194,11 @@ export const MODULES: readonly ModuleConfig[] = [
     status: 'enterprise',
     disabled: true,
     disabledReason: 'Requires Enterprise plan',
+    plannedContent: [
+      'Programmatic access to models and outputs',
+      'REST endpoints for inputs and results',
+      'Automated, scheduled exports',
+      'Webhooks for downstream integrations',
+    ],
   },
 ];

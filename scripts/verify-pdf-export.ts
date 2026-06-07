@@ -22,7 +22,8 @@ import zlib from 'zlib';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf, collectModuleTabs } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
 import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
@@ -196,6 +197,48 @@ async function main(): Promise<void> {
   const millions = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions' });
   const thousands = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'thousands' });
   check('scale option produces valid PDFs (millions + thousands)', (await pageCount(millions)) >= 15 && (await pageCount(thousands)) >= 15, '');
+
+  // Decimals option: 2 decimals produces a valid (and generally larger) byte
+  // stream than 0 decimals for the same content.
+  const dec0 = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions', displayDecimals: 0 });
+  const dec2 = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions', displayDecimals: 2 });
+  check('decimals option produces valid PDFs (0 + 2)', (await pageCount(dec0)) >= 15 && (await pageCount(dec2)) >= 15, '');
+
+  // Future-module placeholder: selecting a not-yet-built module (module6) yields
+  // a roadmap page even though it has no builder.
+  const withFuture = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4', 'module6'] });
+  const withoutFuture = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'] });
+  check('future module renders a placeholder page', (await pageCount(withFuture)) > (await pageCount(withoutFuture)), `with=${await pageCount(withFuture)} without=${await pageCount(withoutFuture)}`);
+
+  // Per-tab selection: restricting module4 to a single tab drops content vs all
+  // tabs of module4.
+  const m4AllTabs = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'] });
+  const m4OneTab = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'], moduleTabs: { module4: ['Tab 3: P&L'] } });
+  check('per-tab selection drops content (m4 one tab < all tabs)', m4OneTab.length < m4AllTabs.length, `one=${m4OneTab.length} all=${m4AllTabs.length}`);
+
+  // Tab manifest stays in sync: every tab the builders emit for the fixture must
+  // appear in the static PDF_MODULE_TABS manifest (the modal's source of truth).
+  const emitted = collectModuleTabs(buildState());
+  const orphanTabs: string[] = [];
+  for (const [key, tabs] of Object.entries(emitted)) {
+    const manifest = PDF_MODULE_TABS[key] ?? [];
+    for (const t of tabs) if (!manifest.includes(t)) orphanTabs.push(`${key}:${t}`);
+  }
+  check('PDF tab manifest covers every emitted tab', orphanTabs.length === 0, orphanTabs.join(', '));
+
+  // Case comparison: a 2-case bundle makes Module 5 render the Case Comparison
+  // table (an extra page vs no bundle).
+  const caseBundle = {
+    baseModel: buildState(),
+    activeCaseId: 'base',
+    cases: [
+      { id: 'base', name: 'Management', role: 'base' as const, overrides: {} },
+      { id: 's1', name: 'Downside', role: 'scenario' as const, overrides: { 'project.tax.rate': 0.25 } },
+    ],
+  };
+  const m5NoCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5'] });
+  const m5WithCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5'], caseComparison: caseBundle });
+  check('Module 5 renders Case Comparison with >1 case', (await pageCount(m5WithCases)) > (await pageCount(m5NoCases)), `with=${await pageCount(m5WithCases)} no=${await pageCount(m5NoCases)}`);
 
   // Data-layer reconciliation: the PDF renders this exact snapshot, so if it
   // balances + the two CF methods tie, the printed numbers match the UI.

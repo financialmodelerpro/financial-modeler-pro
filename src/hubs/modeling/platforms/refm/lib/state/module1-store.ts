@@ -200,8 +200,10 @@ const MODEL_KEYS = [
   'migrationsApplied',
 ] as const;
 
-/** Pick the model-only snapshot (no case metadata) from a store-like object. */
-function pickModel(s: Record<string, unknown>): HydrateSnapshot {
+/** Pick the model-only snapshot (no case metadata) from a store-like object.
+ *  Exported so the export modal can resolve a chosen case's model the same way
+ *  the store does (base model fields + that case's overrides). */
+export function pickModel(s: Record<string, unknown>): HydrateSnapshot {
   const out = {} as HydrateSnapshot;
   for (const k of MODEL_KEYS) (out as Record<string, unknown>)[k] = s[k];
   return out;

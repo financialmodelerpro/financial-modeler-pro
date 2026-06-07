@@ -21,10 +21,18 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
-import { useModule1Store, modelFromSnapshot } from '../../lib/state/module1-store';
+import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
 import { hydrationFromAnySnapshot } from '../../lib/state/module1-migrate';
+import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
+import { PDF_MODULE_TABS } from '../../lib/pdf/pdfModuleTabs';
 import { listVersions, loadVersion } from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem } from '../../lib/persistence/types';
+import type { HydrateSnapshot } from '../../lib/state/module1-store';
+import type { ProjectCase } from '../../lib/state/module1-types';
+import type { CaseComparisonInput } from '../../lib/reports/caseComparisonReport';
+
+// Built modules (full content). Others render a roadmap placeholder page.
+const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
 
 interface ExportModalProps {
   open: boolean;
@@ -57,10 +65,10 @@ function versionDisplayName(v: RefmProjectVersionListItem): string {
   return `Version ${v.version_number}`;
 }
 
-// Modules that currently have a PDF exporter wired (lib/pdf/generateProjectPdf).
-// A module not in this set still appears in the picker (so the list stays
-// registry-driven) but is disabled with a "no export yet" hint.
-const EXPORTABLE = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
+/** Build the live (possibly unsaved) model from the store, for case resolution. */
+function liveModelFromStore(): HydrateSnapshot {
+  return pickModel(useModule1Store.getState() as unknown as Record<string, unknown>);
+}
 
 export default function ExportModal({
   open,
@@ -94,15 +102,32 @@ export default function ExportModal({
     return () => { cancelled = true; };
   }, [open, projectId]);
 
+  // Every module is selectable: built ones render content, future ones render a
+  // roadmap placeholder so the report covers the whole platform. Default all on.
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(MODULES.filter((m) => !m.disabled && EXPORTABLE.has(m.key)).map((m) => [m.key, true])),
+    Object.fromEntries(MODULES.map((m) => [m.key, true])),
   );
   // Per-module Inputs / Outputs / Schedules toggles. Default all on.
   const [sections, setSections] = useState<Record<string, { inputs: boolean; outputs: boolean; schedules: boolean }>>(() =>
-    Object.fromEntries(MODULES.filter((m) => EXPORTABLE.has(m.key)).map((m) => [m.key, { inputs: true, outputs: true, schedules: true }])),
+    Object.fromEntries(MODULES.filter((m) => BUILT.has(m.key)).map((m) => [m.key, { inputs: true, outputs: true, schedules: true }])),
   );
+  // Per-module tab selection. A module key maps to the set of tabs to include;
+  // default = all of that module's tabs (from the static manifest). Drilling
+  // below part level lets the user export only specific statements / tabs.
+  const [selectedTabs, setSelectedTabs] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(MODULES.filter((m) => BUILT.has(m.key)).map((m) => [m.key, [...(PDF_MODULE_TABS[m.key] ?? [])]])),
+  );
+  // Which tabs are expanded for editing in the UI (collapsed by default to keep
+  // the list compact).
+  const [tabsOpen, setTabsOpen] = useState<Record<string, boolean>>({});
   // PDF display scale (default Millions for readability on large projects).
-  const [pdfScale, setPdfScale] = useState<'thousands' | 'millions'>('millions');
+  const [pdfScale, setPdfScale] = useState<'thousands' | 'millions' | 'full'>('millions');
+  // Decimal places for figures. Default 1 (matches the millions default).
+  const [pdfDecimals, setPdfDecimals] = useState<0 | 1 | 2>(1);
+  // Case picker: which case the report renders. Cases come from the live store.
+  const cases: ProjectCase[] = normaliseCases(useModule1Store.getState().cases);
+  const storeActiveCaseId = useModule1Store.getState().activeCaseId;
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(storeActiveCaseId);
   // Full detailed PDF, concise executive-summary PDF, or the Excel model.
   const [reportKind, setReportKind] = useState<'full' | 'summary' | 'excel'>('full');
   const [generating, setGenerating] = useState(false);
@@ -113,14 +138,20 @@ export default function ExportModal({
 
   const close = (): void => { setStep('options'); setError(null); onClose(); };
 
-  // Registry-driven module rows: every enabled module appears; ones without an
-  // exporter yet are shown disabled so the list is honest + future-proof.
-  const moduleRows = MODULES.filter((m) => !m.disabled || EXPORTABLE.has(m.key));
+  // Registry-driven module rows: EVERY module appears. Built modules render full
+  // content; future modules render a roadmap placeholder page.
+  const moduleRows = MODULES;
 
   const toggle = (key: string): void => setSelected((s) => ({ ...s, [key]: !s[key] }));
   const togglePart = (key: string, part: 'inputs' | 'outputs' | 'schedules'): void =>
     setSections((s) => ({ ...s, [key]: { ...(s[key] ?? { inputs: true, outputs: true, schedules: true }), [part]: !(s[key]?.[part] ?? true) } }));
-  const selectedKeys = moduleRows.filter((m) => EXPORTABLE.has(m.key) && selected[m.key]).map((m) => m.key);
+  const toggleTab = (key: string, tab: string): void =>
+    setSelectedTabs((s) => {
+      const cur = s[key] ?? [...(PDF_MODULE_TABS[key] ?? [])];
+      const next = cur.includes(tab) ? cur.filter((t) => t !== tab) : [...cur, tab];
+      return { ...s, [key]: next };
+    });
+  const selectedKeys = moduleRows.filter((m) => selected[m.key]).map((m) => m.key);
 
   const handleGenerate = async (): Promise<void> => {
     setError(null);
@@ -128,9 +159,11 @@ export default function ExportModal({
     try {
       const { generateProjectPdf, generateSummaryPdf } = await import('../../lib/pdf/generateProjectPdf');
       // Resolve the state + naming for the chosen version. "Current" exports the
-      // live working draft; a saved version is loaded + resolved to its
-      // active-case model (pure, never touches the live store).
-      let state = useModule1Store.getState() as Parameters<typeof generateProjectPdf>[0]['state'];
+      // live working draft; a saved version is loaded (pure, never touches the
+      // live store). For both, the chosen case's model is resolved (base +
+      // overrides) and a comparison bundle of every case is assembled.
+      let state: Parameters<typeof generateProjectPdf>[0]['state'];
+      let caseComparison: CaseComparisonInput;
       let name = projectName || useModule1Store.getState().project?.name || 'Project';
       let pdfVersionLabel = versionLabel ?? null;
       let fileBase = name;
@@ -139,15 +172,37 @@ export default function ExportModal({
         if (res.error || !res.data?.version) throw new Error(res.error || 'Could not load the selected version.');
         const row = res.data.version;
         // Migrate the persisted snapshot to the current schema (same pipeline
-        // the store uses on load), then resolve its active-case model, so a
-        // legacy version exports exactly as it would if loaded into the UI.
+        // the store uses on load). Its top-level fields are the base model; cases
+        // carry the scenario overrides.
         const migrated = hydrationFromAnySnapshot(row.snapshot);
-        state = modelFromSnapshot(migrated) as typeof state;
+        const vCases = normaliseCases(migrated.cases);
+        const vActiveId = migrated.activeCaseId && vCases.some((c) => c.id === migrated.activeCaseId) ? migrated.activeCaseId : baseCaseId(vCases);
+        const vBase = pickModel(migrated as unknown as Record<string, unknown>);
+        const chosen = vCases.find((c) => c.id === selectedCaseId);
+        // Picker untouched / case not in this version -> the version's own active
+        // model (original behaviour); otherwise the chosen case's model.
+        state = (chosen
+          ? (chosen.role === 'base' ? vBase : applyOverrides(vBase, chosen.overrides))
+          : modelFromSnapshot(migrated)) as typeof state;
+        caseComparison = { baseModel: vBase, cases: vCases, activeCaseId: vActiveId };
         const vName = versionDisplayName(row);
         name = migrated.project?.name || projectName || name;
         pdfVersionLabel = row.version_label ? `v${row.version_label}` : (row.label ?? versionLabel ?? null);
         // The downloaded file is named after the version it came from.
         fileBase = vName;
+      } else {
+        const st = useModule1Store.getState();
+        const live = liveModelFromStore();
+        const storeCases = normaliseCases(st.cases);
+        const activeId = st.activeCaseId;
+        const activeIsBase = activeId === baseCaseId(storeCases);
+        const baseModel: HydrateSnapshot = activeIsBase ? live : (st.baseSnapshot as HydrateSnapshot);
+        const activeOverrideCount = activeIsBase ? 0 : Object.keys(buildOverrides(st.baseSnapshot, live)).length;
+        const chosen = storeCases.find((c) => c.id === selectedCaseId) ?? storeCases.find((c) => c.role === 'base');
+        state = (!chosen || chosen.id === activeId
+          ? live
+          : chosen.role === 'base' ? baseModel : applyOverrides(baseModel, chosen.overrides)) as typeof state;
+        caseComparison = { baseModel, cases: storeCases, activeCaseId: activeId, liveActiveModel: live, activeOverrideCount };
       }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
       const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
@@ -160,13 +215,19 @@ export default function ExportModal({
         return;
       }
 
-      const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale };
+      const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals };
+      // Per-tab selection: only pass for built + selected modules (placeholders
+      // have no tabs). renderModule filters emitted tabs to the listed set.
+      const moduleTabs: Record<string, string[]> = {};
+      for (const k of selectedKeys) if (BUILT.has(k) && selectedTabs[k]) moduleTabs[k] = selectedTabs[k];
       const bytes = reportKind === 'summary'
         ? await generateSummaryPdf({ ...common, selectedModuleKeys: [] })
         : await generateProjectPdf({
             ...common,
             selectedModuleKeys: selectedKeys,
-            moduleSections: Object.fromEntries(selectedKeys.map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
+            moduleSections: Object.fromEntries(selectedKeys.filter((k) => BUILT.has(k)).map((k) => [k, sections[k] ?? { inputs: true, outputs: true, schedules: true }])),
+            moduleTabs,
+            caseComparison,
           });
       triggerDownload(`${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`, bytes as BlobPart, 'application/pdf');
       close();
@@ -282,7 +343,7 @@ export default function ExportModal({
                 ? 'The Excel model is a formula-driven workbook: a centralised Assumptions (inputs) sheet, a formula-linked Timeline, and a Checks/legend sheet, with the calculation and statement sheets being added. Pick the version to export below.'
                 : reportKind === 'summary'
                   ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
-                  : 'The Cover and Executive Summary pages are always included. Pick modules and which parts of each to render.'}
+                  : 'The Cover and Executive Summary pages are always included. Pick modules and, per module, which parts (Inputs / Outputs / Schedules) and tabs to render. Modules still in development export a roadmap placeholder so the report covers the whole platform.'}
             </div>
             {projectId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
@@ -310,9 +371,9 @@ export default function ExportModal({
                 </span>
               </div>
             )}
-            <div style={{ display: reportKind === 'excel' ? 'none' : 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px' }}>
+            <div style={{ display: reportKind === 'excel' ? 'none' : 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Number scale:</span>
-              {(['thousands', 'millions'] as const).map((s) => (
+              {(['thousands', 'millions', 'full'] as const).map((s) => (
                 <label key={s} data-testid={`export-scale-${s}`} style={{
                   display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px', textTransform: 'capitalize',
@@ -320,15 +381,49 @@ export default function ExportModal({
                   background: pdfScale === s ? 'var(--color-navy)' : 'var(--color-surface)',
                 }}>
                   <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => setPdfScale(s)} style={{ display: 'none' }} />
-                  {s}
+                  {s === 'full' ? 'Full' : s}
                 </label>
               ))}
-              <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>(Millions recommended)</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', marginLeft: 8 }}>Decimals:</span>
+              {([0, 1, 2] as const).map((d) => (
+                <label key={d} data-testid={`export-decimals-${d}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px',
+                  color: pdfDecimals === d ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
+                  background: pdfDecimals === d ? 'var(--color-navy)' : 'var(--color-surface)',
+                }}>
+                  <input type="radio" name="pdf-decimals" checked={pdfDecimals === d} onChange={() => setPdfDecimals(d)} style={{ display: 'none' }} />
+                  {d}
+                </label>
+              ))}
             </div>
+            {reportKind !== 'excel' && cases.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Case:</span>
+                <select
+                  data-testid="export-case-select"
+                  value={selectedCaseId}
+                  onChange={(e) => setSelectedCaseId(e.target.value)}
+                  style={{
+                    fontSize: 11, fontWeight: 600, color: 'var(--color-heading)',
+                    border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px',
+                    background: 'var(--color-surface)', maxWidth: 320, cursor: 'pointer',
+                  }}
+                >
+                  {cases.map((c) => (
+                    <option key={c.id} value={c.id}>{c.role === 'base' ? `${c.name} (base)` : c.name}</option>
+                  ))}
+                </select>
+                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>The report renders this case; Module 5 compares all cases.</span>
+              </div>
+            )}
             {reportKind === 'full' && moduleRows.map((m) => {
-              const exportable = EXPORTABLE.has(m.key);
-              const checked = exportable && !!selected[m.key];
+              const built = BUILT.has(m.key);
+              const checked = !!selected[m.key];
               const sec = sections[m.key] ?? { inputs: true, outputs: true, schedules: true };
+              const tabs = PDF_MODULE_TABS[m.key] ?? [];
+              const tabSel = selectedTabs[m.key] ?? tabs;
+              const open = !!tabsOpen[m.key];
               return (
                 <div
                   key={m.key}
@@ -337,34 +432,57 @@ export default function ExportModal({
                     display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 12px', borderRadius: 8,
                     border: '1px solid var(--color-border)',
                     background: checked ? 'var(--color-navy-pale, #F4F7FC)' : 'var(--color-surface)',
-                    opacity: exportable ? 1 : 0.5,
                   }}
                 >
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: exportable ? 'pointer' : 'default' }}>
-                    <input type="checkbox" checked={checked} disabled={!exportable} onChange={() => exportable && toggle(m.key)} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggle(m.key)} />
                     <span style={{ fontSize: 18 }}>{m.icon}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Module {m.num}, {m.shortLabel}</div>
-                      <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{exportable ? m.longLabel : 'Export coming with this module'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+                        {built ? m.longLabel : `${m.longLabel} · roadmap placeholder (${m.disabledReason ?? 'coming soon'})`}
+                      </div>
                     </div>
                   </label>
-                  {exportable && checked && (
-                    <div style={{ display: 'flex', gap: 8, paddingLeft: 30 }}>
-                      {(['inputs', 'outputs', 'schedules'] as const).map((part) => (
-                        <label
-                          key={part}
-                          data-testid={`export-part-${m.key}-${part}`}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
-                            color: sec[part] ? 'var(--color-navy)' : 'var(--color-muted)',
-                            border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 8px',
-                            background: sec[part] ? 'var(--color-surface)' : 'transparent', cursor: 'pointer', textTransform: 'capitalize',
-                          }}
-                        >
-                          <input type="checkbox" checked={sec[part]} onChange={() => togglePart(m.key, part)} />
-                          {part}
-                        </label>
-                      ))}
+                  {built && checked && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 30 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {(['inputs', 'outputs', 'schedules'] as const).map((part) => (
+                          <label
+                            key={part}
+                            data-testid={`export-part-${m.key}-${part}`}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+                              color: sec[part] ? 'var(--color-navy)' : 'var(--color-muted)',
+                              border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 8px',
+                              background: sec[part] ? 'var(--color-surface)' : 'transparent', cursor: 'pointer', textTransform: 'capitalize',
+                            }}
+                          >
+                            <input type="checkbox" checked={sec[part]} onChange={() => togglePart(m.key, part)} />
+                            {part}
+                          </label>
+                        ))}
+                        {tabs.length > 0 && (
+                          <button
+                            type="button"
+                            data-testid={`export-tabs-toggle-${m.key}`}
+                            onClick={() => setTabsOpen((o) => ({ ...o, [m.key]: !o[m.key] }))}
+                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: 'var(--color-navy)' }}
+                          >
+                            {open ? '▾ Tabs' : `▸ Tabs (${tabSel.length}/${tabs.length})`}
+                          </button>
+                        )}
+                      </div>
+                      {open && tabs.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, background: 'var(--color-surface)' }}>
+                          {tabs.map((t) => (
+                            <label key={t} data-testid={`export-tab-${m.key}-${t}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: tabSel.includes(t) ? 'var(--color-heading)' : 'var(--color-muted)', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={tabSel.includes(t)} onChange={() => toggleTab(m.key, t)} />
+                              {t}
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

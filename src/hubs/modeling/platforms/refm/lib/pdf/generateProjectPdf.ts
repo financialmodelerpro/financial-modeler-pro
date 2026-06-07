@@ -42,8 +42,9 @@ import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
+import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
-import { MODULES } from '../modules-config';
+import { MODULES, type ModuleConfig } from '../modules-config';
 
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
@@ -94,8 +95,19 @@ export interface GenerateProjectPdfOptions {
   dateLabel: string;
   selectedModuleKeys: string[];
   moduleSections?: Record<string, ModuleSectionSelection>;
+  /** Per-module tab selection. When a module key is present, only its listed
+   *  tab names render (matched against the builder's tab labels); when absent,
+   *  all of that module's tabs render. Lets the user drill below part level. */
+  moduleTabs?: Record<string, string[]>;
   /** Display scale for the PDF (overrides the project setting). Default millions. */
   displayScale?: DisplayScale;
+  /** Decimal places for scaled figures. Defaults to scale-appropriate (0 for
+   *  thousands/full, 1 for millions) when omitted. */
+  displayDecimals?: number;
+  /** When provided, Module 5 renders a Case Comparison table across every case
+   *  (Management base + scenarios). Assembled by the caller (it owns the store /
+   *  version snapshot); the PDF computes the report from it. */
+  caseComparison?: CaseComparisonInput;
 }
 
 // ── Colors / layout ─────────────────────────────────────────────────────────
@@ -211,8 +223,8 @@ interface Fmt {
   mult: (v: number | null | undefined) => string;
 }
 
-function makeFmt(scale: DisplayScale): Fmt {
-  const dec = scale === 'full' ? 0 : scale === 'millions' ? 1 : 0;
+function makeFmt(scale: DisplayScale, decimals?: number): Fmt {
+  const dec = decimals !== undefined ? decimals : scale === 'full' ? 0 : scale === 'millions' ? 1 : 0;
   const money = (v: number | null | undefined): string =>
     v === null || v === undefined || !Number.isFinite(v) ? '' : formatAccounting(v, scale, dec);
   const finite = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v);
@@ -1123,7 +1135,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 }
 
 // ── Module 5: Returns & Valuation ────────────────────────────────────────────
-function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
+function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number, caseReport: CaseComparisonReport | null): ModuleContent {
   const r = returns.result;
   const re = r.realEstate;
   const cfg = returns.config;
@@ -1243,21 +1255,58 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
     }));
   }
 
-  // Tab 3: Cash Flow Streams.
+  // Tab 3: Case Comparison. Headline KPIs across every case (Management base +
+  // scenarios), with each scenario's delta vs the base in the same cell. Reads
+  // the SHARED builder (lib/reports/caseComparisonReport.ts) that also feeds the
+  // on-screen Case Comparison tab. Only rendered when there is more than one
+  // case to compare.
+  if (caseReport && caseReport.columns.length > 1) {
+    const baseCol = caseReport.columns.find((c) => c.id === caseReport.baseId) ?? caseReport.columns[0];
+    const fmtCaseVal = (v: number | null, kind: 'pct' | 'money' | 'mult'): string => {
+      if (v === null || !Number.isFinite(v)) return 'n/a';
+      return kind === 'pct' ? fmt.pct(v, 1) : kind === 'mult' ? fmt.mult(v) : fmt.money(v);
+    };
+    const fmtCaseDelta = (v: number | null, base: number | null, kind: 'pct' | 'money' | 'mult'): string => {
+      if (v === null || base === null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
+      const d = v - base;
+      if (Math.abs(d) < 1e-9) return '0';
+      const sign = d > 0 ? '+' : '';
+      return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${fmt.money(d)}`;
+    };
+    const header = ['Metric', ...caseReport.columns.map((c) => `${c.role === 'base' ? '★ ' : ''}${c.name}`)];
+    const rows: PdfTableRow[] = caseReport.kpis.map((k) => {
+      const cells: Array<string | number | null> = [k.sub ? `${k.label} (${k.sub})` : k.label];
+      for (const col of caseReport.columns) {
+        const v = col.values[k.label] ?? null;
+        let s = fmtCaseVal(v, k.kind);
+        if (col.id !== caseReport.baseId) {
+          const d = fmtCaseDelta(v, baseCol.values[k.label] ?? null, k.kind);
+          if (d) s += ` (${d})`;
+        }
+        cells.push(s);
+      }
+      return row(cells);
+    });
+    items.push(tTable('Tab 3: Case Comparison', 'outputs', {
+      title: 'Case Comparison, headline KPIs (delta vs Management Case)', kind: 'grid', align: 'data', columns: header, rows,
+    }));
+  }
+
+  // Tab 4: Cash Flow Streams.
   const bu = returns.buildup;
-  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
+  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
     periodRow('FCFF (unlevered)', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
     periodRow('FCFE (levered)', returns.fcfePerPeriod.slice(1), 'sum', undefined, returns.fcfePerPeriod[0] ?? 0),
     periodRow('Distributed equity', returns.dividendStreamPerPeriod.slice(1), 'sum', undefined, returns.dividendStreamPerPeriod[0] ?? 0),
   ])));
-  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('FCFF Build-up', streamPrior, streamYears, [
+  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('FCFF Build-up', streamPrior, streamYears, [
     periodRow('(-) Existing pre-capex', bu.existingPreCapexPerPeriod.slice(1), 'sum', undefined, bu.existingPreCapexPerPeriod[0] ?? 0),
     periodRow('(+) Cash from operations', bu.cfoPerPeriod.slice(1), 'sum', undefined, bu.cfoPerPeriod[0] ?? 0),
     periodRow('(+) Cash from investing', bu.cfiPerPeriod.slice(1), 'sum', undefined, bu.cfiPerPeriod[0] ?? 0),
     periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod.slice(1), 'sum', undefined, bu.terminalEnterprisePerPeriod[0] ?? 0),
     periodRow('= FCFF', returns.fcffPerPeriod.slice(1), 'sum', 'total', returns.fcffPerPeriod[0] ?? 0),
   ])));
-  items.push(tTable('Tab 3: Cash Flow Streams', 'schedules', periodTable('FCFE Build-up', streamPrior, streamYears, [
+  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('FCFE Build-up', streamPrior, streamYears, [
     periodRow('FCFF', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
     periodRow('(+) Existing debt opening', bu.existingDebtOpeningPerPeriod.slice(1), 'sum', undefined, bu.existingDebtOpeningPerPeriod[0] ?? 0),
     periodRow('(+) Debt drawdown', bu.debtDrawPerPeriod.slice(1), 'sum', undefined, bu.debtDrawPerPeriod[0] ?? 0),
@@ -1274,12 +1323,43 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
 // ── Assembly ──────────────────────────────────────────────────────────────────
 function includePart(flag: boolean | undefined): boolean { return flag !== false; }
 
-function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: ModuleSectionSelection, fmt: Fmt): void {
-  // Group by tab (stable order), keeping only selected parts.
+/** Placeholder page for a module that is on the roadmap but not built yet, so
+ *  the exported report covers the whole platform. Lists the planned content from
+ *  the registry; fills in with real content automatically once the module ships. */
+function renderPlaceholderModule(ctx: Ctx, m: ModuleConfig): void {
+  const header = `Module ${m.num}: ${m.longLabel}`;
+  newPage(ctx, header);
+  ctx.currentHeader = header;
+  ctx.y -= 36;
+  drawCell(ctx, m.longLabel, MARGIN, CONTENT_W, ctx.y, { font: ctx.bold, size: 20, color: NAVY_DARK });
+  ctx.y -= 24;
+  // Status pill (Coming soon / Requires Professional / Enterprise).
+  const status = m.disabledReason ?? 'In development';
+  const pillW = ctx.bold.widthOfTextAtSize(status, 9) + 16;
+  ctx.page.drawRectangle({ x: MARGIN, y: ctx.y - 2, width: pillW, height: 16, color: PART_FILL });
+  drawCell(ctx, status, MARGIN, pillW, ctx.y, { font: ctx.bold, size: 9, color: NAVY_DARK });
+  ctx.y -= 28;
+  drawParagraph(ctx, 'This module is on the platform roadmap. Its inputs, outputs and schedules will appear here automatically once it ships, so this report always reflects the full platform.', 10);
+  ctx.y -= 6;
+  if (m.plannedContent?.length) {
+    drawCell(ctx, 'Planned content', MARGIN, CONTENT_W, ctx.y, { font: ctx.bold, size: 11, color: NAVY_DARK });
+    ctx.y -= 18;
+    for (const b of m.plannedContent) {
+      ensureSpace(ctx, 16);
+      drawCell(ctx, `•  ${b}`, MARGIN + 10, CONTENT_W - 10, ctx.y, { size: 10, color: TEXT });
+      ctx.y -= 16;
+    }
+  }
+}
+
+function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: ModuleSectionSelection, fmt: Fmt, selectedTabs?: string[]): void {
+  // Group by tab (stable order), keeping only selected parts (and, when given,
+  // only the selected tabs).
   const order: string[] = [];
   const byTab = new Map<string, TaggedItem[]>();
   for (const it of items) {
     if (!includePart(sel[it.part])) continue;
+    if (selectedTabs && !selectedTabs.includes(it.tab)) continue;
     if (!byTab.has(it.tab)) { byTab.set(it.tab, []); order.push(it.tab); }
     byTab.get(it.tab)!.push(it);
   }
@@ -1312,12 +1392,18 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
 
   const p = opts.state.project;
   const scale: DisplayScale = opts.displayScale ?? 'millions';
-  const fmt = makeFmt(scale);
+  const fmt = makeFmt(scale, opts.displayDecimals);
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     projectName: opts.projectName || 'Untitled Project',
     unitLabel: unitLabel(p.currency ?? 'SAR', scale),
   };
+
+  // Case comparison (Module 5) is computed once from the caller-supplied bundle.
+  let caseReport: CaseComparisonReport | null = null;
+  if (opts.caseComparison) {
+    try { caseReport = buildCaseComparisonReport(opts.caseComparison); } catch { caseReport = null; }
+  }
 
   // Page 1: clean cover.
   drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Feasibility Study', opts.dateLabel);
@@ -1327,25 +1413,60 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   ctx.currentHeader = 'Executive Summary';
   buildExecSummary(ctx, snap, returns, opts.state, fmt);
 
-  // Modules.
+  // Modules. Built modules (1-5) render real content; selected modules that are
+  // not built yet render a roadmap placeholder page so the report covers the
+  // whole platform.
   const py = snap.projectStartYear - 1;
   const sel = opts.moduleSections ?? {};
   const selectedKeys = new Set(opts.selectedModuleKeys);
+  const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
   for (const m of MODULES) {
     if (!selectedKeys.has(m.key)) continue;
+    if (!BUILT.has(m.key)) { renderPlaceholderModule(ctx, m); continue; }
     let content: ModuleContent | null = null;
     if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py);
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
-    else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py) : null;
+    else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py, caseReport) : null;
     else continue;
     if (!content || !content.length) continue;
-    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt);
+    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
   }
 
   drawFooters(ctx);
   return doc.save();
+}
+
+/**
+ * Introspection helper: the distinct tab labels each built module emits for a
+ * given state (in render order). Used by the per-tab export picker (so it lists
+ * only tabs that actually have content for this project) and by the verifier (to
+ * keep the static PDF_MODULE_TABS manifest in sync with what the builders emit).
+ * Pure: no document is created. Lives here so it shares the exact builders the
+ * report uses.
+ */
+export function collectModuleTabs(state: FinancialsResolverState, caseComparison?: CaseComparisonInput): Record<string, string[]> {
+  const snap = computeFinancialsSnapshot(state);
+  let returns: ReturnsSnapshot | null = null;
+  try { returns = computeReturnsSnapshot(snap, state.project); } catch { returns = null; }
+  let caseReport: CaseComparisonReport | null = null;
+  if (caseComparison) { try { caseReport = buildCaseComparisonReport(caseComparison); } catch { caseReport = null; } }
+  const fmt = makeFmt('millions');
+  const py = snap.projectStartYear - 1;
+  const distinct = (content: ModuleContent): string[] => {
+    const seen: string[] = [];
+    for (const it of content) if (!seen.includes(it.tab)) seen.push(it.tab);
+    return seen;
+  };
+  const out: Record<string, string[]> = {
+    module1: distinct(buildModule1(snap, state, fmt, py)),
+    module2: distinct(buildModule2(snap, state, fmt, py)),
+    module3: distinct(buildModule3(snap, state, fmt, py)),
+    module4: distinct(buildModule4(snap, state, fmt, py)),
+  };
+  if (returns) out.module5 = distinct(buildModule5(returns, state, fmt, py, caseReport));
+  return out;
 }
 
 // ── Public entry: SUMMARY report ──────────────────────────────────────────────
@@ -1368,7 +1489,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
 
   const p = opts.state.project;
   const scale: DisplayScale = opts.displayScale ?? 'millions';
-  const fmt = makeFmt(scale);
+  const fmt = makeFmt(scale, opts.displayDecimals);
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     projectName: opts.projectName || 'Untitled Project',
