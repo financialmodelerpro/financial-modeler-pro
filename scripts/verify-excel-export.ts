@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
 
-  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Land & Area', 'Capex', 'Revenue', 'Cost of Sales', 'Opex', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Cost of Sales', 'Opex', 'Checks'];
   for (const name of ALL_SHEETS) {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
@@ -167,6 +167,26 @@ async function main(): Promise<void> {
   const cosResults = collectResults('Cost of Sales');
   const cosTol = Math.max(1000, Math.abs(cosReportTotal) * 1e-6);
   check('Cost of Sales total reconciles to platform CoS tab', cosResults.some((x) => Math.abs(x - cosReportTotal) <= cosTol), `cosReportTotal=${Math.round(cosReportTotal)}`);
+
+  // Financing (Module 1 step 5): the debt roll-forward is live (interest =
+  // rate x balance links to Assumptions; closing reconciles to the engine).
+  const finWs = wb.getWorksheet('Financing')!;
+  let finInterestFormula = false;
+  const finResults: number[] = [];
+  finWs.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as any;
+    if (v && typeof v === 'object' && 'formula' in v) {
+      if (/\)\*Assumptions!/.test(String(v.formula))) finInterestFormula = true; // (opening+draw)*rate
+      if (typeof v.result === 'number') finResults.push(v.result);
+    }
+  }));
+  check('Financing interest = rate x balance links to Assumptions', finInterestFormula, 'no (balance)*Assumptions! interest formula found');
+  const facs = [...snap.financing.facilities.values()];
+  const totClosingLast = facs.reduce((s, f) => s + ((f.outstanding ?? [])[snap.axisLength - 1] ?? 0), 0);
+  const totInterest = facs.reduce((s, f) => s + (f.interestAccrued ?? []).slice(0, snap.axisLength).reduce((a, v) => a + (v ?? 0), 0), 0);
+  const finNear = (target: number) => target === 0 || finResults.some((x) => Math.abs(x - target) <= Math.max(1000, Math.abs(target) * 1e-6));
+  check('Financing closing debt reconciles to engine', finNear(totClosingLast), `closingLast=${Math.round(totClosingLast)}`);
+  check('Financing total interest reconciles to engine', finNear(totInterest), `interest=${Math.round(totInterest)}`);
 
   // Opex (Phase 4): total ties to the snapshot opex (incl. HQ).
   const opexResults = collectResults('Opex');

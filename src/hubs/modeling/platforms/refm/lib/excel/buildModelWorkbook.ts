@@ -35,7 +35,7 @@ export interface BuildModelOptions {
   dateLabel: string;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', financing: 'Financing', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const snap = computeFinancialsSnapshot(opts.state);
@@ -51,6 +51,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   addTimeline(wb, snap, refs);
   addLandArea(wb, opts.state, refs);
   const capexAddrs = addCapex(wb, snap, capex, refs);
+  addFinancing(wb, snap, opts.state, refs);
   const revAddr = addRevenue(wb, snap, opts.state, refs);
   const cosAddr = addCoS(wb, snap, cos, refs);
   const opexAddr = addOpex(wb, snap, opts.state, refs);
@@ -593,6 +594,116 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   return { scheduleTotalAddr, buildupTotalAddr };
 }
 
+// ── Financing (live debt roll-forward + equity + IDC) ─────────────────────────
+function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, refs: AssumptionRefs): void {
+  const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 34;
+  const N = refs.axisLength;
+  const firstCol = 2;
+  const totalCol = periodTotalCol(firstCol, N);
+  const fin = snap.financing;
+  setTitle(ws.getCell('A1'), 'Financing', 16);
+  setLabel(ws.getCell('A2'), 'Debt roll-forward per facility (opening, drawdown, interest = rate x balance, closing), equity and IDC. Interest links to the rate on Assumptions.');
+
+  const sliceN = (a: number[] | undefined): number[] => (a ?? []).slice(0, N);
+  const openingSeries = (closing: number[], init: number): number[] => { const o = new Array<number>(N).fill(0); o[0] = init; for (let i = 1; i < N; i++) o[i] = closing[i - 1] ?? 0; return o; };
+  const colP = (t: number): string => colLetter(periodCol(firstCol, t));
+  let r = 4;
+
+  // A single financing row: Opening cell + per-period (formula or cached) + Total.
+  const finRow = (label: string, open: { f?: string; v: number }, per: (t: number) => { f?: string; v: number }, total: 'sum' | 'last', opts: { indent?: number; bold?: boolean } = {}): number => {
+    const rowN = r;
+    setLabel(ws.getCell(`A${rowN}`), label, opts);
+    const put = (c: number, x: { f?: string; v: number }): void => {
+      if (x.f) { setFormula(ws.getCell(rowN, c), fcell(x.f, x.v), NUMFMT.money); }
+      else { const cell = ws.getCell(rowN, c); cell.value = x.v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } }; }
+    };
+    put(firstCol, open);
+    const cached: number[] = [];
+    for (let t = 0; t < N; t++) { const x = per(t); put(periodCol(firstCol, t), x); cached.push(x.v); }
+    const totF = total === 'sum' ? `SUM(${periodRange(firstCol, N, rowN)})` : `${colLetter(periodCol(firstCol, N - 1))}${rowN}`;
+    const totV = total === 'sum' ? cached.reduce((s, v) => s + v, 0) : (cached[N - 1] ?? 0);
+    setFormula(ws.getCell(rowN, totalCol), fcell(totF, totV), NUMFMT.money);
+    if (opts.bold) for (let c = 1; c <= totalCol; c++) { const cell = ws.getCell(rowN, c); cell.font = { ...(cell.font as object), bold: true }; }
+    r += 1;
+    return rowN;
+  };
+
+  const tr = (id: string) => state.financingTranches.find((t) => t.id === id);
+  const ordered = [...fin.facilities.entries()]
+    .filter(([id, f]) => nz(f.drawSchedule) || nz(f.outstanding) || (tr(id)?.openingBalance ?? 0) > 0)
+    .sort(([a], [b]) => ((tr(a)?.origin === 'existing' ? 0 : 1) - (tr(b)?.origin === 'existing' ? 0 : 1)));
+
+  const closingRows: number[] = [];
+  const interestRows: number[] = [];
+  const principalRows: number[] = [];
+  const totClosing = new Array<number>(N).fill(0);
+  const totInterest = new Array<number>(N).fill(0);
+  const totPrincipal = new Array<number>(N).fill(0);
+
+  for (const [id, f] of ordered) {
+    const t0 = tr(id);
+    const existing = t0?.origin === 'existing';
+    const priorBal = existing ? Math.max(0, t0?.openingBalance ?? 0) : 0;
+    const closing = sliceN(f.outstanding);
+    const opening = openingSeries(closing, priorBal);
+    const draw = sliceN(f.drawSchedule);
+    const idc = sliceN(f.interestCapitalized);
+    const accrued = sliceN(f.interestAccrued);
+    const repaid = sliceN(f.principalRepaid);
+    const trRef = refs.tranches.find((x) => x.id === id);
+    const rateAddr = trRef?.rate ?? '0';
+    const openBalAddr = trRef?.openingBalance;
+    for (let t = 0; t < N; t++) { totClosing[t] += closing[t] ?? 0; totInterest[t] += accrued[t] ?? 0; totPrincipal[t] += repaid[t] ?? 0; }
+
+    setSectionHeader(ws.getRow(r), `Debt movement, ${t0?.name ?? id}${existing ? ' (existing)' : ''}`, totalCol); r += 1;
+    periodHeader(ws, r, firstCol, N, snap, 'Movement'); r += 1;
+    const openingRow = r, capexDrawRow = r + 1, interestRow = r + 2, idcRow = r + 3, totalDrawRow = r + 4, principalRow = r + 5, closingRow = r + 6;
+
+    finRow('Opening', { f: priorBal > 0 && openBalAddr ? openBalAddr : undefined, v: priorBal },
+      (t) => (t === 0 ? { f: `${colLetter(firstCol)}${openingRow}`, v: opening[0] } : { f: `${colP(t - 1)}${closingRow}`, v: opening[t] ?? 0 }), 'last');
+    finRow('Capex drawdown', { v: 0 }, (t) => ({ v: draw[t] ?? 0 }), 'sum', { indent: 1 });
+    finRow('Interest accrued (rate x balance)', { v: 0 }, (t) => ({ f: `(${colP(t)}${openingRow}+${colP(t)}${capexDrawRow})*${rateAddr}`, v: accrued[t] ?? 0 }), 'sum', { indent: 1 });
+    finRow('IDC drawdown (capitalised interest)', { v: 0 }, (t) => ({ v: idc[t] ?? 0 }), 'sum', { indent: 1 });
+    finRow('Total drawdown', { v: 0 }, (t) => ({ f: `${colP(t)}${capexDrawRow}+${colP(t)}${idcRow}`, v: (draw[t] ?? 0) + (idc[t] ?? 0) }), 'sum', { bold: true });
+    finRow('Principal repaid', { v: 0 }, (t) => ({ v: -(repaid[t] ?? 0) }), 'sum', { indent: 1 });
+    finRow('Closing', { v: priorBal }, (t) => ({ f: `${colP(t)}${openingRow}+${colP(t)}${totalDrawRow}+${colP(t)}${principalRow}`, v: closing[t] ?? 0 }), 'last', { bold: true });
+    closingRows.push(closingRow); interestRows.push(interestRow); principalRows.push(principalRow);
+    r += 1;
+  }
+
+  // Combined debt totals (sum across facilities).
+  if (closingRows.length) {
+    setSectionHeader(ws.getRow(r), 'Combined debt', totalCol); r += 1;
+    periodHeader(ws, r, firstCol, N, snap, 'Combined'); r += 1;
+    finRow('Total interest accrued', { v: 0 }, (t) => ({ f: interestRows.map((rr) => `${colP(t)}${rr}`).join('+') || '0', v: totInterest[t] ?? 0 }), 'sum', { bold: true });
+    finRow('Total principal repaid', { v: 0 }, (t) => ({ f: `-(${principalRows.map((rr) => `${colP(t)}${rr}`).join('+')})`, v: -(totPrincipal[t] ?? 0) }), 'sum');
+    finRow('Total debt outstanding', { v: 0 }, (t) => ({ f: closingRows.map((rr) => `${colP(t)}${rr}`).join('+') || '0', v: totClosing[t] ?? 0 }), 'last', { bold: true });
+    r += 1;
+  }
+
+  // Equity movement (engine schedule; equity contributions are inputs).
+  const eq = fin.equity;
+  setSectionHeader(ws.getRow(r), 'Equity movement', totalCol); r += 1;
+  const eqTotalCol = periodHeader(ws, r, firstCol, N, snap, 'Equity'); r += 1;
+  const eqRows: number[] = [];
+  cachedRow(ws, r, firstCol, N, eqTotalCol, 'Cash equity', sliceN(eq.cashPerPeriod), { indent: 1 }); eqRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, eqTotalCol, 'In-kind equity', sliceN(eq.inKindPerPeriod), { indent: 1 }); eqRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, eqTotalCol, 'Existing equity', sliceN(eq.existingEquityPerPeriod), { indent: 1 }); eqRows.push(r); r += 1;
+  navySumRow(ws, r, firstCol, N, eqTotalCol, 'Total equity', eqRows, sliceN(eq.totalPerPeriod)); r += 2;
+
+  // IDC pool summary (capitalised interest, depreciation, NBV).
+  const idcS = snap.idc;
+  setSectionHeader(ws.getRow(r), 'IDC pool', totalCol); r += 1;
+  const idcTotalCol = periodHeader(ws, r, firstCol, N, snap, 'IDC'); r += 1;
+  cachedRow(ws, r, firstCol, N, idcTotalCol, 'Construction interest', sliceN(idcS.totalConstructionInterestPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, firstCol, N, idcTotalCol, 'Capitalised to assets', sliceN(idcS.totalIdcPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, firstCol, N, idcTotalCol, 'IDC depreciation', sliceN(idcS.idcDepreciationPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, firstCol, N, idcTotalCol, 'IDC NBV (closing)', sliceN(idcS.idcNbvPerPeriod), { indent: 1 }); r += 1;
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+}
+
 // ── Shared period-sheet helpers (Timeline-anchored tables) ────────────────────
 const nz = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
@@ -933,6 +1044,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.timeline, 'The model year axis'],
     [SHEETS.landArea, 'Area hierarchy (NSA / BUA / GFA) and land value'],
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
+    [SHEETS.financing, 'Debt movement, finance cost, equity and IDC'],
     [SHEETS.revenue, 'Recognised revenue by strategy and asset'],
     [SHEETS.cos, 'Cost of sales matched to recognised revenue'],
     [SHEETS.opex, 'Operating expenses by asset and category'],
