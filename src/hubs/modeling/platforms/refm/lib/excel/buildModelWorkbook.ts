@@ -21,6 +21,7 @@ import { computeFinancialsSnapshot, type FinancialsResolverState } from '../fina
 import { computeReturnsSnapshot } from '../returns-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildCostOfSalesReport, type ReportTable } from '../reports/cosReports';
+import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import {
@@ -34,7 +35,7 @@ export interface BuildModelOptions {
   dateLabel: string;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const snap = computeFinancialsSnapshot(opts.state);
@@ -48,6 +49,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   addCover(wb, snap, opts); // first tab; index links to the sheets created below
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
+  addLandArea(wb, opts.state, refs);
   const capexAddrs = addCapex(wb, snap, capex, refs);
   const revAddr = addRevenue(wb, snap, opts.state, refs);
   const cosAddr = addCoS(wb, snap, cos, refs);
@@ -112,7 +114,7 @@ interface AssetInputRef {
   bua: string; nsa: string; gfa: string; support: string; parking: string;
   parkingBays: string; usefulLife: string; landSqm: string; landRate: string;
 }
-interface SubUnitInputRef { id: string; assetId: string; metric: string; value: string; unitArea: string; price: string }
+interface SubUnitInputRef { id: string; assetId: string; category: string; metric: string; value: string; unitArea: string; price: string }
 interface ParcelInputRef { id: string; area: string; rate: string; cashPct: string; inKindPct: string }
 interface TrancheInputRef { id: string; name: string; openingBalance: string; rate: string; periods: string }
 interface EquityInputRef { id: string; name: string; amount: string }
@@ -264,7 +266,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`G${r}`), u.startingAdr ?? u.unitPrice ?? 0, NUMFMT.money);
       setInput(ws.getCell(`H${r}`), (u.occupancyPct ?? 0) / 100, NUMFMT.pct);
       setInput(ws.getCell(`I${r}`), (u.operatingMargin ?? 0) / 100, NUMFMT.pct);
-      subUnitRefs.push({ id: u.id, assetId: u.assetId, metric: addr('D', r), value: addr('E', r), unitArea: addr('F', r), price: addr('G', r) });
+      subUnitRefs.push({ id: u.id, assetId: u.assetId, category: addr('C', r), metric: addr('D', r), value: addr('E', r), unitArea: addr('F', r), price: addr('G', r) });
       r += 1;
     }
     r += 1;
@@ -391,6 +393,99 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
     setFormula(ws.getCell(6, period0Col + t), fcell(t === 0 ? 'ProjectStartYear' : `${prev}6+1`, snap.yearLabels[t] ?? snap.projectStartYear + t), NUMFMT.year, true);
   }
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 4, showGridLines: false }];
+}
+
+// ── Land & Area (formula area hierarchy + land value, links to Assumptions) ────
+function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs: AssumptionRefs): void {
+  const ws = wb.addWorksheet(SHEETS.landArea, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 28;
+  for (let c = 2; c <= 12; c++) ws.getColumn(c).width = 13;
+  setTitle(ws.getCell('A1'), 'Land & Area', 16);
+  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA) and land value, computed from the Assumptions inputs.');
+
+  // Engine metrics per asset, cached so the formulas reconcile to the platform.
+  const metricsById = new Map<string, AssetAreaMetrics>();
+  for (const a of state.assets.filter((x) => x.visible !== false)) {
+    const inPhase = state.assets.filter((x) => x.phaseId === a.phaseId);
+    metricsById.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode));
+  }
+  const sub = (id: string): SubUnitInputRef | undefined => refs.subUnits.find((s) => s.id === id);
+  const suRaw = new Map(state.subUnits.map((u) => [u.id, u] as const));
+
+  let r = 4;
+  // ── Section 1: sub-unit areas (drivers for the NSA hierarchy) ──
+  setSectionHeader(ws.getRow(r), 'Sub-unit areas', 7); r += 1;
+  ['Sub-unit', 'Asset', 'Category', 'Metric', 'Area (sqm)', 'NSA area', 'Support area'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+  const suCells = new Map<string, { nsa: string; support: string }>(); // sub-unit id -> this-sheet cells
+  for (const sr of refs.subUnits) {
+    const u = suRaw.get(sr.id);
+    if (!u) continue;
+    const aName = state.assets.find((a) => a.id === sr.assetId)?.name ?? sr.assetId;
+    const area = u.metric === 'area' ? (u.metricValue ?? 0) : (u.metricValue ?? 0) * (u.unitArea ?? 0);
+    const isNsa = u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable';
+    const isSupport = u.category === 'Support';
+    setLabel(ws.getCell(`A${r}`), u.name, { indent: 1 });
+    setLabel(ws.getCell(`B${r}`), aName);
+    setFormula(ws.getCell(`C${r}`), fcell(sr.category, String(u.category)), '@', true);
+    setFormula(ws.getCell(`D${r}`), fcell(sr.metric, String(u.metric)), '@', true);
+    // Area = IF(metric="area", value, value * unitArea)
+    setFormula(ws.getCell(`E${r}`), fcell(`IF(${sr.metric}="area",${sr.value},${sr.value}*${sr.unitArea})`, area), NUMFMT.int, true);
+    const areaCell = `E${r}`;
+    setFormula(ws.getCell(`F${r}`), fcell(`IF(OR(C${r}="Sellable",C${r}="Operable",C${r}="Leasable"),${areaCell},0)`, isNsa ? area : 0), NUMFMT.int);
+    setFormula(ws.getCell(`G${r}`), fcell(`IF(C${r}="Support",${areaCell},0)`, isSupport ? area : 0), NUMFMT.int);
+    suCells.set(sr.id, { nsa: `${SHEETS.landArea}!F${r}`, support: `${SHEETS.landArea}!G${r}` });
+    r += 1;
+  }
+  r += 1;
+
+  // ── Section 2: asset area hierarchy + land ──
+  setSectionHeader(ws.getRow(r), 'Asset area & land', 12); r += 1;
+  ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+
+  // Pass 1: hierarchy rows; capture each asset's BUA cell for cross-asset land share.
+  interface ARow { ref: AssetInputRef; row: number; buaCell: string }
+  const aRows: ARow[] = [];
+  for (const ar of refs.assets) {
+    const m = metricsById.get(ar.id);
+    const mySub = refs.subUnits.filter((s) => s.assetId === ar.id).map((s) => suCells.get(s.id)).filter(Boolean) as Array<{ nsa: string; support: string }>;
+    const nsaSub = mySub.length ? mySub.map((c) => c.nsa).join('+') : '0';
+    const supSub = mySub.length ? mySub.map((c) => c.support).join('+') : '0';
+    setLabel(ws.getCell(`A${r}`), ar.name);
+    // NSA = MAX(asset NSA input, sub-unit NSA); Support = asset support + sub-unit support
+    setFormula(ws.getCell(`B${r}`), fcell(`MAX(${ar.nsa},${nsaSub})`, m?.nsa ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`C${r}`), fcell(`${ar.support}+(${supSub})`, m?.supportArea ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`D${r}`), fcell(`MAX(${ar.bua},B${r}+C${r})`, m?.bua ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`E${r}`), fcell(ar.parking, m?.parkingArea ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`F${r}`), fcell(`MAX(${ar.gfa},D${r}+E${r})`, m?.gfa ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`G${r}`), fcell(ar.parkingBays, m?.parkingBays ?? 0), NUMFMT.int, true);
+    aRows.push({ ref: ar, row: r, buaCell: `D${r}` });
+    r += 1;
+  }
+
+  // Pass 2: land columns (need cross-asset BUA for the auto-by-BUA share).
+  const parcelPhase = new Map(state.parcels.map((p) => [p.id, p.phaseId] as const));
+  const parcelsInPhase = (phaseId: string): ParcelInputRef[] => refs.parcels.filter((p) => parcelPhase.get(p.id) === phaseId);
+  for (const row of aRows) {
+    const m = metricsById.get(row.ref.id);
+    const ph = row.ref.phaseId;
+    const pcs = parcelsInPhase(ph);
+    const landTotal = pcs.length ? pcs.map((p) => p.area).join('+') : '0';
+    const landValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}`).join('+') : '0';
+    const cashValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}*${p.cashPct}`).join('+') : '0';
+    const phaseBua = aRows.filter((x) => x.ref.phaseId === ph).map((x) => x.buaCell).join('+') || '0';
+    // Land sqm: explicit input if set, else phase land x this BUA / phase BUA.
+    setFormula(ws.getCell(`H${row.row}`), fcell(`IF(${row.ref.landSqm}>0,${row.ref.landSqm},IFERROR((${landTotal})*${row.buaCell}/(${phaseBua}),0))`, m?.landSqm ?? 0), NUMFMT.int, true);
+    // Land rate: explicit input if set, else phase weighted average.
+    setFormula(ws.getCell(`I${row.row}`), fcell(`IF(${row.ref.landRate}>0,${row.ref.landRate},IFERROR((${landValueF})/(${landTotal}),0))`, (m && m.landSqm > 0) ? m.landValue / m.landSqm : 0), NUMFMT.money, true);
+    setFormula(ws.getCell(`J${row.row}`), fcell(`H${row.row}*I${row.row}`, m?.landValue ?? 0), NUMFMT.money);
+    // Cash / in-kind split via the phase cash fraction.
+    setFormula(ws.getCell(`K${row.row}`), fcell(`J${row.row}*IFERROR((${cashValueF})/(${landValueF}),0)`, m?.cashLandValue ?? 0), NUMFMT.money);
+    setFormula(ws.getCell(`L${row.row}`), fcell(`J${row.row}-K${row.row}`, m?.inKindLandValue ?? 0), NUMFMT.money);
+  }
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
 }
 
 // ── Capex (cost build-up + phased schedule) ───────────────────────────────────
@@ -804,6 +899,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const index: Array<[string, string]> = [
     [SHEETS.assumptions, 'All inputs and assumptions (edit here)'],
     [SHEETS.timeline, 'The model year axis'],
+    [SHEETS.landArea, 'Area hierarchy (NSA / BUA / GFA) and land value'],
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
     [SHEETS.revenue, 'Recognised revenue by strategy and asset'],
     [SHEETS.cos, 'Cost of sales matched to recognised revenue'],

@@ -13,6 +13,7 @@ import JSZip from 'jszip';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
+import { resolveAssetAreaMetrics } from '../src/core/calculations';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
 
-  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Revenue', 'Cost of Sales', 'Opex', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Land & Area', 'Capex', 'Revenue', 'Cost of Sales', 'Opex', 'Checks'];
   for (const name of ALL_SHEETS) {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
@@ -99,6 +100,29 @@ async function main(): Promise<void> {
   check('Timeline year[0] caches the correct year', !!y0 && y0.result === snap.yearLabels[0], `got=${y0?.result} expect=${snap.yearLabels[0]}`);
   const yLast = tl.getCell(6, 2 + snap.axisLength).value as any; // last active period col (period0 at col 3)
   check('Timeline last year is a +1 formula and reconciles', !!yLast && typeof yLast === 'object' && String(yLast.formula).endsWith('6+1') && yLast.result === snap.yearLabels[snap.axisLength - 1], `got=${yLast?.result} expect=${snap.yearLabels[snap.axisLength - 1]}`);
+
+  // Land & Area (step 3): the area hierarchy + land value are formulas linking to
+  // Assumptions, and each asset's BUA + land value reconcile to the engine.
+  const la = wb.getWorksheet('Land & Area')!;
+  let laLinks = 0;
+  const laResults: number[] = [];
+  la.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as any;
+    if (v && typeof v === 'object' && 'formula' in v) {
+      if (String(v.formula).includes('Assumptions!')) laLinks++;
+      if (typeof v.result === 'number') laResults.push(v.result);
+    }
+  }));
+  check('Land & Area links to Assumptions inputs', laLinks > 0, `links=${laLinks}`);
+  const near = (target: number) => laResults.some((x) => Math.abs(x - target) <= Math.max(1, Math.abs(target) * 1e-6));
+  let areaOk = true; let landOk = true;
+  for (const a of state.assets.filter((x: any) => x.visible !== false)) {
+    const m = resolveAssetAreaMetrics(a, state.project, state.parcels, state.assets.filter((x: any) => x.phaseId === a.phaseId), state.subUnits, state.landAllocationMode);
+    if (m.bua > 1 && !near(m.bua)) areaOk = false;
+    if (m.landValue > 1 && !near(m.landValue)) landOk = false;
+  }
+  check('Land & Area BUA reconciles to engine (per asset)', areaOk);
+  check('Land & Area land value reconciles to engine (per asset)', landOk);
 
   // Capex (Phase 2): build-up amounts are formulas linking to Assumptions inputs,
   // and a cached formula result reconciles to the snapshot capex total.
