@@ -18,6 +18,7 @@
  * Run: npx tsx scripts/verify-pdf-export.ts
  */
 import { readFileSync } from 'fs';
+import zlib from 'zlib';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
@@ -157,6 +158,31 @@ async function main(): Promise<void> {
   });
   check('part toggle drops content (m1 outputs-only < m1 all)', m1OutputsOnly.length < m1All.length, `out=${m1OutputsOnly.length} all=${m1All.length}`);
   check('part toggle still valid PDF', (await pageCount(m1OutputsOnly)) >= 2, '');
+
+  // FAST input shading: input-part tables fill their value cells with the
+  // navy-pale FAST_INPUT color (0.886 0.917 0.957) so assumptions read as
+  // inputs, matching the on-screen FAST_INPUT cells. The token must appear when
+  // inputs are included and must NOT appear when only outputs are rendered.
+  const FAST_FILL_TOKEN = '0.886 0.917 0.957 rg';
+  const inflatedContent = (bytes: Uint8Array): string => {
+    const buf = Buffer.from(bytes);
+    const s = buf.toString('latin1');
+    let out = '';
+    const re = /stream\r?\n/g; let m: RegExpExecArray | null;
+    while ((m = re.exec(s))) {
+      const start = m.index + m[0].length;
+      const end = s.indexOf('endstream', start);
+      if (end < 0) continue;
+      try { out += zlib.inflateSync(buf.subarray(start, end)).toString('latin1'); } catch { /* not a flate stream */ }
+    }
+    return out;
+  };
+  const m1InputsOnly = await generateProjectPdf({
+    state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module1'],
+    moduleSections: { module1: { inputs: true, outputs: false, schedules: false } },
+  });
+  check('FAST input shading present on input cells', inflatedContent(m1InputsOnly).includes(FAST_FILL_TOKEN), 'fill token not found in inputs-only render');
+  check('FAST input shading absent from outputs-only', !inflatedContent(m1OutputsOnly).includes(FAST_FILL_TOKEN), 'fill token leaked into outputs-only render');
 
   // Empty selection still produces cover + executive summary (both mandatory).
   const coverOnly = await generateProjectPdf({

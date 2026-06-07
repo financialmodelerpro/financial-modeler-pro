@@ -108,6 +108,15 @@ const SUBTOTAL_FILL = rgb(0.90, 0.93, 0.97);
 const PART_FILL = rgb(0.84, 0.89, 0.96);
 const CARD_FILL = rgb(0.97, 0.98, 1);
 const BORDER = rgb(0.82, 0.85, 0.89);
+// FAST input cells: mirror the on-screen FAST_INPUT style (navy-pale fill +
+// navy text) so assumption / input cells read as editable inputs in the PDF,
+// exactly as they do in the platform UI. Slightly stronger than the 8% UI tint
+// so the shading survives print. Applied to the value columns of input-part
+// tables (the label column stays plain, matching the UI where only the field
+// editor is shaded).
+const FAST_FILL = rgb(0.886, 0.917, 0.957);
+const FAST_TEXT = NAVY_DARK;
+const FAST_BORDER = rgb(0.74, 0.80, 0.89);
 
 const PAGE_W = 841.89; // A4 landscape only
 const PAGE_H = 595.28;
@@ -250,11 +259,19 @@ function drawTitle(ctx: Ctx, title: string): void {
   drawCell(ctx, title, MARGIN, CONTENT_W, ctx.y, { font: ctx.bold, size: 10, color: NAVY_DARK });
 }
 
-function drawPartHeader(ctx: Ctx, label: string): void {
+function drawPartHeader(ctx: Ctx, label: string, hint?: string): void {
   ensureSpace(ctx, PART_H + 4);
   ctx.y -= PART_H;
   ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: PART_H, color: PART_FILL });
   drawCell(ctx, label, MARGIN, CONTENT_W, ctx.y + 2, { font: ctx.bold, size: 10, color: NAVY_DARK });
+  if (hint) {
+    // Right-aligned legend swatch + note (used on the Inputs band to explain the
+    // navy-pale input shading).
+    const noteW = ctx.font.widthOfTextAtSize(hint, 7);
+    const swX = MARGIN + CONTENT_W - noteW - 14;
+    ctx.page.drawRectangle({ x: swX, y: ctx.y + 6, width: 8, height: 8, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
+    drawCell(ctx, hint, swX + 12, noteW + 2, ctx.y + 2, { size: 7, color: MUTED });
+  }
   ctx.y -= 4;
 }
 
@@ -296,7 +313,7 @@ function drawCards(ctx: Ctx, title: string, cards: PdfCard[]): void {
   ctx.y -= SECTION_GAP - 4;
 }
 
-function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
+function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): void {
   drawTitle(ctx, table.title);
   const nCols = table.columns.length;
   const dataAlign = table.align !== 'kv';
@@ -319,15 +336,25 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
     ctx.y -= ROW_H;
     const st = emphasisStyle(r.emphasis);
     if (st.fill) ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: ROW_H, color: st.fill });
+    // FAST input shading: on plain data rows of an input table, the value
+    // columns (everything past the label) get the navy-pale input fill so they
+    // read as assumptions, just like the on-screen FAST_INPUT cells.
+    const shadeInputs = isInput && !st.fill && (!r.emphasis || r.emphasis === 'data');
+    if (shadeInputs) {
+      for (let i = 1; i < nCols; i++) {
+        ctx.page.drawRectangle({ x: colX(i), y: ctx.y, width: colW(i), height: ROW_H, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
+      }
+    }
     r.cells.forEach((cell, i) => {
       const align: 'left' | 'right' = i === 0 ? 'left' : dataAlign ? 'right' : 'left';
-      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color });
+      const color = shadeInputs && i >= 1 ? FAST_TEXT : st.color;
+      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color });
     });
   }
   ctx.y -= SECTION_GAP;
 }
 
-function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
+function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): void {
   const periodHeaders = table.columns.slice(2); // [priorYear, ...years]
   const ranges = chunkRanges(periodHeaders.length);
   ranges.forEach(([from, to], ci) => {
@@ -350,14 +377,20 @@ function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt): void {
       const st = emphasisStyle(r.emphasis);
       if (st.fill) ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: totalRowW, height: ROW_H, color: st.fill });
       const cells = [r.cells[0], r.cells[1], ...r.cells.slice(2 + from, 2 + to)];
-      cells.forEach((cell, k) => drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: st.color }));
+      const shadeInputs = isInput && !st.fill && (!r.emphasis || r.emphasis === 'data');
+      if (shadeInputs) {
+        for (let k = 1; k < cells.length; k++) {
+          ctx.page.drawRectangle({ x: colX(k), y: ctx.y, width: colW(k), height: ROW_H, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
+        }
+      }
+      cells.forEach((cell, k) => drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: shadeInputs && k >= 1 ? FAST_TEXT : st.color }));
     }
     ctx.y -= SECTION_GAP;
   });
 }
 
-function drawItem(ctx: Ctx, item: PdfItem, fmt: Fmt): void {
-  if (item.type === 'table') { item.table.kind === 'period' ? drawPeriodTable(ctx, item.table, fmt) : drawGridTable(ctx, item.table, fmt); }
+function drawItem(ctx: Ctx, item: PdfItem, fmt: Fmt, isInput = false): void {
+  if (item.type === 'table') { item.table.kind === 'period' ? drawPeriodTable(ctx, item.table, fmt, isInput) : drawGridTable(ctx, item.table, fmt, isInput); }
   else if (item.type === 'cards') drawCards(ctx, item.title, item.cards);
   else { if (item.title) drawTitle(ctx, item.title); drawParagraph(ctx, item.text); }
 }
@@ -1259,8 +1292,8 @@ function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: 
     for (const part of ['inputs', 'outputs', 'schedules'] as PartKind[]) {
       const partItems = tabItems.filter((i) => i.part === part);
       for (const ti of partItems) {
-        if (ti.part !== curPart) { drawPartHeader(ctx, PART_LABEL[part]); curPart = ti.part; }
-        drawItem(ctx, ti.item, fmt);
+        if (ti.part !== curPart) { drawPartHeader(ctx, PART_LABEL[part], part === 'inputs' ? 'Shaded cells are model inputs / assumptions' : undefined); curPart = ti.part; }
+        drawItem(ctx, ti.item, fmt, ti.part === 'inputs');
       }
     }
   }

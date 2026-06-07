@@ -223,7 +223,8 @@
       "PowerShell(npx tsx scripts/verify-returns-engine.ts 2>&1 | Select-Object -Last 4; Write-Output \"----\"; npx tsx scripts/verify-returns-snapshot.ts 2>&1 | Select-Object -Last 4)",
       "PowerShell(npx tsx scripts/verify-returns-snapshot.ts 2>&1 | Select-Object -Last 8)",
       "PowerShell(npx tsx scripts/verify-cases.ts 2>&1 | Select-Object -Last 25)",
-      "PowerShell(npx tsx scripts/verify-cases.ts 2>&1 | Select-Object -Last 3; Write-Output \"---- version naming ----\"; npx tsx scripts/verify-version-naming.ts 2>&1 | Select-Object -Last 2; Write-Output \"---- phase-date preservation ----\"; npx tsx scripts/verify-phase-date-preservation.ts 2>&1 | Select-Object -Last 3)"
+      "PowerShell(npx tsx scripts/verify-cases.ts 2>&1 | Select-Object -Last 3; Write-Output \"---- version naming ----\"; npx tsx scripts/verify-version-naming.ts 2>&1 | Select-Object -Last 2; Write-Output \"---- phase-date preservation ----\"; npx tsx scripts/verify-phase-date-preservation.ts 2>&1 | Select-Object -Last 3)",
+      "Bash(command -v pdftoppm mutool gs magick convert)"
     ]
   }
 }
