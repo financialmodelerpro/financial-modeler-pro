@@ -74,6 +74,21 @@ async function main(): Promise<void> {
   check('Project start year is a MIN() formula over phase inputs', !!startYearCell);
   check('Project start year formula caches the snapshot value', !!startYearCell && (startYearCell as any).value.result === snap.projectStartYear, `got=${(startYearCell as any)?.value?.result} expect=${snap.projectStartYear}`);
 
+  // Full inputs tab: the entity sections are present and inputs are blue.
+  const asumText: string[] = [];
+  let blueInputs = 0;
+  asum.eachRow((row) => row.eachCell((c) => {
+    if (typeof c.value === 'string') asumText.push(c.value);
+    const f = c.font as any;
+    if (f && f.color && f.color.argb === 'FF0070C0') blueInputs++;
+  }));
+  // Sections that the fixture always exercises (parcels / assets / sub-units /
+  // debt). Equity contributions render only when present, so not asserted here.
+  for (const sec of ['Land parcels', 'Assets', 'Sub-units', 'Financing facilities (debt)']) {
+    check(`Assumptions has section: ${sec}`, asumText.includes(sec), '');
+  }
+  check('Assumptions carries a substantial blue input set', blueInputs > 30, `blue=${blueInputs}`);
+
   // Timeline year row (row 6). Column B = Opening (prior year = projectStartYear-1,
   // matching the platform's leading prior-year column); column C = period 0; etc.
   const tl = wb.getWorksheet('Timeline')!;

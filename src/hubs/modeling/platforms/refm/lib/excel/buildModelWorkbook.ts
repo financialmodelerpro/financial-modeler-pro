@@ -104,10 +104,28 @@ interface CapexLineRef {
   amount: number;
 }
 interface CapexAssetRef { name: string; phaseName: string; total: number; lines: CapexLineRef[] }
+
+// Absolute cell addresses on the Assumptions sheet, captured as inputs are
+// written, so the calc sheets reference inputs by cell (nothing hardcoded).
+interface AssetInputRef {
+  id: string; name: string; phaseId: string; strategy: string;
+  bua: string; nsa: string; gfa: string; support: string; parking: string;
+  parkingBays: string; usefulLife: string; landSqm: string; landRate: string;
+}
+interface SubUnitInputRef { id: string; assetId: string; metric: string; value: string; unitArea: string; price: string }
+interface ParcelInputRef { id: string; area: string; rate: string; cashPct: string; inKindPct: string }
+interface TrancheInputRef { id: string; name: string; openingBalance: string; rate: string; periods: string }
+interface EquityInputRef { id: string; name: string; amount: string }
+
 interface AssumptionRefs {
   startYearName: string;
   axisLength: number;
   capex: CapexAssetRef[];
+  assets: AssetInputRef[];
+  subUnits: SubUnitInputRef[];
+  parcels: ParcelInputRef[];
+  tranches: TrancheInputRef[];
+  equity: EquityInputRef[];
 }
 
 // ── Assumptions (Inputs) ──────────────────────────────────────────────────────
@@ -115,11 +133,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   const ws = wb.addWorksheet(SHEETS.assumptions, { properties: { tabColor: { argb: ARGB.input } } });
   ws.getColumn(1).width = 36;
   ws.getColumn(2).width = 22;
-  ws.getColumn(3).width = 16;
-  ws.getColumn(4).width = 16;
-  ws.getColumn(5).width = 16;
+  for (let c = 3; c <= 12; c++) ws.getColumn(c).width = 14;
   const p = opts.state.project;
   const fin = snap.financing;
+  const assetRefs: AssetInputRef[] = [];
+  const subUnitRefs: SubUnitInputRef[] = [];
+  const parcelRefs: ParcelInputRef[] = [];
+  const trancheRefs: TrancheInputRef[] = [];
+  const equityRefs: EquityInputRef[] = [];
+  const addr = (col: string, row: number): string => `${SHEETS.assumptions}!$${col}$${row}`;
   let r = 1;
   setTitle(ws.getCell(`A${r}`), 'Assumptions (Inputs)', 16); r += 1;
   setLabel(ws.getCell(`A${r}`), 'All blue cells are inputs. Edit here; the model recalculates throughout.', { }); r += 2;
@@ -140,6 +162,21 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
   const debtRow = addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
   addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
+  addKV('Country', p.country ?? '-', '@');
+  addKV('Financial terminology', String(p.financialTerminology ?? 'standard'), '@');
+  addKV('Tax / Zakat payment (days)', p.tax?.paymentDays ?? 0, NUMFMT.int);
+  addKV('Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct);
+  addKV('Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct);
+  addKV('Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money);
+  addKV('Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, 'DsoDays');
+  addKV('Opex payables, DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, 'DpoDays');
+  addKV('Pre-sales escrow held %', p.escrow?.heldPct ?? 0, NUMFMT.pct);
+  addKV('IDC capitalize (1 = yes)', p.idcConfig?.capitalize === false ? 0 : 1, NUMFMT.int);
+  addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
+  addKV('IDC funding mode', String(p.idcConfig?.fundingMode ?? 'debt_drawdown'), '@');
+  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
+  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
+  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
   void taxRow; void debtRow;
   r += 1;
 
@@ -163,6 +200,75 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setFormula(ws.getCell(`B${r}`), fcell(`MIN(${phaseStartCells.join(',')})`, snap.projectStartYear), NUMFMT.year);
   wb.definedNames.add(`${SHEETS.assumptions}!$B$${r}`, 'ProjectStartYear');
   r += 2;
+
+  // Land parcels.
+  if (opts.state.parcels.length) {
+    setSectionHeader(ws.getRow(r), 'Land parcels', 7); r += 1;
+    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Roads %', 'Parks %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const pa of opts.state.parcels) {
+      setLabel(ws.getCell(`A${r}`), pa.name);
+      setInput(ws.getCell(`B${r}`), pa.area ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`C${r}`), pa.rate ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`D${r}`), (pa.cashPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`E${r}`), (pa.inKindPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`F${r}`), (pa.roadsPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`G${r}`), (pa.parksPct ?? 0) / 100, NUMFMT.pct);
+      parcelRefs.push({ id: pa.id, area: addr('B', r), rate: addr('C', r), cashPct: addr('D', r), inKindPct: addr('E', r) });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Assets (area schedule + depreciation).
+  const visibleAssets = opts.state.assets.filter((a) => a.visible !== false);
+  if (visibleAssets.length) {
+    setSectionHeader(ws.getRow(r), 'Assets', 11); r += 1;
+    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const a of visibleAssets) {
+      setLabel(ws.getCell(`A${r}`), a.name);
+      setInput(ws.getCell(`B${r}`), a.strategy, '@');
+      setInput(ws.getCell(`C${r}`), a.buaSqm ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`D${r}`), a.sellableBuaSqm ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`E${r}`), a.gfaSqm ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`F${r}`), a.supportArea ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`G${r}`), a.parkingArea ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`H${r}`), a.parkingBaysRequired ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`I${r}`), a.landAllocation?.sqm ?? a.landAreaSqm ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`J${r}`), a.landAllocation?.customRate ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`K${r}`), a.usefulLifeYears ?? 0, NUMFMT.int);
+      assetRefs.push({
+        id: a.id, name: a.name, phaseId: a.phaseId, strategy: a.strategy,
+        bua: addr('C', r), nsa: addr('D', r), gfa: addr('E', r), support: addr('F', r), parking: addr('G', r),
+        parkingBays: addr('H', r), landSqm: addr('I', r), landRate: addr('J', r), usefulLife: addr('K', r),
+      });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Sub-units (revenue / area drivers).
+  if (opts.state.subUnits.length) {
+    setSectionHeader(ws.getRow(r), 'Sub-units', 9); r += 1;
+    ['Sub-unit', 'Asset', 'Category', 'Metric', 'Quantity', 'Unit area (sqm)', 'Price / ADR', 'Occupancy %', 'Margin %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const u of opts.state.subUnits) {
+      const aName = opts.state.assets.find((a) => a.id === u.assetId)?.name ?? u.assetId;
+      setLabel(ws.getCell(`A${r}`), u.name, { indent: 1 });
+      setLabel(ws.getCell(`B${r}`), aName);
+      setInput(ws.getCell(`C${r}`), String(u.category), '@');
+      setInput(ws.getCell(`D${r}`), String(u.metric), '@');
+      setInput(ws.getCell(`E${r}`), u.metricValue ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`F${r}`), u.unitArea ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`G${r}`), u.startingAdr ?? u.unitPrice ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`H${r}`), (u.occupancyPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`I${r}`), (u.operatingMargin ?? 0) / 100, NUMFMT.pct);
+      subUnitRefs.push({ id: u.id, assetId: u.assetId, metric: addr('D', r), value: addr('E', r), unitArea: addr('F', r), price: addr('G', r) });
+      r += 1;
+    }
+    r += 1;
+  }
 
   // Returns config section.
   setSectionHeader(ws.getRow(r), 'Returns & Valuation assumptions', 5); r += 1;
@@ -205,9 +311,50 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     }
     capexRefs.push({ name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
   }
+  r += 1;
+
+  // Financing facilities (debt).
+  if (opts.state.financingTranches.length) {
+    setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 8); r += 1;
+    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const t of opts.state.financingTranches) {
+      const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
+      setLabel(ws.getCell(`A${r}`), t.name);
+      setInput(ws.getCell(`B${r}`), String(t.origin ?? 'new'), '@');
+      setInput(ws.getCell(`C${r}`), t.openingBalance ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`D${r}`), rate / 100, NUMFMT.pct2);
+      setInput(ws.getCell(`E${r}`), String(t.drawdownMethod ?? '-'), '@');
+      setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
+      setInput(ws.getCell(`G${r}`), t.repaymentPeriods ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
+      trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Equity contributions.
+  if (opts.state.equityContributions.length) {
+    setSectionHeader(ws.getRow(r), 'Equity contributions', 4); r += 1;
+    ['Contribution', 'Amount', 'Timing', 'Type'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const e of opts.state.equityContributions) {
+      setLabel(ws.getCell(`A${r}`), e.name);
+      setInput(ws.getCell(`B${r}`), e.amount ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`C${r}`), String(e.timing ?? 'upfront'), '@');
+      setInput(ws.getCell(`D${r}`), String(e.type ?? 'cash'), '@');
+      equityRefs.push({ id: e.id, name: e.name, amount: addr('B', r) });
+      r += 1;
+    }
+    r += 1;
+  }
 
   ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
-  return { startYearName: 'ProjectStartYear', axisLength: snap.axisLength, capex: capexRefs };
+  return {
+    startYearName: 'ProjectStartYear', axisLength: snap.axisLength, capex: capexRefs,
+    assets: assetRefs, subUnits: subUnitRefs, parcels: parcelRefs, tranches: trancheRefs, equity: equityRefs,
+  };
 }
 
 // ── Timeline (formula-driven year axis) ───────────────────────────────────────
