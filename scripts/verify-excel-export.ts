@@ -127,16 +127,19 @@ async function main(): Promise<void> {
   // Capex (Phase 2): build-up amounts are formulas linking to Assumptions inputs,
   // and a cached formula result reconciles to the snapshot capex total.
   const cap = wb.getWorksheet('Capex')!;
-  let linksAssumptions = 0;
+  let linksAssumptions = 0; let scheduleDrivenByBuildup = false;
   const capResults: number[] = [];
   cap.eachRow((row) => row.eachCell((c) => {
     const v = c.value as any;
     if (v && typeof v === 'object' && 'formula' in v) {
-      if (String(v.formula).includes('Assumptions!')) linksAssumptions++;
+      const f = String(v.formula);
+      if (f.includes('Assumptions!')) linksAssumptions++;
+      if (/\$B\$\d+\*\$[A-Z]+\$\d+/.test(f)) scheduleDrivenByBuildup = true; // subtotal x phasing %
       if (typeof v.result === 'number') capResults.push(v.result);
     }
   }));
   check('Capex build-up links to Assumptions inputs (rate x quantity)', linksAssumptions > 0, `links=${linksAssumptions}`);
+  check('Capex schedule is driven by the build-up (subtotal x phasing)', scheduleDrivenByBuildup, 'no subtotal x phasing formula found');
   const inclSum = snap.financing.capex.perPeriod.inclAllLand.reduce((s, v) => s + (v ?? 0), 0);
   const capTol = Math.max(1000, Math.abs(inclSum) * 1e-6);
   check('Capex total reconciles to snapshot (incl. all land)', capResults.some((x) => Math.abs(x - inclSum) <= capTol), `inclSum=${Math.round(inclSum)}`);
