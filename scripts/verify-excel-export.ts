@@ -9,6 +9,7 @@
  * exist, and that a valid .xlsx buffer is produced.
  */
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
@@ -42,7 +43,7 @@ function buildState(): any {
 }
 
 async function main(): Promise<void> {
-  console.log('=== Excel model export test (Phases 1-4: foundation + Capex + Revenue/CoS + Opex) ===');
+  console.log('=== Excel model export test (axis fix + iterative calc; Phases 1-4 sheets) ===');
   const state = buildState();
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
@@ -73,12 +74,15 @@ async function main(): Promise<void> {
   check('Project start year is a MIN() formula over phase inputs', !!startYearCell);
   check('Project start year formula caches the snapshot value', !!startYearCell && (startYearCell as any).value.result === snap.projectStartYear, `got=${(startYearCell as any)?.value?.result} expect=${snap.projectStartYear}`);
 
-  // Timeline year row (row 6, B onward) is formula-driven and reconciles.
+  // Timeline year row (row 6). Column B = Opening (prior year = projectStartYear-1,
+  // matching the platform's leading prior-year column); column C = period 0; etc.
   const tl = wb.getWorksheet('Timeline')!;
-  const y0 = tl.getCell('B6').value as any;
+  const yOpen = tl.getCell('B6').value as any;
+  check('Timeline leads with an Opening prior-year column', !!yOpen && typeof yOpen === 'object' && String(yOpen.formula).replace(/\s/g, '') === 'ProjectStartYear-1' && yOpen.result === snap.projectStartYear - 1, `got=${yOpen?.result} expect=${snap.projectStartYear - 1}`);
+  const y0 = tl.getCell('C6').value as any; // period 0 (first active year)
   check('Timeline year[0] is a formula referencing ProjectStartYear', !!y0 && typeof y0 === 'object' && y0.formula === 'ProjectStartYear');
   check('Timeline year[0] caches the correct year', !!y0 && y0.result === snap.yearLabels[0], `got=${y0?.result} expect=${snap.yearLabels[0]}`);
-  const yLast = tl.getCell(6, 1 + snap.axisLength).value as any; // last period col
+  const yLast = tl.getCell(6, 2 + snap.axisLength).value as any; // last active period col (period0 at col 3)
   check('Timeline last year is a +1 formula and reconciles', !!yLast && typeof yLast === 'object' && String(yLast.formula).endsWith('6+1') && yLast.result === snap.yearLabels[snap.axisLength - 1], `got=${yLast?.result} expect=${snap.yearLabels[snap.axisLength - 1]}`);
 
   // Capex (Phase 2): build-up amounts are formulas linking to Assumptions inputs,
@@ -134,6 +138,13 @@ async function main(): Promise<void> {
   const reload = new ExcelJS.Workbook();
   await reload.xlsx.load(buf);
   check('buffer reloads as a valid workbook with all sheets', ALL_SHEETS.every((n) => !!reload.getWorksheet(n)));
+
+  // Iterative calculation must be enabled in the workbook (the debt / IDC /
+  // cash-sweep / funding formulas are circular). Verify by reading xl/workbook.xml
+  // from the .xlsx zip and checking the calcPr iterate flag.
+  const zip = await JSZip.loadAsync(buf);
+  const wbXml = await zip.file('xl/workbook.xml')!.async('string');
+  check('iterative calculation is enabled (calcPr iterate)', /<calcPr\b[^>]*iterate="1"/.test(wbXml), 'iterate flag missing in workbook.xml');
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
