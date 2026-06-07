@@ -18,6 +18,7 @@
 import ExcelJS from 'exceljs';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
+import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import {
@@ -31,19 +32,21 @@ export interface BuildModelOptions {
   dateLabel: string;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const snap = computeFinancialsSnapshot(opts.state);
+  const capex = buildCapexReport(snap, opts.state);
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Financial Modeler Pro';
   wb.created = new Date(0); // deterministic (avoid clock for reproducible output)
   wb.calcProperties.fullCalcOnLoad = true;
 
   addCover(wb, snap, opts); // first tab; index links to the sheets created below
-  const refs = addAssumptions(wb, snap, opts);
+  const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
-  addChecks(wb, snap);
+  const capexAddrs = addCapex(wb, snap, capex, refs);
+  addChecks(wb, snap, capex, capexAddrs);
   return wb;
 }
 
@@ -53,13 +56,23 @@ export async function generateModelWorkbookBuffer(opts: BuildModelOptions): Prom
 }
 
 // Cell references the rest of the model links to (defined-name targets).
+interface CapexLineRef {
+  name: string;
+  /** Absolute cross-sheet address of the rate / % input cell on Assumptions. */
+  rateAddr: string;
+  /** Absolute address of the quantity / basis input cell, null for fixed lumps. */
+  qtyAddr: string | null;
+  amount: number;
+}
+interface CapexAssetRef { name: string; phaseName: string; total: number; lines: CapexLineRef[] }
 interface AssumptionRefs {
   startYearName: string;
   axisLength: number;
+  capex: CapexAssetRef[];
 }
 
 // ── Assumptions (Inputs) ──────────────────────────────────────────────────────
-function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions): AssumptionRefs {
+function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, capex: CapexReport): AssumptionRefs {
   const ws = wb.addWorksheet(SHEETS.assumptions, { properties: { tabColor: { argb: ARGB.input } } });
   ws.getColumn(1).width = 36;
   ws.getColumn(2).width = 22;
@@ -120,9 +133,42 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setLabel(ws.getCell(`A${r}`), 'Terminal value method'); setInput(ws.getCell(`B${r}`), String(cfg?.terminalMethod ?? 'exit_multiple'), '@'); r += 1;
   addKV('Exit multiple (x stabilised NOI)', cfg?.exitMultiple ?? 8, NUMFMT.mult, 'ExitMultiple');
   addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
+  r += 1;
+
+  // Capex cost lines (rate inputs + quantity / basis drivers). The Capex sheet
+  // multiplies these to produce each line amount, so editing a rate here flows
+  // through the model. Percent-method rates are stored as decimals (0.10) and
+  // multiply a money basis; rate methods multiply a physical quantity; a fixed
+  // lump has no quantity.
+  setSectionHeader(ws.getRow(r), 'Capex cost lines (rate x quantity, or % x basis)', 5); r += 1;
+  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity / Basis', ''].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+  const capexRefs: CapexAssetRef[] = [];
+  for (const ia of capex.inputAssets) {
+    setLabel(ws.getCell(`A${r}`), `${ia.assetName}  (${ia.phaseName})`, { bold: true });
+    fillRange(ws, r, 1, r, 5, ARGB.subtotal);
+    r += 1;
+    const lineRefs: CapexLineRef[] = [];
+    for (const ln of ia.lines) {
+      setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
+      setLabel(ws.getCell(`B${r}`), ln.basis);
+      if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
+      else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.money);
+      const hasQty = !ln.isFixed && ln.metricValue !== null;
+      if (hasQty) setInput(ws.getCell(`D${r}`), ln.metricValue as number, ln.metricKind === 'money' ? NUMFMT.money : NUMFMT.int);
+      lineRefs.push({
+        name: ln.name,
+        rateAddr: `${SHEETS.assumptions}!$C$${r}`,
+        qtyAddr: hasQty ? `${SHEETS.assumptions}!$D$${r}` : null,
+        amount: ln.amount,
+      });
+      r += 1;
+    }
+    capexRefs.push({ name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
+  }
 
   ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
-  return { startYearName: 'ProjectStartYear', axisLength: snap.axisLength };
+  return { startYearName: 'ProjectStartYear', axisLength: snap.axisLength, capex: capexRefs };
 }
 
 // ── Timeline (formula-driven year axis) ───────────────────────────────────────
@@ -154,8 +200,113 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 4, showGridLines: false }];
 }
 
+// ── Capex (cost build-up + phased schedule) ───────────────────────────────────
+interface CapexAddrs { scheduleTotalAddr: string; buildupTotalAddr: string }
+
+function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs): CapexAddrs {
+  const ws = wb.addWorksheet(SHEETS.capex, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 34;
+  ws.getColumn(2).width = 16;
+  const N = refs.axisLength;
+  const firstCol = 2; // column B = period 0, mirroring the Timeline axis
+
+  setTitle(ws.getCell('A1'), 'Capex', 16);
+  setLabel(ws.getCell('A2'), 'Development cost build-up per asset (rates link to Assumptions), then phased onto the model timeline.');
+
+  let r = 4;
+
+  // ── Section 1: cost build-up by asset (formula-driven, links to Assumptions) ──
+  setSectionHeader(ws.getRow(r), 'Cost build-up by asset', 2); r += 1;
+  setColHeader(ws.getCell(r, 1), 'Asset / Cost line', 'left');
+  setColHeader(ws.getCell(r, 2), 'Amount', 'right');
+  r += 1;
+  const assetSubtotalRows: number[] = [];
+  for (const a of refs.capex) {
+    setLabel(ws.getCell(`A${r}`), `${a.name}  (${a.phaseName})`, { bold: true });
+    fillRange(ws, r, 1, r, 2, ARGB.subtotal);
+    r += 1;
+    const lineRows: number[] = [];
+    for (const ln of a.lines) {
+      setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
+      // amount = rate x quantity (rate / percent methods) or rate (fixed lump).
+      const formula = ln.qtyAddr ? `${ln.rateAddr}*${ln.qtyAddr}` : `${ln.rateAddr}`;
+      setFormula(ws.getCell(`B${r}`), fcell(formula, ln.amount), NUMFMT.money, true);
+      lineRows.push(r);
+      r += 1;
+    }
+    setLabel(ws.getCell(`A${r}`), `Subtotal, ${a.name}`, { bold: true });
+    const sumRange = lineRows.length ? `SUM(B${lineRows[0]}:B${lineRows[lineRows.length - 1]})` : '0';
+    setFormula(ws.getCell(`B${r}`), fcell(sumRange, a.total), NUMFMT.money);
+    ws.getCell(`B${r}`).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.formula } };
+    fillRange(ws, r, 1, r, 2, ARGB.grey);
+    assetSubtotalRows.push(r);
+    r += 1;
+  }
+  const buildupTotalCached = refs.capex.reduce((s, a) => s + a.total, 0);
+  setLabel(ws.getCell(`A${r}`), 'Total development cost (incl. all land)', { bold: true });
+  const subSum = assetSubtotalRows.length ? assetSubtotalRows.map((rr) => `B${rr}`).join('+') : '0';
+  setFormula(ws.getCell(`B${r}`), fcell(subSum, buildupTotalCached), NUMFMT.money);
+  fillRange(ws, r, 1, r, 2, ARGB.navy);
+  ws.getCell(`A${r}`).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+  ws.getCell(`B${r}`).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+  const buildupTotalAddr = `${SHEETS.capex}!$B$${r}`;
+  r += 2;
+
+  // ── Section 2: capex phased by period (incl. all land) ──
+  const totalCol = firstCol + N;
+  setSectionHeader(ws.getRow(r), 'Capex by period (incl. all land)', totalCol); r += 1;
+  setColHeader(ws.getCell(r, 1), 'Asset', 'left');
+  for (let t = 0; t < N; t++) {
+    const c = firstCol + t;
+    ws.getColumn(c).width = 12;
+    const cell = ws.getCell(r, c);
+    setFormula(cell, fcell(`Timeline!${colLetter(c)}6`, snap.yearLabels[t] ?? snap.projectStartYear + t), NUMFMT.year, true);
+    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
+    cell.alignment = { horizontal: 'right' };
+  }
+  ws.getColumn(totalCol).width = 14;
+  setColHeader(ws.getCell(r, totalCol), 'Total', 'right');
+  r += 1;
+
+  const inclTable = capex.results.find((t) => t.title === 'Total Capex (incl. all land)');
+  const assetRows = (inclTable?.rows ?? []).filter((rw) => !rw.isTotal);
+  const assetPeriodRows: number[] = [];
+  for (const ar of assetRows) {
+    setLabel(ws.getCell(`A${r}`), ar.label, { indent: 1 });
+    for (let t = 0; t < N; t++) {
+      const cell = ws.getCell(r, firstCol + t);
+      cell.value = ar.values[t] ?? 0; // phased value (engine curve output), cached
+      cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+      cell.numFmt = NUMFMT.money;
+    }
+    const rowRange = `${colLetter(firstCol)}${r}:${colLetter(firstCol + N - 1)}${r}`;
+    const rowCached = ar.values.slice(0, N).reduce((s, v) => s + (v ?? 0), 0);
+    setFormula(ws.getCell(r, totalCol), fcell(`SUM(${rowRange})`, rowCached), NUMFMT.money);
+    assetPeriodRows.push(r);
+    r += 1;
+  }
+  // Project total row: each period = SUM of the asset cells above (formula).
+  setLabel(ws.getCell(`A${r}`), 'Total capex (incl. all land)', { bold: true });
+  const inclAll = snap.financing.capex.perPeriod.inclAllLand;
+  for (let t = 0; t < N; t++) {
+    const col = colLetter(firstCol + t);
+    const colSum = assetPeriodRows.length ? assetPeriodRows.map((rr) => `${col}${rr}`).join('+') : '0';
+    setFormula(ws.getCell(r, firstCol + t), fcell(colSum, inclAll[t] ?? 0), NUMFMT.money);
+  }
+  const gtRange = `${colLetter(firstCol)}${r}:${colLetter(firstCol + N - 1)}${r}`;
+  const gtCached = inclAll.slice(0, N).reduce((s, v) => s + (v ?? 0), 0);
+  setFormula(ws.getCell(r, totalCol), fcell(`SUM(${gtRange})`, gtCached), NUMFMT.money);
+  fillRange(ws, r, 1, r, totalCol, ARGB.navy);
+  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+  const scheduleTotalAddr = `${SHEETS.capex}!$${colLetter(totalCol)}$${r}`;
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  return { scheduleTotalAddr, buildupTotalAddr };
+}
+
 // ── Checks / legend ───────────────────────────────────────────────────────────
-function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>): void {
+function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, capexAddrs: CapexAddrs): void {
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 40;
   ws.getColumn(2).width = 22;
@@ -192,8 +343,15 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
     setLabel(ws.getCell(`C${r}`), note);
     r += 1;
   }
-  r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 1 (foundation). Cover, Assumptions, Timeline and Checks are in place. Calculation sheets (Revenue, Capex, Financing, Opex, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
+  // Live check: the phased Capex schedule total ties to the cost build-up total
+  // (both reference the Capex sheet, so this recalculates if a rate is edited).
+  setLabel(ws.getCell(`A${r}`), 'Capex schedule ties to cost build-up');
+  const cs = ws.getCell(`B${r}`);
+  cs.value = fcell(`IF(ABS(${capexAddrs.scheduleTotalAddr}-${capexAddrs.buildupTotalAddr})<1,"OK","CHECK")`, 'OK');
+  cs.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.good } };
+  setFormula(ws.getCell(`C${r}`), fcell(capexAddrs.scheduleTotalAddr, capex.inputAssets.reduce((s, a) => s + a.total, 0)), NUMFMT.money, true);
+  r += 2;
+  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 2 (Capex). Cover, Assumptions, Timeline, Capex and Checks are in place. The remaining calculation sheets (Revenue + Cost of Sales, Opex, Financing, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
 }
 
 // ── Cover / Index ─────────────────────────────────────────────────────────────
@@ -287,6 +445,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const index: Array<[string, string]> = [
     [SHEETS.assumptions, 'All inputs and assumptions (edit here)'],
     [SHEETS.timeline, 'The model year axis'],
+    [SHEETS.capex, 'Development cost build-up and phased schedule'],
     [SHEETS.checks, 'Integrity checks and colour legend'],
   ];
   const idxTop = r;

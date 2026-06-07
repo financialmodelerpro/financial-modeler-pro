@@ -41,18 +41,18 @@ function buildState(): any {
 }
 
 async function main(): Promise<void> {
-  console.log('=== Excel model export test (Phase 1 foundation) ===');
+  console.log('=== Excel model export test (Phase 1 foundation + Phase 2 Capex) ===');
   const state = buildState();
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
 
-  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Checks']) {
+  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks']) {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
 
   // Clean look: gridlines hidden on EVERY sheet.
   const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
-  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Checks']) {
+  for (const name of ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks']) {
     check(`gridlines hidden: ${name}`, noGrid(name));
   }
 
@@ -79,12 +79,29 @@ async function main(): Promise<void> {
   const yLast = tl.getCell(6, 1 + snap.axisLength).value as any; // last period col
   check('Timeline last year is a +1 formula and reconciles', !!yLast && typeof yLast === 'object' && String(yLast.formula).endsWith('6+1') && yLast.result === snap.yearLabels[snap.axisLength - 1], `got=${yLast?.result} expect=${snap.yearLabels[snap.axisLength - 1]}`);
 
+  // Capex (Phase 2): build-up amounts are formulas linking to Assumptions inputs,
+  // and a cached formula result reconciles to the snapshot capex total.
+  const cap = wb.getWorksheet('Capex')!;
+  let linksAssumptions = 0;
+  const capResults: number[] = [];
+  cap.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as any;
+    if (v && typeof v === 'object' && 'formula' in v) {
+      if (String(v.formula).includes('Assumptions!')) linksAssumptions++;
+      if (typeof v.result === 'number') capResults.push(v.result);
+    }
+  }));
+  check('Capex build-up links to Assumptions inputs (rate x quantity)', linksAssumptions > 0, `links=${linksAssumptions}`);
+  const inclSum = snap.financing.capex.perPeriod.inclAllLand.reduce((s, v) => s + (v ?? 0), 0);
+  const capTol = Math.max(1000, Math.abs(inclSum) * 1e-6);
+  check('Capex total reconciles to snapshot (incl. all land)', capResults.some((x) => Math.abs(x - inclSum) <= capTol), `inclSum=${Math.round(inclSum)}`);
+
   // Valid .xlsx buffer.
   const buf = await generateModelWorkbookBuffer({ state, projectName: 'X', dateLabel: 'd' });
   check('writes a non-trivial .xlsx buffer', buf.byteLength > 4096, `bytes=${buf.byteLength}`);
   const reload = new ExcelJS.Workbook();
   await reload.xlsx.load(buf);
-  check('buffer reloads as a valid workbook with all sheets', ['Cover', 'Assumptions', 'Timeline', 'Checks'].every((n) => !!reload.getWorksheet(n)));
+  check('buffer reloads as a valid workbook with all sheets', ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Checks'].every((n) => !!reload.getWorksheet(n)));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
