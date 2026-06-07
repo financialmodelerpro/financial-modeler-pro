@@ -33,7 +33,7 @@ export interface BuildModelOptions {
   dateLabel: string;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', capex: 'Capex', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const snap = computeFinancialsSnapshot(opts.state);
@@ -50,10 +50,12 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const capexAddrs = addCapex(wb, snap, capex, refs);
   const revAddr = addRevenue(wb, snap, opts.state, refs);
   const cosAddr = addCoS(wb, snap, cos, refs);
+  const opexAddr = addOpex(wb, snap, opts.state, refs);
   const revTotal = snap.pl.totalRevenuePerPeriod.reduce((s, v) => s + (v ?? 0), 0);
   const cosTotalRow = cos.find((t) => t.title === 'Project Total Cost of Sales')?.rows.find((rw) => rw.isTotal)?.values ?? [];
   const cosTotal = cosTotalRow.reduce((s, v) => s + (v ?? 0), 0);
-  addChecks(wb, snap, capex, capexAddrs, { revAddr, revTotal, cosAddr, cosTotal });
+  const opexTotal = snap.opex.totalOpexPerPeriodInclHQ.reduce((s, v) => s + (v ?? 0), 0);
+  addChecks(wb, snap, capex, capexAddrs, { revAddr, revTotal, cosAddr, cosTotal, opexAddr, opexTotal });
   return wb;
 }
 
@@ -348,8 +350,9 @@ function cachedRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number
 }
 
 /** A total row whose period cells are the SUM of the given source rows (formula),
- *  with the platform per-period values cached, styled navy. */
-function navySumRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number, totalCol: number, label: string, sourceRows: number[], cachedPerPeriod: number[]): void {
+ *  with the platform per-period values cached. style 'navy' = grand total
+ *  (navy fill, white text); 'subtotal' = grey fill, dark bold text. */
+function navySumRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number, totalCol: number, label: string, sourceRows: number[], cachedPerPeriod: number[], style: 'navy' | 'subtotal' = 'navy'): void {
   setLabel(ws.getCell(`A${r}`), label, { bold: true });
   for (let t = 0; t < N; t++) {
     const col = colLetter(firstCol + t);
@@ -358,8 +361,10 @@ function navySumRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: numbe
   }
   const rng = `${colLetter(firstCol)}${r}:${colLetter(firstCol + N - 1)}${r}`;
   setFormula(ws.getCell(r, totalCol), fcell(`SUM(${rng})`, cachedPerPeriod.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
-  fillRange(ws, r, 1, r, totalCol, ARGB.navy);
-  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+  const fill = style === 'navy' ? ARGB.navy : ARGB.subtotal;
+  const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
+  fillRange(ws, r, 1, r, totalCol, fill);
+  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: fg } };
 }
 
 // ── Revenue (per-asset detail + project summary) ──────────────────────────────
@@ -431,8 +436,59 @@ function addCoS(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsS
   return totalAddr;
 }
 
+// ── Opex (by asset + by category) ─────────────────────────────────────────────
+function addOpex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, refs: AssumptionRefs): string {
+  const ws = wb.addWorksheet(SHEETS.opex, { properties: { tabColor: { argb: ARGB.navy } } });
+  ws.getColumn(1).width = 34;
+  const N = refs.axisLength;
+  const firstCol = 2;
+  const opex = snap.opex;
+  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  setTitle(ws.getCell('A1'), 'Operating Expenses', 16);
+  setLabel(ws.getCell('A2'), 'Operating expenses by asset and by category, phased onto the model timeline. Totals sum their components.');
+
+  let r = 4;
+  // Section 1: opex by asset (+ HQ), total = SUM of the rows.
+  setSectionHeader(ws.getRow(r), 'Opex by asset', firstCol + N); r += 1;
+  const tCol = periodHeader(ws, r, firstCol, N, snap, 'Asset'); r += 1;
+  const assetRowIdx: number[] = [];
+  for (const [id, ar] of opex.byAsset) {
+    if (!nz(ar.totalOpexPerPeriod)) continue;
+    cachedRow(ws, r, firstCol, N, tCol, assetName(id), ar.totalOpexPerPeriod, { indent: 1 });
+    assetRowIdx.push(r); r += 1;
+  }
+  if (nz(opex.hq.totalOpexPerPeriod)) {
+    cachedRow(ws, r, firstCol, N, tCol, 'HQ & corporate overheads', opex.hq.totalOpexPerPeriod, { indent: 1 });
+    assetRowIdx.push(r); r += 1;
+  }
+  navySumRow(ws, r, firstCol, N, tCol, 'Total project opex', assetRowIdx, opex.totalOpexPerPeriodInclHQ);
+  const totalAddr = `'${SHEETS.opex}'!$${colLetter(tCol)}$${r}`;
+  r += 2;
+
+  // Section 2: project opex by category (Direct / Indirect / Mgmt / Other + HQ).
+  setSectionHeader(ws.getRow(r), 'Project opex by category', firstCol + N); r += 1;
+  periodHeader(ws, r, firstCol, N, snap, 'Category'); r += 1;
+  const pt = opex.projectTotals;
+  const catRows: number[] = [];
+  cachedRow(ws, r, firstCol, N, tCol, 'Direct costs', pt.directCostsPerPeriod, { indent: 1 }); catRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, tCol, 'Indirect costs', pt.indirectCostsPerPeriod, { indent: 1 }); catRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, tCol, 'Management fees', pt.managementFeePerPeriod, { indent: 1 }); catRows.push(r); r += 1;
+  cachedRow(ws, r, firstCol, N, tCol, 'Other charges', pt.otherOpexPerPeriod, { indent: 1 }); catRows.push(r); r += 1;
+  navySumRow(ws, r, firstCol, N, tCol, 'All asset opex', catRows, pt.totalOpexPerPeriod, 'subtotal');
+  const allAssetRow = r; r += 1;
+  let hqRow = -1;
+  if (nz(opex.hq.totalOpexPerPeriod)) {
+    cachedRow(ws, r, firstCol, N, tCol, 'HQ overheads', opex.hq.totalOpexPerPeriod, { indent: 1 });
+    hqRow = r; r += 1;
+  }
+  navySumRow(ws, r, firstCol, N, tCol, 'Total project opex', hqRow >= 0 ? [allAssetRow, hqRow] : [allAssetRow], opex.totalOpexPerPeriodInclHQ);
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  return totalAddr;
+}
+
 // ── Checks / legend ───────────────────────────────────────────────────────────
-function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, capexAddrs: CapexAddrs, ext: { revAddr: string; revTotal: number; cosAddr: string; cosTotal: number }): void {
+function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, capexAddrs: CapexAddrs, ext: { revAddr: string; revTotal: number; cosAddr: string; cosTotal: number; opexAddr: string; opexTotal: number }): void {
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 40;
   ws.getColumn(2).width = 22;
@@ -485,8 +541,11 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   r += 1;
   setLabel(ws.getCell(`A${r}`), 'Total cost of sales');
   setFormula(ws.getCell(`C${r}`), fcell(ext.cosAddr, ext.cosTotal), NUMFMT.money, true);
+  r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Total operating expenses');
+  setFormula(ws.getCell(`C${r}`), fcell(ext.opexAddr, ext.opexTotal), NUMFMT.money, true);
   r += 2;
-  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 3 (Revenue + Cost of Sales). Cover, Assumptions, Timeline, Capex, Revenue, Cost of Sales and Checks are in place. The remaining calculation sheets (Opex, Financing, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
+  setLabel(ws.getCell(`A${r}`), 'Build status: Phase 4 (Opex). Cover, Assumptions, Timeline, Capex, Revenue, Cost of Sales, Opex and Checks are in place. The remaining calculation sheets (Financing, Fixed Assets), the financial statements (P&L, Cash Flow, Balance Sheet) and Returns are added in subsequent phases, each formula-linked to the Assumptions.', { });
 }
 
 // ── Cover / Index ─────────────────────────────────────────────────────────────
@@ -583,6 +642,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
     [SHEETS.revenue, 'Recognised revenue by strategy and asset'],
     [SHEETS.cos, 'Cost of sales matched to recognised revenue'],
+    [SHEETS.opex, 'Operating expenses by asset and category'],
     [SHEETS.checks, 'Integrity checks and colour legend'],
   ];
   const idxTop = r;

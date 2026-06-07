@@ -42,12 +42,12 @@ function buildState(): any {
 }
 
 async function main(): Promise<void> {
-  console.log('=== Excel model export test (Phases 1-3: foundation + Capex + Revenue/CoS) ===');
+  console.log('=== Excel model export test (Phases 1-4: foundation + Capex + Revenue/CoS + Opex) ===');
   const state = buildState();
   const snap = computeFinancialsSnapshot(state);
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '4 June 2026' });
 
-  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Revenue', 'Cost of Sales', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Assumptions', 'Timeline', 'Capex', 'Revenue', 'Cost of Sales', 'Opex', 'Checks'];
   for (const name of ALL_SHEETS) {
     check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   }
@@ -121,6 +121,12 @@ async function main(): Promise<void> {
   const cosResults = collectResults('Cost of Sales');
   const cosTol = Math.max(1000, Math.abs(cosReportTotal) * 1e-6);
   check('Cost of Sales total reconciles to platform CoS tab', cosResults.some((x) => Math.abs(x - cosReportTotal) <= cosTol), `cosReportTotal=${Math.round(cosReportTotal)}`);
+
+  // Opex (Phase 4): total ties to the snapshot opex (incl. HQ).
+  const opexResults = collectResults('Opex');
+  const opexSum = snap.opex.totalOpexPerPeriodInclHQ.reduce((s, v) => s + (v ?? 0), 0);
+  const opexTol = Math.max(1000, Math.abs(opexSum) * 1e-6);
+  check('Opex total reconciles to snapshot opex (incl. HQ)', opexResults.some((x) => Math.abs(x - opexSum) <= opexTol), `opexSum=${Math.round(opexSum)}`);
 
   // Valid .xlsx buffer.
   const buf = await generateModelWorkbookBuffer({ state, projectName: 'X', dateLabel: 'd' });
