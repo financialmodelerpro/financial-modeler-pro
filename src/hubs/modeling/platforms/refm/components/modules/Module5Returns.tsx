@@ -15,7 +15,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
-import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, fmtYears, type AssumptionsValue } from './Module5Shared';
@@ -172,6 +172,8 @@ export default function Module5Returns(): React.JSX.Element {
         streamPriorLabel={inceptionLabel}
         streamAxisLabels={axisLabels}
         fmt={fmt}
+        scale={scale}
+        decimals={decimals}
         currency={currency}
         onChange={(next) => state.setProject({ partners: next })}
       />
@@ -474,10 +476,12 @@ function PartnersSection(props: {
   streamPriorLabel: number;
   streamAxisLabels: number[];
   fmt: (n: number) => string;
+  scale: DisplayScale;
+  decimals: DisplayDecimals;
   currency: string;
   onChange: (next: ProjectPartner[]) => void;
 }): React.JSX.Element {
-  const { partners, snapshot, streamPriorLabel, streamAxisLabels, fmt, onChange } = props;
+  const { partners, snapshot, streamPriorLabel, streamAxisLabels, fmt, scale, decimals, onChange } = props;
   const rows = snapshot.partners;
 
   // Equity broken out BY TYPE. Each type carries its project total (from
@@ -561,15 +565,27 @@ function PartnersSection(props: {
   // One partner cell per equity type: amount (top) + % (bottom), both editable
   // and linked (amount = % x project total). Editing either rebalances the
   // others.
+  // Amounts display in the SAME scale + thousand-separator format as every
+  // other figure on the surface (project.displayScale), so the editable cell
+  // matches the "Project Total" column instead of showing a raw full-unit
+  // integer. On edit we strip the formatting and rescale back to full units
+  // before converting to a share %.
+  const scaleDiv = SCALE_DIVISOR[scale];
+  const fmtAmtInput = (full: number): string => formatScaledForExport(full, scale, decimals);
+  const parseAmtInput = (raw: string): number => {
+    const cleaned = raw.replace(/,/g, '').replace(/[()]/g, (m) => (m === '(' ? '-' : ''));
+    const scaled = parseFloat(cleaned);
+    return Number.isFinite(scaled) ? scaled * scaleDiv : 0;
+  };
   const allocCell = (p: ProjectPartner, type: { key: EqKey; total: number }): React.JSX.Element => {
     const pct = pctOf(p, type.key);
     const amount = (type.total * pct) / 100;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch' }}>
-        <input
-          type="number" value={Math.round(amount)} disabled={type.total <= 0}
-          onChange={(e) => setAmount(type.key, p.id, parseFloat(e.target.value) || 0, type.total)}
-          style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} title="Amount"
+        <AmountInput
+          amount={amount} disabled={type.total <= 0}
+          fmt={fmtAmtInput} parse={parseAmtInput}
+          onCommit={(full) => setAmount(type.key, p.id, full, type.total)}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <input
@@ -690,6 +706,39 @@ function PartnersSection(props: {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Scale-aware currency input. Renders the value formatted (thousand
+ * separators, project display scale) when idle, switches to a raw editable
+ * buffer on focus so typing is never reformatted mid-keystroke, and commits
+ * the parsed full-unit value on blur / Enter.
+ */
+function AmountInput(props: {
+  amount: number;
+  disabled: boolean;
+  fmt: (full: number) => string;
+  parse: (raw: string) => number;
+  onCommit: (full: number) => void;
+}): React.JSX.Element {
+  const { amount, disabled, fmt, parse, onCommit } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (): void => {
+    if (draft === null) return;
+    onCommit(parse(draft));
+    setDraft(null);
+  };
+  return (
+    <input
+      type="text" inputMode="decimal" disabled={disabled}
+      value={draft ?? fmt(amount)}
+      onFocus={(e) => { setDraft(fmt(amount)); e.currentTarget.select(); }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} title="Amount"
+    />
   );
 }
 

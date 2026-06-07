@@ -36,7 +36,7 @@ export type DisplayScale = 'full' | 'thousands' | 'millions';
 // displayDecimals. Format helpers default to 2 when omitted.
 export type DisplayDecimals = 0 | 1 | 2 | 3;
 
-const SCALE_DIVISOR: Record<DisplayScale, number> = {
+export const SCALE_DIVISOR: Record<DisplayScale, number> = {
   full: 1,
   thousands: 1_000,
   millions: 1_000_000,
