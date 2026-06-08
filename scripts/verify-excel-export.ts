@@ -125,26 +125,7 @@ async function main(): Promise<void> {
   check('Land & Area BUA reconciles to engine (per asset)', areaOk);
   check('Land & Area land value reconciles to engine (per asset)', landOk);
 
-  // Capex (Phase 2): build-up amounts are formulas linking to Assumptions inputs,
-  // and a cached formula result reconciles to the snapshot capex total.
   const cap = wb.getWorksheet('Capex')!;
-  let linksAssumptions = 0; let scheduleDrivenByBuildup = false;
-  const capResults: number[] = [];
-  cap.eachRow((row) => row.eachCell((c) => {
-    const v = c.value as any;
-    if (v && typeof v === 'object' && 'formula' in v) {
-      const f = String(v.formula);
-      if (f.includes('Assumptions!')) linksAssumptions++;
-      if (/\$B\$\d+\*\$[A-Z]+\$\d+/.test(f)) scheduleDrivenByBuildup = true; // subtotal x phasing %
-      if (typeof v.result === 'number') capResults.push(v.result);
-    }
-  }));
-  check('Capex build-up links to Assumptions inputs (rate x quantity)', linksAssumptions > 0, `links=${linksAssumptions}`);
-  check('Capex schedule is driven by the build-up (subtotal x phasing)', scheduleDrivenByBuildup, 'no subtotal x phasing formula found');
-  const inclSum = snap.financing.capex.perPeriod.inclAllLand.reduce((s, v) => s + (v ?? 0), 0);
-  const capTol = Math.max(1000, Math.abs(inclSum) * 1e-6);
-  check('Capex total reconciles to snapshot (incl. all land)', capResults.some((x) => Math.abs(x - inclSum) <= capTol), `inclSum=${Math.round(inclSum)}`);
-
   // ── Unit 1: sheet-name quoting (no #NAME?) ──────────────────────────────────
   // Every cross-sheet reference to a multi-word sheet must be single-quoted, else
   // Excel raises #NAME? (e.g. 'Land & Area' parses '&' as concatenation). Scan
@@ -183,50 +164,10 @@ async function main(): Promise<void> {
   check('Assumptions capex block holds NO derived money basis (pure inputs)', moneyBasisConstants === 0, `moneyConstants=${moneyBasisConstants}`);
   check('Assumptions percent-method capex rows have an empty Quantity cell', percentRowsWithQty === 0, `percentRowsWithQty=${percentRowsWithQty}`);
 
-  // ── Unit 1: Capex build-up bases are LIVE formulas ──────────────────────────
-  // Percent / land / unit bases must reference Land & Area (cross-sheet) or sum
-  // sibling cost-line cells (percent-of-selected), never store a constant.
-  let buildupLinksLandArea = false; let selectedSumLive = false; let selfRef = false;
-  cap.eachRow((row, R) => {
-    const v = row.getCell(2).value as any; // column B = amount
-    if (!(v && typeof v === 'object' && 'formula' in v)) return;
-    const f = String(v.formula);
-    if (f.includes("'Land & Area'!")) buildupLinksLandArea = true;
-    // percent-of-selected: rate cell x parenthesised sum of B-cells.
-    if (/Assumptions!\$C\$\d+\*\((?:B\d+(?:\+|\)))+/.test(f)) {
-      selectedSumLive = true;
-      // the parenthesised sum must NOT include this row's own B cell (no self-ref).
-      const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')'));
-      if (inside.split('+').map((s) => s.trim()).includes(`B${R}`)) selfRef = true;
-    }
-  });
-  check('Capex build-up land / revenue / unit bases link to Land & Area (live)', buildupLinksLandArea);
-  check('Capex build-up percent-of-selected bases sum sibling cells (live)', selectedSumLive);
-  check('Capex percent-of-selected never self-references its own row', !selfRef);
-
-  // ── Unit 1: Capex total per asset reconciles to the engine ──────────────────
+  // ── Capex layout (A blank, B name, C UOM, D Rate, E Total, F.. years) ───────
   const capReport = buildCapexReport(snap, state);
-  let perAssetOk = true; const perAssetDetail: string[] = [];
-  for (const ia of capReport.inputAssets) {
-    let wbSub: number | null = null;
-    cap.eachRow((row) => {
-      if (row.getCell(1).value === `Subtotal, ${ia.assetName}`) {
-        const bv = row.getCell(2).value as any;
-        wbSub = bv && typeof bv === 'object' && 'result' in bv ? bv.result : (typeof bv === 'number' ? bv : null);
-      }
-    });
-    const ok = wbSub != null && Math.abs(wbSub - ia.total) <= 1;
-    if (!ok) { perAssetOk = false; perAssetDetail.push(`${ia.assetName}: wb=${Math.round(wbSub ?? 0)} eng=${Math.round(ia.total)}`); }
-  }
-  check('Capex subtotal per asset reconciles to engine', perAssetOk, perAssetDetail.join('; '));
-
-  // ── Unit 2: per-line, per-year capex phasing matrix ─────────────────────────
-  // Sections 2+3 are now per-asset Allocation (% inputs) + Amount (formulas)
-  // blocks. Verify the structure, purity, the per-line Check, and the three
-  // reconciliation identities (cached) on the fixture.
   const NN = snap.axisLength;
-  const fCol = 2, p0 = 3, totCol = fCol + NN + 1, chkCol = totCol + 1;
-  const yCol = (t: number): number => p0 + t;
+  const E_COL = 5, Y0 = 6; const yCol = (t: number): number => Y0 + t; const lastY = Y0 + NN - 1; const chkCol = Y0 + NN;
   // exceljs drops a cached result:0 on write, so a formula cell with no numeric
   // result reads as 0 (Excel recomputes it on open via fullCalcOnLoad).
   const num = (v: any): number => {
@@ -234,52 +175,67 @@ async function main(): Promise<void> {
     if (v && typeof v === 'object') { if ('result' in v && typeof v.result === 'number') return v.result; if ('formula' in v) return 0; }
     return NaN;
   };
-  const labOf = (R: number): string => { const a = cap.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+  const secOf = (R: number): string => { const a = cap.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+  const labOf = (R: number): string => { const a = cap.getCell(R, 2).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
 
-  let hasAlloc = false, hasAmount = false, hasOldAggregate = false;
-  let allocConstCells = 0, allocFormulaCells = 0, amtFormulaCells = 0, amtConstCells = 0;
+  let hasAlloc = false, hasAmount = false, hasOldBuildup = false, headerOk = false;
+  let allocConstCells = 0, allocFormulaCells = 0, amtYearFormulaCells = 0, amtYearConstCells = 0;
+  let buildupLinksLandArea = false, buildupLinksAssumptions = false, selectedSumLive = false, selfRef = false;
   const allocChecksOk: boolean[] = [];
   const amtLineRows: Array<{ asset: string; name: string; row: number }> = [];
   const assetTotRows: Array<{ name: string; row: number }> = [];
-  let grandRow = -1; let curAmtAsset = '';
-  let inAlloc = false, inAmount = false;
+  let curAsset = ''; let inAlloc = false, inAmount = false;
+  const rowLabel = (re: RegExp): number => { let row = -1; cap.eachRow((_r, R) => { if (re.test(labOf(R)) && row < 0) row = R; }); return row; };
   cap.eachRow((_row, R) => {
-    const lab = labOf(R);
-    if (/^Capex phasing profile/.test(lab)) hasOldAggregate = true;
-    if (/^Allocation profile, /.test(lab)) { inAlloc = true; inAmount = false; hasAlloc = true; return; }
-    if (/^Capex by year, /.test(lab)) { inAlloc = false; inAmount = true; hasAmount = true; curAmtAsset = lab.replace(/^Capex by year, /, '').replace(/ \([^)]*\) - line total x allocation %$/, '').trim(); return; }
+    const sec = secOf(R); const lab = labOf(R);
+    if (/^Cost build-up by asset/.test(sec)) hasOldBuildup = true;
+    if (/^Total development cost/.test(lab)) hasOldBuildup = true;
+    if (/^Allocation profile, /.test(sec)) { inAlloc = true; inAmount = false; hasAlloc = true; return; }
+    if (/^Capex by year, /.test(sec)) { inAlloc = false; inAmount = true; hasAmount = true; curAsset = sec.replace(/^Capex by year, /, '').replace(/ \([^)]*\) - .*$/, '').trim(); return; }
+    if (/^(Total Capex Excl|Asset-Wise|Total Capex Incl)/.test(sec)) { inAlloc = false; inAmount = false; return; }
+    if (lab === 'Cost line' || lab === 'Asset') { if (labOf(R) && cap.getCell(R, 3).value === 'UOM' && cap.getCell(R, 4).value === 'Rate' && cap.getCell(R, 5).value === 'Total') headerOk = true; return; }
     if (/^Total capex, .* \(incl\. land\)$/.test(lab)) { assetTotRows.push({ name: lab.replace(/^Total capex, /, '').replace(/ \(incl\. land\)$/, ''), row: R }); return; }
-    if (/^Grand total capex/.test(lab)) { grandRow = R; return; }
-    if (/^Subtotal excl\. land/.test(lab) || lab === 'Cost line' || !lab) return;
+    if (/^Subtotal excl\. land/.test(lab) || !lab) return;
     if (inAlloc) {
       for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (typeof v === 'number') allocConstCells++; else if (v && typeof v === 'object' && 'formula' in v) allocFormulaCells++; }
       const ch: any = cap.getCell(R, chkCol).value;
       if (ch !== null && ch !== undefined && ch !== '') allocChecksOk.push(String((ch && ch.result) ?? ch) === 'OK');
     }
     if (inAmount) {
-      amtLineRows.push({ asset: curAmtAsset, name: lab, row: R });
-      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) amtFormulaCells++; else if (typeof v === 'number') amtConstCells++; }
+      amtLineRows.push({ asset: curAsset, name: lab, row: R });
+      const ev: any = cap.getCell(R, E_COL).value; // E = build-up Total
+      if (ev && typeof ev === 'object' && 'formula' in ev) {
+        const f = String(ev.formula);
+        if (f.includes("'Land & Area'!")) buildupLinksLandArea = true;
+        if (f.includes('Assumptions!')) buildupLinksAssumptions = true;
+        if (/Assumptions!\$C\$\d+\*\(\$E\$\d+/.test(f)) { selectedSumLive = true; const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')')); if (inside.split('+').map((s) => s.trim()).includes(`$E$${R}`)) selfRef = true; }
+      }
+      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) { amtYearFormulaCells++; if (!/\$E\$\d+\*\$[A-Z]+\$\d+/.test(String(v.formula))) amtYearConstCells++; } else if (typeof v === 'number') amtYearConstCells++; }
     }
   });
 
-  check('Capex Section 2/3 are per-asset Allocation + Amount blocks', hasAlloc && hasAmount, `alloc=${hasAlloc} amount=${hasAmount}`);
-  check('Old asset-aggregate phasing % row is gone', !hasOldAggregate);
-  check('Section 2 allocation % are input constants (no formulas)', allocConstCells > 0 && allocFormulaCells === 0, `const=${allocConstCells} formula=${allocFormulaCells}`);
-  check('Section 3 amounts are formulas (no hardcoded amounts)', amtFormulaCells > 0 && amtConstCells === 0, `formula=${amtFormulaCells} const=${amtConstCells}`);
+  check('Capex layout header is A blank / B name / C UOM / D Rate / E Total', headerOk);
+  check('Capex per-asset Allocation + Amount blocks present', hasAlloc && hasAmount, `alloc=${hasAlloc} amount=${hasAmount}`);
+  check('Old standalone build-up section is gone', !hasOldBuildup);
+  check('Allocation % are input constants (no formulas)', allocConstCells > 0 && allocFormulaCells === 0, `const=${allocConstCells} formula=${allocFormulaCells}`);
+  check('Amount year cells are Total x allocation% formulas', amtYearFormulaCells > 0 && amtYearConstCells === 0, `formula=${amtYearFormulaCells} non=${amtYearConstCells}`);
   check('Every per-line Check reads OK (100% within tol)', allocChecksOk.length > 0 && allocChecksOk.every(Boolean), `ok=${allocChecksOk.filter(Boolean).length}/${allocChecksOk.length}`);
+  check('Build-up Total (E) links to Assumptions + Land & Area (live)', buildupLinksAssumptions && buildupLinksLandArea);
+  check('Percent-of-selected sums sibling E cells (live)', selectedSumLive);
+  check('Percent-of-selected never self-references its own E cell', !selfRef);
 
-  // Identity #1: each amount line's Total col == its engine line total.
+  // Identity 1: each amount line's Total (E) == engine line total.
   const engLineAmt = new Map<string, number>();
   for (const ia of capReport.inputAssets) for (const ln of ia.lines) engLineAmt.set(`${ia.assetName.trim()}|${ln.name}`, ln.amount);
   let id1Ok = true; const id1Detail: string[] = [];
   for (const al of amtLineRows) {
-    const eng = engLineAmt.get(`${al.asset}|${al.name}`);
-    const tot = num(cap.getCell(al.row, totCol).value);
-    if (eng === undefined || !(Math.abs(tot - eng) <= Math.max(1, Math.abs(eng) * 1e-6))) { id1Ok = false; if (id1Detail.length < 5) id1Detail.push(`${al.asset}/${al.name}: wb=${Math.round(tot)} eng=${eng === undefined ? 'none' : Math.round(eng)}`); }
+    const eng = engLineAmt.get(`${al.asset}|${al.name}`); if (eng === undefined) continue;
+    const tot = num(cap.getCell(al.row, E_COL).value);
+    if (!(Math.abs(tot - eng) <= Math.max(1, Math.abs(eng) * 1e-6))) { id1Ok = false; if (id1Detail.length < 5) id1Detail.push(`${al.asset}/${al.name}: wb=${Math.round(tot)} eng=${Math.round(eng)}`); }
   }
-  check('Identity 1: each line lifetime == Section 1 line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
+  check('Identity 1: each line Total (E) == engine line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
 
-  // Identity #2: each asset incl-land per-year total == engine perPeriod.
+  // Identity 2: each asset incl-land per-year (F..) == engine perPeriod.
   const inclTbl = capReport.results.find((t) => t.title === 'Total Capex (incl. all land)');
   const assetIncl = new Map<string, number[]>();
   for (const rw of inclTbl?.rows ?? []) if (!(rw as any).isTotal) assetIncl.set(rw.label, (rw.values || []).slice());
@@ -290,15 +246,36 @@ async function main(): Promise<void> {
   }
   check('Identity 2: each year asset total == engine per-period', id2Ok && assetTotRows.length > 0, id2Detail.join('; '));
 
-  // Identity #3: grand total ties to the snapshot, and the Checks handoff holds.
+  // Identity 3 + the three summaries (E column).
   const snapGrand = snap.financing.capex.totals.inclAllLand;
-  const grandTot = grandRow > 0 ? num(cap.getCell(grandRow, totCol).value) : NaN;
-  check('Identity 3: grand total (incl all land) ties to snapshot', Math.abs(grandTot - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6), `wb=${Math.round(grandTot)} snap=${Math.round(snapGrand)}`);
-  // The Checks sheet's scheduleTotalAddr must reference the grand-total cell value.
+  const exclGrand = snap.financing.capex.perPeriod.exclAllLand.slice(0, NN).reduce((s, v) => s + (v ?? 0), 0);
+  const sumE = (re: RegExp): number => { const R = rowLabel(re); return R > 0 ? num(cap.getCell(R, E_COL).value) : NaN; };
+  check('Summary: Total Capex Incl. Land == snapshot grand', Math.abs(sumE(/^Total Capex Incl\. Land$/) - snapGrand) <= Math.max(1, snapGrand * 1e-6), `wb=${Math.round(sumE(/^Total Capex Incl\. Land$/))} snap=${Math.round(snapGrand)}`);
+  check('Summary: Total Capex Excl. Land == snapshot excl-all', Math.abs(sumE(/^Total Capex Excl\. Land$/) - exclGrand) <= Math.max(1, Math.abs(exclGrand) * 1e-6), `wb=${Math.round(sumE(/^Total Capex Excl\. Land$/))} snap=${Math.round(exclGrand)}`);
+  check('Summary: Total Land == grand - excl-all', Math.abs(sumE(/^Total Land$/) - (snapGrand - exclGrand)) <= Math.max(1, Math.abs(snapGrand - exclGrand) * 1e-6), `wb=${Math.round(sumE(/^Total Land$/))} eng=${Math.round(snapGrand - exclGrand)}`);
+
+  // Checks handoff: a Capex-referencing cell on the Checks sheet ties to the grand.
   const checksWs = wb.getWorksheet('Checks')!;
   let checksTie = false;
   checksWs.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && 'result' in v && typeof v.result === 'number' && Math.abs(v.result - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6) && /Capex/.test(String(v.formula ?? ''))) checksTie = true; }));
   check('Checks sheet still ties to the Capex grand total (scheduleTotalAddr)', checksTie);
+
+  // ── Display scale: thousands / millions are number-format only ──────────────
+  // Stored values + formulas unchanged; only money/money1 cells gain trailing
+  // commas. Rates (NUMFMT.rate) and the grand stay full-unit in storage.
+  const incRow = rowLabel(/^Total Capex Incl\. Land$/);
+  const wbK = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', displayScale: 'thousands' });
+  const wbM = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', displayScale: 'millions' });
+  const capK = wbK.getWorksheet('Capex')!; const capM = wbM.getWorksheet('Capex')!;
+  const grandFull = num(cap.getCell(incRow, E_COL).value);
+  const grandK = num(capK.getCell(incRow, E_COL).value);
+  const grandM = num(capM.getCell(incRow, E_COL).value);
+  check('Scale: stored grand value is identical at full / thousands / millions', grandFull === grandK && grandFull === grandM && Math.abs(grandFull - snapGrand) <= Math.max(1, snapGrand * 1e-6), `full=${Math.round(grandFull)} k=${Math.round(grandK)} m=${Math.round(grandM)}`);
+  check('Scale: thousands money format has one trailing comma', /#,##0,_\)/.test(String(capK.getCell(incRow, E_COL).numFmt)), `fmt=${capK.getCell(incRow, E_COL).numFmt}`);
+  check('Scale: millions money format has two trailing commas', /#,##0,,_\)/.test(String(capM.getCell(incRow, E_COL).numFmt)), `fmt=${capM.getCell(incRow, E_COL).numFmt}`);
+  // A rate cell (Rate column D on a build-up line) must NOT be scaled.
+  const rateRow = amtLineRows[0]?.row ?? -1;
+  if (rateRow > 0) check('Scale: rate cell (D) is not scaled (no trailing comma)', !/,_\)/.test(String(capK.getCell(rateRow, 4).numFmt)) && !/,,/.test(String(capM.getCell(rateRow, 4).numFmt)), `k=${capK.getCell(rateRow, 4).numFmt} m=${capM.getCell(rateRow, 4).numFmt}`);
 
   // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
   const collectResults = (sheet: string): number[] => {
@@ -345,6 +322,9 @@ async function main(): Promise<void> {
   check('Financing total interest reconciles to engine', finNear(totInterest), `interest=${Math.round(totInterest)}`);
 
   // ── Financing unit: live per-facility roll-forward + IDC pool + sweep ───────
+  // Financing uses the shared periodHeader geometry (Opening at col B, year t at
+  // col 3+t), NOT the Capex layout, so it has its own year-column helper.
+  const finY = (t: number): number => 3 + t;
   const finLab = (R: number): string => { const a = finWs.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
   const finFac = new Map<string, any>();
   for (const [id, f] of snap.financing.facilities.entries()) { const t = state.financingTranches.find((x: any) => x.id === id); finFac.set((t?.name ?? id), f); }
@@ -361,7 +341,7 @@ async function main(): Promise<void> {
     if (/^Combined debt$|^Equity movement$|^Engine-derived cash budgets/.test(lab)) { fSection = ''; fCur = null; return; }
     if (['Movement', 'Combined', 'IDC', 'Equity', 'Budget'].includes(lab) || !lab) return;
     if (/^Cash sweep repaid/.test(lab)) hasSweepRow = true;
-    if (fSection === 'fac' && fCur) { fCur.rows[lab] = R; if (isLiveFlow(lab)) { for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) liveFlowFormulas++; } } }
+    if (fSection === 'fac' && fCur) { fCur.rows[lab] = R; if (isLiveFlow(lab)) { for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, finY(t)).value; if (v && typeof v === 'object' && 'formula' in v) liveFlowFormulas++; } } }
     if (fSection === 'idc' && lab) idcPoolRows[lab] = R;
   });
 
@@ -381,7 +361,7 @@ async function main(): Promise<void> {
     const f = finFac.get(b.name); if (!f) { finRecOk = false; finRecDetail.push(`${b.name}: no engine facility`); continue; }
     for (const [key, eng] of finRowKeys) {
       const R = b.rows[key]; if (!R) continue; // row may be absent (e.g. no sweep)
-      for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, yCol(t)).value); const e = eng(f, t); if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { finRecOk = false; if (finRecDetail.length < 6) finRecDetail.push(`${b.name}/${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
+      for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, finY(t)).value); const e = eng(f, t); if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { finRecOk = false; if (finRecDetail.length < 6) finRecDetail.push(`${b.name}/${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
     }
   }
   check('Financing per-facility closing / interest / IDC / sweep tie to engine', finRecOk && fBlocks.length > 0, finRecDetail.join('; '));
@@ -396,7 +376,7 @@ async function main(): Promise<void> {
   let idcPoolOk = true; const idcPoolDetail: string[] = [];
   for (const [key, eng] of idcPoolChecks) {
     const R = idcPoolRows[key]; if (!R) { idcPoolOk = false; idcPoolDetail.push(`${key}: row missing`); continue; }
-    for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, yCol(t)).value); const e = eng[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { idcPoolOk = false; if (idcPoolDetail.length < 6) idcPoolDetail.push(`${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
+    for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, finY(t)).value); const e = eng[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { idcPoolOk = false; if (idcPoolDetail.length < 6) idcPoolDetail.push(`${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
   }
   check('Financing IDC pool ties to engine (construction interest / capitalised / cash / asset basis)', idcPoolOk, idcPoolDetail.join('; '));
 
@@ -407,12 +387,12 @@ async function main(): Promise<void> {
   const engExisting = sliceSum(snap.financing.equity.existingEquityPerPeriod);
   let inKindRow = -1, existingRow = -1, totalEqRow = -1;
   finWs.eachRow((_row, R) => { const lab = finLab(R); if (/^In-kind equity/.test(lab)) inKindRow = R; if (/^Existing equity/.test(lab)) existingRow = R; if (/^Total equity$/.test(lab)) totalEqRow = R; });
-  const rowLinks = (R: number, re: RegExp): boolean => { if (R < 0) return false; for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v && re.test(String(v.formula))) return true; } return false; };
+  const rowLinks = (R: number, re: RegExp): boolean => { if (R < 0) return false; for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, finY(t)).value; if (v && typeof v === 'object' && 'formula' in v && re.test(String(v.formula))) return true; } return false; };
   check('Equity in-kind row is a live formula linking to Land & Area (when present)', engInKind <= 0 || rowLinks(inKindRow, /Land & Area/), `engInKind=${Math.round(engInKind)}`);
   check('Equity existing row is a live formula linking to Assumptions (when present)', engExisting <= 0 || rowLinks(existingRow, /Assumptions/), `engExisting=${Math.round(engExisting)}`);
   // Total equity is a live sum and ties to the engine.
   let totalEqOk = true;
-  if (totalEqRow > 0) for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(totalEqRow, yCol(t)).value); const e = (snap.financing.equity.totalPerPeriod ?? [])[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) totalEqOk = false; }
+  if (totalEqRow > 0) for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(totalEqRow, finY(t)).value); const e = (snap.financing.equity.totalPerPeriod ?? [])[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) totalEqOk = false; }
   check('Total equity is live and ties to engine', totalEqRow > 0 && totalEqOk);
 
   // Cached-cell audit: the ONLY rows holding a nonzero plain-number period cell
@@ -427,7 +407,7 @@ async function main(): Promise<void> {
   finWs.eachRow((_row, R) => {
     const lab = finLab(R);
     if (!lab || ['Movement', 'Combined', 'IDC', 'Equity', 'Budget'].includes(lab)) return;
-    for (let t = 0; t < NN; t++) { const v = finWs.getCell(R, yCol(t)).value; if (typeof v === 'number' && v !== 0) { cachedValueRows.add(lab); break; } }
+    for (let t = 0; t < NN; t++) { const v = finWs.getCell(R, finY(t)).value; if (typeof v === 'number' && v !== 0) { cachedValueRows.add(lab); break; } }
   });
   const allowedCached = new Set([...budgetLabels, 'Cash equity']); // cash equity = Method-1 funding-split sibling
   const unexpectedCached = [...cachedValueRows].filter((l) => !allowedCached.has(l));

@@ -208,7 +208,7 @@ export default function ExportModal({
 
       if (reportKind === 'excel') {
         const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel });
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
@@ -369,7 +369,7 @@ export default function ExportModal({
                 </span>
               </div>
             )}
-            <div style={{ display: reportKind === 'excel' ? 'none' : 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Number scale:</span>
               {(['thousands', 'millions', 'full'] as const).map((s) => (
                 <label key={s} data-testid={`export-scale-${s}`} style={{
@@ -382,8 +382,9 @@ export default function ExportModal({
                   {s === 'full' ? 'Full' : s}
                 </label>
               ))}
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', marginLeft: 8 }}>Decimals:</span>
-              {([0, 1, 2] as const).map((d) => (
+              {/* Decimals apply to the PDF only; the Excel scale is a number-format. */}
+              {reportKind !== 'excel' && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', marginLeft: 8 }}>Decimals:</span>}
+              {reportKind !== 'excel' && ([0, 1, 2] as const).map((d) => (
                 <label key={d} data-testid={`export-decimals-${d}`} style={{
                   display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px',

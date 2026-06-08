@@ -32,12 +32,61 @@ export const ARGB = {
 export const NUMFMT = {
   money: '#,##0_);(#,##0)',
   money1: '#,##0.0_);(#,##0.0)',
+  // Per-unit rate / price (SAR per sqm / bay / unit, ADR). Distinct from `money`
+  // so the workbook-wide display-scale (scaleMoneyFormats) leaves rates in full
+  // units; only magnitude figures (money / money1) scale.
+  rate: '#,##0.00_);(#,##0.00)',
   pct: '0.0%',
   pct2: '0.00%',
   int: '#,##0',
   year: '0',
   mult: '0.00"x"',
 };
+
+/**
+ * Workbook-wide DISPLAY scale. Excel custom number formats divide the DISPLAYED
+ * value by 1000 per trailing comma, leaving the stored value and every formula
+ * in full units. So a thousands / millions view is purely cosmetic and the
+ * locked reconciliation (which compares stored full-unit values) is untouched.
+ * Only the magnitude formats (money / money1) scale; rate / pct / int / year /
+ * mult are left alone.
+ */
+export type DisplayScale = 'full' | 'thousands' | 'millions';
+
+/** Insert the scaling trailing-comma(s) right after each '0' digit run in a
+ *  money format section, e.g. '#,##0_);(#,##0)' -> '#,##0,_);(#,##0,)'. */
+function appendScaleCommas(fmt: string, commas: number): string {
+  if (commas <= 0) return fmt;
+  const tail = ','.repeat(commas);
+  // Match a digit run that is NOT already followed by a comma (avoid the
+  // thousands separators inside '#,##0'); the trailing run before _) or ) or end.
+  return fmt.replace(/0(?=(_\)|\)|$))/g, `0${tail}`);
+}
+
+export function scaledMoneyFormats(scale: DisplayScale): { money: string; money1: string } {
+  const commas = scale === 'thousands' ? 1 : scale === 'millions' ? 2 : 0;
+  return { money: appendScaleCommas(NUMFMT.money, commas), money1: appendScaleCommas(NUMFMT.money1, commas) };
+}
+
+/** Sweep every sheet: re-format cells using the magnitude money formats to the
+ *  scaled variant. Display-only; values + formulas unchanged. */
+export function scaleMoneyFormats(wb: ExcelJS.Workbook, scale: DisplayScale): void {
+  if (scale === 'full') return;
+  const { money, money1 } = scaledMoneyFormats(scale);
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row) => row.eachCell((cell) => {
+      if (cell.numFmt === NUMFMT.money) cell.numFmt = money;
+      else if (cell.numFmt === NUMFMT.money1) cell.numFmt = money1;
+    }));
+  }
+}
+
+/** Human unit-note suffix for headers when a scale is active. */
+export function scaleNote(scale: DisplayScale, currency: string): string {
+  if (scale === 'thousands') return `All money figures in ${currency} thousands`;
+  if (scale === 'millions') return `All money figures in ${currency} millions`;
+  return '';
+}
 
 type Cell = ExcelJS.Cell;
 
