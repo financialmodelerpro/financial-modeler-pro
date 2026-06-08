@@ -344,6 +344,95 @@ async function main(): Promise<void> {
   check('Financing closing debt reconciles to engine', finNear(totClosingLast), `closingLast=${Math.round(totClosingLast)}`);
   check('Financing total interest reconciles to engine', finNear(totInterest), `interest=${Math.round(totInterest)}`);
 
+  // ── Financing unit: live per-facility roll-forward + IDC pool + sweep ───────
+  const finLab = (R: number): string => { const a = finWs.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+  const finFac = new Map<string, any>();
+  for (const [id, f] of snap.financing.facilities.entries()) { const t = state.financingTranches.find((x: any) => x.id === id); finFac.set((t?.name ?? id), f); }
+  type FBlock = { name: string; rows: Record<string, number> };
+  const fBlocks: FBlock[] = []; const idcPoolRows: Record<string, number> = {};
+  let fCur: FBlock | null = null; let fSection: '' | 'fac' | 'idc' = '';
+  let hasDeprecNbv = false; let liveFlowFormulas = 0; let hasSweepRow = false;
+  const isLiveFlow = (label: string): boolean => /^(Interest accrued|IDC capitalised|Cash interest paid|Cash sweep repaid|Total drawdown|Closing)/.test(label);
+  finWs.eachRow((_row, R) => {
+    const lab = finLab(R);
+    if (/IDC depreciation|IDC NBV/.test(lab)) hasDeprecNbv = true;
+    if (/^Debt movement, /.test(lab)) { fCur = { name: lab.replace(/^Debt movement, /, '').replace(/ \(existing\)$/, '').trim(), rows: {} }; fBlocks.push(fCur); fSection = 'fac'; return; }
+    if (/^IDC pool$/.test(lab)) { fSection = 'idc'; fCur = null; return; }
+    if (/^Combined debt$|^Equity movement$|^Engine-derived cash budgets/.test(lab)) { fSection = ''; fCur = null; return; }
+    if (['Movement', 'Combined', 'IDC', 'Equity', 'Budget'].includes(lab) || !lab) return;
+    if (/^Cash sweep repaid/.test(lab)) hasSweepRow = true;
+    if (fSection === 'fac' && fCur) { fCur.rows[lab] = R; if (isLiveFlow(lab)) { for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) liveFlowFormulas++; } } }
+    if (fSection === 'idc' && lab) idcPoolRows[lab] = R;
+  });
+
+  check('Financing per-facility flow rows are live formulas (interest / IDC / cash / sweep / closing)', liveFlowFormulas > 0, `formulaCells=${liveFlowFormulas}`);
+  check('Cash sweep is broken out as its own row', hasSweepRow);
+  check('IDC depreciation / NBV moved out of Financing (no downstream FA rows here)', !hasDeprecNbv);
+
+  // Per-facility reconciliation (cached, per period): closing / interest / IDC / sweep.
+  const finRowKeys: [string, (f: any, t: number) => number][] = [
+    ['Interest accrued (rate x balance)', (f, t) => f.interestAccrued[t] ?? 0],
+    ['IDC capitalised (to debt)', (f, t) => f.interestCapitalized[t] ?? 0],
+    ['Cash sweep repaid', (f, t) => f.sweepRepaid[t] ?? 0],
+    ['Closing', (f, t) => f.outstanding[t] ?? 0],
+  ];
+  let finRecOk = true; const finRecDetail: string[] = [];
+  for (const b of fBlocks) {
+    const f = finFac.get(b.name); if (!f) { finRecOk = false; finRecDetail.push(`${b.name}: no engine facility`); continue; }
+    for (const [key, eng] of finRowKeys) {
+      const R = b.rows[key]; if (!R) continue; // row may be absent (e.g. no sweep)
+      for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, yCol(t)).value); const e = eng(f, t); if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { finRecOk = false; if (finRecDetail.length < 6) finRecDetail.push(`${b.name}/${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
+    }
+  }
+  check('Financing per-facility closing / interest / IDC / sweep tie to engine', finRecOk && fBlocks.length > 0, finRecDetail.join('; '));
+
+  // IDC pool ties (live structural sums).
+  const idcPoolChecks: [string, number[]][] = [
+    ['Construction interest', snap.idc.totalConstructionInterestPerPeriod],
+    ['Capitalised to debt', snap.financing.combined.totalInterestCapitalized],
+    ['Paid in cash (conditional)', snap.financing.combined.totalInterestCapitalizedCashPaid],
+    ['Capitalised to asset basis', snap.idc.totalIdcPerPeriod],
+  ];
+  let idcPoolOk = true; const idcPoolDetail: string[] = [];
+  for (const [key, eng] of idcPoolChecks) {
+    const R = idcPoolRows[key]; if (!R) { idcPoolOk = false; idcPoolDetail.push(`${key}: row missing`); continue; }
+    for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(R, yCol(t)).value); const e = eng[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) { idcPoolOk = false; if (idcPoolDetail.length < 6) idcPoolDetail.push(`${key}[y${t}] wb=${Math.round(v)} eng=${Math.round(e)}`); } }
+  }
+  check('Financing IDC pool ties to engine (construction interest / capitalised / cash / asset basis)', idcPoolOk, idcPoolDetail.join('; '));
+
+  // Equity rows are LIVE formulas (in-kind -> Land & Area, existing -> Assumptions).
+  // Gated on the engine actually having that equity (the fixture may have none).
+  const sliceSum = (a: number[] | undefined): number => (a ?? []).slice(0, snap.axisLength).reduce((s, v) => s + (v ?? 0), 0);
+  const engInKind = sliceSum(snap.financing.equity.inKindPerPeriod);
+  const engExisting = sliceSum(snap.financing.equity.existingEquityPerPeriod);
+  let inKindRow = -1, existingRow = -1, totalEqRow = -1;
+  finWs.eachRow((_row, R) => { const lab = finLab(R); if (/^In-kind equity/.test(lab)) inKindRow = R; if (/^Existing equity/.test(lab)) existingRow = R; if (/^Total equity$/.test(lab)) totalEqRow = R; });
+  const rowLinks = (R: number, re: RegExp): boolean => { if (R < 0) return false; for (let t = 0; t < NN; t++) { const v: any = finWs.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v && re.test(String(v.formula))) return true; } return false; };
+  check('Equity in-kind row is a live formula linking to Land & Area (when present)', engInKind <= 0 || rowLinks(inKindRow, /Land & Area/), `engInKind=${Math.round(engInKind)}`);
+  check('Equity existing row is a live formula linking to Assumptions (when present)', engExisting <= 0 || rowLinks(existingRow, /Assumptions/), `engExisting=${Math.round(engExisting)}`);
+  // Total equity is a live sum and ties to the engine.
+  let totalEqOk = true;
+  if (totalEqRow > 0) for (let t = 0; t < NN; t++) { const v = num(finWs.getCell(totalEqRow, yCol(t)).value); const e = (snap.financing.equity.totalPerPeriod ?? [])[t] ?? 0; if (!(Math.abs(v - e) <= Math.max(1, Math.abs(e) * 1e-6))) totalEqOk = false; }
+  check('Total equity is live and ties to engine', totalEqRow > 0 && totalEqOk);
+
+  // Cached-cell audit: the ONLY rows holding a nonzero plain-number period cell
+  // must be the three named circular budget rows. Everything else is a formula
+  // (a missing/zero cached result is fine; exceljs drops result:0). The fixture
+  // runs Method 1, where Cash equity is the equity side of the funding split
+  // (nonzero); it is 0 on Method-3 deliverables (FMP RE HUB), where the strict
+  // exactly-three audit holds (verified by the live-project proof). It is on the
+  // same convert-when-CF-lands backlog as the gap-sized debt.
+  const budgetLabels = new Set(['Capex drawdown (gap-sized debt)', 'IDC cash budget', 'Cash-sweep budget']);
+  const cachedValueRows = new Set<string>();
+  finWs.eachRow((_row, R) => {
+    const lab = finLab(R);
+    if (!lab || ['Movement', 'Combined', 'IDC', 'Equity', 'Budget'].includes(lab)) return;
+    for (let t = 0; t < NN; t++) { const v = finWs.getCell(R, yCol(t)).value; if (typeof v === 'number' && v !== 0) { cachedValueRows.add(lab); break; } }
+  });
+  const allowedCached = new Set([...budgetLabels, 'Cash equity']); // cash equity = Method-1 funding-split sibling
+  const unexpectedCached = [...cachedValueRows].filter((l) => !allowedCached.has(l));
+  check('Cached audit: only budget rows (+ Method-1 cash equity) hold cached values, nothing else', unexpectedCached.length === 0, `unexpected=[${unexpectedCached.join(', ')}]`);
+
   // Opex (Phase 4): total ties to the snapshot opex (incl. HQ).
   const opexResults = collectResults('Opex');
   const opexSum = snap.opex.totalOpexPerPeriodInclHQ.reduce((s, v) => s + (v ?? 0), 0);
@@ -363,6 +452,12 @@ async function main(): Promise<void> {
   const zip = await JSZip.loadAsync(buf);
   const wbXml = await zip.file('xl/workbook.xml')!.async('string');
   check('iterative calculation is enabled (calcPr iterate)', /<calcPr\b[^>]*iterate="1"/.test(wbXml), 'iterate flag missing in workbook.xml');
+  // Iterate flags must be present + correct so Excel converges the future
+  // Financing<->CashFlow circularity (load-bearing once budgets go live). The
+  // delta (0.001) is far below every Checks tolerance (>= 1), so no residual
+  // can break the reconciliation.
+  check('iterate count is 100', /<calcPr\b[^>]*iterateCount="100"/.test(wbXml), 'iterateCount missing/incorrect');
+  check('iterate delta is 0.001 (tight enough vs Checks tol >= 1)', /<calcPr\b[^>]*iterateDelta="0\.001"/.test(wbXml), 'iterateDelta missing/incorrect');
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
