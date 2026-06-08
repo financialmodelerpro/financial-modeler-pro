@@ -41,6 +41,10 @@ export interface CapexInputLine {
   metricKind: MetricKind;
   /** Engine-computed amount for this line on this asset. */
   amount: number;
+  /** Per-line capex distribution projected onto the project axis (length N).
+   *  Σ over the axis equals `amount`; Σ across an asset's lines equals the
+   *  asset perPeriod. Seeds the Excel per-line year-on-year phasing matrix. */
+  perPeriod: number[];
 }
 export interface CapexInputAsset { assetId: string; assetName: string; phaseName: string; lines: CapexInputLine[]; total: number }
 export interface CapexResultTable { title: string; rows: M4Row[] }
@@ -164,6 +168,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         metricLabel: b.label,
         metricKind: b.kind,
         amount,
+        perPeriod: projectOntoAxis(breakdown.perLinePerPeriod?.[lineId] ?? [], offset, N),
       });
     }
     if (lines.length) inputAssets.push({ assetId: a.id, assetName: a.name, phaseName: phase.name, lines, total: breakdown.total });

@@ -220,6 +220,86 @@ async function main(): Promise<void> {
   }
   check('Capex subtotal per asset reconciles to engine', perAssetOk, perAssetDetail.join('; '));
 
+  // ── Unit 2: per-line, per-year capex phasing matrix ─────────────────────────
+  // Sections 2+3 are now per-asset Allocation (% inputs) + Amount (formulas)
+  // blocks. Verify the structure, purity, the per-line Check, and the three
+  // reconciliation identities (cached) on the fixture.
+  const NN = snap.axisLength;
+  const fCol = 2, p0 = 3, totCol = fCol + NN + 1, chkCol = totCol + 1;
+  const yCol = (t: number): number => p0 + t;
+  // exceljs drops a cached result:0 on write, so a formula cell with no numeric
+  // result reads as 0 (Excel recomputes it on open via fullCalcOnLoad).
+  const num = (v: any): number => {
+    if (typeof v === 'number') return v;
+    if (v && typeof v === 'object') { if ('result' in v && typeof v.result === 'number') return v.result; if ('formula' in v) return 0; }
+    return NaN;
+  };
+  const labOf = (R: number): string => { const a = cap.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+
+  let hasAlloc = false, hasAmount = false, hasOldAggregate = false;
+  let allocConstCells = 0, allocFormulaCells = 0, amtFormulaCells = 0, amtConstCells = 0;
+  const allocChecksOk: boolean[] = [];
+  const amtLineRows: Array<{ asset: string; name: string; row: number }> = [];
+  const assetTotRows: Array<{ name: string; row: number }> = [];
+  let grandRow = -1; let curAmtAsset = '';
+  let inAlloc = false, inAmount = false;
+  cap.eachRow((_row, R) => {
+    const lab = labOf(R);
+    if (/^Capex phasing profile/.test(lab)) hasOldAggregate = true;
+    if (/^Allocation profile, /.test(lab)) { inAlloc = true; inAmount = false; hasAlloc = true; return; }
+    if (/^Capex by year, /.test(lab)) { inAlloc = false; inAmount = true; hasAmount = true; curAmtAsset = lab.replace(/^Capex by year, /, '').replace(/ \([^)]*\) - line total x allocation %$/, '').trim(); return; }
+    if (/^Total capex, .* \(incl\. land\)$/.test(lab)) { assetTotRows.push({ name: lab.replace(/^Total capex, /, '').replace(/ \(incl\. land\)$/, ''), row: R }); return; }
+    if (/^Grand total capex/.test(lab)) { grandRow = R; return; }
+    if (/^Subtotal excl\. land/.test(lab) || lab === 'Cost line' || !lab) return;
+    if (inAlloc) {
+      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (typeof v === 'number') allocConstCells++; else if (v && typeof v === 'object' && 'formula' in v) allocFormulaCells++; }
+      const ch: any = cap.getCell(R, chkCol).value;
+      if (ch !== null && ch !== undefined && ch !== '') allocChecksOk.push(String((ch && ch.result) ?? ch) === 'OK');
+    }
+    if (inAmount) {
+      amtLineRows.push({ asset: curAmtAsset, name: lab, row: R });
+      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) amtFormulaCells++; else if (typeof v === 'number') amtConstCells++; }
+    }
+  });
+
+  check('Capex Section 2/3 are per-asset Allocation + Amount blocks', hasAlloc && hasAmount, `alloc=${hasAlloc} amount=${hasAmount}`);
+  check('Old asset-aggregate phasing % row is gone', !hasOldAggregate);
+  check('Section 2 allocation % are input constants (no formulas)', allocConstCells > 0 && allocFormulaCells === 0, `const=${allocConstCells} formula=${allocFormulaCells}`);
+  check('Section 3 amounts are formulas (no hardcoded amounts)', amtFormulaCells > 0 && amtConstCells === 0, `formula=${amtFormulaCells} const=${amtConstCells}`);
+  check('Every per-line Check reads OK (100% within tol)', allocChecksOk.length > 0 && allocChecksOk.every(Boolean), `ok=${allocChecksOk.filter(Boolean).length}/${allocChecksOk.length}`);
+
+  // Identity #1: each amount line's Total col == its engine line total.
+  const engLineAmt = new Map<string, number>();
+  for (const ia of capReport.inputAssets) for (const ln of ia.lines) engLineAmt.set(`${ia.assetName.trim()}|${ln.name}`, ln.amount);
+  let id1Ok = true; const id1Detail: string[] = [];
+  for (const al of amtLineRows) {
+    const eng = engLineAmt.get(`${al.asset}|${al.name}`);
+    const tot = num(cap.getCell(al.row, totCol).value);
+    if (eng === undefined || !(Math.abs(tot - eng) <= Math.max(1, Math.abs(eng) * 1e-6))) { id1Ok = false; if (id1Detail.length < 5) id1Detail.push(`${al.asset}/${al.name}: wb=${Math.round(tot)} eng=${eng === undefined ? 'none' : Math.round(eng)}`); }
+  }
+  check('Identity 1: each line lifetime == Section 1 line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
+
+  // Identity #2: each asset incl-land per-year total == engine perPeriod.
+  const inclTbl = capReport.results.find((t) => t.title === 'Total Capex (incl. all land)');
+  const assetIncl = new Map<string, number[]>();
+  for (const rw of inclTbl?.rows ?? []) if (!(rw as any).isTotal) assetIncl.set(rw.label, (rw.values || []).slice());
+  let id2Ok = true; const id2Detail: string[] = [];
+  for (const at of assetTotRows) {
+    const incl = assetIncl.get(at.name) || [];
+    for (let t = 0; t < NN; t++) { const v = num(cap.getCell(at.row, yCol(t)).value); if (!(Math.abs(v - (incl[t] ?? 0)) <= Math.max(1, Math.abs(incl[t] ?? 0) * 1e-6))) { id2Ok = false; if (id2Detail.length < 5) id2Detail.push(`${at.name}[y${t}] wb=${Math.round(v)} eng=${Math.round(incl[t] ?? 0)}`); } }
+  }
+  check('Identity 2: each year asset total == engine per-period', id2Ok && assetTotRows.length > 0, id2Detail.join('; '));
+
+  // Identity #3: grand total ties to the snapshot, and the Checks handoff holds.
+  const snapGrand = snap.financing.capex.totals.inclAllLand;
+  const grandTot = grandRow > 0 ? num(cap.getCell(grandRow, totCol).value) : NaN;
+  check('Identity 3: grand total (incl all land) ties to snapshot', Math.abs(grandTot - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6), `wb=${Math.round(grandTot)} snap=${Math.round(snapGrand)}`);
+  // The Checks sheet's scheduleTotalAddr must reference the grand-total cell value.
+  const checksWs = wb.getWorksheet('Checks')!;
+  let checksTie = false;
+  checksWs.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && 'result' in v && typeof v.result === 'number' && Math.abs(v.result - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6) && /Capex/.test(String(v.formula ?? ''))) checksTie = true; }));
+  check('Checks sheet still ties to the Capex grand total (scheduleTotalAddr)', checksTie);
+
   // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
   const collectResults = (sheet: string): number[] => {
     const out: number[] = [];
