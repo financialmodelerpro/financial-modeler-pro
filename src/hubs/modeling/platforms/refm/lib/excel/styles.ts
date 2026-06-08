@@ -46,6 +46,24 @@ export function fcell(formula: string, result: number | string | boolean): { for
   return { formula, result };
 }
 
+/**
+ * Quote a sheet name for use inside a formula when it is not a bare token Excel
+ * accepts unquoted (letters / digits / underscore, not starting with a digit).
+ * Names with spaces or symbols (e.g. 'Land & Area', 'Cost of Sales') must be
+ * single-quoted, else Excel raises #NAME? (it parses '&' as concatenation and
+ * the leading word as an unknown name). Embedded single quotes are doubled.
+ * This is the single choke point: every cross-sheet reference is built via
+ * sheetRef(), so any current or future multi-word sheet is quoted correctly.
+ */
+export function quoteSheet(name: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`;
+}
+
+/** Fully-qualified cross-sheet reference, sheet name quoted as needed. */
+export function sheetRef(sheet: string, a1: string): string {
+  return `${quoteSheet(sheet)}!${a1}`;
+}
+
 export function setInput(cell: Cell, value: number | string, numFmt = NUMFMT.money): void {
   cell.value = value;
   cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.input } };

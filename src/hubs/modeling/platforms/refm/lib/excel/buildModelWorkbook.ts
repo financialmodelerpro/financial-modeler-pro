@@ -26,7 +26,7 @@ import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-ty
 import { formatAccounting } from '@/src/core/formatters';
 import {
   ARGB, NUMFMT, fcell, setInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder,
+  fillCell, fillRange, boxBorder, sheetRef,
 } from './styles';
 
 export interface BuildModelOptions {
@@ -49,8 +49,8 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   addCover(wb, snap, opts); // first tab; index links to the sheets created below
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
-  addLandArea(wb, opts.state, refs);
-  const capexAddrs = addCapex(wb, snap, capex, refs);
+  const landAddrs = addLandArea(wb, opts.state, refs);
+  const capexAddrs = addCapex(wb, snap, capex, refs, landAddrs);
   addFinancing(wb, snap, opts.state, refs);
   const revAddr = addRevenue(wb, snap, opts.state, refs);
   const cosAddr = addCoS(wb, snap, cos, refs);
@@ -99,14 +99,31 @@ async function enableIterativeCalc(buf: ArrayBuffer): Promise<ArrayBuffer> {
 
 // Cell references the rest of the model links to (defined-name targets).
 interface CapexLineRef {
+  /** Cost-line id (phase-scoped), so percent_of_selected can find sibling rows. */
+  id: string;
+  /** Raw cost method, so the build-up picks the right live-basis source. */
+  method: string;
+  /** Sibling line ids summed as the base for percent_of_selected. */
+  selectedLineIds: string[];
+  /** Cost stage ('hard' etc.); percent_of_construction sums the 'hard' lines. */
+  stage: string;
+  /** Raw rate / percent the user entered (percent as 0..100), for reconciliation. */
+  rate: number;
   name: string;
   /** Absolute cross-sheet address of the rate / % input cell on Assumptions. */
   rateAddr: string;
-  /** Absolute address of the quantity / basis input cell, null for fixed lumps. */
+  /** Absolute address of the physical-quantity input cell on Assumptions, kept
+   *  only for rate-x-area methods (metricKind 'area'); null otherwise. Derived
+   *  money / count bases are computed live on the calc sheets, not stored here. */
   qtyAddr: string | null;
+  /** Basis source for non-area methods, so the build-up can link live. */
+  metricKind: 'area' | 'count' | 'money' | 'none';
   amount: number;
 }
-interface CapexAssetRef { name: string; phaseName: string; total: number; lines: CapexLineRef[] }
+interface CapexAssetRef { assetId: string; name: string; phaseName: string; total: number; lines: CapexLineRef[] }
+
+// Live-basis addresses captured on the Land & Area calc sheet, keyed by asset.
+interface LandAreaAssetAddrs { landValue: string; cashLand: string; inKindLand: string; unitCount: string; revenue: string }
 
 // Absolute cell addresses on the Assumptions sheet, captured as inputs are
 // written, so the calc sheets reference inputs by cell (nothing hardcoded).
@@ -144,7 +161,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   const parcelRefs: ParcelInputRef[] = [];
   const trancheRefs: TrancheInputRef[] = [];
   const equityRefs: EquityInputRef[] = [];
-  const addr = (col: string, row: number): string => `${SHEETS.assumptions}!$${col}$${row}`;
+  const addr = (col: string, row: number): string => sheetRef(SHEETS.assumptions, `$${col}$${row}`);
   let r = 1;
   setTitle(ws.getCell(`A${r}`), 'Assumptions (Inputs)', 16); r += 1;
   setLabel(ws.getCell(`A${r}`), 'All blue cells are inputs. Edit here; the model recalculates throughout.', { }); r += 2;
@@ -283,18 +300,19 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
   r += 1;
 
-  // Capex cost lines (rate inputs + quantity / basis drivers). The Capex sheet
-  // multiplies these to produce each line amount, so editing a rate here flows
-  // through the model. Percent-method rates are stored as decimals (0.10) and
-  // multiply a money basis; rate methods multiply a physical quantity; a fixed
-  // lump has no quantity.
-  setSectionHeader(ws.getRow(r), 'Capex cost lines (rate x quantity, or % x basis)', 5); r += 1;
-  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity / Basis', ''].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  // Capex cost lines: PURE INPUTS only (method + rate / %, plus a physical
+  // quantity for rate-x-area methods). Derived bases stay OFF this sheet: an
+  // in-kind / cash / total land value, a revenue basis, a sum-of-selected-lines
+  // and a derived unit count are all calculated results, so they are computed
+  // live on the calc sheets (Land & Area, Capex itself) instead of being stored
+  // here as constants. Percent rates are decimals (0.10); a fixed lump = rate.
+  setSectionHeader(ws.getRow(r), 'Capex cost lines (inputs: method, rate / %, physical quantity)', 4); r += 1;
+  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity (rate-x-area only)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
   r += 1;
   const capexRefs: CapexAssetRef[] = [];
   for (const ia of capex.inputAssets) {
     setLabel(ws.getCell(`A${r}`), `${ia.assetName}  (${ia.phaseName})`, { bold: true });
-    fillRange(ws, r, 1, r, 5, ARGB.subtotal);
+    fillRange(ws, r, 1, r, 4, ARGB.subtotal);
     r += 1;
     const lineRefs: CapexLineRef[] = [];
     for (const ln of ia.lines) {
@@ -302,17 +320,33 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setLabel(ws.getCell(`B${r}`), ln.basis);
       if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
       else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.money);
-      const hasQty = !ln.isFixed && ln.metricValue !== null;
-      if (hasQty) setInput(ws.getCell(`D${r}`), ln.metricValue as number, ln.metricKind === 'money' ? NUMFMT.money : NUMFMT.int);
+      // Keep column D as an input ONLY for a genuine physical quantity: rate-x-
+      // area (BUA / NSA / GFA / NDA / roads / land sqm) and rate-per-parking-bay
+      // (basisFor tags bays as 'count', but a bay is a physical input). A derived
+      // unit count and every money basis (land value / revenue / selected lines)
+      // are left blank here and built live on the calc sheets from the real source.
+      const hasQty = !ln.isFixed && ln.metricValue !== null && (ln.metricKind === 'area' || ln.method === 'rate_per_parking_bay');
+      // Store the EFFECTIVE driver quantity (amount / rate), not the raw area
+      // metric. They are equal when no allocation applies; when the engine
+      // allocates a line's cost across assets (e.g. bua_share), the effective
+      // quantity is this asset's share, so rate x quantity reconciles to the
+      // engine amount on recalculation rather than drifting.
+      if (hasQty) setInput(ws.getCell(`D${r}`), ln.rate ? ln.amount / ln.rate : (ln.metricValue as number), NUMFMT.int);
       lineRefs.push({
+        id: ln.id,
+        method: ln.method,
+        selectedLineIds: ln.selectedLineIds,
+        stage: ln.stage,
+        rate: ln.rate,
         name: ln.name,
-        rateAddr: `${SHEETS.assumptions}!$C$${r}`,
-        qtyAddr: hasQty ? `${SHEETS.assumptions}!$D$${r}` : null,
+        rateAddr: sheetRef(SHEETS.assumptions, `$C$${r}`),
+        qtyAddr: hasQty ? sheetRef(SHEETS.assumptions, `$D$${r}`) : null,
+        metricKind: ln.metricKind,
         amount: ln.amount,
       });
       r += 1;
     }
-    capexRefs.push({ name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
+    capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
   }
   r += 1;
 
@@ -397,12 +431,12 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
 }
 
 // ── Land & Area (formula area hierarchy + land value, links to Assumptions) ────
-function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs: AssumptionRefs): void {
+function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs: AssumptionRefs): Map<string, LandAreaAssetAddrs> {
   const ws = wb.addWorksheet(SHEETS.landArea, { properties: { tabColor: { argb: ARGB.navy } } });
   ws.getColumn(1).width = 28;
-  for (let c = 2; c <= 12; c++) ws.getColumn(c).width = 13;
+  for (let c = 2; c <= 14; c++) ws.getColumn(c).width = 13;
   setTitle(ws.getCell('A1'), 'Land & Area', 16);
-  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA) and land value, computed from the Assumptions inputs.');
+  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA), land value, unit count and GDV, computed from the Assumptions inputs. The Capex build-up links its percent / unit cost bases here.');
 
   // Engine metrics per asset, cached so the formulas reconcile to the platform.
   const metricsById = new Map<string, AssetAreaMetrics>();
@@ -410,15 +444,15 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     const inPhase = state.assets.filter((x) => x.phaseId === a.phaseId);
     metricsById.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode));
   }
-  const sub = (id: string): SubUnitInputRef | undefined => refs.subUnits.find((s) => s.id === id);
   const suRaw = new Map(state.subUnits.map((u) => [u.id, u] as const));
 
   let r = 4;
-  // ── Section 1: sub-unit areas (drivers for the NSA hierarchy) ──
-  setSectionHeader(ws.getRow(r), 'Sub-unit areas', 7); r += 1;
-  ['Sub-unit', 'Asset', 'Category', 'Metric', 'Area (sqm)', 'NSA area', 'Support area'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  // ── Section 1: sub-unit areas (drivers for the NSA hierarchy + unit / GDV) ──
+  setSectionHeader(ws.getRow(r), 'Sub-unit areas', 9); r += 1;
+  ['Sub-unit', 'Asset', 'Category', 'Metric', 'Area (sqm)', 'NSA area', 'Support area', 'Units', 'GDV'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
   r += 1;
-  const suCells = new Map<string, { nsa: string; support: string }>(); // sub-unit id -> this-sheet cells
+  // sub-unit id -> this-sheet cells (quoted cross-sheet addresses).
+  const suCells = new Map<string, { nsa: string; support: string; units: string; gdv: string }>();
   for (const sr of refs.subUnits) {
     const u = suRaw.get(sr.id);
     if (!u) continue;
@@ -426,6 +460,11 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     const area = u.metric === 'area' ? (u.metricValue ?? 0) : (u.metricValue ?? 0) * (u.unitArea ?? 0);
     const isNsa = u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable';
     const isSupport = u.category === 'Support';
+    // Unit count: mirrors computeAssetUnitCount (metric units/count, not Support).
+    const isUnitMetric = u.metric === 'units' || (u.metric as unknown as string) === 'count';
+    const unitsCached = isUnitMetric && !isSupport ? Math.max(0, u.metricValue ?? 0) : 0;
+    // GDV: mirrors computeAssetRevenue (sum of value x price over revenue cats).
+    const gdvCached = isNsa ? Math.max(0, u.metricValue ?? 0) * Math.max(0, u.unitPrice ?? 0) : 0;
     setLabel(ws.getCell(`A${r}`), u.name, { indent: 1 });
     setLabel(ws.getCell(`B${r}`), aName);
     setFormula(ws.getCell(`C${r}`), fcell(sr.category, String(u.category)), '@', true);
@@ -435,14 +474,20 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     const areaCell = `E${r}`;
     setFormula(ws.getCell(`F${r}`), fcell(`IF(OR(C${r}="Sellable",C${r}="Operable",C${r}="Leasable"),${areaCell},0)`, isNsa ? area : 0), NUMFMT.int);
     setFormula(ws.getCell(`G${r}`), fcell(`IF(C${r}="Support",${areaCell},0)`, isSupport ? area : 0), NUMFMT.int);
-    suCells.set(sr.id, { nsa: `${SHEETS.landArea}!F${r}`, support: `${SHEETS.landArea}!G${r}` });
+    // Units = IF(metric is units/count, value, 0); GDV = IF(revenue cat, value x price, 0).
+    setFormula(ws.getCell(`H${r}`), fcell(`IF(OR(${sr.metric}="units",${sr.metric}="count"),${sr.value},0)`, unitsCached), NUMFMT.int);
+    setFormula(ws.getCell(`I${r}`), fcell(`IF(OR(C${r}="Sellable",C${r}="Operable",C${r}="Leasable"),${sr.value}*${sr.price},0)`, gdvCached), NUMFMT.money);
+    suCells.set(sr.id, {
+      nsa: sheetRef(SHEETS.landArea, `F${r}`), support: sheetRef(SHEETS.landArea, `G${r}`),
+      units: sheetRef(SHEETS.landArea, `H${r}`), gdv: sheetRef(SHEETS.landArea, `I${r}`),
+    });
     r += 1;
   }
   r += 1;
 
-  // ── Section 2: asset area hierarchy + land ──
-  setSectionHeader(ws.getRow(r), 'Asset area & land', 12); r += 1;
-  ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  // ── Section 2: asset area hierarchy + land + unit count + GDV ──
+  setSectionHeader(ws.getRow(r), 'Asset area & land', 14); r += 1;
+  ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land', 'Units', 'GDV'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
   r += 1;
 
   // Pass 1: hierarchy rows; capture each asset's BUA cell for cross-asset land share.
@@ -465,9 +510,11 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     r += 1;
   }
 
-  // Pass 2: land columns (need cross-asset BUA for the auto-by-BUA share).
+  // Pass 2: land columns (need cross-asset BUA for the auto-by-BUA share) + the
+  // unit-count and GDV totals the Capex build-up links its cost bases to.
   const parcelPhase = new Map(state.parcels.map((p) => [p.id, p.phaseId] as const));
   const parcelsInPhase = (phaseId: string): ParcelInputRef[] => refs.parcels.filter((p) => parcelPhase.get(p.id) === phaseId);
+  const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
   for (const row of aRows) {
     const m = metricsById.get(row.ref.id);
     const ph = row.ref.phaseId;
@@ -484,15 +531,30 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     // Cash / in-kind split via the phase cash fraction.
     setFormula(ws.getCell(`K${row.row}`), fcell(`J${row.row}*IFERROR((${cashValueF})/(${landValueF}),0)`, m?.cashLandValue ?? 0), NUMFMT.money);
     setFormula(ws.getCell(`L${row.row}`), fcell(`J${row.row}-K${row.row}`, m?.inKindLandValue ?? 0), NUMFMT.money);
+    // Unit count + GDV = SUM of this asset's sub-unit cells (cached to the engine
+    // metric so the Capex commission / per-unit bases reconcile).
+    const mySub = refs.subUnits.filter((s) => s.assetId === row.ref.id).map((s) => suCells.get(s.id)).filter(Boolean) as Array<{ units: string; gdv: string }>;
+    const unitsF = mySub.length ? mySub.map((c) => c.units).join('+') : '0';
+    const gdvF = mySub.length ? mySub.map((c) => c.gdv).join('+') : '0';
+    setFormula(ws.getCell(`M${row.row}`), fcell(unitsF, m?.unitCount ?? 0), NUMFMT.int);
+    setFormula(ws.getCell(`N${row.row}`), fcell(gdvF, m?.totalRevenue ?? 0), NUMFMT.money);
+    landAddrsByAsset.set(row.ref.id, {
+      landValue: sheetRef(SHEETS.landArea, `$J$${row.row}`),
+      cashLand: sheetRef(SHEETS.landArea, `$K$${row.row}`),
+      inKindLand: sheetRef(SHEETS.landArea, `$L$${row.row}`),
+      unitCount: sheetRef(SHEETS.landArea, `$M$${row.row}`),
+      revenue: sheetRef(SHEETS.landArea, `$N$${row.row}`),
+    });
   }
 
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  return landAddrsByAsset;
 }
 
 // ── Capex (cost build-up + phased schedule) ───────────────────────────────────
 interface CapexAddrs { scheduleTotalAddr: string; buildupTotalAddr: string }
 
-function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs): CapexAddrs {
+function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>): CapexAddrs {
   const ws = wb.addWorksheet(SHEETS.capex, { properties: { tabColor: { argb: ARGB.navy } } });
   ws.getColumn(1).width = 34;
   ws.getColumn(2).width = 16;
@@ -500,11 +562,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const firstCol = 2; // column B = period 0, mirroring the Timeline axis
 
   setTitle(ws.getCell('A1'), 'Capex', 16);
-  setLabel(ws.getCell('A2'), 'Development cost build-up per asset (rates link to Assumptions), then phased onto the model timeline.');
+  setLabel(ws.getCell('A2'), 'Development cost build-up per asset. Every basis is live: rates / % link to Assumptions, land + revenue + unit bases link to Land & Area, and percent-of-lines bases sum the relevant sibling cost lines on this sheet. Then phased onto the model timeline.');
 
   let r = 4;
 
-  // ── Section 1: cost build-up by asset (formula-driven, links to Assumptions) ──
+  // ── Section 1: cost build-up by asset (formula-driven; bases are all live) ──
   setSectionHeader(ws.getRow(r), 'Cost build-up by asset', 2); r += 1;
   setColHeader(ws.getCell(r, 1), 'Asset / Cost line', 'left');
   setColHeader(ws.getCell(r, 2), 'Amount', 'right');
@@ -515,15 +577,75 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     setLabel(ws.getCell(`A${r}`), `${a.name}  (${a.phaseName})`, { bold: true });
     fillRange(ws, r, 1, r, 2, ARGB.subtotal);
     r += 1;
+    const land = landAddrs.get(a.assetId);
+    // Pre-assign each line's amount row so percent-of-lines bases can reference
+    // their sibling cells. The cell map is keyed by cost-line id.
+    const rowOf = new Map<string, number>();
+    a.lines.forEach((ln, i) => rowOf.set(ln.id, r + i));
+    const cellOf = (id: string): string | null => { const rr = rowOf.get(id); return rr != null ? `B${rr}` : null; };
+    // Build a line's live amount basis. Returns null when no live source exists
+    // (exotic methods); the caller then writes the cached engine amount instead,
+    // which keeps the Assumptions sheet free of any derived value.
+    const basisFormula = (ln: CapexLineRef, myRow: number): string | null => {
+      if (ln.qtyAddr) return `${ln.rateAddr}*${ln.qtyAddr}`;  // rate x physical qty (area / bays)
+      if (ln.method === 'fixed') return `${ln.rateAddr}`;     // fixed lump = rate
+      const own = `B${myRow}`;
+      const sumCells = (ids: string[]): string | null => {
+        const cells = ids.map(cellOf).filter((c): c is string => !!c && c !== own); // never self-reference
+        return cells.length ? `(${cells.join('+')})` : null;
+      };
+      let base: string | null = null;
+      switch (ln.method) {
+        case 'rate_per_unit': base = land?.unitCount ?? null; break;
+        case 'percent_of_inkind_land': base = land?.inKindLand ?? null; break;
+        case 'percent_of_cash_land': base = land?.cashLand ?? null; break;
+        case 'percent_of_total_land': base = land?.landValue ?? null; break;
+        case 'percent_of_total_revenue':
+        case 'percent_of_revenue_cash':
+        case 'percent_of_revenue_sale': base = land?.revenue ?? null; break;
+        case 'percent_of_selected': base = sumCells(ln.selectedLineIds); break;
+        case 'percent_of_construction':
+          base = sumCells(a.lines.filter((s) => s.stage === 'hard' && s.id !== ln.id).map((s) => s.id)); break;
+        default: base = null;
+      }
+      return base ? `${ln.rateAddr}*${base}` : null;
+    };
+    // A sum-of-siblings / fixed line reconciles to the engine only when no cross-
+    // asset cost ALLOCATION applies (the engine folds this asset's driver-share
+    // into the result, which a plain rate x base formula cannot reproduce, and
+    // fullCalcOnLoad would then drift the total on open). Predict the live value
+    // from the cached sibling amounts; if it does not match the engine amount,
+    // fall back to the engine value as a Capex calc cell so the total stays exact.
+    // Modeling the allocation itself as live formulas is deferred (later unit).
+    const sumAmt = (ids: string[]): number => ids.reduce((s, id) => (id === undefined ? s : s + (a.lines.find((l) => l.id === id && l.id !== undefined)?.amount ?? 0)), 0);
+    const predictedLive = (ln: CapexLineRef): number | null => {
+      switch (ln.method) {
+        case 'fixed': return ln.rate;
+        case 'percent_of_selected': return (ln.rate / 100) * sumAmt(ln.selectedLineIds.filter((id) => id !== ln.id));
+        case 'percent_of_construction': return (ln.rate / 100) * sumAmt(a.lines.filter((s) => s.stage === 'hard' && s.id !== ln.id).map((s) => s.id));
+        default: return null; // rate-x-qty / land / revenue / unit reconcile by construction
+      }
+    };
     const lineRows: number[] = [];
     for (const ln of a.lines) {
-      setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
-      // amount = rate x quantity (rate / percent methods) or rate (fixed lump).
-      const formula = ln.qtyAddr ? `${ln.rateAddr}*${ln.qtyAddr}` : `${ln.rateAddr}`;
-      setFormula(ws.getCell(`B${r}`), fcell(formula, ln.amount), NUMFMT.money, true);
-      lineRows.push(r);
-      r += 1;
+      const myRow = rowOf.get(ln.id)!;
+      setLabel(ws.getCell(`A${myRow}`), ln.name, { indent: 1 });
+      const formula = basisFormula(ln, myRow);
+      const predicted = predictedLive(ln);
+      const reconciles = predicted === null || Math.abs(predicted - ln.amount) <= Math.max(1, Math.abs(ln.amount) * 1e-6);
+      if (formula && reconciles) {
+        setFormula(ws.getCell(`B${myRow}`), fcell(formula, ln.amount), NUMFMT.money, true);
+      } else {
+        // No live source, or a live formula would drift under cross-asset cost
+        // allocation: write the engine amount as a calc value (black) so the
+        // workbook stays exact on open. Never written to the Assumptions sheet.
+        const cell = ws.getCell(`B${myRow}`);
+        cell.value = ln.amount; cell.numFmt = NUMFMT.money;
+        cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+      }
+      lineRows.push(myRow);
     }
+    r += a.lines.length;
     setLabel(ws.getCell(`A${r}`), `Subtotal, ${a.name}`, { bold: true });
     const sumRange = lineRows.length ? `SUM(B${lineRows[0]}:B${lineRows[lineRows.length - 1]})` : '0';
     setFormula(ws.getCell(`B${r}`), fcell(sumRange, a.total), NUMFMT.money);
@@ -540,7 +662,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   fillRange(ws, r, 1, r, 2, ARGB.navy);
   ws.getCell(`A${r}`).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
   ws.getCell(`B${r}`).font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
-  const buildupTotalAddr = `${SHEETS.capex}!$B$${r}`;
+  const buildupTotalAddr = sheetRef(SHEETS.capex, `$B$${r}`);
   r += 2;
 
   // ── Section 2: phasing profile (% of total per year, editable) ──
@@ -588,7 +710,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   }
   const inclAll = snap.financing.capex.perPeriod.inclAllLand;
   navySumRow(ws, r, firstCol, N, totalCol, 'Total capex (incl. all land)', assetPeriodRows, inclAll);
-  const scheduleTotalAddr = `${SHEETS.capex}!$${colLetter(totalCol)}$${r}`;
+  const scheduleTotalAddr = sheetRef(SHEETS.capex, `$${colLetter(totalCol)}$${r}`);
 
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
   return { scheduleTotalAddr, buildupTotalAddr };
@@ -725,7 +847,7 @@ function periodHeader(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: num
   const yearHdr = (c: number, cached: number): void => {
     ws.getColumn(c).width = 12;
     const cell = ws.getCell(r, c);
-    setFormula(cell, fcell(`Timeline!${colLetter(c)}6`, cached), NUMFMT.year, true);
+    setFormula(cell, fcell(sheetRef(SHEETS.timeline, `${colLetter(c)}6`), cached), NUMFMT.year, true);
     cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
     cell.alignment = { horizontal: 'right' };
@@ -788,7 +910,7 @@ function addRevenue(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
   cachedRow(ws, r, firstCol, N, tCol, 'Hospitality revenue', snap.pl.hospitalityRevenuePerPeriod); compRows.push(r); r += 1;
   cachedRow(ws, r, firstCol, N, tCol, 'Retail revenue', snap.pl.retailRevenuePerPeriod); compRows.push(r); r += 1;
   navySumRow(ws, r, firstCol, N, tCol, 'Total revenue', compRows, snap.pl.totalRevenuePerPeriod);
-  const totalAddr = `'${SHEETS.revenue}'!$${colLetter(tCol)}$${r}`;
+  const totalAddr = sheetRef(SHEETS.revenue, `$${colLetter(tCol)}$${r}`);
   r += 2;
 
   // Revenue detail by asset (cached series, informational; row totals are SUM).
@@ -833,7 +955,7 @@ function addCoS(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsS
     rowIdx.push(r); r += 1;
   }
   navySumRow(ws, r, firstCol, N, tCol, 'Total cost of sales', rowIdx, cosTotalCached);
-  const totalAddr = `'${SHEETS.cos}'!$${colLetter(tCol)}$${r}`;
+  const totalAddr = sheetRef(SHEETS.cos, `$${colLetter(tCol)}$${r}`);
 
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
   return totalAddr;
@@ -865,7 +987,7 @@ function addOpex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancials
     assetRowIdx.push(r); r += 1;
   }
   navySumRow(ws, r, firstCol, N, tCol, 'Total project opex', assetRowIdx, opex.totalOpexPerPeriodInclHQ);
-  const totalAddr = `'${SHEETS.opex}'!$${colLetter(tCol)}$${r}`;
+  const totalAddr = sheetRef(SHEETS.opex, `$${colLetter(tCol)}$${r}`);
   r += 2;
 
   // Section 2: project opex by category (Direct / Indirect / Mgmt / Other + HQ).

@@ -18,6 +18,13 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
 export interface CapexInputLine {
+  /** Cost-line id (phase-scoped). Lets the Excel build-up map each line to its
+   *  amount cell so percent_of_selected can reference the right sibling rows. */
+  id: string;
+  /** Raw cost method, so the Excel build-up can pick the live-basis source. */
+  method: string;
+  /** For percent_of_selected: the sibling line ids whose totals are the base. */
+  selectedLineIds: string[];
   name: string;
   stage: string;
   basis: string;
@@ -35,7 +42,7 @@ export interface CapexInputLine {
   /** Engine-computed amount for this line on this asset. */
   amount: number;
 }
-export interface CapexInputAsset { assetName: string; phaseName: string; lines: CapexInputLine[]; total: number }
+export interface CapexInputAsset { assetId: string; assetName: string; phaseName: string; lines: CapexInputLine[]; total: number }
 export interface CapexResultTable { title: string; rows: M4Row[] }
 export interface CapexReport { inputAssets: CapexInputAsset[]; results: CapexResultTable[] }
 
@@ -144,6 +151,9 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       if (!cl) continue;
       const b = basisFor(cl.method, metrics, amount, cl.value);
       lines.push({
+        id: lineId,
+        method: String(cl.method ?? ''),
+        selectedLineIds: cl.selectedLineIds ?? [],
         name: cl.name,
         stage: String(cl.stage ?? '-'),
         basis: basisLabel(cl.method),
@@ -156,7 +166,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         amount,
       });
     }
-    if (lines.length) inputAssets.push({ assetName: a.name, phaseName: phase.name, lines, total: breakdown.total });
+    if (lines.length) inputAssets.push({ assetId: a.id, assetName: a.name, phaseName: phase.name, lines, total: breakdown.total });
 
     // Results: project each per-period variant onto the axis.
     const inclAll = projectOntoAxis(breakdown.perPeriod ?? [], offset, N);

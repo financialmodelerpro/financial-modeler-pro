@@ -13,6 +13,7 @@ import JSZip from 'jszip';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
+import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { resolveAssetAreaMetrics } from '../src/core/calculations';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -143,6 +144,81 @@ async function main(): Promise<void> {
   const inclSum = snap.financing.capex.perPeriod.inclAllLand.reduce((s, v) => s + (v ?? 0), 0);
   const capTol = Math.max(1000, Math.abs(inclSum) * 1e-6);
   check('Capex total reconciles to snapshot (incl. all land)', capResults.some((x) => Math.abs(x - inclSum) <= capTol), `inclSum=${Math.round(inclSum)}`);
+
+  // ── Unit 1: sheet-name quoting (no #NAME?) ──────────────────────────────────
+  // Every cross-sheet reference to a multi-word sheet must be single-quoted, else
+  // Excel raises #NAME? (e.g. 'Land & Area' parses '&' as concatenation). Scan
+  // every formula on every sheet and assert no bare (unquoted) multi-word ref.
+  const MULTIWORD = ['Land & Area', 'Cost of Sales', 'Operating Expenses'];
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const unquotedRefs: string[] = [];
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as any;
+      if (!(v && typeof v === 'object' && 'formula' in v)) return;
+      const f = String(v.formula);
+      for (const n of MULTIWORD) {
+        const stripped = f.replace(new RegExp(`'${esc(n)}'!`, 'g'), '');
+        if (stripped.includes(`${n}!`)) unquotedRefs.push(`${ws.name}: ${f}`);
+      }
+    }));
+  }
+  check('No unquoted multi-word sheet references anywhere (no #NAME? source)', unquotedRefs.length === 0, unquotedRefs.slice(0, 3).join(' || '));
+
+  // ── Unit 1: Assumptions capex block is PURE INPUTS ──────────────────────────
+  // Locate the capex cost-lines block and assert column D (Quantity) holds no
+  // money-formatted constant (a derived basis); percent rows (col C in pct) must
+  // have an EMPTY D. Physical-quantity rows (int-formatted) may keep D.
+  let inCapexBlock = false; let moneyBasisConstants = 0; let percentRowsWithQty = 0;
+  asum.eachRow((row) => {
+    const a = row.getCell(1).value;
+    if (typeof a === 'string' && a.startsWith('Capex cost lines')) { inCapexBlock = true; return; }
+    if (inCapexBlock && typeof a === 'string' && (a.startsWith('Financing facilities') || a.startsWith('Equity contributions'))) inCapexBlock = false;
+    if (!inCapexBlock) return;
+    const cC = row.getCell(3); const cD = row.getCell(4);
+    if (typeof cD.value === 'number' && /\)/.test(String(cD.numFmt ?? ''))) moneyBasisConstants++; // money fmt has parens
+    const cIsPct = /%/.test(String(cC.numFmt ?? ''));
+    if (cIsPct && cD.value !== null && cD.value !== undefined && cD.value !== '') percentRowsWithQty++;
+  });
+  check('Assumptions capex block holds NO derived money basis (pure inputs)', moneyBasisConstants === 0, `moneyConstants=${moneyBasisConstants}`);
+  check('Assumptions percent-method capex rows have an empty Quantity cell', percentRowsWithQty === 0, `percentRowsWithQty=${percentRowsWithQty}`);
+
+  // ── Unit 1: Capex build-up bases are LIVE formulas ──────────────────────────
+  // Percent / land / unit bases must reference Land & Area (cross-sheet) or sum
+  // sibling cost-line cells (percent-of-selected), never store a constant.
+  let buildupLinksLandArea = false; let selectedSumLive = false; let selfRef = false;
+  cap.eachRow((row, R) => {
+    const v = row.getCell(2).value as any; // column B = amount
+    if (!(v && typeof v === 'object' && 'formula' in v)) return;
+    const f = String(v.formula);
+    if (f.includes("'Land & Area'!")) buildupLinksLandArea = true;
+    // percent-of-selected: rate cell x parenthesised sum of B-cells.
+    if (/Assumptions!\$C\$\d+\*\((?:B\d+(?:\+|\)))+/.test(f)) {
+      selectedSumLive = true;
+      // the parenthesised sum must NOT include this row's own B cell (no self-ref).
+      const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')'));
+      if (inside.split('+').map((s) => s.trim()).includes(`B${R}`)) selfRef = true;
+    }
+  });
+  check('Capex build-up land / revenue / unit bases link to Land & Area (live)', buildupLinksLandArea);
+  check('Capex build-up percent-of-selected bases sum sibling cells (live)', selectedSumLive);
+  check('Capex percent-of-selected never self-references its own row', !selfRef);
+
+  // ── Unit 1: Capex total per asset reconciles to the engine ──────────────────
+  const capReport = buildCapexReport(snap, state);
+  let perAssetOk = true; const perAssetDetail: string[] = [];
+  for (const ia of capReport.inputAssets) {
+    let wbSub: number | null = null;
+    cap.eachRow((row) => {
+      if (row.getCell(1).value === `Subtotal, ${ia.assetName}`) {
+        const bv = row.getCell(2).value as any;
+        wbSub = bv && typeof bv === 'object' && 'result' in bv ? bv.result : (typeof bv === 'number' ? bv : null);
+      }
+    });
+    const ok = wbSub != null && Math.abs(wbSub - ia.total) <= 1;
+    if (!ok) { perAssetOk = false; perAssetDetail.push(`${ia.assetName}: wb=${Math.round(wbSub ?? 0)} eng=${Math.round(ia.total)}`); }
+  }
+  check('Capex subtotal per asset reconciles to engine', perAssetOk, perAssetDetail.join('; '));
 
   // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
   const collectResults = (sheet: string): number[] => {
