@@ -643,15 +643,44 @@ interface CapexAddrs { scheduleTotalAddr: string; buildupTotalAddr: string }
 function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>): CapexAddrs {
   const ws = wb.addWorksheet(SHEETS.capex, { properties: { tabColor: { argb: ARGB.navy } } });
   const N = refs.axisLength;
-  // Universal geometry: A = Cost line / Asset, B = UOM, C = Rate, D = Total,
-  // E = Period 0 (opening, no capex), F.. = active years. Allocation tables carry
-  // a Check column just past the last period.
-  const checkCol = lastActiveCol(N) + 1;
-  const lastCol = lastActiveCol(N);
+  // Capex-LOCAL geometry (the other period sheets keep the shared geometry): one
+  // extra metadata column for Quantity, so A = Cost line, B = UOM, C = Rate,
+  // D = Quantity, E = Total, F = Period 0 (opening), G.. = active years.
+  const C_LBL = 1, C_UOM = 2, C_RATE = 3, C_QTY = 4, C_TOT = 5, C_OPEN = 6;
+  const cP = (t: number): number => C_OPEN + 1 + t;   // G.. active period t
+  const cLast = C_OPEN + N;                            // last active column
+  const cChk = cLast + 1;
+  const cRange = (rr: number): string => `${colLetter(cP(0))}${rr}:${colLetter(cLast)}${rr}`;
   const TOL = 0.0001;
-  writeSheetHeader(ws, snap, N, 'Capex', 'Development cost, fully live. INPUTS (top): each cost line\'s allocation % per period. OUTPUTS (below): Table 1 the per-line schedule (Total = rate x basis; period = Total x allocation %), then Tables 2-4 the asset-wise incl-land / excl-in-kind / excl-total-land summaries. All tie by construction.', { label: 'Cost line', meta: ['UOM', 'Rate'] });
-  ws.getColumn(checkCol).width = 9;
-  setColHeader(ws.getCell(4, checkCol), 'Check', 'center');
+  const TITLE = 'Capex';
+  const SUB = 'Development cost, fully live. Each line: Total = Rate x Quantity (the live basis). INPUTS (top): allocation % per period. OUTPUTS: Table 1 the per-line schedule (period = Total x allocation %), then Tables 2-4 the asset-wise incl-land / excl-in-kind / excl-total-land summaries. All tie by construction.';
+
+  // ── Capex-local frozen 4-row header (rows 3 dates / 4 index; freeze A-E) ──
+  ws.getColumn(C_LBL).width = 34; ws.getColumn(C_UOM).width = 16; ws.getColumn(C_RATE).width = 12; ws.getColumn(C_QTY).width = 15; ws.getColumn(C_TOT).width = 15;
+  for (let c = C_OPEN; c <= cLast; c++) ws.getColumn(c).width = 12;
+  ws.getColumn(cChk).width = 9;
+  setTitle(ws.getCell('A1'), TITLE, 16);
+  setLabel(ws.getCell('A2'), SUB);
+  setColHeader(ws.getCell(4, C_LBL), 'Cost line', 'left');
+  setColHeader(ws.getCell(4, C_UOM), 'UOM', 'left');
+  setColHeader(ws.getCell(4, C_RATE), 'Rate', 'right');
+  setColHeader(ws.getCell(4, C_QTY), 'Quantity', 'right');
+  setColHeader(ws.getCell(4, C_TOT), 'Total', 'right');
+  setColHeader(ws.getCell(4, cChk), 'Check', 'center');
+  for (let c = C_OPEN; c <= cLast; c++) {
+    const cl = colLetter(c);
+    const d = ws.getCell(3, c);
+    setFormula(d, fcell(sheetRef(SHEETS.timeline, `${cl}3`), colYear(snap, c)), NUMFMT.date, true);
+    d.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    d.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
+    d.alignment = { horizontal: 'right' };
+    const ix = ws.getCell(4, c);
+    setFormula(ix, fcell(sheetRef(SHEETS.timeline, `${cl}4`), c - C_OPEN), NUMFMT.year, true);
+    ix.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    ix.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
+    ix.alignment = { horizontal: 'right' };
+  }
+  ws.views = [{ state: 'frozen', xSplit: C_TOT, ySplit: 4, showGridLines: false }];
 
   const cat = (assetId: string): string => {
     const s = refs.assets.find((x) => x.id === assetId)?.strategy ?? '';
@@ -672,46 +701,95 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const perPeriodByLine = new Map<string, number[]>();
   for (const ia of capex.inputAssets) for (const ln of ia.lines) perPeriodByLine.set(`${ia.assetId}|${ln.id}`, ln.perPeriod ?? []);
 
+  // A navy / grey total row over the Capex geometry (Total in E = SUM of periods).
+  const cSum = (rr: number, label: string, srcRows: number[], cachedPer: number[], style: 'navy' | 'subtotal', cachedOpen = 0): void => {
+    setLabel(ws.getCell(rr, C_LBL), label, { bold: true });
+    const put = (c: number, cached: number): void => setFormula(ws.getCell(rr, c), fcell(colSum(colLetter(c), srcRows), cached), NUMFMT.money);
+    put(C_OPEN, cachedOpen);
+    for (let t = 0; t < N; t++) put(cP(t), cachedPer[t] ?? 0);
+    setFormula(ws.getCell(rr, C_TOT), fcell(`SUM(${cRange(rr)})`, cachedPer.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
+    const fill = style === 'navy' ? ARGB.navy : ARGB.subtotal; const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
+    fillRange(ws, rr, 1, rr, cLast, fill);
+    for (let c = 1; c <= cLast; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
+  };
+
+  // Money-basis methods (Quantity scales with the workbook); everything else is a
+  // count / area (sqm, bays, units, lump) and stays unscaled like a rate.
+  const moneyBasis = new Set(['percent_of_inkind_land', 'percent_of_cash_land', 'percent_of_total_land', 'percent_of_total_revenue', 'percent_of_revenue_cash', 'percent_of_revenue_sale', 'percent_of_selected', 'percent_of_construction']);
+
   let r = 5;
 
-  // ── Capex Cost Build-up (rate x basis = Total Capex) ─────────────────────────
-  // The full cost-line table: each line Total = rate x its basis (rates / % link
-  // to Assumptions; land / revenue / unit bases to Land & Area; percent-of-lines
-  // sum sibling lines). Subtotals per asset and a grand Total Capex. This is the
-  // canonical line total the schedule and summaries phase / reference.
-  const fillAD = (rr: number, argb: string): void => fillRange(ws, rr, 1, rr, TOTAL_COL, argb);
-  setSectionHeader(ws.getRow(r), 'Capex Cost Build-up (rate x basis = Total Capex)', TOTAL_COL); r += 1;
-  const buildupCellOf = new Map<string, string>(); // assetId|lineId -> $D$row (same-sheet)
-  const buildupSubRows: number[] = [];
+  // ── INPUTS: all assets' allocation % tables, in sequence ─────────────────────
+  setSectionHeader(ws.getRow(r), 'INPUTS - Allocation profile per cost line (% of each line\'s total, per period)', cLast); r += 1;
+  // line key -> per-period allocation % cell address [Period0, active0, active1, ...].
+  const allocCells = new Map<string, string[]>();
+  for (const a of refs.capex) {
+    setLabel(ws.getCell(r, C_LBL), `${a.name} (${a.phaseName})`, { bold: true }); fillRange(ws, r, 1, r, cLast, ARGB.subtotal); r += 1;
+    for (const ln of a.lines) {
+      const total = ln.amount;
+      const pp = perPeriodByLine.get(`${a.assetId}|${ln.id}`) ?? [];
+      setLabel(ws.getCell(r, C_LBL), ln.name, { indent: 1 });
+      setLabel(ws.getCell(r, C_UOM), ln.basis);
+      setFormula(ws.getCell(r, C_RATE), fcell(ln.rateAddr, ln.isPercent ? ln.rate / 100 : ln.rate), ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate, true);
+      const cells: string[] = [];
+      let pctSum = 0;
+      setInput(ws.getCell(r, C_OPEN), 0, NUMFMT.pct2); cells.push(`$${colLetter(C_OPEN)}$${r}`); // Period 0: no capex
+      for (let t = 0; t < N; t++) {
+        const c = cP(t);
+        const pct = total ? (pp[t] ?? 0) / total : 0; // guard: zero total -> 0
+        setInput(ws.getCell(r, c), pct, NUMFMT.pct2);
+        cells.push(`$${colLetter(c)}$${r}`);
+        pctSum += pct;
+      }
+      // Total (E) = sum of the period %s (should be 100%); Check flags drift.
+      setFormula(ws.getCell(r, C_TOT), fcell(`SUM(${cRange(r)})`, pctSum), NUMFMT.pct2);
+      const ok = Math.abs(pctSum - (total ? 1 : 0)) <= TOL;
+      setFormula(ws.getCell(r, cChk), fcell(`IF(ABS(${colLetter(C_TOT)}${r}-${total ? 1 : 0})<=${TOL},"OK","CHECK")`, ok ? 'OK' : 'CHECK'), '@');
+      ws.getCell(r, cChk).alignment = { horizontal: 'center' };
+      ws.getCell(r, cChk).font = { name: 'Calibri', size: BODY_SIZE, bold: !ok, color: { argb: ok ? ARGB.good : ARGB.bad } };
+      allocCells.set(`${a.assetId}|${ln.id}`, cells);
+      r += 1;
+    }
+  }
+  r += 1;
+
+  // ── Table 1: per-asset cost-line schedule (single block per asset) ───────────
+  // Cost line, UOM, Rate, Quantity (the live basis), Total = Rate x Quantity, then
+  // the period amounts (= Total x allocation %). The build-up is merged here, so
+  // there is no separate build-up block. Subtotal rows feed Tables 2-4.
+  setSectionHeader(ws.getRow(r), 'Table 1 - Construction Cost Schedule by Period (per cost line, per asset)', cLast); r += 1;
+  interface AssetMeta { name: string; category: string; inclRow: number; landRows: number[]; nonLandRows: number[]; exclAll: number[]; exclInKind: number[]; incl: number[] }
+  const assetMeta: AssetMeta[] = [];
+  const assetInclRows: number[] = [];
+  const allLineTotCells: string[] = []; // every line's Total (E) cell, for the build-up grand
+  const grandCapex = refs.capex.reduce((s, a) => s + a.total, 0);
+
   for (const a of refs.capex) {
     const land = landAddrs.get(a.assetId);
-    setLabel(ws.getCell(r, LBL_COL), `${a.name} (${a.phaseName})`, { bold: true }); fillAD(r, ARGB.subtotal); r += 1;
-    const dRowOf = new Map<string, number>();
-    a.lines.forEach((ln, i) => dRowOf.set(ln.id, r + i));
-    const dCellOf = (id: string): string | null => { const rr = dRowOf.get(id); return rr != null ? `$D$${rr}` : null; };
-    const basisFormula = (ln: CapexLineRef, myRow: number): string | null => {
-      if (ln.qtyAddr) return `${ln.rateAddr}*${ln.qtyAddr}`;
-      if (ln.method === 'fixed') return `${ln.rateAddr}`;
-      const own = `$D$${myRow}`;
-      const sumCells = (ids: string[]): string | null => {
-        const cells = ids.map(dCellOf).filter((c): c is string => !!c && c !== own);
-        return cells.length ? `(${cells.join('+')})` : null;
-      };
-      let base: string | null = null;
+    setLabel(ws.getCell(r, C_LBL), `${a.name} (${a.phaseName})`, { bold: true }); fillRange(ws, r, 1, r, cLast, ARGB.subtotal); r += 1;
+    // Pre-assign line rows so percent-of-selected can reference sibling Total (E) cells.
+    const totRowOf = new Map<string, number>();
+    a.lines.forEach((ln, i) => totRowOf.set(ln.id, r + i));
+    const eCellOf = (id: string): string | null => { const rr = totRowOf.get(id); return rr != null ? `$E$${rr}` : null; };
+    const sumE = (ids: string[], own: string): string | null => {
+      const cells = ids.map(eCellOf).filter((c): c is string => !!c && c !== own);
+      return cells.length ? `(${cells.join('+')})` : null;
+    };
+    // The live Quantity basis (the value the Rate multiplies) for a line.
+    const qtyExprOf = (ln: CapexLineRef, own: string): string | null => {
+      if (ln.qtyAddr) return ln.qtyAddr;                      // area / bays (Assumptions stored qty)
       switch (ln.method) {
-        case 'rate_per_unit': base = land?.unitCount ?? null; break;
-        case 'percent_of_inkind_land': base = land?.inKindLand ?? null; break;
-        case 'percent_of_cash_land': base = land?.cashLand ?? null; break;
-        case 'percent_of_total_land': base = land?.landValue ?? null; break;
+        case 'rate_per_unit': return land?.unitCount ?? null;
+        case 'percent_of_inkind_land': return land?.inKindLand ?? null;
+        case 'percent_of_cash_land': return land?.cashLand ?? null;
+        case 'percent_of_total_land': return land?.landValue ?? null;
         case 'percent_of_total_revenue':
         case 'percent_of_revenue_cash':
-        case 'percent_of_revenue_sale': base = land?.revenue ?? null; break;
-        case 'percent_of_selected': base = sumCells(ln.selectedLineIds); break;
-        case 'percent_of_construction':
-          base = sumCells(a.lines.filter((s) => s.stage === 'hard' && s.id !== ln.id).map((s) => s.id)); break;
-        default: base = null;
+        case 'percent_of_revenue_sale': return land?.revenue ?? null;
+        case 'percent_of_selected': return sumE(ln.selectedLineIds, own);
+        case 'percent_of_construction': return sumE(a.lines.filter((s) => s.stage === 'hard' && s.id !== ln.id).map((s) => s.id), own);
+        default: return null;
       }
-      return base ? `${ln.rateAddr}*${base}` : null;
     };
     const sumAmt = (ids: string[]): number => ids.reduce((s, id) => s + (a.lines.find((l) => l.id === id)?.amount ?? 0), 0);
     const predictedLive = (ln: CapexLineRef): number | null => {
@@ -722,107 +800,61 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         default: return null;
       }
     };
-    const subLineRows: number[] = [];
-    for (const ln of a.lines) {
-      const myRow = dRowOf.get(ln.id)!;
-      setLabel(ws.getCell(myRow, LBL_COL), ln.name, { indent: 1 });
-      setLabel(ws.getCell(myRow, META_B), ln.basis);
-      setFormula(ws.getCell(myRow, META_C), fcell(ln.rateAddr, ln.isPercent ? ln.rate / 100 : ln.rate), ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate, true);
-      const formula = basisFormula(ln, myRow);
-      const predicted = predictedLive(ln);
-      const reconciles = predicted === null || Math.abs(predicted - ln.amount) <= Math.max(1, Math.abs(ln.amount) * 1e-6);
-      if (formula && reconciles) setFormula(ws.getCell(myRow, TOTAL_COL), fcell(formula, ln.amount), NUMFMT.money, true);
-      else { const c = ws.getCell(myRow, TOTAL_COL); c.value = ln.amount; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
-      buildupCellOf.set(`${a.assetId}|${ln.id}`, `$D$${myRow}`);
-      subLineRows.push(myRow);
-      r += 1;
-    }
-    setLabel(ws.getCell(r, LBL_COL), `Subtotal, ${a.name}`, { bold: true });
-    setFormula(ws.getCell(r, TOTAL_COL), fcell(colSum('D', subLineRows), a.total), NUMFMT.money);
-    fillAD(r, ARGB.subtotal); for (let c = 1; c <= TOTAL_COL; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-    buildupSubRows.push(r); r += 1;
-  }
-  const grandCapex = refs.capex.reduce((s, a) => s + a.total, 0);
-  setLabel(ws.getCell(r, LBL_COL), 'Total Capex', { bold: true });
-  setFormula(ws.getCell(r, TOTAL_COL), fcell(colSum('D', buildupSubRows), grandCapex), NUMFMT.money);
-  fillAD(r, ARGB.navy); for (let c = 1; c <= TOTAL_COL; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
-  const buildupTotalAddr = sheetRef(SHEETS.capex, `$D$${r}`); r += 2;
-
-  // ── INPUTS: all assets' allocation % tables, in sequence ─────────────────────
-  setSectionHeader(ws.getRow(r), 'INPUTS - Allocation profile per cost line (% of each line\'s total, per period)', lastCol); r += 1;
-  // line key -> per-column allocation % cell address (cols OPEN_COL..lastActive).
-  const allocCells = new Map<string, string[]>();
-  for (const a of refs.capex) {
-    setLabel(ws.getCell(r, LBL_COL), `${a.name} (${a.phaseName})`, { bold: true }); fillRange(ws, r, 1, r, lastCol, ARGB.subtotal); r += 1;
-    for (const ln of a.lines) {
-      const total = ln.amount;
-      const pp = perPeriodByLine.get(`${a.assetId}|${ln.id}`) ?? [];
-      setLabel(ws.getCell(r, LBL_COL), ln.name, { indent: 1 });
-      setLabel(ws.getCell(r, META_B), ln.basis);
-      setFormula(ws.getCell(r, META_C), fcell(ln.rateAddr, ln.isPercent ? ln.rate / 100 : ln.rate), ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate, true);
-      const cells: string[] = [];
-      let pctSum = 0;
-      setInput(ws.getCell(r, OPEN_COL), 0, NUMFMT.pct2); cells.push(`$${colLetter(OPEN_COL)}$${r}`); // Period 0: no capex
-      for (let t = 0; t < N; t++) {
-        const c = pcol(t);
-        const pct = total ? (pp[t] ?? 0) / total : 0; // guard: zero total -> 0
-        setInput(ws.getCell(r, c), pct, NUMFMT.pct2);
-        cells.push(`$${colLetter(c)}$${r}`);
-        pctSum += pct;
-      }
-      // Total (D) = sum of the period %s (should be 100%); Check flags drift.
-      setFormula(ws.getCell(r, TOTAL_COL), fcell(`SUM(${activeRange(N, r)})`, pctSum), NUMFMT.pct2);
-      const ok = Math.abs(pctSum - (total ? 1 : 0)) <= TOL;
-      setFormula(ws.getCell(r, checkCol), fcell(`IF(ABS(${colLetter(TOTAL_COL)}${r}-${total ? 1 : 0})<=${TOL},"OK","CHECK")`, ok ? 'OK' : 'CHECK'), '@');
-      ws.getCell(r, checkCol).alignment = { horizontal: 'center' };
-      ws.getCell(r, checkCol).font = { name: 'Calibri', size: BODY_SIZE, bold: !ok, color: { argb: ok ? ARGB.good : ARGB.bad } };
-      allocCells.set(`${a.assetId}|${ln.id}`, cells);
-      r += 1;
-    }
-  }
-  r += 1;
-
-  // ── OUTPUT Table 1: Construction Cost Schedule by Period (per line, per asset) ─
-  // Period amounts = the build-up Total x the allocation %. Total (D) = SUM of the
-  // periods (ties to the build-up). The asset subtotal rows feed Tables 2-4.
-  setSectionHeader(ws.getRow(r), 'Table 1 - Construction Cost Schedule by Period (per cost line, per asset)', lastCol); r += 1;
-  interface AssetMeta { name: string; category: string; inclRow: number; landRows: number[]; nonLandRows: number[]; exclAll: number[]; exclInKind: number[]; incl: number[] }
-  const assetMeta: AssetMeta[] = [];
-  const assetInclRows: number[] = [];
-
-  for (const a of refs.capex) {
-    setLabel(ws.getCell(r, LBL_COL), `${a.name} (${a.phaseName})`, { bold: true }); fillRange(ws, r, 1, r, lastCol, ARGB.subtotal); r += 1;
     const lineRows: number[] = []; const landRows: number[] = []; const nonLandRows: number[] = [];
     const inclYear = new Array<number>(N).fill(0); const exclYear = new Array<number>(N).fill(0);
     for (const ln of a.lines) {
-      const myRow = r;
+      const myRow = totRowOf.get(ln.id)!;
       const isLand = ln.stage === 'land';
-      setLabel(ws.getCell(myRow, LBL_COL), ln.name, { indent: 1 });
-      setLabel(ws.getCell(myRow, META_B), ln.basis);
-      setFormula(ws.getCell(myRow, META_C), fcell(ln.rateAddr, ln.isPercent ? ln.rate / 100 : ln.rate), ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate, true);
-      const buildupCell = buildupCellOf.get(`${a.assetId}|${ln.id}`) ?? '0';
+      const own = `$E$${myRow}`;
+      setLabel(ws.getCell(myRow, C_LBL), ln.name, { indent: 1 });
+      setLabel(ws.getCell(myRow, C_UOM), ln.basis);
+      setFormula(ws.getCell(myRow, C_RATE), fcell(ln.rateAddr, ln.isPercent ? ln.rate / 100 : ln.rate), ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate, true);
+      const rateDec = ln.isPercent ? ln.rate / 100 : ln.rate;
+      const qtyCached = rateDec !== 0 ? ln.amount / rateDec : 0; // fixed -> amount/rate = 1
+      const qtyFmt = moneyBasis.has(ln.method) ? NUMFMT.money : NUMFMT.int;
+      const qtyCell = `$D$${myRow}`;
+      // Quantity (D) + Total (E = Rate x Quantity). Cross-asset-allocated lines and
+      // bases with no reproducible cell fall back to the cached engine value.
+      const totCell = `$C$${myRow}*${qtyCell}`; // Total = Rate (C) x Quantity (D)
+      if (ln.method === 'fixed') {
+        // Lump sum: Quantity = 1, Total = Rate x 1.
+        const c = ws.getCell(myRow, C_QTY); c.value = 1; c.numFmt = NUMFMT.int; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+        setFormula(ws.getCell(myRow, C_TOT), fcell(totCell, ln.amount), NUMFMT.money);
+      } else {
+        const qExpr = qtyExprOf(ln, own);
+        const predicted = predictedLive(ln);
+        const reconciles = predicted === null || Math.abs(predicted - ln.amount) <= Math.max(1, Math.abs(ln.amount) * 1e-6);
+        if (qExpr && reconciles) {
+          setFormula(ws.getCell(myRow, C_QTY), fcell(qExpr, qtyCached), qtyFmt, /!/.test(qExpr));
+          setFormula(ws.getCell(myRow, C_TOT), fcell(totCell, ln.amount), NUMFMT.money);
+        } else {
+          // Engine-sourced (cross-asset allocation / no reproducible basis): cache both.
+          const dq = ws.getCell(myRow, C_QTY); dq.value = qtyCached; dq.numFmt = qtyFmt; dq.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+          const de = ws.getCell(myRow, C_TOT); de.value = ln.amount; de.numFmt = NUMFMT.money; de.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+        }
+      }
+      const eCell = `$E$${myRow}`;
       const pcts = allocCells.get(`${a.assetId}|${ln.id}`) ?? [];
       const pp = perPeriodByLine.get(`${a.assetId}|${ln.id}`) ?? [];
       const money0 = (c: number, v: number): void => { const cell = ws.getCell(myRow, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
-      money0(OPEN_COL, 0); // Period 0: no capex
+      money0(C_OPEN, 0); // Period 0: no capex
       for (let t = 0; t < N; t++) {
         const v = pp[t] ?? 0;
-        setFormula(ws.getCell(myRow, pcol(t)), fcell(`${buildupCell}*${pcts[t + 1]}`, v), NUMFMT.money);
+        setFormula(ws.getCell(myRow, cP(t)), fcell(`${eCell}*${pcts[t + 1]}`, v), NUMFMT.money);
         inclYear[t] += v; if (!isLand) exclYear[t] += v;
       }
-      // Total (D) = SUM of the period amounts (ties to the build-up line total).
-      setFormula(ws.getCell(myRow, TOTAL_COL), fcell(`SUM(${activeRange(N, myRow)})`, ln.amount), NUMFMT.money);
+      allLineTotCells.push(eCell);
       lineRows.push(myRow); if (isLand) landRows.push(myRow); else nonLandRows.push(myRow);
       r += 1;
     }
     // Subtotal, {asset} (incl. all land) = SUM of the line rows per column.
     const inclRow = r;
-    setLabel(ws.getCell(inclRow, LBL_COL), `Subtotal, ${a.name}`, { bold: true });
-    setFormula(ws.getCell(inclRow, TOTAL_COL), fcell(colSum('D', lineRows), a.total), NUMFMT.money);
-    setFormula(ws.getCell(inclRow, OPEN_COL), fcell(colSum(colLetter(OPEN_COL), lineRows), 0), NUMFMT.money);
-    for (let t = 0; t < N; t++) setFormula(ws.getCell(inclRow, pcol(t)), fcell(colSum(colLetter(pcol(t)), lineRows), inclYear[t]), NUMFMT.money);
-    fillRange(ws, inclRow, 1, inclRow, lastCol, ARGB.subtotal);
-    for (let c = 1; c <= lastCol; c++) ws.getCell(inclRow, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    setLabel(ws.getCell(inclRow, C_LBL), `Subtotal, ${a.name}`, { bold: true });
+    setFormula(ws.getCell(inclRow, C_TOT), fcell(colSum('E', lineRows), a.total), NUMFMT.money);
+    setFormula(ws.getCell(inclRow, C_OPEN), fcell(colSum(colLetter(C_OPEN), lineRows), 0), NUMFMT.money);
+    for (let t = 0; t < N; t++) setFormula(ws.getCell(inclRow, cP(t)), fcell(colSum(colLetter(cP(t)), lineRows), inclYear[t]), NUMFMT.money);
+    fillRange(ws, inclRow, 1, inclRow, cLast, ARGB.subtotal);
+    for (let c = 1; c <= cLast; c++) ws.getCell(inclRow, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     assetInclRows.push(inclRow);
     const m = inclByName.get(a.name) ?? inclYear;
     assetMeta.push({
@@ -831,49 +863,41 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     });
     r += 1;
   }
-  // Project Total (incl. all land).
-  navySumRow(ws, r, N, 'Project Total (incl. all land)', assetInclRows, sumSeries(assetMeta.map((m) => m.incl), N));
+  // Project Total (incl. all land) = the Total Capex (4,912,199,956 on the live project).
+  cSum(r, 'Project Total (incl. all land)', assetInclRows, sumSeries(assetMeta.map((m) => m.incl), N), 'navy');
   const projTotalRow = r; r += 2;
 
   // ── OUTPUT Tables 2-4: asset-wise summaries (reference Table 1) ───────────────
   // Each per-asset row is live off Table 1: incl = the asset subtotal; excl-total-
   // land = the asset's non-land lines; excl-in-kind = incl - in-kind land.
-  const summaryTable = (title: string, totalLabel: string, perAsset: (m: AssetMeta) => { f: (col: string) => string; cached: number[]; predicted?: number[] }, totalCached: number[]): number => {
-    setSectionHeader(ws.getRow(r), title, lastCol); r += 1;
+  const summaryTable = (title: string, totalLabel: string, perAsset: (m: AssetMeta) => { f: (col: string) => string; cached: number[]; predicted?: number[] }, totalCached: number[]): void => {
+    setSectionHeader(ws.getRow(r), title, cLast); r += 1;
     const rows: number[] = [];
     for (const m of assetMeta) {
       const { f, cached, predicted } = perAsset(m);
-      setLabel(ws.getCell(r, LBL_COL), m.name, { indent: 1 });
-      setFormula(ws.getCell(r, OPEN_COL), fcell(f(colLetter(OPEN_COL)), 0), NUMFMT.money);
+      setLabel(ws.getCell(r, C_LBL), m.name, { indent: 1 });
+      setFormula(ws.getCell(r, C_OPEN), fcell(f(colLetter(C_OPEN)), 0), NUMFMT.money);
       for (let t = 0; t < N; t++) {
         const v = cached[t] ?? 0;
         // Verify-and-fallback: if the live formula would drift from the engine
-        // value (predicted != cached), store the cached constant instead so the
-        // table opens AND recalculates to the engine figure.
+        // value, store the cached constant so the table opens AND recalculates right.
         const drift = predicted ? Math.abs((predicted[t] ?? 0) - v) > Math.max(1, Math.abs(v) * 1e-6) : false;
-        if (drift) { const cell = ws.getCell(r, pcol(t)); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
-        else setFormula(ws.getCell(r, pcol(t)), fcell(f(colLetter(pcol(t))), v), NUMFMT.money);
+        if (drift) { const cell = ws.getCell(r, cP(t)); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+        else setFormula(ws.getCell(r, cP(t)), fcell(f(colLetter(cP(t))), v), NUMFMT.money);
       }
-      setFormula(ws.getCell(r, TOTAL_COL), fcell(`SUM(${activeRange(N, r)})`, cached.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
+      setFormula(ws.getCell(r, C_TOT), fcell(`SUM(${cRange(r)})`, cached.slice(0, N).reduce((s, v) => s + (v ?? 0), 0)), NUMFMT.money);
       rows.push(r); r += 1;
     }
-    navySumRow(ws, r, N, totalLabel, rows, totalCached); const tot = r; r += 2;
-    return tot;
+    cSum(r, totalLabel, rows, totalCached, 'navy'); r += 2;
   };
 
-  // Table 2: incl all land = asset subtotal row reference.
   summaryTable('Table 2 - Total Capex Including Land Value', 'Total Capex (incl. all land)',
     (m) => ({ f: (col) => `${col}${m.inclRow}`, cached: m.incl }), sumSeries(assetMeta.map((m) => m.incl), N));
-  // Table 3: excl land in-kind (cash impact) = incl - in-kind land (live, with a
-  // fallback to the cached series when the live land split would drift).
   summaryTable('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', 'Total Capex (excl. land in-kind)',
     (m) => {
       const lnd = landAddrs.get(refs.capex.find((a) => a.name === m.name)?.assetId ?? '');
       const frac = lnd ? `IFERROR(${lnd.inKindLand}/${lnd.landValue},0)` : '0';
       const landSum = (col: string): string => (m.landRows.length ? colSum(col, m.landRows) : '0');
-      // incl - (land lines) x in-kind fraction; matches incl - in-kind land. The
-      // fraction is the period-constant land in-kind / land total (from the cached
-      // series); predict it so the fallback engages if the live split would drift.
       const landTot = m.incl.map((v, t) => v - (m.exclAll[t] ?? 0));
       const inKindTot = m.incl.map((v, t) => v - (m.exclInKind[t] ?? 0));
       const Ld = landTot.reduce((s, v) => s + v, 0); const Ik = inKindTot.reduce((s, v) => s + v, 0);
@@ -881,13 +905,15 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const predicted = m.incl.map((v, t) => v - (landTot[t] ?? 0) * fr);
       return { f: (col) => `${col}${m.inclRow}-(${landSum(col)})*${frac}`, cached: m.exclInKind, predicted };
     }, sumSeries(assetMeta.map((m) => m.exclInKind), N));
-  // Table 4: excl total land = the asset's non-land lines.
   summaryTable('Table 4 - Capex Excluding Total Land (pure development cost)', 'Total Capex (excl. all land)',
     (m) => ({ f: (col) => (m.nonLandRows.length ? colSum(col, m.nonLandRows) : '0'), cached: m.exclAll }), sumSeries(assetMeta.map((m) => m.exclAll), N));
 
-  // Reconciliation handoff: the phased grand (Table 1 Project Total) must tie to
-  // the build-up grand (Total Capex). The Checks sheet asserts the two are equal.
-  const scheduleTotalAddr = sheetRef(SHEETS.capex, `$D$${projTotalRow}`);
+  // Build-up vs phased reconciliation. Build-up grand = sum of every line Total (E);
+  // phased grand = Table 1 Project Total. The Checks sheet asserts they tie.
+  setLabel(ws.getCell(r, C_LBL), 'Grand build-up (sum of line Totals)', { bold: true });
+  setFormula(ws.getCell(r, C_TOT), fcell(allLineTotCells.length ? allLineTotCells.join('+') : '0', grandCapex), NUMFMT.money);
+  const buildupTotalAddr = sheetRef(SHEETS.capex, `$E$${r}`);
+  const scheduleTotalAddr = sheetRef(SHEETS.capex, `$E$${projTotalRow}`);
 
   return { scheduleTotalAddr, buildupTotalAddr };
 }
