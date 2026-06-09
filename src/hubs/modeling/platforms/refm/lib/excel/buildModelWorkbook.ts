@@ -25,7 +25,7 @@ import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calcu
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import {
-  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
+  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
   fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, type DisplayScale, type DisplayDecimals,
 } from './styles';
 
@@ -984,7 +984,7 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     // Style the budget value cells as inputs (these are the cached circular inputs).
     for (const br of [idcBudgetRow, sweepBudgetRow]) {
       if (br < 0) continue;
-      for (let t = 0; t < N; t++) { const c = ws.getCell(br, periodCol(firstCol, t)); c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.input } }; }
+      for (let t = 0; t < N; t++) markInput(ws.getCell(br, periodCol(firstCol, t)));
     }
     r += 1;
   }
@@ -1362,15 +1362,12 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   setTitle(ws.getCell('A1'), 'Checks & Legend', 16);
   let r = 3;
   setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 3); r += 1;
-  const legend: Array<[string, string]> = [
-    ['Input (edit these)', ARGB.input],
-    ['Formula (calculation)', ARGB.formula],
-    ['Linked (reference to another sheet)', ARGB.linked],
-  ];
-  for (const [text, argb] of legend) {
-    const cell = ws.getCell(`A${r}`);
-    cell.value = text; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb } };
-    r += 1;
+  // Input rows carry the navy-pale fill (matching the input cells); formula /
+  // linked are shown by their font colour.
+  {
+    const inp = ws.getCell(`A${r}`); inp.value = 'Input (edit these)'; markInput(inp); r += 1;
+    const fm = ws.getCell(`A${r}`); fm.value = 'Formula (calculation)'; fm.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1;
+    const lk = ws.getCell(`A${r}`); lk.value = 'Linked (reference to another sheet)'; lk.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.linked } }; r += 1;
   }
   r += 1;
   setSectionHeader(ws.getRow(r), 'Model integrity checks', 3); r += 1;
@@ -1526,10 +1523,11 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   boxBorder(ws, idxTop, 2, idxTop + index.length - 1, 7);
   r = idxTop + index.length + 2;
 
-  // Colour legend.
+  // Colour legend. Input swatch carries the navy-pale fill (matching input cells).
   setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
-  const legend: Array<[string, string]> = [['Input', ARGB.input], ['Formula', ARGB.formula], ['Linked', ARGB.linked]];
-  legend.forEach(([t, argb], i) => { const c = ws.getCell(r, 3 + i); c.value = t; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb } }; });
+  const inputSwatch = ws.getCell(r, 3); inputSwatch.value = 'Input'; markInput(inputSwatch); inputSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+  const fmSwatch = ws.getCell(r, 4); fmSwatch.value = 'Formula'; fmSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
+  const lkSwatch = ws.getCell(r, 5); lkSwatch.value = 'Linked'; lkSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.linked } };
   r += 2;
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
   fillCell(ws.getCell(1, 1), ARGB.white);

@@ -14,7 +14,12 @@ import type ExcelJS from 'exceljs';
 
 // FAST palette (Excel-canonical), ARGB.
 export const ARGB = {
-  input: 'FF0070C0',     // blue, hardcoded user inputs
+  input: 'FF0070C0',     // blue (legacy; inputs now use the navy-pale shading below)
+  // FAST input cell shading: navy-pale fill + navy text + light border, matching
+  // the on-screen FAST_INPUT cells and the PDF input shading, so an assumption
+  // reads at a glance without a coloured font.
+  inputFill: 'FFE2EAF4',   // navy-pale fill (PDF FAST_FILL)
+  inputBorder: 'FFBDCCE3', // light navy border (PDF FAST_BORDER)
   formula: 'FF000000',   // black, calculations
   linked: 'FF00B050',    // green, cross-sheet references
   external: 'FFFF0000',  // red, external links (unused for now)
@@ -135,10 +140,18 @@ export function sheetRef(sheet: string, a1: string): string {
 // Default body font size for the workbook (Calibri 9.5 throughout).
 export const BODY_SIZE = 9.5;
 
+/** Apply the FAST input look (navy-pale fill, navy text, light border) to a cell.
+ *  Use on cells whose value / formula is written elsewhere but which are inputs. */
+export function markInput(cell: Cell): void {
+  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } };
+  const b = { style: 'thin' as const, color: { argb: ARGB.inputBorder } };
+  cell.border = { top: b, bottom: b, left: b, right: b };
+}
 export function setInput(cell: Cell, value: number | string, numFmt = NUMFMT.money): void {
   cell.value = value;
-  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.input } };
   cell.numFmt = numFmt;
+  markInput(cell);
 }
 export function setFormula(cell: Cell, fc: { formula: string; result: number | string | boolean }, numFmt = NUMFMT.money, linked = false): void {
   cell.value = fc;
