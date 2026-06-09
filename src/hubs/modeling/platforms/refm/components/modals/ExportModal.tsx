@@ -208,7 +208,7 @@ export default function ExportModal({
 
       if (reportKind === 'excel') {
         const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale });
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
@@ -378,13 +378,14 @@ export default function ExportModal({
                   color: pdfScale === s ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
                   background: pdfScale === s ? 'var(--color-navy)' : 'var(--color-surface)',
                 }}>
-                  <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => setPdfScale(s)} style={{ display: 'none' }} />
+                  <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => { setPdfScale(s); if (reportKind === 'excel') setPdfDecimals(s === 'millions' ? 1 : 0); }} style={{ display: 'none' }} />
                   {s === 'full' ? 'Full' : s}
                 </label>
               ))}
-              {/* Decimals apply to the PDF only; the Excel scale is a number-format. */}
-              {reportKind !== 'excel' && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', marginLeft: 8 }}>Decimals:</span>}
-              {reportKind !== 'excel' && ([0, 1, 2] as const).map((d) => (
+              {/* Money decimals (display only). Excel: default 0 for full / thousands,
+                  1 for millions; percentages stay 2 decimals regardless. */}
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', marginLeft: 8 }}>Decimals:</span>
+              {([0, 1, 2] as const).map((d) => (
                 <label key={d} data-testid={`export-decimals-${d}`} style={{
                   display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 10px',

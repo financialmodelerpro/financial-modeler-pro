@@ -59,8 +59,13 @@ export const NUMFMT = {
   // decimal selection. `pct` is kept as an alias so existing call sites stay 2dp.
   pct: '0.00%',
   pct2: '0.00%',
-  int: '#,##0',
+  // Counts / areas: accounting style (dash for zero, parentheses for negatives),
+  // distinct from `money` so the display-scale sweep never scales a count / area.
+  int: '#,##0_);(#,##0);"-"_)',
   year: '0',
+  // Period-end date label: the stored value stays the integer year, formatted as
+  // "Dec 2026" (so the +1 formula chain and every year reference keep working).
+  date: '"Dec "0',
   mult: '0.00"x"',
 };
 

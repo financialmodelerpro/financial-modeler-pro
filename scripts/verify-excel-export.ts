@@ -92,16 +92,23 @@ async function main(): Promise<void> {
   }
   check('Assumptions carries a substantial FAST-shaded input set (navy-pale)', blueInputs > 30, `inputs=${blueInputs}`);
 
-  // Timeline year row (row 6). Column B = Opening (prior year = projectStartYear-1,
-  // matching the platform's leading prior-year column); column C = period 0; etc.
+  // Timeline 4-row frozen header: row 3 = period-end dates, row 4 = period index.
+  // Period columns from E (col 5): E = Period 0 / Dec(startYear-1, the opening),
+  // F = Period 1 / startYear, etc. Date cells store the integer year, shown "Dec YYYY".
   const tl = wb.getWorksheet('Timeline')!;
-  const yOpen = tl.getCell('B6').value as any;
-  check('Timeline leads with an Opening prior-year column', !!yOpen && typeof yOpen === 'object' && String(yOpen.formula).replace(/\s/g, '') === 'ProjectStartYear-1' && yOpen.result === snap.projectStartYear - 1, `got=${yOpen?.result} expect=${snap.projectStartYear - 1}`);
-  const y0 = tl.getCell('C6').value as any; // period 0 (first active year)
-  check('Timeline year[0] is a formula referencing ProjectStartYear', !!y0 && typeof y0 === 'object' && y0.formula === 'ProjectStartYear');
-  check('Timeline year[0] caches the correct year', !!y0 && y0.result === snap.yearLabels[0], `got=${y0?.result} expect=${snap.yearLabels[0]}`);
-  const yLast = tl.getCell(6, 2 + snap.axisLength).value as any; // last active period col (period0 at col 3)
-  check('Timeline last year is a +1 formula and reconciles', !!yLast && typeof yLast === 'object' && String(yLast.formula).endsWith('6+1') && yLast.result === snap.yearLabels[snap.axisLength - 1], `got=${yLast?.result} expect=${snap.yearLabels[snap.axisLength - 1]}`);
+  const OPENC = 5; // E
+  const yOpen = tl.getCell(3, OPENC).value as any; // E3 = opening (Period 0)
+  check('Timeline opening date (E3) is ProjectStartYear-1 (Period 0)', !!yOpen && typeof yOpen === 'object' && String(yOpen.formula).replace(/\s/g, '') === 'ProjectStartYear-1' && yOpen.result === snap.projectStartYear - 1, `got=${yOpen?.result} expect=${snap.projectStartYear - 1}`);
+  const y0 = tl.getCell(3, OPENC + 1).value as any; // F3 = first active year (Period 1)
+  check('Timeline first active date (F3) is a +1 formula = startYear', !!y0 && typeof y0 === 'object' && String(y0.formula).endsWith('3+1') && y0.result === snap.yearLabels[0], `got=${y0?.result} expect=${snap.yearLabels[0]}`);
+  const yLast = tl.getCell(3, OPENC + snap.axisLength).value as any; // last active date
+  check('Timeline last date is a +1 formula and reconciles', !!yLast && typeof yLast === 'object' && String(yLast.formula).endsWith('3+1') && yLast.result === snap.yearLabels[snap.axisLength - 1], `got=${yLast?.result} expect=${snap.yearLabels[snap.axisLength - 1]}`);
+  // Period index row (4): E4 = 0, F4 = 1.
+  const ix0 = tl.getCell(4, OPENC).value as any; // cached result 0 is dropped by exceljs; check the formula
+  check('Timeline period index opening (E4) = 0', !!ix0 && typeof ix0 === 'object' && String(ix0.formula) === '0', `got=${JSON.stringify(ix0)}`);
+  // Frozen header: rows 1-4 and columns A-D frozen on a period sheet.
+  const frozenOk = (n: string): boolean => { const v: any = (wb.getWorksheet(n)?.views ?? [])[0]; return v && v.state === 'frozen' && v.ySplit === 4 && v.xSplit === 4; };
+  for (const n of ['Capex', 'Financing', 'Revenue', 'Cost of Sales', 'Opex']) check(`Frozen header (rows 1-4, cols A-D): ${n}`, frozenOk(n));
 
   // Land & Area (step 3): the area hierarchy + land value are formulas linking to
   // Assumptions, and each asset's BUA + land value reconcile to the engine.
@@ -158,17 +165,19 @@ async function main(): Promise<void> {
     if (inCapexBlock && typeof a === 'string' && (a.startsWith('Financing facilities') || a.startsWith('Equity contributions'))) inCapexBlock = false;
     if (!inCapexBlock) return;
     const cC = row.getCell(3); const cD = row.getCell(4);
-    if (typeof cD.value === 'number' && /\)/.test(String(cD.numFmt ?? ''))) moneyBasisConstants++; // money fmt has parens
+    // Accounting money format leads with `_(* `; the int (count/area) format does
+    // not, so this detects a derived money basis without flagging a quantity.
+    if (typeof cD.value === 'number' && /_\(\*/.test(String(cD.numFmt ?? ''))) moneyBasisConstants++;
     const cIsPct = /%/.test(String(cC.numFmt ?? ''));
     if (cIsPct && cD.value !== null && cD.value !== undefined && cD.value !== '') percentRowsWithQty++;
   });
   check('Assumptions capex block holds NO derived money basis (pure inputs)', moneyBasisConstants === 0, `moneyConstants=${moneyBasisConstants}`);
   check('Assumptions percent-method capex rows have an empty Quantity cell', percentRowsWithQty === 0, `percentRowsWithQty=${percentRowsWithQty}`);
 
-  // ── Capex layout (A blank, B name, C UOM, D Rate, E Total, F.. years) ───────
+  // ── Capex layout: A label, B UOM, C Rate, D Total, E Period 0, F.. active ────
   const capReport = buildCapexReport(snap, state);
   const NN = snap.axisLength;
-  const E_COL = 5, Y0 = 6; const yCol = (t: number): number => Y0 + t; const lastY = Y0 + NN - 1; const chkCol = Y0 + NN;
+  const TOTAL_C = 4, OPEN_C = 5; const yCol = (t: number): number => OPEN_C + 1 + t; const chkCol = OPEN_C + NN + 1;
   // exceljs drops a cached result:0 on write, so a formula cell with no numeric
   // result reads as 0 (Excel recomputes it on open via fullCalcOnLoad).
   const num = (v: any): number => {
@@ -176,67 +185,76 @@ async function main(): Promise<void> {
     if (v && typeof v === 'object') { if ('result' in v && typeof v.result === 'number') return v.result; if ('formula' in v) return 0; }
     return NaN;
   };
-  const secOf = (R: number): string => { const a = cap.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
-  const labOf = (R: number): string => { const a = cap.getCell(R, 2).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+  const aOf = (R: number): string => { const a = cap.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+  const rowLabel = (re: RegExp): number => { let row = -1; cap.eachRow((_r, R) => { if (re.test(aOf(R)) && row < 0) row = R; }); return row; };
 
-  let hasAlloc = false, hasAmount = false, hasOldBuildup = false, headerOk = false;
+  // Frozen header row 4: A=Cost line, B=UOM, C=Rate, D=Total.
+  const headerOk = aOf(4) === 'Cost line' && cap.getCell(4, 2).value === 'UOM' && cap.getCell(4, 3).value === 'Rate' && cap.getCell(4, 4).value === 'Total';
+  // Period 0 opening column present (E header index = 0).
+  const e4: any = cap.getCell(4, OPEN_C).value; // links to Timeline index (cached 0 dropped by exceljs)
+  check('Capex frozen header (A Cost line / B UOM / C Rate / D Total)', headerOk);
+  check('Capex has a Period 0 opening column (E links to Timeline index)', !!e4 && typeof e4 === 'object' && /Timeline/.test(String(e4.formula)), `got=${JSON.stringify(e4)}`);
+
+  let hasInputs = false, hasOldBuildup = false;
   let allocConstCells = 0, allocFormulaCells = 0, amtYearFormulaCells = 0, amtYearConstCells = 0;
   let buildupLinksLandArea = false, buildupLinksAssumptions = false, selectedSumLive = false, selfRef = false;
   const allocChecksOk: boolean[] = [];
   const amtLineRows: Array<{ asset: string; name: string; row: number }> = [];
   const assetTotRows: Array<{ name: string; row: number }> = [];
-  let curAsset = ''; let inAlloc = false, inAmount = false;
-  const rowLabel = (re: RegExp): number => { let row = -1; cap.eachRow((_r, R) => { if (re.test(labOf(R)) && row < 0) row = R; }); return row; };
+  // Asset-group rows read "{asset} ({phase})". Cost-line names can also end in
+  // "(...)" (e.g. "Land (Cash)"), so match the leading token against the real
+  // asset names rather than a generic parenthesis test.
+  const assetNameSet = new Set(state.assets.filter((x: any) => x.visible !== false).map((x: any) => x.name));
+  let mode: '' | 'alloc' | 't1' | 'summary' = ''; let curAsset = '';
   cap.eachRow((_row, R) => {
-    const sec = secOf(R); const lab = labOf(R);
-    if (/^Cost build-up by asset/.test(sec)) hasOldBuildup = true;
-    if (/^Total development cost/.test(lab)) hasOldBuildup = true;
-    if (/^Allocation profile, /.test(sec)) { inAlloc = true; inAmount = false; hasAlloc = true; return; }
-    if (/^Capex by year, /.test(sec)) { inAlloc = false; inAmount = true; hasAmount = true; curAsset = sec.replace(/^Capex by year, /, '').replace(/ \([^)]*\) - .*$/, '').trim(); return; }
-    if (/^(Total Capex Excl|Asset-Wise|Total Capex Incl)/.test(sec)) { inAlloc = false; inAmount = false; return; }
-    if (lab === 'Cost line' || lab === 'Asset') { if (labOf(R) && cap.getCell(R, 3).value === 'UOM' && cap.getCell(R, 4).value === 'Rate' && cap.getCell(R, 5).value === 'Total') headerOk = true; return; }
-    if (/^Total capex, .* \(incl\. land\)$/.test(lab)) { assetTotRows.push({ name: lab.replace(/^Total capex, /, '').replace(/ \(incl\. land\)$/, ''), row: R }); return; }
-    if (/^Subtotal excl\. land/.test(lab) || !lab) return;
-    if (inAlloc) {
+    const a = aOf(R);
+    if (/^Capex by year, |^Cost build-up by asset|^Asset-Wise|^Total Capex Excl\. Land \(/.test(a)) hasOldBuildup = true;
+    if (/^INPUTS - Allocation profile/.test(a)) { mode = 'alloc'; hasInputs = true; return; }
+    if (/^Table 1 - /.test(a)) { mode = 't1'; return; }
+    if (/^Table [234] - /.test(a)) { mode = 'summary'; return; }
+    if (!a) return;
+    if (/^Subtotal, /.test(a)) { if (mode === 't1') assetTotRows.push({ name: a.replace(/^Subtotal, /, '').trim(), row: R }); return; }
+    if (/^Project Total|^Total Capex \(|^Grand /.test(a)) return;
+    const base = a.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (assetNameSet.has(base)) { curAsset = base; return; } // asset group row
+    if (mode === 'alloc') {
       for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (typeof v === 'number') allocConstCells++; else if (v && typeof v === 'object' && 'formula' in v) allocFormulaCells++; }
       const ch: any = cap.getCell(R, chkCol).value;
       if (ch !== null && ch !== undefined && ch !== '') allocChecksOk.push(String((ch && ch.result) ?? ch) === 'OK');
-    }
-    if (inAmount) {
-      amtLineRows.push({ asset: curAsset, name: lab, row: R });
-      const ev: any = cap.getCell(R, E_COL).value; // E = build-up Total
+    } else if (mode === 't1') {
+      amtLineRows.push({ asset: curAsset, name: a, row: R });
+      const ev: any = cap.getCell(R, TOTAL_C).value; // D = build-up Total
       if (ev && typeof ev === 'object' && 'formula' in ev) {
         const f = String(ev.formula);
         if (f.includes("'Land & Area'!")) buildupLinksLandArea = true;
         if (f.includes('Assumptions!')) buildupLinksAssumptions = true;
-        if (/Assumptions!\$C\$\d+\*\(\$E\$\d+/.test(f)) { selectedSumLive = true; const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')')); if (inside.split('+').map((s) => s.trim()).includes(`$E$${R}`)) selfRef = true; }
+        if (/Assumptions!\$C\$\d+\*\(\$D\$\d+/.test(f)) { selectedSumLive = true; const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')')); if (inside.split('+').map((s) => s.trim()).includes(`$D$${R}`)) selfRef = true; }
       }
-      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) { amtYearFormulaCells++; if (!/\$E\$\d+\*\$[A-Z]+\$\d+/.test(String(v.formula))) amtYearConstCells++; } else if (typeof v === 'number') amtYearConstCells++; }
+      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) { amtYearFormulaCells++; if (!/\$D\$\d+\*\$[A-Z]+\$\d+/.test(String(v.formula))) amtYearConstCells++; } else if (typeof v === 'number') amtYearConstCells++; }
     }
   });
 
-  check('Capex layout header is A blank / B name / C UOM / D Rate / E Total', headerOk);
-  check('Capex per-asset Allocation + Amount blocks present', hasAlloc && hasAmount, `alloc=${hasAlloc} amount=${hasAmount}`);
-  check('Old standalone build-up section is gone', !hasOldBuildup);
+  check('Capex INPUTS (allocation %) come first, then output tables', hasInputs);
+  check('Old interleaved per-asset build-up sections are gone', !hasOldBuildup);
   check('Allocation % are input constants (no formulas)', allocConstCells > 0 && allocFormulaCells === 0, `const=${allocConstCells} formula=${allocFormulaCells}`);
-  check('Amount year cells are Total x allocation% formulas', amtYearFormulaCells > 0 && amtYearConstCells === 0, `formula=${amtYearFormulaCells} non=${amtYearConstCells}`);
+  check('Table 1 period cells are Total x allocation% formulas', amtYearFormulaCells > 0 && amtYearConstCells === 0, `formula=${amtYearFormulaCells} non=${amtYearConstCells}`);
   check('Every per-line Check reads OK (100% within tol)', allocChecksOk.length > 0 && allocChecksOk.every(Boolean), `ok=${allocChecksOk.filter(Boolean).length}/${allocChecksOk.length}`);
-  check('Build-up Total (E) links to Assumptions + Land & Area (live)', buildupLinksAssumptions && buildupLinksLandArea);
-  check('Percent-of-selected sums sibling E cells (live)', selectedSumLive);
-  check('Percent-of-selected never self-references its own E cell', !selfRef);
+  check('Build-up Total (D) links to Assumptions + Land & Area (live)', buildupLinksAssumptions && buildupLinksLandArea);
+  check('Percent-of-selected sums sibling D cells (live)', selectedSumLive);
+  check('Percent-of-selected never self-references its own D cell', !selfRef);
 
-  // Identity 1: each amount line's Total (E) == engine line total.
+  // Identity 1: each Table-1 line Total (D) == engine line total.
   const engLineAmt = new Map<string, number>();
   for (const ia of capReport.inputAssets) for (const ln of ia.lines) engLineAmt.set(`${ia.assetName.trim()}|${ln.name}`, ln.amount);
   let id1Ok = true; const id1Detail: string[] = [];
   for (const al of amtLineRows) {
     const eng = engLineAmt.get(`${al.asset}|${al.name}`); if (eng === undefined) continue;
-    const tot = num(cap.getCell(al.row, E_COL).value);
+    const tot = num(cap.getCell(al.row, TOTAL_C).value);
     if (!(Math.abs(tot - eng) <= Math.max(1, Math.abs(eng) * 1e-6))) { id1Ok = false; if (id1Detail.length < 5) id1Detail.push(`${al.asset}/${al.name}: wb=${Math.round(tot)} eng=${Math.round(eng)}`); }
   }
-  check('Identity 1: each line Total (E) == engine line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
+  check('Identity 1: each line Total (D) == engine line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
 
-  // Identity 2: each asset incl-land per-year (F..) == engine perPeriod.
+  // Identity 2: each asset incl-land per-period (F..) == engine perPeriod.
   const inclTbl = capReport.results.find((t) => t.title === 'Total Capex (incl. all land)');
   const assetIncl = new Map<string, number[]>();
   for (const rw of inclTbl?.rows ?? []) if (!(rw as any).isTotal) assetIncl.set(rw.label, (rw.values || []).slice());
@@ -245,40 +263,41 @@ async function main(): Promise<void> {
     const incl = assetIncl.get(at.name) || [];
     for (let t = 0; t < NN; t++) { const v = num(cap.getCell(at.row, yCol(t)).value); if (!(Math.abs(v - (incl[t] ?? 0)) <= Math.max(1, Math.abs(incl[t] ?? 0) * 1e-6))) { id2Ok = false; if (id2Detail.length < 5) id2Detail.push(`${at.name}[y${t}] wb=${Math.round(v)} eng=${Math.round(incl[t] ?? 0)}`); } }
   }
-  check('Identity 2: each year asset total == engine per-period', id2Ok && assetTotRows.length > 0, id2Detail.join('; '));
+  check('Identity 2: each period asset total == engine per-period', id2Ok && assetTotRows.length > 0, id2Detail.join('; '));
 
-  // Identity 3 + the three summaries (E column).
+  // The 4 output tables tie to the snapshot (Total column D).
   const snapGrand = snap.financing.capex.totals.inclAllLand;
   const exclGrand = snap.financing.capex.perPeriod.exclAllLand.slice(0, NN).reduce((s, v) => s + (v ?? 0), 0);
-  const sumE = (re: RegExp): number => { const R = rowLabel(re); return R > 0 ? num(cap.getCell(R, E_COL).value) : NaN; };
-  check('Summary: Total Capex Incl. Land == snapshot grand', Math.abs(sumE(/^Total Capex Incl\. Land$/) - snapGrand) <= Math.max(1, snapGrand * 1e-6), `wb=${Math.round(sumE(/^Total Capex Incl\. Land$/))} snap=${Math.round(snapGrand)}`);
-  check('Summary: Total Capex Excl. Land == snapshot excl-all', Math.abs(sumE(/^Total Capex Excl\. Land$/) - exclGrand) <= Math.max(1, Math.abs(exclGrand) * 1e-6), `wb=${Math.round(sumE(/^Total Capex Excl\. Land$/))} snap=${Math.round(exclGrand)}`);
-  check('Summary: Total Land == grand - excl-all', Math.abs(sumE(/^Total Land$/) - (snapGrand - exclGrand)) <= Math.max(1, Math.abs(snapGrand - exclGrand) * 1e-6), `wb=${Math.round(sumE(/^Total Land$/))} eng=${Math.round(snapGrand - exclGrand)}`);
+  const exclInKindGrand = snap.financing.capex.perPeriod.exclLandInKind.slice(0, NN).reduce((s, v) => s + (v ?? 0), 0);
+  const totD = (re: RegExp): number => { const R = rowLabel(re); return R > 0 ? num(cap.getCell(R, TOTAL_C).value) : NaN; };
+  check('Table 1 Project Total (incl. all land) == snapshot grand', Math.abs(totD(/^Project Total \(incl\. all land\)$/) - snapGrand) <= Math.max(1, snapGrand * 1e-6), `wb=${Math.round(totD(/^Project Total \(incl\. all land\)$/))} snap=${Math.round(snapGrand)}`);
+  check('Table 2 total (incl. all land) == snapshot grand', Math.abs(totD(/^Total Capex \(incl\. all land\)$/) - snapGrand) <= Math.max(1, snapGrand * 1e-6), `wb=${Math.round(totD(/^Total Capex \(incl\. all land\)$/))} snap=${Math.round(snapGrand)}`);
+  check('Table 3 total (excl. land in-kind) == snapshot excl-in-kind', Math.abs(totD(/^Total Capex \(excl\. land in-kind\)$/) - exclInKindGrand) <= Math.max(1, Math.abs(exclInKindGrand) * 1e-6), `wb=${Math.round(totD(/^Total Capex \(excl\. land in-kind\)$/))} snap=${Math.round(exclInKindGrand)}`);
+  check('Table 4 total (excl. all land) == snapshot excl-all', Math.abs(totD(/^Total Capex \(excl\. all land\)$/) - exclGrand) <= Math.max(1, Math.abs(exclGrand) * 1e-6), `wb=${Math.round(totD(/^Total Capex \(excl\. all land\)$/))} snap=${Math.round(exclGrand)}`);
 
   // Checks handoff: a Capex-referencing cell on the Checks sheet ties to the grand.
   const checksWs = wb.getWorksheet('Checks')!;
   let checksTie = false;
-  checksWs.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && 'result' in v && typeof v.result === 'number' && Math.abs(v.result - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6) && /Capex/.test(String(v.formula ?? ''))) checksTie = true; }));
+  checksWs.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && 'result' in v && typeof v.result === 'number' && Math.abs(v.result - snapGrand) <= Math.max(1, Math.abs(snapGrand) * 1e-6) && /Capex|\$D\$/.test(String(v.formula ?? ''))) checksTie = true; }));
   check('Checks sheet still ties to the Capex grand total (scheduleTotalAddr)', checksTie);
 
   // ── Display scale: thousands / millions are number-format only ──────────────
-  // Stored values + formulas unchanged; only money/money1 cells gain trailing
-  // commas. Rates (NUMFMT.rate) and the grand stay full-unit in storage.
-  const incRow = rowLabel(/^Total Capex Incl\. Land$/);
+  const incRow = rowLabel(/^Project Total \(incl\. all land\)$/);
   const wbK = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', displayScale: 'thousands' });
   const wbM = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', displayScale: 'millions' });
   const capK = wbK.getWorksheet('Capex')!; const capM = wbM.getWorksheet('Capex')!;
-  const grandFull = num(cap.getCell(incRow, E_COL).value);
-  const grandK = num(capK.getCell(incRow, E_COL).value);
-  const grandM = num(capM.getCell(incRow, E_COL).value);
+  const grandFull = num(cap.getCell(incRow, TOTAL_C).value);
+  const grandK = num(capK.getCell(incRow, TOTAL_C).value);
+  const grandM = num(capM.getCell(incRow, TOTAL_C).value);
   check('Scale: stored grand value is identical at full / thousands / millions', grandFull === grandK && grandFull === grandM && Math.abs(grandFull - snapGrand) <= Math.max(1, snapGrand * 1e-6), `full=${Math.round(grandFull)} k=${Math.round(grandK)} m=${Math.round(grandM)}`);
-  // Accounting format with scale commas: thousands = whole numbers + 1 comma;
-  // millions = 1 decimal + 2 commas (the per-scale decimal defaults).
-  check('Scale: thousands money format has one trailing comma', /#,##0,_\)/.test(String(capK.getCell(incRow, E_COL).numFmt)), `fmt=${capK.getCell(incRow, E_COL).numFmt}`);
-  check('Scale: millions money format has two trailing commas (1 decimal)', /#,##0\.0,,_\)/.test(String(capM.getCell(incRow, E_COL).numFmt)), `fmt=${capM.getCell(incRow, E_COL).numFmt}`);
-  // A rate cell (Rate column D on a build-up line) must NOT be scaled.
+  check('Scale: thousands money format has one trailing comma', /#,##0,_\)/.test(String(capK.getCell(incRow, TOTAL_C).numFmt)), `fmt=${capK.getCell(incRow, TOTAL_C).numFmt}`);
+  check('Scale: millions money format has two trailing commas (1 decimal)', /#,##0\.0,,_\)/.test(String(capM.getCell(incRow, TOTAL_C).numFmt)), `fmt=${capM.getCell(incRow, TOTAL_C).numFmt}`);
+  // A Rate cell (column C on a Table-1 line) must NOT be scaled.
   const rateRow = amtLineRows[0]?.row ?? -1;
-  if (rateRow > 0) check('Scale: rate cell (D) is not scaled (no trailing comma)', !/,_\)/.test(String(capK.getCell(rateRow, 4).numFmt)) && !/,,/.test(String(capM.getCell(rateRow, 4).numFmt)), `k=${capK.getCell(rateRow, 4).numFmt} m=${capM.getCell(rateRow, 4).numFmt}`);
+  if (rateRow > 0) check('Scale: rate cell (C) is not scaled (no trailing comma)', !/,_\)/.test(String(capK.getCell(rateRow, 3).numFmt)) && !/,,/.test(String(capM.getCell(rateRow, 3).numFmt)), `k=${capK.getCell(rateRow, 3).numFmt} m=${capM.getCell(rateRow, 3).numFmt}`);
+  // Zero renders as a dash: the opening (Period 0) cell of a Table-1 line is 0 and
+  // carries the accounting format whose zero section is a dash.
+  if (rateRow > 0) check('Accounting zero-as-dash on numeric value cells', /"-"/.test(String(cap.getCell(rateRow, OPEN_C).numFmt)), `fmt=${cap.getCell(rateRow, OPEN_C).numFmt}`);
 
   // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
   const collectResults = (sheet: string): number[] => {
@@ -325,9 +344,9 @@ async function main(): Promise<void> {
   check('Financing total interest reconciles to engine', finNear(totInterest), `interest=${Math.round(totInterest)}`);
 
   // ── Financing unit: live per-facility roll-forward + IDC pool + sweep ───────
-  // Financing uses the shared periodHeader geometry (Opening at col B, year t at
-  // col 3+t), NOT the Capex layout, so it has its own year-column helper.
-  const finY = (t: number): number => 3 + t;
+  // Universal geometry: opening (Period 0) at col E (5), active period t at col
+  // 6 + t, Total at col D. The frozen header (dates / index) is at rows 3-4.
+  const finY = (t: number): number => 6 + t;
   const finLab = (R: number): string => { const a = finWs.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
   const finFac = new Map<string, any>();
   for (const [id, f] of snap.financing.facilities.entries()) { const t = state.financingTranches.find((x: any) => x.id === id); finFac.set((t?.name ?? id), f); }
