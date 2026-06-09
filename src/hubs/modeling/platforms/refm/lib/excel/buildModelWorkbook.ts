@@ -481,6 +481,14 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
   ws.views = [FROZEN_VIEW()];
 }
 
+// Strategy -> display group, shared by the Land & Area and Capex groupings.
+function strategyGroup(strategy: string): 'Residential' | 'Hospitality' | 'Retail' | 'Other' {
+  if (strategy === 'Operate') return 'Hospitality';
+  if (strategy === 'Lease') return 'Retail';
+  if (strategy === 'Sell' || strategy === 'Sell + Manage') return 'Residential';
+  return 'Other';
+}
+
 // ── Land & Area (formula area hierarchy + land value, links to Assumptions) ────
 // Asset-wise (no sub-unit rows): each asset's NSA / Support / BUA / GFA, land
 // value (cash + in-kind split), unit count and GDV, grouped by strategy
@@ -503,13 +511,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     metricsById.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode));
   }
 
-  // Strategy -> display group (mirrors the Capex grouping).
-  const catOf = (strategy: string): 'Residential' | 'Hospitality' | 'Retail' | 'Other' => {
-    if (strategy === 'Operate') return 'Hospitality';
-    if (strategy === 'Lease') return 'Retail';
-    if (strategy === 'Sell' || strategy === 'Sell + Manage') return 'Residential';
-    return 'Other';
-  };
+  const catOf = strategyGroup; // strategy -> display group (shared helper)
   // GDV is shown for residential assets; also kept for any asset whose capex has a
   // percent-of-revenue line (the build-up base links to the GDV cell).
   const revenueLinked = new Set(
@@ -682,13 +684,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   }
   ws.views = [{ state: 'frozen', xSplit: C_TOT, ySplit: 4, showGridLines: false }];
 
-  const cat = (assetId: string): string => {
-    const s = refs.assets.find((x) => x.id === assetId)?.strategy ?? '';
-    if (s === 'Operate') return 'Hospitality';
-    if (s === 'Lease') return 'Retail';
-    if (s === 'Sell' || s === 'Sell + Manage') return 'Residential';
-    return 'Other';
-  };
+  const cat = (assetId: string): string => strategyGroup(refs.assets.find((x) => x.id === assetId)?.strategy ?? '');
   // Cached engine series (per asset name) for the 4 result tables.
   const seriesByName = (title: string): Map<string, number[]> => {
     const m = new Map<string, number[]>();
