@@ -271,8 +271,10 @@ async function main(): Promise<void> {
   const grandK = num(capK.getCell(incRow, E_COL).value);
   const grandM = num(capM.getCell(incRow, E_COL).value);
   check('Scale: stored grand value is identical at full / thousands / millions', grandFull === grandK && grandFull === grandM && Math.abs(grandFull - snapGrand) <= Math.max(1, snapGrand * 1e-6), `full=${Math.round(grandFull)} k=${Math.round(grandK)} m=${Math.round(grandM)}`);
+  // Accounting format with scale commas: thousands = whole numbers + 1 comma;
+  // millions = 1 decimal + 2 commas (the per-scale decimal defaults).
   check('Scale: thousands money format has one trailing comma', /#,##0,_\)/.test(String(capK.getCell(incRow, E_COL).numFmt)), `fmt=${capK.getCell(incRow, E_COL).numFmt}`);
-  check('Scale: millions money format has two trailing commas', /#,##0,,_\)/.test(String(capM.getCell(incRow, E_COL).numFmt)), `fmt=${capM.getCell(incRow, E_COL).numFmt}`);
+  check('Scale: millions money format has two trailing commas (1 decimal)', /#,##0\.0,,_\)/.test(String(capM.getCell(incRow, E_COL).numFmt)), `fmt=${capM.getCell(incRow, E_COL).numFmt}`);
   // A rate cell (Rate column D on a build-up line) must NOT be scaled.
   const rateRow = amtLineRows[0]?.row ?? -1;
   if (rateRow > 0) check('Scale: rate cell (D) is not scaled (no trailing comma)', !/,_\)/.test(String(capK.getCell(rateRow, 4).numFmt)) && !/,,/.test(String(capM.getCell(rateRow, 4).numFmt)), `k=${capK.getCell(rateRow, 4).numFmt} m=${capM.getCell(rateRow, 4).numFmt}`);

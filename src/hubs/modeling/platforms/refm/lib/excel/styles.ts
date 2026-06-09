@@ -29,14 +29,30 @@ export const ARGB = {
   warnBg: 'FFFFF3CD',
 };
 
+/**
+ * Excel accounting number format (no currency symbol): right-aligned digits,
+ * parentheses for negatives, a dash for zero, all sections column-aligned. The
+ * model uses accounting style throughout for an institutional, audit-ready look.
+ *   `decimals` = decimal places; `commas` = trailing scale commas (each divides
+ *   the displayed value by 1000, see the display-scale note below).
+ */
+export function accountingFormat(decimals: number, commas = 0): string {
+  const dec = decimals > 0 ? `.${'0'.repeat(decimals)}` : '';
+  const c = ','.repeat(Math.max(0, commas));
+  const dash = decimals > 0 ? `"-"${'?'.repeat(decimals)}` : '"-"';
+  return `_(* #,##0${dec}${c}_);_(* (#,##0${dec}${c});_(* ${dash}_);_(@_)`;
+}
+
 export const NUMFMT = {
-  money: '#,##0_);(#,##0)',
-  money1: '#,##0.0_);(#,##0.0)',
+  money: accountingFormat(0),
+  money1: accountingFormat(1),
   // Per-unit rate / price (SAR per sqm / bay / unit, ADR). Distinct from `money`
   // so the workbook-wide display-scale (scaleMoneyFormats) leaves rates in full
   // units; only magnitude figures (money / money1) scale.
-  rate: '#,##0.00_);(#,##0.00)',
-  pct: '0.0%',
+  rate: accountingFormat(2),
+  // All percentages are 2-decimal throughout the model, independent of the money
+  // decimal selection. `pct` is kept as an alias so existing call sites stay 2dp.
+  pct: '0.00%',
   pct2: '0.00%',
   int: '#,##0',
   year: '0',
@@ -52,27 +68,30 @@ export const NUMFMT = {
  * mult are left alone.
  */
 export type DisplayScale = 'full' | 'thousands' | 'millions';
+export type DisplayDecimals = 0 | 1 | 2;
 
-/** Insert the scaling trailing-comma(s) right after each '0' digit run in a
- *  money format section, e.g. '#,##0_);(#,##0)' -> '#,##0,_);(#,##0,)'. */
-function appendScaleCommas(fmt: string, commas: number): string {
-  if (commas <= 0) return fmt;
-  const tail = ','.repeat(commas);
-  // Match a digit run that is NOT already followed by a comma (avoid the
-  // thousands separators inside '#,##0'); the trailing run before _) or ) or end.
-  return fmt.replace(/0(?=(_\)|\)|$))/g, `0${tail}`);
+/** Trailing scale commas for a display scale (each divides displayed value /1000). */
+export function scaleCommas(scale: DisplayScale): number {
+  return scale === 'thousands' ? 1 : scale === 'millions' ? 2 : 0;
 }
 
-export function scaledMoneyFormats(scale: DisplayScale): { money: string; money1: string } {
-  const commas = scale === 'thousands' ? 1 : scale === 'millions' ? 2 : 0;
-  return { money: appendScaleCommas(NUMFMT.money, commas), money1: appendScaleCommas(NUMFMT.money1, commas) };
+/** Default money decimals for a scale when the caller has not chosen explicitly:
+ *  full / thousands show whole numbers; millions show one decimal. */
+export function defaultDecimals(scale: DisplayScale): DisplayDecimals {
+  return scale === 'millions' ? 1 : 0;
 }
 
-/** Sweep every sheet: re-format cells using the magnitude money formats to the
- *  scaled variant. Display-only; values + formulas unchanged. */
-export function scaleMoneyFormats(wb: ExcelJS.Workbook, scale: DisplayScale): void {
-  if (scale === 'full') return;
-  const { money, money1 } = scaledMoneyFormats(scale);
+export function scaledMoneyFormats(scale: DisplayScale, decimals: DisplayDecimals): { money: string; money1: string } {
+  const commas = scaleCommas(scale);
+  return { money: accountingFormat(decimals, commas), money1: accountingFormat(Math.max(1, decimals), commas) };
+}
+
+/** Sweep every sheet: re-format magnitude money cells to the chosen scale +
+ *  decimals. Display-only; stored values + formulas are unchanged, so the locked
+ *  reconciliation (full-unit values) is identical at every scale / decimal. */
+export function scaleMoneyFormats(wb: ExcelJS.Workbook, scale: DisplayScale, decimals: DisplayDecimals = defaultDecimals(scale)): void {
+  if (scale === 'full' && decimals === 0) return; // base formats already correct
+  const { money, money1 } = scaledMoneyFormats(scale, decimals);
   for (const ws of wb.worksheets) {
     ws.eachRow((row) => row.eachCell((cell) => {
       if (cell.numFmt === NUMFMT.money) cell.numFmt = money;
@@ -113,19 +132,22 @@ export function sheetRef(sheet: string, a1: string): string {
   return `${quoteSheet(sheet)}!${a1}`;
 }
 
+// Default body font size for the workbook (Calibri 9.5 throughout).
+export const BODY_SIZE = 9.5;
+
 export function setInput(cell: Cell, value: number | string, numFmt = NUMFMT.money): void {
   cell.value = value;
-  cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.input } };
+  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.input } };
   cell.numFmt = numFmt;
 }
 export function setFormula(cell: Cell, fc: { formula: string; result: number | string | boolean }, numFmt = NUMFMT.money, linked = false): void {
   cell.value = fc;
-  cell.font = { name: 'Calibri', size: 10, color: { argb: linked ? ARGB.linked : ARGB.formula } };
+  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: linked ? ARGB.linked : ARGB.formula } };
   cell.numFmt = numFmt;
 }
 export function setLabel(cell: Cell, text: string, opts: { bold?: boolean; indent?: number } = {}): void {
   cell.value = text;
-  cell.font = { name: 'Calibri', size: 10, bold: opts.bold ?? false, color: { argb: ARGB.formula } };
+  cell.font = { name: 'Calibri', size: BODY_SIZE, bold: opts.bold ?? false, color: { argb: ARGB.formula } };
   if (opts.indent) cell.alignment = { indent: opts.indent };
 }
 export function setTitle(cell: Cell, text: string, size = 16): void {
@@ -143,7 +165,7 @@ export function setSectionHeader(row: ExcelJS.Row, text: string, span: number): 
 }
 export function setColHeader(cell: Cell, text: string | number, align: 'left' | 'right' | 'center' = 'right'): void {
   cell.value = text;
-  cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+  cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
   cell.alignment = { horizontal: align };
   cell.border = { bottom: { style: 'thin', color: { argb: ARGB.greyMid } } };

@@ -25,8 +25,8 @@ import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calcu
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import {
-  ARGB, NUMFMT, fcell, setInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, type DisplayScale,
+  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
+  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, type DisplayScale, type DisplayDecimals,
 } from './styles';
 
 export interface BuildModelOptions {
@@ -36,6 +36,9 @@ export interface BuildModelOptions {
   /** Workbook-wide DISPLAY scale (cosmetic number format only; stored values +
    *  formulas stay in full units). Defaults to 'full'. */
   displayScale?: DisplayScale;
+  /** Money decimal places (display only). Defaults per scale: 0 for full /
+   *  thousands, 1 for millions. Percentages are always 2dp regardless. */
+  displayDecimals?: DisplayDecimals;
 }
 
 const SHEETS = { cover: 'Cover', assumptions: 'Assumptions', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', financing: 'Financing', revenue: 'Revenue', cos: 'Cost of Sales', opex: 'Opex', checks: 'Checks' };
@@ -67,7 +70,8 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // stored values + formulas stay in full units, so the locked reconciliation
   // is identical at every scale). Applied last so every sheet's cells are set.
   const scale = opts.displayScale ?? 'full';
-  scaleMoneyFormats(wb, scale);
+  const decimals = opts.displayDecimals ?? defaultDecimals(scale);
+  scaleMoneyFormats(wb, scale, decimals);
   const note = scaleNote(scale, opts.state.project.currency ?? 'SAR');
   if (note) {
     // Append the unit note to the header (A2) of every money-bearing sheet so
@@ -482,12 +486,19 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
 }
 
 // ── Land & Area (formula area hierarchy + land value, links to Assumptions) ────
+// Asset-wise (no sub-unit rows): each asset's NSA / Support / BUA / GFA, land
+// value (cash + in-kind split), unit count and GDV, grouped by strategy
+// (Residential -> Hospitality -> Retail) with a total per group. Sub-unit areas
+// are folded directly into each asset's formula (summed off the Assumptions
+// sub-unit inputs) so the tab reads at the asset level. GDV is a residential
+// (for-sale) concept, so it is shown only for Residential assets (and for any
+// asset that drives a percent-of-revenue capex line, which needs the basis).
 function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs: AssumptionRefs): Map<string, LandAreaAssetAddrs> {
   const ws = wb.addWorksheet(SHEETS.landArea, { properties: { tabColor: { argb: ARGB.navy } } });
-  ws.getColumn(1).width = 28;
+  ws.getColumn(1).width = 30;
   for (let c = 2; c <= 14; c++) ws.getColumn(c).width = 13;
   setTitle(ws.getCell('A1'), 'Land & Area', 16);
-  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA), land value, unit count and GDV, computed from the Assumptions inputs. The Capex build-up links its percent / unit cost bases here.');
+  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA), land value and unit count per asset, grouped by strategy, computed from the Assumptions inputs. GDV is shown for residential (for-sale) assets. The Capex build-up links its percent / unit cost bases here.');
 
   // Engine metrics per asset, cached so the formulas reconcile to the platform.
   const metricsById = new Map<string, AssetAreaMetrics>();
@@ -495,110 +506,140 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     const inPhase = state.assets.filter((x) => x.phaseId === a.phaseId);
     metricsById.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode));
   }
-  const suRaw = new Map(state.subUnits.map((u) => [u.id, u] as const));
+
+  // Strategy -> display group (mirrors the Capex grouping).
+  const catOf = (strategy: string): 'Residential' | 'Hospitality' | 'Retail' | 'Other' => {
+    if (strategy === 'Operate') return 'Hospitality';
+    if (strategy === 'Lease') return 'Retail';
+    if (strategy === 'Sell' || strategy === 'Sell + Manage') return 'Residential';
+    return 'Other';
+  };
+  // GDV is shown for residential assets; also kept for any asset whose capex has a
+  // percent-of-revenue line (the build-up base links to the GDV cell).
+  const revenueLinked = new Set(
+    refs.capex.filter((a) => a.lines.some((l) => /revenue/.test(l.method))).map((a) => a.assetId),
+  );
+  const needsGdv = (ar: AssetInputRef): boolean => catOf(ar.strategy) === 'Residential' || revenueLinked.has(ar.id);
+
+  // Inline sub-unit expressions (summed off the Assumptions sub-unit inputs), so
+  // the asset rows carry the NSA / support / unit / GDV contributions directly.
+  const subOf = (assetId: string): SubUnitInputRef[] => refs.subUnits.filter((s) => s.assetId === assetId);
+  const areaExpr = (s: SubUnitInputRef): string => `IF(${s.metric}="area",${s.value},${s.value}*${s.unitArea})`;
+  const isNsaCat = (s: SubUnitInputRef): string => `OR(${s.category}="Sellable",${s.category}="Operable",${s.category}="Leasable")`;
+  const nsaExpr = (s: SubUnitInputRef): string => `IF(${isNsaCat(s)},${areaExpr(s)},0)`;
+  const supExpr = (s: SubUnitInputRef): string => `IF(${s.category}="Support",${areaExpr(s)},0)`;
+  const unitsExpr = (s: SubUnitInputRef): string => `IF(OR(${s.metric}="units",${s.metric}="count"),${s.value},0)`;
+  const gdvExpr = (s: SubUnitInputRef): string => `IF(${isNsaCat(s)},${s.value}*${s.price},0)`;
+  const joinOr0 = (parts: string[]): string => (parts.length ? parts.join('+') : '0');
+
+  // Column header set (A label + B..N metrics). Land rate (I) is per-sqm so it is
+  // never summed into a group total.
+  const HEADERS = ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land', 'Units', 'GDV'];
+  const LASTCOL = HEADERS.length; // 14 (col N)
 
   let r = 4;
-  // ── Section 1: sub-unit areas (drivers for the NSA hierarchy + unit / GDV) ──
-  setSectionHeader(ws.getRow(r), 'Sub-unit areas', 9); r += 1;
-  ['Sub-unit', 'Asset', 'Category', 'Metric', 'Area (sqm)', 'NSA area', 'Support area', 'Units', 'GDV'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-  r += 1;
-  // sub-unit id -> this-sheet cells (quoted cross-sheet addresses).
-  const suCells = new Map<string, { nsa: string; support: string; units: string; gdv: string }>();
-  for (const sr of refs.subUnits) {
-    const u = suRaw.get(sr.id);
-    if (!u) continue;
-    const aName = state.assets.find((a) => a.id === sr.assetId)?.name ?? sr.assetId;
-    const area = u.metric === 'area' ? (u.metricValue ?? 0) : (u.metricValue ?? 0) * (u.unitArea ?? 0);
-    const isNsa = u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable';
-    const isSupport = u.category === 'Support';
-    // Unit count: mirrors computeAssetUnitCount (metric units/count, not Support).
-    const isUnitMetric = u.metric === 'units' || (u.metric as unknown as string) === 'count';
-    const unitsCached = isUnitMetric && !isSupport ? Math.max(0, u.metricValue ?? 0) : 0;
-    // GDV: mirrors computeAssetRevenue (sum of value x price over revenue cats).
-    const gdvCached = isNsa ? Math.max(0, u.metricValue ?? 0) * Math.max(0, u.unitPrice ?? 0) : 0;
-    setLabel(ws.getCell(`A${r}`), u.name, { indent: 1 });
-    setLabel(ws.getCell(`B${r}`), aName);
-    setFormula(ws.getCell(`C${r}`), fcell(sr.category, String(u.category)), '@', true);
-    setFormula(ws.getCell(`D${r}`), fcell(sr.metric, String(u.metric)), '@', true);
-    // Area = IF(metric="area", value, value * unitArea)
-    setFormula(ws.getCell(`E${r}`), fcell(`IF(${sr.metric}="area",${sr.value},${sr.value}*${sr.unitArea})`, area), NUMFMT.int, true);
-    const areaCell = `E${r}`;
-    setFormula(ws.getCell(`F${r}`), fcell(`IF(OR(C${r}="Sellable",C${r}="Operable",C${r}="Leasable"),${areaCell},0)`, isNsa ? area : 0), NUMFMT.int);
-    setFormula(ws.getCell(`G${r}`), fcell(`IF(C${r}="Support",${areaCell},0)`, isSupport ? area : 0), NUMFMT.int);
-    // Units = IF(metric is units/count, value, 0); GDV = IF(revenue cat, value x price, 0).
-    setFormula(ws.getCell(`H${r}`), fcell(`IF(OR(${sr.metric}="units",${sr.metric}="count"),${sr.value},0)`, unitsCached), NUMFMT.int);
-    setFormula(ws.getCell(`I${r}`), fcell(`IF(OR(C${r}="Sellable",C${r}="Operable",C${r}="Leasable"),${sr.value}*${sr.price},0)`, gdvCached), NUMFMT.money);
-    suCells.set(sr.id, {
-      nsa: sheetRef(SHEETS.landArea, `F${r}`), support: sheetRef(SHEETS.landArea, `G${r}`),
-      units: sheetRef(SHEETS.landArea, `H${r}`), gdv: sheetRef(SHEETS.landArea, `I${r}`),
-    });
-    r += 1;
-  }
-  r += 1;
+  setSectionHeader(ws.getRow(r), 'Asset area & land', LASTCOL); r += 1;
+  HEADERS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
 
-  // ── Section 2: asset area hierarchy + land + unit count + GDV ──
-  setSectionHeader(ws.getRow(r), 'Asset area & land', 14); r += 1;
-  ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land', 'Units', 'GDV'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-  r += 1;
+  const groupOrder: Array<'Residential' | 'Hospitality' | 'Retail' | 'Other'> = ['Residential', 'Hospitality', 'Retail', 'Other'];
+  interface ARow { ref: AssetInputRef; row: number }
+  interface GBlock { label: string; aRows: ARow[]; subtotalRow: number }
+  const allARows: ARow[] = [];
+  const blocks: GBlock[] = [];
 
-  // Pass 1: hierarchy rows; capture each asset's BUA cell for cross-asset land share.
-  interface ARow { ref: AssetInputRef; row: number; buaCell: string }
-  const aRows: ARow[] = [];
-  for (const ar of refs.assets) {
-    const m = metricsById.get(ar.id);
-    const mySub = refs.subUnits.filter((s) => s.assetId === ar.id).map((s) => suCells.get(s.id)).filter(Boolean) as Array<{ nsa: string; support: string }>;
-    const nsaSub = mySub.length ? mySub.map((c) => c.nsa).join('+') : '0';
-    const supSub = mySub.length ? mySub.map((c) => c.support).join('+') : '0';
-    setLabel(ws.getCell(`A${r}`), ar.name);
-    // NSA = MAX(asset NSA input, sub-unit NSA); Support = asset support + sub-unit support
-    setFormula(ws.getCell(`B${r}`), fcell(`MAX(${ar.nsa},${nsaSub})`, m?.nsa ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`C${r}`), fcell(`${ar.support}+(${supSub})`, m?.supportArea ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`D${r}`), fcell(`MAX(${ar.bua},B${r}+C${r})`, m?.bua ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`E${r}`), fcell(ar.parking, m?.parkingArea ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`F${r}`), fcell(`MAX(${ar.gfa},D${r}+E${r})`, m?.gfa ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`G${r}`), fcell(ar.parkingBays, m?.parkingBays ?? 0), NUMFMT.int, true);
-    aRows.push({ ref: ar, row: r, buaCell: `D${r}` });
-    r += 1;
+  // Layout + hierarchy (B..G) pass: a group label row, asset hierarchy rows, then
+  // a reserved subtotal row per group.
+  for (const cat of groupOrder) {
+    const inGroup = refs.assets.filter((a) => catOf(a.strategy) === cat);
+    if (!inGroup.length) continue;
+    setLabel(ws.getCell(r, 1), cat, { bold: true }); fillRange(ws, r, 1, r, LASTCOL, ARGB.subtotal); r += 1;
+    const grp: ARow[] = [];
+    for (const ar of inGroup) {
+      const m = metricsById.get(ar.id);
+      const subs = subOf(ar.id);
+      const nsaSub = joinOr0(subs.map(nsaExpr));
+      const supSub = joinOr0(subs.map(supExpr));
+      setLabel(ws.getCell(`A${r}`), ar.name, { indent: 1 });
+      setFormula(ws.getCell(`B${r}`), fcell(`MAX(${ar.nsa},${nsaSub})`, m?.nsa ?? 0), NUMFMT.int, true);
+      setFormula(ws.getCell(`C${r}`), fcell(`${ar.support}+(${supSub})`, m?.supportArea ?? 0), NUMFMT.int, true);
+      setFormula(ws.getCell(`D${r}`), fcell(`MAX(${ar.bua},B${r}+C${r})`, m?.bua ?? 0), NUMFMT.int, true);
+      setFormula(ws.getCell(`E${r}`), fcell(ar.parking, m?.parkingArea ?? 0), NUMFMT.int, true);
+      setFormula(ws.getCell(`F${r}`), fcell(`MAX(${ar.gfa},D${r}+E${r})`, m?.gfa ?? 0), NUMFMT.int, true);
+      setFormula(ws.getCell(`G${r}`), fcell(ar.parkingBays, m?.parkingBays ?? 0), NUMFMT.int, true);
+      const aRow: ARow = { ref: ar, row: r };
+      grp.push(aRow); allARows.push(aRow);
+      r += 1;
+    }
+    blocks.push({ label: cat, aRows: grp, subtotalRow: r }); r += 1;
   }
 
-  // Pass 2: land columns (need cross-asset BUA for the auto-by-BUA share) + the
-  // unit-count and GDV totals the Capex build-up links its cost bases to.
+  // Land columns (H..N) pass: need every asset BUA cell for the auto-by-BUA land
+  // share, so this runs after the full layout.
   const parcelPhase = new Map(state.parcels.map((p) => [p.id, p.phaseId] as const));
   const parcelsInPhase = (phaseId: string): ParcelInputRef[] => refs.parcels.filter((p) => parcelPhase.get(p.id) === phaseId);
   const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
-  for (const row of aRows) {
-    const m = metricsById.get(row.ref.id);
-    const ph = row.ref.phaseId;
+  for (const { ref: ar, row } of allARows) {
+    const m = metricsById.get(ar.id);
+    const ph = ar.phaseId;
     const pcs = parcelsInPhase(ph);
     const landTotal = pcs.length ? pcs.map((p) => p.area).join('+') : '0';
     const landValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}`).join('+') : '0';
     const cashValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}*${p.cashPct}`).join('+') : '0';
-    const phaseBua = aRows.filter((x) => x.ref.phaseId === ph).map((x) => x.buaCell).join('+') || '0';
-    // Land sqm: explicit input if set, else phase land x this BUA / phase BUA.
-    setFormula(ws.getCell(`H${row.row}`), fcell(`IF(${row.ref.landSqm}>0,${row.ref.landSqm},IFERROR((${landTotal})*${row.buaCell}/(${phaseBua}),0))`, m?.landSqm ?? 0), NUMFMT.int, true);
-    // Land rate: explicit input if set, else phase weighted average (per-sqm rate, unscaled).
-    setFormula(ws.getCell(`I${row.row}`), fcell(`IF(${row.ref.landRate}>0,${row.ref.landRate},IFERROR((${landValueF})/(${landTotal}),0))`, (m && m.landSqm > 0) ? m.landValue / m.landSqm : 0), NUMFMT.rate, true);
-    setFormula(ws.getCell(`J${row.row}`), fcell(`H${row.row}*I${row.row}`, m?.landValue ?? 0), NUMFMT.money);
-    // Cash / in-kind split via the phase cash fraction.
-    setFormula(ws.getCell(`K${row.row}`), fcell(`J${row.row}*IFERROR((${cashValueF})/(${landValueF}),0)`, m?.cashLandValue ?? 0), NUMFMT.money);
-    setFormula(ws.getCell(`L${row.row}`), fcell(`J${row.row}-K${row.row}`, m?.inKindLandValue ?? 0), NUMFMT.money);
-    // Unit count + GDV = SUM of this asset's sub-unit cells (cached to the engine
-    // metric so the Capex commission / per-unit bases reconcile).
-    const mySub = refs.subUnits.filter((s) => s.assetId === row.ref.id).map((s) => suCells.get(s.id)).filter(Boolean) as Array<{ units: string; gdv: string }>;
-    const unitsF = mySub.length ? mySub.map((c) => c.units).join('+') : '0';
-    const gdvF = mySub.length ? mySub.map((c) => c.gdv).join('+') : '0';
-    setFormula(ws.getCell(`M${row.row}`), fcell(unitsF, m?.unitCount ?? 0), NUMFMT.int);
-    setFormula(ws.getCell(`N${row.row}`), fcell(gdvF, m?.totalRevenue ?? 0), NUMFMT.money);
-    landAddrsByAsset.set(row.ref.id, {
-      landValue: sheetRef(SHEETS.landArea, `$J$${row.row}`),
-      cashLand: sheetRef(SHEETS.landArea, `$K$${row.row}`),
-      inKindLand: sheetRef(SHEETS.landArea, `$L$${row.row}`),
-      unitCount: sheetRef(SHEETS.landArea, `$M$${row.row}`),
-      revenue: sheetRef(SHEETS.landArea, `$N$${row.row}`),
+    const phaseBua = allARows.filter((x) => x.ref.phaseId === ph).map((x) => `D${x.row}`).join('+') || '0';
+    setFormula(ws.getCell(`H${row}`), fcell(`IF(${ar.landSqm}>0,${ar.landSqm},IFERROR((${landTotal})*D${row}/(${phaseBua}),0))`, m?.landSqm ?? 0), NUMFMT.int, true);
+    setFormula(ws.getCell(`I${row}`), fcell(`IF(${ar.landRate}>0,${ar.landRate},IFERROR((${landValueF})/(${landTotal}),0))`, (m && m.landSqm > 0) ? m.landValue / m.landSqm : 0), NUMFMT.rate, true);
+    setFormula(ws.getCell(`J${row}`), fcell(`H${row}*I${row}`, m?.landValue ?? 0), NUMFMT.money);
+    setFormula(ws.getCell(`K${row}`), fcell(`J${row}*IFERROR((${cashValueF})/(${landValueF}),0)`, m?.cashLandValue ?? 0), NUMFMT.money);
+    setFormula(ws.getCell(`L${row}`), fcell(`J${row}-K${row}`, m?.inKindLandValue ?? 0), NUMFMT.money);
+    const subs = subOf(ar.id);
+    setFormula(ws.getCell(`M${row}`), fcell(joinOr0(subs.map(unitsExpr)), m?.unitCount ?? 0), NUMFMT.int);
+    // GDV: residential (for-sale) assets + any revenue-linked asset; blank else.
+    if (needsGdv(ar)) setFormula(ws.getCell(`N${row}`), fcell(joinOr0(subs.map(gdvExpr)), m?.totalRevenue ?? 0), NUMFMT.money);
+    landAddrsByAsset.set(ar.id, {
+      landValue: sheetRef(SHEETS.landArea, `$J$${row}`),
+      cashLand: sheetRef(SHEETS.landArea, `$K$${row}`),
+      inKindLand: sheetRef(SHEETS.landArea, `$L$${row}`),
+      unitCount: sheetRef(SHEETS.landArea, `$M$${row}`),
+      revenue: sheetRef(SHEETS.landArea, `$N$${row}`),
     });
   }
 
-  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
+  // Group total rows: SUM the group's asset rows per column (skip the per-sqm rate
+  // col I; GDV col N only where the group carries it).
+  const sumSpec: Array<{ col: number; pick: (m: AssetAreaMetrics) => number; fmt: string }> = [
+    { col: 2, pick: (m) => m.nsa, fmt: NUMFMT.int },
+    { col: 3, pick: (m) => m.supportArea, fmt: NUMFMT.int },
+    { col: 4, pick: (m) => m.bua, fmt: NUMFMT.int },
+    { col: 5, pick: (m) => m.parkingArea, fmt: NUMFMT.int },
+    { col: 6, pick: (m) => m.gfa, fmt: NUMFMT.int },
+    { col: 7, pick: (m) => m.parkingBays, fmt: NUMFMT.int },
+    { col: 8, pick: (m) => m.landSqm, fmt: NUMFMT.int },
+    { col: 10, pick: (m) => m.landValue, fmt: NUMFMT.money },
+    { col: 11, pick: (m) => m.cashLandValue, fmt: NUMFMT.money },
+    { col: 12, pick: (m) => m.inKindLandValue, fmt: NUMFMT.money },
+    { col: 13, pick: (m) => m.unitCount, fmt: NUMFMT.int },
+  ];
+  for (const b of blocks) {
+    const rr = b.subtotalRow;
+    setLabel(ws.getCell(rr, 1), `Total ${b.label}`, { bold: true });
+    const rowsWithM = b.aRows.map((a) => ({ row: a.row, m: metricsById.get(a.ref.id) })).filter((x) => x.m) as Array<{ row: number; m: AssetAreaMetrics }>;
+    for (const sp of sumSpec) {
+      const cl = colLetter(sp.col);
+      const f = rowsWithM.length ? rowsWithM.map((x) => `${cl}${x.row}`).join('+') : '0';
+      const cached = rowsWithM.reduce((s, x) => s + sp.pick(x.m), 0);
+      setFormula(ws.getCell(rr, sp.col), fcell(f, cached), sp.fmt);
+    }
+    // GDV total only if any asset in the group carries it.
+    const gdvRows = b.aRows.filter((a) => needsGdv(a.ref)).map((a) => ({ row: a.row, m: metricsById.get(a.ref.id) })).filter((x) => x.m) as Array<{ row: number; m: AssetAreaMetrics }>;
+    if (gdvRows.length) {
+      const f = gdvRows.map((x) => `N${x.row}`).join('+');
+      setFormula(ws.getCell(rr, LASTCOL), fcell(f, gdvRows.reduce((s, x) => s + x.m.totalRevenue, 0)), NUMFMT.money);
+    }
+    fillRange(ws, rr, 1, rr, LASTCOL, ARGB.navy);
+    for (let c = 1; c <= LASTCOL; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  }
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 5, showGridLines: false }];
   return landAddrsByAsset;
 }
 
@@ -636,7 +677,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     for (let t = 0; t < N; t++) {
       const c = ws.getCell(rr, yearCol(t));
       setFormula(c, fcell(sheetRef(SHEETS.timeline, `${colLetter(tlCol(t))}6`), snap.yearLabels[t] ?? snap.projectStartYear + t), NUMFMT.year, true);
-      c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+      c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
       c.alignment = { horizontal: 'right' };
     }
@@ -688,7 +729,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const ok = Math.abs(pctSum - (total ? 1 : 0)) <= TOL;
       setFormula(ws.getCell(r, checkCol), fcell(`IF(ABS(${colLetter(COL_TOTAL)}${r}-${total ? 1 : 0})<=${TOL},"OK","CHECK")`, ok ? 'OK' : 'CHECK'), '@');
       ws.getCell(r, checkCol).alignment = { horizontal: 'center' };
-      ws.getCell(r, checkCol).font = { name: 'Calibri', size: 10, bold: !ok, color: { argb: ok ? ARGB.good : ARGB.bad } };
+      ws.getCell(r, checkCol).font = { name: 'Calibri', size: BODY_SIZE, bold: !ok, color: { argb: ok ? ARGB.good : ARGB.bad } };
       pctYearCells.set(ln.id, years);
       r += 1;
     }
@@ -755,7 +796,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const predicted = predictedLive(ln);
       const reconciles = predicted === null || Math.abs(predicted - ln.amount) <= Math.max(1, Math.abs(ln.amount) * 1e-6);
       if (formula && reconciles) setFormula(ws.getCell(myRow, COL_TOTAL), fcell(formula, ln.amount), NUMFMT.money, true);
-      else { const c = ws.getCell(myRow, COL_TOTAL); c.value = ln.amount; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } }; }
+      else { const c = ws.getCell(myRow, COL_TOTAL); c.value = ln.amount; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
       const eCell = `$E$${myRow}`;
       const pcts = pctYearCells.get(ln.id) ?? [];
       const pp = perPeriodByLine.get(lineKey(ln)) ?? [];
@@ -780,7 +821,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       }
       const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
       fillRange(ws, rr, 1, rr, lastYearCol, style === 'navy' ? ARGB.navy : ARGB.subtotal);
-      for (let c = 1; c <= lastYearCol; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: fg } };
+      for (let c = 1; c <= lastYearCol; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
     };
     sumRow(r, `Subtotal excl. land, ${a.name}`, nonLandRows, exclE, exclYear, 'subtotal'); const exclRow = r; r += 1;
     sumRow(r, `Total capex, ${a.name} (incl. land)`, lineRows, a.total, inclYear, 'subtotal'); const inclRow = r; r += 1;
@@ -802,7 +843,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     for (let t = 0; t < N; t++) { const cl = colLetter(yearCol(t)); setFormula(ws.getCell(rr, yearCol(t)), fcell(srcRows.length ? srcRows.map((s) => `${cl}${s}`).join('+') : '0', year[t] ?? 0), NUMFMT.money); }
     const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
     fillRange(ws, rr, 1, rr, lastYearCol, style === 'navy' ? ARGB.navy : ARGB.subtotal);
-    for (let c = 1; c <= lastYearCol; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: fg } };
+    for (let c = 1; c <= lastYearCol; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
   };
   const groups: Array<['Residential' | 'Hospitality' | 'Retail' | 'Other', string]> = [['Residential', 'Residential'], ['Hospitality', 'Hospitality'], ['Retail', 'Retail'], ['Other', 'Other']];
   const sumYears = (rows: AssetMeta[], pick: (m: AssetMeta) => number[]): number[] => { const o = new Array<number>(N).fill(0); for (const m of rows) for (let t = 0; t < N; t++) o[t] += pick(m)[t] ?? 0; return o; };
@@ -890,7 +931,7 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     setLabel(ws.getCell(`A${rowN}`), label, opts);
     const put = (c: number, x: { f?: string; v: number }): void => {
       if (x.f) { setFormula(ws.getCell(rowN, c), fcell(x.f, x.v), NUMFMT.money); }
-      else { const cell = ws.getCell(rowN, c); cell.value = x.v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } }; }
+      else { const cell = ws.getCell(rowN, c); cell.value = x.v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     };
     put(firstCol, open);
     const cached: number[] = [];
@@ -943,7 +984,7 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     // Style the budget value cells as inputs (these are the cached circular inputs).
     for (const br of [idcBudgetRow, sweepBudgetRow]) {
       if (br < 0) continue;
-      for (let t = 0; t < N; t++) { const c = ws.getCell(br, periodCol(firstCol, t)); c.font = { name: 'Calibri', size: 10, color: { argb: ARGB.input } }; }
+      for (let t = 0; t < N; t++) { const c = ws.getCell(br, periodCol(firstCol, t)); c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.input } }; }
     }
     r += 1;
   }
@@ -1088,7 +1129,7 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
   const liveEquityRow = (label: string, values: number[], total: number, sourceF: string): number => {
     const rowN = r;
     setLabel(ws.getCell(`A${rowN}`), label, { indent: 1 });
-    const money0 = (c: number, v: number): void => { const cell = ws.getCell(rowN, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } }; };
+    const money0 = (c: number, v: number): void => { const cell = ws.getCell(rowN, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     money0(firstCol, 0);
     for (let t = 0; t < N; t++) {
       const v = values[t] ?? 0;
@@ -1148,7 +1189,7 @@ function periodHeader(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: num
     ws.getColumn(c).width = 12;
     const cell = ws.getCell(r, c);
     setFormula(cell, fcell(sheetRef(SHEETS.timeline, `${colLetter(c)}6`), cached), NUMFMT.year, true);
-    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
     cell.alignment = { horizontal: 'right' };
   };
@@ -1165,7 +1206,7 @@ function cachedRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: number
   const money = (c: number, v: number): void => {
     const cell = ws.getCell(r, c);
     cell.value = v;
-    cell.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     cell.numFmt = NUMFMT.money;
   };
   money(firstCol, opening);
@@ -1188,7 +1229,7 @@ function navySumRow(ws: ExcelJS.Worksheet, r: number, firstCol: number, N: numbe
   const fill = style === 'navy' ? ARGB.navy : ARGB.subtotal;
   const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
   fillRange(ws, r, 1, r, totalCol, fill);
-  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 10, bold: true, color: { argb: fg } };
+  for (let c = 1; c <= totalCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
 }
 
 // ── Revenue (per-asset detail + project summary) ──────────────────────────────
@@ -1328,7 +1369,7 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   ];
   for (const [text, argb] of legend) {
     const cell = ws.getCell(`A${r}`);
-    cell.value = text; cell.font = { name: 'Calibri', size: 10, color: { argb } };
+    cell.value = text; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb } };
     r += 1;
   }
   r += 1;
@@ -1346,7 +1387,7 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   for (const [label, ok, note] of checks) {
     setLabel(ws.getCell(`A${r}`), label);
     const s = ws.getCell(`B${r}`);
-    s.value = ok ? 'OK' : 'CHECK'; s.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ok ? ARGB.good : ARGB.bad } };
+    s.value = ok ? 'OK' : 'CHECK'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ok ? ARGB.good : ARGB.bad } };
     setLabel(ws.getCell(`C${r}`), note);
     r += 1;
   }
@@ -1355,7 +1396,7 @@ function addChecks(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancia
   setLabel(ws.getCell(`A${r}`), 'Capex schedule ties to cost build-up');
   const cs = ws.getCell(`B${r}`);
   cs.value = fcell(`IF(ABS(${capexAddrs.scheduleTotalAddr}-${capexAddrs.buildupTotalAddr})<1,"OK","CHECK")`, 'OK');
-  cs.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.good } };
+  cs.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.good } };
   setFormula(ws.getCell(`C${r}`), fcell(capexAddrs.scheduleTotalAddr, capex.inputAssets.reduce((s, a) => s + a.total, 0)), NUMFMT.money, true);
   r += 2;
   // Linked lifetime reference totals (become pass/fail cross-checks once the
@@ -1429,9 +1470,9 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const factTop = r;
   facts.forEach(([k, v], i) => {
     const rr = r + i;
-    const kc = ws.getCell(rr, 2); kc.value = k; kc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.navyDark } };
+    const kc = ws.getCell(rr, 2); kc.value = k; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     ws.mergeCells(rr, 3, rr, 4);
-    const vc = ws.getCell(rr, 3); vc.value = v; vc.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    const vc = ws.getCell(rr, 3); vc.value = v; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     if (i % 2 === 1) fillRange(ws, rr, 2, rr, 4, ARGB.grey);
   });
   boxBorder(ws, factTop, 2, factTop + facts.length - 1, 4);
@@ -1477,9 +1518,9 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const rr = r + i;
     const nc = ws.getCell(rr, 2);
     nc.value = { text: `${i + 1}.  ${name}`, hyperlink: `#'${name}'!A1` };
-    nc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.linked }, underline: true };
+    nc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.linked }, underline: true };
     ws.mergeCells(rr, 3, rr, 7);
-    const dc = ws.getCell(rr, 3); dc.value = desc; dc.font = { name: 'Calibri', size: 10, color: { argb: ARGB.formula } };
+    const dc = ws.getCell(rr, 3); dc.value = desc; dc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     if (i % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
   });
   boxBorder(ws, idxTop, 2, idxTop + index.length - 1, 7);
@@ -1488,7 +1529,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   // Colour legend.
   setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
   const legend: Array<[string, string]> = [['Input', ARGB.input], ['Formula', ARGB.formula], ['Linked', ARGB.linked]];
-  legend.forEach(([t, argb], i) => { const c = ws.getCell(r, 3 + i); c.value = t; c.font = { name: 'Calibri', size: 10, bold: true, color: { argb } }; });
+  legend.forEach(([t, argb], i) => { const c = ws.getCell(r, 3 + i); c.value = t; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb } }; });
   r += 2;
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
   fillCell(ws.getCell(1, 1), ARGB.white);
