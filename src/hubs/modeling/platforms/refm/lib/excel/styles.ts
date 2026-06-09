@@ -56,9 +56,11 @@ export const NUMFMT = {
   // units; only magnitude figures (money / money1) scale.
   rate: accountingFormat(2),
   // All percentages are 2-decimal throughout the model, independent of the money
-  // decimal selection. `pct` is kept as an alias so existing call sites stay 2dp.
-  pct: '0.00%',
-  pct2: '0.00%',
+  // decimal selection. Zero renders as a dash (matching the accounting style), so
+  // sparse allocation rows read cleanly instead of a wall of "0.00%". `pct` is
+  // kept as an alias so existing call sites stay 2dp.
+  pct: '0.00%;-0.00%;"-"',
+  pct2: '0.00%;-0.00%;"-"',
   // Counts / areas: accounting style (dash for zero, parentheses for negatives),
   // distinct from `money` so the display-scale sweep never scales a count / area.
   int: '#,##0_);(#,##0);"-"_)',

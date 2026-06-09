@@ -195,64 +195,70 @@ async function main(): Promise<void> {
   check('Capex frozen header (A Cost line / B UOM / C Rate / D Total)', headerOk);
   check('Capex has a Period 0 opening column (E links to Timeline index)', !!e4 && typeof e4 === 'object' && /Timeline/.test(String(e4.formula)), `got=${JSON.stringify(e4)}`);
 
-  let hasInputs = false, hasOldBuildup = false;
+  let hasInputs = false, hasBuildup = false, hasOldBuildup = false;
   let allocConstCells = 0, allocFormulaCells = 0, amtYearFormulaCells = 0, amtYearConstCells = 0;
   let buildupLinksLandArea = false, buildupLinksAssumptions = false, selectedSumLive = false, selfRef = false;
   const allocChecksOk: boolean[] = [];
-  const amtLineRows: Array<{ asset: string; name: string; row: number }> = [];
+  const buildupLineRows: Array<{ asset: string; name: string; row: number }> = [];
+  const t1LineRows: number[] = [];
   const assetTotRows: Array<{ name: string; row: number }> = [];
   // Asset-group rows read "{asset} ({phase})". Cost-line names can also end in
   // "(...)" (e.g. "Land (Cash)"), so match the leading token against the real
   // asset names rather than a generic parenthesis test.
   const assetNameSet = new Set(state.assets.filter((x: any) => x.visible !== false).map((x: any) => x.name));
-  let mode: '' | 'alloc' | 't1' | 'summary' = ''; let curAsset = '';
+  let mode: '' | 'buildup' | 'alloc' | 't1' | 'summary' = ''; let curAsset = '';
   cap.eachRow((_row, R) => {
     const a = aOf(R);
-    if (/^Capex by year, |^Cost build-up by asset|^Asset-Wise|^Total Capex Excl\. Land \(/.test(a)) hasOldBuildup = true;
+    if (/^Capex by year, |^Cost build-up by asset|^Asset-Wise/.test(a)) hasOldBuildup = true;
+    if (/^Capex Cost Build-up/.test(a)) { mode = 'buildup'; hasBuildup = true; return; }
     if (/^INPUTS - Allocation profile/.test(a)) { mode = 'alloc'; hasInputs = true; return; }
     if (/^Table 1 - /.test(a)) { mode = 't1'; return; }
     if (/^Table [234] - /.test(a)) { mode = 'summary'; return; }
     if (!a) return;
     if (/^Subtotal, /.test(a)) { if (mode === 't1') assetTotRows.push({ name: a.replace(/^Subtotal, /, '').trim(), row: R }); return; }
-    if (/^Project Total|^Total Capex \(|^Grand /.test(a)) return;
+    if (/^Project Total|^Total Capex|^Grand /.test(a)) return; // build-up grand 'Total Capex' + summary totals
     const base = a.replace(/\s*\([^)]*\)\s*$/, '').trim();
     if (assetNameSet.has(base)) { curAsset = base; return; } // asset group row
-    if (mode === 'alloc') {
-      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (typeof v === 'number') allocConstCells++; else if (v && typeof v === 'object' && 'formula' in v) allocFormulaCells++; }
-      const ch: any = cap.getCell(R, chkCol).value;
-      if (ch !== null && ch !== undefined && ch !== '') allocChecksOk.push(String((ch && ch.result) ?? ch) === 'OK');
-    } else if (mode === 't1') {
-      amtLineRows.push({ asset: curAsset, name: a, row: R });
-      const ev: any = cap.getCell(R, TOTAL_C).value; // D = build-up Total
+    if (mode === 'buildup') {
+      buildupLineRows.push({ asset: curAsset, name: a, row: R });
+      const ev: any = cap.getCell(R, TOTAL_C).value; // D = build-up Total (rate x basis)
       if (ev && typeof ev === 'object' && 'formula' in ev) {
         const f = String(ev.formula);
         if (f.includes("'Land & Area'!")) buildupLinksLandArea = true;
         if (f.includes('Assumptions!')) buildupLinksAssumptions = true;
         if (/Assumptions!\$C\$\d+\*\(\$D\$\d+/.test(f)) { selectedSumLive = true; const inside = f.slice(f.indexOf('(') + 1, f.lastIndexOf(')')); if (inside.split('+').map((s) => s.trim()).includes(`$D$${R}`)) selfRef = true; }
       }
+    } else if (mode === 'alloc') {
+      for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (typeof v === 'number') allocConstCells++; else if (v && typeof v === 'object' && 'formula' in v) allocFormulaCells++; }
+      const ch: any = cap.getCell(R, chkCol).value;
+      if (ch !== null && ch !== undefined && ch !== '') allocChecksOk.push(String((ch && ch.result) ?? ch) === 'OK');
+    } else if (mode === 't1') {
+      t1LineRows.push(R);
+      // Table 1 period amounts = build-up Total x allocation % (a $D$.. x $col$.. formula).
       for (let t = 0; t < NN; t++) { const v: any = cap.getCell(R, yCol(t)).value; if (v && typeof v === 'object' && 'formula' in v) { amtYearFormulaCells++; if (!/\$D\$\d+\*\$[A-Z]+\$\d+/.test(String(v.formula))) amtYearConstCells++; } else if (typeof v === 'number') amtYearConstCells++; }
     }
   });
 
-  check('Capex INPUTS (allocation %) come first, then output tables', hasInputs);
+  check('Capex build-up table (rate x basis = Total Capex) is on top', hasBuildup);
+  check('Capex INPUTS (allocation %) follow the build-up, before the output tables', hasInputs);
   check('Old interleaved per-asset build-up sections are gone', !hasOldBuildup);
   check('Allocation % are input constants (no formulas)', allocConstCells > 0 && allocFormulaCells === 0, `const=${allocConstCells} formula=${allocFormulaCells}`);
-  check('Table 1 period cells are Total x allocation% formulas', amtYearFormulaCells > 0 && amtYearConstCells === 0, `formula=${amtYearFormulaCells} non=${amtYearConstCells}`);
+  check('Table 1 period cells are build-up x allocation% formulas', amtYearFormulaCells > 0 && amtYearConstCells === 0, `formula=${amtYearFormulaCells} non=${amtYearConstCells}`);
   check('Every per-line Check reads OK (100% within tol)', allocChecksOk.length > 0 && allocChecksOk.every(Boolean), `ok=${allocChecksOk.filter(Boolean).length}/${allocChecksOk.length}`);
   check('Build-up Total (D) links to Assumptions + Land & Area (live)', buildupLinksAssumptions && buildupLinksLandArea);
   check('Percent-of-selected sums sibling D cells (live)', selectedSumLive);
   check('Percent-of-selected never self-references its own D cell', !selfRef);
 
-  // Identity 1: each Table-1 line Total (D) == engine line total.
+  // Identity 1: each build-up line Total (D) == engine line total.
   const engLineAmt = new Map<string, number>();
   for (const ia of capReport.inputAssets) for (const ln of ia.lines) engLineAmt.set(`${ia.assetName.trim()}|${ln.name}`, ln.amount);
   let id1Ok = true; const id1Detail: string[] = [];
-  for (const al of amtLineRows) {
+  for (const al of buildupLineRows) {
     const eng = engLineAmt.get(`${al.asset}|${al.name}`); if (eng === undefined) continue;
     const tot = num(cap.getCell(al.row, TOTAL_C).value);
     if (!(Math.abs(tot - eng) <= Math.max(1, Math.abs(eng) * 1e-6))) { id1Ok = false; if (id1Detail.length < 5) id1Detail.push(`${al.asset}/${al.name}: wb=${Math.round(tot)} eng=${Math.round(eng)}`); }
   }
-  check('Identity 1: each line Total (D) == engine line total', id1Ok && amtLineRows.length > 0, id1Detail.join('; '));
+  check('Identity 1: each build-up line Total (D) == engine line total', id1Ok && buildupLineRows.length > 0, id1Detail.join('; '));
 
   // Identity 2: each asset incl-land per-period (F..) == engine perPeriod.
   const inclTbl = capReport.results.find((t) => t.title === 'Total Capex (incl. all land)');
@@ -293,11 +299,17 @@ async function main(): Promise<void> {
   check('Scale: thousands money format has one trailing comma', /#,##0,_\)/.test(String(capK.getCell(incRow, TOTAL_C).numFmt)), `fmt=${capK.getCell(incRow, TOTAL_C).numFmt}`);
   check('Scale: millions money format has two trailing commas (1 decimal)', /#,##0\.0,,_\)/.test(String(capM.getCell(incRow, TOTAL_C).numFmt)), `fmt=${capM.getCell(incRow, TOTAL_C).numFmt}`);
   // A Rate cell (column C on a Table-1 line) must NOT be scaled.
-  const rateRow = amtLineRows[0]?.row ?? -1;
+  const rateRow = buildupLineRows[0]?.row ?? -1;
   if (rateRow > 0) check('Scale: rate cell (C) is not scaled (no trailing comma)', !/,_\)/.test(String(capK.getCell(rateRow, 3).numFmt)) && !/,,/.test(String(capM.getCell(rateRow, 3).numFmt)), `k=${capK.getCell(rateRow, 3).numFmt} m=${capM.getCell(rateRow, 3).numFmt}`);
   // Zero renders as a dash: the opening (Period 0) cell of a Table-1 line is 0 and
-  // carries the accounting format whose zero section is a dash.
-  if (rateRow > 0) check('Accounting zero-as-dash on numeric value cells', /"-"/.test(String(cap.getCell(rateRow, OPEN_C).numFmt)), `fmt=${cap.getCell(rateRow, OPEN_C).numFmt}`);
+  // carries the accounting money format whose zero section is a dash.
+  const t1Row = t1LineRows[0] ?? -1;
+  if (t1Row > 0) check('Accounting zero-as-dash on numeric value cells', /"-"/.test(String(cap.getCell(t1Row, OPEN_C).numFmt)), `fmt=${cap.getCell(t1Row, OPEN_C).numFmt}`);
+  // Percentages render zero as a dash too (cleaner allocation rows): find a
+  // percent-formatted cell on Capex and assert its format carries a dash zero.
+  let pctFmt = '';
+  cap.eachRow((row) => row.eachCell((c) => { const f = String(c.numFmt ?? ''); if (!pctFmt && /%/.test(f)) pctFmt = f; }));
+  check('Percent format renders zero as a dash', /;"-"/.test(pctFmt), `fmt=${pctFmt}`);
 
   // Revenue (Phase 3): the total-revenue formula caches the snapshot total.
   const collectResults = (sheet: string): number[] => {
