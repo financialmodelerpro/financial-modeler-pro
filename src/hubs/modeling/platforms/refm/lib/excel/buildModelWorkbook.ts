@@ -1160,13 +1160,19 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     finRow('Capex drawdown (gap-sized debt)', { v: 0 }, (t) => ({ v: draw[t] ?? 0 }), 'sum', { indent: 1 }); // CACHED budget
     finRow('Interest accrued (rate x balance)', { v: 0 }, (t) => ({ f: `(${colP(t)}${openingRow}+${colP(t)}${capexDrawRow})*${rateAddr}`, v: accrued[t] ?? 0 }), 'sum', { indent: 1 });
     finRow('IDC capitalised (to debt)', { v: 0 }, (t) => {
-      if (!existing && constructionCols[t] && idcBudgetRow > 0) {
+      // Construction-window interest for a NEW facility goes to the debt balance
+      // when the project capitalises IDC. Conditional mode pays the part covered
+      // by the surplus cash budget IN CASH and capitalises only the shortfall
+      // (MAX(0, interest − available)); every other capitalising mode (and
+      // conditional with no surplus) capitalises the FULL construction interest.
+      if (existing || !constructionCols[t] || !snap.idc.capitalize) return { v: 0 };
+      if (idcBudgetRow > 0) {
         const avail = priorNewCashIntRows.length
           ? `(${colP(t)}${idcBudgetRow}-(${priorNewCashIntRows.map((rr) => `${colP(t)}${rr}`).join('+')}))`
           : `${colP(t)}${idcBudgetRow}`;
         return { f: `MAX(0,${colP(t)}${interestRow}-${avail})`, v: idcCap[t] ?? 0 };
       }
-      return { v: 0 };
+      return { f: `${colP(t)}${interestRow}`, v: idcCap[t] ?? 0 };
     }, 'sum', { indent: 1 });
     finRow('Cash interest paid', { v: 0 }, (t) => ({ f: `${colP(t)}${interestRow}-${colP(t)}${idcCapRow}`, v: (accrued[t] ?? 0) - (idcCap[t] ?? 0) }), 'sum', { indent: 1 });
     // Scheduled principal (non-sweep): live straight-line / equal-principal

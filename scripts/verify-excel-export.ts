@@ -507,6 +507,32 @@ async function main(): Promise<void> {
   const cwCloseRow = finRowByLabel(/^= Closing cash/);
   if (cwCloseRow > 0) { const last = finPer(cwCloseRow, NN - 1); const eng = snap.directCF.closingCashPerPeriod[NN - 1] ?? 0; check('Cash Sweep closing cash ties to Direct CF closing', Math.abs(last - eng) <= Math.max(1000, Math.abs(eng) * 1e-6), `wb=${Math.round(last)} eng=${Math.round(eng)}`); }
 
+  // ── Regression guard: capitalised-IDC scenario (the base fixture has ~zero
+  // capitalised IDC, so a separate scenario that actually capitalises
+  // construction interest is needed to prove the per-facility "IDC capitalised
+  // (to debt)" row reflects the engine under capitalise / conditional modes). ──
+  {
+    const rs: any = buildState();
+    rs.project.financing = { ...rs.project.financing, minimumCashReserve: 40_000_000, cashSweep: { startingYear: 2032, sweepRatioPct: 100 } };
+    rs.project.idcConfig = { allocationBasis: 'land', capitalize: true, fundingMode: 'conditional' };
+    rs.project.dividendPolicy = { enabled: true, payoutRatio: 50, mode: 'cash_above_min' };
+    rs.project.dividendStartYear = 2034;
+    rs.financingTranches = [
+      { ...makeDefaultFinancingTranche('t1', 'p1'), name: 'Construction loan', repaymentMethod: 'cash_sweep', repaymentPeriods: 6 },
+      { ...makeDefaultFinancingTranche('t2', 'p2'), name: 'Term loan', repaymentMethod: 'straight_line', repaymentPeriods: 6 },
+    ];
+    const rsnap = computeFinancialsSnapshot(rs);
+    const engIdcCap = [...rsnap.financing.facilities.values()].reduce((s, f) => s + (f.interestCapitalized ?? []).slice(0, rsnap.axisLength).reduce((a, v) => a + (v ?? 0), 0), 0);
+    check('Capitalised-IDC scenario actually capitalises interest (guard is meaningful)', engIdcCap > 1, `engIdcCap=${Math.round(engIdcCap)}`);
+    const rwb = buildModelWorkbook({ state: rs, projectName: 'IDC', dateLabel: 'd' });
+    const rfin = rwb.getWorksheet('Financing')!;
+    const rlab = (R: number): string => { const a = rfin.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+    // Sum every per-facility "IDC capitalised (to debt)" row across all periods.
+    let wbIdcCap = 0;
+    rfin.eachRow((_r, R) => { if (/^IDC capitalised \(to debt\)$/.test(rlab(R))) for (let t = 0; t < rsnap.axisLength; t++) wbIdcCap += num(rfin.getCell(R, 6 + t).value); });
+    check('Capitalised-IDC: per-facility IDC capitalised rows tie to engine (no silent zero)', Math.abs(wbIdcCap - engIdcCap) <= Math.max(1000, Math.abs(engIdcCap) * 1e-5), `wb=${Math.round(wbIdcCap)} eng=${Math.round(engIdcCap)}`);
+  }
+
   // Opex (Phase 4): total ties to the snapshot opex (incl. HQ).
   const opexResults = collectResults('Opex');
   const opexSum = snap.opex.totalOpexPerPeriodInclHQ.reduce((s, v) => s + (v ?? 0), 0);
