@@ -11,7 +11,7 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { resolveAssetAreaMetrics } from '../src/core/calculations';
@@ -353,16 +353,24 @@ async function main(): Promise<void> {
   // Financing (Module 1 step 5): the debt roll-forward is live (interest =
   // rate x balance links to Assumptions; closing reconciles to the engine).
   const finWs = wb.getWorksheet('Financing')!;
+  // Local-input pattern: the Financing tab pulls each assumption into a LOCAL
+  // Inputs block (cells that link to Assumptions), then every calculation
+  // references those local cells. So interest = (opening + draw) x a LOCAL rate
+  // cell, and the Assumptions links live only in the Inputs block.
   let finInterestFormula = false;
+  let finInputsLinkAssumptions = false;
   const finResults: number[] = [];
   finWs.eachRow((row) => row.eachCell((c) => {
     const v = c.value as any;
     if (v && typeof v === 'object' && 'formula' in v) {
-      if (/\)\*Assumptions!/.test(String(v.formula))) finInterestFormula = true; // (opening+draw)*rate
+      const f = String(v.formula);
+      if (/\)\*\$[A-Z]+\$\d+/.test(f)) finInterestFormula = true; // (opening+draw)*$localRate
+      if (/Assumptions!/.test(f)) finInputsLinkAssumptions = true; // Inputs block links in
       if (typeof v.result === 'number') finResults.push(v.result);
     }
   }));
-  check('Financing interest = rate x balance links to Assumptions', finInterestFormula, 'no (balance)*Assumptions! interest formula found');
+  check('Financing interest = rate x balance references a LOCAL input cell', finInterestFormula, 'no (balance)*$local interest formula found');
+  check('Financing Inputs block links assumptions in (local-input pattern)', finInputsLinkAssumptions, 'no Assumptions! link found on the Financing tab');
   const facs = [...snap.financing.facilities.values()];
   const totClosingLast = facs.reduce((s, f) => s + ((f.outstanding ?? [])[snap.axisLength - 1] ?? 0), 0);
   const totInterest = facs.reduce((s, f) => s + (f.interestAccrued ?? []).slice(0, snap.axisLength).reduce((a, v) => a + (v ?? 0), 0), 0);
@@ -451,16 +459,53 @@ async function main(): Promise<void> {
   // (nonzero); it is 0 on Method-3 deliverables (FMP RE HUB), where the strict
   // exactly-three audit holds (verified by the live-project proof). It is on the
   // same convert-when-CF-lands backlog as the gap-sized debt.
+  // Section-aware cached audit. The LIVE sections (debt movement / combined /
+  // finance cost / IDC / equity) must stay formula-driven; only the whitelisted
+  // budget rows (+ Method-1 cash equity) may cache there. The CACHED sections
+  // (funding requirement, debt+equity required, funding gap, cash sweep, per-
+  // tranche) legitimately hold engine series whose live sources are other-module
+  // tabs not yet in the workbook (convert-when-CF-lands backlog); cached values
+  // there are expected. Their own live subtotals (gap / net / closing) stay
+  // formulas regardless.
+  const cachedSectionRe = /^(Funding requirement|Total debt \+ equity required|Engine-derived cash budgets|Funding Gap|Cash Sweep, waterfall|Per-tranche sweep)/;
+  const liveSectionRe = /^(Debt movement, |Combined debt$|Finance cost$|Combined finance cost$|IDC allocation|IDC pool$|Equity movement$)/;
   const budgetLabels = new Set(['Capex drawdown (gap-sized debt)', 'IDC cash budget', 'Cash-sweep budget']);
-  const cachedValueRows = new Set<string>();
+  const allowedCached = new Set([...budgetLabels, 'Cash equity']); // cash equity = Method-1 funding-split sibling
+  const unexpectedCachedSet = new Set<string>();
+  let inCachedSection = false;
   finWs.eachRow((_row, R) => {
     const lab = finLab(R);
     if (!lab || ['Movement', 'Combined', 'IDC', 'Equity', 'Budget'].includes(lab)) return;
-    for (let t = 0; t < NN; t++) { const v = finWs.getCell(R, finY(t)).value; if (typeof v === 'number' && v !== 0) { cachedValueRows.add(lab); break; } }
+    if (cachedSectionRe.test(lab)) { inCachedSection = true; return; }
+    if (liveSectionRe.test(lab)) { inCachedSection = false; return; }
+    if (inCachedSection || allowedCached.has(lab)) return; // cached allowed here
+    for (let t = 0; t < NN; t++) { const v = finWs.getCell(R, finY(t)).value; if (typeof v === 'number' && v !== 0) { unexpectedCachedSet.add(lab); break; } }
   });
-  const allowedCached = new Set([...budgetLabels, 'Cash equity']); // cash equity = Method-1 funding-split sibling
-  const unexpectedCached = [...cachedValueRows].filter((l) => !allowedCached.has(l));
-  check('Cached audit: only budget rows (+ Method-1 cash equity) hold cached values, nothing else', unexpectedCached.length === 0, `unexpected=[${unexpectedCached.join(', ')}]`);
+  const unexpectedCached = [...unexpectedCachedSet];
+  check('Cached audit: LIVE sections hold no stray cached values (only whitelisted budgets)', unexpectedCached.length === 0, `unexpected=[${unexpectedCached.join(', ')}]`);
+
+  // ── New comprehensive Financing sections: structural + reconciliation ────────
+  const finRowByLabel = (re: RegExp): number => { let row = -1; finWs.eachRow((_r, R) => { if (row < 0 && re.test(finLab(R))) row = R; }); return row; };
+  const finTotD = (re: RegExp): number => { const R = finRowByLabel(re); return R > 0 ? num(finWs.getCell(R, 4).value) : NaN; };
+  const finPer = (R: number, t: number): number => num(finWs.getCell(R, finY(t)).value);
+  const gapSnap = computeFundingGap(snap);
+  for (const sec of ['Inputs (linked from Assumptions)', 'Funding requirement', 'Total debt + equity required',
+    'Funding Gap, Method 2 (Net Funding Requirement)', 'Funding Gap, Method 3 (Cash Deficit waterfall)']) {
+    let found = false; finWs.eachRow((_r, R) => { if (finLab(R) === sec) found = true; });
+    check(`Financing has section: ${sec}`, found);
+  }
+  // Cash Sweep waterfall section header (carries an arrow), matched by prefix.
+  check('Financing has section: Cash Sweep waterfall', finRowByLabel(/^Cash Sweep, waterfall/) > 0);
+  // Funding requirement: Total funding need ties to the engine.
+  const tfNeed = finTotD(/^Total funding need$/);
+  const engTfNeed = snap.financing.funding.selectedWithMinCash;
+  check('Funding requirement Total funding need ties to engine', Number.isNaN(tfNeed) || Math.abs(tfNeed - engTfNeed) <= Math.max(1000, Math.abs(engTfNeed) * 1e-6), `wb=${Math.round(tfNeed)} eng=${Math.round(engTfNeed)}`);
+  // Method 2 cumulative funding gap (last active period) ties to the grand gap.
+  const cumGapRow = finRowByLabel(/^Cumulative funding gap$/);
+  if (cumGapRow > 0) { const last = finPer(cumGapRow, NN - 1); check('Funding Gap Method 2 cumulative ties to grand gap', Math.abs(last - gapSnap.methodATotalGap) <= Math.max(1000, Math.abs(gapSnap.methodATotalGap) * 1e-6), `wb=${Math.round(last)} eng=${Math.round(gapSnap.methodATotalGap)}`); }
+  // Cash Sweep waterfall closing cash (last period) ties to Direct CF closing.
+  const cwCloseRow = finRowByLabel(/^= Closing cash/);
+  if (cwCloseRow > 0) { const last = finPer(cwCloseRow, NN - 1); const eng = snap.directCF.closingCashPerPeriod[NN - 1] ?? 0; check('Cash Sweep closing cash ties to Direct CF closing', Math.abs(last - eng) <= Math.max(1000, Math.abs(eng) * 1e-6), `wb=${Math.round(last)} eng=${Math.round(eng)}`); }
 
   // Opex (Phase 4): total ties to the snapshot opex (incl. HQ).
   const opexResults = collectResults('Opex');

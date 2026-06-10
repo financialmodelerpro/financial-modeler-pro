@@ -164,6 +164,10 @@ interface ParcelInputRef { id: string; area: string; rate: string; cashPct: stri
 interface TrancheInputRef { id: string; name: string; openingBalance: string; rate: string; periods: string }
 interface EquityInputRef { id: string; name: string; amount: string }
 interface ExistingEquityRef { assetId: string; name: string; amount: string }
+// Financing-policy scalar inputs (absolute Assumptions addresses), so the
+// Financing tab's local Inputs block can link them in once and every formula on
+// the tab references the LOCAL cell, not a long cross-sheet path.
+interface FinancingScalarRefs { dividendEnabled: string; dividendPayout: string; dividendStart: string; sweepStart: string; sweepRatio: string }
 
 interface AssumptionRefs {
   startYearName: string;
@@ -177,6 +181,9 @@ interface AssumptionRefs {
   /** Per-asset historical equity inputs (operational-phase assets), source of
    *  the Financing sheet's Existing-equity row. */
   existingEquity: ExistingEquityRef[];
+  /** Financing-policy scalar input addresses (dividends + cash sweep), linked
+   *  once into the Financing tab's local Inputs block. */
+  financingScalars: FinancingScalarRefs;
 }
 
 // ── Assumptions (Inputs) ──────────────────────────────────────────────────────
@@ -226,10 +233,16 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('IDC capitalize (1 = yes)', p.idcConfig?.capitalize === false ? 0 : 1, NUMFMT.int);
   addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
   addKV('IDC funding mode', String(p.idcConfig?.fundingMode ?? 'debt_drawdown'), '@');
-  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
-  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
-  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
+  const divEnabledRow = addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
+  const divPayoutRow = addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
+  const divStartRow = addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
   void taxRow; void debtRow;
+  // Financing-policy scalar addresses; sweep settings are captured in the
+  // Financing inputs block below (after the Capex / Financing separator).
+  const financingScalars: FinancingScalarRefs = {
+    dividendEnabled: addr('B', divEnabledRow), dividendPayout: addr('B', divPayoutRow),
+    dividendStart: addr('B', divStartRow), sweepStart: '', sweepRatio: '',
+  };
   r += 1;
 
   // Phases section.
@@ -386,6 +399,30 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   }
   r += 1;
 
+  // ── Separator: Capex inputs above, Financing inputs below ──────────────────
+  // A full-width divider band so the two input domains read as distinct blocks
+  // (the Capex cost lines end above; every Financing input starts here).
+  r += 1;
+  for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.navyDark);
+  const sepCell = ws.getCell(`A${r}`);
+  sepCell.value = 'FINANCING INPUTS';
+  sepCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.white } };
+  sepCell.alignment = { vertical: 'middle' };
+  ws.getRow(r).height = 18;
+  r += 2;
+
+  // Cash sweep settings (project-wide; the Financing tab links these in).
+  const sweepCfg = (p.financing as { cashSweep?: { startingYear?: number; sweepRatioPct?: number } } | undefined)?.cashSweep ?? {};
+  setSectionHeader(ws.getRow(r), 'Cash sweep settings', 2); r += 1;
+  ['Setting', 'Value'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
+  setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
+  financingScalars.sweepStart = addr('B', r); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Sweep ratio (% of surplus)');
+  setInput(ws.getCell(`B${r}`), (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct);
+  financingScalars.sweepRatio = addr('B', r); r += 2;
+
   // Financing facilities (debt).
   if (opts.state.financingTranches.length) {
     setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 8); r += 1;
@@ -445,7 +482,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   return {
     startYearName: 'ProjectStartYear', axisLength: snap.axisLength, capex: capexRefs,
     assets: assetRefs, subUnits: subUnitRefs, parcels: parcelRefs, tranches: trancheRefs, equity: equityRefs,
-    existingEquity: existingEquityRefs,
+    existingEquity: existingEquityRefs, financingScalars,
   };
 }
 
@@ -926,7 +963,7 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
   const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
   const N = refs.axisLength;
   const fin = snap.financing;
-  writeSheetHeader(ws, snap, N, 'Financing', 'Debt roll-forward per facility, fully live: interest = rate x (opening + draw), IDC capitalised off live interest (conditional on the IDC cash budget), explicit cash sweep, closing reconciles. Three engine-derived budget rows (IDC cash, cash sweep, gap-sized debt drawdown) are cached inputs; they convert to live Cash-Flow references when the Cash-Flow unit lands.', { label: 'Facility / line' });
+  writeSheetHeader(ws, snap, N, 'Financing', 'Full Financing module mirror. INPUTS (top) link each assumption in once from Assumptions; every calculation below references those LOCAL cells. Sections: Funding requirement (Methods 1-3 + selected), debt + equity required, per-facility debt movement (interest = rate x balance off the local rate), combined debt, finance cost, IDC allocation by asset, equity movement, IDC pool, Funding Gap (Method 2 + Method 3 waterfall) and the Cash Sweep waterfall + dividends + per-tranche sweep. Engine-derived circular series (gap-sized debt, IDC / sweep budgets, cash-flow bases) are cached pending the Cash-Flow unit.', { label: 'Facility / line' });
   const lastCol = lastActiveCol(N);
 
   const sliceN = (a: number[] | undefined): number[] => (a ?? []).slice(0, N);
@@ -953,13 +990,76 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     return rowN;
   };
 
+  const gap = computeFundingGap(snap);
+  const w3 = gap.method3Waterfall;
+  const p = state.project;
+
+  // ── INPUTS (linked from Assumptions) ──────────────────────────────────────
+  // Every assumption this tab needs is pulled in ONCE here via a simple link;
+  // all calculations below reference these LOCAL cells (not long cross-sheet
+  // paths), so the math reads and audits entirely within the Financing tab.
+  setSectionHeader(ws.getRow(r), 'Inputs (linked from Assumptions)', lastCol); r += 1;
+  const localScalar = (label: string, link: string, cached: number, fmt: string): string => {
+    setLabel(ws.getCell(`A${r}`), label);
+    if (link) setFormula(ws.getCell(r, TOTAL_COL), fcell(link, cached), fmt, true);
+    else { const cell = ws.getCell(r, TOTAL_COL); cell.value = cached; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+    const a = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return a;
+  };
+  setLabel(ws.getCell(`A${r}`), 'Funding method'); { const c = ws.getCell(r, TOTAL_COL); c.value = FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; c.alignment = { horizontal: 'right' }; } r += 1;
+  const Lscalar = {
+    debtPct: localScalar('Debt share', 'DebtPct', fin.funding.debtPct / 100, NUMFMT.pct),
+    equityPct: localScalar('Equity share', 'EquityPct', fin.funding.equityPct / 100, NUMFMT.pct),
+    minCash: localScalar('Minimum cash reserve', 'MinCashReserve', fin.funding.minCashReserve ?? 0, NUMFMT.money),
+    divEnabled: localScalar('Dividends enabled (1 = yes)', refs.financingScalars.dividendEnabled, p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int),
+    divPayout: localScalar('Dividend payout ratio', refs.financingScalars.dividendPayout, (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct),
+    divStart: localScalar('Dividend start year', refs.financingScalars.dividendStart, p.dividendStartYear ?? 0, NUMFMT.year),
+    sweepStart: localScalar('Sweep starting year', refs.financingScalars.sweepStart, (p.financing as { cashSweep?: { startingYear?: number } } | undefined)?.cashSweep?.startingYear ?? 0, NUMFMT.year),
+    sweepRatio: localScalar('Sweep ratio (% of surplus)', refs.financingScalars.sweepRatio, ((p.financing as { cashSweep?: { sweepRatioPct?: number } } | undefined)?.cashSweep?.sweepRatioPct ?? 100) / 100, NUMFMT.pct),
+  };
+  // Per-facility terms table (each value linked once from Assumptions).
+  const facInputs = new Map<string, { rate: string; open: string; periods: string }>();
+  if (state.financingTranches.length) {
+    setColHeader(ws.getCell(r, LBL_COL), 'Facility terms', 'left');
+    setColHeader(ws.getCell(r, TOTAL_COL), 'Interest rate', 'right');
+    setColHeader(ws.getCell(r, OPEN_COL), 'Opening balance', 'right');
+    setColHeader(ws.getCell(r, OPEN_COL + 1), 'Repay periods', 'right');
+    r += 1;
+    for (const t of state.financingTranches) {
+      const trRef = refs.tranches.find((x) => x.id === t.id);
+      const rateVal = (t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0))) / 100;
+      setLabel(ws.getCell(`A${r}`), t.name);
+      if (trRef) {
+        setFormula(ws.getCell(r, TOTAL_COL), fcell(trRef.rate, rateVal), NUMFMT.pct2, true);
+        setFormula(ws.getCell(r, OPEN_COL), fcell(trRef.openingBalance, t.openingBalance ?? 0), NUMFMT.money, true);
+        setFormula(ws.getCell(r, OPEN_COL + 1), fcell(trRef.periods, t.repaymentPeriods ?? 0), NUMFMT.int, true);
+      }
+      facInputs.set(t.id, { rate: `$${colLetter(TOTAL_COL)}$${r}`, open: `$${colLetter(OPEN_COL)}$${r}`, periods: `$${colLetter(OPEN_COL + 1)}$${r}` });
+      r += 1;
+    }
+  }
+  r += 1;
+
+  // ── Funding requirement (Method 1 / 2 / 3 + selected, mirrors the Inputs tab) ─
+  setSectionHeader(ws.getRow(r), 'Funding requirement', lastCol); r += 1;
+  cachedRow(ws, r, N, 'Method 1 (Total Capex, excl. land in-kind)', sliceN(fin.capex.perPeriod.exclLandInKind), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Method 2 (Net Funding Requirement)', sliceN(gap.methodAGapPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Method 3 (Cash Deficit Funding)', sliceN(w3.netCashRequiredPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Selected method', sliceN(fin.funding.selectedByPeriod), { bold: true }); const selectedFundingRow = r; r += 1;
+  cachedRow(ws, r, N, 'Minimum cash requirement', sliceN(fin.funding.minCashByPeriod), { indent: 1 }); const minCashReqRow = r; r += 1;
+  navySumRow(ws, r, N, 'Total funding need', [selectedFundingRow, minCashReqRow], sliceN(fin.funding.totalFundingNeedByPeriod), 'subtotal'); r += 2;
+
+  // ── Total debt + equity required (the funding split) ─────────────────────────
+  setSectionHeader(ws.getRow(r), 'Total debt + equity required', lastCol); r += 1;
+  cachedRow(ws, r, N, 'Total debt required', sliceN(fin.debtEquitySplit.debt), { bold: true }); r += 2;
+  cachedRow(ws, r, N, 'Cash contribution', sliceN(fin.debtEquitySplit.equity), { indent: 1 }); const eqCashReqRow = r; r += 1;
+  cachedRow(ws, r, N, 'In-kind contribution', sliceN(fin.debtEquitySplit.inKind), { indent: 1 }); const eqInKindReqRow = r; r += 1;
+  navySumRow(ws, r, N, 'Total equity required', [eqCashReqRow, eqInKindReqRow], sliceN(fin.equity.totalPerPeriod), 'subtotal'); r += 2;
+
   // ── Engine-derived cash budgets (CACHED inputs; the only non-formula rows) ──
   // Recomputed exactly as the snapshot's fixed-point solver derives them
   // (deriveCircularInputs). They break the Financing<->CashFlow cycle so the
   // schedule is a pure forward recurrence on this sheet. BACKLOG: convert to
   // live Cash-Flow references when the Cash-Flow unit lands.
-  const gap = computeFundingGap(snap);
-  const w3 = gap.method3Waterfall;
   const idcCashBudget = new Array<number>(N).fill(0);
   {
     const capC = fin.combined.totalInterestCapitalized;
@@ -1010,6 +1110,8 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
   const principalRows: number[] = [];
   const sweepRows: number[] = [];
   const closingRows: number[] = [];
+  interface FacMeta { id: string; name: string; existing: boolean; interestRow: number; idcCapRow: number; cashIntRow: number; schedPrinRow: number; sweepRow: number; closingRow: number; accrued: number[]; idcCap: number[]; cashPaid: number[]; schedPrin: number[]; sweep: number[] }
+  const facMeta: FacMeta[] = [];
   const totInterest = new Array<number>(N).fill(0);
   const totPrincipal = new Array<number>(N).fill(0);
   const totSweep = new Array<number>(N).fill(0);
@@ -1033,9 +1135,9 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     const schedPrin = repaid.map((v, i) => (v ?? 0) - (sweep[i] ?? 0)); // non-sweep principal
     const constructionCols = idcWindow.map((v) => (v ?? 0) > 0);
     constructionColsByFacility.push(constructionCols);
-    const trRef = refs.tranches.find((x) => x.id === id);
-    const rateAddr = trRef?.rate ?? '0';
-    const openBalAddr = trRef?.openingBalance;
+    const fi = facInputs.get(id);
+    const rateAddr = fi?.rate ?? '0';        // LOCAL rate cell (links to Assumptions)
+    const openBalAddr = fi?.open;            // LOCAL opening-balance cell
     for (let t = 0; t < N; t++) { totClosing[t] += closing[t] ?? 0; totInterest[t] += accrued[t] ?? 0; totPrincipal[t] += schedPrin[t] ?? 0; totSweep[t] += sweep[t] ?? 0; }
 
     // Sweep eligibility / start / ratio (mirror schedule.ts).
@@ -1101,6 +1203,8 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     principalRows.push(schedPrinRow); sweepRows.push(sweepRow); closingRows.push(closingRow);
     priorSweepRows.push(sweepRow);
     if (!existing) priorNewCashIntRows.push(cashIntRow);
+    facMeta.push({ id, name: t0?.name ?? id, existing, interestRow, idcCapRow, cashIntRow, schedPrinRow, sweepRow, closingRow,
+      accrued, idcCap, cashPaid: accrued.map((v, i) => (v ?? 0) - (idcCap[i] ?? 0)), schedPrin, sweep });
     r += 1;
   }
 
@@ -1111,6 +1215,32 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     finRow('Total principal repaid', { v: 0 }, (t) => ({ f: colSum(colP(t), principalRows), v: totPrincipal[t] ?? 0 }), 'sum', { indent: 1 });
     finRow('Total cash sweep', { v: 0 }, (t) => ({ f: colSum(colP(t), sweepRows), v: totSweep[t] ?? 0 }), 'sum', { indent: 1 });
     finRow('Total debt outstanding', { v: 0 }, (t) => ({ f: colSum(colP(t), closingRows), v: totClosing[t] ?? 0 }), 'last', { bold: true });
+    r += 1;
+  }
+
+  // ── Finance cost roll-forward (per facility + combined; live within-tab) ─────
+  // Each period settles to zero: Opening 0 + Charge − Capitalised − Paid = Closing 0.
+  // Charge / Capitalised / Paid link to the per-facility debt-movement rows above,
+  // so the whole block recalculates off the local rate input.
+  if (facMeta.length) {
+    setSectionHeader(ws.getRow(r), 'Finance cost', lastCol); r += 1;
+    for (const m of facMeta) {
+      setLabel(ws.getCell(`A${r}`), `Finance cost, ${m.name}${m.existing ? ' (existing)' : ''}`, { bold: true });
+      fillRange(ws, r, 1, r, lastCol, ARGB.subtotal);
+      for (let c = 1; c <= lastCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      r += 1;
+      finRow('Opening', { v: 0 }, () => ({ v: 0 }), 'last', { indent: 1 });
+      finRow('Charge (accrued)', { v: 0 }, (t) => ({ f: `${colP(t)}${m.interestRow}`, v: m.accrued[t] ?? 0 }), 'sum', { indent: 1 });
+      finRow('Capitalised', { v: 0 }, (t) => ({ f: `-${colP(t)}${m.idcCapRow}`, v: -(m.idcCap[t] ?? 0) }), 'sum', { indent: 1 });
+      finRow('Paid', { v: 0 }, (t) => ({ f: `-${colP(t)}${m.cashIntRow}`, v: -(m.cashPaid[t] ?? 0) }), 'sum', { indent: 1 });
+      finRow('Closing', { v: 0 }, () => ({ v: 0 }), 'last', { indent: 1 });
+    }
+    if (facMeta.length > 1) {
+      setSectionHeader(ws.getRow(r), 'Combined finance cost', lastCol); r += 1;
+      finRow('Charge (accrued, all debt)', { v: 0 }, (t) => ({ f: colSum(colP(t), interestRowsAll), v: totInterest[t] ?? 0 }), 'sum', { indent: 1, bold: true });
+      finRow('Capitalised', { v: 0 }, (t) => ({ f: `-(${colSum(colP(t), idcCapRowsAll)})`, v: -(fin.combined.totalInterestCapitalized[t] ?? 0) }), 'sum', { indent: 1 });
+      finRow('Paid', { v: 0 }, (t) => ({ f: `-(${colSum(colP(t), cashIntRowsAll)})`, v: -((totInterest[t] ?? 0) - (fin.combined.totalInterestCapitalized[t] ?? 0)) }), 'sum', { indent: 1 });
+    }
     r += 1;
   }
 
@@ -1162,10 +1292,104 @@ function addFinancing(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinan
     interestRowsAll.forEach((rr, fi) => { if (constructionColsByFacility[fi]?.[t]) cells.push(rr); });
     return cells.length ? colSum(colP(t), cells) : '0';
   };
-  finRow('Construction interest', { v: 0 }, (t) => ({ f: constrInterestCell(t), v: idcS.totalConstructionInterestPerPeriod[t] ?? 0 }), 'sum', { indent: 1 });
+  const constrInterestRow = finRow('Construction interest', { v: 0 }, (t) => ({ f: constrInterestCell(t), v: idcS.totalConstructionInterestPerPeriod[t] ?? 0 }), 'sum', { indent: 1 });
   finRow('Capitalised to debt', { v: 0 }, (t) => ({ f: colSum(colP(t), idcCapRowsAll), v: fin.combined.totalInterestCapitalized[t] ?? 0 }), 'sum', { indent: 1 });
   finRow('Paid in cash (conditional)', { v: 0 }, (t) => ({ f: `(${constrInterestCell(t)})-(${colSum(colP(t), idcCapRowsAll)})`, v: fin.combined.totalInterestCapitalizedCashPaid[t] ?? 0 }), 'sum', { indent: 1 });
   finRow('Capitalised to asset basis', { v: 0 }, (t) => ({ f: constrInterestCell(t), v: idcS.totalIdcPerPeriod[t] ?? 0 }), 'sum', { indent: 1 });
+  r += 1;
+
+  // ── IDC allocation by asset (live: asset share x the construction-interest row) ─
+  // Only meaningful when interest is capitalised (otherwise it flows to P&L and
+  // the per-asset basis is zero).
+  const idcAssets = [...idcS.byAsset.values()].filter((a) => a.totalIdc > 0 || (a.idcPerPeriod ?? []).some((v) => (v ?? 0) !== 0));
+  if (idcS.capitalize && idcAssets.length) {
+    setSectionHeader(ws.getRow(r), `IDC allocation by asset (basis: ${idcS.allocationBasis}; capitalised to asset basis)`, lastCol); r += 1;
+    const idcAssetRows: number[] = [];
+    for (const a of idcAssets) {
+      const share = a.shareOfTotalLand ?? 0;
+      const rr = finRow(a.assetName, { v: 0 }, (t) => ({ f: `${colP(t)}${constrInterestRow}*${share}`, v: a.idcPerPeriod[t] ?? 0 }), 'sum', { indent: 1 });
+      idcAssetRows.push(rr);
+    }
+    navySumRow(ws, r, N, 'Total IDC allocated', idcAssetRows, sliceN(idcS.totalIdcPerPeriod), 'subtotal'); r += 2;
+  }
+
+  // ── Funding Gap, Method 2 (Net Funding Requirement: Capex vs Pre-Sales) ──────
+  setSectionHeader(ws.getRow(r), 'Funding Gap, Method 2 (Net Funding Requirement)', lastCol); r += 1;
+  cachedRow(ws, r, N, 'Total project capex (excl. land in-kind)', sliceN(gap.capexPerPeriod), { indent: 1 }); const m2Capex = r; r += 1;
+  cachedRow(ws, r, N, 'Advance received from customer (gross)', sliceN(gap.preSalesGrossPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Less: escrow held', sliceN(gap.escrowHeldPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Add: escrow release', sliceN(gap.escrowReleasePerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, 'Pre-sales (net of escrow)', sliceN(gap.preSalesNetPerPeriod), { indent: 1 }); const m2Net = r; r += 1;
+  cachedRow(ws, r, N, 'Funding fulfilled by pre-sales', sliceN(gap.fulfilledByPreSalesPerPeriod), { indent: 1 }); r += 1;
+  const m2GapRow = finRow('Funding gap = MAX(0, capex − pre-sales net prior)', { v: 0 },
+    (t) => ({ f: t === 0 ? `MAX(0,${colP(0)}${m2Capex})` : `MAX(0,${colP(t)}${m2Capex}-${colP(t - 1)}${m2Net})`, v: gap.methodAGapPerPeriod[t] ?? 0 }), 'sum', { bold: true });
+  const m2CumRow = r;
+  finRow('Cumulative funding gap', { v: 0 },
+    (t) => ({ f: t === 0 ? `${colP(0)}${m2GapRow}` : `${colP(t - 1)}${m2CumRow}+${colP(t)}${m2GapRow}`, v: gap.methodAGapCumulative[t] ?? 0 }), 'last', { indent: 1 });
+  r += 1;
+
+  // ── Funding Gap, Method 3 (Cash Deficit waterfall) ──────────────────────────
+  setSectionHeader(ws.getRow(r), 'Funding Gap, Method 3 (Cash Deficit waterfall)', lastCol); r += 1;
+  cachedRow(ws, r, N, 'Opening cash', sliceN(w3.openingCashPerPeriod), { indent: 1 }); const w3Open = r; r += 1;
+  cachedRow(ws, r, N, '(+) Cash from operations', sliceN(w3.cashFromOpsPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, '(+) Cash from investing', sliceN(w3.cashFromInvPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, '(−) Finance cost paid', sliceN(w3.financeCostPaidPerPeriod), { indent: 1 }); r += 1;
+  cachedRow(ws, r, N, '(−) Dividends (before sweep)', sliceN(w3.dividendsBeforeSweepPerPeriod), { indent: 1 }); const w3Div = r; r += 1;
+  const w3AvailRow = finRow('Cash available (before new funding)', { v: 0 },
+    (t) => ({ f: `SUM(${colP(t)}${w3Open}:${colP(t)}${w3Div})`, v: w3.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0 }), 'last', { bold: true });
+  const w3NetRow = finRow('Net cash required = MAX(0, min cash − available)', { v: 0 },
+    (t) => ({ f: `MAX(0,${Lscalar.minCash}-${colP(t)}${w3AvailRow})`, v: w3.netCashRequiredPerPeriod[t] ?? 0 }), 'sum', { bold: true });
+  finRow('of which: new debt', { v: 0 }, (t) => ({ f: `${colP(t)}${w3NetRow}*${Lscalar.debtPct}`, v: (w3.netCashRequiredPerPeriod[t] ?? 0) * (fin.funding.debtPct / 100) }), 'sum', { indent: 1 });
+  finRow('of which: new equity', { v: 0 }, (t) => ({ f: `${colP(t)}${w3NetRow}*${Lscalar.equityPct}`, v: (w3.netCashRequiredPerPeriod[t] ?? 0) * (fin.funding.equityPct / 100) }), 'sum', { indent: 1 });
+  cachedRow(ws, r, N, '(+) IDC capitalised to debt', sliceN(w3.idcDrawdownPerPeriod), { indent: 1 }); r += 1;
+  finRow('Closing cash (after funding, before sweep)', { v: 0 },
+    (t) => ({ f: `MAX(${Lscalar.minCash},${colP(t)}${w3AvailRow})`, v: Math.max(w3.minCashReserve, w3.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) }), 'last', { bold: true });
+  r += 1;
+
+  // ── Cash Sweep waterfall (Operations → Debt → Dividend → Closing) ───────────
+  const dcf = snap.directCF; const div = snap.dividends; const sweep = snap.cashSweep;
+  setSectionHeader(ws.getRow(r), 'Cash Sweep, waterfall (Operations → Debt → Dividend → Closing)', lastCol); r += 1;
+  cachedRow(ws, r, N, 'Opening cash', sliceN(dcf.openingCashPerPeriod), { indent: 1 }); const cwOpen = r; r += 1;
+  cachedRow(ws, r, N, '(+) Cash from operations', sliceN(dcf.cashFromOperationsPerPeriod), { indent: 1 }); const cwOps = r; r += 1;
+  cachedRow(ws, r, N, '(−) Cash from investing (capex)', sliceN(dcf.cashFromInvestmentPerPeriod), { indent: 1 }); const cwInv = r; r += 1;
+  cachedRow(ws, r, N, '(+) Equity drawdown (cash)', sliceN(dcf.equityDrawdownPerPeriod), { indent: 1 }); const cwEq = r; r += 1;
+  cachedRow(ws, r, N, '(+) Debt drawdown', sliceN(dcf.debtDrawdownPerPeriod), { indent: 1 }); const cwDraw = r; r += 1;
+  cachedRow(ws, r, N, '(−) Interest paid', sliceN(dcf.interestPaidPerPeriod), { indent: 1 }); const cwInt = r; r += 1;
+  const cwAvailRow = finRow('= Cash available', { v: 0 },
+    (t) => ({ f: `SUM(${colP(t)}${cwOpen}:${colP(t)}${cwInt})`, v: (dcf.openingCashPerPeriod[t] ?? 0) + (dcf.cashFromOperationsPerPeriod[t] ?? 0) + (dcf.cashFromInvestmentPerPeriod[t] ?? 0) + (dcf.equityDrawdownPerPeriod[t] ?? 0) + (dcf.debtDrawdownPerPeriod[t] ?? 0) + (dcf.interestPaidPerPeriod[t] ?? 0) }), 'last', { bold: true });
+  finRow('(−) Minimum cash requirement', { v: 0 }, (t) => ({ f: `-${Lscalar.minCash}`, v: -(fin.funding.minCashReserve ?? 0) }), 'last', { indent: 1 });
+  const debtPaidRows: number[] = [];
+  for (const m of facMeta) {
+    const rr = finRow(`(−) Debt paid: ${m.name}`, { v: 0 },
+      (t) => ({ f: `-(${colP(t)}${m.schedPrinRow}+${colP(t)}${m.sweepRow})`, v: -((m.schedPrin[t] ?? 0) + (m.sweep[t] ?? 0)) }), 'sum', { indent: 1 });
+    debtPaidRows.push(rr);
+  }
+  const cwDebtPaidRow = r;
+  finRow('Total debt paid', { v: 0 }, (t) => ({ f: debtPaidRows.length ? colSum(colP(t), debtPaidRows) : '0', v: dcf.debtRepaymentPerPeriod[t] ?? 0 }), 'sum', { bold: true });
+  let cwDivRow = -1;
+  if (div.enabled) { cachedRow(ws, r, N, '(−) Dividend paid', sliceN(div.totalDividendsPerPeriod).map((v) => -Math.abs(v)), { indent: 1 }); cwDivRow = r; r += 1; }
+  finRow('= Closing cash (ties to Cash Flow + Balance Sheet)', { v: 0 }, (t) => {
+    const parts = [`${colP(t)}${cwOpen}`, `${colP(t)}${cwOps}`, `${colP(t)}${cwInv}`, `${colP(t)}${cwEq}`, `${colP(t)}${cwDraw}`, `${colP(t)}${cwInt}`, `${colP(t)}${cwDebtPaidRow}`];
+    if (cwDivRow > 0) parts.push(`${colP(t)}${cwDivRow}`);
+    return { f: parts.join('+'), v: dcf.closingCashPerPeriod[t] ?? 0 };
+  }, 'last', { bold: true });
+  void cwAvailRow; r += 1;
+
+  // ── Per-tranche sweep & outstanding (only when a sweep-eligible loan exists) ──
+  if (sweep.enabled && sweep.eligibleTranches.length) {
+    setSectionHeader(ws.getRow(r), 'Per-tranche sweep & outstanding', lastCol); r += 1;
+    for (const row of sweep.eligibleTranches) {
+      const m = facMeta.find((f) => f.id === row.trancheId);
+      cachedRow(ws, r, N, `${row.trancheName}, opening (pre-sweep)`, sliceN(row.preSweepOutstanding), { indent: 1 }); r += 1;
+      if (m) finRow(`${row.trancheName}, sweep applied`, { v: 0 }, (t) => ({ f: `-${colP(t)}${m.sweepRow}`, v: -(row.sweepPerPeriod[t] ?? 0) }), 'sum', { indent: 2 });
+      else { cachedRow(ws, r, N, `${row.trancheName}, sweep applied`, sliceN(row.sweepPerPeriod).map((v) => -v), { indent: 2 }); r += 1; }
+      cachedRow(ws, r, N, `${row.trancheName}, closing (post-sweep)`, sliceN(row.postSweepOutstanding), { indent: 1, bold: true }); r += 1;
+    }
+    cachedRow(ws, r, N, 'Project total debt outstanding (post-sweep)', sliceN(sweep.adjustedDebtOutstanding), { bold: true });
+    fillRange(ws, r, 1, r, lastCol, ARGB.navy);
+    for (let c = 1; c <= lastCol; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    r += 1;
+  }
 
   void fallbackPrincipalLabels;
 }
@@ -1510,7 +1734,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.timeline, 'The model year axis'],
     [SHEETS.landArea, 'Area hierarchy (NSA / BUA / GFA) and land value'],
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
-    [SHEETS.financing, 'Debt movement, finance cost, equity and IDC'],
+    [SHEETS.financing, 'Funding requirement, debt + equity, finance cost, IDC, funding gap and cash sweep'],
     [SHEETS.revenue, 'Recognised revenue by strategy and asset'],
     [SHEETS.cos, 'Cost of sales matched to recognised revenue'],
     [SHEETS.opex, 'Operating expenses by asset and category'],
