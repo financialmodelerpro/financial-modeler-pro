@@ -66,6 +66,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "eslint-plugin-boundaries": "^6.0.2",
+    "hyperformula": "^3.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

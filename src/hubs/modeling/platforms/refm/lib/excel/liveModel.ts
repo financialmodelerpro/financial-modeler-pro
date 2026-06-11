@@ -16,7 +16,7 @@
  * fragile circularity. See the header comment in buildModelWorkbook for the tab
  * layout this feeds.
  */
-import { irr, npv, moic } from '@core/calculations/returns/irr';
+import { irr, npv, moic } from '@/src/core/calculations/returns/irr';
 
 export type LiveGroup = 'Residential' | 'Hospitality' | 'Retail' | 'Other';
 
