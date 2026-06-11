@@ -1183,6 +1183,9 @@ function navySumRow(ws: ExcelJS.Worksheet, r: number, N: number, label: string, 
 const lcol = (t: number): string => colLetter(pcol(t));
 const prevCol = (t: number): string => colLetter(pcol(t - 1));
 const xc = (sheet: string, row: number, t: number): string => sheetRef(sheet, `${colLetter(pcol(t))}${row}`);
+// A Capex-sheet cell for axis period t (its period geometry differs from the
+// shared one); used by the tabs that read the Capex schedule live.
+const capexPeriodCell = (capexAddrs: CapexAddrs, row: number, t: number): string => sheetRef(SHEETS.capex, `${colLetter(capexAddrs.periodCol(t))}${row}`);
 
 interface RowOpts { open?: { f?: string; v: number }; total?: 'sum' | 'last' | 'none'; indent?: number; bold?: boolean; fmt?: string }
 /** Write one period row (label + opening E + per-period F.. + Total D). Returns r. */
@@ -1204,6 +1207,19 @@ function emitRow(ws: ExcelJS.Worksheet, r: number, N: number, label: string, per
   }
   if (opts.bold) for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { ...(cell.font as object), bold: true }; }
   return r;
+}
+
+/** A label + a scalar value in the Total (D) column: a linked formula (when
+ *  `link` is set), a numeric input cell, or a literal string. Returns the
+ *  absolute address of the value cell so callers can reference it in formulas.
+ *  The caller owns the row cursor (increment after the call). */
+function scalarCell(ws: ExcelJS.Worksheet, r: number, label: string, link: string, cached: number | string, fmt: string): string {
+  setLabel(ws.getCell(r, LBL_COL), label);
+  const cell = ws.getCell(r, TOTAL_COL);
+  if (typeof cached === 'string') { cell.value = cached; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+  else if (link) setFormula(cell, fcell(link, cached), fmt, true);
+  else { cell.value = cached; cell.numFmt = fmt; markInput(cell); }
+  return `$${colLetter(TOTAL_COL)}$${r}`;
 }
 
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
@@ -1353,17 +1369,12 @@ function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opex
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Financing', 'The computational engine: depreciation, interest (rate x opening debt), tax, and the debt / equity drawdown recurrence (deficit-funded, surplus swept to debt) feeding the cash flow. A clean forward recurrence (each period reads the prior period close), so there is no circularity. Every downstream statement and the IRR link here.', { label: 'Line' });
-  const capP = (row: number, t: number): string => sheetRef(SHEETS.capex, `${colLetter(capexAddrs.periodCol(t))}${row}`);
+  const capP = (row: number, t: number): string => capexPeriodCell(capexAddrs, row, t);
   let r = 5;
 
   // Inputs (linked from Assumptions / local).
   setSectionHeader(ws.getRow(r), 'Inputs (linked from Assumptions)', lastActiveCol(N)); r += 1;
-  const scalar = (label: string, link: string, cached: number, fmt: string): string => {
-    setLabel(ws.getCell(r, LBL_COL), label);
-    if (link) setFormula(ws.getCell(r, TOTAL_COL), fcell(link, cached), fmt, true);
-    else { const c = ws.getCell(r, TOTAL_COL); c.value = cached; c.numFmt = fmt; markInput(c); }
-    const a = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return a;
-  };
+  const scalar = (label: string, link: string, cached: number, fmt: string): string => { const a = scalarCell(ws, r, label, link, cached, fmt); r += 1; return a; };
   const debtPctCell = scalar('Debt share', 'DebtPct', proj.debtPct, NUMFMT.pct);
   const equityPctCell = scalar('Equity share', 'EquityPct', proj.equityPct, NUMFMT.pct);
   const minCashCell = scalar('Minimum cash reserve', 'MinCashReserve', proj.minCash, NUMFMT.money);
@@ -1494,7 +1505,7 @@ function addBalanceSheet(ctx: EmitCtx, fin: FinLinks, cosLinks: CosLinks): BsLin
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.balsheet, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Assets = Liabilities + Equity. Working-capital and fixed-asset accounts roll forward from the Capex schedule, Cost of Sales, depreciation and the financing recurrence; the balance check is ~0 by construction.', { label: 'Line' });
-  const capP = (row: number, t: number): string => sheetRef(SHEETS.capex, `${colLetter(capexAddrs.periodCol(t))}${row}`);
+  const capP = (row: number, t: number): string => capexPeriodCell(capexAddrs, row, t);
   const sumAssetCapex = (group: 'sell' | 'opConstruction' | 'opLand', t: number): string => {
     const sel = group === 'sell' ? assets.filter((a) => a.group === 'Residential') : assets.filter((a) => a.group !== 'Residential');
     const parts = sel.map((a) => {
@@ -1549,13 +1560,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   let r = 5;
 
   setSectionHeader(ws.getRow(r), 'Inputs (linked from Assumptions)', lastActiveCol(N)); r += 1;
-  const scalar = (label: string, link: string, cached: number | string, fmt: string): string => {
-    setLabel(ws.getCell(r, LBL_COL), label);
-    if (typeof cached === 'string') { const c = ws.getCell(r, TOTAL_COL); c.value = cached; c.numFmt = fmt; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
-    else if (link) setFormula(ws.getCell(r, TOTAL_COL), fcell(link, cached), fmt, true);
-    else { const c = ws.getCell(r, TOTAL_COL); c.value = cached; c.numFmt = fmt; markInput(c); }
-    const a = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return a;
-  };
+  const scalar = (label: string, link: string, cached: number | string, fmt: string): string => { const a = scalarCell(ws, r, label, link, cached, fmt); r += 1; return a; };
   const discCell = scalar('Discount rate', 'DiscountRate', proj.discountRate, NUMFMT.pct2);
   const exitMultCell = scalar('Exit multiple (x stabilised NOI)', 'ExitMultiple', proj.exitMultiple, NUMFMT.mult);
   scalar('Exit year offset (0-based)', 'ExitYearOffset', proj.exitOffset, NUMFMT.int);
