@@ -121,6 +121,19 @@ export function scaleNote(scale: DisplayScale, currency: string): string {
 
 type Cell = ExcelJS.Cell;
 
+/**
+ * STATIC (hardcoded) mode. When on, `setFormula` writes the cached platform
+ * value as a plain constant instead of a live `{ formula, result }`, so the
+ * whole workbook is a hardcoded snapshot of the platform: every figure is the
+ * platform-computed value, nothing recalculates on edit. The layout, number
+ * formats, FAST colours and frozen headers are unchanged; only the cell value
+ * kind flips (formula object -> constant). This is the single choke point that
+ * turns the formula-driven model into the hardcoded platform mirror.
+ */
+let STATIC = false;
+export function setStaticMode(on: boolean): void { STATIC = on; }
+export function isStaticMode(): boolean { return STATIC; }
+
 /** Live formula with the platform value cached as the result (reconcilable). */
 export function fcell(formula: string, result: number | string | boolean): { formula: string; result: number | string | boolean } {
   return { formula, result };
@@ -161,9 +174,35 @@ export function setInput(cell: Cell, value: number | string, numFmt = NUMFMT.mon
   markInput(cell);
 }
 export function setFormula(cell: Cell, fc: { formula: string; result: number | string | boolean }, numFmt = NUMFMT.money, linked = false): void {
-  cell.value = fc;
-  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: linked ? ARGB.linked : ARGB.formula } };
+  // STATIC: write the platform-computed value as a hardcoded constant (no live
+  // formula). Linked cells still use the formula-black font (there is no live
+  // cross-sheet link in a hardcoded workbook, so the green "linked" colour
+  // would be misleading); everything reads as a plain computed constant.
+  cell.value = STATIC ? fc.result : fc;
+  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: (linked && !STATIC) ? ARGB.linked : ARGB.formula } };
   cell.numFmt = numFmt;
+}
+
+/**
+ * Guidance "Basis / Calculation" cell: human-readable, NON-computable text
+ * describing how a row's value was derived (e.g. "Rate x Quantity",
+ * "Opening + Draw + IDC - Principal - Sweep"). Rendered in a muted italic so it
+ * reads as a note, never mistaken for a value. Leading "=" is stripped so no
+ * client treats it as a formula.
+ */
+export function setBasis(cell: Cell, text: string): void {
+  cell.value = text.replace(/^=+/, '');
+  cell.font = { name: 'Calibri', size: BODY_SIZE, italic: true, color: { argb: ARGB.navyDark } };
+  cell.alignment = { horizontal: 'left', wrapText: false };
+}
+
+/**
+ * Attach a short cross-tab / provenance note as an Excel cell comment, so it
+ * does not consume a row. Used for the "Sourced from X; feeds Y" notes and the
+ * "values as of export, editing will not recalculate" snapshot note.
+ */
+export function setNote(cell: Cell, text: string): void {
+  cell.note = { texts: [{ text }], margins: { insetmode: 'auto' } } as unknown as ExcelJS.Comment;
 }
 export function setLabel(cell: Cell, text: string, opts: { bold?: boolean; indent?: number } = {}): void {
   cell.value = text;

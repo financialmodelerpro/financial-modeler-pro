@@ -326,8 +326,8 @@ export default function ExportModal({
             >
               <span style={{ fontSize: 22 }}>📗</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model (beta)</div>
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Formula-driven workbook: Assumptions, Timeline and checks (calculation sheets are being added)</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model</div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Hardcoded platform mirror: every figure is the platform-computed value as a constant, across all tabs (Inputs, Capex, Financing, statements, Returns)</div>
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
             </button>
@@ -338,7 +338,7 @@ export default function ExportModal({
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
               {reportKind === 'excel'
-                ? 'The Excel model is a formula-driven workbook: a centralised Assumptions (inputs) sheet, a formula-linked Timeline, and a Checks/legend sheet, with the calculation and statement sheets being added. Pick the version to export below.'
+                ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Checks). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
                 : reportKind === 'summary'
                   ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
                   : 'The Cover and Executive Summary pages are always included. Pick the live modules to include, and use Tabs to include to choose specific tabs per module. Modules still in development are listed but cannot be selected until they go live.'}
