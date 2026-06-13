@@ -102,13 +102,14 @@ export async function POST(
   let emailSent = false;
   let emailError: string | null = null;
   try {
+    const tz = session.timezone ?? 'Asia/Riyadh';
     const dt = session.scheduled_datetime ? new Date(session.scheduled_datetime) : null;
     const { subject, html } = await registrationConfirmationTemplate({
       name: name || regId,
       sessionTitle: session.title,
-      sessionDate: dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '',
-      sessionTime: dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
-      timezone: session.timezone ?? 'Asia/Riyadh',
+      sessionDate: dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz }) : '',
+      sessionTime: dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz }) : '',
+      timezone: tz,
       sessionUrl: `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/live-sessions/${id}`,
       liveUrl: session.live_url ?? undefined,
     });

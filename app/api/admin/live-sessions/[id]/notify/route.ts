@@ -269,9 +269,14 @@ export async function POST(
     .select('*', { count: 'exact', head: true })
     .eq('session_id', id);
 
+  // Format in the SESSION's timezone (not the server's). scheduled_datetime
+  // is stored in UTC; without timeZone, toLocale*String uses the Vercel
+  // server TZ (UTC) and renders e.g. "01:00 PM" while the label says
+  // "(Asia/Karachi)". Pinning timeZone makes the time match the label.
+  const tz = liveSession.timezone ?? 'Asia/Riyadh';
   const dt = liveSession.scheduled_datetime ? new Date(liveSession.scheduled_datetime) : null;
-  const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-  const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+  const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz }) : '';
+  const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz }) : '';
   const learnUrl    = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
   const sessionUrl  = `${learnUrl}/training/live-sessions/${id}`;
   const dialIn      = liveSession.teams_dial_in as { tollNumber?: string; conferenceId?: string } | null;

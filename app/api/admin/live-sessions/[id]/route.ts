@@ -132,12 +132,13 @@ export async function PATCH(
   if (before && !before.is_published && body.is_published === true) {
     const { data: sess } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (sess) {
+      const nlTz = sess.timezone ?? 'Asia/Riyadh';
       const dt = sess.scheduled_datetime ? new Date(sess.scheduled_datetime) : null;
       void sendAutoNewsletter('live_session_scheduled', id, {
         title: sess.title, description: sess.description ?? '',
         url: sess.live_url || `${LEARN_URL}/training/dashboard?tab=live-sessions`,
-        date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) ?? '',
-        extra: { time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '', platform: 'YouTube' },
+        date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: nlTz }) ?? '',
+        extra: { time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: nlTz }) ?? '', platform: 'YouTube' },
       });
     }
   }

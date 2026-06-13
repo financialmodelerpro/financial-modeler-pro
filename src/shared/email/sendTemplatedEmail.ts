@@ -117,9 +117,10 @@ export function buildSessionPlaceholders(session: {
   let sessionTime = '';
   if (session.scheduled_datetime) {
     try {
+      const tz = session.timezone ?? 'Asia/Riyadh';
       const d = new Date(session.scheduled_datetime);
-      sessionDate = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-      sessionTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      sessionDate = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: tz });
+      sessionTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz });
     } catch { /* leave empty */ }
   }
 

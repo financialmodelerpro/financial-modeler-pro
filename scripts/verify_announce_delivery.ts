@@ -37,9 +37,11 @@ async function main() {
   const { data: ls } = await sb.from('live_sessions').select('*').eq('id', SESSION_ID).single();
   if (!ls) { console.error('session not found'); process.exit(1); }
 
+  const tz = ls.timezone ?? 'Asia/Riyadh';
   const dt = ls.scheduled_datetime ? new Date(ls.scheduled_datetime) : null;
-  const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-  const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+  const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz }) : '';
+  const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz }) : '';
+  console.log(`  session time formatted in ${tz}: ${sessionDate} at ${sessionTime}`);
   const learnUrl    = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
   const sessionUrl  = `${learnUrl}/training/live-sessions/${SESSION_ID}`;
 

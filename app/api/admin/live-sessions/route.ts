@@ -157,13 +157,14 @@ export async function POST(req: NextRequest) {
   // The newsletter auto-notify still fires because it targets opt-in
   // subscribers, not the training roster, and has its own duplicate-prevention.
   if (data && data.is_published) {
+    const nlTz = data.timezone ?? 'Asia/Riyadh';
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {
       title: data.title, description: data.description ?? '',
       url: data.live_url || `${LEARN_URL}/training/dashboard?tab=live-sessions`,
-      date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) ?? '',
+      date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: nlTz }) ?? '',
       extra: {
-        time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '',
+        time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: nlTz }) ?? '',
         platform: 'YouTube',
       },
     });
