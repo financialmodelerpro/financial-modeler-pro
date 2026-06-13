@@ -51,6 +51,8 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
 // ────────────────────────────────────────────────────────────────────────────
 // Batch send
 //
@@ -60,8 +62,15 @@ function stripHtml(html: string): string {
 // message OR broadcasts the same message to many `to[]` entries. Since
 // every BatchEmailItem here carries its own subject + html (e.g. the
 // admin communications + live-session notify flows render per-recipient
-// templates with name token substitution), we iterate per item via
-// Promise.allSettled.
+// templates with name token substitution), we iterate per item.
+//
+// Throttling: the first Brevo shim fired every item in the batch at once
+// (one big Promise.allSettled). That reintroduced exactly the concurrent
+// burst the Resend rewrite had removed: a 78-recipient announce became 78
+// simultaneous API calls, which both risks Brevo's per-second rate limit
+// and reads to mailbox providers (Gmail) like a spammy blast. We now send
+// in WAVES of `BATCH_WAVE_SIZE` with a small `INTER_WAVE_DELAY_MS` pause
+// between waves, restoring the bounded-concurrency + pacing behaviour.
 //
 // We preserve the "binary" result semantics of the old wrapper: if every
 // item succeeds we return ok=true with the messageIds in input order; if
@@ -78,6 +87,14 @@ function stripHtml(html: string): string {
 // route, the admin UI, and the audit-log readers; we now store Brevo
 // message ids in that column instead.
 // ────────────────────────────────────────────────────────────────────────────
+
+// Bounded concurrency: emails sent simultaneously within one wave. Kept
+// well under Brevo's transactional rate ceiling while staying fast enough
+// that a full 100-item batch clears in a couple of seconds.
+const BATCH_WAVE_SIZE = 10;
+// Pause between waves. Mirrors the 200ms inter-batch delay the Resend
+// implementation used to dodge rate-limit-induced silent drops.
+const INTER_WAVE_DELAY_MS = 200;
 
 export interface BatchEmailItem {
   to:      string;
@@ -106,31 +123,39 @@ export async function sendEmailBatch(items: BatchEmailItem[]): Promise<BatchEmai
   }
 
   const brevo = getBrevo();
-  // Per-item Promise.allSettled so a single rate-limit hit or validation
-  // failure doesn't poison the whole batch's await; we collect statuses
-  // and reduce to the binary ok/ids/error shape below.
-  const settled = await Promise.allSettled(items.map(it => {
-    const sender = parseSender(it.from ?? FROM.training);
-    return brevo.transactionalEmails.sendTransacEmail({
-      sender,
-      to:          [{ email: it.to }],
-      subject:     it.subject,
-      htmlContent: it.html,
-      textContent: it.text ?? stripHtml(it.html),
-    });
-  }));
-
-  const ids: string[] = [];
+  // ids stays index-aligned with `items` regardless of wave boundaries.
+  const ids: string[] = new Array(items.length).fill('');
   const errors: string[] = [];
-  for (let i = 0; i < settled.length; i++) {
-    const r = settled[i];
-    if (r.status === 'fulfilled') {
-      ids.push(r.value.messageId ?? '');
-    } else {
-      ids.push('');
-      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-      errors.push(`item ${i}: ${msg}`);
+
+  // Send in bounded waves with a pause between them. Within a wave we use
+  // Promise.allSettled so a single rate-limit hit or validation failure
+  // doesn't poison the rest of the wave; we collect statuses and reduce to
+  // the binary ok/ids/error shape below.
+  for (let start = 0; start < items.length; start += BATCH_WAVE_SIZE) {
+    const wave    = items.slice(start, start + BATCH_WAVE_SIZE);
+    const settled = await Promise.allSettled(wave.map(it => {
+      const sender = parseSender(it.from ?? FROM.training);
+      return brevo.transactionalEmails.sendTransacEmail({
+        sender,
+        to:          [{ email: it.to }],
+        subject:     it.subject,
+        htmlContent: it.html,
+        textContent: it.text ?? stripHtml(it.html),
+      });
+    }));
+
+    for (let j = 0; j < settled.length; j++) {
+      const idx = start + j;
+      const r   = settled[j];
+      if (r.status === 'fulfilled') {
+        ids[idx] = r.value.messageId ?? '';
+      } else {
+        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        errors.push(`item ${idx}: ${msg}`);
+      }
     }
+
+    if (start + BATCH_WAVE_SIZE < items.length) await sleep(INTER_WAVE_DELAY_MS);
   }
 
   if (errors.length === 0) return { ok: true, ids };
