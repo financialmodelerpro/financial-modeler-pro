@@ -62,6 +62,61 @@ async function emailShell(bannerText: string, body: string): Promise<string> {
 </body></html>`;
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// The session `description` is stored as PLAIN TEXT with real newlines (the
+// session page renders it with `white-space: pre-wrap`, so blank lines,
+// line breaks and `•` bullet lines all show as authored). Dropping that
+// text raw into an HTML <p> collapses every newline to a space, giving the
+// run-on paragraph users saw in the email. This mirrors the page structure
+// in email-safe HTML: blank line -> new block, consecutive `•` lines -> a
+// real <ul>/<li> list, other newlines -> <br>. Everything is HTML-escaped
+// first; Unicode-bold heading glyphs (e.g. 𝗙𝗶𝗻𝗮𝗻𝗰𝗶𝗮𝗹) are not HTML-special
+// so they pass through unchanged.
+const BULLET_RE = /^\s*[•·*–-]\s+/;
+
+function descriptionToEmailHtml(raw: string): string {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  const out: string[] = [];
+  let para: string[] = [];
+  let bullets: string[] = [];
+
+  const flushPara = () => {
+    if (para.length) {
+      out.push(`<p style="margin:0 0 12px;color:#374151;line-height:1.7;">${para.join('<br>')}</p>`);
+      para = [];
+    }
+  };
+  const flushBullets = () => {
+    if (bullets.length) {
+      out.push(`<ul style="margin:0 0 12px;padding-left:22px;color:#374151;line-height:1.7;">${bullets.map(b => `<li style="margin:2px 0;">${b}</li>`).join('')}</ul>`);
+      bullets = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (line.trim() === '') {
+      flushBullets();
+      flushPara();
+    } else if (BULLET_RE.test(line)) {
+      flushPara();
+      bullets.push(escapeHtml(line.replace(BULLET_RE, '')));
+    } else {
+      flushBullets();
+      para.push(escapeHtml(line));
+    }
+  }
+  flushBullets();
+  flushPara();
+  return out.join('');
+}
+
 /**
  * Announcement or reminder email - links to session page (not direct join link).
  */
@@ -75,11 +130,16 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
         Phone dial-in:${p.dialInTollNumber ? ` ${p.dialInTollNumber}` : ''}${p.dialInConferenceId ? ` (Conference ID: ${p.dialInConferenceId})` : ''}
       </p>` : '';
 
+  // Full session write-up rendered as its own section (page order:
+  // title -> description -> date/register), with structure preserved.
+  const descriptionBlock = p.description?.trim()
+    ? `<div style="margin:20px 0;font-size:15px;">${descriptionToEmailHtml(p.description)}</div>`
+    : '';
+
   const dateBlock = `
     <div style="background:#f0f4ff;border-left:4px solid #2E75B6;padding:20px 24px;border-radius:6px;margin:24px 0;">
       <p style="margin:0 0 8px;font-weight:bold;color:#1F3864;">
         ${p.sessionDate} at ${p.sessionTime} (${p.timezone})</p>
-      ${p.description ? `<p style="margin:8px 0;color:#555;">${p.description}</p>` : ''}
       ${p.registrationCount ? `<p style="margin:8px 0;font-size:13px;color:#2E75B6;">Join ${p.registrationCount} other students who have already registered</p>` : ''}
       <div style="margin-top:16px;">
         <a href="${p.sessionUrl}" style="background:#2E75B6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
@@ -97,10 +157,11 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
   const body = p.isReminder
     ? `<p>Dear <strong>${p.name}</strong>,</p>
        <p>This is a reminder that <strong>${p.sessionTitle}</strong> starts in <strong>1 hour</strong>.</p>
-       ${dateBlock}${attachBlock}`
+       ${dateBlock}${descriptionBlock}${attachBlock}`
     : `<p>Dear <strong>${p.name}</strong>,</p>
        <p>A new live training session has been scheduled:</p>
        <h2 style="color:#1F3864;margin:16px 0;">${p.sessionTitle}</h2>
+       ${descriptionBlock}
        ${dateBlock}${attachBlock}`;
 
   return { subject, html: await emailShell(p.isReminder ? 'Session Reminder' : 'Live Session Announcement', body) };
