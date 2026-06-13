@@ -45,8 +45,18 @@ async function main() {
 
   const items: BatchEmailItem[] = [];
   for (const email of TARGETS) {
+    // Mirror the real notify path: greet with the roster profile name
+    // (training_registrations_meta.name), falling back to the email only
+    // if no profile name exists.
+    const { data: meta } = await sb
+      .from('training_registrations_meta')
+      .select('name')
+      .ilike('email', email)
+      .maybeSingle();
+    const displayName = (meta?.name ?? '').trim() || email;
+    console.log(`  recipient ${email} -> greeting name "${displayName}"`);
     const { subject, html } = await liveSessionNotificationTemplate({
-      name: email, sessionTitle: ls.title, sessionDate, sessionTime,
+      name: displayName, sessionTitle: ls.title, sessionDate, sessionTime,
       timezone: ls.timezone ?? 'Asia/Riyadh', sessionUrl,
       joinUrl: ls.live_url ?? undefined, description: ls.description ?? undefined,
       attachments: [], isReminder: false, registrationCount: 0,
