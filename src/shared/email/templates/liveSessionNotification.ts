@@ -70,6 +70,27 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// Resolve a human greeting name. The notify route passes `r.name || r.email`,
+// so recipients without a roster name would otherwise be greeted as
+// "Dear ahmaddin.ch@gmail.com". When the value is empty or an email address,
+// fall back to a readable name derived from the local part (or "Student").
+function greetingName(name?: string): string {
+  const n = (name ?? '').trim();
+  if (!n) return 'Student';
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(n)) {
+    const pretty = n.split('@')[0]
+      .replace(/[._\-+]+/g, ' ')
+      .replace(/\d+/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    return pretty || 'Student';
+  }
+  return n;
+}
+
 // The session `description` is stored as PLAIN TEXT with real newlines (the
 // session page renders it with `white-space: pre-wrap`, so blank lines,
 // line breaks and `•` bullet lines all show as authored). Dropping that
@@ -159,10 +180,10 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
     <ul>${p.attachments.map(a => `<li><a href="${a.url}" style="color:#2E75B6;">${a.name}</a></li>`).join('')}</ul>` : '';
 
   const body = p.isReminder
-    ? `<p>Dear <strong>${p.name}</strong>,</p>
+    ? `<p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
        <p>This is a reminder that <strong>${p.sessionTitle}</strong> starts in <strong>1 hour</strong>.</p>
        ${dateBlock}${descriptionBlock}${attachBlock}`
-    : `<p>Dear <strong>${p.name}</strong>,</p>
+    : `<p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
        <p>A new live training session has been scheduled:</p>
        <h2 style="color:#1F3864;margin:16px 0;">${p.sessionTitle}</h2>
        ${dateBlock}
@@ -178,7 +199,7 @@ export async function registrationConfirmationTemplate(p: ConfirmationParams): P
   const subject = `You're registered: ${p.sessionTitle} - ${p.sessionDate}`;
 
   const body = `
-    <p>Dear <strong>${p.name}</strong>,</p>
+    <p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
     <p>You're confirmed for <strong>${p.sessionTitle}</strong>!</p>
 
     <div style="background:#f0fdf4;border-left:4px solid #2EAA4A;padding:20px 24px;border-radius:6px;margin:24px 0;">
