@@ -270,7 +270,7 @@ app/api/admin/
 ├── live-playlists/              # CRUD for playlists
 ├── live-sessions/               # GET/POST + PUT banner upload
 ├── live-sessions/[id]/          # PATCH/DELETE
-├── live-sessions/[id]/notify/   # GET: session + recipients[] (for picker modal) + history[], supports ?sendLogId=X to fetch per-recipient log rows (migration 138). POST: send emails via sendEmailBatch (Brevo Promise.allSettled loop since 2026-05-11 commit `166a8ec`; previously Resend `batch.send`); seeds announcement_recipient_log rows as 'pending' before the batch fires, UPDATEs each to sent/failed from the response. `announcement_recipient_log.resend_message_id` column name retained for backwards compatibility, now stores Brevo message ids. New POST modes: `recipientEmails: string[]` (explicit picker allowlist / test send), `retrySendLogId: string` (re-attempt failed/bounced rows of a prior dispatch in place). `target: '3sfm'|'bvm'|'all'` now filters via training_enrollments JOIN.
+├── live-sessions/[id]/notify/   # GET: session + recipients[] (for picker modal) + history[], supports ?sendLogId=X to fetch per-recipient log rows (migration 138). POST: send emails via sendEmailBatch (Brevo, now throttled waves of 10 + 200ms pacing since 2026-06-13; migrated off Resend `batch.send` 2026-05-11 commit `166a8ec`); seeds announcement_recipient_log rows as 'pending' before the batch fires, UPDATEs each to sent/failed from the response. `announcement_recipient_log.resend_message_id` column name retained for backwards compatibility, now stores Brevo message ids. New POST modes: `recipientEmails: string[]` (explicit picker allowlist / test send), `retrySendLogId: string` (re-attempt failed/bounced rows of a prior dispatch in place). `target: '3sfm'|'bvm'|'all'` now filters via training_enrollments JOIN. **2026-06-13 tz fix:** sessionDate/sessionTime formatted with `timeZone: liveSession.timezone` (was server-TZ, so a 6PM Asia/Karachi session showed 1PM on the UTC Vercel server). Same timeZone fix applied to register/route.ts (confirmation), and the two live_session_scheduled auto-newsletter triggers in admin/live-sessions/route.ts + [id]/route.ts.
 ├── live-sessions/[id]/registrations/ # GET/PATCH
 ├── newsletter/subscribers/       # GET: paginated subscriber list with stats
 ├── newsletter/export/           # GET: CSV download
@@ -407,11 +407,12 @@ src/shared/
 │       ├── OfficeColorPicker.tsx
 │       └── Toaster.tsx
 ├── email/
-│   ├── sendEmail.ts                  # Brevo wrapper (migrated from Resend 2026-05-11, commit `166a8ec`). sendEmail() → transactionalEmails.sendTransacEmail; sendEmailBatch() → Promise.allSettled loop over sendTransacEmail, binary ok/fail semantics preserved (any per-item failure marks the batch failed; ids[] only populated when ok=true).
-│   ├── sendTemplatedEmail.ts         # CMS-template email sender (placeholder replacement, batching)
+│   ├── sendEmail.ts                  # Brevo wrapper (migrated from Resend 2026-05-11, commit `166a8ec`). sendEmail() → transactionalEmails.sendTransacEmail; sendEmailBatch() → sends in THROTTLED WAVES of 10 with a 200ms inter-wave pause (2026-06-13: restored the bounded-concurrency + pacing the Resend `batch.send` had; the first Brevo shim fired the whole batch at once). ids[] stays index-aligned; binary ok/fail semantics preserved (any per-item failure marks the batch failed; ids[] only populated when ok=true).
+│   ├── sendTemplatedEmail.ts         # CMS-template email sender (placeholder replacement, batching). buildSessionPlaceholders() formats session date/time in the SESSION timezone (timeZone option, 2026-06-13 tz fix).
 │   └── templates/
 │       _base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
+│       # liveSessionNotification (2026-06-13 rework): descriptionToEmailHtml() preserves plain-text structure (blank line→block, • lines→<ul>/<li>, \n→<br>, HTML-escaped, Unicode-bold headings kept) mirroring the session page's white-space:pre-wrap; date box + View & Register CTA placed ABOVE the long description so the CTA is never hidden behind Gmail's "•••" trimmed-content toggle; greetingName() greets by roster profile name, prettifies an email if that's all there is, else "Student".
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId,
 │       newsletter (custom baseLayoutNewsletter())
 │       # All template functions are async (use baseLayoutBranded), callers must await.
@@ -733,6 +734,11 @@ scripts/
 ├── verify-pdf-export.ts                     # NEW 2026-06-02 (5db331d); expanded 2026-06-03. Renders the full report from a rich 3-asset fixture (hotel+resi+retail) headless: bytes>0, valid PDF, page count >= 15, part-toggle drops content, cover+description always present (empty selection = 2 pages), bundled Inter base64 == repo TTFs, embedded font name is Inter, Inter renders Δ + Unicode minus (no ASCII fallback), snapshot BS-balances + Direct==Indirect. 16/16.
 └── verify-versioning.ts                      # NEW 2026-05-31 (Phase M-Versioning, commit d25a20b). Pure unit tests for src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts. **40 / 40**. Sections: A identity (self-diff is empty); B project meta scalar change; C nested project field (project.startDate); D id-keyed array add / remove / update + first-assignment of optional scalar correctly classifies as kind='add'; E nested asset update walks revenue.sell.saleVelocityPct down to the leaf; F costOverrides compound key (assetId::lineId) add + update; G number-array leaf (preSalesVelocityPctPerPeriod) reports as one entry not per-index; H snapshotsEqual mirrors deepEqual; I null-safety (null→snap = single root add, snap→null = single root remove, null→null = empty).
 ```
+
+**Email deliverability diagnostics (NEW 2026-06-13, read-only, not phase verifiers).** Run with `--env-file=.vercel/.env.production.local` (carries BREVO_API_KEY + Supabase; the key is NOT in .env.local). Used to root-cause the live-session announce "not received" / formatting reports:
+- `scripts/diagnose_announce.ts` — DB view: announcement_send_log + announcement_recipient_log per-recipient status + the fetchRecipients roster filter (confirms who was queued and what Brevo returned).
+- `scripts/diagnose_brevo_events.ts <email>` — Brevo API: transactional event log (delivered/deferred/blocked/bounce), contact `emailBlacklisted`, and sender/domain DKIM+SPF auth status.
+- `scripts/verify_announce_delivery.ts` — real-path send (actual liveSessionNotificationTemplate + throttled sendEmailBatch) to the test addresses, greeting by roster profile name, then polls Brevo until each shows `delivered`. Uses a unique subject so the test does not thread with prior sends.
 
 ## 2026-05-31 session: new files + path adds
 
