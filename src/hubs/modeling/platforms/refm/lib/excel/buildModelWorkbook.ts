@@ -17,8 +17,10 @@
  */
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { computeFinancialsSnapshot, type FinancialsResolverState } from '../financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
+import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
+import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
@@ -85,7 +87,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // owns the computational recurrence (depreciation, interest, tax, debt /
   // equity / cash flow); P&L / Cash Flow / Balance Sheet / Returns are link-and-
   // assemble presentation tabs. Each returns the row registry the next links to.
-  const ctx: EmitCtx = { wb, snap, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
+  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
   const revLinks = addRevenue(ctx);
   const cosLinks = addCostOfSales(ctx, revLinks);
   const opexLinks = addOpex(ctx, revLinks);
@@ -117,6 +119,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
 interface EmitCtx {
   wb: ExcelJS.Workbook;
   snap: ReturnType<typeof computeFinancialsSnapshot>;
+  state: FinancialsResolverState;
   refs: AssumptionRefs;
   lm: LiveModel;
   proj: import('./liveModel').LiveProjectInput;
@@ -415,10 +418,6 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Currency', p.currency ?? 'SAR', '@');
   addKV('Location', [p.location, p.country].filter(Boolean).join(', ') || '-', '@');
   const taxRow = addKV('Tax / Zakat rate', p.tax?.rate ?? 0, NUMFMT.pct2, 'TaxRate');
-  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
-  setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
-  const debtRow = addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
-  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
   addKV('Country', p.country ?? '-', '@');
   addKV('Financial terminology', String(p.financialTerminology ?? 'standard'), '@');
   addKV('Tax / Zakat payment (days)', p.tax?.paymentDays ?? 0, NUMFMT.int);
@@ -428,18 +427,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, 'DsoDays');
   addKV('Opex payables, DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, 'DpoDays');
   addKV('Pre-sales escrow held %', p.escrow?.heldPct ?? 0, NUMFMT.pct);
-  addKV('IDC capitalize (1 = yes)', p.idcConfig?.capitalize === false ? 0 : 1, NUMFMT.int);
-  addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
-  addKV('IDC funding mode', String(p.idcConfig?.fundingMode ?? 'debt_drawdown'), '@');
-  const divEnabledRow = addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
-  const divPayoutRow = addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
-  const divStartRow = addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
-  void taxRow; void debtRow;
-  // Financing-policy scalar addresses; sweep settings are captured in the
-  // Financing inputs block below (after the Capex / Financing separator).
+  void taxRow;
+  // Financing raw inputs (funding method, debt/equity, min cash, IDC policy,
+  // dividends) are grouped under the Financing divider below, not here, so the
+  // Assumptions tab holds every input once under its type divider. This dead
+  // registry is retained only for the AssumptionRefs shape.
   const financingScalars: FinancingScalarRefs = {
-    dividendEnabled: addr('B', divEnabledRow), dividendPayout: addr('B', divPayoutRow),
-    dividendStart: addr('B', divStartRow), sweepStart: '', sweepRatio: '',
+    dividendEnabled: '', dividendPayout: '', dividendStart: '', sweepStart: '', sweepRatio: '',
   };
   r += 1;
 
@@ -608,6 +602,22 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   sepCell.alignment = { vertical: 'middle' };
   ws.getRow(r).height = 18;
   r += 2;
+
+  // Financing settings (the raw financing scalars, grouped under the Financing
+  // divider as the single source of truth; the Financing output tab echoes
+  // these inline marked "from Assumptions").
+  setSectionHeader(ws.getRow(r), 'Financing settings', 5); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
+  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
+  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
+  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
+  addKV('IDC capitalize (1 = yes)', p.idcConfig?.capitalize === false ? 0 : 1, NUMFMT.int);
+  addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
+  addKV('IDC funding mode', String(p.idcConfig?.fundingMode ?? 'debt_drawdown'), '@');
+  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
+  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
+  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
+  r += 1;
 
   // Cash sweep settings (project-wide; the Financing tab links these in).
   const sweepCfg = (p.financing as { cashSweep?: { startingYear?: number; sweepRatioPct?: number } } | undefined)?.cashSweep ?? {};
@@ -1486,93 +1496,205 @@ function addOpex(ctx: EmitCtx, revLinks: RevLinks): OpexLinks {
   return { hospRow: hRow, retailRow: retRow, hqRow, totalRow };
 }
 
-// ── Financing engine (depreciation, interest, tax, debt / equity / cash) ──────
+// ── Financing (full step-by-step mirror of the platform's 4 sub-tabs) ─────────
+// The platform Financing module has exactly four sub-tabs: Inputs, Schedules,
+// Funding Gap, Cash Sweep. All four are reproduced here in that fixed sequence,
+// each at full per-period depth (not a summary), hardcoded from the snapshot via
+// the same shared report builders the on-screen tabs + PDF use. Capital Stack +
+// movement are synthesised from the debt + equity closings (no standalone
+// platform table). In STATIC mode the FinLinks rows are referenced only inside
+// discarded formula strings on the downstream tabs (their values come from the
+// real snapshot model), so a stub registry is returned.
 function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opexLinks: OpexLinks): FinLinks {
-  const { wb, snap, lm, proj, assets, refs, capexAddrs } = ctx;
+  void revLinks; void cosLinks; void opexLinks;
+  const { wb, snap, state, proj } = ctx;
   const N = snap.axisLength;
+  const fin = snap.financing;
   const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Financing', 'The computational engine: depreciation, interest (rate x opening debt), tax, and the debt / equity drawdown recurrence (deficit-funded, surplus swept to debt) feeding the cash flow. Each period reads the prior period close.', { label: 'Line', feeds: 'Sourced from Revenue, Cost of Sales, Opex and Capex. Feeds P&L, Cash Flow, Balance Sheet and Returns.' });
-  const capP = (row: number, t: number): string => capexPeriodCell(capexAddrs, row, t);
+  writeSheetHeader(ws, snap, N, 'Financing', 'Full step-by-step mirror of the platform Financing module, all four sub-tabs in sequence: 1. Inputs (echoed from Assumptions + derived working), 2. Schedules (per-facility debt roll-forward, finance cost, combined debt service, equity movement, capital stack), 3. Funding Gap (Method 2 + Method 3 per period), 4. Cash Sweep (cash waterfall + per-tranche sweep).', { label: 'Line', feeds: 'Sourced from the Assumptions inputs, Revenue (pre-sales), Capex and Opex. Feeds P&L, Cash Flow, Balance Sheet and Returns.' });
+  const fmtNum = (v: number): string => String(v);
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const neg = (a: number[]): number[] => a.map((v) => -(v ?? 0));
   let r = 5;
 
-  // Inputs (linked from Assumptions / local).
-  setSectionHeader(ws.getRow(r), 'Inputs (linked from Assumptions)', lastActiveCol(N)); r += 1;
-  const scalar = (label: string, link: string, cached: number, fmt: string): string => { const a = scalarCell(ws, r, label, link, cached, fmt); r += 1; return a; };
-  const debtPctCell = scalar('Debt share', 'DebtPct', proj.debtPct, NUMFMT.pct);
-  const equityPctCell = scalar('Equity share', 'EquityPct', proj.equityPct, NUMFMT.pct);
-  const minCashCell = scalar('Minimum cash reserve', 'MinCashReserve', proj.minCash, NUMFMT.money);
-  const debtRateCell = scalar('Blended interest rate (input)', '', proj.debtRate, NUMFMT.pct2);
-  const taxRateCell = scalar('Tax / Zakat rate', 'TaxRate', proj.taxRate, NUMFMT.pct2);
-  const dsoCell = scalar('Receivables DSO (days)', 'DsoDays', proj.dsoDays, NUMFMT.int);
-  const dpoCell = scalar('Payables DPO (days)', 'DpoDays', proj.dpoDays, NUMFMT.int);
+  // Constant cell in the Total column (a scalar echo), formula-black.
+  const constCell = (cell: ExcelJS.Cell, v: number | string, numFmt: string): void => {
+    cell.value = v; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+  };
+  const echo = (label: string, value: number | string, numFmt: string, basis: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), label);
+    setBasis(ws.getCell(r, META_B), basis);
+    constCell(ws.getCell(r, TOTAL_COL), value, numFmt);
+    r += 1;
+  };
+  // One per-period schedule row from an M4Row (values are axis-indexed; priorValue
+  // -> the opening column E; flow Total = sum + prior, balance/state Total = last).
+  const emitM4 = (row: M4Row, basis: string, opts: { stateRow?: boolean } = {}): void => {
+    const isBalance = row.totalOverride !== undefined || opts.stateRow === true;
+    const strong = !!(row.isTotal || row.isSubtotal);
+    setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: strong });
+    if (basis) setBasis(ws.getCell(r, META_B), basis);
+    const vals = row.values ?? [];
+    const put = (c: number, v: number): void => constCell(ws.getCell(r, c), v, NUMFMT.money);
+    put(OPEN_COL, row.priorValue ?? 0);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    const total = isBalance ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (row.priorValue ?? 0);
+    put(TOTAL_COL, total);
+    const last = lastActiveCol(N);
+    if (row.isTotal) {
+      fillRange(ws, r, 1, r, last, ARGB.navy);
+      for (let c = 1; c <= last; c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; }
+    } else if (row.isSubtotal) {
+      for (let c = 1; c <= last; c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; }
+    }
+    r += 1;
+  };
+  const subTitle = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  };
+  // Substring-keyed Basis text so every computed schedule row carries guidance.
+  const basisFor = (label: string): string => {
+    const l = label.toLowerCase();
+    if (l.startsWith('opening')) return 'Prior period closing';
+    if (l.includes('capex drawdown')) return 'New debt drawn for capex';
+    if (l.includes('idc drawdown')) return 'Construction interest capitalised to debt';
+    if (l.includes('total drawdown')) return 'Capex drawdown + IDC drawdown';
+    if (l.includes('principal repaid')) return 'Scheduled + cash-swept principal';
+    if (l.includes('closing')) return 'Opening + drawdown - principal (- sweep)';
+    if (l.includes('charge') || l.includes('accrued')) return 'Blended rate x opening debt';
+    if (l.includes('capitalized') || l.includes('capitalised')) return 'Interest added to debt (IDC, non-cash)';
+    if (l === 'paid' || l.includes(') paid')) return 'Interest paid in cash';
+    if (l.includes('interest expensed')) return 'Interest charged to P&L (not capitalised)';
+    if (l.includes('debt service')) return 'Principal + cash interest';
+    if (l.includes('cash contribution')) return 'Equity drawn in cash';
+    if (l.includes('in-kind')) return 'In-kind land contributed as equity';
+    if (l.includes('cumulative equity')) return 'Opening + cash + in-kind';
+    if (l.includes('cash from operations')) return 'From Cash Flow (operations)';
+    if (l.includes('cash from invest')) return 'Capex paid in cash';
+    if (l.includes('equity drawdown')) return 'Cash equity drawn to fund the gap';
+    if (l.includes('debt drawdown')) return 'New debt drawn to maintain min cash';
+    if (l.includes('interest paid')) return 'Cash interest paid this period';
+    if (l.includes('cash available for debt')) return 'Cash available - minimum cash';
+    if (l.includes('cash available for dividend')) return 'Cash available - debt paid';
+    if (l.includes('cash available')) return 'Opening + operations + financing - interest';
+    if (l.includes('minimum cash')) return 'Minimum cash reserve held back';
+    if (l.includes('debt paid')) return 'Principal repaid (scheduled + sweep)';
+    if (l.includes('dividend')) return 'Distribution per dividend policy';
+    if (l.includes('sweep applied')) return 'Surplus swept to this tranche';
+    if (l.includes('total debt outstanding')) return 'Sum of post-sweep tranche balances';
+    return 'Platform snapshot value';
+  };
+  const emitTable = (table: ReportTable): void => {
+    subTitle(table.title);
+    for (const row of table.rows) emitM4(row, basisFor(row.label));
+    r += 1;
+  };
+
+  // ── 1. Inputs (raw inputs echoed from Assumptions + derived working) ─────────
+  setSectionHeader(ws.getRow(r), '1. Inputs (raw inputs are on the Assumptions tab under the Financing divider; echoed here, plus derived working)', lastActiveCol(N)); r += 1;
+  const idc = state.project.idcConfig ?? {};
+  const div = state.project.dividendPolicy;
+  const sweepCfg = (state.project.financing?.cashSweep ?? {}) as { startingYear?: number; sweepRatioPct?: number };
+  const A = 'From Assumptions, Financing divider (edit there, re-export)';
+  echo('Funding method', FUNDING_METHOD_LABELS[(state.project.financing?.fundingMethod ?? 1) as FundingMethodId], '@', A);
+  echo('Debt share', proj.debtPct, NUMFMT.pct, A);
+  echo('Equity share', proj.equityPct, NUMFMT.pct, A);
+  echo('Minimum cash reserve', proj.minCash, NUMFMT.money, A);
+  echo('Blended interest rate', proj.debtRate, NUMFMT.pct2, A);
+  echo('IDC capitalize', idc.capitalize === false ? 'No' : 'Yes', '@', A);
+  echo('IDC allocation basis', String(idc.allocationBasis ?? 'land'), '@', A);
+  echo('IDC funding mode', String(idc.fundingMode ?? 'conditional'), '@', A);
+  echo('Dividends enabled', div?.enabled ? 'Yes' : 'No', '@', A);
+  echo('Dividend payout ratio', (div?.payoutRatio ?? 0) / 100, NUMFMT.pct, A);
+  echo('Dividend start year (0 = auto)', state.project.dividendStartYear ?? 0, NUMFMT.year, A);
+  echo('Cash sweep starting year (0 = auto)', sweepCfg.startingYear ?? 0, NUMFMT.year, A);
+  echo('Cash sweep ratio (% of surplus)', (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct, A);
+  // Derived working (computed on this tab from the inputs above + facilities).
+  const existingOpening = [...fin.facilities.values()].reduce((s, f) => s + Math.max(0, f.openingBalance ?? 0), 0);
+  echo('Number of debt facilities', state.financingTranches.length, NUMFMT.int, 'Derived: count of facilities');
+  echo('Total existing debt opening balance', existingOpening, NUMFMT.money, 'Derived: sum of facility opening balances');
+  echo('Total existing equity (carry-forward)', fin.existing.equityTotal, NUMFMT.money, 'Derived: existing operations equity');
+  echo('Total existing pre-axis capex', fin.existing.preCapexTotal, NUMFMT.money, 'Derived: pre-axis capex on existing assets');
   r += 1;
 
-  // Income (for funding + tax).
-  setSectionHeader(ws.getRow(r), 'Income (EBITDA, depreciation, EBIT)', lastActiveCol(N)); r += 1;
-  const ebitdaRow = emitRow(ws, r, N, 'EBITDA = revenue - cost of sales - opex',
-    (t) => ({ f: `${xc(SHEETS.revenue, revLinks.totalRow, t)}-${xc(SHEETS.cos, cosLinks.totalRow, t)}-${xc(SHEETS.opex, opexLinks.totalRow, t)}`, v: lm.ebitda[t] }), { bold: true, basis: 'Revenue - cost of sales - opex' }); r += 1;
-  // Depreciation per depreciable asset (straight-line construction over life).
-  const depAssets = assets.filter((a) => a.group !== 'Residential' && a.usefulLife > 0 && a.exclAllTotal > 0);
-  const depRows: number[] = [];
-  for (const a of depAssets) {
-    const exclAllRow = capexAddrs.perAsset.get(a.id)?.exclAllRow;
-    const exclAllCell = exclAllRow ? sheetRef(SHEETS.capex, `$E$${exclAllRow}`) : '0';
-    const lifeCell = refs.assets.find((x) => x.id === a.id)?.usefulLife ?? '0';
-    const handover = Math.max(0, a.offset + a.cp - 1);
-    const dep = lm.daByAsset.get(a.id) ?? [];
-    emitRow(ws, r, N, `${a.name} depreciation`, (t) => {
-      const inWindow = t >= handover + 1 && t <= handover + a.usefulLife;
-      return inWindow ? { f: `IFERROR(${exclAllCell}/${lifeCell},0)`, v: dep[t] ?? 0 } : { v: 0 };
-    }, { indent: 1, basis: 'Construction cost / useful life (in-service window)' });
-    depRows.push(r); r += 1;
-  }
-  navySumRow(ws, r, N, 'Total depreciation', depRows, lm.da, 'subtotal', 0, 'Sum of per-asset depreciation'); const daRow = r; r += 1;
-  const ebitRow = emitRow(ws, r, N, 'EBIT = EBITDA - depreciation',
-    (t) => ({ f: `${lcol(t)}${ebitdaRow}-${lcol(t)}${daRow}`, v: lm.ebit[t] }), { bold: true, basis: 'EBITDA - depreciation' }); r += 1;
+  // ── 2. Schedules ─────────────────────────────────────────────────────────────
+  setSectionHeader(ws.getRow(r), '2. Schedules (per-facility debt roll-forward, finance cost, combined debt service, equity movement, capital stack)', lastActiveCol(N)); r += 1;
+  const schedTables = buildFinancingScheduleTables(snap, state, fmtNum);
+  for (const table of schedTables) emitTable(table);
+  // Capital Stack + movement (synthesised from debt + equity closings).
+  const debtClosing = (snap.bs.debtOutstandingPerPeriod ?? []).slice(0, N);
+  const eqCash = (fin.equity.cashPerPeriod ?? []).slice(0, N);
+  const eqInKind = (fin.equity.inKindPerPeriod ?? []).slice(0, N);
+  const eqClosing = zeros(); { let acc = fin.existing.equityTotal; for (let t = 0; t < N; t++) { acc += (eqCash[t] ?? 0) + (eqInKind[t] ?? 0); eqClosing[t] = acc; } }
+  const capitalTotal = zeros().map((_, t) => (debtClosing[t] ?? 0) + (eqClosing[t] ?? 0));
+  const chg = (a: number[]): number[] => a.map((v, t) => (v ?? 0) - (t === 0 ? 0 : (a[t - 1] ?? 0)));
+  subTitle('Capital Stack (period-end)');
+  emitM4({ label: 'Debt (closing)', values: debtClosing, totalOverride: '' }, 'Debt outstanding, period-end', { stateRow: true });
+  emitM4({ label: 'Equity (closing, cumulative)', values: eqClosing, totalOverride: '' }, 'Cumulative equity, period-end', { stateRow: true });
+  emitM4({ label: 'Total capital', values: capitalTotal, isTotal: true, totalOverride: '' }, 'Debt + equity', { stateRow: true });
+  emitM4({ label: 'Gearing (debt / total capital)', values: capitalTotal.map((c, t) => (c ? (debtClosing[t] ?? 0) / c : 0)), totalOverride: '' }, 'Debt / total capital', { stateRow: true });
+  r += 1;
+  subTitle('Capital Stack Movement (period change)');
+  emitM4({ label: 'Change in debt', values: chg(debtClosing) }, 'Debt closing - prior debt closing');
+  emitM4({ label: 'Change in equity', values: chg(eqClosing) }, 'Cash + in-kind contributions');
+  emitM4({ label: 'Change in total capital', values: chg(capitalTotal), isSubtotal: true }, 'Change in debt + change in equity');
   r += 1;
 
-  // Drivers (capex cash, in-kind land, AR / AP balances).
-  setSectionHeader(ws.getRow(r), 'Drivers (capex cash, in-kind land, working capital)', lastActiveCol(N)); r += 1;
-  const capexCashRow = emitRow(ws, r, N, 'Capex (cash, excl. in-kind land)',
-    (t) => ({ f: capP(capexAddrs.exclInKindTotalRow, t), v: lm.capexCash[t] }), { basis: 'Capex Table 3 (excl. land in-kind)' }); r += 1;
-  const inKindRow = emitRow(ws, r, N, 'In-kind land (= in-kind equity)',
-    (t) => ({ f: `${capP(capexAddrs.inclTotalRow, t)}-${capP(capexAddrs.exclInKindTotalRow, t)}`, v: lm.inKind[t] }), { basis: 'Capex incl. all land - capex excl. in-kind land' }); r += 1;
-  const arRow = emitRow(ws, r, N, 'Accounts receivable (revenue x DSO / 365)',
-    (t) => ({ f: `${xc(SHEETS.revenue, revLinks.totalRow, t)}*${dsoCell}/365`, v: lm.ar[t] }), { total: 'last', basis: 'Revenue x DSO / 365' }); r += 1;
-  const apRow = emitRow(ws, r, N, 'Accounts payable (opex x DPO / 365)',
-    (t) => ({ f: `${xc(SHEETS.opex, opexLinks.totalRow, t)}*${dpoCell}/365`, v: lm.ap[t] }), { total: 'last', basis: 'Opex x DPO / 365' }); r += 1;
+  // ── 3. Funding Gap (Method 2 + Method 3 per period) ──────────────────────────
+  setSectionHeader(ws.getRow(r), '3. Funding Gap (Method 2 Net Funding Requirement + Method 3 Cash Deficit Funding, per period)', lastActiveCol(N)); r += 1;
+  const gap = computeFundingGap(snap);
+  subTitle('Method 2, Net Funding Requirement (Capex vs Pre-Sales)');
+  emitM4({ label: 'Total project capex (excl. land in-kind)', values: gap.capexPerPeriod, isSubtotal: true }, 'Capex Table 3 (cash capex)');
+  emitM4({ label: 'Advance received from customer (gross)', values: gap.preSalesGrossPerPeriod }, 'Pre-sales cash collected (gross)');
+  emitM4({ label: '  Less: Inaccessible funds locked (escrow held)', values: neg(gap.escrowHeldPerPeriod), indent: 1 }, 'Escrow held back from pre-sales');
+  emitM4({ label: '  Add: Release of inaccessible funds (escrow release)', values: gap.escrowReleasePerPeriod, indent: 1 }, 'Escrow released back to project');
+  emitM4({ label: 'Advance received from customer (net)', values: gap.preSalesNetPerPeriod, isSubtotal: true }, 'Gross - escrow held + escrow release');
+  emitM4({ label: 'Funding fulfilled by pre-sales (last year, capped at capex)', values: gap.fulfilledByPreSalesPerPeriod }, 'Prior-year net pre-sales, capped at capex');
+  emitM4({ label: 'Funding gap = MAX(Capex_t - Pre-Sales net_{t-1}, 0)', values: gap.methodAGapPerPeriod, isTotal: true }, 'max(0, capex - lagged pre-sales)');
+  emitM4({ label: 'Cumulative Funding Gap (A)', values: gap.methodAGapCumulative, isSubtotal: true, totalOverride: '' }, 'Running total of the funding gap', { stateRow: true });
   r += 1;
 
-  // Recurrence (pre-assigned row numbers so each line can reference siblings).
-  setSectionHeader(ws.getRow(r), 'Debt, equity & cash recurrence', lastActiveCol(N)); r += 1;
-  const debtOpenRow = r, interestRow = r + 1, pbtRow = r + 2, taxRow = r + 3, patRow = r + 4,
-    revReceivedRow = r + 5, opexPaidRow = r + 6, cfoRow = r + 7, cfiRow = r + 8, openCashRow = r + 9,
-    preFinRow = r + 10, debtDrawRow = r + 11, equityCashRow = r + 12, principalRow = r + 13,
-    equityInKindRow = r + 14, debtCloseRow = r + 15, cffRow = r + 16, netCfRow = r + 17, closeCashRow = r + 18;
-  const P = lcol;
-  const prev = (t: number): string => colLetter(pcol(t - 1));
-  emitRow(ws, debtOpenRow, N, 'Debt: opening', (t) => (t === 0 ? { v: 0 } : { f: `${prev(t)}${debtCloseRow}`, v: lm.debtOpen[t] }), { total: 'last', basis: 'Prior period debt closing' });
-  emitRow(ws, interestRow, N, 'Interest (rate x opening debt)', (t) => ({ f: `${P(t)}${debtOpenRow}*${debtRateCell}`, v: lm.interest[t] }), { indent: 1, basis: 'Blended rate x opening debt' });
-  emitRow(ws, pbtRow, N, 'Profit before tax (EBIT - interest)', (t) => ({ f: `${P(t)}${ebitRow}-${P(t)}${interestRow}`, v: lm.pbt[t] }), { indent: 1, basis: 'EBIT - interest' });
-  emitRow(ws, taxRow, N, 'Tax / Zakat', (t) => ({ f: `MAX(0,${P(t)}${pbtRow})*${taxRateCell}`, v: lm.tax[t] }), { indent: 1, basis: 'max(0, PBT) x tax / Zakat rate' });
-  emitRow(ws, patRow, N, 'Profit after tax', (t) => ({ f: `${P(t)}${pbtRow}-${P(t)}${taxRow}`, v: lm.pat[t] }), { indent: 1, bold: true, basis: 'PBT - tax' });
-  emitRow(ws, revReceivedRow, N, 'Revenue received', (t) => ({ f: t === 0 ? `${xc(SHEETS.revenue, revLinks.totalRow, 0)}-${P(0)}${arRow}` : `${xc(SHEETS.revenue, revLinks.totalRow, t)}-(${P(t)}${arRow}-${prev(t)}${arRow})`, v: lm.revReceived[t] }), { indent: 1, basis: 'Revenue less change in receivables' });
-  emitRow(ws, opexPaidRow, N, 'Opex paid', (t) => ({ f: t === 0 ? `${xc(SHEETS.opex, opexLinks.totalRow, 0)}-${P(0)}${apRow}` : `${xc(SHEETS.opex, opexLinks.totalRow, t)}-(${P(t)}${apRow}-${prev(t)}${apRow})`, v: lm.opexPaid[t] }), { indent: 1, basis: 'Opex less change in payables' });
-  emitRow(ws, cfoRow, N, 'Cash from operations', (t) => ({ f: `${P(t)}${revReceivedRow}-${P(t)}${opexPaidRow}-${P(t)}${taxRow}`, v: lm.cfo[t] }), { bold: true, basis: 'Revenue received - opex paid - tax' });
-  emitRow(ws, cfiRow, N, 'Cash from investing (capex)', (t) => ({ f: `-${P(t)}${capexCashRow}`, v: lm.cfi[t] }), { bold: true, basis: '- Capex (cash, excl. in-kind land)' });
-  emitRow(ws, openCashRow, N, 'Cash: opening', (t) => (t === 0 ? { v: 0 } : { f: `${prev(t)}${closeCashRow}`, v: lm.openCash[t] }), { total: 'last', basis: 'Prior period cash closing' });
-  emitRow(ws, preFinRow, N, 'Cash before funding', (t) => ({ f: `${P(t)}${openCashRow}+${P(t)}${cfoRow}+${P(t)}${cfiRow}-${P(t)}${interestRow}`, v: lm.openCash[t] + lm.cfo[t] + lm.cfi[t] - lm.interest[t] }), { indent: 1, total: 'none', basis: 'Opening cash + CFO + CFI - interest' });
-  emitRow(ws, debtDrawRow, N, 'Debt drawdown', (t) => ({ f: `IF(${P(t)}${preFinRow}<${minCashCell},(${minCashCell}-${P(t)}${preFinRow})*${debtPctCell},0)`, v: lm.debtDraw[t] }), { indent: 1, basis: 'Deficit to min cash x debt %' });
-  emitRow(ws, equityCashRow, N, 'Equity drawdown (cash)', (t) => ({ f: `IF(${P(t)}${preFinRow}<${minCashCell},(${minCashCell}-${P(t)}${preFinRow})*${equityPctCell},0)`, v: lm.equityCash[t] }), { indent: 1, basis: 'Deficit to min cash x equity %' });
-  emitRow(ws, principalRow, N, 'Principal repaid (surplus sweep)', (t) => ({ f: `IF(${P(t)}${preFinRow}>=${minCashCell},MIN(${P(t)}${debtOpenRow},${P(t)}${preFinRow}-${minCashCell}),0)`, v: lm.principal[t] }), { indent: 1, basis: 'Surplus over min cash swept to debt' });
-  emitRow(ws, equityInKindRow, N, 'Equity drawdown (in-kind land)', (t) => ({ f: `${P(t)}${inKindRow}`, v: lm.equityInKind[t] }), { indent: 1, basis: 'In-kind land contribution' });
-  emitRow(ws, debtCloseRow, N, 'Debt: closing', (t) => ({ f: `${P(t)}${debtOpenRow}+${P(t)}${debtDrawRow}-${P(t)}${principalRow}`, v: lm.debtClose[t] }), { total: 'last', bold: true, basis: 'Opening + draw - principal' });
-  emitRow(ws, cffRow, N, 'Cash from financing', (t) => ({ f: `${P(t)}${equityCashRow}+${P(t)}${debtDrawRow}-${P(t)}${principalRow}-${P(t)}${interestRow}`, v: lm.cff[t] }), { bold: true, basis: 'Equity + debt draw - principal - interest' });
-  emitRow(ws, netCfRow, N, 'Net cash flow', (t) => ({ f: `${P(t)}${cfoRow}+${P(t)}${cfiRow}+${P(t)}${cffRow}`, v: lm.netCf[t] }), { basis: 'CFO + CFI + CFF' });
-  emitRow(ws, closeCashRow, N, 'Cash: closing', (t) => ({ f: `${P(t)}${openCashRow}+${P(t)}${netCfRow}`, v: lm.closeCash[t] }), { total: 'last', bold: true, basis: 'Opening cash + net cash flow' });
-  r = closeCashRow + 1;
+  const w = gap.method3Waterfall;
+  const debtPct = (fin.funding.debtPct ?? 0) / 100;
+  const equityPct = (fin.funding.equityPct ?? 0) / 100;
+  const debtSplit = w.netCashRequiredPerPeriod.map((v) => (v ?? 0) * debtPct);
+  const equitySplit = w.netCashRequiredPerPeriod.map((v) => (v ?? 0) * equityPct);
+  const idcAdd = w.idcDrawdownPerPeriod;
+  const idcCash = w.idcCashPaidPerPeriod;
+  const totalNewDebt = debtSplit.map((v, t) => v + (idcAdd[t] ?? 0));
+  const minCash = w.minCashReserve;
+  subTitle('Method 3, Cash Deficit Funding (Drawdown Sizing)');
+  emitM4({ label: 'Opening Cash', values: w.openingCashPerPeriod, priorValue: snap.bs.historicalOpeningCashTotal, totalOverride: '' }, 'Prior period closing cash', { stateRow: true });
+  emitM4({ label: '(+) Cash from Operations', values: w.cashFromOpsPerPeriod }, 'From Cash Flow (operations)');
+  emitM4({ label: '(+) Cash from Investments', values: w.cashFromInvPerPeriod, priorValue: -fin.existing.preCapexTotal }, 'Capex (negative)');
+  emitM4({ label: '(+) Existing Equity Opening (memo)', values: zeros(), priorValue: fin.existing.equityTotal }, 'Existing equity carried in (prior column)');
+  emitM4({ label: '(+) Existing Debt Opening Balance (memo)', values: zeros(), priorValue: existingOpening }, 'Existing debt carried in (prior column)');
+  if (w.financeCostPaidPerPeriod.some((v) => v !== 0)) emitM4({ label: '(-) Finance Cost Paid (cash)', values: w.financeCostPaidPerPeriod, indent: 1 }, 'Cash interest during construction');
+  if (w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0)) emitM4({ label: '(-) Operational Dividend (before sweep)', values: w.dividendsBeforeSweepPerPeriod, indent: 1 }, 'Dividend paid before sweep');
+  emitM4({ label: 'Cash Available (before new funding)', values: w.cashAvailableBeforeNewDebtPerPeriod, isSubtotal: true }, 'Opening + ops + inv - finance cost');
+  if (idcCash.some((v) => v !== 0)) emitM4({ label: '  (memo) IDC paid in cash (surplus)', values: idcCash, indent: 1 }, 'Conditional IDC paid from surplus');
+  if (idcAdd.some((v) => v !== 0)) emitM4({ label: '  (memo) IDC capitalised to debt (shortfall)', values: idcAdd, indent: 1 }, 'IDC added to debt where no surplus');
+  emitM4({ label: 'Net Cash Required (= max(0, MinCash - Cash Available))', values: w.netCashRequiredPerPeriod, isTotal: true }, 'Shortfall below the minimum cash');
+  emitM4({ label: `  of which: New Debt (${(debtPct * 100).toFixed(0)}%)`, values: debtSplit, indent: 2 }, 'Net cash required x debt %');
+  emitM4({ label: `  of which: New Equity (${(equityPct * 100).toFixed(0)}%)`, values: equitySplit, indent: 2 }, 'Net cash required x equity %');
+  if (idcAdd.some((v) => v !== 0)) emitM4({ label: '(+) IDC capitalised to debt (no cash)', values: idcAdd, indent: 1 }, 'Non-cash IDC added to debt');
+  emitM4({ label: 'Total New Debt Required (cash + IDC capitalised)', values: totalNewDebt, isTotal: true }, 'New cash debt + capitalised IDC');
+  emitM4({ label: 'Total New Equity Required', values: equitySplit, isTotal: true }, 'New cash equity');
+  emitM4({ label: 'Closing Cash (after funding, before sweep & dividends)', values: w.cashAvailableBeforeNewDebtPerPeriod.map((v) => Math.max(minCash, v ?? 0)), priorValue: snap.bs.historicalOpeningCashTotal, isTotal: true, totalOverride: '' }, 'max(minimum cash, cash available)', { stateRow: true });
+  r += 1;
 
-  return { daRow, ebitdaRow, ebitRow, interestRow, pbtRow, taxRow, patRow, arRow, apRow, capexCashRow, inKindRow, revReceivedRow, opexPaidRow, cfoRow, cfiRow, debtOpenRow, debtDrawRow, principalRow, debtCloseRow, equityCashRow, equityInKindRow, cffRow, netCfRow, openCashRow, closeCashRow };
+  // ── 4. Cash Sweep (cash waterfall + per-tranche sweep) ───────────────────────
+  setSectionHeader(ws.getRow(r), '4. Cash Sweep (cash waterfall Operations -> Debt -> Dividend -> Closing, then per-tranche sweep & outstanding)', lastActiveCol(N)); r += 1;
+  const sweepTables = buildCashSweepTables(snap, state, fmtNum);
+  for (const table of sweepTables) emitTable(table);
+
+  // Stub registry: in STATIC mode these rows feed only discarded formula strings
+  // on the downstream tabs (their values come from the real snapshot model).
+  const s = 5;
+  return { daRow: s, ebitdaRow: s, ebitRow: s, interestRow: s, pbtRow: s, taxRow: s, patRow: s, arRow: s, apRow: s, capexCashRow: s, inKindRow: s, revReceivedRow: s, opexPaidRow: s, cfoRow: s, cfiRow: s, debtOpenRow: s, debtDrawRow: s, principalRow: s, debtCloseRow: s, equityCashRow: s, equityInKindRow: s, cffRow: s, netCfRow: s, openCashRow: s, closeCashRow: s };
 }
 
 // ── P&L (presentation; links Revenue / CoS / Opex / Financing) ────────────────

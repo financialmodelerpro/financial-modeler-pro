@@ -18,7 +18,7 @@
  */
 import ExcelJS from 'exceljs';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildExcelSampleState } from './excelSampleState';
 
 let pass = 0, fail = 0;
@@ -80,8 +80,37 @@ async function main(): Promise<void> {
   const plWs = wb.getWorksheet('P&L')!; const ebitdaRow = rowByLabel(plWs, /^EBITDA$/);
   let ebitdaTie = ebitdaRow > 0; for (let t = 0; t < N && ebitdaTie; t++) ebitdaTie = close(num(plWs.getCell(ebitdaRow, 6 + t).value), snap.pl.ebitdaPerPeriod[t] ?? 0);
   check('P&L EBITDA ties to snapshot per period', ebitdaTie);
-  // Financing interest ties to the platform interest expense.
-  check('Financing interest total == snapshot interest expense', close(totD('Financing', /^Interest \(rate x opening debt\)$/), sumA(snap.pl.interestExpensePerPeriod, N)));
+  // ── Financing: all four sub-tabs reproduced at full depth + tie to snapshot ──
+  const finWs = wb.getWorksheet('Financing')!;
+  const finRow = (re: RegExp): number => rowByLabel(finWs, re);
+  const finLast = (re: RegExp): number => { const R = finRow(re); return R > 0 ? num(finWs.getCell(R, 6 + N - 1).value) : NaN; };
+  const r1 = finRow(/^1\. Inputs/), r2 = finRow(/^2\. Schedules/), r3 = finRow(/^3\. Funding Gap/), r4 = finRow(/^4\. Cash Sweep/);
+  check('Financing reproduces all 4 sub-tabs in the fixed sequence', r1 > 0 && r2 > r1 && r3 > r2 && r4 > r3, `rows=${r1},${r2},${r3},${r4}`);
+  // Sub-tab 2 Schedules: per-facility + combined + equity + capital stack present.
+  check('Schedules: per-facility Debt Movement present', finRow(/^Debt Movement,/) > 0);
+  check('Schedules: per-facility Finance Cost present', finRow(/^Finance Cost,/) > 0);
+  check('Schedules: Combined Debt Service present', finRow(/^Combined Debt Service$/) > 0);
+  check('Schedules: Equity Movement present', finRow(/^Equity Movement$/) > 0);
+  check('Schedules: Capital Stack + movement present', finRow(/^Capital Stack \(period-end\)$/) > 0 && finRow(/^Capital Stack Movement/) > 0);
+  // Combined Debt Service ties to the combined snapshot.
+  const cmb = snap.financing.combined;
+  check('Combined Total Principal Repaid ties to snapshot', close(Math.abs(totD('Financing', /^Total Principal Repaid$/)), sumA(cmb.totalPrincipalRepaid, N)));
+  check('Combined Total Interest Expensed ties to snapshot', close(Math.abs(totD('Financing', /^Total Interest Expensed$/)), sumA(cmb.totalInterestExpensed, N)));
+  check('Combined Total Drawdown (Capex+IDC) ties to snapshot', close(totD('Financing', /^Total Drawdown \(Capex \+ IDC\)$/), sumA(cmb.totalDrawdown, N) + sumA(cmb.totalInterestCapitalized, N)));
+  // Equity Movement closing == existing + cumulative cash + in-kind.
+  const eqClosingLast = snap.financing.existing.equityTotal + sumA(snap.financing.equity.cashPerPeriod, N) + sumA(snap.financing.equity.inKindPerPeriod, N);
+  check('Equity Movement closing (last) == cumulative equity', close(finLast(/^Closing \(cumulative equity\)$/), eqClosingLast));
+  // Capital stack last == debt closing + equity closing.
+  check('Capital Stack total (last) == debt + equity closing', close(finLast(/^Total capital$/), (snap.bs.debtOutstandingPerPeriod[N - 1] ?? 0) + eqClosingLast));
+  // Sub-tab 3 Funding Gap: Method 2 gap ties; Method 3 present.
+  const gapSnap = computeFundingGap(snap);
+  check('Funding Gap Method 2 total gap ties to snapshot', close(totD('Financing', /^Funding gap = MAX/), gapSnap.methodATotalGap));
+  check('Funding Gap Method 3 (Cash Deficit Funding) present', finRow(/^Method 3, Cash Deficit Funding/) > 0);
+  check('Funding Gap Method 3 Net Cash Required present', finRow(/^Net Cash Required/) > 0);
+  // Sub-tab 4 Cash Sweep: closing cash ties to Direct CF closing.
+  check('Cash Sweep closing cash (last) == Direct CF closing', close(finLast(/^= Closing Cash/), snap.directCF.closingCashPerPeriod[N - 1] ?? 0));
+  // Inputs sub-tab echoes raw inputs (from Assumptions) inline.
+  check('Financing Inputs echoes raw inputs (Funding method, Debt share)', finRow(/^Funding method$/) > r1 && finRow(/^Debt share$/) > r1);
   // Cash Flow closing cash (last period) == snapshot closing cash.
   const cfWs = wb.getWorksheet('Cash Flow')!; const ccRow = rowByLabel(cfWs, /^Closing cash$/);
   check('Cash Flow closing cash (last) == snapshot closing cash', ccRow > 0 && close(num(cfWs.getCell(ccRow, 6 + N - 1).value), snap.directCF.closingCashPerPeriod[N - 1] ?? 0));
@@ -95,7 +124,9 @@ async function main(): Promise<void> {
 
   // ── Consolidated Inputs tab carries the grouped dividers ────────────────────
   const inp = wb.getWorksheet('Inputs')!;
-  for (const re of [/^Project$/, /^Phases$/, /^Assets$/, /^Capex cost lines/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
+  for (const re of [/^Project$/, /^Phases$/, /^Assets$/, /^Capex cost lines/, /^Financing settings$/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
+  // Raw financing scalars live under the Financing divider (once), not Project.
+  check('Financing settings divider holds the raw financing scalars', rowByLabel(inp, /^Funding method$/) > rowByLabel(inp, /^Financing settings$/) && rowByLabel(inp, /^Debt share$/) > rowByLabel(inp, /^Financing settings$/));
   check('Inputs title says Inputs', /Inputs/.test(labelOf(inp, 1)));
 
   // ── Guidance "Basis / Calculation" column on every output tab ───────────────
