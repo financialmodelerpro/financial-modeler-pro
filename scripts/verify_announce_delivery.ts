@@ -51,7 +51,11 @@ async function main() {
       joinUrl: ls.live_url ?? undefined, description: ls.description ?? undefined,
       attachments: [], isReminder: false, registrationCount: 0,
     });
-    items.push({ to: email, subject, html, from: FROM.training });
+    // VERIFICATION-ONLY: append a unique marker so Gmail does not thread
+    // this with prior identical test sends (threading is what triggers the
+    // "•••" trimmed-content collapse). Production subjects are unchanged.
+    const uniqueSubject = `${subject} [verify ${new Date().toISOString().slice(11, 19)}]`;
+    items.push({ to: email, subject: uniqueSubject, html, from: FROM.training });
   }
 
   console.log(`Sending real announce to ${TARGETS.join(', ')} via sendEmailBatch (throttled)...`);

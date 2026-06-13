@@ -130,8 +130,12 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
         Phone dial-in:${p.dialInTollNumber ? ` ${p.dialInTollNumber}` : ''}${p.dialInConferenceId ? ` (Conference ID: ${p.dialInConferenceId})` : ''}
       </p>` : '';
 
-  // Full session write-up rendered as its own section (page order:
-  // title -> description -> date/register), with structure preserved.
+  // Full session write-up rendered as its own section, with structure
+  // preserved. It is placed AFTER the date box + CTA on purpose: a long
+  // description can be long enough that Gmail collapses the tail of a
+  // threaded message behind its "•••" trimmed-content toggle, so the date
+  // and the View & Register button must sit above it and stay visible
+  // without expanding.
   const descriptionBlock = p.description?.trim()
     ? `<div style="margin:20px 0;font-size:15px;">${descriptionToEmailHtml(p.description)}</div>`
     : '';
@@ -161,8 +165,8 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
     : `<p>Dear <strong>${p.name}</strong>,</p>
        <p>A new live training session has been scheduled:</p>
        <h2 style="color:#1F3864;margin:16px 0;">${p.sessionTitle}</h2>
-       ${descriptionBlock}
-       ${dateBlock}${attachBlock}`;
+       ${dateBlock}
+       ${descriptionBlock}${attachBlock}`;
 
   return { subject, html: await emailShell(p.isReminder ? 'Session Reminder' : 'Live Session Announcement', body) };
 }
