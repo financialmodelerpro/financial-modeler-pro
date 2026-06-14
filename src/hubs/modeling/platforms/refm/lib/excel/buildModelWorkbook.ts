@@ -676,86 +676,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   };
   const opexValFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
 
-  // ── Revenue inputs (recognition + indexation + cash / recognition profiles;
-  // unit prices / ADR + occupancy are in the Sub-units table above). ──────────
-  inputDivider('REVENUE INPUTS');
-  setSectionHeader(ws.getRow(r), 'Revenue configuration by asset (unit prices / ADR + occupancy are in the Sub-units table above)', 7); r += 1;
-  ['Asset', 'Strategy', 'Recognition', 'PIT year', 'ADR / Base rate', 'Indexation', 'Index rate %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-  for (const a of visibleAssets) {
-    const rc = a.revenue ?? {};
-    setLabel(ws.getCell(`A${r}`), a.name);
-    setInput(ws.getCell(`B${r}`), a.strategy, '@');
-    if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
-      const s = rc.sell;
-      setInput(ws.getCell(`C${r}`), String(s?.recognitionProfile?.method ?? 'over_time'), '@');
-      setInput(ws.getCell(`D${r}`), s?.recognitionProfile?.pointInTimeYear ?? 0, NUMFMT.year);
-      setInput(ws.getCell(`F${r}`), String(s?.indexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), s?.indexation?.rate ?? 0, NUMFMT.pct2);
-    } else if (a.strategy === 'Operate') {
-      setInput(ws.getCell(`E${r}`), rc.operate?.startingADR ?? 0, NUMFMT.rate);
-      setInput(ws.getCell(`F${r}`), String(rc.operate?.adrIndexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), rc.operate?.adrIndexation?.rate ?? 0, NUMFMT.pct2);
-    } else {
-      setInput(ws.getCell(`E${r}`), rc.lease?.baseRate ?? 0, NUMFMT.rate);
-      setInput(ws.getCell(`F${r}`), String(rc.lease?.rentIndexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), rc.lease?.rentIndexation?.rate ?? 0, NUMFMT.pct2);
-    }
-    r += 1;
-  }
-  r += 1;
-  // Per-asset cash + recognition profiles (% by year from the sale year).
-  for (const a of visibleAssets) {
-    const s = a.revenue?.sell; if (!s) continue;
-    const cashPct = s.cashPaymentProfile?.percentages ?? [];
-    const recogPct = s.recognitionProfile?.percentages ?? [];
-    let n = 0; for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
-    if (!n) continue;
-    setSectionHeader(ws.getRow(r), `Cash & recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
-    setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
-    setLabel(ws.getCell(`A${r}`), 'Cash payment %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
-    if (recogPct.length) { setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1; }
-    r += 1;
-  }
-
-  // ── Opex inputs (per-asset opex lines + HQ; operating margins are in the
-  // Sub-units table above). ──────────────────────────────────────────────────
-  inputDivider('OPEX INPUTS');
-  let anyOpex = false;
-  for (const a of visibleAssets) {
-    const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
-    if (!lines.length) continue;
-    anyOpex = true;
-    setSectionHeader(ws.getRow(r), `Opex lines, ${a.name}`, 6); r += 1;
-    ['Line', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-    for (const l of lines) {
-      setLabel(ws.getCell(`A${r}`), l.name);
-      setInput(ws.getCell(`B${r}`), String(l.category), '@');
-      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
-      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
-      setInput(ws.getCell(`E${r}`), l.useAssetDefault ? `(default) ${idxLabel(a.opex?.defaultIndexation)}` : idxLabel(l.indexation), '@');
-      setInput(ws.getCell(`F${r}`), l.rateMode === 'yoy' ? 'YoY' : 'Single', '@');
-      r += 1;
-    }
-    r += 1;
-  }
-  const hqOpexLines = (p.hqOpex?.lines ?? []).filter((l) => !l.disabled);
-  if (hqOpexLines.length) {
-    anyOpex = true;
-    setSectionHeader(ws.getRow(r), 'HQ / Corporate opex lines', 5); r += 1;
-    ['Line', 'Category', 'Mode', 'Value', 'Indexation'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-    for (const l of hqOpexLines) {
-      setLabel(ws.getCell(`A${r}`), l.name);
-      setInput(ws.getCell(`B${r}`), String(l.category), '@');
-      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
-      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
-      setInput(ws.getCell(`E${r}`), idxLabel(l.indexation), '@');
-      r += 1;
-    }
-    r += 1;
-  }
-  if (!anyOpex) { setLabel(ws.getCell(`A${r}`), 'No per-line opex configured; operating costs are driven by the operating margins in the Sub-units table above.'); r += 2; }
-
-  // ── Financing inputs ───────────────────────────────────────────────────────
+  // ── Financing inputs (Module 1, right after Capex; Revenue + Opex follow) ───
   inputDivider('FINANCING INPUTS');
 
   // Financing settings (the raw financing scalars, grouped under the Financing
@@ -870,6 +791,85 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     }
     r += 1;
   }
+
+  // ── Revenue inputs (recognition + indexation + cash / recognition profiles;
+  // unit prices / ADR + occupancy are in the Sub-units table above). ──────────
+  inputDivider('REVENUE INPUTS');
+  setSectionHeader(ws.getRow(r), 'Revenue configuration by asset (unit prices / ADR + occupancy are in the Sub-units table above)', 7); r += 1;
+  ['Asset', 'Strategy', 'Recognition', 'PIT year', 'ADR / Base rate', 'Indexation', 'Index rate %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+  for (const a of visibleAssets) {
+    const rc = a.revenue ?? {};
+    setLabel(ws.getCell(`A${r}`), a.name);
+    setInput(ws.getCell(`B${r}`), a.strategy, '@');
+    if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
+      const s = rc.sell;
+      setInput(ws.getCell(`C${r}`), String(s?.recognitionProfile?.method ?? 'over_time'), '@');
+      setInput(ws.getCell(`D${r}`), s?.recognitionProfile?.pointInTimeYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`F${r}`), String(s?.indexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), s?.indexation?.rate ?? 0, NUMFMT.pct2);
+    } else if (a.strategy === 'Operate') {
+      setInput(ws.getCell(`E${r}`), rc.operate?.startingADR ?? 0, NUMFMT.rate);
+      setInput(ws.getCell(`F${r}`), String(rc.operate?.adrIndexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), rc.operate?.adrIndexation?.rate ?? 0, NUMFMT.pct2);
+    } else {
+      setInput(ws.getCell(`E${r}`), rc.lease?.baseRate ?? 0, NUMFMT.rate);
+      setInput(ws.getCell(`F${r}`), String(rc.lease?.rentIndexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), rc.lease?.rentIndexation?.rate ?? 0, NUMFMT.pct2);
+    }
+    r += 1;
+  }
+  r += 1;
+  // Per-asset cash + recognition profiles (% by year from the sale year).
+  for (const a of visibleAssets) {
+    const s = a.revenue?.sell; if (!s) continue;
+    const cashPct = s.cashPaymentProfile?.percentages ?? [];
+    const recogPct = s.recognitionProfile?.percentages ?? [];
+    let n = 0; for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
+    if (!n) continue;
+    setSectionHeader(ws.getRow(r), `Cash & recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
+    setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
+    setLabel(ws.getCell(`A${r}`), 'Cash payment %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
+    if (recogPct.length) { setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1; }
+    r += 1;
+  }
+
+  // ── Opex inputs (per-asset opex lines + HQ; operating margins are in the
+  // Sub-units table above). ──────────────────────────────────────────────────
+  inputDivider('OPEX INPUTS');
+  let anyOpex = false;
+  for (const a of visibleAssets) {
+    const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
+    if (!lines.length) continue;
+    anyOpex = true;
+    setSectionHeader(ws.getRow(r), `Opex lines, ${a.name}`, 6); r += 1;
+    ['Line', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    for (const l of lines) {
+      setLabel(ws.getCell(`A${r}`), l.name);
+      setInput(ws.getCell(`B${r}`), String(l.category), '@');
+      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
+      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
+      setInput(ws.getCell(`E${r}`), l.useAssetDefault ? `(default) ${idxLabel(a.opex?.defaultIndexation)}` : idxLabel(l.indexation), '@');
+      setInput(ws.getCell(`F${r}`), l.rateMode === 'yoy' ? 'YoY' : 'Single', '@');
+      r += 1;
+    }
+    r += 1;
+  }
+  const hqOpexLines = (p.hqOpex?.lines ?? []).filter((l) => !l.disabled);
+  if (hqOpexLines.length) {
+    anyOpex = true;
+    setSectionHeader(ws.getRow(r), 'HQ / Corporate opex lines', 5); r += 1;
+    ['Line', 'Category', 'Mode', 'Value', 'Indexation'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    for (const l of hqOpexLines) {
+      setLabel(ws.getCell(`A${r}`), l.name);
+      setInput(ws.getCell(`B${r}`), String(l.category), '@');
+      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
+      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
+      setInput(ws.getCell(`E${r}`), idxLabel(l.indexation), '@');
+      r += 1;
+    }
+    r += 1;
+  }
+  if (!anyOpex) { setLabel(ws.getCell(`A${r}`), 'No per-line opex configured; operating costs are driven by the operating margins in the Sub-units table above.'); r += 2; }
 
   ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
   return {

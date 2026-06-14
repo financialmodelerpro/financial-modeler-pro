@@ -173,7 +173,9 @@ async function main(): Promise<void> {
   // All model inputs live on the Inputs tab, grouped by domain divider band.
   check('Inputs tab has the REVENUE INPUTS domain', rowByLabel(inp, /^REVENUE INPUTS$/) > 0 && rowByLabel(inp, /^Revenue configuration by asset/) > rowByLabel(inp, /^REVENUE INPUTS$/));
   check('Inputs tab has the OPEX INPUTS domain', rowByLabel(inp, /^OPEX INPUTS$/) > rowByLabel(inp, /^REVENUE INPUTS$/));
-  check('Inputs domains ordered Revenue -> Opex -> Financing', rowByLabel(inp, /^REVENUE INPUTS$/) < rowByLabel(inp, /^OPEX INPUTS$/) && rowByLabel(inp, /^OPEX INPUTS$/) < rowByLabel(inp, /^FINANCING INPUTS$/));
+  // Domain order mirrors the module sequence: Capex (M1) -> Financing (M1) ->
+  // Revenue (M2) -> Opex (M3). Financing sits right after the Capex cost lines.
+  check('Inputs domains ordered Capex -> Financing -> Revenue -> Opex', rowByLabel(inp, /^Capex cost lines/) < rowByLabel(inp, /^FINANCING INPUTS$/) && rowByLabel(inp, /^FINANCING INPUTS$/) < rowByLabel(inp, /^REVENUE INPUTS$/) && rowByLabel(inp, /^REVENUE INPUTS$/) < rowByLabel(inp, /^OPEX INPUTS$/));
   // Module 1 input completeness (gaps closed 2026-06-14): per-parcel land
   // funding split, selected funding-method config, per-facility timing + share.
   const parcelsHdr = rowByLabel(inp, /^Land parcels$/);
