@@ -185,6 +185,23 @@ async function main(): Promise<void> {
   const irrCell: any = irrRow > 0 ? ret.getCell(irrRow, 4).value : null;
   check('Returns Project IRR is a finite constant (not a formula)', irrRow > 0 && !isFormula(irrCell) && Number.isFinite(num(irrCell)), `irr=${num(irrCell)}`);
 
+  // ── Universal navy palette: every cell colour is one standard scheme ─────────
+  // No per-tab or off-palette colours (no green / teal / blue accents). Allowed:
+  // navy / navyDark / deep-navy section band / pale-navy subtotal / navy-pale
+  // input / grey / greyMid / light-navy border, plus black, white and red (fails).
+  const PALETTE = new Set(['FF1B4F8A', 'FF1B3A6B', 'FF0C2340', 'FFE8EEF7', 'FFE2EAF4', 'FFF1F3F5', 'FFD9DEE3', 'FFBDCCE3', 'FF000000', 'FFFFFFFF', 'FFC00000']);
+  const stray = new Map<string, string>();
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row) => row.eachCell((c) => {
+      const fc = (c.font as any)?.color?.argb; const fl = (c.fill as any)?.fgColor?.argb; const bd = (c.border as any)?.bottom?.color?.argb;
+      for (const x of [fc, fl, bd]) if (typeof x === 'string' && !PALETTE.has(x)) stray.set(x, ws.name);
+    }));
+  }
+  check('every cell uses the standard navy palette (no green / per-tab colours)', stray.size === 0, [...stray.entries()].map(([k, v]) => `${k}@${v}`).join(' '));
+  // Tab colours are uniform navy across every sheet.
+  const tabColors = new Set(wb.worksheets.map((w) => (w.properties as any)?.tabColor?.argb).filter(Boolean));
+  check('all worksheet tab colours are the same navy', tabColors.size === 1 && tabColors.has('FF1B4F8A'), [...tabColors].join(','));
+
   // ── Accounting formatting: dash for zero + percentages 2dp ──────────────────
   const moneyCell = bsWs.getCell(rowByLabel(bsWs, /^Total assets$/), 6);
   check('money format uses dash for zero', typeof moneyCell.numFmt === 'string' && moneyCell.numFmt.includes('"-"'));

@@ -25,9 +25,11 @@ export const ARGB = {
   external: 'FFFF0000',  // red, external links (unused for now)
   navy: 'FF1B4F8A',
   navyDark: 'FF1B3A6B',
-  // Teal divider band for top-level section headers, distinct from the navy
-  // used by total rows so a section break never reads as just another total.
-  accent: 'FF0E6E78',
+  // Deep navy band for top-level section headers: the darkest shade in the
+  // monochrome navy hierarchy (section = deepest, total = navy, subtotal =
+  // pale navy), so a section break stands out from a total without introducing
+  // a second hue. Named `accent` for historical call-site reasons; it is navy.
+  accent: 'FF0C2340',
   white: 'FFFFFFFF',
   grey: 'FFF1F3F5',
   greyMid: 'FFD9DEE3',
