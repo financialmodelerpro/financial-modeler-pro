@@ -59,6 +59,27 @@ const editedModel = applyOverrides(base, explicitMap);
 const captured = buildOverrides(base, editedModel);
 check('auto-capture (buildOverrides) recovers the explicit override map', JSON.stringify(captured) === JSON.stringify(explicitMap), JSON.stringify(captured));
 
+// ── Per-element parcelFunding (new grammar) round-trips as discrete paths ─────
+{
+  const withPF: any = JSON.parse(JSON.stringify(base));
+  const parcelId = withPF.parcels?.[0]?.id;
+  withPF.project.financing = withPF.project.financing ?? {};
+  withPF.project.financing.parcelFunding = parcelId ? [{ parcelId, debtPct: 40, equityPct: 60 }] : [];
+  const pfFields = enumerateOverridableFields(withPF).filter((f) => /parcelFunding\[parcelId=.+\]\./.test(f.path));
+  check('picker offers per-parcel funding fields (debtPct / equityPct)', !!parcelId && pfFields.some((f) => /\.debtPct$/.test(f.path)) && pfFields.some((f) => /\.equityPct$/.test(f.path)), `count=${pfFields.length}`);
+  check('per-parcel funding never offers the parcelId reference itself', pfFields.every((f) => !/\.parcelId$/.test(f.path)));
+  const debtField = pfFields.find((f) => /\.debtPct$/.test(f.path));
+  if (debtField) {
+    const merged = applyOverrides(withPF, { [debtField.path]: 75 });
+    check('per-parcel funding override round-trips through applyOverrides', getByPath(merged as any, debtField.path) === 75, `got ${getByPath(merged as any, debtField.path)}`);
+    // diffSnapshots emits the SAME per-element path (so auto-capture records it).
+    const edited: any = JSON.parse(JSON.stringify(withPF));
+    edited.project.financing.parcelFunding[0].debtPct = 75;
+    const captured = buildOverrides(withPF as any, edited);
+    check('diff grammar emits the per-element parcelFunding path', Object.keys(captured).some((p) => /parcelFunding\[parcelId=.+\]\.debtPct$/.test(p)) && captured[debtField.path] === 75, Object.keys(captured).join(','));
+  }
+}
+
 // ── Recompute on the active case + base untouched ────────────────────────────
 const baseRev = sumRev(base);
 const baseIrr = irrOf(base);

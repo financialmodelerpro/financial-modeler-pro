@@ -18,7 +18,11 @@
  */
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
-import { diffSnapshots } from '../persistence/snapshot-diff';
+import { diffSnapshots, PER_ELEMENT_ARRAYS } from '../persistence/snapshot-diff';
+
+// Entity identity / reference fields a case must never override (doing so would
+// break the very path the override is addressed by, or a cross-entity link).
+const IDENTITY_FIELDS = new Set(['id', 'parcelId', 'assetId', 'lineId', 'subUnitId']);
 
 // JSON deep clone: the model snapshot is always JSON-serialisable, and this
 // matches the equality semantics used by snapshotsEqual / autosave.
@@ -34,16 +38,20 @@ const SELECTOR = /^([A-Za-z0-9_]+)\[(.+)\]$/;
 type Indexable = Record<string, unknown>;
 
 function findElement(arr: unknown[], selector: string): Indexable | undefined {
-  if (selector.startsWith('id=')) {
-    const id = selector.slice(3);
-    return arr.find((e) => (e as Indexable | null)?.['id'] === id) as Indexable | undefined;
-  }
+  // Compound costOverrides key "assetId::lineId".
   if (selector.includes('::')) {
     const [assetId, lineId] = selector.split('::');
     return arr.find((e) => {
       const r = e as Indexable | null;
       return String(r?.['assetId'] ?? '') === assetId && String(r?.['lineId'] ?? '') === lineId;
     }) as Indexable | undefined;
+  }
+  // Generic "field=value" selector: id=..., parcelId=..., subUnitId=..., etc.
+  const eq = selector.indexOf('=');
+  if (eq > 0) {
+    const field = selector.slice(0, eq);
+    const val = selector.slice(eq + 1);
+    return arr.find((e) => String((e as Indexable | null)?.[field] ?? '') === val) as Indexable | undefined;
   }
   const idx = Number(selector);
   return Number.isInteger(idx) ? (arr[idx] as Indexable | undefined) : undefined;
@@ -141,11 +149,26 @@ export interface OverridableField {
 
 function collectScalarLeaves(basePath: string, fieldBase: string, obj: Indexable, group: string, out: OverridableField[]): void {
   for (const [k, v] of Object.entries(obj)) {
-    if (k === 'id') continue; // never let a case rewrite an entity id
+    if (IDENTITY_FIELDS.has(k)) continue; // never let a case rewrite an id / reference
     const path = `${basePath}.${k}`;
     const field = fieldBase ? `${fieldBase}.${k}` : k;
     if (v === null || v === undefined) continue;
-    if (Array.isArray(v)) continue; // arrays round-trip only as a whole value, not pickable
+    if (Array.isArray(v)) {
+      // Per-element arrays (e.g. parcelFunding by parcelId) expose each element's
+      // scalar fields as discrete paths; other arrays round-trip only as a whole
+      // value, so they are not pickable.
+      const keyField = PER_ELEMENT_ARRAYS[k];
+      if (keyField) {
+        for (const el of v as unknown[]) {
+          if (!el || typeof el !== 'object') continue;
+          const keyVal = (el as Indexable)[keyField];
+          if (keyVal == null) continue;
+          const sel = `${k}[${keyField}=${String(keyVal)}]`;
+          collectScalarLeaves(`${basePath}.${sel}`, fieldBase ? `${fieldBase}.${sel}` : sel, el as Indexable, group, out);
+        }
+      }
+      continue;
+    }
     if (typeof v === 'object') { collectScalarLeaves(path, field, v as Indexable, group, out); continue; }
     const t = typeof v;
     if (t === 'number' || t === 'string' || t === 'boolean') {

@@ -74,6 +74,21 @@ function elementLabel(rec: Record<string, unknown>): string {
 }
 
 /**
+ * Nested record arrays that should be diffed PER ELEMENT (so a single element's
+ * field round-trips as its own path) instead of as one whole-array leaf. Keyed
+ * by the array property name -> the element's identifying field. Mirrored by
+ * applyOverrides (findElement resolves "field=value" selectors generically, and
+ * enumerateOverridableFields recurses these same arrays), so the override
+ * grammar stays value-only and round-trippable. Top-level id-keyed arrays
+ * (phases / assets / subUnits / ...) are handled by diffIdArray directly and are
+ * NOT listed here.
+ */
+export const PER_ELEMENT_ARRAYS: Record<string, string> = {
+  // Per-parcel land funding split: parcelFunding[parcelId=P].debtPct / equityPct.
+  parcelFunding: 'parcelId',
+};
+
+/**
  * Diff a single object's leaves and recurse into nested objects.
  * `path` is the parent path (e.g. "project" or "phases[id=phase_1]").
  * Arrays of records keyed by id are handled by `diffIdArray` instead.
@@ -100,6 +115,14 @@ function diffObject(
       continue;
     }
 
+    // Selected record arrays diff per element (e.g. parcelFunding by parcelId)
+    // so a single element's field round-trips as its own path.
+    const keyField = PER_ELEMENT_ARRAYS[k];
+    if (keyField && Array.isArray(beforeVal) && Array.isArray(afterVal)) {
+      diffIdArray(`${basePath}.${k}`, beforeVal as Record<string, unknown>[], afterVal as Record<string, unknown>[], out, keyField);
+      continue;
+    }
+
     // Arrays + scalars are reported as one entry. We do NOT walk into
     // arrays of scalars (e.g. preSalesVelocity number[]) per-element;
     // the user is interested in "this field changed" not "index 4
@@ -123,22 +146,22 @@ function diffIdArray(
   before: ReadonlyArray<Record<string, unknown>>,
   after:  ReadonlyArray<Record<string, unknown>>,
   out: ChangeLogEntry[],
+  keyField = 'id',
 ): void {
+  // keyVal is coerced to a string so non-string ids (none today) still key.
+  const keyOf = (rec: Record<string, unknown>): string | undefined => {
+    const v = rec[keyField];
+    return typeof v === 'string' ? v : v == null ? undefined : String(v);
+  };
   const byIdBefore = new Map<string, Record<string, unknown>>();
-  for (const rec of before) {
-    const id = rec['id'];
-    if (typeof id === 'string') byIdBefore.set(id, rec);
-  }
+  for (const rec of before) { const id = keyOf(rec); if (id !== undefined) byIdBefore.set(id, rec); }
   const byIdAfter = new Map<string, Record<string, unknown>>();
-  for (const rec of after) {
-    const id = rec['id'];
-    if (typeof id === 'string') byIdAfter.set(id, rec);
-  }
+  for (const rec of after) { const id = keyOf(rec); if (id !== undefined) byIdAfter.set(id, rec); }
 
   // Adds + updates: walk `after`, look up corresponding `before`.
   for (const [id, afterRec] of byIdAfter) {
     const beforeRec = byIdBefore.get(id);
-    const childPath = `${basePath}[id=${id}]`;
+    const childPath = `${basePath}[${keyField}=${id}]`;
     if (!beforeRec) {
       out.push({
         path:  childPath,
@@ -156,7 +179,7 @@ function diffIdArray(
   for (const [id, beforeRec] of byIdBefore) {
     if (byIdAfter.has(id)) continue;
     out.push({
-      path:  `${basePath}[id=${id}]`,
+      path:  `${basePath}[${keyField}=${id}]`,
       label: `Removed ${elementLabel(beforeRec)}`,
       before: beforeRec,
       after:  undefined,
