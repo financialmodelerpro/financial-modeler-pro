@@ -4,22 +4,15 @@
 
 ---
 
-## ⭐ START HERE (Excel MODEL export, true-mirror; Module 1 done, NEXT = Module 2)
+## ⭐ START HERE (current focus, 2026-06-14)
 
-**Active build: the formula-driven Excel MODEL export** (`lib/excel/{styles,buildModelWorkbook}.ts`; verifier `scripts/verify-excel-export.ts`; ExportModal "Excel Model (beta)"). Every calc cell is a real Excel formula off the Assumptions tab with the platform value cached via `fcell` for Node reconciliation; circular debt/IDC/sweep resolved by Excel iterative calc (post-processed into the .xlsx zip). Delivered module by module, each reconciled. Full plan + per-unit narrative: git log + memory (`project_excel_export_*`).
+**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is live (case-engine surface + explicit override editor + comparison matrix; `verify-module6-scenarios` 16/16). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
 
-**MODULE 1 LOCKED (formula-driven, true-mirror).** Sheets: Cover, Assumptions (pure inputs + defined names), Timeline, Land & Area, Capex, Financing. Conventions now in place across all sheets:
-- **Land & Area**: asset-wise (no sub-unit rows), grouped Residential / Hospitality / Retail with group totals; GDV residential-only.
-- **Formatting**: Calibri 9.5; accounting number format (zero = dash, negatives in parens); all % 2dp; contiguous totals are `SUM(range)`; FAST input cells = navy-pale fill + navy text (matches the PDF).
-- **Frozen 4-row period header** on every schedule: row 3 period-end dates ("Dec YYYY"), row 4 period index, **Period 0 = the opening = Dec(startYear-1)**; periods from col E (Capex from col F, it has an extra Quantity col), Total inside the frozen block, freeze rows 1-4 + the label/Total columns; no repeated year rows inside schedules.
-- **Capex**: single per-asset block in Table 1 (Cost line, UOM, Rate, **Quantity** = live basis, Total = Rate × Quantity, then periods = Total × allocation %); allocation % inputs on top; the 4 platform tables (incl land / excl in-kind / excl total land). Cross-asset-allocated lines + `rate_x_specific_subunit` stay engine-sourced (cached). UOM labels for `rate_x_parking_area` / `rate_x_support_area` added in `capexReports.ts`.
-- **Scale + decimals selector** in ExportModal (full/thousands = 0dp, millions = 1dp default; money bases scale, rates/counts don't).
-
-**MUST-CONVERT (Financing, knowingly deferred):** the Financing sheet carries three cached per-period budget rows (IDC cash budget, cash-sweep budget, gap-sized debt drawdown) so the per-facility roll-forward stays acyclic this unit. Convert these (and the Method-1 cash-equity split) to live Cash-Flow / funding-split references when the Cash-Flow unit lands (where the genuine Financing↔CF circularity appears and Excel iterative calc becomes load-bearing). Do not leave them silently.
-
-**NEXT = Module 2 (Revenue + Cost of Sales) as real formulas**: Sell (velocity → sale value → cash/recognition cohort vintages via SUMPRODUCT), Hospitality (keys × days × occupancy × ADR with indexation), Lease (area × occupancy × indexed rate); CoS joint-factor V2. Add the revenue driver inputs to Assumptions. Then Module 3 Opex (formulas), Module 4 Fixed Assets + Statements, Module 5 Returns, final Checks. Reuse the `lib/reports/` builders for cached `result` values; keep the look (no gridlines, navy bars, FAST colours).
-
-**Open follow-up (optional):** refactor the M1/M2/M3 on-screen output tabs to also consume the `lib/reports/` builders (only M4 does today), so the on-screen structure shares one source with the PDF.
+**NEXT / pending units:**
+- **Module 7 Reports** (charts / dashboards): the remaining module surface (config: `module7` = Reports, currently a stub).
+- **Two-way Sensitivity grid** on the Excel Returns tab: the one Module 5 section not yet mirrored (the on-screen + PDF grid already exist via `computeReturnsSensitivity`).
+- **Scenario re-basing** in Module 6: promote a non-base case to base (deferred; needs per-case override recompute against the new base).
+- Per-element override grammar can extend beyond `parcelFunding` if a scenario needs per-period velocity / profile curves (today those stay whole-array auto-capture).
 
 ---
 
@@ -47,18 +40,19 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 
 ---
 
-## REFM Module Status (2026-05-25)
+## REFM Module Status (2026-06-14)
 
 Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md) + memory `project_*` files.
 
 | Module | Name | Status |
 |--------|------|--------|
-| Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58 (base). Funding Methods 2 + 3 have Funding Gap sub-tab with display-only sizing math (Pass 2R-2V) + Cash Sweep + Dividend waterfall live (Pass 2S-2Z); engine wire-up to debt drawdown sizing still on backlog. |
-| Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9N. 133/133 + 46/46 verifier sections green. |
-| Module 3 | Operating Expenses | **LOCKED** at Pass 5d. 38/38 + 24/24 verifier sections green. |
-| Module 4 | Financial Statements | WIP. Schedules / P&L / CF / BS surfaces shipped. **Balances by construction**: BS reconciles AND Direct == Indirect closing cash every period (verified under escrow + handover/over-time recognition). 2026-05-25 root causes closed: escrow = restricted-cash asset (not liability); residential P&L revenue uses recognised series (matches Module 2). Per-line Reconciliation Bridge on the BS tab. 703 verifier sections green across 11 scripts (m4-bs-reconciliation 184). |
-| Module 5 | Returns & Valuation | **Live.** IRR/MOIC/NPV/Payback on FCFF/FCFE/Dividends + terminal value + RE metrics + multi-partner returns (per-type % split) + exit/sensitivity/per-asset blocks. RE Metrics tab carries development / income-exit / hospitality / residential / lease KPIs. Returns tabs: Returns / RE Metrics / **Case Comparison**. |
-| Module 6 | Reports & Visualizations | Not started (next phase). |
+| Module 1 | Project Setup / Costs / Financing | **LOCKED** at M2.0 Pass 58 (base). Funding Methods 2 + 3 calculate + gap-size the drawdown (2026-06-01); Funding Gap + Cash Sweep + Dividend waterfall live. |
+| Module 2 | Revenue + CoS + Schedules + Escrow | **LOCKED** at Pass 9N. |
+| Module 3 | Operating Expenses | **LOCKED** at Pass 5d. |
+| Module 4 | Financial Statements | **DONE.** Schedules / P&L / CF / BS. Balances by construction (BS reconciles AND Direct == Indirect closing cash every period). |
+| Module 5 | Returns & Valuation | **DONE.** IRR/MOIC on FCFF/FCFE/Dividends + terminal value + RE metrics + multi-partner returns + exit / sensitivity / per-asset. Tabs: Returns / RE Metrics / Case Comparison. |
+| Module 6 | Scenario Analysis | **LIVE (2026-06-14).** Surface over the case engine: case list, explicit override editor (field picker that only offers round-trippable fields), comparison matrix. Was "Reports"; swapped with Module 7. |
+| Module 7 | Reports & Visualizations | Stub (next module surface). |
 
 **Cases (scenario management), shipped 2026-06-03:** Management Case = base; Downside + Upside are field-override cases (renamable, add custom). Topbar Case switcher + Returns Case Comparison tab. Engine `lib/cases/applyOverrides.ts`, verify-cases 19/19. See the NEXT SESSION block above for follow-ups.
 
