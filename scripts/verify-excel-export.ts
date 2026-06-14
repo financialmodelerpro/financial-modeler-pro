@@ -111,6 +111,13 @@ async function main(): Promise<void> {
   check('Cash Sweep closing cash (last) == Direct CF closing', close(finLast(/^= Closing Cash/), snap.directCF.closingCashPerPeriod[N - 1] ?? 0));
   // Inputs sub-tab echoes raw inputs (from Assumptions) inline.
   check('Financing Inputs echoes raw inputs (Funding method, Debt share)', finRow(/^Funding method$/) > r1 && finRow(/^Debt share$/) > r1);
+  // Inputs sub-tab Funding Requirement block (the schedule starting point):
+  // method-by-method requirement + Selected row, all above the Schedules header.
+  const frReq = finRow(/^Funding Requirement \(schedule starting point/);
+  check('Financing Inputs shows the Funding Requirement (schedule starting point)', frReq > r1 && frReq < r2);
+  check('Funding Requirement lists all four methods + Selected', finRow(/^Method 1, Fixed Debt-to-Equity Ratio$/) > r1 && finRow(/^Method 4, Specified Debt \+ Equity \(manual\)$/) > r1 && finRow(/^Selected \(Method /) > r1);
+  // Method 1 requirement total ties to the snapshot funding need (total capex excl land in-kind).
+  check('Funding Requirement Method 1 total ties to snapshot', close(totD('Financing', /^Method 1, Fixed Debt-to-Equity Ratio$/), sumA(gapSnap.capexPerPeriod, N)));
   // Cash Flow closing cash (last period) == snapshot closing cash.
   const cfWs = wb.getWorksheet('Cash Flow')!; const ccRow = rowByLabel(cfWs, /^Closing cash$/);
   check('Cash Flow closing cash (last) == snapshot closing cash', ccRow > 0 && close(num(cfWs.getCell(ccRow, 6 + N - 1).value), snap.directCF.closingCashPerPeriod[N - 1] ?? 0));

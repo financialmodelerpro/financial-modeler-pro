@@ -1593,8 +1593,13 @@ function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opex
     r += 1;
   };
 
+  // Funding-gap waterfall (Method 2 + Method 3 series). Computed once here so
+  // both the Inputs Funding Requirement block (the schedule starting point) and
+  // section 3 below read from the same source.
+  const gap = computeFundingGap(snap);
+
   // ── 1. Inputs (raw inputs echoed from Assumptions + derived working) ─────────
-  setSectionHeader(ws.getRow(r), '1. Inputs (raw inputs are on the Assumptions tab under the Financing divider; echoed here, plus derived working)', lastActiveCol(N)); r += 1;
+  setSectionHeader(ws.getRow(r), '1. Inputs (raw inputs are on the Assumptions tab under the Financing divider; echoed here, plus derived working)', lastActiveCol(N), ARGB.accent); r += 1;
   const idc = state.project.idcConfig ?? {};
   const div = state.project.dividendPolicy;
   const sweepCfg = (state.project.financing?.cashSweep ?? {}) as { startingYear?: number; sweepRatioPct?: number };
@@ -1620,8 +1625,26 @@ function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opex
   echo('Total existing pre-axis capex', fin.existing.preCapexTotal, NUMFMT.money, 'Derived: pre-axis capex on existing assets');
   r += 1;
 
+  // Funding Requirement (the schedule starting point): each method sizes the
+  // requirement a different way; the Selected row is what the Schedules below
+  // draw down. Mirrors the platform Inputs tab's "7. Funding Requirement" table.
+  const fnd = fin.funding;
+  const selId = (fnd.selectedMethodId ?? 1) as FundingMethodId;
+  const axisN = (a: number[] | undefined): number[] => (a ?? []).slice(0, N);
+  subTitle(`Funding Requirement (schedule starting point: requirement by funding method, Method ${selId} selected)`);
+  emitM4({ label: 'Method 1, Fixed Debt-to-Equity Ratio', values: axisN(gap.capexPerPeriod) }, 'Total capex (excl. land in-kind), funded by fixed D/E');
+  emitM4({ label: 'Method 2, Net Funding Requirement', values: axisN(gap.methodAGapPerPeriod) }, 'max(0, capex - lagged pre-sales)');
+  emitM4({ label: 'Method 3, Cash Deficit Funding', values: axisN(gap.method3Waterfall.netCashRequiredPerPeriod) }, 'Shortfall below the minimum cash');
+  emitM4({ label: 'Method 4, Specified Debt + Equity (manual)', values: selId === 4 ? axisN(fnd.selectedByPeriod) : zeros() }, 'Manually specified drawdown (active only when selected)');
+  emitM4({ label: `Selected (Method ${selId})`, values: axisN(fnd.selectedByPeriod), isSubtotal: true }, 'The active method, drawn down in the Schedules below');
+  if ((fnd.minCashReserve ?? 0) > 0 && selId !== 3) {
+    emitM4({ label: '(+) Minimum Cash Reserve', values: axisN(fnd.minCashByPeriod), indent: 1 }, 'Minimum cash buffer added to the requirement');
+    emitM4({ label: 'Total Funding Need', values: axisN(fnd.totalFundingNeedByPeriod), isTotal: true }, 'Selected requirement + minimum cash');
+  }
+  r += 1;
+
   // ── 2. Schedules ─────────────────────────────────────────────────────────────
-  setSectionHeader(ws.getRow(r), '2. Schedules (per-facility debt roll-forward, finance cost, combined debt service, equity movement, capital stack)', lastActiveCol(N)); r += 1;
+  setSectionHeader(ws.getRow(r), '2. Schedules (per-facility debt roll-forward, finance cost, combined debt service, equity movement, capital stack)', lastActiveCol(N), ARGB.accent); r += 1;
   const schedTables = buildFinancingScheduleTables(snap, state, fmtNum);
   for (const table of schedTables) emitTable(table);
   // Capital Stack + movement (synthesised from debt + equity closings).
@@ -1644,8 +1667,7 @@ function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opex
   r += 1;
 
   // ── 3. Funding Gap (Method 2 + Method 3 per period) ──────────────────────────
-  setSectionHeader(ws.getRow(r), '3. Funding Gap (Method 2 Net Funding Requirement + Method 3 Cash Deficit Funding, per period)', lastActiveCol(N)); r += 1;
-  const gap = computeFundingGap(snap);
+  setSectionHeader(ws.getRow(r), '3. Funding Gap (Method 2 Net Funding Requirement + Method 3 Cash Deficit Funding, per period)', lastActiveCol(N), ARGB.accent); r += 1;
   subTitle('Method 2, Net Funding Requirement (Capex vs Pre-Sales)');
   emitM4({ label: 'Total project capex (excl. land in-kind)', values: gap.capexPerPeriod, isSubtotal: true }, 'Capex Table 3 (cash capex)');
   emitM4({ label: 'Advance received from customer (gross)', values: gap.preSalesGrossPerPeriod }, 'Pre-sales cash collected (gross)');
@@ -1687,7 +1709,7 @@ function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opex
   r += 1;
 
   // ── 4. Cash Sweep (cash waterfall + per-tranche sweep) ───────────────────────
-  setSectionHeader(ws.getRow(r), '4. Cash Sweep (cash waterfall Operations -> Debt -> Dividend -> Closing, then per-tranche sweep & outstanding)', lastActiveCol(N)); r += 1;
+  setSectionHeader(ws.getRow(r), '4. Cash Sweep (cash waterfall Operations -> Debt -> Dividend -> Closing, then per-tranche sweep & outstanding)', lastActiveCol(N), ARGB.accent); r += 1;
   const sweepTables = buildCashSweepTables(snap, state, fmtNum);
   for (const table of sweepTables) emitTable(table);
 

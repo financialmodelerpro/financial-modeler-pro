@@ -25,6 +25,9 @@ export const ARGB = {
   external: 'FFFF0000',  // red, external links (unused for now)
   navy: 'FF1B4F8A',
   navyDark: 'FF1B3A6B',
+  // Teal divider band for top-level section headers, distinct from the navy
+  // used by total rows so a section break never reads as just another total.
+  accent: 'FF0E6E78',
   white: 'FFFFFFFF',
   grey: 'FFF1F3F5',
   greyMid: 'FFD9DEE3',
@@ -213,13 +216,13 @@ export function setTitle(cell: Cell, text: string, size = 16): void {
   cell.value = text;
   cell.font = { name: 'Calibri', size, bold: true, color: { argb: ARGB.navyDark } };
 }
-export function setSectionHeader(row: ExcelJS.Row, text: string, span: number): void {
+export function setSectionHeader(row: ExcelJS.Row, text: string, span: number, argb: string = ARGB.navy): void {
   const c = row.getCell(1);
   c.value = text;
   c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
   for (let i = 1; i <= span; i++) {
     const cell = row.getCell(i);
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.navy } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
   }
 }
 export function setColHeader(cell: Cell, text: string | number, align: 'left' | 'right' | 'center' = 'right'): void {
