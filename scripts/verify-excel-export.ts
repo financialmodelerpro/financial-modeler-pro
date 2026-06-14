@@ -47,16 +47,17 @@ async function main(): Promise<void> {
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '13 June 2026' });
 
   // Tab sequence follows the platform module order: Module 1 (Inputs, Timeline,
-  // Land & Area, Capex, Financing), Module 2 (Revenue, Cost of Sales), Module 3
-  // (Opex), Module 4 (P&L, Cash Flow, Balance Sheet), Module 5 (Returns).
-  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Cost of Sales', 'Opex', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
+  // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
+  // all five Module 2 sub-tabs), Module 3 (Opex), Module 4 (P&L, Cash Flow,
+  // Balance Sheet), Module 5 (Returns).
+  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   const actualOrder = wb.worksheets.map((w) => w.name);
   check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
   const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
   for (const name of ALL_SHEETS) check(`gridlines hidden: ${name}`, noGrid(name));
 
-  const OUTPUT_TABS = ['Revenue', 'Cost of Sales', 'Opex', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
+  const OUTPUT_TABS = ['Revenue', 'Opex', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
   const frozenOk = (n: string): boolean => { const v: any = (wb.getWorksheet(n)?.views ?? [])[0]; return v && v.state === 'frozen' && v.ySplit === 4 && v.xSplit === 4; };
   for (const n of OUTPUT_TABS) check(`frozen header (rows 1-4, cols A-D): ${n}`, frozenOk(n));
 
@@ -78,7 +79,14 @@ async function main(): Promise<void> {
   const totD = (sheet: string, re: RegExp): number => { const ws = wb.getWorksheet(sheet)!; const R = rowByLabel(ws, re); return R > 0 ? num(ws.getCell(R, 4).value) : NaN; }; // period-sheet Total col = D (4)
   check('Revenue total == snapshot total revenue', close(totD('Revenue', /^Total revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)), `wb=${Math.round(totD('Revenue', /^Total revenue$/))} snap=${Math.round(sumA(snap.pl.totalRevenuePerPeriod, N))}`);
   check('Opex total == snapshot total opex', close(totD('Opex', /^Total opex$/), sumA(snap.pl.totalOpexPerPeriod, N)));
-  check('Cost of Sales total == snapshot cost of sales', close(totD('Cost of Sales', /^Total cost of sales$/), sumA(snap.pl.cosPerPeriod, N)));
+  // Cost of Sales is now a section on the Revenue sheet; tie it via the P&L line.
+  check('Cost of Sales total (P&L) == snapshot cost of sales', close(Math.abs(totD('P&L', /^Cost of sales$/)), sumA(snap.pl.cosPerPeriod, N)));
+  // Module 2 mirror: the Revenue sheet reproduces all platform sub-tabs in order.
+  const revWs = wb.getWorksheet('Revenue')!;
+  const m2 = (re: RegExp): number => rowByLabel(revWs, re);
+  const m2a = m2(/^1\. Revenue Inputs/), m2b = m2(/^2\. Revenue Output/), m2c = m2(/^3\. Cost of Sales/), m2d = m2(/^4\. Schedules/);
+  check('Revenue mirrors the Module 2 sub-tabs in sequence (Inputs, Output, Cost of Sales, Schedules)', m2a > 0 && m2b > m2a && m2c > m2b && m2d > m2c, `rows=${m2a},${m2b},${m2c},${m2d}`);
+  check('Revenue Output carries per-asset vintage matrices', m2(/Vintage Matrix,/) > m2b);
   check('P&L Revenue == snapshot total revenue', close(totD('P&L', /^Revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)));
   check('P&L Profit after tax == snapshot PAT', close(totD('P&L', /^Profit after tax$/), sumA(snap.pl.patPerPeriod, N)));
   // P&L EBITDA per-period ties cell-for-cell.
@@ -180,7 +188,7 @@ async function main(): Promise<void> {
   // ── Accounting formatting: dash for zero + percentages 2dp ──────────────────
   const moneyCell = bsWs.getCell(rowByLabel(bsWs, /^Total assets$/), 6);
   check('money format uses dash for zero', typeof moneyCell.numFmt === 'string' && moneyCell.numFmt.includes('"-"'));
-  const revWs = wb.getWorksheet('Revenue')!; let pct2Ok = false;
+  let pct2Ok = false;
   revWs.eachRow((row) => row.eachCell((c) => { if (typeof c.numFmt === 'string' && /0\.00%/.test(c.numFmt)) pct2Ok = true; }));
   check('percentages are 2 decimals', pct2Ok);
 
