@@ -45,6 +45,18 @@ export interface CapexInputLine {
    *  Σ over the axis equals `amount`; Σ across an asset's lines equals the
    *  asset perPeriod. Seeds the Excel per-line year-on-year phasing matrix. */
   perPeriod: number[];
+  /** Effective phasing window + method for this line on this asset (master line
+   *  merged with any active per-asset override). startPeriod / endPeriod are
+   *  phase-relative period indices; phasing is 'even' or 'manual'. Seeds the
+   *  Inputs cost-line table so a user sees when each line spends and how. */
+  startPeriod: number;
+  endPeriod: number;
+  phasing: string;
+  /** Effective per-sub-unit custom rates, only when method is
+   *  'per_sub_unit_custom_rates'. Keys are sub-unit ids plus the special
+   *  '__support__' / '__parking__' rows. Lets the Inputs tab show the rate
+   *  sheet that a single Rate cell would otherwise collapse to one number. */
+  perSubUnitRates?: Record<string, number>;
 }
 export interface CapexInputAsset { assetId: string; assetName: string; phaseName: string; lines: CapexInputLine[]; total: number }
 export interface CapexResultTable { title: string; rows: M4Row[] }
@@ -159,6 +171,10 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       const cl = lineById.get(lineId);
       if (!cl) continue;
       const b = basisFor(cl.method, metrics, amount, cl.value);
+      // Effective phasing window + method for THIS asset: an active per-asset
+      // override (overridden !== false) wins field-by-field, otherwise the
+      // master line. Mirrors the calc engine's resolution.
+      const ov = costOverrides.find((o) => o.assetId === a.id && o.lineId === lineId && o.overridden !== false);
       lines.push({
         id: lineId,
         method: String(cl.method ?? ''),
@@ -174,6 +190,10 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         metricKind: b.kind,
         amount,
         perPeriod: projectOntoAxis(breakdown.perLinePerPeriod?.[lineId] ?? [], offset, N),
+        startPeriod: ov?.startPeriod ?? cl.startPeriod,
+        endPeriod: ov?.endPeriod ?? cl.endPeriod,
+        phasing: String(ov?.phasing ?? cl.phasing ?? 'even'),
+        perSubUnitRates: cl.method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
       });
     }
     if (lines.length) inputAssets.push({ assetId: a.id, assetName: a.name, phaseName: phase.name, lines, total: breakdown.total });

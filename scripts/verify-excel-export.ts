@@ -148,6 +148,14 @@ async function main(): Promise<void> {
   if (facHdr > 0) check('Financing facilities carry timing + share columns', String(inp.getCell(facHdr + 1, 9).value) === 'Repay start year' && String(inp.getCell(facHdr + 1, 12).value) === 'Facility share %');
   const selMethod = snap.financing.funding.selectedMethodId;
   if (selMethod !== 1) check(`Selected funding-method config (Method ${selMethod}) emitted in Inputs`, rowByLabel(inp, new RegExp(`^Method ${selMethod}:`)) > rowByLabel(inp, /^Financing settings$/));
+  // Capex cost lines carry Stage + phasing window (start / end period, even/manual).
+  const capHdr = rowByLabel(inp, /^Capex cost lines/);
+  if (capHdr > 0) check('Capex cost lines carry Stage + phasing-window columns', String(inp.getCell(capHdr + 1, 5).value) === 'Stage' && String(inp.getCell(capHdr + 1, 6).value) === 'Start period' && String(inp.getCell(capHdr + 1, 8).value) === 'Phasing');
+  // Project NDA deduction settings present.
+  check('Project NDA deduction settings emitted', rowByLabel(inp, /^NDA deduction enabled/) > 0 && rowByLabel(inp, /^Project roads %/) > 0);
+  // Assets table carries per-asset NDA columns.
+  const astHdr = rowByLabel(inp, /^Assets$/);
+  if (astHdr > 0) check('Assets carry per-asset NDA columns', String(inp.getCell(astHdr + 1, 12).value) === 'Roads % (asset)' && String(inp.getCell(astHdr + 1, 14).value) === 'NDA on (asset)');
 
   // ── Guidance "Basis / Calculation" column on every output tab ───────────────
   const hasBasisCol = (sheet: string): boolean => { const ws = wb.getWorksheet(sheet)!; return String(ws.getCell(4, 2).value ?? '').includes('Basis'); };

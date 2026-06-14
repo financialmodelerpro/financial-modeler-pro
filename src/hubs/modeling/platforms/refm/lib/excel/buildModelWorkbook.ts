@@ -433,6 +433,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, 'DsoDays');
   addKV('Opex payables, DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, 'DpoDays');
   addKV('Pre-sales escrow held %', p.escrow?.heldPct ?? 0, NUMFMT.pct);
+  // Net Developable Area (NDA) deduction: roads + parks carved out of gross land
+  // before capacity calcs. Project-level here; per-asset values live on the
+  // Assets table when the scope is 'asset'.
+  addKV('NDA deduction enabled (1 = yes)', p.projectNdaEnabled ? 1 : 0, NUMFMT.int);
+  addKV('NDA scope (project / asset)', String(p.projectNdaScope ?? 'project'), '@');
+  addKV('Project roads % (of total land)', (p.projectRoadsPct ?? 0) / 100, NUMFMT.pct);
+  addKV('Project parks % (of total land)', (p.projectParksPct ?? 0) / 100, NUMFMT.pct);
   void taxRow;
   // Financing raw inputs (funding method, debt/equity, min cash, IDC policy,
   // dividends) are grouped under the Financing divider below, not here, so the
@@ -493,8 +500,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // Assets (area schedule + depreciation).
   const visibleAssets = opts.state.assets.filter((a) => a.visible !== false);
   if (visibleAssets.length) {
-    setSectionHeader(ws.getRow(r), 'Assets', 11); r += 1;
-    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    setSectionHeader(ws.getRow(r), 'Assets', 14); r += 1;
+    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)', 'Roads % (asset)', 'Parks % (asset)', 'NDA on (asset)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     for (const a of visibleAssets) {
       setLabel(ws.getCell(`A${r}`), a.name);
@@ -508,6 +515,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`I${r}`), a.landAllocation?.sqm ?? a.landAreaSqm ?? 0, NUMFMT.int);
       setInput(ws.getCell(`J${r}`), a.landAllocation?.customRate ?? 0, NUMFMT.rate); // /sqm rate, unscaled
       setInput(ws.getCell(`K${r}`), a.usefulLifeYears ?? 0, NUMFMT.int);
+      // Per-asset NDA deduction (consumed when project NDA scope = 'asset').
+      setInput(ws.getCell(`L${r}`), (a.assetRoadsPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`M${r}`), (a.assetParksPct ?? 0) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`N${r}`), a.assetNdaEnabled ? 1 : 0, NUMFMT.int);
       assetRefs.push({
         id: a.id, name: a.name, phaseId: a.phaseId, strategy: a.strategy,
         bua: addr('C', r), nsa: addr('D', r), gfa: addr('E', r), support: addr('F', r), parking: addr('G', r),
@@ -516,6 +527,25 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       r += 1;
     }
     r += 1;
+    // Multi-parcel land splits: when an asset draws land from more than one
+    // parcel, the single Land (sqm) above is the aggregate. List the per-parcel
+    // sqm so the parcel-level attribution is not lost.
+    const splitAssets = visibleAssets.filter((a) => (a.landAllocation?.multiParcelSplits?.length ?? 0) > 0);
+    if (splitAssets.length) {
+      setSectionHeader(ws.getRow(r), 'Asset land splits (per parcel)', 3); r += 1;
+      ['Asset', 'Parcel', 'Land (sqm)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+      r += 1;
+      for (const a of splitAssets) {
+        for (const sp of a.landAllocation!.multiParcelSplits!) {
+          const parcelName = opts.state.parcels.find((pa) => pa.id === sp.parcelId)?.name ?? sp.parcelId;
+          setLabel(ws.getCell(`A${r}`), a.name);
+          setLabel(ws.getCell(`B${r}`), parcelName);
+          setInput(ws.getCell(`C${r}`), sp.sqm ?? 0, NUMFMT.int);
+          r += 1;
+        }
+      }
+      r += 1;
+    }
   }
 
   // Sub-units (revenue / area drivers).
@@ -556,13 +586,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // and a derived unit count are all calculated results, so they are computed
   // live on the calc sheets (Land & Area, Capex itself) instead of being stored
   // here as constants. Percent rates are decimals (0.10); a fixed lump = rate.
-  setSectionHeader(ws.getRow(r), 'Capex cost lines (inputs: method, rate / %, physical quantity)', 4); r += 1;
-  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity (rate-x-area only)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  setSectionHeader(ws.getRow(r), 'Capex cost lines (inputs: method, rate / %, quantity, stage, phasing window)', 8); r += 1;
+  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity (rate-x-area only)', 'Stage', 'Start period', 'End period', 'Phasing'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
   r += 1;
   const capexRefs: CapexAssetRef[] = [];
   for (const ia of capex.inputAssets) {
     setLabel(ws.getCell(`A${r}`), `${ia.assetName}  (${ia.phaseName})`, { bold: true });
-    fillRange(ws, r, 1, r, 4, ARGB.subtotal);
+    fillRange(ws, r, 1, r, 8, ARGB.subtotal);
     r += 1;
     const lineRefs: CapexLineRef[] = [];
     for (const ln of ia.lines) {
@@ -572,6 +602,12 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       // per-unit rate (NUMFMT.rate) so the workbook display-scale leaves it alone.
       if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
       else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.rate);
+      // Stage (land / hard / soft) + the phasing window (start / end period,
+      // even vs manual) that drives this line's per-period spend.
+      setInput(ws.getCell(`E${r}`), ln.stage, '@');
+      setInput(ws.getCell(`F${r}`), ln.startPeriod, NUMFMT.int);
+      setInput(ws.getCell(`G${r}`), ln.endPeriod, NUMFMT.int);
+      setInput(ws.getCell(`H${r}`), ln.phasing, '@');
       // Keep column D as an input ONLY for a genuine physical quantity: rate-x-
       // area (BUA / NSA / GFA / NDA / roads / land sqm) and rate-per-parking-bay
       // (basisFor tags bays as 'count', but a bay is a physical input). A derived
@@ -599,6 +635,17 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         amount: ln.amount,
       });
       r += 1;
+      // Per-sub-unit custom rates (method 'per_sub_unit_custom_rates'): the Rate
+      // cell above is only the fallback default, so expand the real rate sheet as
+      // indented sub-rows (sub-unit name + rate), incl. the Support / Parking rows.
+      if (ln.perSubUnitRates && Object.keys(ln.perSubUnitRates).length) {
+        for (const [key, rate] of Object.entries(ln.perSubUnitRates)) {
+          const subName = key === '__support__' ? 'Support' : key === '__parking__' ? 'Parking' : (opts.state.subUnits.find((s) => s.id === key)?.name ?? key);
+          setLabel(ws.getCell(`A${r}`), `${subName} rate`, { indent: 2 });
+          setInput(ws.getCell(`C${r}`), rate, NUMFMT.rate);
+          r += 1;
+        }
+      }
     }
     capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
   }
