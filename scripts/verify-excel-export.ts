@@ -157,7 +157,9 @@ async function main(): Promise<void> {
   // P&L / Cash Flow / Balance Sheet as separate full-detail statement tabs.
   const schWs = wb.getWorksheet('Schedules')!;
   const m4s = (re: RegExp): number => rowByLabel(schWs, re);
-  check('Schedules mirrors Module 4 sub-tabs (Fixed Assets, IDC Pool, Working Capital)', m4s(/^1\. Fixed Assets/) > 0 && m4s(/^2\. IDC Pool/) > m4s(/^1\. Fixed Assets/) && m4s(/^3\. Working Capital/) > m4s(/^2\. IDC Pool/));
+  check('Schedules mirrors Module 4 sub-tabs (Fixed Assets & D&A, BS Schedules)', m4s(/^1\. Fixed Assets & D&A/) > 0 && m4s(/^2\. BS Schedules/) > m4s(/^1\. Fixed Assets & D&A/));
+  check('BS Schedules grouped ASSETS / LIABILITIES / EQUITY', m4s(/^ASSETS$/) > m4s(/^2\. BS Schedules/) && m4s(/^LIABILITIES$/) > m4s(/^ASSETS$/) && m4s(/^EQUITY$/) > m4s(/^LIABILITIES$/));
+  check('BS Schedules carries the roll-forwards (A1 / L1 / E2)', m4s(/^A1\. Residential Sales Receivables/) > 0 && m4s(/^L1\. Accounts Payable/) > 0 && m4s(/^E2\. Retained Earnings/) > 0);
   check('P&L is a separate full-detail statement (to PAT)', rowByLabel(plWs, /Project$/) > 0 && rowByLabel(plWs, /^PAT$/) > 0);
   check('Cash Flow has both Direct and Indirect methods', rowByLabel(cfWs, /Direct Method/) > 0 && rowByLabel(cfWs, /Indirect Method/) > 0);
   check('Balance Sheet has the full ASSETS / LIABILITIES / EQUITY structure', rowByLabel(bsWs, /^ASSETS$/) > 0 && rowByLabel(bsWs, /^LIABILITIES$/) > 0 && rowByLabel(bsWs, /TOTAL LIABILITIES \+ EQUITY/) > 0);
@@ -168,6 +170,10 @@ async function main(): Promise<void> {
   // Raw financing scalars live under the Financing divider (once), not Project.
   check('Financing settings divider holds the raw financing scalars', rowByLabel(inp, /^Funding method$/) > rowByLabel(inp, /^Financing settings$/) && rowByLabel(inp, /^Debt share$/) > rowByLabel(inp, /^Financing settings$/));
   check('Inputs title says Inputs', /Inputs/.test(labelOf(inp, 1)));
+  // All model inputs live on the Inputs tab, grouped by domain divider band.
+  check('Inputs tab has the REVENUE INPUTS domain', rowByLabel(inp, /^REVENUE INPUTS$/) > 0 && rowByLabel(inp, /^Revenue configuration by asset/) > rowByLabel(inp, /^REVENUE INPUTS$/));
+  check('Inputs tab has the OPEX INPUTS domain', rowByLabel(inp, /^OPEX INPUTS$/) > rowByLabel(inp, /^REVENUE INPUTS$/));
+  check('Inputs domains ordered Revenue -> Opex -> Financing', rowByLabel(inp, /^REVENUE INPUTS$/) < rowByLabel(inp, /^OPEX INPUTS$/) && rowByLabel(inp, /^OPEX INPUTS$/) < rowByLabel(inp, /^FINANCING INPUTS$/));
   // Module 1 input completeness (gaps closed 2026-06-14): per-parcel land
   // funding split, selected funding-method config, per-facility timing + share.
   const parcelsHdr = rowByLabel(inp, /^Land parcels$/);

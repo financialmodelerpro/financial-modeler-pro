@@ -655,17 +655,107 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   }
   r += 1;
 
-  // ── Separator: Capex inputs above, Financing inputs below ──────────────────
-  // A full-width divider band so the two input domains read as distinct blocks
-  // (the Capex cost lines end above; every Financing input starts here).
+  // Full-width domain divider band between input domains (Capex / Revenue / Opex
+  // / Financing), so each reads as a distinct block. Every model input lives on
+  // this Inputs tab; the module output tabs echo their own slice marked "from
+  // the Inputs tab".
+  const inputDivider = (text: string): void => {
+    r += 1;
+    for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.navyDark);
+    const cell = ws.getCell(`A${r}`); cell.value = text;
+    cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.white } };
+    cell.alignment = { vertical: 'middle' };
+    ws.getRow(r).height = 18;
+    r += 2;
+  };
+  const idxLabel = (ix?: { method?: string; rate?: number }): string => {
+    if (!ix || !ix.method || ix.method === 'none') return 'None';
+    const m = ix.method === 'single_rate' ? 'Flat' : ix.method === 'yoy_compound' ? 'Compound' : ix.method === 'yoy_per_period' ? 'Per-Year' : ix.method === 'step' ? 'Step' : ix.method;
+    return ix.rate != null ? `${m} ${(ix.rate * 100).toFixed(1)}%` : m;
+  };
+  const opexValFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
+
+  // ── Revenue inputs (recognition + indexation + cash / recognition profiles;
+  // unit prices / ADR + occupancy are in the Sub-units table above). ──────────
+  inputDivider('REVENUE INPUTS');
+  setSectionHeader(ws.getRow(r), 'Revenue configuration by asset (unit prices / ADR + occupancy are in the Sub-units table above)', 7); r += 1;
+  ['Asset', 'Strategy', 'Recognition', 'PIT year', 'ADR / Base rate', 'Indexation', 'Index rate %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+  for (const a of visibleAssets) {
+    const rc = a.revenue ?? {};
+    setLabel(ws.getCell(`A${r}`), a.name);
+    setInput(ws.getCell(`B${r}`), a.strategy, '@');
+    if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
+      const s = rc.sell;
+      setInput(ws.getCell(`C${r}`), String(s?.recognitionProfile?.method ?? 'over_time'), '@');
+      setInput(ws.getCell(`D${r}`), s?.recognitionProfile?.pointInTimeYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`F${r}`), String(s?.indexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), s?.indexation?.rate ?? 0, NUMFMT.pct2);
+    } else if (a.strategy === 'Operate') {
+      setInput(ws.getCell(`E${r}`), rc.operate?.startingADR ?? 0, NUMFMT.rate);
+      setInput(ws.getCell(`F${r}`), String(rc.operate?.adrIndexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), rc.operate?.adrIndexation?.rate ?? 0, NUMFMT.pct2);
+    } else {
+      setInput(ws.getCell(`E${r}`), rc.lease?.baseRate ?? 0, NUMFMT.rate);
+      setInput(ws.getCell(`F${r}`), String(rc.lease?.rentIndexation?.method ?? 'none'), '@');
+      setInput(ws.getCell(`G${r}`), rc.lease?.rentIndexation?.rate ?? 0, NUMFMT.pct2);
+    }
+    r += 1;
+  }
   r += 1;
-  for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.navyDark);
-  const sepCell = ws.getCell(`A${r}`);
-  sepCell.value = 'FINANCING INPUTS';
-  sepCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.white } };
-  sepCell.alignment = { vertical: 'middle' };
-  ws.getRow(r).height = 18;
-  r += 2;
+  // Per-asset cash + recognition profiles (% by year from the sale year).
+  for (const a of visibleAssets) {
+    const s = a.revenue?.sell; if (!s) continue;
+    const cashPct = s.cashPaymentProfile?.percentages ?? [];
+    const recogPct = s.recognitionProfile?.percentages ?? [];
+    let n = 0; for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
+    if (!n) continue;
+    setSectionHeader(ws.getRow(r), `Cash & recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
+    setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
+    setLabel(ws.getCell(`A${r}`), 'Cash payment %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
+    if (recogPct.length) { setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1; }
+    r += 1;
+  }
+
+  // ── Opex inputs (per-asset opex lines + HQ; operating margins are in the
+  // Sub-units table above). ──────────────────────────────────────────────────
+  inputDivider('OPEX INPUTS');
+  let anyOpex = false;
+  for (const a of visibleAssets) {
+    const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
+    if (!lines.length) continue;
+    anyOpex = true;
+    setSectionHeader(ws.getRow(r), `Opex lines, ${a.name}`, 6); r += 1;
+    ['Line', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    for (const l of lines) {
+      setLabel(ws.getCell(`A${r}`), l.name);
+      setInput(ws.getCell(`B${r}`), String(l.category), '@');
+      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
+      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
+      setInput(ws.getCell(`E${r}`), l.useAssetDefault ? `(default) ${idxLabel(a.opex?.defaultIndexation)}` : idxLabel(l.indexation), '@');
+      setInput(ws.getCell(`F${r}`), l.rateMode === 'yoy' ? 'YoY' : 'Single', '@');
+      r += 1;
+    }
+    r += 1;
+  }
+  const hqOpexLines = (p.hqOpex?.lines ?? []).filter((l) => !l.disabled);
+  if (hqOpexLines.length) {
+    anyOpex = true;
+    setSectionHeader(ws.getRow(r), 'HQ / Corporate opex lines', 5); r += 1;
+    ['Line', 'Category', 'Mode', 'Value', 'Indexation'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    for (const l of hqOpexLines) {
+      setLabel(ws.getCell(`A${r}`), l.name);
+      setInput(ws.getCell(`B${r}`), String(l.category), '@');
+      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
+      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
+      setInput(ws.getCell(`E${r}`), idxLabel(l.indexation), '@');
+      r += 1;
+    }
+    r += 1;
+  }
+  if (!anyOpex) { setLabel(ws.getCell(`A${r}`), 'No per-line opex configured; operating costs are driven by the operating margins in the Sub-units table above.'); r += 2; }
+
+  // ── Financing inputs ───────────────────────────────────────────────────────
+  inputDivider('FINANCING INPUTS');
 
   // Financing settings (the raw financing scalars, grouped under the Financing
   // divider as the single source of truth; the Financing output tab echoes
@@ -1456,13 +1546,21 @@ function scalarCell(ws: ExcelJS.Worksheet, r: number, label: string, link: strin
 // M4Row (the on-screen statement model) exactly.
 type RowStyle = 'plain' | 'subtotal' | 'total';
 function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
-  section: (text: string) => void; subTitle: (text: string) => void;
+  section: (text: string) => void; groupBand: (text: string) => void; subTitle: (text: string) => void;
   moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean }) => number;
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
   emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; gap: () => void; cursor: () => number;
 } {
   let r = start;
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  // Mid-level group band (navy fill): between a deep-navy section and a pale
+  // sub-table title (e.g. ASSETS / LIABILITIES / EQUITY within BS Schedules).
+  const groupBand = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    r += 1;
+  };
   const subTitle = (text: string): void => {
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
@@ -1502,7 +1600,204 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   const emitTable = (rows: M4Row[]): void => { for (const row of rows) emitM4(row); };
   const gap = (): void => { r += 1; };
   const cursor = (): number => r;
-  return { section, subTitle, moneyRow, statRow, emitM4, emitTable, gap, cursor };
+  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, gap, cursor };
+}
+
+// Balance-sheet feeder roll-forwards (the platform Module 4 Schedules "BS
+// Schedules" sub-tab), ordered by balance-sheet sequence: ASSETS (receivables,
+// inventory, restricted cash), LIABILITIES (AP, unearned, debt), EQUITY (equity
+// roll-forward, retained earnings). Mirrors Module4BSFeeders row-for-row; fmt =
+// String so each totalOverride round-trips back to a number in emitM4.
+function buildBSFeederGroups(snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState): Array<{ group: string; tables: ReportTable[] }> {
+  const N = snap.axisLength;
+  const fmt = (v: number): string => String(v);
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
+
+  // A1. Residential Sales Receivables.
+  const a1Rows: M4Row[] = (() => {
+    const opening = zeros(), saleValue = zeros(), cashCollected = zeros(), closing = zeros();
+    for (const [assetId, bundle] of sellEntries) {
+      const sell = snap.revenue.bySellAsset.get(assetId)!;
+      for (let t = 0; t < N; t++) {
+        opening[t] += bundle.ar.openingPerPeriod[t] ?? 0;
+        saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+        cashCollected[t] += sell.presalesCashPerPeriod[t] ?? 0;
+        closing[t] += bundle.ar.perPeriod[t] ?? 0;
+      }
+    }
+    const rows: M4Row[] = [
+      { label: 'Opening AR (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) Pre-Sales Sale Value', values: saleValue, indent: 1 },
+      { label: '(-) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 },
+      { label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+    if (sellEntries.length) {
+      rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
+      for (const [assetId, bundle] of sellEntries) rows.push({ label: assetName(assetId), values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+    }
+    return rows;
+  })();
+
+  // A2. Operating Receivables (DSO).
+  const a2Rows: M4Row[] = (() => {
+    const operatingRev = snap.pl.hospitalityRevenuePerPeriod.map((v, i) => v + (snap.pl.retailRevenuePerPeriod[i] ?? 0));
+    const closing = snap.bs.arPerPeriod;
+    const opening = zeros();
+    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+    const change = closing.map((v, i) => v - (opening[i] ?? 0));
+    const cash = operatingRev.map((v, i) => v - (change[i] ?? 0));
+    return [
+      { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) Operating revenue billed', values: operatingRev, indent: 1 },
+      { label: '(-) Cash collected', values: cash.map((v) => -v), indent: 1 },
+      { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+  })();
+
+  // A3. Inventory (Residential WIP).
+  const a3Rows: M4Row[] = (() => {
+    const closing = zeros();
+    for (const cf of snap.perAssetCF.values()) for (let t = 0; t < N; t++) closing[t] += cf.inventoryPerPeriod[t] ?? 0;
+    const opening = zeros();
+    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+    const cosTotal = snap.pl.cosPerPeriod;
+    const capexCapitalized = closing.map((v, t) => (v - (opening[t] ?? 0)) + (cosTotal[t] ?? 0));
+    return [
+      { label: 'Opening inventory', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) Capex capitalized', values: capexCapitalized, indent: 1 },
+      { label: '(-) Released to Cost of Sales', values: cosTotal.map((v) => -v), indent: 1 },
+      { label: 'Closing inventory', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+  })();
+
+  // A4. Restricted Cash (Escrow).
+  const a4Rows: M4Row[] = (() => {
+    const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
+    const opening = zeros();
+    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+    return [
+      { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
+      { label: '(-) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
+      { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+  })();
+
+  // L1. Accounts Payable.
+  const apt = snap.ap.projectTotals;
+  const l1Rows: M4Row[] = [
+    { label: 'Opening AP', values: apt.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(apt.openingApPerPeriod[0] ?? 0) },
+    { label: '(+) Opex incurred', values: apt.opexIncurredPerPeriod, indent: 1 },
+    { label: '(-) Cash paid', values: apt.cashPaidPerPeriod.map((v) => -v), indent: 1 },
+    { label: 'Closing AP', values: apt.closingApPerPeriod, isTotal: true, totalOverride: fmt(apt.closingApPerPeriod[N - 1] ?? 0) },
+  ];
+
+  // L2. Unearned Revenue.
+  const l2Rows: M4Row[] = (() => {
+    const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
+    for (const [assetId, bundle] of sellEntries) {
+      const sell = snap.revenue.bySellAsset.get(assetId)!;
+      for (let t = 0; t < N; t++) {
+        opening[t] += bundle.unearned.openingPerPeriod[t] ?? 0;
+        saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+        recognized[t] += sell.presalesRecognitionPerPeriod[t] ?? 0;
+        closing[t] += bundle.unearned.perPeriod[t] ?? 0;
+      }
+    }
+    const rows: M4Row[] = [
+      { label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 },
+      { label: '(-) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 },
+      { label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+    if (sellEntries.length) {
+      rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
+      for (const [assetId, bundle] of sellEntries) rows.push({ label: assetName(assetId), values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+    }
+    return rows;
+  })();
+
+  // L3. Debt Outstanding by Tranche.
+  const l3Rows: M4Row[] = (() => {
+    const rows: M4Row[] = [];
+    const totalOut = zeros();
+    let totalPrior = 0;
+    for (const t of state.financingTranches) {
+      const f = snap.financing.facilities.get(t.id);
+      if (!f) continue;
+      const outRow = f.outstanding.slice(0, N);
+      while (outRow.length < N) outRow.push(0);
+      const facPrior = f.openingBalance ?? 0;
+      rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
+      for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
+      totalPrior += facPrior;
+    }
+    rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
+    return rows;
+  })();
+
+  // E1. Equity Cumulative Roll-Forward (split by type).
+  const e1Rows: M4Row[] = (() => {
+    const cashDraws = snap.financing.equity.cashPerPeriod.slice(0, N);
+    const inKindDraws = snap.financing.equity.inKindPerPeriod.slice(0, N);
+    const existingDrawsRaw = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
+    while (cashDraws.length < N) cashDraws.push(0);
+    while (inKindDraws.length < N) inKindDraws.push(0);
+    while (existingDrawsRaw.length < N) existingDrawsRaw.push(0);
+    const priorExisting = existingDrawsRaw.reduce((s, v) => s + v, 0);
+    const opening = zeros(), closing = zeros();
+    let running = priorExisting;
+    for (let t = 0; t < N; t++) { opening[t] = running; running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0); closing[t] = running; }
+    const rows: M4Row[] = [
+      { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: 0 },
+      { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1 },
+      { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1 },
+    ];
+    if (Math.abs(priorExisting) > 0.5) rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: zeros(), indent: 1, priorValue: priorExisting });
+    rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorExisting });
+    return rows;
+  })();
+
+  // E2. Retained Earnings Roll-Forward.
+  const e2Rows: M4Row[] = (() => {
+    const pat = snap.pl.patPerPeriod.slice(0, N);
+    const reserveTransfer = snap.bs.statutoryReserveTransferPerPeriod.slice(0, N);
+    const dividends = snap.bs.dividendsPerPeriod.slice(0, N);
+    const closing = snap.bs.retainedEarningsPerPeriod.slice(0, N);
+    const pad = (a: number[]): void => { while (a.length < N) a.push(0); };
+    pad(pat); pad(reserveTransfer); pad(dividends); pad(closing);
+    const opening = zeros();
+    for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (closing[t - 1] ?? 0);
+    return [
+      { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+      { label: '(+) PAT for the period', values: pat, indent: 1 },
+      { label: '(-) Transfer to statutory reserve', values: reserveTransfer.map((v) => -v), indent: 1 },
+      { label: '(-) Dividends declared', values: dividends.map((v) => -v), indent: 1 },
+      { label: 'Closing retained earnings', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    ];
+  })();
+
+  return [
+    { group: 'ASSETS', tables: [
+      { title: 'A1. Residential Sales Receivables: Roll-Forward (project)', rows: a1Rows },
+      { title: 'A2. Operating Receivables: Roll-Forward (project)', rows: a2Rows },
+      { title: 'A3. Inventory (Residential WIP): Roll-Forward (project)', rows: a3Rows },
+      { title: 'A4. Restricted Cash (Escrow): Roll-Forward (project)', rows: a4Rows },
+    ] },
+    { group: 'LIABILITIES', tables: [
+      { title: 'L1. Accounts Payable: Roll-Forward (project)', rows: l1Rows },
+      { title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', rows: l2Rows },
+      { title: 'L3. Debt Outstanding by Tranche (project)', rows: l3Rows },
+    ] },
+    { group: 'EQUITY', tables: [
+      { title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', rows: e1Rows },
+      { title: 'E2. Retained Earnings Roll-Forward (project)', rows: e2Rows },
+    ] },
+  ];
 }
 
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
@@ -1592,7 +1887,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   };
 
   // ── 1. Revenue Inputs ────────────────────────────────────────────────────────
-  section('1. Revenue Inputs (revenue configuration by asset + per-asset cash / recognition profiles)');
+  section('1. Revenue Inputs (raw inputs are on the Inputs tab under REVENUE INPUTS; echoed here)');
   subTitle('Revenue Configuration by Asset');
   ['Asset', '', '', 'Strategy', 'Key driver', 'Indexation'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i === 0 ? LBL_COL : OPEN_COL + (i - 3)), h, i === 0 ? 'left' : 'left'); });
   r += 1;
@@ -1787,7 +2082,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   const txt = (c: number, v: string | number, numFmt = '@'): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
 
   // ── 1. Opex Inputs ───────────────────────────────────────────────────────────
-  section('1. Opex Inputs (per-asset opex lines + HQ / corporate overheads)');
+  section('1. Opex Inputs (raw inputs are on the Inputs tab under OPEX INPUTS; echoed here)');
   const valueFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
   for (const a of state.assets) {
     const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
@@ -2091,12 +2386,13 @@ function addSchedules(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.schedules, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, all sub-tabs in sequence: 1. Fixed Assets (land + depreciable NBV roll-forward), 2. IDC Pool (capitalised construction interest), 3. Working Capital (closing balances).', { label: 'Line', feeds: 'Sourced from Capex, depreciation, Accounts Payable and the financing recurrence. Supports the Balance Sheet.' });
+  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (land + depreciable NBV roll-forward), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', feeds: 'Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet.' });
   const E = makeEmitters(ws, N);
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const nz = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
 
-  E.section('1. Fixed Assets (land + depreciable NBV roll-forward, per asset + project total)');
+  // ── 1. Fixed Assets & D&A ────────────────────────────────────────────────────
+  E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per asset + project total)');
   const fa = snap.fixedAssets;
   for (const [id, ra] of fa.byAsset) {
     const dep = ra.depreciable;
@@ -2118,26 +2414,24 @@ function addSchedules(ctx: EmitCtx): void {
   E.moneyRow('Depreciation', fpt.depreciable.depreciationPerPeriod, { indent: 1 });
   E.moneyRow('Depreciable closing NBV', fpt.depreciable.closingNBVPerPeriod, { style: 'subtotal', totalLast: true });
   E.moneyRow('Combined closing', fpt.combinedClosingPerPeriod, { style: 'total', totalLast: true });
-  E.gap();
-
-  E.section('2. IDC Pool (capitalised construction interest)');
+  // IDC pool (capitalised construction interest depreciates through D&A).
   const idc = snap.idc;
-  E.subTitle('IDC Pool');
-  E.moneyRow('Construction interest', idc.totalConstructionInterestPerPeriod, { indent: 1 });
-  E.moneyRow('Capitalised to assets', idc.totalIdcPerPeriod, { indent: 1 });
-  E.moneyRow('IDC depreciation', idc.idcDepreciationPerPeriod, { indent: 1 });
-  E.moneyRow('IDC NBV closing', idc.idcNbvPerPeriod, { style: 'total', totalLast: true });
+  if (nz(idc.totalIdcPerPeriod) || nz(idc.idcNbvPerPeriod)) {
+    E.gap();
+    E.subTitle('IDC Pool (capitalised construction interest)');
+    E.moneyRow('Construction interest', idc.totalConstructionInterestPerPeriod, { indent: 1 });
+    E.moneyRow('Capitalised to assets', idc.totalIdcPerPeriod, { indent: 1 });
+    E.moneyRow('IDC depreciation', idc.idcDepreciationPerPeriod, { indent: 1 });
+    E.moneyRow('IDC NBV closing', idc.idcNbvPerPeriod, { style: 'total', totalLast: true });
+  }
   E.gap();
 
-  E.section('3. Working Capital (closing balances)');
-  const apt = snap.ap.projectTotals;
-  const bs = snap.bs;
-  E.subTitle('Working Capital');
-  E.moneyRow('Accounts receivable (closing)', bs.arPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Residential receivables (closing)', bs.residentialReceivablesPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Inventory / WIP (closing)', bs.inventoryPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Accounts payable (closing)', apt.closingApPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Unearned revenue (closing)', bs.unearnedRevenuePerPeriod, { indent: 1, totalLast: true });
+  // ── 2. BS Schedules ──────────────────────────────────────────────────────────
+  E.section('2. BS Schedules (balance-sheet feeder roll-forwards, ordered ASSETS / LIABILITIES / EQUITY)');
+  for (const grp of buildBSFeederGroups(snap, state)) {
+    E.groupBand(grp.group);
+    for (const tbl of grp.tables) { E.subTitle(tbl.title); E.emitTable(tbl.rows); E.gap(); }
+  }
 }
 
 // ── P&L (full detailed mirror via the shared platform row-builder) ────────────
