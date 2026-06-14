@@ -395,7 +395,7 @@ interface AssumptionRefs {
 
 // ── Assumptions (Inputs) ──────────────────────────────────────────────────────
 function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, capex: CapexReport): AssumptionRefs {
-  const ws = wb.addWorksheet(SHEETS.assumptions, { properties: { tabColor: { argb: ARGB.input } } });
+  const ws = wb.addWorksheet(SHEETS.assumptions, { properties: { tabColor: { argb: ARGB.navy } } });
   ws.getColumn(1).width = 36;
   ws.getColumn(2).width = 22;
   for (let c = 3; c <= 12; c++) ws.getColumn(c).width = 14;
@@ -1118,7 +1118,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const ok = Math.abs(pctSum - (total ? 1 : 0)) <= TOL;
       setFormula(ws.getCell(r, cChk), fcell(`IF(ABS(${colLetter(C_TOT)}${r}-${total ? 1 : 0})<=${TOL},"OK","CHECK")`, ok ? 'OK' : 'CHECK'), '@');
       ws.getCell(r, cChk).alignment = { horizontal: 'center' };
-      ws.getCell(r, cChk).font = { name: 'Calibri', size: BODY_SIZE, bold: !ok, color: { argb: ok ? ARGB.good : ARGB.bad } };
+      ws.getCell(r, cChk).font = { name: 'Calibri', size: BODY_SIZE, bold: !ok, color: { argb: ok ? ARGB.navy : ARGB.bad } };
       allocCells.set(`${a.assetId}|${ln.id}`, cells);
       r += 1;
     }
@@ -2050,7 +2050,7 @@ function addBalanceSheet(ctx: EmitCtx, fin: FinLinks, cosLinks: CosLinks): BsLin
 function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin: FinLinks): RetLinks {
   const { wb, snap, lm, proj } = ctx;
   const N = snap.axisLength;
-  const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.good } } });
+  const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Returns', 'Project (FCFF) and equity (FCFE) returns. Terminal value at the exit year = stabilised NOI x exit multiple (less debt for equity). IRR / NPV / MOIC are the platform-computed values as of export.', { label: 'Line', feeds: 'Sourced from the Financing cash flows plus terminal value. The project (FCFF) and equity (FCFE) returns.' });
   const exit = lm.exitOffset;
   const exitCol = colLetter(pcol(exit));
@@ -2105,7 +2105,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, links: { cfLinks: CfLinks; bsLinks: BsLinks; retLinks: RetLinks }): void {
   const { wb, snap, lm } = ctx;
   const N = snap.axisLength;
-  const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.good } }, views: [{ showGridLines: false }] });
+  const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 42; ws.getColumn(2).width = 14; ws.getColumn(3).width = 44;
   setTitle(ws.getCell('A1'), 'Checks & Legend', 16);
   let r = 3;
@@ -2121,7 +2121,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, links: { cfLinks: CfLin
   const firstCol = colLetter(pcol(0));
   const checkRow = (label: string, statusF: string, statusV: string, noteF: string, noteV: number): void => {
     setLabel(ws.getCell(`A${r}`), label);
-    const s = ws.getCell(`B${r}`); setFormula(s, fcell(statusF, statusV), '@'); s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: statusV === 'OK' ? ARGB.good : ARGB.bad } };
+    const s = ws.getCell(`B${r}`); setFormula(s, fcell(statusF, statusV), '@'); s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: statusV === 'OK' ? ARGB.navy : ARGB.bad } };
     setFormula(ws.getCell(`C${r}`), fcell(noteF, noteV), NUMFMT.money, true); r += 1;
   };
   // Balance sheet balances: max abs of the per-period balance-check row.
@@ -2148,7 +2148,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, links: { cfLinks: CfLin
 
 // ── Cover / Index ─────────────────────────────────────────────────────────────
 function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, lm: LiveModel): void {
-  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navyDark } }, views: [{ showGridLines: false }] });
+  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   const p = opts.state.project;
   const currency = p.currency ?? 'SAR';
   const m = (v: number): string => `${currency} ${formatAccounting(v, 'millions', 1)} m`;
@@ -2251,7 +2251,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const rr = r + i;
     const nc = ws.getCell(rr, 2);
     nc.value = { text: `${i + 1}.  ${name}`, hyperlink: `#'${name}'!A1` };
-    nc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.linked }, underline: true };
+    nc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy }, underline: true };
     ws.mergeCells(rr, 3, rr, 7);
     const dc = ws.getCell(rr, 3); dc.value = desc; dc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     if (i % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
@@ -2259,11 +2259,14 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   boxBorder(ws, idxTop, 2, idxTop + index.length - 1, 7);
   r = idxTop + index.length + 2;
 
-  // Colour legend. Input swatch carries the navy-pale fill (matching input cells).
+  // Colour legend. One standard navy palette across every tab: navy-pale input
+  // cells, black computed values, a teal section-divider band and navy total
+  // rows. Input swatch carries the navy-pale fill (matching input cells).
   setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
   const inputSwatch = ws.getCell(r, 3); inputSwatch.value = 'Input'; markInput(inputSwatch); inputSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-  const fmSwatch = ws.getCell(r, 4); fmSwatch.value = 'Formula'; fmSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
-  const lkSwatch = ws.getCell(r, 5); lkSwatch.value = 'Linked'; lkSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.linked } };
+  const fmSwatch = ws.getCell(r, 4); fmSwatch.value = 'Computed'; fmSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
+  const secSwatch = ws.getCell(r, 5); secSwatch.value = 'Section'; fillCell(secSwatch, ARGB.accent); secSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  const totSwatch = ws.getCell(r, 6); totSwatch.value = 'Total'; fillCell(totSwatch, ARGB.navy); totSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
   r += 2;
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
   fillCell(ws.getCell(1, 1), ARGB.white);
