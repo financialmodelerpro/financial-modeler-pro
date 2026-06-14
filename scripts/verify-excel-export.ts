@@ -46,8 +46,13 @@ async function main(): Promise<void> {
   const N = snap.axisLength;
   const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '13 June 2026' });
 
-  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Revenue', 'Cost of Sales', 'Opex', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
+  // Tab sequence follows the platform module order: Module 1 (Inputs, Timeline,
+  // Land & Area, Capex, Financing), Module 2 (Revenue, Cost of Sales), Module 3
+  // (Opex), Module 4 (P&L, Cash Flow, Balance Sheet), Module 5 (Returns).
+  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Cost of Sales', 'Opex', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
+  const actualOrder = wb.worksheets.map((w) => w.name);
+  check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
   const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
   for (const name of ALL_SHEETS) check(`gridlines hidden: ${name}`, noGrid(name));
 
@@ -135,6 +140,14 @@ async function main(): Promise<void> {
   // Raw financing scalars live under the Financing divider (once), not Project.
   check('Financing settings divider holds the raw financing scalars', rowByLabel(inp, /^Funding method$/) > rowByLabel(inp, /^Financing settings$/) && rowByLabel(inp, /^Debt share$/) > rowByLabel(inp, /^Financing settings$/));
   check('Inputs title says Inputs', /Inputs/.test(labelOf(inp, 1)));
+  // Module 1 input completeness (gaps closed 2026-06-14): per-parcel land
+  // funding split, selected funding-method config, per-facility timing + share.
+  const parcelsHdr = rowByLabel(inp, /^Land parcels$/);
+  if (parcelsHdr > 0) check('Land parcels carry Debt % / Equity % funding split', String(inp.getCell(parcelsHdr + 1, 8).value) === 'Debt %' && String(inp.getCell(parcelsHdr + 1, 9).value) === 'Equity %');
+  const facHdr = rowByLabel(inp, /Financing facilities/);
+  if (facHdr > 0) check('Financing facilities carry timing + share columns', String(inp.getCell(facHdr + 1, 9).value) === 'Repay start year' && String(inp.getCell(facHdr + 1, 12).value) === 'Facility share %');
+  const selMethod = snap.financing.funding.selectedMethodId;
+  if (selMethod !== 1) check(`Selected funding-method config (Method ${selMethod}) emitted in Inputs`, rowByLabel(inp, new RegExp(`^Method ${selMethod}:`)) > rowByLabel(inp, /^Financing settings$/));
 
   // ── Guidance "Basis / Calculation" column on every output tab ───────────────
   const hasBasisCol = (sheet: string): boolean => { const ws = wb.getWorksheet(sheet)!; return String(ws.getCell(4, 2).value ?? '').includes('Basis'); };

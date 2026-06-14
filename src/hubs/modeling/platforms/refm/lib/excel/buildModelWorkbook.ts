@@ -83,15 +83,21 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
     revBaseFormula.set(a.id, parts.length ? parts.join('+') : '0');
   }
 
-  // Downstream live tabs. Revenue / CoS / Opex first; the Financing tab then
-  // owns the computational recurrence (depreciation, interest, tax, debt /
-  // equity / cash flow); P&L / Cash Flow / Balance Sheet / Returns are link-and-
-  // assemble presentation tabs. Each returns the row registry the next links to.
+  // Tab sequence follows the platform module order. Financing is Module 1
+  // (Tab 4), so its sheet is created here, right after Capex, keeping all of
+  // Module 1 (Inputs, Timeline, Land & Area, Capex, Financing) together, then
+  // Module 2 (Revenue, Cost of Sales), Module 3 (Opex), Module 4 (P&L, Cash
+  // Flow, Balance Sheet) and Module 5 (Returns). Financing owns the
+  // computational recurrence (depreciation, interest, tax, debt / equity / cash
+  // flow) read straight from the snapshot, so it does NOT depend on the
+  // downstream Revenue / CoS / Opex link registries; P&L / Cash Flow / Balance
+  // Sheet / Returns are link-and-assemble presentation tabs. Each emitter
+  // returns the row registry the next links to.
   const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
+  const finLinks = addFinancing(ctx);
   const revLinks = addRevenue(ctx);
   const cosLinks = addCostOfSales(ctx, revLinks);
   const opexLinks = addOpex(ctx, revLinks);
-  const finLinks = addFinancing(ctx, revLinks, cosLinks, opexLinks);
   addProfitLoss(ctx, revLinks, cosLinks, opexLinks, finLinks);
   const cfLinks = addCashFlow(ctx, finLinks);
   const bsLinks = addBalanceSheet(ctx, finLinks, cosLinks);
@@ -460,9 +466,12 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 
   // Land parcels.
   if (opts.state.parcels.length) {
-    setSectionHeader(ws.getRow(r), 'Land parcels', 7); r += 1;
-    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Roads %', 'Parks %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    setSectionHeader(ws.getRow(r), 'Land parcels', 9); r += 1;
+    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Roads %', 'Parks %', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
+    // Per-parcel land funding split (Financing Tab 4 "Land Funding" card): the
+    // debt / equity share applied to the cash-funded slice of each parcel.
+    const parcelFunding = opts.state.project.financing?.parcelFunding ?? [];
     for (const pa of opts.state.parcels) {
       setLabel(ws.getCell(`A${r}`), pa.name);
       setInput(ws.getCell(`B${r}`), pa.area ?? 0, NUMFMT.int);
@@ -471,6 +480,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`E${r}`), (pa.inKindPct ?? 0) / 100, NUMFMT.pct);
       setInput(ws.getCell(`F${r}`), (pa.roadsPct ?? 0) / 100, NUMFMT.pct);
       setInput(ws.getCell(`G${r}`), (pa.parksPct ?? 0) / 100, NUMFMT.pct);
+      const pf = parcelFunding.find((x) => x.parcelId === pa.id);
+      const pDebt = pf?.debtPct ?? 0;
+      setInput(ws.getCell(`H${r}`), pDebt / 100, NUMFMT.pct);
+      setInput(ws.getCell(`I${r}`), (pf?.equityPct ?? (100 - pDebt)) / 100, NUMFMT.pct);
       parcelRefs.push({ id: pa.id, area: addr('B', r), rate: addr('C', r), cashPct: addr('D', r), inKindPct: addr('E', r) });
       r += 1;
     }
@@ -617,6 +630,29 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
   addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
   addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
+  // Selected funding-method configuration: the method-specific inputs that size
+  // the requirement beyond the resolved Debt / Equity share above (existing /
+  // initial cash, Method 4 specified amounts). Only the active method's block is
+  // emitted, mirroring the platform's "2a. Method N Configuration" panel.
+  const fcfg = p.financing;
+  const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
+  if (fmId === 2 && fcfg?.netFundingConfig) {
+    const mc = fcfg.netFundingConfig;
+    addKV('Method 2: Existing cash', mc.existingCash ?? 0, NUMFMT.money);
+    addKV('Method 2: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
+    addKV('Method 2: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+  } else if (fmId === 3 && fcfg?.cashDeficitConfig) {
+    const mc = fcfg.cashDeficitConfig;
+    const minCash = Array.isArray(mc.minimumCashReserve) ? (mc.minimumCashReserve[0] ?? 0) : (mc.minimumCashReserve ?? 0);
+    addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money);
+    addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money);
+    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
+    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+  } else if (fmId === 4 && fcfg?.fixedAmountConfig) {
+    const mc = fcfg.fixedAmountConfig;
+    addKV('Method 4: Specified debt amount', mc.debtAmount ?? 0, NUMFMT.money);
+    addKV('Method 4: Specified equity amount', mc.equityAmount ?? 0, NUMFMT.money);
+  }
   r += 1;
 
   // Cash sweep settings (project-wide; the Financing tab links these in).
@@ -633,8 +669,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 
   // Financing facilities (debt).
   if (opts.state.financingTranches.length) {
-    setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 8); r += 1;
-    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 12); r += 1;
+    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     for (const t of opts.state.financingTranches) {
       const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
@@ -646,6 +682,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
       setInput(ws.getCell(`G${r}`), t.repaymentPeriods ?? 0, NUMFMT.int);
       setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
+      // Timing inputs (0 = auto / not set, rendered as a dash): when the facility
+      // starts repaying, when interest begins accruing, the origination year, and
+      // its share of a multi-facility new-debt drawdown.
+      setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
       trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
       r += 1;
     }
@@ -1505,8 +1548,7 @@ function addOpex(ctx: EmitCtx, revLinks: RevLinks): OpexLinks {
 // platform table). In STATIC mode the FinLinks rows are referenced only inside
 // discarded formula strings on the downstream tabs (their values come from the
 // real snapshot model), so a stub registry is returned.
-function addFinancing(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opexLinks: OpexLinks): FinLinks {
-  void revLinks; void cosLinks; void opexLinks;
+function addFinancing(ctx: EmitCtx): FinLinks {
   const { wb, snap, state, proj } = ctx;
   const N = snap.axisLength;
   const fin = snap.financing;
@@ -2007,10 +2049,10 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.timeline, 'The model year axis'],
     [SHEETS.landArea, 'Area hierarchy (NSA / BUA / GFA) and land value'],
     [SHEETS.capex, 'Development cost build-up and phased schedule'],
+    [SHEETS.financing, 'Depreciation, interest, tax, debt + equity and the cash recurrence'],
     [SHEETS.revenue, 'Recognised revenue by strategy and asset (base x profile)'],
     [SHEETS.cos, 'Cost of sales matched to recognised revenue'],
     [SHEETS.opex, 'Operating expenses by asset and category'],
-    [SHEETS.financing, 'Depreciation, interest, tax, debt + equity and the cash recurrence'],
     [SHEETS.pl, 'Profit and loss (income statement)'],
     [SHEETS.cashflow, 'Cash flow statement'],
     [SHEETS.balsheet, 'Balance sheet (balances by construction)'],
