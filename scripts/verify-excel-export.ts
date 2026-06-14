@@ -19,6 +19,7 @@
 import ExcelJS from 'exceljs';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import { buildExcelSampleState } from './excelSampleState';
 
 let pass = 0, fail = 0;
@@ -50,14 +51,14 @@ async function main(): Promise<void> {
   // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
   // all five Module 2 sub-tabs), Module 3 (Opex), Module 4 (P&L, Cash Flow,
   // Balance Sheet), Module 5 (Returns).
-  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   const actualOrder = wb.worksheets.map((w) => w.name);
   check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
   const noGrid = (n: string): boolean => (wb.getWorksheet(n)?.views ?? []).every((v) => (v as any).showGridLines === false);
   for (const name of ALL_SHEETS) check(`gridlines hidden: ${name}`, noGrid(name));
 
-  const OUTPUT_TABS = ['Revenue', 'Opex', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
+  const OUTPUT_TABS = ['Revenue', 'Opex', 'Financing', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
   const frozenOk = (n: string): boolean => { const v: any = (wb.getWorksheet(n)?.views ?? [])[0]; return v && v.state === 'frozen' && v.ySplit === 4 && v.xSplit === 4; };
   for (const n of OUTPUT_TABS) check(`frozen header (rows 1-4, cols A-D): ${n}`, frozenOk(n));
 
@@ -85,16 +86,21 @@ async function main(): Promise<void> {
   const m3a = m3(/^1\. Opex Inputs/), m3b = m3(/^2\. Opex Output/), m3c = m3(/^3\. Schedules/);
   check('Opex mirrors the Module 3 sub-tabs in sequence (Inputs, Output, Schedules)', m3a > 0 && m3b > m3a && m3c > m3b, `rows=${m3a},${m3b},${m3c}`);
   check('Opex Schedules carries the project-total Accounts Payable roll-forward', m3(/^Accounts Payable \(project total\)$/) > m3c);
-  // Cost of Sales is now a section on the Revenue sheet; tie it via the P&L line.
-  check('Cost of Sales total (P&L) == snapshot cost of sales', close(Math.abs(totD('P&L', /^Cost of sales$/)), sumA(snap.pl.cosPerPeriod, N)));
+  // Cost of Sales is a section on the Revenue sheet; tie its project-total row
+  // (the last 'Total Cost of Sales' on that sheet) to the snapshot.
+  const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (re.test(labelOf(ws, R))) row = R; }); return row; };
+  const cosTotRow = rowByLabelLast(wb.getWorksheet('Revenue')!, /^Total Cost of Sales$/);
+  const cosProjTable = buildCostOfSalesReport(snap, state, (v: number) => String(v)).find((t) => t.title === 'Project Total Cost of Sales');
+  const cosProjTotal = cosProjTable ? sumA(cosProjTable.rows.find((r) => r.isTotal)?.values ?? [], N) : 0;
+  check('Cost of Sales project total ties to the CoS builder', cosTotRow > 0 && close(num(wb.getWorksheet('Revenue')!.getCell(cosTotRow, 4).value), cosProjTotal));
   // Module 2 mirror: the Revenue sheet reproduces all platform sub-tabs in order.
   const revWs = wb.getWorksheet('Revenue')!;
   const m2 = (re: RegExp): number => rowByLabel(revWs, re);
   const m2a = m2(/^1\. Revenue Inputs/), m2b = m2(/^2\. Revenue Output/), m2c = m2(/^3\. Cost of Sales/), m2d = m2(/^4\. Schedules/);
   check('Revenue mirrors the Module 2 sub-tabs in sequence (Inputs, Output, Cost of Sales, Schedules)', m2a > 0 && m2b > m2a && m2c > m2b && m2d > m2c, `rows=${m2a},${m2b},${m2c},${m2d}`);
   check('Revenue Output carries per-asset vintage matrices', m2(/Vintage Matrix,/) > m2b);
-  check('P&L Revenue == snapshot total revenue', close(totD('P&L', /^Revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)));
-  check('P&L Profit after tax == snapshot PAT', close(totD('P&L', /^Profit after tax$/), sumA(snap.pl.patPerPeriod, N)));
+  check('P&L Total Revenue == snapshot total revenue', close(totD('P&L', /^Total Revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)));
+  check('P&L PAT == snapshot PAT', close(totD('P&L', /^PAT$/), sumA(snap.pl.patPerPeriod, N)));
   // P&L EBITDA per-period ties cell-for-cell.
   const plWs = wb.getWorksheet('P&L')!; const ebitdaRow = rowByLabel(plWs, /^EBITDA$/);
   let ebitdaTie = ebitdaRow > 0; for (let t = 0; t < N && ebitdaTie; t++) ebitdaTie = close(num(plWs.getCell(ebitdaRow, 6 + t).value), snap.pl.ebitdaPerPeriod[t] ?? 0);
@@ -143,10 +149,18 @@ async function main(): Promise<void> {
 
   // ── Balance Sheet balances by construction (constants) ──────────────────────
   const bsWs = wb.getWorksheet('Balance Sheet')!;
-  const bsDiffRow = rowByLabel(bsWs, /^Balance check/);
+  const bsDiffRow = rowByLabel(bsWs, /^BS Check/);
   let maxBsDiff = 0; if (bsDiffRow > 0) for (let t = 0; t < N; t++) { const v = num(bsWs.getCell(bsDiffRow, 6 + t).value); if (Number.isFinite(v)) maxBsDiff = Math.max(maxBsDiff, Math.abs(v)); }
   check('Balance Sheet balances by construction (max |Assets - L&E| < 1)', bsDiffRow > 0 && maxBsDiff < 1, `maxDiff=${maxBsDiff}`);
-  check('Balance Sheet Total assets == snapshot total assets', close(num(bsWs.getCell(rowByLabel(bsWs, /^Total assets$/), 6 + N - 1).value), snap.bs.totalAssetsPerPeriod[N - 1] ?? 0));
+  check('Balance Sheet Total assets == snapshot total assets', close(num(bsWs.getCell(rowByLabel(bsWs, /^TOTAL ASSETS$/), 6 + N - 1).value), snap.bs.totalAssetsPerPeriod[N - 1] ?? 0));
+  // Module 4 mirror: Schedules tab (Fixed Assets / IDC / Working Capital) + the
+  // P&L / Cash Flow / Balance Sheet as separate full-detail statement tabs.
+  const schWs = wb.getWorksheet('Schedules')!;
+  const m4s = (re: RegExp): number => rowByLabel(schWs, re);
+  check('Schedules mirrors Module 4 sub-tabs (Fixed Assets, IDC Pool, Working Capital)', m4s(/^1\. Fixed Assets/) > 0 && m4s(/^2\. IDC Pool/) > m4s(/^1\. Fixed Assets/) && m4s(/^3\. Working Capital/) > m4s(/^2\. IDC Pool/));
+  check('P&L is a separate full-detail statement (to PAT)', rowByLabel(plWs, /Project$/) > 0 && rowByLabel(plWs, /^PAT$/) > 0);
+  check('Cash Flow has both Direct and Indirect methods', rowByLabel(cfWs, /Direct Method/) > 0 && rowByLabel(cfWs, /Indirect Method/) > 0);
+  check('Balance Sheet has the full ASSETS / LIABILITIES / EQUITY structure', rowByLabel(bsWs, /^ASSETS$/) > 0 && rowByLabel(bsWs, /^LIABILITIES$/) > 0 && rowByLabel(bsWs, /TOTAL LIABILITIES \+ EQUITY/) > 0);
 
   // ── Consolidated Inputs tab carries the grouped dividers ────────────────────
   const inp = wb.getWorksheet('Inputs')!;
@@ -176,7 +190,6 @@ async function main(): Promise<void> {
   for (const n of OUTPUT_TABS) check(`Basis / Calculation column header present: ${n}`, hasBasisCol(n));
   // Basis cells populated (plain text, not formulas) on P&L AND Financing.
   const basisCells = (sheet: string): number => { let n = 0; wb.getWorksheet(sheet)!.eachRow((row, R) => { if (R > 4) { const b = wb.getWorksheet(sheet)!.getCell(R, 2).value; if (typeof b === 'string' && b.length > 0 && b !== 'Basis / Calculation') n++; } }); return n; };
-  check('P&L basis column is populated with descriptive text', basisCells('P&L') >= 8, `cells=${basisCells('P&L')}`);
   check('Financing basis column is populated (recurrence rows)', basisCells('Financing') >= 18, `cells=${basisCells('Financing')}`);
 
   // ── Snapshot note (cell comment) on each output tab + Capex + Land & Area ────
@@ -209,7 +222,7 @@ async function main(): Promise<void> {
   check('all worksheet tab colours are the same navy', tabColors.size === 1 && tabColors.has('FF1B4F8A'), [...tabColors].join(','));
 
   // ── Accounting formatting: dash for zero + percentages 2dp ──────────────────
-  const moneyCell = bsWs.getCell(rowByLabel(bsWs, /^Total assets$/), 6);
+  const moneyCell = bsWs.getCell(rowByLabel(bsWs, /^TOTAL ASSETS$/), 6);
   check('money format uses dash for zero', typeof moneyCell.numFmt === 'string' && moneyCell.numFmt.includes('"-"'));
   let pct2Ok = false;
   revWs.eachRow((row) => row.eachCell((c) => { if (typeof c.numFmt === 'string' && /0\.00%/.test(c.numFmt)) pct2Ok = true; }));

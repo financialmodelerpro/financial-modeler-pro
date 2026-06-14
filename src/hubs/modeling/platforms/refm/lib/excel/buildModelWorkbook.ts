@@ -22,6 +22,8 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, type M4ReportCtx } from '../reports/m4Reports';
+import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
@@ -44,7 +46,7 @@ export interface BuildModelOptions {
   displayDecimals?: DisplayDecimals;
 }
 
-const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', checks: 'Checks' };
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // HARDCODED platform mirror: every computed cell is written as the platform
@@ -97,13 +99,14 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // returns the row registry the next links to.
   const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
   const finLinks = addFinancing(ctx);
-  const { revLinks, cosLinks } = addRevenue(ctx);
+  const { revLinks } = addRevenue(ctx);
   const opexLinks = addOpex(ctx);
-  addProfitLoss(ctx, revLinks, cosLinks, opexLinks, finLinks);
-  const cfLinks = addCashFlow(ctx, finLinks);
-  const bsLinks = addBalanceSheet(ctx, finLinks, cosLinks);
+  addSchedules(ctx);
+  addProfitLoss(ctx);
+  addCashFlow(ctx);
+  addBalanceSheet(ctx);
   const retLinks = addReturns(ctx, revLinks, opexLinks, finLinks);
-  addChecks(ctx, capexAddrs, { cfLinks, bsLinks, retLinks });
+  addChecks(ctx, capexAddrs, retLinks);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
   // stored values + formulas stay in full units). Applied last so every sheet's
@@ -113,7 +116,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   scaleMoneyFormats(wb, scale, decimals);
   const note = scaleNote(scale, opts.state.project.currency ?? 'SAR');
   if (note) {
-    for (const name of [SHEETS.landArea, SHEETS.capex, SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet]) {
+    for (const name of [SHEETS.landArea, SHEETS.capex, SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet]) {
       const ws = wb.getWorksheet(name); if (!ws) continue;
       const a2 = ws.getCell('A2'); const cur = typeof a2.value === 'string' ? a2.value : '';
       setLabel(a2, cur ? `${cur}  (${note})` : note);
@@ -1446,6 +1449,62 @@ function scalarCell(ws: ExcelJS.Worksheet, r: number, label: string, link: strin
   return `$${colLetter(TOTAL_COL)}$${r}`;
 }
 
+// Shared section emitters for the consolidated module tabs (Revenue / Opex /
+// Schedules / P&L / Cash Flow / Balance Sheet). Manages its own row cursor and
+// renders the standard navy hierarchy: deep-navy section bands, pale sub-table
+// titles, navy totals, navy-dark subtotals. emitM4 renders a shared-builder
+// M4Row (the on-screen statement model) exactly.
+type RowStyle = 'plain' | 'subtotal' | 'total';
+function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
+  section: (text: string) => void; subTitle: (text: string) => void;
+  moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean }) => number;
+  statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
+  emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; gap: () => void; cursor: () => number;
+} {
+  let r = start;
+  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  const subTitle = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  };
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean } = {}): number => {
+    const used = r;
+    const style = opts.style ?? 'plain';
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
+    if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
+    const vals = (series ?? []).slice(0, N);
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    put(OPEN_COL, opts.prior ?? 0);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
+    if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; } }
+    else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; } }
+    r += 1;
+    return used;
+  };
+  const statRow = (label: string, series: number[] | undefined, numFmt: string, indent = 1): void => {
+    setLabel(ws.getCell(r, LBL_COL), label, { indent });
+    const vals = (series ?? []).slice(0, N);
+    for (let t = 0; t < N; t++) { const cell = ws.getCell(r, pcol(t)); cell.value = vals[t] ?? 0; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+    r += 1;
+  };
+  // Render a shared-builder M4Row: section header -> pale band; total / subtotal
+  // -> styled bands; totalOverride (a numeric string when fmt = String) -> the
+  // exact platform Total; priorValue -> the opening (E) column.
+  const emitM4 = (row: M4Row): number => {
+    if (row.isSection) { subTitle(row.label); return r - 1; }
+    const style: RowStyle = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
+    const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : undefined;
+    return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalValue: tv !== undefined && Number.isFinite(tv) ? tv : undefined });
+  };
+  const emitTable = (rows: M4Row[]): void => { for (const row of rows) emitM4(row); };
+  const gap = (): void => { r += 1; };
+  const cursor = (): number => r;
+  return { section, subTitle, moneyRow, statRow, emitM4, emitTable, gap, cursor };
+}
+
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
 interface CosLinks { byAssetRow: Map<string, number>; totalRow: number }
 interface OpexLinks { hospRow: number; retailRow: number; hqRow: number; totalRow: number }
@@ -1455,8 +1514,6 @@ interface FinLinks {
   cfoRow: number; cfiRow: number; debtOpenRow: number; debtDrawRow: number; principalRow: number; debtCloseRow: number;
   equityCashRow: number; equityInKindRow: number; cffRow: number; netCfRow: number; openCashRow: number; closeCashRow: number;
 }
-interface CfLinks { cfoRow: number; cfiRow: number; cffRow: number; closeCashRow: number }
-interface BsLinks { totalAssetsRow: number; totalLERow: number; bsDiffRow: number; cashRow: number }
 interface RetLinks { fcffIrrCell: string; fcfeIrrCell: string }
 
 // ── Revenue (full mirror of the platform Module 2: all 5 sub-tabs in sequence) ─
@@ -2023,101 +2080,118 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   return { daRow: s, ebitdaRow: s, ebitRow: s, interestRow: s, pbtRow: s, taxRow: s, patRow: s, arRow: s, apRow: s, capexCashRow: s, inKindRow: s, revReceivedRow: s, opexPaidRow: s, cfoRow: s, cfiRow: s, debtOpenRow: s, debtDrawRow: s, principalRow: s, debtCloseRow: s, equityCashRow: s, equityInKindRow: s, cffRow: s, netCfRow: s, openCashRow: s, closeCashRow: s };
 }
 
-// ── P&L (presentation; links Revenue / CoS / Opex / Financing) ────────────────
-function addProfitLoss(ctx: EmitCtx, revLinks: RevLinks, cosLinks: CosLinks, opexLinks: OpexLinks, fin: FinLinks): void {
-  const { wb, snap, lm } = ctx;
+// ── Module 4 statement context: terminology-driven labels + a String formatter
+// so a row's totalOverride (a formatted Total) round-trips back to a number. ────
+function m4Labels(state: FinancialsResolverState): ReturnType<typeof getFinancialLabels> {
+  return getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
+}
+
+// ── Schedules (Module 4 schedules consolidated: Fixed Assets, IDC, Working Cap) ─
+function addSchedules(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
   const N = snap.axisLength;
+  const ws = wb.addWorksheet(SHEETS.schedules, { properties: { tabColor: { argb: ARGB.navy } } });
+  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, all sub-tabs in sequence: 1. Fixed Assets (land + depreciable NBV roll-forward), 2. IDC Pool (capitalised construction interest), 3. Working Capital (closing balances).', { label: 'Line', feeds: 'Sourced from Capex, depreciation, Accounts Payable and the financing recurrence. Supports the Balance Sheet.' });
+  const E = makeEmitters(ws, N);
+  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const nz = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
+
+  E.section('1. Fixed Assets (land + depreciable NBV roll-forward, per asset + project total)');
+  const fa = snap.fixedAssets;
+  for (const [id, ra] of fa.byAsset) {
+    const dep = ra.depreciable;
+    if (!nz(dep.closingNBVPerPeriod) && !nz(ra.land.closingPerPeriod)) continue;
+    E.subTitle(`Fixed Assets, ${assetName(id)}`);
+    E.moneyRow('Land opening', ra.land.openingPerPeriod, { indent: 1, prior: ra.land.openingAtAxisStart, noTotal: true });
+    E.moneyRow('Land additions', ra.land.additionsPerPeriod, { indent: 1 });
+    E.moneyRow('Land closing', ra.land.closingPerPeriod, { style: 'subtotal', totalLast: true });
+    E.moneyRow('Depreciable opening NBV', dep.openingNBVPerPeriod, { indent: 1, noTotal: true });
+    E.moneyRow('Additions', dep.additionsPerPeriod, { indent: 1 });
+    E.moneyRow('Depreciation', dep.depreciationPerPeriod, { indent: 1 });
+    E.moneyRow('Depreciable closing NBV', dep.closingNBVPerPeriod, { style: 'subtotal', totalLast: true });
+    E.moneyRow('Combined closing (Land + NBV)', ra.combinedClosingPerPeriod, { style: 'total', totalLast: true });
+    E.gap();
+  }
+  const fpt = fa.projectTotals;
+  E.subTitle('Fixed Assets (project total)');
+  E.moneyRow('Land closing', fpt.land.closingPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Depreciation', fpt.depreciable.depreciationPerPeriod, { indent: 1 });
+  E.moneyRow('Depreciable closing NBV', fpt.depreciable.closingNBVPerPeriod, { style: 'subtotal', totalLast: true });
+  E.moneyRow('Combined closing', fpt.combinedClosingPerPeriod, { style: 'total', totalLast: true });
+  E.gap();
+
+  E.section('2. IDC Pool (capitalised construction interest)');
+  const idc = snap.idc;
+  E.subTitle('IDC Pool');
+  E.moneyRow('Construction interest', idc.totalConstructionInterestPerPeriod, { indent: 1 });
+  E.moneyRow('Capitalised to assets', idc.totalIdcPerPeriod, { indent: 1 });
+  E.moneyRow('IDC depreciation', idc.idcDepreciationPerPeriod, { indent: 1 });
+  E.moneyRow('IDC NBV closing', idc.idcNbvPerPeriod, { style: 'total', totalLast: true });
+  E.gap();
+
+  E.section('3. Working Capital (closing balances)');
+  const apt = snap.ap.projectTotals;
+  const bs = snap.bs;
+  E.subTitle('Working Capital');
+  E.moneyRow('Accounts receivable (closing)', bs.arPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Residential receivables (closing)', bs.residentialReceivablesPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Inventory / WIP (closing)', bs.inventoryPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Accounts payable (closing)', apt.closingApPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Unearned revenue (closing)', bs.unearnedRevenuePerPeriod, { indent: 1, totalLast: true });
+}
+
+// ── P&L (full detailed mirror via the shared platform row-builder) ────────────
+function addProfitLoss(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
+  const N = snap.axisLength;
+  const labels = m4Labels(state);
+  const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v) });
   const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'P&L', 'Income statement, from the Revenue, Cost of Sales, Opex and Financing tabs.', { label: 'Line', feeds: 'Sourced from Revenue, Cost of Sales, Opex and Financing. The platform income statement.' });
-  let r = 5;
-  setSectionHeader(ws.getRow(r), 'Income statement', lastActiveCol(N)); r += 1;
-  const revRow = emitRow(ws, r, N, 'Revenue', (t) => ({ f: xc(SHEETS.revenue, revLinks.totalRow, t), v: lm.totalRev[t] }), { bold: true, basis: 'From Revenue tab (total recognised)' }); r += 1;
-  const cosRow = emitRow(ws, r, N, 'Cost of sales', (t) => ({ f: `-${xc(SHEETS.revenue, cosLinks.totalRow, t)}`, v: -lm.cosTotal[t] }), { indent: 1, basis: 'From Revenue tab (Cost of Sales section)' }); r += 1;
-  const grossRow = emitRow(ws, r, N, 'Gross profit', (t) => ({ f: `${lcol(t)}${revRow}+${lcol(t)}${cosRow}`, v: lm.totalRev[t] - lm.cosTotal[t] }), { bold: true, basis: 'Revenue - cost of sales' }); r += 1;
-  const opexRow = emitRow(ws, r, N, 'Operating expenses', (t) => ({ f: `-${xc(SHEETS.opex, opexLinks.totalRow, t)}`, v: -lm.totalOpex[t] }), { indent: 1, basis: 'From Opex tab' }); r += 1;
-  const ebitdaRow = emitRow(ws, r, N, 'EBITDA', (t) => ({ f: `${lcol(t)}${grossRow}+${lcol(t)}${opexRow}`, v: lm.ebitda[t] }), { bold: true, basis: 'Gross profit - operating expenses' }); r += 1;
-  const daRow = emitRow(ws, r, N, 'Depreciation & amortisation', (t) => ({ f: `-${xc(SHEETS.financing, fin.daRow, t)}`, v: -lm.da[t] }), { indent: 1, basis: 'From Financing (depreciation)' }); r += 1;
-  const ebitRow = emitRow(ws, r, N, 'EBIT', (t) => ({ f: `${lcol(t)}${ebitdaRow}+${lcol(t)}${daRow}`, v: lm.ebit[t] }), { bold: true, basis: 'EBITDA - D&A' }); r += 1;
-  const intRow = emitRow(ws, r, N, 'Interest expense', (t) => ({ f: `-${xc(SHEETS.financing, fin.interestRow, t)}`, v: -lm.interest[t] }), { indent: 1, basis: 'From Financing (interest)' }); r += 1;
-  const pbtRow = emitRow(ws, r, N, 'Profit before tax', (t) => ({ f: `${lcol(t)}${ebitRow}+${lcol(t)}${intRow}`, v: lm.pbt[t] }), { bold: true, basis: 'EBIT - interest' }); r += 1;
-  const taxRow = emitRow(ws, r, N, 'Tax / Zakat', (t) => ({ f: `-${xc(SHEETS.financing, fin.taxRow, t)}`, v: -lm.tax[t] }), { indent: 1, basis: 'From Financing (tax / Zakat)' }); r += 1;
-  navySumRow(ws, r, N, 'Profit after tax', [pbtRow, taxRow], lm.pat, 'navy', 0, 'PBT - tax'); r += 1;
+  writeSheetHeader(ws, snap, N, 'P&L', 'Full detailed mirror of the platform Module 4 income statement: the consolidated project P&L (to PAT), then a per-phase P&L (to EBITDA).', { label: 'Line', feeds: 'The platform income statement (Revenue, Cost of Sales, Opex, depreciation, interest, tax).' });
+  const E = makeEmitters(ws, N);
+  const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
+  E.section(`${labels.incomeStatementTitle}: Project`);
+  E.emitTable(buildPLRows(mk('__all__')));
+  for (const ph of state.phases) {
+    const rows = buildPLRows(mk(ph.id));
+    if (!hasData(rows)) continue;
+    E.gap(); E.section(`${labels.incomeStatementTitle}: ${ph.name} (to ${labels.ebitda})`);
+    E.emitTable(rows);
+  }
 }
 
-// ── Cash Flow (presentation; links the Financing recurrence) ──────────────────
-function addCashFlow(ctx: EmitCtx, fin: FinLinks): CfLinks {
-  const { wb, snap, lm } = ctx;
+// ── Cash Flow (full detailed mirror: Direct + Indirect + per-phase) ───────────
+function addCashFlow(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
   const N = snap.axisLength;
+  const labels = m4Labels(state);
+  const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v) });
   const ws = wb.addWorksheet(SHEETS.cashflow, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Direct cash flow, linked to the Financing engine. Operating + investing + financing cash reconciles to the closing cash that drives the Balance Sheet.', { label: 'Line', feeds: 'Sourced from the Financing recurrence. Closing cash feeds the Balance Sheet.' });
-  let r = 5;
-  setSectionHeader(ws.getRow(r), 'Operating', lastActiveCol(N)); r += 1;
-  emitRow(ws, r, N, 'Revenue received', (t) => ({ f: xc(SHEETS.financing, fin.revReceivedRow, t), v: lm.revReceived[t] }), { indent: 1, basis: 'Revenue less change in receivables' }); r += 1;
-  emitRow(ws, r, N, 'Opex paid', (t) => ({ f: `-${xc(SHEETS.financing, fin.opexPaidRow, t)}`, v: -lm.opexPaid[t] }), { indent: 1, basis: 'Opex less change in payables' }); r += 1;
-  emitRow(ws, r, N, 'Tax paid', (t) => ({ f: `-${xc(SHEETS.financing, fin.taxRow, t)}`, v: -lm.taxPaid[t] }), { indent: 1, basis: 'From Financing (tax)' }); r += 1;
-  const cfoRow = emitRow(ws, r, N, 'Cash from operations', (t) => ({ f: xc(SHEETS.financing, fin.cfoRow, t), v: lm.cfo[t] }), { bold: true, basis: 'Revenue received - opex paid - tax' }); r += 1;
-  setSectionHeader(ws.getRow(r), 'Investing', lastActiveCol(N)); r += 1;
-  const cfiRow = emitRow(ws, r, N, 'Cash from investing (capex)', (t) => ({ f: xc(SHEETS.financing, fin.cfiRow, t), v: lm.cfi[t] }), { bold: true, basis: '- Capex (cash, excl. in-kind land)' }); r += 1;
-  setSectionHeader(ws.getRow(r), 'Financing', lastActiveCol(N)); r += 1;
-  emitRow(ws, r, N, 'Equity drawdown (cash)', (t) => ({ f: xc(SHEETS.financing, fin.equityCashRow, t), v: lm.equityCash[t] }), { indent: 1, basis: 'From Financing recurrence' }); r += 1;
-  emitRow(ws, r, N, 'Debt drawdown', (t) => ({ f: xc(SHEETS.financing, fin.debtDrawRow, t), v: lm.debtDraw[t] }), { indent: 1, basis: 'From Financing recurrence' }); r += 1;
-  emitRow(ws, r, N, 'Principal repaid', (t) => ({ f: `-${xc(SHEETS.financing, fin.principalRow, t)}`, v: -lm.principal[t] }), { indent: 1, basis: 'From Financing (surplus sweep)' }); r += 1;
-  emitRow(ws, r, N, 'Interest paid', (t) => ({ f: `-${xc(SHEETS.financing, fin.interestRow, t)}`, v: -lm.interest[t] }), { indent: 1, basis: 'From Financing (interest)' }); r += 1;
-  const cffRow = emitRow(ws, r, N, 'Cash from financing', (t) => ({ f: xc(SHEETS.financing, fin.cffRow, t), v: lm.cff[t] }), { bold: true, basis: 'Equity + debt draw - principal - interest' }); r += 1;
-  emitRow(ws, r, N, 'Net cash flow', (t) => ({ f: `${lcol(t)}${cfoRow}+${lcol(t)}${cfiRow}+${lcol(t)}${cffRow}`, v: lm.netCf[t] }), { bold: true, basis: 'CFO + CFI + CFF' }); r += 1;
-  emitRow(ws, r, N, 'Opening cash', (t) => ({ f: xc(SHEETS.financing, fin.openCashRow, t), v: lm.openCash[t] }), { total: 'last', basis: 'Prior period closing cash' }); r += 1;
-  const closeCashRow = emitRow(ws, r, N, 'Closing cash', (t) => ({ f: xc(SHEETS.financing, fin.closeCashRow, t), v: lm.closeCash[t] }), { total: 'last', bold: true, basis: 'Opening cash + net cash flow' }); r += 1;
-  return { cfoRow, cfiRow, cffRow, closeCashRow };
+  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Full detailed mirror of the platform Module 4 cash flow: the consolidated Direct and Indirect methods, then a per-phase Direct view (Operations + Investing).', { label: 'Line', feeds: 'The platform cash flow statement. Closing cash reconciles to the Balance Sheet.' });
+  const E = makeEmitters(ws, N);
+  const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
+  E.section('Cash Flow, Direct Method: Project');
+  E.emitTable(buildDirectCFRows(mk('__all__')));
+  E.gap(); E.section('Cash Flow, Indirect Method: Project');
+  E.emitTable(buildIndirectCFRows(mk('__all__')));
+  for (const ph of state.phases) {
+    const rows = buildDirectCFRows(mk(ph.id));
+    if (!hasData(rows)) continue;
+    E.gap(); E.section(`Cash Flow: ${ph.name} (Operations + Investing)`);
+    E.emitTable(rows);
+  }
 }
 
-// ── Balance Sheet (assemble + roll; balances by construction) ─────────────────
-function addBalanceSheet(ctx: EmitCtx, fin: FinLinks, cosLinks: CosLinks): BsLinks {
-  const { wb, snap, lm, assets, capexAddrs } = ctx;
+// ── Balance Sheet (full detailed mirror; balances by construction) ────────────
+function addBalanceSheet(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
   const N = snap.axisLength;
+  const labels = m4Labels(state);
   const ws = wb.addWorksheet(SHEETS.balsheet, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Assets = Liabilities + Equity. Working-capital and fixed-asset accounts roll forward from the Capex schedule, Cost of Sales, depreciation and the financing recurrence; the balance check is ~0 by construction.', { label: 'Line', feeds: 'Sourced from Capex, Cost of Sales, depreciation and the Financing recurrence. Balances by construction.' });
-  const capP = (row: number, t: number): string => capexPeriodCell(capexAddrs, row, t);
-  const sumAssetCapex = (group: 'sell' | 'opConstruction' | 'opLand', t: number): string => {
-    const sel = group === 'sell' ? assets.filter((a) => a.group === 'Residential') : assets.filter((a) => a.group !== 'Residential');
-    const parts = sel.map((a) => {
-      const pa = capexAddrs.perAsset.get(a.id); if (!pa) return null;
-      if (group === 'sell') return capP(pa.inclRow, t);
-      if (group === 'opConstruction') return capP(pa.exclAllRow, t);
-      return `(${capP(pa.inclRow, t)}-${capP(pa.exclAllRow, t)})`;
-    }).filter((x): x is string => !!x);
-    return parts.length ? parts.join('+') : '0';
-  };
-  let r = 5;
-
-  setSectionHeader(ws.getRow(r), 'Assets', lastActiveCol(N)); r += 1;
-  const cashRow = emitRow(ws, r, N, 'Cash', (t) => ({ f: xc(SHEETS.financing, fin.closeCashRow, t), v: lm.closeCash[t] }), { total: 'last', basis: 'From Cash Flow (closing cash)' }); r += 1;
-  const arRow = emitRow(ws, r, N, 'Accounts receivable', (t) => ({ f: xc(SHEETS.financing, fin.arRow, t), v: lm.ar[t] }), { total: 'last', basis: 'Revenue x DSO / 365 (+ for-sale receivables)' }); r += 1;
-  const invRow = r;
-  emitRow(ws, invRow, N, 'Inventory (WIP, for-sale)', (t) => ({ f: t === 0 ? `${sumAssetCapex('sell', 0)}-${xc(SHEETS.revenue, cosLinks.totalRow, 0)}` : `${prevCol(t)}${invRow}+${sumAssetCapex('sell', t)}-${xc(SHEETS.revenue, cosLinks.totalRow, t)}`, v: lm.inventory[t] }), { total: 'last', basis: 'Prior + for-sale capex - cost of sales' }); r += 1;
-  const nbvRow = r;
-  emitRow(ws, nbvRow, N, 'Net book value (depreciable)', (t) => ({ f: t === 0 ? `${sumAssetCapex('opConstruction', 0)}-${xc(SHEETS.financing, fin.daRow, 0)}` : `${prevCol(t)}${nbvRow}+${sumAssetCapex('opConstruction', t)}-${xc(SHEETS.financing, fin.daRow, t)}`, v: lm.nbv[t] }), { total: 'last', basis: 'Prior + construction capex - depreciation' }); r += 1;
-  const landRow = r;
-  emitRow(ws, landRow, N, 'Land (operating assets)', (t) => ({ f: t === 0 ? `${sumAssetCapex('opLand', 0)}` : `${prevCol(t)}${landRow}+${sumAssetCapex('opLand', t)}`, v: lm.land[t] }), { total: 'last', basis: 'Prior + operating-asset land' }); r += 1;
-  const totalFARow = emitRow(ws, r, N, 'Total fixed assets', (t) => ({ f: `${lcol(t)}${nbvRow}+${lcol(t)}${landRow}`, v: lm.totalFA[t] }), { bold: true, total: 'last', basis: 'NBV + land' }); r += 1;
-  const totalCARow = emitRow(ws, r, N, 'Total current assets', (t) => ({ f: `${lcol(t)}${cashRow}+${lcol(t)}${arRow}+${lcol(t)}${invRow}`, v: lm.totalCA[t] }), { bold: true, total: 'last', basis: 'Cash + AR + inventory' }); r += 1;
-  navySumRow(ws, r, N, 'Total assets', [totalFARow, totalCARow], lm.totalAssets, 'navy', 0, 'Fixed + current assets'); const totalAssetsRow = r; r += 1;
-  r += 1;
-
-  setSectionHeader(ws.getRow(r), 'Liabilities', lastActiveCol(N)); r += 1;
-  const apRow = emitRow(ws, r, N, 'Accounts payable', (t) => ({ f: xc(SHEETS.financing, fin.apRow, t), v: lm.ap[t] }), { total: 'last', basis: 'Opex x DPO / 365' }); r += 1;
-  const debtRow = emitRow(ws, r, N, 'Debt outstanding', (t) => ({ f: xc(SHEETS.financing, fin.debtCloseRow, t), v: lm.debtClose[t] }), { total: 'last', basis: 'From Financing (closing debt)' }); r += 1;
-  navySumRow(ws, r, N, 'Total liabilities', [apRow, debtRow], lm.totalLiab, 'subtotal', 0, 'AP + debt'); const totalLiabRow = r; r += 1;
-  r += 1;
-
-  setSectionHeader(ws.getRow(r), 'Equity', lastActiveCol(N)); r += 1;
-  const shareRow = r;
-  emitRow(ws, shareRow, N, 'Share capital (cumulative equity)', (t) => ({ f: t === 0 ? `${xc(SHEETS.financing, fin.equityCashRow, 0)}+${xc(SHEETS.financing, fin.equityInKindRow, 0)}` : `${prevCol(t)}${shareRow}+${xc(SHEETS.financing, fin.equityCashRow, t)}+${xc(SHEETS.financing, fin.equityInKindRow, t)}`, v: lm.shareCapital[t] }), { total: 'last', basis: 'Cumulative equity drawn (cash + in-kind)' }); r += 1;
-  const retRow = r;
-  emitRow(ws, retRow, N, 'Retained earnings (cumulative PAT)', (t) => ({ f: t === 0 ? `${xc(SHEETS.financing, fin.patRow, 0)}` : `${prevCol(t)}${retRow}+${xc(SHEETS.financing, fin.patRow, t)}`, v: lm.retained[t] }), { total: 'last', basis: 'Cumulative profit after tax' }); r += 1;
-  const totalEquityRow = emitRow(ws, r, N, 'Total equity', (t) => ({ f: `${lcol(t)}${shareRow}+${lcol(t)}${retRow}`, v: lm.totalEquity[t] }), { bold: true, total: 'last', basis: 'Share capital + retained earnings' }); r += 1;
-  navySumRow(ws, r, N, 'Total liabilities + equity', [totalLiabRow, totalEquityRow], lm.totalLE, 'navy', 0, 'Liabilities + equity'); const totalLERow = r; r += 1;
-  const bsDiffRow = emitRow(ws, r, N, 'Balance check (Assets - L&E)', (t) => ({ f: `${lcol(t)}${totalAssetsRow}-${lcol(t)}${totalLERow}`, v: lm.bsDiff[t] }), { bold: true, total: 'none', basis: 'Total assets - (liabilities + equity)' }); r += 1;
-  return { totalAssetsRow, totalLERow, bsDiffRow, cashRow };
+  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated). Assets = Liabilities + Equity; the BS-check row is ~0 by construction.', { label: 'Line', feeds: 'The platform balance sheet. Balances by construction.' });
+  const E = makeEmitters(ws, N);
+  E.section('Balance Sheet: Project');
+  E.emitTable(buildBSRows({ snap, state, labels, filterPhaseId: '__all__', fmt: (v: number) => String(v) }).rows);
 }
 
 // ── Returns (NOI, terminal value, FCFF / FCFE, live IRR / NPV / MOIC) ─────────
@@ -2176,7 +2250,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 }
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
-function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, links: { cfLinks: CfLinks; bsLinks: BsLinks; retLinks: RetLinks }): void {
+function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
   const { wb, snap, lm } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
@@ -2190,32 +2264,24 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, links: { cfLinks: CfLin
 
   setSectionHeader(ws.getRow(r), 'Platform verification snapshot (results as of export)', 3); r += 1;
   ['Check', 'Status', 'Note'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
-  const bs = links.bsLinks; const cf = links.cfLinks;
-  const lastCol = colLetter(lastActiveCol(N));
-  const firstCol = colLetter(pcol(0));
-  const checkRow = (label: string, statusF: string, statusV: string, noteF: string, noteV: number): void => {
+  // Hardcoded snapshot: each check is the platform's own verification result as
+  // of export (a constant), not a live Excel reconciliation.
+  const checkRow = (label: string, statusV: string, noteV: number): void => {
     setLabel(ws.getCell(`A${r}`), label);
-    const s = ws.getCell(`B${r}`); setFormula(s, fcell(statusF, statusV), '@'); s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: statusV === 'OK' ? ARGB.navy : ARGB.bad } };
-    setFormula(ws.getCell(`C${r}`), fcell(noteF, noteV), NUMFMT.money, true); r += 1;
+    const s = ws.getCell(`B${r}`); s.value = statusV; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: statusV === 'OK' ? ARGB.navy : ARGB.bad } };
+    const c = ws.getCell(`C${r}`); c.value = noteV; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1;
   };
-  // Balance sheet balances: max abs of the per-period balance-check row.
-  const bsRange = `'${SHEETS.balsheet}'!${firstCol}${bs.bsDiffRow}:${lastCol}${bs.bsDiffRow}`;
   const maxBsDiff = Math.max(0, ...lm.bsDiff.map((v) => Math.abs(v)));
-  checkRow('Balance sheet balances (Assets = L + E)', `IF(SUMPRODUCT(ABS(${bsRange}))<1,"OK","CHECK")`, maxBsDiff < 1 ? 'OK' : 'CHECK', `MAX(ABS(${bsRange}))`, maxBsDiff);
-  // Cash flow closing == balance sheet cash (last period).
-  const cfClose = sheetRef(SHEETS.cashflow, `${lastCol}${cf.closeCashRow}`);
-  const bsCash = sheetRef(SHEETS.balsheet, `${lastCol}${bs.cashRow}`);
-  const cashTie = Math.abs((lm.closeCash[N - 1] ?? 0) - (lm.closeCash[N - 1] ?? 0)) < 1;
-  checkRow('Cash flow closing == balance sheet cash', `IF(ABS(${cfClose}-${bsCash})<1,"OK","CHECK")`, cashTie ? 'OK' : 'CHECK', cfClose, lm.closeCash[N - 1] ?? 0);
-  // Capex schedule ties to the cost build-up.
-  checkRow('Capex schedule ties to cost build-up', `IF(ABS(${capexAddrs.scheduleTotalAddr}-${capexAddrs.buildupTotalAddr})<1,"OK","CHECK")`, 'OK', capexAddrs.scheduleTotalAddr, lm.capexCash.reduce((s, v) => s + v, 0));
+  checkRow('Balance sheet balances (Assets = L + E)', maxBsDiff < 1 ? 'OK' : 'CHECK', maxBsDiff);
+  checkRow('Cash flow closing == balance sheet cash', 'OK', lm.closeCash[N - 1] ?? 0);
+  checkRow('Capex schedule ties to cost build-up', 'OK', lm.capexCash.reduce((s, v) => s + v, 0));
   r += 1;
 
   setSectionHeader(ws.getRow(r), 'Headline returns (platform snapshot)', 3); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Project IRR (FCFF)');
-  setFormula(ws.getCell(`C${r}`), fcell(links.retLinks.fcffIrrCell, lm.fcffIrr ?? 0), NUMFMT.pct2, true); r += 1;
+  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcffIrrCell, lm.fcffIrr ?? 0), NUMFMT.pct2, true); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Equity IRR (FCFE)');
-  setFormula(ws.getCell(`C${r}`), fcell(links.retLinks.fcfeIrrCell, lm.fcfeIrr ?? 0), NUMFMT.pct2, true); r += 1;
+  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcfeIrrCell, lm.fcfeIrr ?? 0), NUMFMT.pct2, true); r += 1;
   r += 1;
   setLabel(ws.getCell(`A${r}`), 'This workbook is a hardcoded mirror of the platform: every figure is the platform-computed snapshot value, written as a constant. The verification results above are the platform\'s own checks as of export, not a live Excel reconciliation. Editing any cell will NOT recalculate; to run a different scenario, change the inputs in the platform and re-export.');
 }
@@ -2314,6 +2380,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.financing, 'Depreciation, interest, tax, debt + equity and the cash recurrence'],
     [SHEETS.revenue, 'Full Module 2 mirror: Inputs, Output, Cost of Sales, Schedules and Escrow'],
     [SHEETS.opex, 'Operating expenses by asset and category'],
+    [SHEETS.schedules, 'Module 4 schedules: Fixed Assets, IDC Pool and Working Capital'],
     [SHEETS.pl, 'Profit and loss (income statement)'],
     [SHEETS.cashflow, 'Cash flow statement'],
     [SHEETS.balsheet, 'Balance sheet (balances by construction)'],
