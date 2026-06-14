@@ -209,6 +209,11 @@ async function main(): Promise<void> {
   const ret = wb.getWorksheet('Returns')!; const irrRow = rowByLabel(ret, /^Project IRR \(FCFF\)$/);
   const irrCell: any = irrRow > 0 ? ret.getCell(irrRow, 4).value : null;
   check('Returns Project IRR is a finite constant (not a formula)', irrRow > 0 && !isFormula(irrCell) && Number.isFinite(num(irrCell)), `irr=${num(irrCell)}`);
+  // Module 5 mirror: the Returns tab reproduces the platform sub-tabs + KPI strips.
+  const m5 = (re: RegExp): number => rowByLabel(ret, re);
+  check('Returns mirrors Module 5 sub-tabs (Returns, RE Metrics, Cash Flow Streams)', m5(/^1\. Returns/) > 0 && m5(/^2\. RE Metrics/) > m5(/^1\. Returns/) && m5(/^3\. Cash Flow Streams/) > m5(/^2\. RE Metrics/));
+  check('Returns carries KPI strips (Headline Returns, Development Economics)', m5(/^Headline Returns$/) > 0 && m5(/^Development Economics$/) > 0);
+  check('Returns carries Sources & Uses + RE coverage cards', m5(/^Sources & Uses$/) > 0 && m5(/^Leverage & Coverage$/) > 0);
 
   // ── Universal navy palette: every cell colour is one standard scheme ─────────
   // No per-tab or off-palette colours (no green / teal / blue accents). Allowed:

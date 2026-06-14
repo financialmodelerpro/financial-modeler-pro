@@ -24,6 +24,7 @@ import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, type M4ReportCtx } from '../reports/m4Reports';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
+import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
@@ -2490,56 +2491,215 @@ function addBalanceSheet(ctx: EmitCtx): void {
 
 // ── Returns (NOI, terminal value, FCFF / FCFE, live IRR / NPV / MOIC) ─────────
 function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin: FinLinks): RetLinks {
-  const { wb, snap, lm, proj } = ctx;
+  void revLinks; void opexLinks; void fin;
+  const { wb, snap, lm, state, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Returns', 'Project (FCFF) and equity (FCFE) returns. Terminal value at the exit year = stabilised NOI x exit multiple (less debt for equity). IRR / NPV / MOIC are the platform-computed values as of export.', { label: 'Line', feeds: 'Sourced from the Financing cash flows plus terminal value. The project (FCFF) and equity (FCFE) returns.' });
-  const exit = lm.exitOffset;
-  const exitCol = colLetter(pcol(exit));
+  writeSheetHeader(ws, snap, N, 'Returns', 'Full mirror of the platform Module 5: 1. Returns (headline IRR / MOIC, development economics, exit analysis, sources & uses), 2. RE Metrics (yield, leverage, coverage, per-asset), 3. Cash Flow Streams (FCFF / FCFE / dividends).', { label: 'Line', feeds: 'Sourced from the M4 cash flows + returns engine. The project (FCFF) and equity (FCFE) returns.' });
   let r = 5;
+  let rs: ReturnsSnapshot | null = null;
+  try { rs = computeReturnsSnapshot(snap, state.project); } catch { rs = null; }
 
-  setSectionHeader(ws.getRow(r), 'Inputs (linked from Assumptions)', lastActiveCol(N)); r += 1;
-  const scalar = (label: string, link: string, cached: number | string, fmt: string): string => { const a = scalarCell(ws, r, label, link, cached, fmt); r += 1; return a; };
-  const discCell = scalar('Discount rate', 'DiscountRate', proj.discountRate, NUMFMT.pct2);
-  const exitMultCell = scalar('Exit multiple (x stabilised NOI)', 'ExitMultiple', proj.exitMultiple, NUMFMT.mult);
-  scalar('Exit year offset (0-based)', 'ExitYearOffset', proj.exitOffset, NUMFMT.int);
-  r += 1;
+  // ── value formatters (strings, so the display-scale sweep leaves them alone) ──
+  const cPct = (v: number | null | undefined, d = 1): string => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a');
+  const cMoney = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
+  const cMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
 
-  setSectionHeader(ws.getRow(r), 'Net operating income & terminal value', lastActiveCol(N)); r += 1;
-  const noiRow = emitRow(ws, r, N, 'Net operating income (NOI)', (t) => ({ f: `${xc(SHEETS.revenue, revLinks.hospitalityRow, t)}+${xc(SHEETS.revenue, revLinks.retailRow, t)}-${xc(SHEETS.opex, opexLinks.hospRow, t)}-${xc(SHEETS.opex, opexLinks.retailRow, t)}`, v: lm.noi[t] }), { basis: 'Operating revenue - operating opex (Hospitality + Retail)' }); r += 1;
-  const scalarD = (label: string, f: string, v: number, fmt = NUMFMT.money): string => {
-    setLabel(ws.getCell(r, LBL_COL), label); setFormula(ws.getCell(r, TOTAL_COL), fcell(f, v), fmt);
-    const a = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return a;
+  // ── local emitters ──
+  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  const subTitle = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
   };
-  const stabCell = scalarD('Stabilised NOI (max to exit)', `MAX(${lcol(0)}${noiRow}:${exitCol}${noiRow})`, lm.stabilisedNOI);
-  const evCell = scalarD('Terminal enterprise value', `${stabCell}*${exitMultCell}`, lm.terminalEV);
-  const teqCell = scalarD('Terminal equity value', `MAX(0,${evCell}-${xc(SHEETS.financing, fin.debtCloseRow, exit)})`, lm.terminalEquity);
-  r += 1;
-
-  setSectionHeader(ws.getRow(r), 'Free cash flow streams (inception col E, terminal at exit)', lastActiveCol(N)); r += 1;
-  const base = (t: number): string => `${xc(SHEETS.financing, fin.cfoRow, t)}+${xc(SHEETS.financing, fin.cfiRow, t)}`;
-  const fcffRow = emitRow(ws, r, N, 'FCFF (project)', (t) => ({ f: t === exit ? `${base(t)}+${evCell}` : base(t), v: lm.fcff[t] }), { open: { v: 0 }, total: 'none', basis: 'CFO + CFI (+ terminal enterprise value at exit)' }); r += 1;
-  const equityBase = (t: number): string => `${base(t)}+${xc(SHEETS.financing, fin.debtDrawRow, t)}-${xc(SHEETS.financing, fin.principalRow, t)}-${xc(SHEETS.financing, fin.interestRow, t)}-${xc(SHEETS.financing, fin.equityInKindRow, t)}`;
-  const fcfeRow = emitRow(ws, r, N, 'FCFE (equity)', (t) => ({ f: t === exit ? `${equityBase(t)}+${teqCell}` : equityBase(t), v: lm.fcfe[t] }), { open: { v: 0 }, total: 'none', basis: 'FCFF + debt draw - principal - interest - in-kind (+ terminal equity at exit)' }); r += 1;
-  r += 1;
-
-  setSectionHeader(ws.getRow(r), 'Returns', lastActiveCol(N)); r += 1;
-  const streamRange = (row: number): string => `${colLetter(OPEN_COL)}${row}:${exitCol}${row}`;
-  const npvF = (row: number): string => `${colLetter(OPEN_COL)}${row}+NPV(${discCell},${lcol(0)}${row}:${exitCol}${row})`;
-  const moicF = (row: number): string => `IFERROR(SUMIF(${streamRange(row)},">0")/-SUMIF(${streamRange(row)},"<0"),0)`;
-  const metric = (label: string, f: string, v: number, fmt: string): string => {
-    setLabel(ws.getCell(r, LBL_COL), label, { bold: true }); setFormula(ws.getCell(r, TOTAL_COL), fcell(f, v), fmt);
-    const a = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return a;
+  // KPI card strip: a row of bordered tiles (label over value), 2 columns each,
+  // wrapping when the period axis runs out. The headline visual of the platform.
+  const kpiStrip = (title: string, cards: Array<{ label: string; value: string }>): void => {
+    subTitle(title);
+    const firstCol = OPEN_COL, lastCol = lastActiveCol(N), perCard = 2;
+    let col = firstCol;
+    for (const card of cards) {
+      if (col + perCard - 1 > lastCol) { col = firstCol; r += 3; }
+      const c2 = col + perCard - 1;
+      ws.mergeCells(r, col, r, c2); ws.mergeCells(r + 1, col, r + 1, c2);
+      const lc = ws.getCell(r, col); lc.value = card.label; lc.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
+      const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+      boxBorder(ws, r, col, r + 1, c2);
+      col = c2 + 1;
+    }
+    r += 3;
   };
-  // The cached IRR seeds Excel's IRR() guess so the solver converges even for
-  // high-return projects (Excel's default 0.1 guess fails on large IRRs).
-  const guess = (v: number | null): number => (v != null && Number.isFinite(v) && Math.abs(v) < 100 ? v : 0.1);
-  const fcffIrrCell = metric('Project IRR (FCFF)', `IFERROR(IRR(${streamRange(fcffRow)},${guess(lm.fcffIrr)}),0)`, lm.fcffIrr ?? 0, NUMFMT.pct2);
-  metric('Project NPV (FCFF)', npvF(fcffRow), lm.fcffNpv, NUMFMT.money);
-  metric('Project MOIC (FCFF)', moicF(fcffRow), lm.fcffMoic, NUMFMT.mult);
-  const fcfeIrrCell = metric('Equity IRR (FCFE)', `IFERROR(IRR(${streamRange(fcfeRow)},${guess(lm.fcfeIrr)}),0)`, lm.fcfeIrr ?? 0, NUMFMT.pct2);
-  metric('Equity NPV (FCFE)', npvF(fcfeRow), lm.fcfeNpv, NUMFMT.money);
-  metric('Equity multiple (FCFE MOIC)', moicF(fcfeRow), lm.fcfeMoic, NUMFMT.mult);
+  // Scalar money / text row: label in A, value in the Total column (D).
+  const scalarRow = (label: string, value: number | string, numFmt: string, bold = false): void => {
+    setLabel(ws.getCell(r, LBL_COL), label, { bold });
+    const c = ws.getCell(r, TOTAL_COL); c.value = value; c.numFmt = numFmt; c.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: bold ? ARGB.navy : ARGB.formula } };
+    r += 1;
+  };
+  // Generic grid (pre-formatted strings): header[0] + rows[][0] in A, the rest
+  // across the period columns from E.
+  const gridTable = (title: string, headers: string[], rows: string[][]): void => {
+    subTitle(title);
+    setColHeader(ws.getCell(r, LBL_COL), headers[0], 'left');
+    for (let i = 1; i < headers.length; i++) setColHeader(ws.getCell(r, OPEN_COL + i - 1), headers[i], 'right');
+    r += 1;
+    for (const cells of rows) {
+      setLabel(ws.getCell(r, LBL_COL), cells[0]);
+      for (let i = 1; i < cells.length; i++) { const c = ws.getCell(r, OPEN_COL + i - 1); c.value = cells[i]; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+      r += 1;
+    }
+    r += 1;
+  };
+  // A money row from an array (label + opening + per-period + Total).
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number } = {}): void => {
+    const vals = (series ?? []).slice(0, N);
+    setLabel(ws.getCell(r, LBL_COL), label, { bold: opts.style && opts.style !== 'plain' });
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    put(OPEN_COL, opts.prior ?? 0);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    put(TOTAL_COL, (opts.prior ?? 0) + vals.reduce((s, v) => s + (v ?? 0), 0));
+    if (opts.style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
+    r += 1;
+  };
+  const statRow = (label: string, cells: string[]): void => {
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: 1 });
+    for (let t = 0; t < N; t++) { const c = ws.getCell(r, pcol(t)); c.value = cells[t] ?? '-'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+    r += 1;
+  };
+
+  // ── 1. Returns ───────────────────────────────────────────────────────────────
+  section('1. Returns (headline IRR / MOIC, development economics, exit analysis, sources & uses)');
+  if (rs) {
+    const rr = rs.result, de = rs.developmentEconomics, ex = rs.exitAnalysis, su = rs.sourcesUses, ee = rs.equityExposure, da = rs.debtAnalytics;
+    kpiStrip('Headline Returns', [
+      { label: 'Project IRR (FCFF)', value: cPct(rr.fcff.irr, 1) },
+      { label: 'Equity IRR (FCFE)', value: cPct(rr.fcfe.irr, 1) },
+      { label: 'Distributed Equity IRR', value: cPct(rr.dividends.irr, 1) },
+      { label: 'Equity Multiple', value: cMult(rr.fcfe.moic) },
+      { label: 'Dividend MOIC', value: cMult(rr.dividends.moic) },
+      { label: `Terminal Equity (exit ${rs.exitYearLabel})`, value: cMoney(rs.terminalEquityValue) },
+    ]);
+    subTitle('Returns Assumptions');
+    scalarRow('Discount rate', rs.config.discountRate, NUMFMT.pct2);
+    scalarRow('Exit year', rs.exitYearLabel, NUMFMT.year);
+    scalarRow('Terminal value method', String(rs.config.terminalMethod), '@');
+    scalarRow('Exit multiple (x stabilised NOI)', rs.config.exitMultiple, NUMFMT.mult);
+    scalarRow('Perpetuity growth', rs.config.perpetuityGrowth, NUMFMT.pct2);
+    r += 1;
+    kpiStrip('Development Economics', [
+      { label: 'GDV', value: cMoney(de.gdv) },
+      { label: 'Total Dev Cost', value: cMoney(de.totalDevelopmentCost) },
+      { label: 'Financing Cost', value: cMoney(de.totalFinancingCost) },
+      { label: 'Profit Before Fin.', value: cMoney(de.profitBeforeFinancing) },
+      { label: 'Profit After Fin.', value: cMoney(de.profitAfterFinancing) },
+      { label: 'Development Margin', value: cPct(de.developmentMargin, 1) },
+    ]);
+    kpiStrip(`Exit Analysis (${ex.exitYearLabel})`, [
+      { label: 'Exit NOI', value: cMoney(ex.exitNOI) },
+      { label: 'Exit EBITDA', value: cMoney(ex.exitEBITDA) },
+      { label: 'Enterprise Value', value: cMoney(ex.exitEnterpriseValue) },
+      { label: 'Equity Value', value: cMoney(ex.exitEquityValue) },
+      { label: 'Debt at Exit', value: cMoney(ex.exitDebt) },
+      { label: 'LTV at Exit', value: cPct(ex.ltvAtExit, 1) },
+    ]);
+    subTitle('Sources & Uses');
+    scalarRow('Existing equity', su.existingEquity, NUMFMT.money);
+    scalarRow('New equity (cash)', su.newEquityCash, NUMFMT.money);
+    scalarRow('In-kind equity', su.inKindEquity, NUMFMT.money);
+    scalarRow('Existing debt', su.existingDebt, NUMFMT.money);
+    scalarRow('New debt', su.newDebt, NUMFMT.money);
+    scalarRow('Customer collections', su.customerCollections, NUMFMT.money);
+    scalarRow('Operating cash', su.operatingCash, NUMFMT.money);
+    scalarRow('Total sources', su.totalSources, NUMFMT.money, true);
+    scalarRow('Land (use)', su.land, NUMFMT.money);
+    scalarRow('Construction (use)', su.construction, NUMFMT.money);
+    scalarRow('IDC (use)', su.idc, NUMFMT.money);
+    scalarRow('Reserves / distributions (use)', su.reservesDistributions, NUMFMT.money);
+    scalarRow('Total uses', su.totalUses, NUMFMT.money, true);
+    r += 1;
+    kpiStrip('Equity Exposure & Debt Analytics', [
+      { label: 'Total Equity Required', value: cMoney(ee.totalEquityRequired) },
+      { label: 'Avg Equity Invested', value: cMoney(ee.averageEquityInvested) },
+      { label: 'Equity at Risk', value: cMoney(ee.equityAtRisk) },
+      { label: 'Peak Debt', value: cMoney(da.peakDebt) },
+      { label: 'Debt Paydown', value: cPct(da.paydownPct, 1) },
+      { label: 'Debt Tenor', value: da.tenorYears == null ? 'n/a' : `${da.tenorYears.toFixed(0)} yrs` },
+    ]);
+    if (rs.exitYears?.length) {
+      gridTable('Exit-Year Analysis (hold vs sell)', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
+        rs.exitYears.map((x) => [`${x.exitYearLabel}${x.isSelected ? ' (selected)' : ''}`, cMoney(x.enterpriseValue), cMoney(x.equityValue), cPct(x.fcffIrr, 1), cPct(x.fcfeIrr, 1), cMult(x.equityMoic)]));
+    }
+    if (rs.partners?.partners.length) {
+      gridTable('Equity Partners', ['Partner', 'Invested', 'Share %', 'Dividends', 'Terminal', 'IRR', 'MOIC'],
+        rs.partners.partners.map((pn) => [pn.name, cMoney(pn.totalEquityInvested), cPct(pn.shareholdingPct, 1), cMoney(pn.dividendsReceived), cMoney(pn.terminalDistribution), cPct(pn.irr, 1), cMult(pn.moic)]));
+    }
+  }
+  // Numeric headline metrics (reconcilable constants; feed the Checks tab).
+  subTitle('Returns Metrics (project + equity)');
+  const metricRow = (label: string, v: number, fmt: string): string => {
+    setLabel(ws.getCell(r, LBL_COL), label, { bold: true });
+    const c = ws.getCell(r, TOTAL_COL); c.value = v; c.numFmt = fmt; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } };
+    const addr = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return addr;
+  };
+  const fcffIrrCell = metricRow('Project IRR (FCFF)', lm.fcffIrr ?? 0, NUMFMT.pct2);
+  metricRow('Project NPV (FCFF)', lm.fcffNpv, NUMFMT.money);
+  metricRow('Project MOIC (FCFF)', lm.fcffMoic, NUMFMT.mult);
+  const fcfeIrrCell = metricRow('Equity IRR (FCFE)', lm.fcfeIrr ?? 0, NUMFMT.pct2);
+  metricRow('Equity NPV (FCFE)', lm.fcfeNpv, NUMFMT.money);
+  metricRow('Equity multiple (FCFE MOIC)', lm.fcfeMoic, NUMFMT.mult);
+  r += 1;
+
+  // ── 2. RE Metrics ────────────────────────────────────────────────────────────
+  if (rs) {
+    const re = rs.result.realEstate;
+    section('2. RE Metrics (profitability, yield, leverage, coverage, per-asset economics)');
+    kpiStrip('Profitability & Yield', [
+      { label: 'Yield on Cost', value: cPct(re.yieldOnCost, 2) },
+      { label: 'Cap Rate at Exit', value: cPct(re.capRateAtExit, 2) },
+      { label: 'Development Spread', value: cPct(re.developmentSpread, 2) },
+      { label: 'Profit on Cost', value: cPct(re.profitOnCost, 1) },
+      { label: 'Profit Margin', value: cPct(re.profitMargin, 1) },
+      { label: 'Equity Multiple', value: cMult(re.equityMultiple) },
+    ]);
+    kpiStrip('Leverage & Coverage', [
+      { label: 'LTV at Exit', value: cPct(re.ltvAtExit, 1) },
+      { label: 'Debt Yield', value: cPct(re.debtYield, 1) },
+      { label: 'Min DSCR', value: cMult(re.dscrMin) },
+      { label: 'Avg DSCR', value: cMult(re.dscrAvg) },
+      { label: 'Min Interest Cover', value: cMult(re.icrMin) },
+      { label: 'Avg Cash-on-Cash', value: cPct(re.cashOnCashAvg, 1) },
+    ]);
+    const nzc = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
+    if (nzc(re.dscrPerPeriod) || nzc(re.icrPerPeriod)) {
+      subTitle('Coverage Ratios by Year');
+      statRow('DSCR', re.dscrPerPeriod.map((v) => (v ? v.toFixed(2) : '-')));
+      statRow('Interest cover', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-')));
+      statRow('Cash-on-cash %', re.cashOnCashPerPeriod.map((v) => (v ? cPct(v, 1) : '-')));
+      r += 1;
+    }
+    if (rs.perAsset?.rows.length) {
+      gridTable('Per-Asset Economics', ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
+        rs.perAsset.rows.map((a) => [a.assetName, a.strategy, cMoney(a.totalRevenue), cMoney(a.totalCost), cMoney(a.profit), cPct(a.profitMargin, 1), a.isIncomeAsset ? cPct(a.yieldOnCost, 1) : 'n/a']));
+    }
+  }
+
+  // ── 3. Cash Flow Streams ─────────────────────────────────────────────────────
+  section('3. Cash Flow Streams (signed FCFF / FCFE / dividends, inception in the opening column)');
+  if (rs) {
+    // Stream index 0 = inception (opening column); 1..E map onto the axis.
+    const place = (stream: number[]): { prior: number; vals: number[] } => {
+      const prior = stream[0] ?? 0; const vals = new Array<number>(N).fill(0);
+      for (let i = 1; i < stream.length && i - 1 < N; i++) vals[i - 1] = stream[i] ?? 0;
+      return { prior, vals };
+    };
+    const fcff = place(rs.fcffPerPeriod); moneyRow('FCFF (project)', fcff.vals, { style: 'total', prior: fcff.prior });
+    const fcfe = place(rs.fcfePerPeriod); moneyRow('FCFE (equity)', fcfe.vals, { style: 'total', prior: fcfe.prior });
+    if ((rs.dividendStreamPerPeriod ?? []).some((v) => v !== 0)) { const dv = place(rs.dividendStreamPerPeriod); moneyRow('Dividends distributed', dv.vals, { prior: dv.prior }); }
+  } else {
+    moneyRow('FCFF (project)', lm.fcff, { style: 'total' });
+    moneyRow('FCFE (equity)', lm.fcfe, { style: 'total' });
+  }
+
   return { fcffIrrCell, fcfeIrrCell };
 }
 
