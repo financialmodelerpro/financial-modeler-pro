@@ -78,7 +78,13 @@ async function main(): Promise<void> {
   // ── Statements tie EXACTLY to the platform snapshot (constants) ─────────────
   const totD = (sheet: string, re: RegExp): number => { const ws = wb.getWorksheet(sheet)!; const R = rowByLabel(ws, re); return R > 0 ? num(ws.getCell(R, 4).value) : NaN; }; // period-sheet Total col = D (4)
   check('Revenue total == snapshot total revenue', close(totD('Revenue', /^Total revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)), `wb=${Math.round(totD('Revenue', /^Total revenue$/))} snap=${Math.round(sumA(snap.pl.totalRevenuePerPeriod, N))}`);
-  check('Opex total == snapshot total opex', close(totD('Opex', /^Total opex$/), sumA(snap.pl.totalOpexPerPeriod, N)));
+  check('Opex total == snapshot total opex', close(totD('Opex', /^Total Project Opex$/), sumA(snap.pl.totalOpexPerPeriod, N)));
+  // Module 3 mirror: the Opex sheet reproduces all platform sub-tabs in order.
+  const opxWs = wb.getWorksheet('Opex')!;
+  const m3 = (re: RegExp): number => rowByLabel(opxWs, re);
+  const m3a = m3(/^1\. Opex Inputs/), m3b = m3(/^2\. Opex Output/), m3c = m3(/^3\. Schedules/);
+  check('Opex mirrors the Module 3 sub-tabs in sequence (Inputs, Output, Schedules)', m3a > 0 && m3b > m3a && m3c > m3b, `rows=${m3a},${m3b},${m3c}`);
+  check('Opex Schedules carries the project-total Accounts Payable roll-forward', m3(/^Accounts Payable \(project total\)$/) > m3c);
   // Cost of Sales is now a section on the Revenue sheet; tie it via the P&L line.
   check('Cost of Sales total (P&L) == snapshot cost of sales', close(Math.abs(totD('P&L', /^Cost of sales$/)), sumA(snap.pl.cosPerPeriod, N)));
   // Module 2 mirror: the Revenue sheet reproduces all platform sub-tabs in order.

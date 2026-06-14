@@ -21,6 +21,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
+import { buildOpexReport } from '../reports/opexReports';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
@@ -97,7 +98,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
   const finLinks = addFinancing(ctx);
   const { revLinks, cosLinks } = addRevenue(ctx);
-  const opexLinks = addOpex(ctx, revLinks);
+  const opexLinks = addOpex(ctx);
   addProfitLoss(ctx, revLinks, cosLinks, opexLinks, finLinks);
   const cfLinks = addCashFlow(ctx, finLinks);
   const bsLinks = addBalanceSheet(ctx, finLinks, cosLinks);
@@ -1676,55 +1677,128 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   };
 }
 
-// ── Opex (Operate / Lease: revenue x cost ratio; HQ: base x profile) ──────────
-function addOpex(ctx: EmitCtx, revLinks: RevLinks): OpexLinks {
-  const { wb, snap, lm, assets } = ctx;
+// ── Opex (full mirror of the platform Module 3: all 3 sub-tabs in sequence) ───
+// One sheet reproducing every Module 3 surface as a divided section, the same
+// way Revenue mirrors Module 2: 1. Inputs (per-asset + HQ opex lines), 2. Output
+// (revenue breakdown + per-category cost tables + project rollup, via the shared
+// buildOpexReport), 3. Schedules (accounts payable roll-forward). Every figure is
+// the platform snapshot value (hardcoded). Returns the Opex row registry.
+function addOpex(ctx: EmitCtx): OpexLinks {
+  const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.opex, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Operating Expenses', 'Operating expenses. Operate / Lease opex = revenue x an editable operating-cost ratio; HQ overheads = base x profile. Residential (for-sale) costs sit in Cost of Sales, not here.', { label: 'Asset', feeds: 'Sourced from Revenue and Inputs (operating ratios, HQ overheads). Feeds P&L, Cash Flow and the Returns NOI.' });
+  writeSheetHeader(ws, snap, N, 'Operating Expenses', 'Full step-by-step mirror of the platform Opex module, all three sub-tabs in sequence: 1. Inputs (per-asset + HQ opex lines), 2. Output (revenue breakdown + per-category cost tables + project rollup), 3. Schedules (accounts payable roll-forward).', { label: 'Line', feeds: 'Sourced from Inputs (opex lines) and Revenue (operating revenue). Feeds P&L, Cash Flow (opex paid) and the Returns NOI.' });
   let r = 5;
-  const opAssets = assets.filter((a) => a.group !== 'Residential');
-  const ratioRow = new Map<string, number>();
-  if (opAssets.length) {
-    setSectionHeader(ws.getRow(r), 'Operating cost ratios (input: opex as % of revenue)', lastActiveCol(N)); r += 1;
-    for (const a of opAssets) {
-      setLabel(ws.getCell(r, LBL_COL), a.name, { indent: 1 });
-      const c = ws.getCell(r, OPEN_COL); c.value = 1 - a.opexMargin; c.numFmt = NUMFMT.pct2; markInput(c);
-      ratioRow.set(a.id, r); r += 1;
+  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const anyNonZero = (a: number[] | undefined): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
+  const idxLabel = (ix?: { method?: string; rate?: number }): string => {
+    if (!ix || !ix.method || ix.method === 'none') return 'None';
+    const m = ix.method === 'single_rate' ? 'Flat' : ix.method === 'yoy_compound' ? 'Compound' : ix.method === 'yoy_per_period' ? 'Per-Year' : ix.method === 'step' ? 'Step' : ix.method;
+    return ix.rate != null ? `${m} ${(ix.rate * 100).toFixed(1)}%` : m;
+  };
+
+  // ── local emit helpers (mirror the Revenue / Financing tabs) ──
+  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  const subTitle = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  };
+  type RowStyle = 'plain' | 'subtotal' | 'total';
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; noTotal?: boolean } = {}): number => {
+    const used = r;
+    const style = opts.style ?? 'plain';
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
+    if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
+    const vals = (series ?? []).slice(0, N);
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    put(OPEN_COL, opts.prior ?? 0);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    if (!opts.noTotal) put(TOTAL_COL, opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
+    if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; } }
+    else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; } }
+    r += 1;
+    return used;
+  };
+  const emitM4 = (row: M4Row): number => {
+    if (row.isSection) { subTitle(row.label); return r - 1; }
+    const style: RowStyle = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
+    return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalLast: row.totalOverride !== undefined });
+  };
+  // A read-only text/value cell on the inputs grid (black, not an editable cell).
+  const txt = (c: number, v: string | number, numFmt = '@'): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+
+  // ── 1. Opex Inputs ───────────────────────────────────────────────────────────
+  section('1. Opex Inputs (per-asset opex lines + HQ / corporate overheads)');
+  const valueFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
+  for (const a of state.assets) {
+    const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
+    if (!lines.length) continue;
+    subTitle(`Opex Inputs, ${a.name}`);
+    ['Line', '', '', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i === 0 ? LBL_COL : OPEN_COL + (i - 3)), h, 'left'); });
+    r += 1;
+    for (const l of lines) {
+      setLabel(ws.getCell(r, LBL_COL), l.name, { indent: 1 });
+      txt(OPEN_COL, String(l.category)); txt(OPEN_COL + 1, String(l.mode));
+      txt(OPEN_COL + 2, l.value, valueFmt(String(l.mode)));
+      txt(OPEN_COL + 3, l.useAssetDefault ? `(default) ${idxLabel(a.opex?.defaultIndexation)}` : idxLabel(l.indexation));
+      txt(OPEN_COL + 4, l.rateMode === 'yoy' ? 'YoY' : 'Single');
+      r += 1;
     }
     r += 1;
   }
-  setSectionHeader(ws.getRow(r), 'Opex by asset', lastActiveCol(N)); r += 1;
-  const hospRows: number[] = []; const retRows: number[] = [];
-  for (const a of opAssets) {
-    const revRow = revLinks.byAssetRow.get(a.id);
-    const ratioCell = `$${colLetter(OPEN_COL)}$${ratioRow.get(a.id)}`;
-    const ox = lm.opexByAsset.get(a.id) ?? [];
-    emitRow(ws, r, N, a.name, (t) => ({ f: revRow ? `${xc(SHEETS.revenue, revRow, t)}*${ratioCell}` : '0', v: ox[t] ?? 0 }), { indent: 1, basis: 'Revenue x operating-cost ratio' });
-    (a.group === 'Retail' ? retRows : hospRows).push(r); r += 1;
+  const hqLines = (state.project.hqOpex?.lines ?? []).filter((l) => !l.disabled);
+  if (hqLines.length) {
+    subTitle('HQ / Corporate Opex Inputs');
+    ['Line', '', '', 'Category', 'Mode', 'Value', 'Indexation'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i === 0 ? LBL_COL : OPEN_COL + (i - 3)), h, 'left'); });
+    r += 1;
+    for (const l of hqLines) {
+      setLabel(ws.getCell(r, LBL_COL), l.name, { indent: 1 });
+      txt(OPEN_COL, String(l.category)); txt(OPEN_COL + 1, String(l.mode));
+      txt(OPEN_COL + 2, l.value, valueFmt(String(l.mode)));
+      txt(OPEN_COL + 3, idxLabel(l.indexation));
+      r += 1;
+    }
+    r += 1;
   }
-  const hqTotal = lm.hqOpex.reduce((s, v) => s + v, 0);
-  let hqRow = -1;
-  if (Math.abs(hqTotal) > 0.5) {
-    setLabel(ws.getCell(r, LBL_COL), 'HQ overheads: base', { indent: 1 });
-    { const c = ws.getCell(r, OPEN_COL); c.value = hqTotal; c.numFmt = NUMFMT.money; markInput(c); }
-    const hqBaseRow = r; r += 1;
-    setLabel(ws.getCell(r, LBL_COL), 'HQ overheads: profile %', { indent: 1 });
-    { const c = ws.getCell(r, OPEN_COL); c.value = 0; c.numFmt = NUMFMT.pct2; markInput(c); }
-    for (let t = 0; t < N; t++) { const c = ws.getCell(r, pcol(t)); c.value = hqTotal > 0 ? (lm.hqOpex[t] ?? 0) / hqTotal : 0; c.numFmt = NUMFMT.pct2; markInput(c); }
-    setFormula(ws.getCell(r, TOTAL_COL), fcell(`SUM(${activeRange(N, r)})`, hqTotal > 0 ? 1 : 0), NUMFMT.pct2);
-    const hqProfRow = r; r += 1;
-    const baseCell = `$${colLetter(OPEN_COL)}$${hqBaseRow}`;
-    emitRow(ws, r, N, 'HQ overheads', (t) => ({ f: `${baseCell}*${lcol(t)}${hqProfRow}`, v: lm.hqOpex[t] ?? 0 }), { indent: 1, basis: 'HQ base x period profile %' });
-    hqRow = r; r += 1;
+
+  // ── 2. Opex Output ───────────────────────────────────────────────────────────
+  section('2. Opex Output (per-asset revenue breakdown + cost categories, then project rollup)');
+  let totalRow = r; let hqRow = -1;
+  for (const t of buildOpexReport(snap, state)) {
+    subTitle(t.title);
+    for (const row of t.rows) {
+      const used = emitM4(row);
+      if (t.title === 'Project Total Opex') { if (row.isTotal) totalRow = used; else if (row.label === 'HQ overheads') hqRow = used; }
+    }
+    r += 1;
   }
-  r += 1;
-  setSectionHeader(ws.getRow(r), 'Project opex summary', lastActiveCol(N)); r += 1;
-  navySumRow(ws, r, N, 'Hospitality opex', hospRows, lm.hospitalityOpex, 'subtotal', 0, 'Sum of Hospitality opex'); const hRow = r; r += 1;
-  navySumRow(ws, r, N, 'Retail opex', retRows, lm.retailOpex, 'subtotal', 0, 'Sum of Retail opex'); const retRow = r; r += 1;
-  const totalSrc = hqRow > 0 ? [hRow, retRow, hqRow] : [hRow, retRow];
-  navySumRow(ws, r, N, 'Total opex', totalSrc, lm.totalOpex, 'navy', 0, 'Hospitality + Retail + HQ overheads'); const totalRow = r; r += 1;
-  return { hospRow: hRow, retailRow: retRow, hqRow, totalRow };
+  // hospRow / retailRow have no per-strategy rollup row in the platform Output;
+  // they feed only discarded static-mode formula strings (the Returns NOI value
+  // is the snapshot constant), so they point at the project total.
+  const hospRow = totalRow; const retailRow = totalRow;
+
+  // ── 3. Schedules (Accounts Payable roll-forward) ─────────────────────────────
+  section('3. Schedules (Accounts Payable roll-forward, per asset + project total)');
+  for (const [id, apr] of snap.ap.byAsset) {
+    if (!anyNonZero(apr.opexIncurredPerPeriod)) continue;
+    subTitle(`Accounts Payable, ${assetName(id)} (DPO ${apr.effectiveApDays})`);
+    moneyRow('Opex incurred', apr.opexIncurredPerPeriod, { indent: 1 });
+    moneyRow('Opening AP', apr.result.openingPerPeriod, { indent: 1, noTotal: true });
+    moneyRow('Closing AP', apr.result.perPeriod, { style: 'subtotal', totalLast: true });
+    moneyRow('Cash paid', apr.result.cashPaidPerPeriod, { indent: 1 });
+    r += 1;
+  }
+  const apt = snap.ap.projectTotals;
+  subTitle('Accounts Payable (project total)');
+  moneyRow('Opex incurred', apt.opexIncurredPerPeriod, { indent: 1 });
+  moneyRow('Opening AP', apt.openingApPerPeriod, { indent: 1, noTotal: true });
+  moneyRow('Change in AP', apt.changeApPerPeriod, { indent: 1 });
+  moneyRow('Closing AP', apt.closingApPerPeriod, { style: 'subtotal', totalLast: true });
+  moneyRow('Cash paid', apt.cashPaidPerPeriod, { style: 'total' });
+
+  return { hospRow, retailRow, hqRow, totalRow };
 }
 
 // ── Financing (full step-by-step mirror of the platform's 4 sub-tabs) ─────────
