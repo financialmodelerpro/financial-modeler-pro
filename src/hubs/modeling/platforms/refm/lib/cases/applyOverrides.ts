@@ -118,6 +118,84 @@ export function buildOverrides(base: HydrateSnapshot, edited: HydrateSnapshot): 
   return out;
 }
 
+// ── Overridable-field enumeration (for the explicit override editor) ─────────
+// Mirrors the diffSnapshots traversal EXACTLY so the field picker only ever
+// offers paths that round-trip: recurse plain objects to their scalar leaves,
+// match id-keyed arrays + compound costOverrides by their selector, and treat
+// any array value as a single (whole-array) leaf. Only scalar leaves
+// (number / string / boolean) are returned, because those are the ones the
+// picker can set from a single input cell; `id` is excluded so a case can never
+// rewrite the key its own override path is built on.
+
+export interface OverridableField {
+  /** diffSnapshots-grammar path, e.g. "subUnits[id=u1].unitPrice". */
+  path: string;
+  /** Entity group, e.g. "Project", "Asset: Hotel", "Sub-unit: Apartments". */
+  group: string;
+  /** The leaf field within the entity, e.g. "revenue.sell.indexation.rate". */
+  field: string;
+  /** Current (base or active-case) value of the field. */
+  value: number | string | boolean;
+  type: 'number' | 'string' | 'boolean';
+}
+
+function collectScalarLeaves(basePath: string, fieldBase: string, obj: Indexable, group: string, out: OverridableField[]): void {
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'id') continue; // never let a case rewrite an entity id
+    const path = `${basePath}.${k}`;
+    const field = fieldBase ? `${fieldBase}.${k}` : k;
+    if (v === null || v === undefined) continue;
+    if (Array.isArray(v)) continue; // arrays round-trip only as a whole value, not pickable
+    if (typeof v === 'object') { collectScalarLeaves(path, field, v as Indexable, group, out); continue; }
+    const t = typeof v;
+    if (t === 'number' || t === 'string' || t === 'boolean') {
+      out.push({ path, group, field, value: v as number | string | boolean, type: t });
+    }
+  }
+}
+
+function entityLabel(rec: Indexable, fallback: string): string {
+  const name = rec['name'];
+  if (typeof name === 'string' && name.trim()) return name;
+  const id = rec['id'];
+  return typeof id === 'string' ? id : fallback;
+}
+
+/** Every scalar field on the model that can be overridden per case (i.e. that
+ *  round-trips through the diffSnapshots grammar). The picker reads this so it
+ *  can never offer a field that would silently fail to apply. */
+export function enumerateOverridableFields(model: HydrateSnapshot): OverridableField[] {
+  const m = model as unknown as Indexable;
+  const out: OverridableField[] = [];
+  if (m.project && typeof m.project === 'object') collectScalarLeaves('project', '', m.project as Indexable, 'Project', out);
+  const lam = m.landAllocationMode;
+  const lt = typeof lam;
+  if (lt === 'string' || lt === 'number' || lt === 'boolean') {
+    out.push({ path: 'landAllocationMode', group: 'Project', field: 'landAllocationMode', value: lam as string | number | boolean, type: lt });
+  }
+  const idArrays: Array<[string, string]> = [
+    ['phases', 'Phase'], ['parcels', 'Parcel'], ['assets', 'Asset'], ['subUnits', 'Sub-unit'],
+    ['costLines', 'Cost line'], ['financingTranches', 'Facility'], ['equityContributions', 'Equity'],
+  ];
+  for (const [key, kind] of idArrays) {
+    const arr = m[key];
+    if (!Array.isArray(arr)) continue;
+    for (const rec of arr as Indexable[]) {
+      const id = rec['id'];
+      if (typeof id !== 'string') continue;
+      collectScalarLeaves(`${key}[id=${id}]`, '', rec, `${kind}: ${entityLabel(rec, id)}`, out);
+    }
+  }
+  const cos = m['costOverrides'];
+  if (Array.isArray(cos)) {
+    for (const rec of cos as Indexable[]) {
+      const k = `${String(rec['assetId'] ?? '')}::${String(rec['lineId'] ?? '')}`;
+      collectScalarLeaves(`costOverrides[${k}]`, '', rec, `Cost override: ${k}`, out);
+    }
+  }
+  return out;
+}
+
 // ── Seeding + helpers ───────────────────────────────────────────────────────
 
 /** The default case set: Management (base) + Downside + Upside (scenarios). */

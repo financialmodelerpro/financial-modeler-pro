@@ -163,6 +163,9 @@ export interface Module1Store {
   clearCaseOverrides: (caseId: string) => void;
   /** Reset one overridden field (by diff path) on the active scenario to base. */
   resetOverridePath: (path: string) => void;
+  /** Explicit override: set one field on the active scenario to a value
+   *  (the override editor). No-op on the base case. */
+  setOverridePath: (path: string, value: unknown) => void;
   /** Build the persisted snapshot: base model fields + flushed cases + activeCaseId. */
   extractPersistSnapshot: () => HydrateSnapshot;
 
@@ -697,6 +700,21 @@ export function createModule1Store() {
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
       const current = buildOverrides(s.baseSnapshot, liveModel);
       delete current[path];
+      const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
+      const model = applyOverrides(s.baseSnapshot, current);
+      return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
+    }),
+
+    // Explicit override: set one field on the ACTIVE scenario directly (the
+    // override editor). Writes into the SAME live override map auto-capture uses
+    // (current diff vs base, plus this path), so the two stay consistent, then
+    // re-merges so every module recomputes on the new effective model. No-op on
+    // the base case (the base never carries overrides).
+    setOverridePath: (path, value) => set((s) => {
+      const baseId = baseCaseId(s.cases);
+      if (s.activeCaseId === baseId) return {};
+      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      const current = { ...buildOverrides(s.baseSnapshot, liveModel), [path]: value };
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = applyOverrides(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };

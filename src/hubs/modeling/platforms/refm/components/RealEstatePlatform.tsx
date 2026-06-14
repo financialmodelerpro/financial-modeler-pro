@@ -59,6 +59,7 @@ import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module5Returns from './modules/Module5Returns';
 import Module5Metrics from './modules/Module5Metrics';
 import Module5CaseComparison from './modules/Module5CaseComparison';
+import Module6Scenarios from './modules/Module6Scenarios';
 import Module3Opex from './modules/Module3Opex';
 import Module3OpexOutput from './modules/Module3OpexOutput';
 
@@ -967,6 +968,19 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {m5ActiveTab === 'm5-cases' && <Module5CaseComparison />}
         </div>
       );
+    }
+    if (activeModule === 'module6') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m6-no-project">
+            No project selected.{' '}
+            <button type="button" onClick={() => setWizardOpen(true)} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-2)' }}>
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      return <Module6Scenarios />;
     }
     return (
       <div style={{ padding: 'var(--sp-3)' }} data-testid="module-coming-soon">
