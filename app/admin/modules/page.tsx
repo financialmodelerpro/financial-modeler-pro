@@ -3,14 +3,18 @@ import { useState } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 import { DeviceVerificationCard } from '@/src/components/admin/DeviceVerificationCard';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 export default function AdminModulesPage() {
+  const { loading: authLoading } = useRequireAdmin();
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   }
+
+  if (authLoading) return null;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>

@@ -21,9 +21,16 @@ async function readEnabled(): Promise<boolean> {
 }
 
 export async function GET() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     return NextResponse.json({ enabled: await readEnabled() });
   } catch {
+    // Fail-secure: on a read error report REQUIRED so nothing silently drops the
+    // device check. (Sign-in enforcement reads the DB directly via
+    // isDeviceVerificationRequired, independent of this admin endpoint.)
     return NextResponse.json({ enabled: true });
   }
 }
