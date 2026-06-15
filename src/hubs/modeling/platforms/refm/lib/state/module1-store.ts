@@ -166,6 +166,14 @@ export interface Module1Store {
   /** Explicit override: set one field on the active scenario to a value
    *  (the override editor). No-op on the base case. */
   setOverridePath: (path: string, value: unknown) => void;
+  /** Assumptions grid: set one field (by diff path) on ANY case, value-only.
+   *  Editing the base edits the base model itself (and reflows the active
+   *  scenario); editing the active scenario rides the live diff; editing a
+   *  non-active scenario writes straight to its stored override map. */
+  setCaseFieldValue: (caseId: string, path: string, value: unknown) => void;
+  /** Assumptions grid: clear one overridden field on a scenario case so it
+   *  tracks the base again. No-op on the base case (it has no override). */
+  resetCaseFieldValue: (caseId: string, path: string) => void;
   /** Build the persisted snapshot: base model fields + flushed cases + activeCaseId. */
   extractPersistSnapshot: () => HydrateSnapshot;
 
@@ -718,6 +726,60 @@ export function createModule1Store() {
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = applyOverrides(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
+    }),
+
+    // Assumptions grid: set one field on ANY case. Three cases:
+    //  - base: edit the base model. When base is active that IS the live model;
+    //    when a scenario is active, rewrite baseSnapshot and reflow the active
+    //    scenario on top so every module stays consistent.
+    //  - active scenario: same path as setOverridePath (live diff + this field).
+    //  - non-active scenario: write straight to its stored override map.
+    setCaseFieldValue: (caseId, path, value) => set((s) => {
+      const baseId = baseCaseId(s.cases);
+      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      const reseat = (model: HydrateSnapshot, extra: Partial<HydrateSnapshot> & { cases?: ProjectCase[]; baseSnapshot?: HydrateSnapshot } = {}) => ({
+        ...model, migrationsApplied: model.migrationsApplied ?? [],
+        activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null, ...extra,
+      });
+      if (caseId === baseId) {
+        if (s.activeCaseId === baseId) {
+          return reseat(applyOverrides(liveModel, { [path]: value }));
+        }
+        const baseSnapshot = applyOverrides(s.baseSnapshot, { [path]: value });
+        const activeCase = s.cases.find((c) => c.id === s.activeCaseId);
+        const model = applyOverrides(baseSnapshot, activeCase?.overrides);
+        return reseat(model, { baseSnapshot });
+      }
+      if (caseId === s.activeCaseId) {
+        const current = { ...buildOverrides(s.baseSnapshot, liveModel), [path]: value };
+        const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
+        return reseat(applyOverrides(s.baseSnapshot, current), { cases });
+      }
+      const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: { ...(c.overrides ?? {}), [path]: value } } : c);
+      return { cases };
+    }),
+
+    // Assumptions grid: clear one overridden field on a scenario so it tracks
+    // base again. Active scenario re-merges the live model; a non-active one
+    // just drops the key. No-op on the base case (it carries no overrides).
+    resetCaseFieldValue: (caseId, path) => set((s) => {
+      const baseId = baseCaseId(s.cases);
+      if (caseId === baseId) return {};
+      if (caseId === s.activeCaseId) {
+        const liveModel = pickModel(s as unknown as Record<string, unknown>);
+        const current = buildOverrides(s.baseSnapshot, liveModel);
+        delete current[path];
+        const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
+        const model = applyOverrides(s.baseSnapshot, current);
+        return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
+      }
+      const cases = s.cases.map((c) => {
+        if (c.id !== caseId) return c;
+        const next = { ...(c.overrides ?? {}) };
+        delete next[path];
+        return { ...c, overrides: next };
+      });
+      return { cases };
     }),
 
     extractPersistSnapshot: () => {

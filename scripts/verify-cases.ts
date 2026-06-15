@@ -11,6 +11,8 @@ import {
   seedCases,
   baseCaseId,
   normaliseCases,
+  curatedDefaultFields,
+  enumerateOverridableFields,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import type { ProjectCase } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -146,6 +148,37 @@ console.log('=== verify-cases ===');
     check(`G: buildOverrides has wired path ${p}`, Object.prototype.hasOwnProperty.call(ov, p));
     check(`G: getByPath base!=edited for ${p}`, JSON.stringify(getByPath(base, p)) !== JSON.stringify(getByPath(edited, p)));
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// H: curatedDefaultFields (assumptions-grid default rows). Every returned field
+// must be a real overridable path (round-trips the diff grammar), and the
+// curated set must surface the headline drivers the model actually carries while
+// excluding non-driver scalars (e.g. project.name / currency).
+// ──────────────────────────────────────────────────────────────────────────
+{
+  const base = baseSnap();
+  base.project.returns = { discountRate: 0.1, exitMultiple: 8, perpetuityGrowth: 0.02 };
+  base.project.tax = { rate: 0.15 };
+  base.assets[0].revenue.operate.occupancyPct = 70; // hospitality driver
+  base.financingTranches = [{ id: 'T1', name: 'Senior', interestRatePct: 7.5 }];
+  base.subUnits = [{ id: 'u1', name: 'Apartments', unitPrice: 12000 }];
+
+  const curated = curatedDefaultFields(base);
+  const curatedPaths = new Set(curated.map((f) => f.path));
+  const allPaths = new Set(enumerateOverridableFields(base).map((f) => f.path));
+
+  check('H1: every curated field is a real overridable path', curated.every((f) => allPaths.has(f.path)));
+  check('H2: curated surfaces returns.discountRate', curatedPaths.has('project.returns.discountRate'));
+  check('H3: curated surfaces tax rate', curatedPaths.has('project.tax.rate'));
+  check('H4: curated surfaces facility interest rate', curatedPaths.has('financingTranches[id=T1].interestRatePct'));
+  check('H5: curated surfaces sub-unit unit price', curatedPaths.has('subUnits[id=u1].unitPrice'));
+  check('H6: curated surfaces sell price per unit', curatedPaths.has('assets[id=a2].revenue.sell.pricePerUnit'));
+  check('H7: curated EXCLUDES non-driver project.name', !curatedPaths.has('project.name'));
+  check('H8: curated EXCLUDES project.currency', !curatedPaths.has('project.currency'));
+  // Each curated path applies cleanly (no silent skip = value actually changes).
+  const merged: any = applyOverrides(base, { 'project.returns.discountRate': 0.2 });
+  check('H9: a curated path round-trips through applyOverrides', merged.project.returns.discountRate === 0.2);
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

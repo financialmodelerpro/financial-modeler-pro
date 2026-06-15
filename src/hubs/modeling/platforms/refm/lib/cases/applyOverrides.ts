@@ -219,6 +219,42 @@ export function enumerateOverridableFields(model: HydrateSnapshot): OverridableF
   return out;
 }
 
+// ── Curated "key driver" defaults (for the assumptions grid) ─────────────────
+// The Scenario grid shows a curated shortlist of headline feasibility drivers as
+// default rows (before the user adds more). Matched by leaf-field pattern against
+// enumerateOverridableFields, so every default row is still a path that
+// round-trips the diff grammar, and only drivers the current model actually
+// carries appear. Order follows enumeration order (project, then per entity).
+const CURATED_FIELD_PATTERNS: readonly RegExp[] = [
+  /(^|\.)returns\.discountrate$/,        // project return discount rate
+  /(^|\.)returns\.exitmultiple$/,        // terminal exit multiple
+  /(^|\.)returns\.perpetuitygrowth$/,    // terminal perpetuity growth
+  /(^|\.)tax\.rate$/,                     // tax / zakat rate
+  /zakat/,
+  /inflation/,                            // any cost / revenue inflation rate
+  /(^|\.)debtpct$/,                       // financing debt share
+  /(^|\.)equitypct$/,                     // financing equity share
+  /(^|\.)interestratepct$/,               // facility interest rate
+  /(^|\.)unitprice$/,                     // sub-unit price / ADR (stored on unitPrice)
+  /priceperunit/,                         // sell price per unit
+  /pricepersqm/,
+  /(^|\.)startingadr$/,                   // hospitality starting ADR
+  /(^|\.)occupancypct$/,                  // hospitality occupancy
+  /ratepersqm/,                           // lease rate per sqm
+  /leaserate/,
+  /indexation\.rate$/,                    // single-rate escalation
+];
+
+/** The curated "key drivers" shown as default rows in the Scenario assumptions
+ *  grid: the subset of enumerateOverridableFields whose leaf field matches a
+ *  headline-driver pattern. Robust across models (only existing fields appear).*/
+export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[] {
+  return enumerateOverridableFields(model).filter((f) => {
+    const leaf = f.field.toLowerCase();
+    return CURATED_FIELD_PATTERNS.some((re) => re.test(leaf));
+  });
+}
+
 // ── Seeding + helpers ───────────────────────────────────────────────────────
 
 /** The default case set: Management (base) + Downside + Upside (scenarios). */
