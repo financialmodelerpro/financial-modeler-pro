@@ -3,7 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { cookies } from 'next/headers';
 import { serverClient } from '@/src/core/db/supabase';
 import { verifyPassword } from '@/src/shared/auth/password';
-import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/shared/auth/deviceTrust';
+import { isDeviceTrusted, DEVICE_COOKIE_NAME, isDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
 // TODO post-restructure-2.7: dependency-invert NextAuth `authorize()` so
 // the modeling-hub-specific gating (Coming Soon + whitelist) is injected
 // as a per-hub callback rather than imported here. Today these two lines
@@ -88,7 +88,11 @@ export const authOptions: AuthOptions = {
           ? await isDeviceTrusted(deviceToken, user.email, 'modeling')
           : false;
 
-        if (!trusted) {
+        // The device-trust gate is itself gated by the admin "device
+        // verification required" switch. When an admin turns it off, an
+        // untrusted device is allowed straight through (no OTP); the default
+        // (switch unset) keeps verification ON.
+        if (!trusted && await isDeviceVerificationRequired()) {
           throw new Error('DEVICE_VERIFICATION_REQUIRED');
         }
 

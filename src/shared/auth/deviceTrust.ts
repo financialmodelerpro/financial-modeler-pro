@@ -69,3 +69,31 @@ export function buildTrustCookieHeader(token: string, secure: boolean, maxAge: n
 export function clearTrustCookieHeader(): string {
   return `${DEVICE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/`;
 }
+
+/** training_settings key for the admin "device verification required" switch. */
+export const DEVICE_VERIFICATION_SETTING_KEY = 'device_verification_required';
+
+/**
+ * Whether new-device verification (the emailed one-time code) is enforced at
+ * sign-in. Controlled by an admin toggle stored in training_settings as the
+ * string 'true' / 'false'. Shared by both auth stacks (Modeling NextAuth +
+ * Training validate).
+ *
+ * Defaults to TRUE when the row is absent OR the read fails, so verification
+ * stays ON unless an admin explicitly turns it off. That keeps the historical
+ * always-on behaviour and is fail-secure: a flaky settings read never silently
+ * drops the device check.
+ */
+export async function isDeviceVerificationRequired(): Promise<boolean> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('training_settings')
+      .select('value')
+      .eq('key', DEVICE_VERIFICATION_SETTING_KEY)
+      .maybeSingle();
+    return (data?.value ?? 'true') !== 'false';
+  } catch {
+    return true;
+  }
+}

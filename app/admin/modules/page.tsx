@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
+import { DeviceVerificationCard } from '@/src/components/admin/DeviceVerificationCard';
 
 export default function AdminModulesPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -67,6 +68,13 @@ export default function AdminModulesPage() {
             Manage Whitelist →
           </a>
         </div>
+
+        {/* ── Security ─────────────────────────────────────────────────── */}
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', margin: '8px 0 6px' }}>Security</h2>
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+          Controls that apply to sign-in across both the Training and Modeling hubs.
+        </p>
+        <DeviceVerificationCard onMessage={showToast} />
       </main>
 
       {toast && (

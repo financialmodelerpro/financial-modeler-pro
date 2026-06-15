@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { isDeviceTrusted } from '@/src/shared/auth/deviceTrust';
+import { isDeviceTrusted, isDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
@@ -220,11 +220,13 @@ export async function POST(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Device trust check - use email as identifier (matches how trustDevice stores it)
+    // Device trust check - use email as identifier (matches how trustDevice stores it).
+    // Gated by the admin "device verification required" switch: when an admin
+    // turns it off, an untrusted device skips the OTP step (default: ON).
     const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
     const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
 
-    if (!trusted) {
+    if (!trusted && await isDeviceVerificationRequired()) {
       return NextResponse.json({
         success: false,
         requiresDeviceVerification: true,
