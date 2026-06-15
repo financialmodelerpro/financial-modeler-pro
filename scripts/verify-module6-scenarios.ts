@@ -15,6 +15,10 @@ import {
   applyOverrides, buildOverrides, getByPath, enumerateOverridableFields, seedCases, baseCaseId,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
+import {
+  describeAssumption, curatedDefaultFields, ASSUMPTION_CATEGORY_ORDER,
+} from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
 import { buildExcelSampleState } from './excelSampleState';
 
@@ -112,6 +116,83 @@ const baseColumn = report.columns.find((c) => c.role === 'base')!;
 const scenColumn = report.columns.find((c) => c.id === scenarioCase.id)!;
 const anyDelta = report.kpis.some((k) => baseColumn.values[k.label] !== scenColumn.values[k.label]);
 check('comparison shows a real delta between base and scenario on at least one KPI', anyDelta);
+
+// ── Assumptions grid: plain labels, categories, curated default set ──────────
+console.log('\n=== Assumptions grid (labels / categories / curated) ===');
+const F = (path: string, group: string, field: string, value: any, type: any = 'number'): any => ({ path, group, field, value, type });
+const expectLabel = (f: any, label: string, cat: string, curated: boolean): void => {
+  const d = describeAssumption(f);
+  check(`"${label}" [${cat}${curated ? ', curated' : ''}]`, d.label === label && d.category === cat && d.curated === curated, `got label="${d.label}" cat=${d.category} curated=${d.curated}`);
+};
+expectLabel(F('project.returns.discountRate', 'Project', 'returns.discountRate', 0.1), 'Discount rate', 'project', true);
+expectLabel(F('project.returns.exitMultiple', 'Project', 'returns.exitMultiple', 8), 'Exit multiple', 'project', true);
+expectLabel(F('project.returns.perpetuityGrowth', 'Project', 'returns.perpetuityGrowth', 0.02), 'Perpetuity growth rate', 'project', true);
+expectLabel(F('project.financing.fixedRatio.debtPct', 'Project', 'financing.fixedRatio.debtPct', 70), 'Debt %', 'financing', true);
+expectLabel(F('financingTranches[id=t1].interestRatePct', 'Facility: Senior', 'interestRatePct', 7.5), 'Interest rate', 'financing', true);
+expectLabel(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500), 'Construction cost rate (per BUA)', 'construction', true);
+expectLabel(F('costLines[id=construction-parking__p1].value', 'Cost line: Construction (Parking)', 'value', 25000), 'Parking cost rate (per bay)', 'construction', true);
+expectLabel(F('costLines[id=contingency__p1].value', 'Cost line: Contingency', 'value', 5), 'Contingency %', 'construction', true);
+expectLabel(F('costLines[id=professional-fee__p1].value', 'Cost line: Professional Fee', 'value', 6), 'Professional fee %', 'construction', true);
+expectLabel(F('costLines[id=pre-operating__p1].value', 'Cost line: Pre-operating', 'value', 3), 'Pre-operating %', 'construction', true);
+expectLabel(F('costLines[id=commission__p1].value', 'Cost line: Commission', 'value', 4), 'Commission %', 'construction', false);
+expectLabel(F('costLines[id=land-cash__p1].value', 'Cost line: Land (Cash)', 'value', 100), 'Land cost (cash) %', 'construction', false);
+expectLabel(F('subUnits[id=rsu1].unitPrice', 'Sub-unit: Apartments', 'unitPrice', 1500000), 'Unit price / rate', 'revenue', true);
+expectLabel(F('subUnits[id=ksu1].occupancyPct', 'Sub-unit: Keys', 'occupancyPct', 70), 'Occupancy %', 'revenue', true);
+expectLabel(F('assets[id=h1].revenue.operate.startingADR', 'Asset: Hotel', 'revenue.operate.startingADR', 900), 'Starting ADR', 'revenue', true);
+expectLabel(F('assets[id=h1].opex.defaultIndexation.rate', 'Asset: Hotel', 'opex.defaultIndexation.rate', 0.03), 'Opex inflation', 'opex', true);
+expectLabel(F('project.name', 'Project', 'name', 'X', 'string'), 'Name', 'project', false);
+check('context strips the entity-kind prefix (shows the entity name)', describeAssumption(F('subUnits[id=rsu1].unitPrice', 'Sub-unit: Apartments', 'unitPrice', 1)).context === 'Apartments');
+check('no raw field-path leaks as a label (every catalog field gets a readable label)', fields.every((f) => { const d = describeAssumption(f); return d.label.length > 0 && !d.label.includes('[id='); }));
+
+// ── Construction levers move Capex -> TDC -> IRR -> margin; base untouched ────
+console.log('\n=== Construction levers move the model ===');
+const conLine = (base.costLines as any[]).find((c) => deriveLineBaseId(c.id) === 'construction-bua');
+const contLine = (base.costLines as any[]).find((c) => deriveLineBaseId(c.id) === 'contingency');
+check('sample carries a construction (BUA) cost line', !!conLine);
+check('sample carries a contingency cost line', !!contLine);
+const TDC = 'Total Development Cost', IRR = 'Project IRR (FCFF)', MARGIN = 'Development Margin';
+const runScenario = (ov: Record<string, unknown>) => {
+  const cs = seedCases();
+  const scen = cs.find((c) => c.role === 'scenario')!;
+  scen.overrides = ov;
+  const rep = buildCaseComparisonReport({ baseModel: base, cases: cs, activeCaseId: baseCaseId(cs) });
+  return { baseCol: rep.columns.find((c) => c.role === 'base')!, scenCol: rep.columns.find((c) => c.id === scen.id)! };
+};
+if (conLine) {
+  const conPath = `costLines[id=${conLine.id}].value`;
+  const conValue = conLine.value;
+  const { baseCol, scenCol } = runScenario({ [conPath]: conValue * 1.5 });
+  check('construction cost +50% raises Total Development Cost', (scenCol.values[TDC] ?? 0) > (baseCol.values[TDC] ?? 0) + 1, `base=${Math.round(baseCol.values[TDC] ?? 0)} scen=${Math.round(scenCol.values[TDC] ?? 0)}`);
+  check('construction cost +50% moves Project IRR', Math.abs((scenCol.values[IRR] ?? 0) - (baseCol.values[IRR] ?? 0)) > 1e-6, `base=${baseCol.values[IRR]} scen=${scenCol.values[IRR]}`);
+  check('construction cost +50% moves Development Margin', Math.abs((scenCol.values[MARGIN] ?? 0) - (baseCol.values[MARGIN] ?? 0)) > 1e-6);
+  check('base construction cost line is NOT mutated', (base.costLines as any[]).find((c) => c.id === conLine.id).value === conValue);
+}
+if (contLine) {
+  const contPath = `costLines[id=${contLine.id}].value`;
+  const { baseCol, scenCol } = runScenario({ [contPath]: (contLine.value || 5) + 10 });
+  check('contingency +10pp raises Total Development Cost', (scenCol.values[TDC] ?? 0) > (baseCol.values[TDC] ?? 0) + 1, `base=${Math.round(baseCol.values[TDC] ?? 0)} scen=${Math.round(scenCol.values[TDC] ?? 0)}`);
+}
+
+// curatedDefaultFields surfaces the construction levers present in the model.
+{
+  const curated = curatedDefaultFields(base);
+  const curatedLineIds = new Set(curated.filter((f) => f.path.startsWith('costLines[')).map((f) => deriveLineBaseId(/id=([^\]]+)/.exec(f.path)?.[1] ?? '')));
+  for (const id of ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping', 'pre-operating', 'professional-fee', 'contingency']) {
+    check(`curated default includes construction lever: ${id}`, curatedLineIds.has(id));
+  }
+  check('curated default EXCLUDES land-cash (locked / derived)', !curatedLineIds.has('land-cash'));
+  check('curated default EXCLUDES commission (revenue-driven)', !curatedLineIds.has('commission'));
+  check('every category in the order list is a valid key', ASSUMPTION_CATEGORY_ORDER.length === 5);
+  console.log('Curated key drivers in sample: ' + curated.map((f) => describeAssumption(f).label).join(', '));
+}
+
+console.log('\nDeferred (NOT in this commit): construction-timeline fields');
+console.log('  constructionStart / constructionPeriods / operationsPeriods / startDate are scalar');
+console.log('  phase fields that round-trip the grammar, but the engine reads them to derive the');
+console.log('  period axis + handover, while cost-line start/endPeriod and the per-phase windowed');
+console.log('  byPhase arrays are stored separately and are NOT re-derived by a value-only override');
+console.log('  (the phase-date cascade was deliberately disabled). They need a cascade-on-override to');
+console.log('  be correct, so they are excluded from the curated levers here.');
 
 // ── Coverage audit (printed for the readout) ─────────────────────────────────
 console.log('\n=== Override coverage audit ===');

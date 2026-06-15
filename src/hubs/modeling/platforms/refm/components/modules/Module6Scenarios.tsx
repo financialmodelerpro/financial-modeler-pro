@@ -23,7 +23,12 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
-import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields, curatedDefaultFields, type OverridableField } from '../../lib/cases/applyOverrides';
+import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields, type OverridableField } from '../../lib/cases/applyOverrides';
+import {
+  curatedDefaultFields, describeAssumption, assumptionFor,
+  ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
+  type AssumptionCategory, type AssumptionDescriptor,
+} from '../../lib/cases/assumptionGrid';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -32,18 +37,6 @@ import { FAST_INPUT } from './_shared/inputStyles';
 
 type KpiKind = CaseKpiKind;
 
-function humanPath(path: string): string {
-  return path.replace(/\[id=[^\]]+\]/g, '').replace(/\[[^\]]+\]/g, '').replace(/\.+/g, '.').replace(/^\./, '');
-}
-function fmtRaw(v: unknown): string {
-  if (v === undefined) return '∅';
-  if (v === null) return 'null';
-  if (typeof v === 'number') return v.toLocaleString();
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
-  if (typeof v === 'string') return v.length > 28 ? v.slice(0, 26) + '…' : v;
-  if (Array.isArray(v)) return `[${v.length}]`;
-  return '{…}';
-}
 
 // ── Assumptions-grid cell ──────────────────────────────────────────────────
 // One editable value per (case, assumption). Commit-on-blur / Enter so a single
@@ -160,17 +153,24 @@ export default function Module6Scenarios(): React.JSX.Element {
   const fieldByPath = useMemo(() => new Map(fields.map((f) => [f.path, f])), [fields]);
   const [search, setSearch] = useState('');
   const [selectedPath, setSelectedPath] = useState('');
+  const [showAll, setShowAll] = useState(false);
   // User-added grid rows (beyond the curated defaults + existing overrides).
   const [extraPaths, setExtraPaths] = useState<string[]>([]);
-  const filtered = useMemo(() => {
+
+  // Add-row picker: filtered by search, grouped by category, plain labels.
+  const pickerGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q ? fields.filter((f) => `${f.group} ${f.field}`.toLowerCase().includes(q)) : fields;
+    const m = new Map<AssumptionCategory, { path: string; text: string }[]>();
+    for (const f of fields) {
+      const d = describeAssumption(f);
+      const text = `${d.label}${d.context ? ` (${d.context})` : ''}`;
+      if (q && !`${text} ${f.path}`.toLowerCase().includes(q)) continue;
+      const arr = m.get(d.category) ?? [];
+      arr.push({ path: f.path, text });
+      m.set(d.category, arr);
+    }
+    return ASSUMPTION_CATEGORY_ORDER.filter((c) => m.has(c)).map((c) => ({ category: c, label: ASSUMPTION_CATEGORY_LABELS[c], opts: m.get(c)! }));
   }, [fields, search]);
-  const grouped = useMemo(() => {
-    const m = new Map<string, typeof fields>();
-    for (const f of filtered) { const arr = m.get(f.group) ?? []; arr.push(f); m.set(f.group, arr); }
-    return [...m.entries()];
-  }, [filtered]);
 
   // ── Grid model: the base value source, plus the ordered union of rows. ──
   const activeIsBase = s.activeCaseId === baseId;
@@ -188,25 +188,43 @@ export default function Module6Scenarios(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.cases, s.activeCaseId, overrides]);
 
-  // Row order: curated key drivers, then any existing override, then user adds.
+  // Row order: curated key drivers, then any existing override, then (when
+  // "show all" is on) the full catalog, then user-added rows.
   const rowPaths = useMemo(() => {
     const out: string[] = [];
     const seen = new Set<string>();
     const add = (p: string): void => { if (!seen.has(p)) { seen.add(p); out.push(p); } };
     curatedDefaultFields(currentBaseModel).forEach((f) => add(f.path));
     allOverridePaths.forEach(add);
+    if (showAll) fields.forEach((f) => add(f.path));
     extraPaths.forEach(add);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentBaseModel, allOverridePaths, extraPaths]);
+  }, [currentBaseModel, allOverridePaths, showAll, fields, extraPaths]);
 
-  const rowMeta = (path: string): { label: string; group: string; type: OverridableField['type'] } => {
+  const typeForPath = (path: string): OverridableField['type'] => {
     const f = fieldByPath.get(path);
-    if (f) return { label: f.field, group: f.group, type: f.type };
-    const v = getByPath(currentBaseModel, path);
-    const t = typeof v;
-    return { label: humanPath(path), group: '', type: (t === 'number' || t === 'boolean') ? t : 'string' };
+    if (f) return f.type;
+    const t = typeof getByPath(currentBaseModel, path);
+    return (t === 'number' || t === 'boolean') ? t : 'string';
   };
+
+  // Group rows by category, in Inputs-tab order, dropping empty groups.
+  interface GridRow { path: string; descriptor: AssumptionDescriptor; type: OverridableField['type']; }
+  const groups = useMemo(() => {
+    const byCat = new Map<AssumptionCategory, GridRow[]>();
+    for (const path of rowPaths) {
+      const f = fieldByPath.get(path);
+      const descriptor = assumptionFor(path, f, getByPath(currentBaseModel, path));
+      const arr = byCat.get(descriptor.category) ?? [];
+      arr.push({ path, descriptor, type: f?.type ?? typeForPath(path) });
+      byCat.set(descriptor.category, arr);
+    }
+    return ASSUMPTION_CATEGORY_ORDER
+      .filter((c) => (byCat.get(c)?.length ?? 0) > 0)
+      .map((c) => ({ category: c, label: ASSUMPTION_CATEGORY_LABELS[c], rows: byCat.get(c)! }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowPaths, fieldByPath, currentBaseModel]);
 
   // Per-cell value + whether this case overrides the field at this path.
   const cellFor = (c: typeof s.cases[number], path: string): { value: unknown; isOverride: boolean } => {
@@ -326,9 +344,15 @@ export default function Module6Scenarios(): React.JSX.Element {
 
       {/* ── 2. Assumptions grid ──────────────────────────────────── */}
       <section style={card} data-testid="m6-overrides">
-        <div style={sectionTitle}>2. Assumptions by case</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+          <div style={sectionTitle}>2. Assumptions by case</div>
+          <button type="button" onClick={() => setShowAll((v) => !v)} data-testid="m6-show-all"
+            style={{ border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 11, background: showAll ? 'var(--color-navy)' : 'transparent', color: showAll ? 'var(--color-on-primary-navy)' : 'var(--color-navy)' }}>
+            {showAll ? 'Showing all assumptions' : 'Show all assumptions'}
+          </button>
+        </div>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 10 }}>
-          Each row is an assumption, each column a case. Edit any cell to set that case&apos;s value. A scenario cell that differs from the Management Case shows in navy with a ✕ to clear it back to base. Editing the Management column changes the base every module reads. Headline drivers show by default; add more below.
+          Each row is an assumption, each column a case. Edit any cell to set that case&apos;s value. A scenario cell that differs from the Management Case shows in navy with a ✕ to clear it back to base. Editing the Management column changes the base every module reads. Key drivers show by default; toggle &quot;Show all assumptions&quot; or add a specific one below.
         </div>
 
         {/* Add-assumption picker (adds a row; values are then entered per case). */}
@@ -341,9 +365,9 @@ export default function Module6Scenarios(): React.JSX.Element {
             <label style={{ fontSize: 11, color: 'var(--color-meta)' }}>Assumption</label>
             <select value={selectedPath} onChange={(e) => setSelectedPath(e.target.value)} style={{ ...FAST_INPUT, width: 320 }} data-testid="m6-field-select">
               <option value="">Select a field to add as a row…</option>
-              {grouped.map(([group, gfields]) => (
-                <optgroup key={group} label={group}>
-                  {gfields.map((f) => <option key={f.path} value={f.path}>{f.field} ({fmtRaw(f.value)})</option>)}
+              {pickerGroups.map((g) => (
+                <optgroup key={g.category} label={g.label}>
+                  {g.opts.map((o) => <option key={o.path} value={o.path}>{o.text}</option>)}
                 </optgroup>
               ))}
             </select>
@@ -354,7 +378,7 @@ export default function Module6Scenarios(): React.JSX.Element {
           </button>
         </div>
 
-        {rowPaths.length === 0 ? (
+        {groups.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--color-meta)', fontStyle: 'italic' }}>
             No assumptions yet. Add one above to start comparing values across cases.
           </div>
@@ -380,38 +404,48 @@ export default function Module6Scenarios(): React.JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {rowPaths.map((p) => {
-                  const meta = rowMeta(p);
-                  const baseValue = getByPath(currentBaseModel, p);
-                  return (
-                    <tr key={p} data-testid={`m6-override-${p}`}>
-                      <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button type="button" onClick={() => removeRow(p)} title="Remove this row" data-testid={`m6-row-remove-${p}`}
-                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13, lineHeight: 1 }}>✕</button>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, color: 'var(--color-heading)', fontSize: 12 }} title={p}>{meta.label}</div>
-                            {meta.group && <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>{meta.group}</div>}
-                          </div>
-                        </div>
+                {groups.map((g) => (
+                  <React.Fragment key={g.category}>
+                    <tr data-testid={`m6-group-${g.category}`}>
+                      <td colSpan={1 + s.cases.length}
+                        style={{ background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)', color: 'var(--color-heading)', fontWeight: 800, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', padding: '6px 12px', borderBottom: '1px solid var(--color-border)', position: 'sticky', left: 0 }}>
+                        {g.label}
                       </td>
-                      {s.cases.map((c) => {
-                        const { value, isOverride } = cellFor(c, p);
-                        return (
-                          <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
-                            <GridCell
-                              key={`${c.id}:${p}:${String(value)}`}
-                              value={value} type={meta.type} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
-                              onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
-                              onReset={() => s.resetCaseFieldValue(c.id, p)}
-                              testid={`m6-cell-${c.id}-${p}`}
-                            />
-                          </td>
-                        );
-                      })}
                     </tr>
-                  );
-                })}
+                    {g.rows.map((row) => {
+                      const p = row.path;
+                      const baseValue = getByPath(currentBaseModel, p);
+                      return (
+                        <tr key={p} data-testid={`m6-override-${p}`}>
+                          <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button type="button" onClick={() => removeRow(p)} title="Remove this row" data-testid={`m6-row-remove-${p}`}
+                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13, lineHeight: 1 }}>✕</button>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, color: 'var(--color-heading)', fontSize: 12 }} title={p}>{row.descriptor.label}</div>
+                                {row.descriptor.context && <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>{row.descriptor.context}</div>}
+                              </div>
+                            </div>
+                          </td>
+                          {s.cases.map((c) => {
+                            const { value, isOverride } = cellFor(c, p);
+                            return (
+                              <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
+                                <GridCell
+                                  key={`${c.id}:${p}:${String(value)}`}
+                                  value={value} type={row.type} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
+                                  onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
+                                  onReset={() => s.resetCaseFieldValue(c.id, p)}
+                                  testid={`m6-cell-${c.id}-${p}`}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
