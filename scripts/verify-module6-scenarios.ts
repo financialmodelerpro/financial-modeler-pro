@@ -17,6 +17,7 @@ import {
 import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 import {
   describeAssumption, curatedDefaultFields, ASSUMPTION_CATEGORY_ORDER,
+  buildGridContext, formatAssumptionValue, parseAssumptionInput,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
@@ -184,6 +185,71 @@ if (contLine) {
   check('curated default EXCLUDES commission (revenue-driven)', !curatedLineIds.has('commission'));
   check('every category in the order list is a valid key', ASSUMPTION_CATEGORY_ORDER.length === 5);
   console.log('Curated key drivers in sample: ' + curated.map((f) => describeAssumption(f).label).join(', '));
+}
+
+// ── Percent-scale detection + format / parse round-trip ──────────────────────
+console.log('\n=== Percent-scale detection + formatting ===');
+const fmtOf = (f: any): string => describeAssumption(f).format;
+check('discount rate -> percent-fraction (stored 0..1)', fmtOf(F('project.returns.discountRate', 'Project', 'returns.discountRate', 0.1)) === 'percent-fraction');
+check('tax rate -> percent-fraction', fmtOf(F('project.tax.rate', 'Project', 'tax.rate', 0.15)) === 'percent-fraction');
+check('sales indexation -> percent-fraction', fmtOf(F('assets[id=R1].revenue.sell.indexation.rate', 'Asset: Resi', 'revenue.sell.indexation.rate', 0.05)) === 'percent-fraction');
+check('debt % -> percent-whole (stored 0..100)', fmtOf(F('project.financing.fixedRatio.debtPct', 'Project', 'financing.fixedRatio.debtPct', 70)) === 'percent-whole');
+check('occupancy % -> percent-whole', fmtOf(F('subUnits[id=k1].occupancyPct', 'Sub-unit: Keys', 'occupancyPct', 70)) === 'percent-whole');
+check('interest rate -> percent-whole', fmtOf(F('financingTranches[id=t1].interestRatePct', 'Facility: Senior', 'interestRatePct', 7.5)) === 'percent-whole');
+check('contingency cost lever -> percent-whole', fmtOf(F('costLines[id=contingency__p1].value', 'Cost line: Contingency', 'value', 5)) === 'percent-whole');
+check('construction cost rate -> accounting (NOT percent)', fmtOf(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500)) === 'accounting');
+check('unit price -> accounting', fmtOf(F('subUnits[id=rsu1].unitPrice', 'Sub-unit: Apartments', 'unitPrice', 1500000)) === 'accounting');
+check('base lease rate -> accounting (not mistaken for a percent)', fmtOf(F('assets[id=L1].revenue.lease.baseRate', 'Asset: Retail', 'revenue.lease.baseRate', 1200)) === 'accounting');
+check('exit multiple -> plain number', fmtOf(F('project.returns.exitMultiple', 'Project', 'returns.exitMultiple', 8)) === 'number');
+// Display in unit + parse back to stored scale.
+check('format fraction 0.1 -> "10.00"', formatAssumptionValue(0.1, 'percent-fraction') === '10.00');
+check('parse "10.00" fraction -> 0.1', Math.abs((parseAssumptionInput('10.00', 'percent-fraction') ?? 0) - 0.1) < 1e-9);
+check('format whole 5 -> "5.00"', formatAssumptionValue(5, 'percent-whole') === '5.00');
+check('parse "5%" whole -> 5', parseAssumptionInput('5%', 'percent-whole') === 5);
+check('format accounting 12000 -> "12,000.00"', formatAssumptionValue(12000, 'accounting') === '12,000.00');
+check('parse "12,000.00" accounting -> 12000', parseAssumptionInput('12,000.00', 'accounting') === 12000);
+
+// ── Per-asset cost sourcing + attribution (the core grid-fix) ────────────────
+console.log('\n=== Per-asset cost sourcing + attribution ===');
+{
+  const model: any = {
+    project: { name: 'P', returns: { discountRate: 0.1 } },
+    phases: [{ id: 'p1', name: 'Phase 1' }],
+    parcels: [],
+    assets: [{ id: 'A1', name: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', phaseId: 'p1' }],
+    subUnits: [],
+    costLines: [
+      { id: 'construction-bua__p1', phaseId: 'p1', name: 'Construction (BUA)', value: 0 },        // master 0 (per-asset mode)
+      { id: 'construction-parking__p1', phaseId: 'p1', name: 'Construction (Parking)', value: 0 }, // stale seed zeroed -> unused
+      { id: 'contingency__p1', phaseId: 'p1', name: 'Contingency', value: 5 },                     // uniform, non-zero
+    ],
+    costOverrides: [
+      { assetId: 'A1', lineId: 'construction-bua__p1', value: 5000, overridden: true },
+      { assetId: 'A2', lineId: 'construction-bua__p1', value: 6000, overridden: true },
+    ],
+    financingTranches: [], equityContributions: [], migrationsApplied: [],
+  };
+  const curated = curatedDefaultFields(model);
+  const paths = new Set(curated.map((f) => f.path));
+  check('per-asset construction rows surface from costOverrides (A1)', paths.has('costOverrides[A1::construction-bua__p1].value'));
+  check('per-asset construction rows surface from costOverrides (A2)', paths.has('costOverrides[A2::construction-bua__p1].value'));
+  check('master construction-bua row is DROPPED when per-asset overrides exist', !paths.has('costLines[id=construction-bua__p1].value'));
+  check('zeroed parking seed is DROPPED (unused)', !paths.has('costLines[id=construction-parking__p1].value'));
+  check('uniform non-zero contingency master is KEPT', paths.has('costLines[id=contingency__p1].value'));
+  // Real per-asset values, not 0.
+  const a1 = curated.find((f) => f.path === 'costOverrides[A1::construction-bua__p1].value');
+  check('per-asset row carries the real rate (5000), not 0', Number(a1?.value) === 5000);
+  // Attribution: asset + phase, never an ambiguous duplicate.
+  const ctx = buildGridContext(model);
+  const d1 = describeAssumption(a1 as any, ctx);
+  check('per-asset row label is the lever name', d1.label === 'Construction cost rate (per BUA)');
+  check('per-asset row is attributed to asset + phase', d1.context.includes('Hotel') && d1.context.includes('Phase 1'), `context="${d1.context}"`);
+  const a2 = curated.find((f) => f.path === 'costOverrides[A2::construction-bua__p1].value');
+  const d2 = describeAssumption(a2 as any, ctx);
+  check('the two per-asset rows are distinguishable (different attribution)', d1.context !== d2.context && d2.context.includes('Mall'));
+  // Editing a per-asset rate still flows through applyOverrides.
+  const merged: any = applyOverrides(model, { 'costOverrides[A1::construction-bua__p1].value': 9999 });
+  check('editing a per-asset rate round-trips through applyOverrides', getByPath(merged, 'costOverrides[A1::construction-bua__p1].value') === 9999);
 }
 
 console.log('\nDeferred (NOT in this commit): construction-timeline fields');

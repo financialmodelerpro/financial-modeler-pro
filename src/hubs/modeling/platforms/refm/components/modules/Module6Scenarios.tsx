@@ -23,11 +23,12 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
-import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields, type OverridableField } from '../../lib/cases/applyOverrides';
+import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields } from '../../lib/cases/applyOverrides';
 import {
-  curatedDefaultFields, describeAssumption, assumptionFor,
+  curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
+  formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
-  type AssumptionCategory, type AssumptionDescriptor,
+  type AssumptionCategory, type AssumptionDescriptor, type AssumptionFormat, type GridContext,
 } from '../../lib/cases/assumptionGrid';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -56,7 +57,7 @@ function cellInputStyle(isOverride: boolean, isBaseCol: boolean): React.CSSPrope
 
 interface GridCellProps {
   value: unknown;
-  type: OverridableField['type'];
+  format: AssumptionFormat;
   isOverride: boolean;
   isBaseCol: boolean;
   baseValue: unknown;
@@ -65,26 +66,18 @@ interface GridCellProps {
   testid?: string;
 }
 
-function GridCell({ value, type, isOverride, isBaseCol, baseValue, onCommit, onReset, testid }: GridCellProps): React.JSX.Element {
-  const initial = value === undefined || value === null ? '' : String(value);
+const resetBtn = (onReset: () => void): React.JSX.Element => (
+  <button type="button" onClick={onReset} title="Clear override (track the Management value)"
+    style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 12, lineHeight: 1 }}>✕</button>
+);
+
+function GridCell({ value, format, isOverride, isBaseCol, baseValue, onCommit, onReset, testid }: GridCellProps): React.JSX.Element {
+  // Draft is seeded in the DISPLAY unit (percent ×100 at 2dp, accounting grouped)
+  // and re-seeds via the React key when the stored value changes.
+  const initial = formatAssumptionValue(value, format);
   const [draft, setDraft] = useState(initial);
 
-  const commit = (): void => {
-    if (type === 'number') {
-      const t = draft.trim();
-      if (t === '') return;
-      const n = parseFloat(t);
-      if (!Number.isFinite(n) || n === Number(value)) return;
-      if (!isBaseCol && Number.isFinite(Number(baseValue)) && n === Number(baseValue)) { onReset(); return; }
-      onCommit(n);
-      return;
-    }
-    if (draft === initial) return;
-    if (!isBaseCol && draft === String(baseValue ?? '')) { onReset(); return; }
-    onCommit(draft);
-  };
-
-  if (type === 'boolean') {
+  if (format === 'boolean') {
     const cur = value === true || value === 'true';
     return (
       <select value={String(cur)} data-testid={testid} style={cellInputStyle(isOverride, isBaseCol)}
@@ -94,16 +87,41 @@ function GridCell({ value, type, isOverride, isBaseCol, baseValue, onCommit, onR
       </select>
     );
   }
+
+  if (format === 'text') {
+    const commitText = (): void => {
+      if (draft === initial) return;
+      if (!isBaseCol && draft === String(baseValue ?? '')) { onReset(); return; }
+      onCommit(draft);
+    };
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commitText}
+          onKeyDown={(e) => { if (e.key === 'Enter') { commitText(); (e.currentTarget as HTMLInputElement).blur(); } }}
+          type="text" data-testid={testid} style={cellInputStyle(isOverride, isBaseCol)} />
+        {isOverride && !isBaseCol && resetBtn(onReset)}
+      </div>
+    );
+  }
+
+  // Numeric: percent-fraction / percent-whole / accounting / number. Parse the
+  // typed display value back to the stored scale on commit; equal-to-base clears.
+  const suffix = assumptionUnitSuffix(format);
+  const commitNum = (): void => {
+    const parsed = parseAssumptionInput(draft, format);
+    if (parsed === null || parsed === Number(value)) return;
+    if (!isBaseCol && Number.isFinite(Number(baseValue)) && parsed === Number(baseValue)) { onReset(); return; }
+    onCommit(parsed);
+  };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') { commit(); (e.currentTarget as HTMLInputElement).blur(); } }}
-        type={type === 'number' ? 'number' : 'text'} data-testid={testid}
-        style={cellInputStyle(isOverride, isBaseCol)} />
-      {isOverride && !isBaseCol && (
-        <button type="button" onClick={onReset} title="Clear override (track the Management value)"
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 12, lineHeight: 1 }}>✕</button>
-      )}
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commitNum}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => { if (e.key === 'Enter') { commitNum(); (e.currentTarget as HTMLInputElement).blur(); } }}
+        inputMode="decimal" type="text" data-testid={testid}
+        style={{ ...cellInputStyle(isOverride, isBaseCol), width: suffix ? 88 : 116, textAlign: 'right' }} />
+      {suffix && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{suffix}</span>}
+      {isOverride && !isBaseCol && resetBtn(onReset)}
     </div>
   );
 }
@@ -157,12 +175,18 @@ export default function Module6Scenarios(): React.JSX.Element {
   // User-added grid rows (beyond the curated defaults + existing overrides).
   const [extraPaths, setExtraPaths] = useState<string[]>([]);
 
+  // Base value source for the grid + id->name attribution context (asset / phase
+  // / facility), so rows are never ambiguous duplicates.
+  const activeIsBase = s.activeCaseId === baseId;
+  const currentBaseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
+  const gridCtx: GridContext = useMemo(() => buildGridContext(currentBaseModel), [currentBaseModel]);
+
   // Add-row picker: filtered by search, grouped by category, plain labels.
   const pickerGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
     const m = new Map<AssumptionCategory, { path: string; text: string }[]>();
     for (const f of fields) {
-      const d = describeAssumption(f);
+      const d = describeAssumption(f, gridCtx);
       const text = `${d.label}${d.context ? ` (${d.context})` : ''}`;
       if (q && !`${text} ${f.path}`.toLowerCase().includes(q)) continue;
       const arr = m.get(d.category) ?? [];
@@ -170,11 +194,7 @@ export default function Module6Scenarios(): React.JSX.Element {
       m.set(d.category, arr);
     }
     return ASSUMPTION_CATEGORY_ORDER.filter((c) => m.has(c)).map((c) => ({ category: c, label: ASSUMPTION_CATEGORY_LABELS[c], opts: m.get(c)! }));
-  }, [fields, search]);
-
-  // ── Grid model: the base value source, plus the ordered union of rows. ──
-  const activeIsBase = s.activeCaseId === baseId;
-  const currentBaseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
+  }, [fields, search, gridCtx]);
 
   // Every field a case currently overrides (so existing overrides always show).
   const allOverridePaths = useMemo(() => {
@@ -202,29 +222,22 @@ export default function Module6Scenarios(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBaseModel, allOverridePaths, showAll, fields, extraPaths]);
 
-  const typeForPath = (path: string): OverridableField['type'] => {
-    const f = fieldByPath.get(path);
-    if (f) return f.type;
-    const t = typeof getByPath(currentBaseModel, path);
-    return (t === 'number' || t === 'boolean') ? t : 'string';
-  };
-
   // Group rows by category, in Inputs-tab order, dropping empty groups.
-  interface GridRow { path: string; descriptor: AssumptionDescriptor; type: OverridableField['type']; }
+  interface GridRow { path: string; descriptor: AssumptionDescriptor; }
   const groups = useMemo(() => {
     const byCat = new Map<AssumptionCategory, GridRow[]>();
     for (const path of rowPaths) {
       const f = fieldByPath.get(path);
-      const descriptor = assumptionFor(path, f, getByPath(currentBaseModel, path));
+      const descriptor = assumptionFor(path, f, getByPath(currentBaseModel, path), gridCtx);
       const arr = byCat.get(descriptor.category) ?? [];
-      arr.push({ path, descriptor, type: f?.type ?? typeForPath(path) });
+      arr.push({ path, descriptor });
       byCat.set(descriptor.category, arr);
     }
     return ASSUMPTION_CATEGORY_ORDER
       .filter((c) => (byCat.get(c)?.length ?? 0) > 0)
       .map((c) => ({ category: c, label: ASSUMPTION_CATEGORY_LABELS[c], rows: byCat.get(c)! }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowPaths, fieldByPath, currentBaseModel]);
+  }, [rowPaths, fieldByPath, currentBaseModel, gridCtx]);
 
   // Per-cell value + whether this case overrides the field at this path.
   const cellFor = (c: typeof s.cases[number], path: string): { value: unknown; isOverride: boolean } => {
@@ -433,7 +446,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                               <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
                                 <GridCell
                                   key={`${c.id}:${p}:${String(value)}`}
-                                  value={value} type={row.type} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
+                                  value={value} format={row.descriptor.format} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
                                   onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
                                   onReset={() => s.resetCaseFieldValue(c.id, p)}
                                   testid={`m6-cell-${c.id}-${p}`}
