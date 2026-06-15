@@ -312,6 +312,35 @@ export interface ProjectCase {
   overrides: Record<string, unknown>;
 }
 
+// ── Lender covenants (2026-06-15) ───────────────────────────────────────────
+// User-editable covenant thresholds shown on the RE Metrics tab. The ratios
+// themselves are display-derived from the existing returns snapshot (no engine
+// change); only the threshold + the pass/fail test are new. 'min' covenants pass
+// when the worst ratio is >= threshold (DSCR / ICR / Debt Yield); 'max' covenants
+// pass when the worst ratio is <= threshold (LTV). Thresholds are stored in the
+// metric's natural unit: a multiple (x) for dscr / icr, a decimal for ltv /
+// debt_yield. 'custom' carries a threshold only (no auto ratio) for bank-specific
+// covenants the user adds later.
+export type CovenantMetric = 'dscr' | 'icr' | 'ltv' | 'debt_yield' | 'custom';
+
+export interface CovenantThreshold {
+  id: string;
+  metric: CovenantMetric;
+  /** Editable display name. */
+  label: string;
+  operator: 'min' | 'max';
+  /** Threshold in the metric's natural unit (x for dscr/icr, decimal for ltv/debt_yield). */
+  threshold: number;
+}
+
+/** The four standard covenants seeded when a project has none yet. */
+export const DEFAULT_COVENANTS: CovenantThreshold[] = [
+  { id: 'cov_dscr',       metric: 'dscr',       label: 'DSCR',                 operator: 'min', threshold: 1.20 },
+  { id: 'cov_icr',        metric: 'icr',        label: 'Interest Cover (ICR)', operator: 'min', threshold: 2.00 },
+  { id: 'cov_ltv',        metric: 'ltv',        label: 'LTV (peak debt)',      operator: 'max', threshold: 0.60 },
+  { id: 'cov_debt_yield', metric: 'debt_yield', label: 'Debt Yield',           operator: 'min', threshold: 0.10 },
+];
+
 export interface Project {
   name: string;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
@@ -370,6 +399,9 @@ export interface Project {
   // The case that was active when scenarios were turned off, restored when they
   // are turned back on. Unset while scenarios are on or when base was active.
   scenarioPriorCaseId?: string;
+  // 2026-06-15: lender covenant thresholds shown on the RE Metrics tab. Optional;
+  // undefined => seed DEFAULT_COVENANTS in the UI (existing projects unchanged).
+  covenants?: CovenantThreshold[];
   // M2.0g v8 Addendum 3 (2026-05-06): output granularity for reporting
   // / display.
   // **@deprecated M2.0 Pass 14 (2026-05-13).** Annual-only basis until

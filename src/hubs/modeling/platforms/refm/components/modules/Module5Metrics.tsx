@@ -9,15 +9,17 @@
  *
  * All math lives in returns-resolvers.ts -> core/calculations/returns.
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
-import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { MetricCard, MetricGrid, fmtPct, fmtX } from './Module5Shared';
+import { FAST_INPUT } from './_shared/inputStyles';
+import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
+import { evaluateCovenant, covenantUnit, type CovenantInputs } from '../../lib/covenants';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -35,6 +37,7 @@ export default function Module5Metrics(): React.JSX.Element {
       landAllocationMode: s.landAllocationMode,
       financingTranches: s.financingTranches,
       equityContributions: s.equityContributions,
+      setProject: s.setProject,
     })),
   );
 
@@ -48,15 +51,24 @@ export default function Module5Metrics(): React.JSX.Element {
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
   const m = rs.result.realEstate;
   const de = rs.developmentEconomics;
+  const ee = rs.equityExposure;
+  const fm = rs.fundingMix;
 
   const dscrTone = m.dscrMin === null ? 'neutral' : m.dscrMin >= 1.2 ? 'good' : 'bad';
   const ltvTone = m.ltvAtExit === null ? 'neutral' : m.ltvAtExit <= 0.6 ? 'good' : 'bad';
 
-  const ratioRows: M4Row[] = [
-    { label: 'DSCR (CFADS / debt service)', values: m.dscrPerPeriod, rowFmt: ratioFmt, totalOverride: `avg ${fmtX(m.dscrAvg)}`, isSubtotal: true },
-    { label: 'Interest Coverage (EBITDA / interest)', values: m.icrPerPeriod, rowFmt: ratioFmt, totalOverride: `min ${fmtX(m.icrMin)}` },
-    { label: 'Cash-on-Cash (distribution / equity)', values: m.cashOnCashPerPeriod, rowFmt: pctRowFmt, totalOverride: `avg ${fmtPct(m.cashOnCashAvg)}` },
-  ];
+  // Snapshot-derived ratio inputs for the Lender Covenants section. DSCR + ICR
+  // come straight off the snapshot; Debt Yield is derived NOI / debt; LTV is
+  // measured at peak debt (debt outstanding / GDV), since LTV at exit is ~0%
+  // once debt is repaid. ltvAtExit is the fallback when no GDV basis exists.
+  const covenantInputs: CovenantInputs = {
+    dscrPerPeriod: m.dscrPerPeriod, dscrMin: m.dscrMin, dscrAvg: m.dscrAvg,
+    icrPerPeriod: m.icrPerPeriod, icrMin: m.icrMin,
+    noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
+    gdvValue: de.gdv, ltvAtExit: m.ltvAtExit,
+  };
+  const covenants = project.covenants ?? DEFAULT_COVENANTS;
+  const setCovenants = (next: CovenantThreshold[]): void => state.setProject({ covenants: next });
 
   return (
     <div data-testid="module5-metrics" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -72,7 +84,6 @@ export default function Module5Metrics(): React.JSX.Element {
       <MetricGrid min={150}>
         <MetricCard label="Yield on Cost" value={fmtPct(m.yieldOnCost)} sub="stabilised NOI / cost" tone="neutral" />
         <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
-        <MetricCard label="Development Spread" value={fmtPct(m.developmentSpread)} sub="yield on cost less cap rate" tone={m.developmentSpread !== null && m.developmentSpread > 0 ? 'good' : 'neutral'} />
         <MetricCard label="Profit on Cost" value={fmtPct(m.profitOnCost)} sub="(revenue - cost) / cost" />
         <MetricCard label="Profit Margin" value={fmtPct(m.profitMargin)} sub="PAT / revenue" />
         <MetricCard label="Equity Multiple" value={fmtX(m.equityMultiple)} sub="distributions / invested" />
@@ -90,17 +101,16 @@ export default function Module5Metrics(): React.JSX.Element {
         <MetricCard label="Min Interest Cover" value={fmtX(m.icrMin)} sub="EBITDA / interest" />
         <MetricCard label="Avg Cash-on-Cash" value={fmtPct(m.cashOnCashAvg)} sub="cash yield on equity" />
         <MetricCard label="Peak Equity" value={fmt(m.peakEquity)} sub={currency} />
+        <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
       </MetricGrid>
 
-      {/* Per-period coverage ratios */}
-      <M4PeriodTable
-        title="Coverage and Cash Ratios by Year"
-        caption="DSCR = cash available for debt service / debt service (periods with no debt service show a dash). Interest cover = EBITDA / interest. Cash-on-Cash = distributions / cumulative equity. The Total column shows the average (DSCR, Cash-on-Cash) or minimum (Interest cover)."
+      {/* ── Lender Covenants (NEW): per-period DSCR / ICR / Debt Yield + LTV at
+            exit, editable thresholds, pass / breach. Ratios are snapshot-derived. ── */}
+      <LenderCovenants
+        covenants={covenants}
+        inputs={covenantInputs}
         yearLabels={rs.yearLabels}
-        rows={ratioRows}
-        currency={currency}
-        fmt={fmt}
-        priorYearLabel={snap.projectStartYear - 1}
+        onChange={setCovenants}
       />
 
       {/* Development economics (real-estate residual / profit view) */}
@@ -117,6 +127,17 @@ export default function Module5Metrics(): React.JSX.Element {
         <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
       </MetricGrid>
 
+      {/* ── Funding Mix (received from Returns): capital structure as % of sources. ── */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+        Funding Mix
+      </div>
+      <MetricGrid min={150}>
+        <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
+        <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
+        <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
+        <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
+      </MetricGrid>
+
       {/* Income + exit profile (going-in vs exit, NOI) */}
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
         Income and Exit Profile
@@ -125,11 +146,45 @@ export default function Module5Metrics(): React.JSX.Element {
         <MetricCard label="Stabilised NOI" value={fmt(rs.stabilisedNOI)} sub={currency} />
         <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
         <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
-        <MetricCard label="Going-in Yield on Cost" value={fmtPct(m.yieldOnCost)} sub="stabilised NOI / cost" />
+        <MetricCard label="Stabilised Yield on Cost" value={fmtPct(rs.stabilization.stabilisedYieldOnCost)} sub="stabilised NOI / dev cost" />
         <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
         <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
         <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
       </MetricGrid>
+
+      {/* ── Exit-Year Analysis (received from Returns): hold vs sell timing. ── */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
+        Exit-Year Analysis (hold vs sell timing)
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year.
+      </div>
+      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ textAlign: 'left', padding: '6px 10px' }}>Exit Year</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Enterprise Value</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity Value</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Project IRR</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity IRR</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity MOIC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rs.exitYears.map((row) => (
+              <tr key={row.exitIdx} style={{ borderBottom: '1px solid var(--color-border)', background: row.isSelected ? 'var(--color-navy-pale, #F4F7FC)' : 'transparent', fontWeight: row.isSelected ? 700 : 400 }}>
+                <td style={{ textAlign: 'left', padding: '5px 10px' }}>{row.exitYearLabel}{row.isSelected ? '  ◀ selected' : ''}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.enterpriseValue)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.equityValue)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcffIrr)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcfeIrr)}</td>
+                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtX(row.equityMoic)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* Hospitality operations (only when the project has Operate assets with
           room-night demand). Operating KPIs are blended across the hold and
@@ -266,5 +321,158 @@ export default function Module5Metrics(): React.JSX.Element {
         );
       })()}
     </div>
+  );
+}
+
+// ── Lender Covenants ────────────────────────────────────────────────────────
+const COV_METRIC_OPTIONS: Array<{ v: CovenantMetric; label: string }> = [
+  { v: 'dscr', label: 'DSCR' },
+  { v: 'icr', label: 'Interest Cover (ICR)' },
+  { v: 'ltv', label: 'LTV (peak debt)' },
+  { v: 'debt_yield', label: 'Debt Yield' },
+  { v: 'custom', label: 'Custom' },
+];
+const COV_METRIC_DEFAULTS: Record<CovenantMetric, { operator: 'min' | 'max'; threshold: number }> = {
+  dscr: { operator: 'min', threshold: 1.20 },
+  icr: { operator: 'min', threshold: 2.00 },
+  ltv: { operator: 'max', threshold: 0.60 },
+  debt_yield: { operator: 'min', threshold: 0.10 },
+  custom: { operator: 'min', threshold: 1.00 },
+};
+const fmtCov = (v: number | null, unit: 'x' | 'pct'): string => (v == null ? '-' : unit === 'x' ? ratioFmt(v) : pctRowFmt(v));
+
+function LenderCovenants(props: {
+  covenants: CovenantThreshold[];
+  inputs: CovenantInputs;
+  yearLabels: number[];
+  onChange: (next: CovenantThreshold[]) => void;
+}): React.JSX.Element {
+  const { covenants, inputs, yearLabels, onChange } = props;
+  const evals = covenants.map((c) => ({ cov: c, ev: evaluateCovenant(c, inputs) }));
+
+  const upd = (id: string, patch: Partial<CovenantThreshold>): void =>
+    onChange(covenants.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const changeMetric = (id: string, metric: CovenantMetric): void =>
+    upd(id, { metric, operator: COV_METRIC_DEFAULTS[metric].operator, threshold: COV_METRIC_DEFAULTS[metric].threshold });
+  const add = (): void => onChange([...covenants, { id: `cov_${Date.now()}_${covenants.length}`, metric: 'custom', label: 'New covenant', operator: 'min', threshold: 1.0 }]);
+  const remove = (id: string): void => onChange(covenants.filter((c) => c.id !== id));
+
+  const th: React.CSSProperties = { textAlign: 'right', padding: '6px 8px', fontSize: 11 };
+  const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 12, borderBottom: '1px solid var(--color-border)' };
+  const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+  const sel: React.CSSProperties = { ...FAST_INPUT, width: 'auto', cursor: 'pointer' };
+
+  const statusPill = (pass: boolean | null): React.JSX.Element => {
+    const [bg, fg, txt] = pass === null
+      ? ['var(--color-grey-pale, #f3f4f6)', 'var(--color-meta)', 'n/a']
+      : pass
+        ? ['var(--color-success-bg, #dcfce7)', 'var(--color-success, #166534)', 'Pass']
+        : ['var(--color-warning-bg, #fef3c7)', 'var(--color-warning, #92400e)', 'Breach'];
+    return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 12, background: bg, color: fg }}>{txt}</span>;
+  };
+
+  // Per-period heatmap rows: metric-backed covenants that have a real series
+  // (LTV is exit-only; custom has no series).
+  const perPeriod = evals.filter(({ ev, cov }) => !ev.exitOnly && cov.metric !== 'custom' && ev.seriesPerPeriod.some((v) => v != null));
+  const cellBg = (cov: CovenantThreshold, v: number | null): string => {
+    if (v == null) return 'transparent';
+    const pass = cov.operator === 'min' ? v >= cov.threshold : v <= cov.threshold;
+    return pass ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-warning-bg, #fef3c7)';
+  };
+
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="lender-covenants">
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>Lender Covenants</div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Standard covenants vs editable thresholds (saved with the project). Worst = the binding period (min for DSCR / ICR / Debt Yield, max for LTV); Pass / Breach compares the worst to the threshold. DSCR and Interest Cover come from the snapshot; Debt Yield = NOI / debt; LTV is measured at peak debt (peak debt outstanding / Gross Development Value), since LTV at exit is ~0% once debt is repaid and meaningless for a lender. Where there is no value basis it falls back to LTV at exit (labelled as such). Thresholds are in x for DSCR / ICR and % for LTV / Debt Yield.
+      </div>
+
+      {/* Summary: editable thresholds + worst / avg + pass / breach. */}
+      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={thL}>Covenant</th>
+              <th style={thL}>Metric</th>
+              <th style={th}>Test</th>
+              <th style={th}>Threshold</th>
+              <th style={th}>Worst</th>
+              <th style={th}>Avg</th>
+              <th style={th}>Status</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {evals.map(({ cov, ev }) => {
+              const unit = covenantUnit(cov.metric);
+              const display = unit === 'pct' ? cov.threshold * 100 : cov.threshold;
+              return (
+                <tr key={cov.id} data-testid={`covenant-${cov.id}`}>
+                  <td style={tdL}>
+                    <input value={cov.label} onChange={(e) => upd(cov.id, { label: e.target.value })} style={{ ...FAST_INPUT, width: 150 }} title="Covenant name" />
+                  </td>
+                  <td style={tdL}>
+                    <select value={cov.metric} onChange={(e) => changeMetric(cov.id, e.target.value as CovenantMetric)} style={sel}>
+                      {COV_METRIC_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    </select>
+                    {ev.basisLabel && <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }} data-testid={`covenant-basis-${cov.id}`}>{ev.basisLabel}</div>}
+                  </td>
+                  <td style={td}>
+                    <select value={cov.operator} onChange={(e) => upd(cov.id, { operator: e.target.value as 'min' | 'max' })} style={sel}>
+                      <option value="min">min ≥</option>
+                      <option value="max">max ≤</option>
+                    </select>
+                  </td>
+                  <td style={td}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
+                      <input type="number" step="0.01" value={Number.isFinite(display) ? display : 0}
+                        onChange={(e) => { const n = parseFloat(e.target.value); const v = Number.isFinite(n) ? n : 0; upd(cov.id, { threshold: unit === 'pct' ? v / 100 : v }); }}
+                        data-testid={`covenant-threshold-${cov.id}`}
+                        style={{ ...FAST_INPUT, width: 64, textAlign: 'right' }} />
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>{unit === 'pct' ? '%' : 'x'}</span>
+                    </div>
+                  </td>
+                  <td style={{ ...td, fontWeight: 600 }}>{fmtCov(ev.worst, unit)}</td>
+                  <td style={td}>{fmtCov(ev.avg, unit)}</td>
+                  <td style={td}>{statusPill(ev.pass)}</td>
+                  <td style={td}>
+                    <button type="button" onClick={() => remove(cov.id)} title="Remove covenant" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13 }}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <button type="button" onClick={add} data-testid="covenant-add" style={{ border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)' }}>+ Add covenant</button>
+      </div>
+
+      {/* Per-period ratio heatmap (green = pass, amber = breach vs threshold). */}
+      {perPeriod.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                <th style={{ ...thL, position: 'sticky', left: 0, background: 'var(--color-navy)', minWidth: 180 }}>Covenant by year</th>
+                {yearLabels.map((y, i) => <th key={i} style={th}>{y}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {perPeriod.map(({ cov, ev }) => (
+                <tr key={cov.id}>
+                  <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)', fontWeight: 600 }}>{cov.label}</td>
+                  {yearLabels.map((_, i) => {
+                    const v = ev.seriesPerPeriod[i] ?? null;
+                    return <td key={i} style={{ ...td, background: cellBg(cov, v) }}>{fmtCov(v, ev.unit)}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
