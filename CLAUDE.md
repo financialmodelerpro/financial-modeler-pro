@@ -6,7 +6,7 @@
 - **Module 2 (Revenue + CoS + Schedules + Escrow)**: LOCKED at Pass 9N.
 - **Module 3 (Operating Expenses)**: LOCKED at Pass 5d.
 - **Module 4 (Financial Statements)**: DONE. Schedules / P&L / CF / BS. BS balances by construction; Direct CF == Indirect CF every period. Phase-filtered P&L stops at EBITDA; phase CF shows Operations+Investing; BS is consolidated-only. P&L/CF/BS render from shared pure builders (`lib/reports/m4Reports.ts`) that the on-screen tabs AND the PDF both consume.
-- **Module 5 (Returns & RE Metrics)**: DONE. Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics + per-asset + Case Comparison).
+- **Module 5 (Returns & RE Metrics)**: DONE. Sponsor-IRR view (FCFF / FCFE / Distributed Equity + terminal value + RE metrics + per-asset + Case Comparison). RE Metrics tab carries editable Lender Covenants (DSCR / ICR / Debt Yield + LTV at peak debt = debt / GDV, since LTV at exit is a trivial 0%); pure display layer over the snapshot, no engine change.
 - **Module 6 (Scenario Analysis)**: LIVE (2026-06-14). A surface over the case engine: case list, explicit override editor (field picker that only offers fields that round-trip the diff grammar), comparison matrix. Was "Reports"; swapped with Module 7.
 - **Module 7 (Reports & Visualizations)**: stub (next module surface).
 - **Cases (scenarios)**: Management base + override cases; topbar switcher + Returns Case Comparison + the Module 6 page; per-input "≠ Management" override badge; scenario edits in the change_log; viewing a case never starts an edit session. Engine `lib/cases/applyOverrides.ts` (value-only overrides, base never mutated; per-element grammar via `snapshot-diff.PER_ELEMENT_ARRAYS`).
