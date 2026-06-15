@@ -6,7 +6,7 @@
 
 ## ⭐ START HERE (current focus, 2026-06-14)
 
-**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is live (case-engine surface + explicit override editor + comparison matrix; `verify-module6-scenarios` 16/16). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
+**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is live (case-engine surface + grouped multi-case assumptions grid + comparison matrix; `verify-module6-scenarios` 52/52). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
 
 **NEXT / pending units:**
 - **Module 7 Reports** (charts / dashboards): the remaining module surface (config: `module7` = Reports, currently a stub).
@@ -51,10 +51,10 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 | Module 3 | Operating Expenses | **LOCKED** at Pass 5d. |
 | Module 4 | Financial Statements | **DONE.** Schedules / P&L / CF / BS. Balances by construction (BS reconciles AND Direct == Indirect closing cash every period). |
 | Module 5 | Returns & Valuation | **DONE.** IRR/MOIC on FCFF/FCFE/Dividends + terminal value + RE metrics + multi-partner returns + exit / sensitivity / per-asset. Tabs: Returns / RE Metrics / Case Comparison. |
-| Module 6 | Scenario Analysis | **LIVE (2026-06-14).** Surface over the case engine: case list, explicit override editor (field picker that only offers round-trippable fields), comparison matrix. Was "Reports"; swapped with Module 7. |
+| Module 6 | Scenario Analysis | **LIVE (2026-06-14, grid 2026-06-15).** Surface over the case engine: case list, multi-case **assumptions grid** (rows = assumptions grouped by category with plain-English labels, columns = every case incl. an editable Management; curated key-driver default + "show all" toggle + add-row picker; construction-cost levers surfaced), comparison matrix. Field picker only offers round-trippable fields. Was "Reports"; swapped with Module 7. |
 | Module 7 | Reports & Visualizations | Stub (next module surface). |
 
-**Cases (scenario management), shipped 2026-06-03:** Management Case = base; Downside + Upside are field-override cases (renamable, add custom). Topbar Case switcher + Returns Case Comparison tab. Engine `lib/cases/applyOverrides.ts`, verify-cases 19/19. See the NEXT SESSION block above for follow-ups.
+**Cases (scenario management), shipped 2026-06-03:** Management Case = base; Downside + Upside are field-override cases (renamable, add custom). Topbar Case switcher + Returns Case Comparison tab. Engine `lib/cases/applyOverrides.ts` (merge) + `lib/cases/assumptionGrid.ts` (grid labels / categories / curated set), verify-cases 35/35. See the NEXT SESSION block above for follow-ups.
 
 ## Remaining backlog
 
@@ -75,6 +75,9 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 **Module 5 returns:**
 - Equity waterfall + IRR hurdle math.
 - Cash-sweep with full operating cashflow (capex-only proxy ships today as Method 4 placeholder).
+
+**Module 6 scenarios:**
+- **Construction-timeline overrides** (future unit, deferred 2026-06-15): let a scenario override construction duration / start delay (`phases[id=X].constructionPeriods` / `constructionStart` / `startDate`). These are scalar phase fields that round-trip the grammar, but a value-only override is INSUFFICIENT: the engine reads them to derive the period axis + handover, while the per-phase `byPhase` revenue / opex / occupancy arrays and each cost line's baked `startPeriod` / `endPeriod` are stored separately and do NOT move with the scalar (the phase-date cascade was deliberately disabled). Needs a cascade-on-override that re-windows the `byPhase` arrays and recomputes cost-line start/end periods, then recomputes on the corrected axis. Engine/grammar work. Until then the curated levers stay value-only (construction cost rates, contingency %, etc., which DO round-trip cleanly).
 
 **Cross-module:**
 - Excel + PDF exports rebuilt against the locked v8 schema.
