@@ -349,6 +349,58 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
   return out;
 }
 
+// ── Item-grouped layout (Option 2) + applied-value test ─────────────────────
+export interface GridRowLite { path: string; descriptor: AssumptionDescriptor; }
+export interface GridItem {
+  /** Assumption-type heading, e.g. "Construction cost rate (per BUA)". */
+  label: string;
+  /** True when the item is entity-scoped (a sub-heading + one row per entity).
+   *  False for a single project-level value (Discount rate etc.) shown as one row. */
+  grouped: boolean;
+  rows: GridRowLite[];
+}
+export interface GridCategoryGroup { category: AssumptionCategory; label: string; items: GridItem[]; }
+
+/** Whether a Management value counts as an applied lever. Zero / undefined /
+ *  empty are "not applied" and the grid suppresses such rows (unless the field
+ *  is overridden in a case). Booleans are always applied. */
+export function isAppliedValue(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'number') return Number.isFinite(v) && v !== 0;
+  if (typeof v === 'string') return v.trim() !== '';
+  return true;
+}
+
+/** Option 2 layout: bucket rows into category groups (in Inputs-tab order), then
+ *  by assumption item (descriptor.label). An item with any entity-scoped row
+ *  becomes a sub-heading with one row per entity; a purely project-level item
+ *  stays a single standalone row. Insertion order is preserved (curated first).
+ *  Pure: suppression of unused rows happens BEFORE this, in the caller. */
+export function groupAssumptionRows(rows: GridRowLite[]): GridCategoryGroup[] {
+  const byCat = new Map<AssumptionCategory, GridRowLite[]>();
+  for (const r of rows) {
+    const arr = byCat.get(r.descriptor.category) ?? [];
+    arr.push(r); byCat.set(r.descriptor.category, arr);
+  }
+  return ASSUMPTION_CATEGORY_ORDER
+    .filter((c) => (byCat.get(c)?.length ?? 0) > 0)
+    .map((c) => {
+      const catRows = byCat.get(c)!;
+      const itemMap = new Map<string, GridRowLite[]>();
+      const order: string[] = [];
+      for (const r of catRows) {
+        if (!itemMap.has(r.descriptor.label)) { itemMap.set(r.descriptor.label, []); order.push(r.descriptor.label); }
+        itemMap.get(r.descriptor.label)!.push(r);
+      }
+      const items: GridItem[] = order.map((label) => {
+        const rs = itemMap.get(label)!;
+        const grouped = rs.some((r) => r.descriptor.context.trim() !== '');
+        return { label, grouped, rows: rs };
+      });
+      return { category: c, label: ASSUMPTION_CATEGORY_LABELS[c], items };
+    });
+}
+
 // ── Value formatting + parsing (display in the right unit, store correctly) ──
 const SUFFIX_FOR: Record<AssumptionFormat, string> = {
   'percent-fraction': '%', 'percent-whole': '%', accounting: '', number: '', text: '', boolean: '',

@@ -27,8 +27,9 @@ import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields } fro
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
+  isAppliedValue, groupAssumptionRows,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
-  type AssumptionCategory, type AssumptionDescriptor, type AssumptionFormat, type GridContext,
+  type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -246,22 +247,22 @@ export default function Module6Scenarios(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBaseModel, allOverridePaths, showAll, fields, extraPaths]);
 
-  // Group rows by category, in Inputs-tab order, dropping empty groups.
-  interface GridRow { path: string; descriptor: AssumptionDescriptor; }
+  // Build the rows, SUPPRESSING ones whose Management value is zero / not applied
+  // (so the grid only shows real, applicable levers), then bucket them into the
+  // Option-2 item-grouped layout: category -> assumption item -> entity rows.
+  // A field overridden in any case, or user-added, always shows (even if zero).
   const groups = useMemo(() => {
-    const byCat = new Map<AssumptionCategory, GridRow[]>();
+    const built: GridRowLite[] = [];
     for (const path of rowPaths) {
       const f = fieldByPath.get(path);
-      const descriptor = assumptionFor(path, f, getByPath(currentBaseModel, path), gridCtx);
-      const arr = byCat.get(descriptor.category) ?? [];
-      arr.push({ path, descriptor });
-      byCat.set(descriptor.category, arr);
+      const baseVal = getByPath(currentBaseModel, path);
+      const alwaysShow = allOverridePaths.has(path) || extraPaths.includes(path);
+      if (!alwaysShow && !isAppliedValue(baseVal)) continue;
+      built.push({ path, descriptor: assumptionFor(path, f, baseVal, gridCtx) });
     }
-    return ASSUMPTION_CATEGORY_ORDER
-      .filter((c) => (byCat.get(c)?.length ?? 0) > 0)
-      .map((c) => ({ category: c, label: ASSUMPTION_CATEGORY_LABELS[c], rows: byCat.get(c)! }));
+    return groupAssumptionRows(built);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowPaths, fieldByPath, currentBaseModel, gridCtx]);
+  }, [rowPaths, fieldByPath, currentBaseModel, gridCtx, allOverridePaths, extraPaths]);
 
   // Per-cell value + whether this case overrides the field at this path.
   const cellFor = (c: typeof s.cases[number], path: string): { value: unknown; isOverride: boolean } => {
@@ -475,38 +476,52 @@ export default function Module6Scenarios(): React.JSX.Element {
                         {g.label}
                       </td>
                     </tr>
-                    {g.rows.map((row) => {
-                      const p = row.path;
-                      const baseValue = getByPath(currentBaseModel, p);
-                      return (
-                        <tr key={p} data-testid={`m6-override-${p}`}>
-                          <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <button type="button" onClick={() => removeRow(p)} title="Remove this row" data-testid={`m6-row-remove-${p}`}
-                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13, lineHeight: 1 }}>✕</button>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 600, color: 'var(--color-heading)', fontSize: 12 }} title={p}>{row.descriptor.label}</div>
-                                {row.descriptor.context && <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>{row.descriptor.context}</div>}
-                              </div>
-                            </div>
-                          </td>
-                          {s.cases.map((c) => {
-                            const { value, isOverride } = cellFor(c, p);
-                            return (
-                              <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
-                                <GridCell
-                                  key={`${c.id}:${p}:${String(value)}`}
-                                  value={value} format={row.descriptor.format} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
-                                  onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
-                                  onReset={() => s.resetCaseFieldValue(c.id, p)}
-                                  testid={`m6-cell-${c.id}-${p}`}
-                                />
+                    {g.items.map((item) => (
+                      <React.Fragment key={item.label}>
+                        {/* Item sub-heading (entity-scoped items only). */}
+                        {item.grouped && (
+                          <tr data-testid={`m6-item-${g.category}-${item.label}`}>
+                            <td colSpan={1 + s.cases.length}
+                              style={{ background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)', color: 'var(--color-heading)', fontWeight: 700, fontSize: 11, padding: '5px 12px 5px 24px', borderBottom: '1px solid var(--color-border)', position: 'sticky', left: 0 }}>
+                              {item.label}
+                            </td>
+                          </tr>
+                        )}
+                        {item.rows.map((row) => {
+                          const p = row.path;
+                          const baseValue = getByPath(currentBaseModel, p);
+                          // Entity rows label by entity (heading carries the item); single rows label by item.
+                          const rowLabel = item.grouped ? (row.descriptor.context || row.descriptor.label) : row.descriptor.label;
+                          return (
+                            <tr key={p} data-testid={`m6-override-${p}`}>
+                              <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: item.grouped ? 16 : 0 }}>
+                                  <button type="button" onClick={() => removeRow(p)} title="Remove this row" data-testid={`m6-row-remove-${p}`}
+                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13, lineHeight: 1 }}>✕</button>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: item.grouped ? 500 : 600, color: 'var(--color-heading)', fontSize: 12 }} title={p}>{rowLabel}</div>
+                                  </div>
+                                </div>
                               </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
+                              {s.cases.map((c) => {
+                                const { value, isOverride } = cellFor(c, p);
+                                return (
+                                  <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
+                                    <GridCell
+                                      key={`${c.id}:${p}:${String(value)}`}
+                                      value={value} format={row.descriptor.format} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
+                                      onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
+                                      onReset={() => s.resetCaseFieldValue(c.id, p)}
+                                      testid={`m6-cell-${c.id}-${p}`}
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
                   </React.Fragment>
                 ))}
               </tbody>

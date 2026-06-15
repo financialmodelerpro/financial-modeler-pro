@@ -18,6 +18,7 @@ import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/l
 import {
   describeAssumption, curatedDefaultFields, ASSUMPTION_CATEGORY_ORDER,
   buildGridContext, formatAssumptionValue, parseAssumptionInput,
+  isAppliedValue, groupAssumptionRows, type GridRowLite,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
@@ -251,6 +252,74 @@ console.log('\n=== Per-asset cost sourcing + attribution ===');
   // Editing a per-asset rate still flows through applyOverrides.
   const merged: any = applyOverrides(model, { 'costOverrides[A1::construction-bua__p1].value': 9999 });
   check('editing a per-asset rate round-trips through applyOverrides', getByPath(merged, 'costOverrides[A1::construction-bua__p1].value') === 9999);
+}
+
+// ── Item-grouped layout (Option 2) + hide-unused rows ───────────────────────
+console.log('\n=== Item-grouped grid + suppression ===');
+check('isAppliedValue: 0 / undefined / empty -> not applied', !isAppliedValue(0) && !isAppliedValue(undefined) && !isAppliedValue(''));
+check('isAppliedValue: real value -> applied', isAppliedValue(7200) && isAppliedValue('saudi'));
+{
+  const model: any = {
+    project: { name: 'P', returns: { discountRate: 0.1, exitMultiple: 8 } },
+    phases: [{ id: 'p1', name: 'Phase 1' }],
+    parcels: [],
+    assets: [{ id: 'A1', name: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', phaseId: 'p1' }],
+    subUnits: [
+      { id: 'su1', assetId: 'A1', name: 'Keys', unitPrice: 800, occupancyPct: 0, startingAdr: 0 }, // adr/occ = 0 -> suppress
+      { id: 'su2', assetId: 'A2', name: 'Shops', unitPrice: 0 },                                    // price 0 -> suppress
+    ],
+    costLines: [
+      { id: 'construction-bua__p1', phaseId: 'p1', name: 'Construction (BUA)', value: 0 },
+      { id: 'contingency__p1', phaseId: 'p1', name: 'Contingency', value: 5 },
+    ],
+    costOverrides: [
+      { assetId: 'A1', lineId: 'construction-bua__p1', value: 7200, overridden: true },
+      { assetId: 'A2', lineId: 'construction-bua__p1', value: 8000, overridden: true },
+    ],
+    financingTranches: [], equityContributions: [], migrationsApplied: [],
+  };
+  const ctx = buildGridContext(model);
+  const curated = curatedDefaultFields(model);
+  const mkRows = (exempt: Set<string>): GridRowLite[] => curated
+    .map((f) => ({ path: f.path, descriptor: describeAssumption(f, ctx) }))
+    .filter((r) => exempt.has(r.path) || isAppliedValue(getByPath(model, r.path)));
+
+  const grouped = groupAssumptionRows(mkRows(new Set()));
+  const cat = (c: string) => grouped.find((g) => g.category === c);
+  const itemOf = (c: string, label: string) => cat(c)?.items.find((i) => i.label === label);
+
+  // Multi-asset item: one heading, one row per asset, real per-asset values.
+  const con = itemOf('construction', 'Construction cost rate (per BUA)');
+  check('construction cost rate is ONE grouped item', !!con && con.grouped);
+  check('grouped item has one row per asset (2)', con!.rows.length === 2);
+  check('per-asset rows labelled by entity (non-empty context)', con!.rows.every((r) => r.descriptor.context.trim() !== ''));
+  const conVals = con!.rows.map((r) => Number(getByPath(model, r.path))).sort((a, b) => a - b);
+  check('per-asset values correct (7200 / 8000)', conVals[0] === 7200 && conVals[1] === 8000);
+
+  // Project-level single-value items stay a single (non-grouped) row.
+  const disc = itemOf('project', 'Discount rate');
+  check('discount rate is a single (non-grouped) row', !!disc && !disc.grouped && disc.rows.length === 1);
+
+  // Suppression: zero ADR / occupancy / unit price hidden in Management.
+  const revPaths = (cat('revenue')?.items ?? []).flatMap((i) => i.rows.map((r) => r.path));
+  check('zero Starting ADR suppressed', !revPaths.includes('subUnits[id=su1].startingAdr'));
+  check('zero Occupancy % suppressed', !revPaths.includes('subUnits[id=su1].occupancyPct'));
+  check('zero unit price suppressed', !revPaths.includes('subUnits[id=su2].unitPrice'));
+  check('non-zero unit price shown', revPaths.includes('subUnits[id=su1].unitPrice'));
+  check('no item heading without applicable rows (ADR/Occupancy items dropped)',
+    !(cat('revenue')?.items ?? []).some((i) => i.label === 'Starting ADR' || i.label === 'Occupancy %'));
+
+  // Overridden-zero exemption: a zero field still shows when overridden.
+  const zeroPath = 'subUnits[id=su2].unitPrice';
+  const grouped2 = groupAssumptionRows(mkRows(new Set([zeroPath])));
+  const shown = grouped2.flatMap((g) => g.items).flatMap((i) => i.rows).some((r) => r.path === zeroPath);
+  check('an overridden zero field still shows (exempt from suppression)', shown);
+
+  console.log('Construction & Capex (sample):');
+  for (const it of cat('construction')?.items ?? []) {
+    console.log(`  ${it.grouped ? '▸' : ' '} ${it.label}`);
+    if (it.grouped) for (const r of it.rows) console.log(`      - ${r.descriptor.context}: ${formatAssumptionValue(getByPath(model, r.path), r.descriptor.format)}`);
+  }
 }
 
 // ── "Use scenarios?" toggle: revert to Management on No, restore on Yes ──────
