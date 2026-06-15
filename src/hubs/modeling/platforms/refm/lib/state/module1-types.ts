@@ -324,9 +324,10 @@ export interface Project {
   // to undefined / 0 so existing v5 snapshots keep working.
   country?: string;          // free-text country, used by requiresCountry filter
   /** M4 Pass 2b (2026-05-20): financial-statement terminology. 'saudi'
-   *  swaps in Zakat / EBIZDA / EBIZ / PBZ / PAZ labels throughout the
-   *  P&L, CF and BS surfaces. 'standard' uses Tax / EBITDA / EBIT /
-   *  PBT / PAT. Defaults to 'standard'. */
+   *  swaps the direct charge to Zakat (Zakat / Profit before Zakat /
+   *  Profit after Zakat) across the P&L, CF and BS surfaces; EBITDA and
+   *  EBIT are universal and unchanged. 'standard' uses Tax / EBITDA /
+   *  EBIT / PBT / PAT. Defaults to 'standard'. */
   financialTerminology?: 'standard' | 'saudi';
   projectRoadsPct?: number;  // 0..100, fraction of TOTAL land used for roads
   // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA deduction. When

@@ -2442,7 +2442,7 @@ function addProfitLoss(ctx: EmitCtx): void {
   const labels = m4Labels(state);
   const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v) });
   const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'P&L', 'Full detailed mirror of the platform Module 4 income statement: the consolidated project P&L (to PAT), then a per-phase P&L (to EBITDA).', { label: 'Line', feeds: 'The platform income statement (Revenue, Cost of Sales, Opex, depreciation, interest, tax).' });
+  writeSheetHeader(ws, snap, N, 'P&L', `Full detailed mirror of the platform Module 4 income statement: the consolidated project P&L (to ${labels.pat}), then a per-phase P&L (to ${labels.ebitda}).`, { label: 'Line', feeds: 'The platform income statement (Revenue, Cost of Sales, Opex, depreciation, interest, tax).' });
   const E = makeEmitters(ws, N);
   const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
   E.section(`${labels.incomeStatementTitle}: Project`);

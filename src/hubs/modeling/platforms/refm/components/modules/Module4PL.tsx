@@ -8,9 +8,9 @@
  * → Tax → PAT) with an asset-filter dropdown at the top so the
  * user can see either project totals or one asset's contribution.
  *
- * Terminology is driven by Project.financialTerminology, Saudi
- * mode renders EBIZDA/EBIZ/PBZ/PAZ/Zakat; standard mode renders
- * EBITDA/EBIT/PBT/PAT/Tax.
+ * Terminology is driven by Project.financialTerminology. Saudi mode
+ * keeps EBITDA/EBIT (universal) and renders Zakat / Profit before Zakat
+ * / Profit after Zakat; standard mode renders EBITDA/EBIT/PBT/PAT/Tax.
  *
  * Tax line: configurable rate (Project.tax.rate, default 0) applied
  * to max(PBT, 0). PAT = PBT − Tax.
@@ -131,7 +131,7 @@ export default function Module4PL(): React.JSX.Element {
               data-testid="m4-pl-terminology"
             >
               <option value="standard">Standard (EBITDA / EBIT / Tax)</option>
-              <option value="saudi">Saudi (EBIZDA / EBIZ / Zakat)</option>
+              <option value="saudi">Saudi (EBITDA / EBIT / Zakat)</option>
             </select>
             <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
               Drives row labels across P&L, CF and BS.

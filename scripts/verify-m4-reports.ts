@@ -121,6 +121,18 @@ function main(): void {
   const ties = !!totalAssets && !!totalLandE && totalAssets.values.every((v, i) => Math.abs(v - (totalLandE.values[i] ?? 0)) < Math.max(1000, Math.abs(v) * 1e-6));
   check('BS TOTAL ASSETS ties to TOTAL LIABILITIES + EQUITY every period', ties);
 
+  // ── Label hygiene: Saudi terminology must keep universal acronyms intact and
+  // never emit a mangled T->Z acronym (regression guard for EBIZDA/EBIZ/PBZ/PAZ).
+  const std = getFinancialLabels('standard');
+  const ksa = getFinancialLabels('saudi');
+  check('Saudi keeps EBITDA exactly (not EBIZDA)', ksa.ebitda === 'EBITDA' && std.ebitda === 'EBITDA');
+  check('Saudi keeps EBIT exactly (not EBIZ)', ksa.ebit === 'EBIT' && std.ebit === 'EBIT');
+  check('Saudi PBT line reads cleanly (no PBZ)', ksa.pbt === 'Profit before Zakat');
+  check('Saudi PAT line reads cleanly (no PAZ)', ksa.pat === 'Profit after Zakat');
+  check('Saudi uses Zakat for the direct charge', ksa.tax === 'Zakat' && ksa.taxPaid === 'Zakat Paid');
+  const mangled = /EBIZDA|EBIZ|PBZ|PAZ/;
+  check('NO label in either mode contains a mangled acronym', !Object.values({ ...std, ...ksa }).some((v) => mangled.test(v)));
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
 }

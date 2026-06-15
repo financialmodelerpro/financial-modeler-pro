@@ -2,11 +2,13 @@
  * M4 Pass 2b (2026-05-20): country-driven financial-statement label set.
  *
  * Most jurisdictions use the international FRS / IFRS terminology
- * (EBITDA, EBIT, PBT, PAT, Tax). Saudi Arabia uses Zakat-flavour
- * terminology (EBIZDA, EBIZ, PBZ, PAZ, Zakat). The shape of every
- * statement is identical, only the row labels change, so a single
- * source-of-truth label set keeps the engines clean and the UI
- * consistent.
+ * (EBITDA, EBIT, PBT, PAT, Tax). Saudi Arabia swaps the direct charge
+ * to Zakat: Zakat, "Profit before Zakat", "Profit after Zakat". EBITDA
+ * and EBIT are universal acronyms and stay EXACTLY the same in both
+ * modes (the "T" in EBITDA / EBIT is part of the standard term, never
+ * relabelled). The shape of every statement is identical, only the row
+ * labels change, so a single source-of-truth label set keeps the
+ * engines clean and the UI consistent.
  *
  * Drive via `project.financialTerminology` ('standard' | 'saudi').
  * Defaults to 'standard'. UI components call getFinancialLabels(mode).
@@ -15,13 +17,13 @@
 export type FinancialTerminologyMode = 'standard' | 'saudi';
 
 export interface FinancialLabels {
-  /** EBITDA / EBIZDA: earnings before interest, tax, D&A. */
+  /** EBITDA: earnings before interest, tax, D&A. Universal, identical in both modes. */
   ebitda: string;
-  /** EBIT / EBIZ: earnings before interest and tax. */
+  /** EBIT: earnings before interest and tax. Universal, identical in both modes. */
   ebit: string;
-  /** PBT / PBZ: profit before tax. */
+  /** PBT / "Profit before Zakat": profit before the direct charge. */
   pbt: string;
-  /** PAT / PAZ: profit after tax. */
+  /** PAT / "Profit after Zakat": profit after the direct charge. */
   pat: string;
   /** Tax / Zakat: direct tax charge on PBT. */
   tax: string;
@@ -45,10 +47,13 @@ const STANDARD: FinancialLabels = {
 };
 
 const SAUDI: FinancialLabels = {
-  ebitda: 'EBIZDA',
-  ebit: 'EBIZ',
-  pbt: 'PBZ',
-  pat: 'PAZ',
+  // EBITDA + EBIT are universal acronyms: identical to standard, never relabelled.
+  ebitda: 'EBITDA',
+  ebit: 'EBIT',
+  // Only the direct charge becomes Zakat; spell the profit lines out so there is
+  // no mangled acronym (the old 'PBZ' / 'PAZ' were a wrong T->Z on PBT / PAT).
+  pbt: 'Profit before Zakat',
+  pat: 'Profit after Zakat',
   tax: 'Zakat',
   taxPaid: 'Zakat Paid',
   taxRate: 'Zakat Rate',
