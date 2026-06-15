@@ -359,6 +359,17 @@ export interface Project {
   // Optional; defaults to 2 when undefined. 0/1/2/3 are the only user-
   // pickable options.
   displayDecimals?: DisplayDecimals;
+  // 2026-06-15: Module 6 "Use scenarios?" toggle. When false, the Scenario
+  // Analysis tab hides the assumptions grid + the case comparison for users
+  // who do not run scenarios, AND the active case is forced back to the base
+  // (Management) so a hidden scenario never drives the financials. Cases +
+  // overrides are PRESERVED (never deleted); turning it back on restores the
+  // previously-active case (scenarioPriorCaseId). Optional; undefined / true =
+  // scenarios shown (existing behaviour unchanged).
+  useScenarios?: boolean;
+  // The case that was active when scenarios were turned off, restored when they
+  // are turned back on. Unset while scenarios are on or when base was active.
+  scenarioPriorCaseId?: string;
   // M2.0g v8 Addendum 3 (2026-05-06): output granularity for reporting
   // / display.
   // **@deprecated M2.0 Pass 14 (2026-05-13).** Annual-only basis until

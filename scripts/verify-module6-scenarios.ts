@@ -21,6 +21,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
+import { useModule1Store } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { buildExcelSampleState } from './excelSampleState';
 
 let passed = 0, failed = 0;
@@ -250,6 +251,51 @@ console.log('\n=== Per-asset cost sourcing + attribution ===');
   // Editing a per-asset rate still flows through applyOverrides.
   const merged: any = applyOverrides(model, { 'costOverrides[A1::construction-bua__p1].value': 9999 });
   check('editing a per-asset rate round-trips through applyOverrides', getByPath(merged, 'costOverrides[A1::construction-bua__p1].value') === 9999);
+}
+
+// ── "Use scenarios?" toggle: revert to Management on No, restore on Yes ──────
+console.log('\n=== "Use scenarios?" toggle (display + active-case behaviour) ===');
+{
+  const m: any = buildExcelSampleState();
+  const PATH = 'subUnits[id=rsu1].unitPrice';
+  const baseVal = Number(getByPath(m, PATH));
+  const cs = seedCases();
+  const scen = cs.find((c) => c.role === 'scenario')!;
+  scen.overrides = { [PATH]: baseVal + 300000 };
+  const bId = baseCaseId(cs);
+  const live = () => useModule1Store.getState();
+  live().hydrate({ ...m, cases: cs, activeCaseId: scen.id });
+
+  // Same handler logic as the Module 6 component.
+  const setUse = (next: boolean): void => {
+    const s = live();
+    if (next === (s.project.useScenarios ?? true)) return;
+    if (!next) {
+      const prior = s.activeCaseId !== bId ? s.activeCaseId : undefined;
+      if (s.activeCaseId !== bId) s.setActiveCase(bId);
+      s.setProject({ useScenarios: false, scenarioPriorCaseId: prior });
+    } else {
+      const prior = s.project.scenarioPriorCaseId;
+      s.setProject({ useScenarios: true, scenarioPriorCaseId: undefined });
+      if (prior && prior !== s.activeCaseId && s.cases.some((c) => c.id === prior)) s.setActiveCase(prior);
+    }
+  };
+  const unit = () => Number((live() as any).subUnits.find((u: any) => u.id === 'rsu1')?.unitPrice);
+
+  check('default (undefined) treats scenarios as ON', (live().project.useScenarios ?? true) === true);
+  check('scenario active drives the model before toggling', live().activeCaseId === scen.id && unit() === baseVal + 300000);
+
+  setUse(false);
+  check('No: active reverts to Management (base)', live().activeCaseId === bId);
+  check('No: model recomputes on Management (base value)', unit() === baseVal, `got ${unit()}`);
+  check('No: flag persisted false + prior remembered', live().project.useScenarios === false && live().project.scenarioPriorCaseId === scen.id);
+  check('No: cases NOT deleted', live().cases.length === cs.length);
+  check('No: scenario overrides preserved', Number((live().cases.find((c) => c.id === scen.id)?.overrides as any)?.[PATH]) === baseVal + 300000);
+
+  setUse(true);
+  check('Yes: previously-active scenario restored', live().activeCaseId === scen.id);
+  check('Yes: model reflects the scenario override again', unit() === baseVal + 300000);
+  check('Yes: flag true + prior slot cleared', live().project.useScenarios === true && live().project.scenarioPriorCaseId === undefined);
 }
 
 console.log('\nDeferred (NOT in this commit): construction-timeline fields');

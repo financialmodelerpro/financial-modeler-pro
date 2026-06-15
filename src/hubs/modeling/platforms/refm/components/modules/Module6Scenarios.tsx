@@ -139,6 +139,7 @@ export default function Module6Scenarios(): React.JSX.Element {
       removeCase: st.removeCase, clearCaseOverrides: st.clearCaseOverrides,
       resetOverridePath: st.resetOverridePath, setOverridePath: st.setOverridePath,
       setCaseFieldValue: st.setCaseFieldValue, resetCaseFieldValue: st.resetCaseFieldValue,
+      setProject: st.setProject,
     })),
   );
 
@@ -150,6 +151,29 @@ export default function Module6Scenarios(): React.JSX.Element {
   const baseId = baseCaseId(s.cases);
   const active = s.cases.find((c) => c.id === s.activeCaseId) ?? s.cases.find((c) => c.id === baseId);
   const isScenario = !!active && active.role !== 'base';
+
+  // ── "Use scenarios?" toggle (project-level, persists with the project). ──
+  // No: hide the grid + comparison AND force the active case back to Management
+  // so a hidden scenario never drives the financials (cases are preserved).
+  // Yes: restore the previously-active case + show everything. The case engine,
+  // override map and topbar CaseSwitcher are untouched.
+  const useScenarios = s.project.useScenarios ?? true;
+  const setUseScenarios = (next: boolean): void => {
+    if (next === useScenarios) return;
+    if (!next) {
+      // Turn OFF: remember the active scenario, revert to Management, recompute,
+      // then stamp the flag onto the (now base) project so it persists.
+      const prior = s.activeCaseId !== baseId ? s.activeCaseId : undefined;
+      if (s.activeCaseId !== baseId) s.setActiveCase(baseId);
+      s.setProject({ useScenarios: false, scenarioPriorCaseId: prior });
+    } else {
+      // Turn ON: stamp the flag, then restore the previously-active case if it
+      // still exists (overrides are intact, never cleared).
+      const prior = s.project.scenarioPriorCaseId;
+      s.setProject({ useScenarios: true, scenarioPriorCaseId: undefined });
+      if (prior && prior !== s.activeCaseId && s.cases.some((c) => c.id === prior)) s.setActiveCase(prior);
+    }
+  };
 
   const liveModel = {
     project: s.project, phases: s.phases, parcels: s.parcels, landAllocationMode: s.landAllocationMode,
@@ -306,12 +330,36 @@ export default function Module6Scenarios(): React.JSX.Element {
   const td: React.CSSProperties = { textAlign: 'right', padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--color-border)' };
   const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
 
+  const segBtn = (on: boolean, label: string, onClick: () => void, testid: string): React.JSX.Element => (
+    <button type="button" onClick={onClick} data-testid={testid}
+      style={{ border: '1px solid var(--color-navy)', padding: '5px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 12,
+        background: on ? 'var(--color-navy)' : 'transparent', color: on ? 'var(--color-on-primary-navy)' : 'var(--color-navy)' }}>
+      {label}
+    </button>
+  );
+
   return (
     <div data-testid="module6-scenarios" style={{ padding: 'var(--sp-3)', width: '100%' }}>
-      <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
-        A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs.
-        Edit any input while a scenario is active to capture an override automatically, or add one explicitly below. The base model is never changed.
-      </p>
+      {/* ── "Use scenarios?" toggle ──────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>Use scenarios?</span>
+        <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }} data-testid="m6-use-scenarios">
+          {segBtn(useScenarios, 'Yes', () => setUseScenarios(true), 'm6-use-scenarios-yes')}
+          {segBtn(!useScenarios, 'No', () => setUseScenarios(false), 'm6-use-scenarios-no')}
+        </div>
+      </div>
+
+      {useScenarios ? (
+        <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
+          A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs.
+          Edit any input while a scenario is active to capture an override automatically, or add one explicitly below. The base model is never changed.
+        </p>
+      ) : (
+        <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }} data-testid="m6-scenarios-off-note">
+          Scenarios are off. The platform computes on the Management Case, and the assumptions grid and case comparison are hidden.
+          Your cases and overrides are saved, not deleted. Set &quot;Use scenarios?&quot; to Yes to design and compare them again.
+        </p>
+      )}
 
       {/* ── 1. Cases ─────────────────────────────────────────────── */}
       <section style={card} data-testid="m6-cases">
@@ -355,6 +403,8 @@ export default function Module6Scenarios(): React.JSX.Element {
         </button>
       </section>
 
+      {/* Sections 2 + 3 render only when scenarios are on. */}
+      {useScenarios && (<>
       {/* ── 2. Assumptions grid ──────────────────────────────────── */}
       <section style={card} data-testid="m6-overrides">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
@@ -508,6 +558,7 @@ export default function Module6Scenarios(): React.JSX.Element {
           </table>
         </div>
       </section>
+      </>)}
     </div>
   );
 }
