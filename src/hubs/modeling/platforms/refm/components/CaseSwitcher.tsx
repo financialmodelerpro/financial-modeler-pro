@@ -59,6 +59,7 @@ export default function CaseSwitcher(): React.JSX.Element {
       migrationsApplied: st.migrationsApplied,
       setActiveCase: st.setActiveCase, addCase: st.addCase, renameCase: st.renameCase,
       removeCase: st.removeCase, clearCaseOverrides: st.clearCaseOverrides, resetOverridePath: st.resetOverridePath,
+      setUseScenarios: st.setUseScenarios,
     })),
   );
 
@@ -66,6 +67,9 @@ export default function CaseSwitcher(): React.JSX.Element {
   const baseId = baseCaseId(s.cases);
   const active = s.cases.find((c) => c.id === s.activeCaseId) ?? s.cases.find((c) => c.id === baseId);
   const isScenario = !!active && active.role !== 'base';
+  // Same flag + behaviour as the Module 6 tab toggle (shared store action), so
+  // the topbar and the tab stay in sync. Off locks the case list here.
+  const useScenarios = s.project.useScenarios ?? true;
 
   // Live overrides for the active scenario (derived fresh from the current
   // model vs the base, so it reflects unsaved edits immediately).
@@ -121,7 +125,7 @@ export default function CaseSwitcher(): React.JSX.Element {
               The Management Case is the base. Switch to a scenario to edit a few inputs; every change applies only to that case.
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, opacity: useScenarios ? 1 : 0.45, pointerEvents: useScenarios ? 'auto' : 'none' }}>
               {s.cases.map((c) => {
                 const isActive = c.id === s.activeCaseId;
                 const isBase = c.role === 'base';
@@ -159,10 +163,32 @@ export default function CaseSwitcher(): React.JSX.Element {
               })}
             </div>
 
-            <button type="button" onClick={() => s.addCase()} data-testid="case-add"
-              style={{ border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)', marginBottom: 10 }}>
+            <button type="button" onClick={() => s.addCase()} data-testid="case-add" disabled={!useScenarios}
+              style={{ border: '1px solid var(--color-navy)', borderRadius: 6, padding: '4px 12px', cursor: useScenarios ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: 12, background: 'transparent', color: 'var(--color-navy)', marginBottom: 10, opacity: useScenarios ? 1 : 0.45 }}>
               + Add case
             </button>
+
+            {/* "Use scenarios?" toggle, shared with the Module 6 tab (same flag). */}
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-heading)' }}>Use scenarios?</span>
+              <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }} data-testid="case-use-scenarios">
+                {([['Yes', true], ['No', false]] as const).map(([label, val]) => {
+                  const on = useScenarios === val;
+                  return (
+                    <button key={label} type="button" onClick={() => s.setUseScenarios(val)} data-testid={`case-use-scenarios-${label.toLowerCase()}`}
+                      style={{ border: '1px solid var(--color-navy)', padding: '4px 14px', cursor: 'pointer', fontWeight: 700, fontSize: 12,
+                        background: on ? 'var(--color-navy)' : 'transparent', color: on ? 'var(--color-on-primary-navy)' : 'var(--color-navy)' }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {!useScenarios && (
+              <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 8 }} data-testid="case-scenarios-off-note">
+                Scenarios are off. The platform computes on the Management Case and the case list is locked. Your cases are saved. Set to Yes to use them again.
+              </div>
+            )}
 
             {/* Active scenario overrides */}
             {isScenario && (

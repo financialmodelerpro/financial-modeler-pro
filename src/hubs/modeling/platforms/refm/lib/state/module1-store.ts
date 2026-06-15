@@ -108,6 +108,11 @@ export interface Module1Store {
 
   // ── Setters ──
   setProject: (patch: Partial<Project>) => void;
+  /** Module 6 "Use scenarios?" toggle, shared by the Module 6 tab + the topbar
+   *  case switcher so they never diverge. Off forces the active case back to
+   *  Management (a hidden scenario must never drive the financials) and remembers
+   *  the prior case; On restores it. Cases + overrides are always preserved. */
+  setUseScenarios: (next: boolean) => void;
   setLandAllocationMode: (mode: LandAllocationMode) => void;
 
   setPhases: (phases: Phase[]) => void;
@@ -358,6 +363,29 @@ export function createModule1Store() {
     activeAssetId: null,
 
     setProject: (patch) => set((s) => ({ project: { ...s.project, ...patch } })),
+
+    // Single implementation of the "Use scenarios?" toggle, reused by the
+    // Module 6 tab + the topbar so the flag + behaviour never diverge. Built on
+    // the existing setActiveCase / setProject actions (no engine change).
+    setUseScenarios: (next) => {
+      const s = get();
+      if (next === (s.project.useScenarios ?? true)) return;
+      const bId = baseCaseId(s.cases);
+      if (!next) {
+        // Off: revert the active case to Management (recompute), remember the
+        // prior scenario, then stamp the flag onto the now-base project.
+        const prior = s.activeCaseId !== bId ? s.activeCaseId : undefined;
+        if (s.activeCaseId !== bId) get().setActiveCase(bId);
+        get().setProject({ useScenarios: false, scenarioPriorCaseId: prior });
+      } else {
+        // On: stamp the flag, then restore the previously-active case if it still
+        // exists (overrides intact, never cleared).
+        const prior = s.project.scenarioPriorCaseId;
+        get().setProject({ useScenarios: true, scenarioPriorCaseId: undefined });
+        if (prior && prior !== get().activeCaseId && get().cases.some((c) => c.id === prior)) get().setActiveCase(prior);
+      }
+    },
+
     setLandAllocationMode: (mode) => set({ landAllocationMode: mode }),
 
     setPhases: (phases) => set({ phases }),

@@ -140,7 +140,7 @@ export default function Module6Scenarios(): React.JSX.Element {
       removeCase: st.removeCase, clearCaseOverrides: st.clearCaseOverrides,
       resetOverridePath: st.resetOverridePath, setOverridePath: st.setOverridePath,
       setCaseFieldValue: st.setCaseFieldValue, resetCaseFieldValue: st.resetCaseFieldValue,
-      setProject: st.setProject,
+      setUseScenarios: st.setUseScenarios,
     })),
   );
 
@@ -153,28 +153,12 @@ export default function Module6Scenarios(): React.JSX.Element {
   const active = s.cases.find((c) => c.id === s.activeCaseId) ?? s.cases.find((c) => c.id === baseId);
   const isScenario = !!active && active.role !== 'base';
 
-  // ── "Use scenarios?" toggle (project-level, persists with the project). ──
-  // No: hide the grid + comparison AND force the active case back to Management
-  // so a hidden scenario never drives the financials (cases are preserved).
-  // Yes: restore the previously-active case + show everything. The case engine,
-  // override map and topbar CaseSwitcher are untouched.
+  // ── "Use scenarios?" toggle. ──  No: hide the grid + comparison AND force the
+  // active case back to Management (a hidden scenario never drives the
+  // financials); Yes: restore the prior case + show everything. The behaviour
+  // lives in the shared store action so the tab + topbar never diverge.
   const useScenarios = s.project.useScenarios ?? true;
-  const setUseScenarios = (next: boolean): void => {
-    if (next === useScenarios) return;
-    if (!next) {
-      // Turn OFF: remember the active scenario, revert to Management, recompute,
-      // then stamp the flag onto the (now base) project so it persists.
-      const prior = s.activeCaseId !== baseId ? s.activeCaseId : undefined;
-      if (s.activeCaseId !== baseId) s.setActiveCase(baseId);
-      s.setProject({ useScenarios: false, scenarioPriorCaseId: prior });
-    } else {
-      // Turn ON: stamp the flag, then restore the previously-active case if it
-      // still exists (overrides are intact, never cleared).
-      const prior = s.project.scenarioPriorCaseId;
-      s.setProject({ useScenarios: true, scenarioPriorCaseId: undefined });
-      if (prior && prior !== s.activeCaseId && s.cases.some((c) => c.id === prior)) s.setActiveCase(prior);
-    }
-  };
+  const setUseScenarios = s.setUseScenarios;
 
   const liveModel = {
     project: s.project, phases: s.phases, parcels: s.parcels, landAllocationMode: s.landAllocationMode,

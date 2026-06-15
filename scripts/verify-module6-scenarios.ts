@@ -323,7 +323,9 @@ check('isAppliedValue: real value -> applied', isAppliedValue(7200) && isApplied
 }
 
 // ── "Use scenarios?" toggle: revert to Management on No, restore on Yes ──────
-console.log('\n=== "Use scenarios?" toggle (display + active-case behaviour) ===');
+// Drives the SHARED store action setUseScenarios that both the Module 6 tab and
+// the topbar case switcher call, so the two surfaces can never diverge.
+console.log('\n=== "Use scenarios?" toggle (shared store action: tab + topbar) ===');
 {
   const m: any = buildExcelSampleState();
   const PATH = 'subUnits[id=rsu1].unitPrice';
@@ -335,20 +337,7 @@ console.log('\n=== "Use scenarios?" toggle (display + active-case behaviour) ===
   const live = () => useModule1Store.getState();
   live().hydrate({ ...m, cases: cs, activeCaseId: scen.id });
 
-  // Same handler logic as the Module 6 component.
-  const setUse = (next: boolean): void => {
-    const s = live();
-    if (next === (s.project.useScenarios ?? true)) return;
-    if (!next) {
-      const prior = s.activeCaseId !== bId ? s.activeCaseId : undefined;
-      if (s.activeCaseId !== bId) s.setActiveCase(bId);
-      s.setProject({ useScenarios: false, scenarioPriorCaseId: prior });
-    } else {
-      const prior = s.project.scenarioPriorCaseId;
-      s.setProject({ useScenarios: true, scenarioPriorCaseId: undefined });
-      if (prior && prior !== s.activeCaseId && s.cases.some((c) => c.id === prior)) s.setActiveCase(prior);
-    }
-  };
+  const setUse = (next: boolean): void => live().setUseScenarios(next);
   const unit = () => Number((live() as any).subUnits.find((u: any) => u.id === 'rsu1')?.unitPrice);
 
   check('default (undefined) treats scenarios as ON', (live().project.useScenarios ?? true) === true);
