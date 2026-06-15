@@ -168,6 +168,13 @@ console.log('=== M5 Returns snapshot integration ===');
   check('PASS1: debt remainingAtExit = bs debt at exit', near(rs.debtAnalytics.remainingDebtAtExit, Math.max(0, snap.bs.debtOutstandingPerPeriod[rs.config.exitYearOffset] ?? 0)));
   check('PASS1: debt paydownPct in [0,1] or null', rs.debtAnalytics.paydownPct === null || (rs.debtAnalytics.paydownPct >= 0 && rs.debtAnalytics.paydownPct <= 1.0001));
   check('PASS1: stabilization hasIncomeAssets (hotel fixture)', rs.stabilization.hasIncomeAssets === true);
+
+  // Returns tab decluttered (2026-06-15): these blocks no longer RENDER on the
+  // Returns tab but their data must stay on the snapshot for the RE Metrics tab
+  // (Unit C) to surface. Confirm each is still present + populated.
+  check('DATA PRESERVED: exitYears (hold-vs-sell) populated for RE Metrics', Array.isArray(rs.exitYears) && rs.exitYears.length > 0 && rs.exitYears.some((y: any) => y.isSelected));
+  check('DATA PRESERVED: exitAnalysis / fundingMix / equityExposure / stabilization / debtAnalytics all present', !!rs.exitAnalysis && !!rs.fundingMix && !!rs.equityExposure && !!rs.stabilization && !!rs.debtAnalytics);
+  check('DATA PRESERVED: Unit C pickups (peakEquity, maxNegativeCF, stabilisedYieldOnCost) computed', Number.isFinite(rs.equityExposure.maxNegativeCumulativeCF) && (rs.stabilization.stabilisedYieldOnCost === null || Number.isFinite(rs.stabilization.stabilisedYieldOnCost)));
 }
 
 // ── Sponsor-IRR / project-inception view (2026-06-02) ─────────────────

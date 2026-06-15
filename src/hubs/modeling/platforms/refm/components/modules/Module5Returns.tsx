@@ -18,7 +18,7 @@ import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
-import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, fmtYears, type AssumptionsValue } from './Module5Shared';
+import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
 
@@ -50,14 +50,12 @@ export default function Module5Returns(): React.JSX.Element {
 
   const cfg = rs.config;
   const r = rs.result;
-  // M5 Pass 1 analytics blocks.
+  // Development economics + sources/uses render here. The detailed analytics
+  // blocks (exitAnalysis / exitYears / fundingMix / equityExposure /
+  // stabilization / debtAnalytics) moved to the RE Metrics tab; their data
+  // stays on rs (computed in returns-resolvers) for that surface to consume.
   const de = rs.developmentEconomics;
-  const ex = rs.exitAnalysis;
   const su = rs.sourcesUses;
-  const fm = rs.fundingMix;
-  const ee = rs.equityExposure;
-  const st = rs.stabilization;
-  const da = rs.debtAnalytics;
 
   const assumptions: AssumptionsValue = {
     discountRatePct: cfg.discountRate * 100,
@@ -149,23 +147,31 @@ export default function Module5Returns(): React.JSX.Element {
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Returns on three cash-flow bases: <strong>FCFF</strong> (unlevered, to all capital providers),{' '}
         <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Distributed Equity</strong>{' '}
-        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted, IRR / MOIC / equity exposure / yield + exit metrics are the focus.
+        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted; IRR / MOIC plus a tight Development Economics are the focus. Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.
       </p>
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
 
-      {/* ── Headline returns. NPV + Payback + Development Margin removed from
-            here (2026-06-02): Returns tab focuses on IRR / MOIC / equity; the
-            margin + exit ratios live in the RE Metrics tab. ── */}
+      {/* ── Headline returns: IRR + MOIC by basis (the primary tiles). ── */}
       <MetricGrid min={155}>
         <MetricCard label="Project IRR (FCFF)" value={fmtPct(r.fcff.irr)} sub={`MOIC ${fmtX(r.fcff.moic)}`} tone={irrTone(r.fcff.irr)} />
         <MetricCard label="Equity IRR (FCFE)" value={fmtPct(r.fcfe.irr)} sub={`MOIC ${fmtX(r.fcfe.moic)}`} tone={irrTone(r.fcfe.irr)} />
         <MetricCard label="Distributed Equity IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in). With the terminal-year 100% payout this matches the Equity IRR (FCFE)." />
         <MetricCard label="Equity Multiple" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
-        <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
       </MetricGrid>
 
-      {/* ── M5 Pass 2: Equity Partners ── */}
+      {/* ── Development Economics (tight, on top): the decision-useful $ + margin.
+            Detailed analytics moved to the RE Metrics tab. ── */}
+      <SectionTitle>Development Economics</SectionTitle>
+      <MetricGrid min={155}>
+        <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
+        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="all interest over the hold" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
+        <MetricCard label="Profit Before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV − dev cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin == null ? 'neutral' : de.developmentMargin >= 0 ? 'good' : 'bad'} />
+      </MetricGrid>
+
+      {/* ── Equity Partners ── */}
       <PartnersSection
         partners={project.partners ?? []}
         snapshot={rs.partners}
@@ -177,57 +183,6 @@ export default function Module5Returns(): React.JSX.Element {
         currency={currency}
         onChange={(next) => state.setProject({ partners: next })}
       />
-
-      {/* ── Development Economics (absolute $ figures; margins / ratios are in
-            the RE Metrics tab) ── */}
-      <SectionTitle>Development Economics</SectionTitle>
-      <MetricGrid min={155}>
-        <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
-        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="all interest over the hold" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
-        <MetricCard label="Profit Before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV − dev cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Profit After Financing" value={fmt(de.profitAfterFinancing)} sub="− financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
-      </MetricGrid>
-
-      {/* ── Exit Analysis (exit-year income + debt; exit ratios, LTV / Debt
-            Yield / Cap Rate, are in the RE Metrics tab) ── */}
-      <SectionTitle>Exit Analysis (exit {ex.exitYearLabel})</SectionTitle>
-      <MetricGrid min={150}>
-        <MetricCard label="Exit NOI" value={fmt(ex.exitNOI)} sub={currency} />
-        <MetricCard label="Exit EBITDA" value={fmt(ex.exitEBITDA)} sub={currency} />
-        <MetricCard label="Debt at Exit" value={fmt(ex.exitDebt)} sub={currency} />
-      </MetricGrid>
-
-      {/* ── M5 Pass 2: Exit-Year Analysis (hold vs sell timing) ── */}
-      <SectionTitle>Exit-Year Analysis (hold vs sell timing)</SectionTitle>
-      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year.
-      </div>
-      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
-          <thead>
-            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={{ textAlign: 'left', padding: '6px 10px' }}>Exit Year</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Enterprise Value</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity Value</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Project IRR</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity IRR</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px' }}>Equity MOIC</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rs.exitYears.map((row) => (
-              <tr key={row.exitIdx} style={{ borderBottom: '1px solid var(--color-border)', background: row.isSelected ? 'var(--color-navy-pale, #F4F7FC)' : 'transparent', fontWeight: row.isSelected ? 700 : 400 }}>
-                <td style={{ textAlign: 'left', padding: '5px 10px' }}>{row.exitYearLabel}{row.isSelected ? '  ◀ selected' : ''}</td>
-                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.enterpriseValue)}</td>
-                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmt(row.equityValue)}</td>
-                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcffIrr)}</td>
-                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtPct(row.fcfeIrr)}</td>
-                <td style={{ textAlign: 'right', padding: '5px 10px' }}>{fmtX(row.equityMoic)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
 
       {/* ── Sources & Uses ── */}
       <SectionTitle>Sources &amp; Uses of Capital</SectionTitle>
@@ -258,51 +213,6 @@ export default function Module5Returns(): React.JSX.Element {
           fmt={fmt}
         />
       </div>
-
-      {/* ── Funding Mix (capital structure) ── */}
-      <SectionTitle>Funding Mix</SectionTitle>
-      <MetricGrid min={150}>
-        <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
-        <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
-        <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
-        <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
-      </MetricGrid>
-
-      {/* ── Equity Exposure ── */}
-      <SectionTitle>Equity Exposure</SectionTitle>
-      <MetricGrid min={155}>
-        <MetricCard label="Total Equity Required" value={fmt(ee.totalEquityRequired)} sub="cash + in-kind + existing" />
-        <MetricCard label="Average Equity Invested" value={fmt(ee.averageEquityInvested)} sub="mean while committed" />
-        <MetricCard label="Equity at Risk" value={fmt(ee.equityAtRisk)} sub="peak cumulative equity" tooltip="Equity at Risk = the maximum cumulative equity invested at any point, the deepest the sponsor is in before distributions begin to return capital." />
-        <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
-        <MetricCard label="First Positive CF Year" value={ee.firstPositiveCFYear !== null ? String(ee.firstPositiveCFYear) : 'n/a'} sub="FCFE turns positive" />
-        <MetricCard label="First Dividend Year" value={ee.firstDividendYear !== null ? String(ee.firstDividendYear) : 'n/a'} sub="first distribution" />
-      </MetricGrid>
-
-      {/* ── Stabilization (income assets) ── */}
-      {st.hasIncomeAssets && (
-        <>
-          <SectionTitle>Stabilization (income assets)</SectionTitle>
-          <MetricGrid min={155}>
-            <MetricCard label="Stabilised NOI" value={fmt(st.stabilisedNOI)} sub={currency} />
-            <MetricCard label="Stabilised Yield on Cost" value={fmtPct(st.stabilisedYieldOnCost)} sub="NOI / total dev cost" tooltip="Yield on Cost = Stabilized NOI ÷ Total Development Cost, the going-in unlevered yield once the asset is stabilised." />
-            <MetricCard label="Stabilization Year" value={st.stabilizationYear !== null ? String(st.stabilizationYear) : 'n/a'} sub="NOI ≥ 95% of stabilised" />
-          </MetricGrid>
-        </>
-      )}
-
-      {/* ── Debt Analytics ── */}
-      <SectionTitle>Debt Analytics</SectionTitle>
-      <MetricGrid min={155}>
-        <MetricCard label="Peak Debt" value={fmt(da.peakDebt)} sub="max outstanding" />
-        <MetricCard label="Average Debt Outstanding" value={fmt(da.averageDebtOutstanding)} sub="mean while drawn" />
-        <MetricCard label="Remaining Debt at Exit" value={fmt(da.remainingDebtAtExit)} sub={currency} />
-        <MetricCard label="Debt Paydown" value={fmtPct(da.paydownPct)} sub="(peak − exit) / peak" />
-        <MetricCard label="Debt Tenor" value={fmtYears(da.tenorYears)} sub="first draw to repaid" />
-      </MetricGrid>
-
-      {/* ── M5 Pass 2: Two-way Sensitivity (Equity IRR) ── */}
-      <SensitivitySection snap={snap} project={project} />
 
       {/* Per-stream IRR / MOIC / profit table (NPV + Payback removed, Payback
           is in the KPI cards; NPV is not a primary real-estate metric). */}
@@ -380,6 +290,9 @@ export default function Module5Returns(): React.JSX.Element {
         fmt={fmt}
         priorYearLabel={inceptionLabel}
       />
+
+      {/* ── Two-way Sensitivity (Equity IRR), moved to the bottom of the tab. ── */}
+      <SensitivitySection snap={snap} project={project} />
     </div>
   );
 }
