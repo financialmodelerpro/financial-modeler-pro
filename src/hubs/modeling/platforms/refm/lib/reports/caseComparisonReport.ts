@@ -13,7 +13,7 @@
  */
 import { computeFinancialsSnapshot } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
-import { applyOverrides, baseCaseId } from '../cases/applyOverrides';
+import { applyOverrides, baseCaseId, buildOverrides } from '../cases/applyOverrides';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
 
@@ -99,11 +99,15 @@ export function buildCaseComparisonReport(input: CaseComparisonInput): CaseCompa
     } catch {
       for (const k of CASE_KPIS) values[k.label] = null;
     }
+    // Count REAL overrides (fields whose value differs from base), not stored
+    // keys: a stored override equal to the base value is a no-op and must not
+    // inflate the count. The active case's count is the live diff (passed in);
+    // others diff their merged model against base.
     const overrideCount = c.role === 'base'
       ? 0
       : (c.id === activeCaseId && activeOverrideCount !== undefined
           ? activeOverrideCount
-          : Object.keys(c.overrides ?? {}).length);
+          : Object.keys(buildOverrides(baseModel, model)).length);
     return { id: c.id, name: c.name, role: c.role, isActive: c.id === activeCaseId, overrideCount, values };
   });
 

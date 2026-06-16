@@ -23,7 +23,7 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
-import { buildOverrides, getByPath, baseCaseId, enumerateOverridableFields } from '../../lib/cases/applyOverrides';
+import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverridableFields } from '../../lib/cases/applyOverrides';
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
@@ -174,6 +174,16 @@ export default function Module6Scenarios(): React.JSX.Element {
     [isScenario, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions],
   );
   const overridePaths = Object.keys(overrides);
+
+  // REAL override count for a case: fields whose value actually differs from
+  // base. A stored override equal to the base value is a no-op and must not be
+  // counted (so "N overrides" always matches a real difference from base). The
+  // active case uses the live diff; others diff their merged model vs base.
+  const realCountFor = (c: typeof s.cases[number]): number => {
+    if (c.role === 'base') return 0;
+    if (c.id === s.activeCaseId) return overridePaths.length;
+    return Object.keys(buildOverrides(s.baseSnapshot, applyOverrides(s.baseSnapshot, c.overrides ?? {}))).length;
+  };
 
   // ── Field catalog: only fields that round-trip the diff grammar. ──
   const fields = useMemo(() => enumerateOverridableFields(s.baseSnapshot), [s.baseSnapshot]);
@@ -353,7 +363,7 @@ export default function Module6Scenarios(): React.JSX.Element {
           {s.cases.map((c) => {
             const isActive = c.id === s.activeCaseId;
             const isBase = c.role === 'base';
-            const count = isBase ? 0 : Object.keys(c.id === s.activeCaseId ? overrides : (c.overrides ?? {})).length;
+            const count = realCountFor(c);
             return (
               <div key={c.id} style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6,
@@ -439,7 +449,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                   <th style={{ ...thL, position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--color-navy)', minWidth: 240 }}>Assumption</th>
                   {s.cases.map((c) => {
-                    const cnt = c.role === 'base' ? 0 : (c.id === s.activeCaseId ? overridePaths.length : Object.keys(c.overrides ?? {}).length);
+                    const cnt = realCountFor(c);
                     return (
                       <th key={c.id} style={{ ...thL, minWidth: 160, position: 'sticky', top: 0, zIndex: 2, background: 'var(--color-navy)' }}>
                         <button type="button" onClick={() => s.setActiveCase(c.id)} data-testid={`m6-grid-col-${c.id}`}
