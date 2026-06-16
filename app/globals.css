@@ -108,10 +108,9 @@
     /* ── Layout ── */
     /* Pass 32 (2026-05-14): sidebar widened ~10% (240 -> 264) so the
        longer module labels ("Module N: <Name>") have room without
-       truncating. 2026-06-16: widened a further 15% (264 -> 304), then a
-       further 15% (304 -> 350) for the workspace shell (the platform wrapper
-       applies zoom: 0.8, so the on-screen delta is smaller than the px value). */
-    --sidebar-width:           350px;
+       truncating. 2026-06-16: widened (264 -> 304 -> 350), then trimmed back to
+       325 (350 read a touch too wide under the shell's zoom: 0.8). */
+    --sidebar-width:           325px;
     --sidebar-width-collapsed: 52px;
     --topbar-height:           40px;
 
@@ -980,9 +979,13 @@ thead th:first-child { border-radius: 0; }
 /* Sidebar project/version panel */
 .sb-proj-panel { transition: opacity 0.15s ease; }
 .sidebar.collapsed .sb-proj-panel { opacity: 0; pointer-events: none; height: 0; overflow: hidden; padding: 0 !important; border: none !important; }
-.sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--sp-1) 6px; }
-.sidebar-nav::-webkit-scrollbar { width: 3px; }
-.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+/* Wider, easy-to-grab scrollbar scoped to the sidebar nav only (not the whole
+   app). Firefox uses scrollbar-width/-color; WebKit uses the pseudo-elements. */
+.sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--sp-1) 6px; scrollbar-width: auto; scrollbar-color: rgba(255,255,255,0.35) transparent; }
+.sidebar-nav::-webkit-scrollbar { width: 11px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.30); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.50); border: 2px solid transparent; background-clip: padding-box; }
 .sidebar-section-label {
     font-size: 9px; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.1em; color: rgba(255,255,255,0.3);
