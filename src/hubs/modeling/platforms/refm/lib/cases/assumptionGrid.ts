@@ -372,6 +372,69 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
   return out;
 }
 
+/**
+ * Why a lever cannot move results under the model's CURRENT configuration, or
+ * null when it is active. Confirmed empirically against live projects: the grid
+ * was offering levers that the engine ignores under the active config (e.g. the
+ * fixed-ratio Debt % when funding is gap-sized, or a hotel's single occupancy
+ * field when revenue runs off per-period occupancy). Offering a dead lever is
+ * exactly what made the comparison read as a broken override pipeline. Callers
+ * drop these from the curated default set and label them "not used under current
+ * settings" so the user is never given a control that does nothing.
+ */
+export function inactiveLeverReason(path: string, model: HydrateSnapshot): string | null {
+  const m = model as unknown as { project?: any; assets?: Asset[]; subUnits?: SubUnit[] };
+  const proj = m.project ?? {};
+  const fundingMethod = Number(proj.financing?.fundingMethod ?? 1);
+  const terminalMethod = proj.returns?.terminalMethod ?? 'exit_multiple';
+
+  // Fixed-ratio Debt / Equity %: only used by Method 1. Methods 2 + 3 gap-size
+  // debt from the cash deficit, so the fixed-ratio split is ignored.
+  if (/^project\.financing\.fixedRatio\.(debtPct|equityPct)$/.test(path) && fundingMethod !== 1) {
+    return `Debt is sized by funding method ${fundingMethod} (gap-sizing); the fixed-ratio split is not used`;
+  }
+  // Explicit tranche terms: not used under fixed-ratio (Method 1) funding.
+  if (/^financingTranches\[[^\]]+\]\.(interestRatePct|ltvPct)$/.test(path) && fundingMethod === 1) {
+    return 'Fixed-ratio funding is active; explicit tranche terms are not used';
+  }
+  // Perpetuity growth vs exit multiple: only one drives terminal value.
+  if (path === 'project.returns.perpetuityGrowth' && terminalMethod !== 'perpetuity') {
+    return 'Terminal value uses an exit multiple; perpetuity growth is not used';
+  }
+  if (path === 'project.returns.exitMultiple' && terminalMethod !== 'exit_multiple') {
+    return 'Terminal value uses perpetuity growth; the exit multiple is not used';
+  }
+  // Sub-unit Occupancy %: hospitality (Operate) revenue runs off per-period
+  // occupancy on the asset's operate config, NOT this single sub-unit field.
+  const occ = /^subUnits\[id=([^\]]+)\]\.occupancyPct$/.exec(path);
+  if (occ) {
+    const su = (m.subUnits ?? []).find((u) => u.id === occ[1]);
+    const asset = su ? (m.assets ?? []).find((a) => a.id === su.assetId) : undefined;
+    if (asset?.strategy === 'Operate') {
+      return 'Hospitality revenue uses per-period occupancy; this single occupancy field is not used';
+    }
+  }
+  // Opex inflation: only escalates fixed-cost opex lines. An asset whose stored
+  // opex is entirely %-of-revenue has nothing for the rate to act on.
+  const opex = /^assets\[id=([^\]]+)\]\.opex\.defaultIndexation\.rate$/.exec(path);
+  if (opex) {
+    const asset = (m.assets ?? []).find((a) => a.id === opex[1]) as (Asset & { opex?: { lines?: Array<{ mode?: string; disabled?: boolean }> } }) | undefined;
+    const lines = asset?.opex?.lines ?? [];
+    const FIXED = ['fixed_baseline', 'per_room_year', 'per_sqm_year'];
+    const hasFixed = lines.some((l) => FIXED.indexOf(l.mode ?? '') >= 0 && l.disabled !== true);
+    if (asset?.opex && lines.length > 0 && !hasFixed) {
+      return 'This asset has no fixed-cost opex lines; an inflation rate only escalates fixed-cost lines';
+    }
+  }
+  // Lease base rate: only a fallback when a sub-unit carries no per-unit rent.
+  const lease = /^assets\[id=([^\]]+)\]\.revenue\.lease\.baseRate$/.exec(path);
+  if (lease) {
+    const priced = (m.subUnits ?? []).some((u) => (u as { assetId?: string }).assetId === lease[1] && Number((u as { unitPrice?: number }).unitPrice) > 0);
+    if (priced) return 'Lease revenue uses per-unit rent (unit price); the base rate is only a fallback';
+  }
+  return null;
+}
+
 // ── Item-grouped layout (Option 2) + applied-value test ─────────────────────
 export interface GridRowLite { path: string; descriptor: AssumptionDescriptor; }
 export interface GridItem {

@@ -18,6 +18,7 @@ import { buildCaseComparisonReport, CASE_KPIS } from '../src/hubs/modeling/platf
 import {
   enumerateOverridableFields, seedCases, buildOverrides, applyOverrides, getByPath,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { inactiveLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
 let passed = 0, failed = 0;
 const fails: string[] = [];
@@ -116,6 +117,30 @@ for (const f of numFields) {
 }
 console.log(`  ${movers}/${numFields.length} numeric fields move at least one KPI on a real change.`);
 check('a material share of fields move (pipeline is live, not dead)', movers > numFields.length * 0.4, `movers=${movers}/${numFields.length}`);
+
+// ── 5. Inert-lever gating (do not offer levers dead under the active config). ─
+console.log('\n[5] Inert-lever gating (config-aware)');
+const m3: any = { project: { financing: { fundingMethod: 3 } } };
+const m1: any = { project: { financing: { fundingMethod: 1 } } };
+check('Debt % inactive under funding method 3 (gap-sized)', !!inactiveLeverReason('project.financing.fixedRatio.debtPct', m3));
+check('Debt % ACTIVE under funding method 1', inactiveLeverReason('project.financing.fixedRatio.debtPct', m1) === null);
+check('Tranche interest inactive under fixed-ratio (method 1)', !!inactiveLeverReason('financingTranches[id=t1].interestRatePct', m1));
+const mOcc: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate' }], subUnits: [{ id: 'k', assetId: 'h', occupancyPct: 65 }] };
+check('Occupancy % inactive on an Operate (hospitality) asset', !!inactiveLeverReason('subUnits[id=k].occupancyPct', mOcc));
+const mOpexPct: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'pct_of_total_rev' }] } }] };
+check('Opex inflation inactive with no fixed-cost lines', !!inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexPct));
+const mOpexFixed: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'per_room_year' }, { mode: 'pct_of_total_rev' }] } }] };
+check('Opex inflation ACTIVE when a fixed-cost line exists', inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexFixed) === null);
+const mLease: any = { project: {}, subUnits: [{ id: 'u', assetId: 'L', unitPrice: 1200 }] };
+check('Lease base rate inactive when unit price is set', !!inactiveLeverReason('assets[id=L].revenue.lease.baseRate', mLease));
+const mPerp: any = { project: { returns: { terminalMethod: 'exit_multiple' } } };
+check('Perpetuity growth inactive under exit-multiple terminal', !!inactiveLeverReason('project.returns.perpetuityGrowth', mPerp));
+
+// ── 6. Comparison metrics: NPV row + explicit null-FCFF label. ───────────────
+console.log('\n[6] Comparison metrics (NPV row + null-FCFF label)');
+check('comparison exposes an NPV (FCFF) row (so discount rate has a metric)', CASE_KPIS.some((k) => k.label === 'NPV (FCFF)'));
+const fcffKpi = CASE_KPIS.find((k) => k.label === 'Project IRR (FCFF)');
+check('Project IRR (FCFF) carries an explicit null label (not a bare n/a)', !!fcffKpi?.nullLabel);
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) { console.log('FAILED: ' + fails.join('; ')); process.exit(1); }

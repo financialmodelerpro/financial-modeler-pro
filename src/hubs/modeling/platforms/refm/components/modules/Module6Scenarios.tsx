@@ -27,7 +27,7 @@ import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverrid
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
-  isAppliedValue, groupAssumptionRows,
+  isAppliedValue, groupAssumptionRows, inactiveLeverReason,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
@@ -233,7 +233,11 @@ export default function Module6Scenarios(): React.JSX.Element {
     const out: string[] = [];
     const seen = new Set<string>();
     const add = (p: string): void => { if (!seen.has(p)) { seen.add(p); out.push(p); } };
-    curatedDefaultFields(currentBaseModel).forEach((f) => add(f.path));
+    // Curated default view drops levers that cannot move results under the
+    // current config (e.g. fixed-ratio Debt % when funding is gap-sized): do not
+    // offer a dead lever by default. They still appear if a case overrides them
+    // or via "Show all", flagged "not used under current settings".
+    curatedDefaultFields(currentBaseModel).forEach((f) => { if (!inactiveLeverReason(f.path, currentBaseModel)) add(f.path); });
     allOverridePaths.forEach(add);
     if (showAll) fields.forEach((f) => add(f.path));
     extraPaths.forEach(add);
@@ -296,8 +300,8 @@ export default function Module6Scenarios(): React.JSX.Element {
   }, [s.cases, s.activeCaseId, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, baseId]);
   const baseCol = computed.find((c) => c.id === baseId) ?? computed[0];
 
-  const fmtVal = (v: number | null, kind: KpiKind): string => {
-    if (v == null || !Number.isFinite(v)) return 'n/a';
+  const fmtVal = (v: number | null, kind: KpiKind, nullLabel?: string): string => {
+    if (v == null || !Number.isFinite(v)) return nullLabel ?? 'n/a';
     if (kind === 'pct') return fmtPct(v);
     if (kind === 'mult') return fmtX(v);
     return fmt(v);
@@ -488,6 +492,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                           const baseValue = getByPath(currentBaseModel, p);
                           // Entity rows label by entity (heading carries the item); single rows label by item.
                           const rowLabel = item.grouped ? (row.descriptor.context || row.descriptor.label) : row.descriptor.label;
+                          const inactive = inactiveLeverReason(p, currentBaseModel);
                           return (
                             <tr key={p} data-testid={`m6-override-${p}`}>
                               <td style={{ ...tdL, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)' }}>
@@ -495,7 +500,13 @@ export default function Module6Scenarios(): React.JSX.Element {
                                   <button type="button" onClick={() => removeRow(p)} title="Remove this row" data-testid={`m6-row-remove-${p}`}
                                     style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 13, lineHeight: 1 }}>✕</button>
                                   <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: item.grouped ? 500 : 600, color: 'var(--color-heading)', fontSize: 12 }} title={p}>{rowLabel}</div>
+                                    <div style={{ fontWeight: item.grouped ? 500 : 600, color: inactive ? 'var(--color-muted)' : 'var(--color-heading)', fontSize: 12 }} title={p}>{rowLabel}</div>
+                                    {inactive && (
+                                      <div title={inactive} data-testid={`m6-inactive-${p}`}
+                                        style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-gold-dark)', background: 'var(--color-gold-light)', borderRadius: 4, padding: '1px 6px', marginTop: 2, display: 'inline-block' }}>
+                                        not used under current settings
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -558,7 +569,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                     const isBase = c.id === baseId;
                     return (
                       <td key={c.id} style={{ ...td, background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
-                        <div style={{ fontWeight: 600, color: 'var(--color-heading)' }}>{fmtVal(v, k.kind)}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--color-heading)' }}>{fmtVal(v, k.kind, k.nullLabel)}</div>
                         {!isBase && <div style={{ fontSize: 10, color: deltaTone(v, baseCol?.values[k.label] ?? null) }}>{fmtDelta(v, baseCol?.values[k.label] ?? null, k.kind)}</div>}
                       </td>
                     );

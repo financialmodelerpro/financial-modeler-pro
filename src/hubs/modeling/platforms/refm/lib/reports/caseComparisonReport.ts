@@ -23,16 +23,24 @@ export interface CaseKpiDef {
   label: string;
   kind: CaseKpiKind;
   sub?: string;
+  /** Text to show when get() returns null, instead of a bare "n/a". Lets a
+   *  metric explain WHY it is blank (e.g. a marginal project with no unlevered
+   *  IRR) so it never reads as a frozen / dead override. */
+  nullLabel?: string;
   get: (rs: ReturnType<typeof computeReturnsSnapshot>) => number | null;
 }
 
 /** Headline KPIs, in the same wording as the Returns + RE Metrics tabs. */
 export const CASE_KPIS: CaseKpiDef[] = [
-  { label: 'Project IRR (FCFF)', kind: 'pct', get: (rs) => rs.result.fcff.irr },
+  // Project IRR (FCFF) is unlevered; a marginal / all-cash-positive project has
+  // no sign change so the IRR is genuinely null. Label that explicitly and lead
+  // with the levered Equity IRR (FCFE), which is the headline investors read.
   { label: 'Equity IRR (FCFE)', kind: 'pct', get: (rs) => rs.result.fcfe.irr },
+  { label: 'Project IRR (FCFF)', kind: 'pct', sub: 'unlevered', nullLabel: 'n/a (no unlevered IRR)', get: (rs) => rs.result.fcff.irr },
   { label: 'Distributed-Equity IRR', kind: 'pct', get: (rs) => rs.result.dividends.irr },
   { label: 'Equity MOIC', kind: 'mult', get: (rs) => rs.result.fcfe.moic },
   { label: 'Equity Multiple', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
+  { label: 'NPV (FCFF)', kind: 'money', sub: 'at discount rate', get: (rs) => rs.result.fcff.npv },
   { label: 'Gross Development Value', kind: 'money', get: (rs) => rs.developmentEconomics.gdv },
   // Total Development Cost split into Land + Capex (construction), which sum back
   // to the total, so each scenario shows how land vs build cost moves.
