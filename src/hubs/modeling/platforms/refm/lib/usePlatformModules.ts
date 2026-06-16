@@ -38,6 +38,7 @@ interface FetchedModule {
   icon_emoji: string | null;
   status: 'live' | 'coming_soon' | 'hidden' | 'pro' | 'enterprise';
   gating_tier: 'free' | 'pro' | 'enterprise';
+  display_order: number;
 }
 
 const STATIC_NAV: readonly SidebarNavItem[] = [
@@ -60,9 +61,13 @@ function staticModuleToNav(m: ModuleConfig): SidebarNavItem {
   };
 }
 
-function fetchedToNav(m: FetchedModule): SidebarNavItem {
+function fetchedToNav(m: FetchedModule, position: number): SidebarNavItem {
   // Reuse the legacy `module1`..`moduleN` key shape so existing routing keeps
-  // working (RealEstatePlatform switches the active view by this string).
+  // working (RealEstatePlatform switches the active view by this string). The
+  // key is derived from the STABLE `number` (the module's component identity),
+  // so admin reordering never re-points a row at a different component. The
+  // DISPLAYED number is the 1-based position in display_order, so reordering
+  // renumbers the sidebar cleanly without changing routing.
   const key = `module${m.number}`;
   const badge =
     m.status === 'live' ? '✓' :
@@ -81,7 +86,7 @@ function fetchedToNav(m: FetchedModule): SidebarNavItem {
   return {
     key,
     icon: m.icon_emoji ?? '·',
-    label: `Module ${m.number}, ${m.short_name}`,
+    label: `Module ${position}, ${m.short_name}`,
     featureKey: `module_${m.number}`,
     requiredPlan,
     badge,
@@ -115,16 +120,21 @@ export function usePlatformModules(platformSlug: string): {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/platforms/${platformSlug}/modules`)
+    // no-store: admin reorder / hide changes must reflect on next mount, not
+    // after the shared 5-minute CDN cache on the public GET expires.
+    fetch(`/api/platforms/${platformSlug}/modules`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (cancelled || !j || !Array.isArray(j.modules) || j.modules.length === 0) {
           setLoaded(true);
           return;
         }
+        // Order by display_order (admin-reorderable), number as a stable
+        // tiebreak; the 1-based position drives the displayed module number.
         const navFromDb = (j.modules as FetchedModule[])
-          .sort((a, b) => a.number - b.number)
-          .map(fetchedToNav);
+          .slice()
+          .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
+          .map((m, i) => fetchedToNav(m, i + 1));
         setModules([...STATIC_NAV, ...navFromDb]);
         setLoaded(true);
       })

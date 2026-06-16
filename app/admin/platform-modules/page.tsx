@@ -491,6 +491,41 @@ export default function AdminPlatformModulesPage() {
     }
   }
 
+  // Reorder a module up (dir -1) or down (dir +1). Rewrites display_order = the
+  // new 1-based position for every module so the sequence renumbers cleanly and
+  // persists. The stable `number` (component identity) is never touched, so the
+  // platform sidebar reorders + renumbers without re-pointing any route.
+  async function moveModule(index: number, dir: -1 | 1) {
+    if (!activePlatformSlug || saving) return;
+    const target = index + dir;
+    if (target < 0 || target >= modules.length) return;
+    const reordered = [...modules];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(target, 0, moved);
+    setSaving(true);
+    try {
+      const changed = reordered
+        .map((mod, i) => ({ mod, i }))
+        .filter(({ mod, i }) => mod.display_order !== i);
+      for (const { mod, i } of changed) {
+        const res = await fetch(`/api/platforms/${activePlatformSlug}/modules/${mod.slug}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...mod, display_order: i }),
+        });
+        if (!res.ok) { showToast('Reorder failed', 'error'); break; }
+      }
+      // Reflect locally immediately, then reload to confirm persisted order.
+      setModules(reordered.map((mod, i) => ({ ...mod, display_order: i })));
+      showToast('Order updated');
+      loadModules(activePlatformSlug);
+    } catch {
+      showToast('Reorder failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteModule(m: PlatformModule) {
     if (!activePlatformSlug) return;
     if (!confirm(`Delete "${m.name}"? This also removes all its page sections.`)) return;
@@ -1006,7 +1041,27 @@ export default function AdminPlatformModulesPage() {
                               background: isEditing ? '#F0F7FF' : i % 2 === 1 ? '#F9FAFB' : '#fff',
                             }}
                           >
-                            <td style={{ padding: '12px 16px', fontSize: 13, color: '#9CA3AF', width: 40 }}>{m.number}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 13, color: '#9CA3AF', width: 64 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 0.9 }}>
+                                  <button
+                                    onClick={() => moveModule(i, -1)}
+                                    disabled={saving || i === 0}
+                                    title="Move up"
+                                    data-testid={`module-move-up-${m.slug}`}
+                                    style={{ border: 'none', background: 'transparent', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? '#D1D5DB' : '#1B4F8A', fontSize: 11, padding: 0 }}
+                                  >▲</button>
+                                  <button
+                                    onClick={() => moveModule(i, 1)}
+                                    disabled={saving || i === modules.length - 1}
+                                    title="Move down"
+                                    data-testid={`module-move-down-${m.slug}`}
+                                    style={{ border: 'none', background: 'transparent', cursor: i === modules.length - 1 ? 'default' : 'pointer', color: i === modules.length - 1 ? '#D1D5DB' : '#1B4F8A', fontSize: 11, padding: 0 }}
+                                  >▼</button>
+                                </div>
+                                <span title={`Routing id: module${m.number}`} style={{ fontWeight: 700, color: '#6B7280' }}>{i + 1}</span>
+                              </div>
+                            </td>
                             <td style={{ padding: '12px 16px', fontSize: 22, width: 52 }}>{m.icon_emoji ?? '·'}</td>
                             <td style={{ padding: '12px 16px' }}>
                               <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{m.name}</div>

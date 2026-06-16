@@ -663,6 +663,22 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // Module rendering
   const renderModule = (): React.ReactNode => {
+    // A module hidden in admin is dropped from the dynamic sidebar list, but a
+    // deep link or stale activeModule could still target its key. Guard the
+    // render so a hidden / not-launched module is genuinely unreachable, not
+    // just absent from the sidebar. (Before the dynamic fetch resolves the list
+    // is the full static fallback, so nothing is falsely hidden on first paint.)
+    const visibleModuleKeys = new Set(
+      dynamicSidebarModules.filter((m) => m.key.startsWith('module')).map((m) => m.key),
+    );
+    if (activeModule.startsWith('module') && !visibleModuleKeys.has(activeModule)) {
+      return (
+        <div style={{ padding: 'var(--sp-3)' }} data-testid="module-hidden">
+          This module is not available.
+        </div>
+      );
+    }
+
     // Pass 47 (2026-05-14): both 'dashboard' and 'overview' route to
     // the Dashboard component. Overview was removed from the sidebar
     // since the Pass 45 Dashboard covers everything it used to.

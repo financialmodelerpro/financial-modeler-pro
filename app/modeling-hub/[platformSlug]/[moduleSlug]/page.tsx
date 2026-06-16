@@ -14,6 +14,7 @@ import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { getCmsContent, cms } from '@/src/shared/cms';
 import {
   getPlatformModuleWithPages,
+  getPlatformModules,
   getSectionContent,
   type HeroContent,
   type FeaturesContent,
@@ -44,11 +45,18 @@ export default async function ModuleMarketingPage(props: {
   params: Promise<{ platformSlug: string; moduleSlug: string }>;
 }) {
   const { platformSlug, moduleSlug } = await props.params;
-  const [data, content] = await Promise.all([
+  const [data, content, ordered] = await Promise.all([
     getPlatformModuleWithPages(platformSlug, moduleSlug),
     getCmsContent(),
+    getPlatformModules(platformSlug),
   ]);
   if (!data) notFound();
+  // Position-based number (1..N by display_order among visible modules), so this
+  // page matches the workspace sidebar + the platform grid after a reorder/hide.
+  const moduleNumberLabel = (() => {
+    const idx = ordered.findIndex((m) => m.slug === moduleSlug);
+    return idx >= 0 ? idx + 1 : data.number;
+  })();
   const footerCompany = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
   const footerFounder = cms(content, 'footer', 'founder_line', 'Ahmad Din, CEO & Founder');
   const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
@@ -80,7 +88,7 @@ export default async function ModuleMarketingPage(props: {
               ← {platformSlug.toUpperCase()}
             </Link>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#BFDBFE', marginBottom: 8 }}>
-              MODULE {data.number}
+              MODULE {moduleNumberLabel}
             </div>
             <h1 style={{ fontSize: 44, fontWeight: 800, marginBottom: 18, lineHeight: 1.1 }}>
               {hero?.title ?? data.name}

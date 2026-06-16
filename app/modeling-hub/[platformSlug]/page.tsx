@@ -97,7 +97,7 @@ export default async function PlatformOverviewPage(props: {
               gap: 16,
             }}
           >
-            {modules.map((m) => {
+            {modules.map((m, i) => {
               const pill = STATUS_PILL[m.status];
               return (
                 <Link
@@ -118,7 +118,10 @@ export default async function PlatformOverviewPage(props: {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <span style={{ fontSize: 24 }}>{m.icon_emoji ?? '·'}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF' }}>
-                      MODULE {m.number}
+                      {/* Position-based number (1..N by display_order), matching the
+                          workspace sidebar, so a reordered / hidden module reads
+                          consistently everywhere. */}
+                      MODULE {i + 1}
                     </span>
                   </div>
                   <h3 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>
