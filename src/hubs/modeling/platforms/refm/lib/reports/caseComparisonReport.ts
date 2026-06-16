@@ -34,9 +34,16 @@ export const CASE_KPIS: CaseKpiDef[] = [
   { label: 'Equity MOIC', kind: 'mult', get: (rs) => rs.result.fcfe.moic },
   { label: 'Equity Multiple', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
   { label: 'Gross Development Value', kind: 'money', get: (rs) => rs.developmentEconomics.gdv },
-  { label: 'Total Development Cost', kind: 'money', get: (rs) => rs.totalDevelopmentCost },
+  // Total Development Cost split into Land + Capex (construction), which sum back
+  // to the total, so each scenario shows how land vs build cost moves.
+  { label: 'Land Cost', kind: 'money', get: (rs) => rs.sourcesUses.land },
+  { label: 'Capex (construction)', kind: 'money', sub: 'excl. land', get: (rs) => rs.sourcesUses.construction },
+  { label: 'Total Development Cost', kind: 'money', sub: 'land + capex', get: (rs) => rs.totalDevelopmentCost },
+  { label: 'Total Financing Cost', kind: 'money', get: (rs) => rs.developmentEconomics.totalFinancingCost },
   { label: 'Profit after Financing', kind: 'money', get: (rs) => rs.developmentEconomics.profitAfterFinancing },
   { label: 'Development Margin', kind: 'pct', sub: 'profit / GDV', get: (rs) => rs.developmentEconomics.developmentMargin },
+  { label: 'Cap Rate at Exit', kind: 'pct', get: (rs) => rs.result.realEstate.capRateAtExit },
+  { label: 'Min DSCR', kind: 'mult', sub: 'min over operating periods', get: (rs) => rs.result.realEstate.dscrMin },
   { label: 'Peak Equity', kind: 'money', get: (rs) => rs.result.realEstate.peakEquity },
   { label: 'Terminal Equity Value', kind: 'money', get: (rs) => rs.terminalEquityValue },
 ];

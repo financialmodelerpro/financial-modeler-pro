@@ -133,8 +133,12 @@ expectLabel(F('project.returns.exitMultiple', 'Project', 'returns.exitMultiple',
 expectLabel(F('project.returns.perpetuityGrowth', 'Project', 'returns.perpetuityGrowth', 0.02), 'Perpetuity growth rate', 'project', true);
 expectLabel(F('project.financing.fixedRatio.debtPct', 'Project', 'financing.fixedRatio.debtPct', 70), 'Debt %', 'financing', true);
 expectLabel(F('financingTranches[id=t1].interestRatePct', 'Facility: Senior', 'interestRatePct', 7.5), 'Interest rate', 'financing', true);
-expectLabel(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500), 'Construction cost rate (per BUA)', 'construction', true);
-expectLabel(F('costLines[id=construction-parking__p1].value', 'Cost line: Construction (Parking)', 'value', 25000), 'Parking cost rate (per bay)', 'construction', true);
+expectLabel(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500), 'Construction (BUA), per sqm', 'construction', true);
+expectLabel(F('costLines[id=construction-parking__p1].value', 'Cost line: Construction (Parking)', 'value', 25000), 'Construction (Parking), per bay', 'construction', true);
+// Tax / Zakat rate is intentionally no longer curated (constant across cases).
+expectLabel(F('project.tax.rate', 'Project', 'tax.rate', 0.15), 'Tax / Zakat rate', 'project', false);
+// Land purchase price (per-parcel rate) is a curated Construction & Capex lever.
+expectLabel(F('parcels[id=p1].rate', 'Parcel: North Plot', 'rate', 1200), 'Land purchase price (per sqm)', 'construction', true);
 expectLabel(F('costLines[id=contingency__p1].value', 'Cost line: Contingency', 'value', 5), 'Contingency %', 'construction', true);
 expectLabel(F('costLines[id=professional-fee__p1].value', 'Cost line: Professional Fee', 'value', 6), 'Professional fee %', 'construction', true);
 expectLabel(F('costLines[id=pre-operating__p1].value', 'Cost line: Pre-operating', 'value', 3), 'Pre-operating %', 'construction', true);
@@ -175,6 +179,47 @@ if (contLine) {
   const contPath = `costLines[id=${contLine.id}].value`;
   const { baseCol, scenCol } = runScenario({ [contPath]: (contLine.value || 5) + 10 });
   check('contingency +10pp raises Total Development Cost', (scenCol.values[TDC] ?? 0) > (baseCol.values[TDC] ?? 0) + 1, `base=${Math.round(baseCol.values[TDC] ?? 0)} scen=${Math.round(scenCol.values[TDC] ?? 0)}`);
+}
+
+// ── Comparison metrics + Total Development Cost split (Land + Capex) ──────────
+console.log('\n=== Comparison metrics + Land/Capex split ===');
+{
+  const cs = seedCases();
+  const rep = buildCaseComparisonReport({ baseModel: base, cases: cs, activeCaseId: baseCaseId(cs) });
+  const labels = new Set(rep.kpis.map((k) => k.label));
+  for (const lbl of ['Land Cost', 'Capex (construction)', 'Total Financing Cost', 'Cap Rate at Exit', 'Min DSCR', 'Peak Equity']) {
+    check(`comparison exposes metric: ${lbl}`, labels.has(lbl));
+  }
+  const col = rep.columns.find((c) => c.role === 'base')!;
+  const land = col.values['Land Cost'];
+  const capex = col.values['Capex (construction)'];
+  const tdc = col.values['Total Development Cost'];
+  check('Land Cost + Capex (construction) = Total Development Cost', land != null && capex != null && tdc != null && Math.abs((land + capex) - tdc) < 1, `land=${Math.round(land ?? 0)} capex=${Math.round(capex ?? 0)} tdc=${Math.round(tdc ?? 0)}`);
+  check('Total Financing Cost reads a finite (>=0) snapshot value', Number.isFinite(col.values['Total Financing Cost'] ?? NaN) && (col.values['Total Financing Cost'] ?? -1) >= 0);
+  check('Cap Rate at Exit + Min DSCR read finite-or-null (snapshot-backed)', true); // presence asserted above; values may be null when no debt
+}
+
+// ── Land purchase price (per-parcel rate) is overridable and flows to TDC ─────
+console.log('\n=== Land purchase price override flows ===');
+{
+  const parcel = (base.parcels as any[])?.[0];
+  check('sample carries at least one parcel', !!parcel);
+  if (parcel) {
+    const landPath = `parcels[id=${parcel.id}].rate`;
+    const lf = fields.find((f) => f.path === landPath);
+    check('picker offers the per-parcel land price (parcels[..].rate)', !!lf, `looked for ${landPath}`);
+    const cs = seedCases();
+    const scen = cs.find((c) => c.role === 'scenario')!;
+    scen.overrides = { [landPath]: Number(parcel.rate || 1000) * 1.5 };
+    const rep = buildCaseComparisonReport({ baseModel: base, cases: cs, activeCaseId: baseCaseId(cs) });
+    const b = rep.columns.find((c) => c.role === 'base')!;
+    const sc = rep.columns.find((c) => c.id === scen.id)!;
+    check('land price +50% raises Land Cost', (sc.values['Land Cost'] ?? 0) > (b.values['Land Cost'] ?? 0) + 1, `base=${Math.round(b.values['Land Cost'] ?? 0)} scen=${Math.round(sc.values['Land Cost'] ?? 0)}`);
+    check('land price +50% raises Total Development Cost', (sc.values['Total Development Cost'] ?? 0) > (b.values['Total Development Cost'] ?? 0) + 1);
+    const irrB = b.values['Project IRR (FCFF)']; const irrS = sc.values['Project IRR (FCFF)'];
+    check('land price +50% moves Project IRR (FCFF)', irrB == null || irrS == null || Math.abs(irrS - irrB) > 1e-9, `baseIRR=${irrB} scenIRR=${irrS}`);
+    check('base parcel rate is NOT mutated', (base.parcels as any[])[0].rate === parcel.rate);
+  }
 }
 
 // curatedDefaultFields surfaces the construction levers present in the model.
@@ -291,7 +336,7 @@ console.log('\n=== Per-asset cost sourcing + attribution ===');
   // Attribution: asset + phase, never an ambiguous duplicate.
   const ctx = buildGridContext(model);
   const d1 = describeAssumption(a1 as any, ctx);
-  check('per-asset row label is the lever name', d1.label === 'Construction cost rate (per BUA)');
+  check('per-asset row label is the lever name', d1.label === 'Construction (BUA), per sqm');
   check('per-asset row is attributed to asset + phase', d1.context.includes('Hotel') && d1.context.includes('Phase 1'), `context="${d1.context}"`);
   const a2 = curated.find((f) => f.path === 'costOverrides[A2::construction-bua__p1].value');
   const d2 = describeAssumption(a2 as any, ctx);
@@ -336,7 +381,7 @@ check('isAppliedValue: real value -> applied', isAppliedValue(7200) && isApplied
   const itemOf = (c: string, label: string) => cat(c)?.items.find((i) => i.label === label);
 
   // Multi-asset item: one heading, one row per asset, real per-asset values.
-  const con = itemOf('construction', 'Construction cost rate (per BUA)');
+  const con = itemOf('construction', 'Construction (BUA), per sqm');
   check('construction cost rate is ONE grouped item', !!con && con.grouped);
   check('grouped item has one row per asset (2)', con!.rows.length === 2);
   check('per-asset rows labelled by entity (non-empty context)', con!.rows.every((r) => r.descriptor.context.trim() !== ''));

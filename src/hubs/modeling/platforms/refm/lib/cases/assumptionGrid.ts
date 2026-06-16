@@ -65,9 +65,12 @@ const PERCENT_COST_LEVER_IDS = new Set<string>([
   'pre-operating', 'professional-fee', 'contingency', 'commission', 'land-cash', 'land-inkind',
 ]);
 
+// Labels mirror the Capex (Module 1 Costs) line names + their displayed units
+// exactly, so the grid lever and the Capex line read as one consistent label:
+// BUA is priced per sqm, Parking per bay.
 const COST_LINE_LEVER_LABELS: Record<string, string> = {
-  'construction-bua': 'Construction cost rate (per BUA)',
-  'construction-parking': 'Parking cost rate (per bay)',
+  'construction-bua': 'Construction (BUA), per sqm',
+  'construction-parking': 'Construction (Parking), per bay',
   'infrastructure': 'Infrastructure rate',
   'landscaping': 'Landscaping rate',
   'pre-operating': 'Pre-operating %',
@@ -115,7 +118,8 @@ const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
 
 const CURATED_LEAVES = new Set<string>([
   'returns.discountRate', 'returns.exitMultiple', 'returns.perpetuityGrowth',
-  'tax.rate',
+  // Tax / Zakat rate is intentionally NOT curated: it is constant across cases,
+  // so it is noise in the assumptions grid. Still reachable via "Show all".
   'unitPrice', 'startingAdr', 'occupancyPct',
   'revenue.operate.startingADR', 'revenue.operate.adrIndexation.rate',
   'revenue.sell.indexation.rate', 'revenue.lease.baseRate', 'revenue.lease.rentIndexation.rate',
@@ -208,7 +212,8 @@ function humanizeLeaf(leaf: string): string {
   return s;
 }
 function categoryOf(path: string): AssumptionCategory {
-  if (path.startsWith('costLines[') || path.startsWith('costOverrides[')) return 'construction';
+  // Per-parcel land levers (purchase price etc.) sit with Construction & Capex.
+  if (path.startsWith('costLines[') || path.startsWith('costOverrides[') || path.startsWith('parcels[')) return 'construction';
   if (path.startsWith('project.financing') || path.startsWith('financingTranches[')
     || path.startsWith('equityContributions[') || path.includes('parcelFunding[')) return 'financing';
   if (path.includes('.opex.') || path.includes('].opex')) return 'opex';
@@ -230,6 +235,8 @@ function formatForField(f: OverridableField, costBaseId?: string): AssumptionFor
 
 function isCuratedField(f: OverridableField): boolean {
   if (CURATED_LEAVES.has(f.field)) return true;
+  // Per-parcel land purchase price (currency / sqm) is a key driver.
+  if (f.field === 'rate' && f.path.startsWith('parcels[')) return true;
   if (/interestRatePct$/.test(f.field) && f.path.startsWith('financingTranches[')) return true;
   if (/debtPct$/.test(f.field) && f.path.startsWith('project.financing')) return true;
   return false;
@@ -266,6 +273,22 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
     }
     const label = COST_LINE_LEVER_LABELS[baseId] ?? humanizeLeaf(baseId || 'value');
     return { label, context, category, format: formatForField(f, baseId), curated: CONSTRUCTION_LEVER_IDS.has(baseId) };
+  }
+
+  // ── Land: per-parcel purchase price (rate per sqm) + parcel attributes. ──
+  // Land cost lines are locked and derive from the parcels, so the real land
+  // price lever is Parcel.rate. Surface it under Construction & Capex.
+  if (f.path.startsWith('parcels[')) {
+    const id = selectorOf(f.path, 'parcels') ?? '';
+    const context = ctx?.parcels.get(id) ?? entityContext(f.group);
+    const PARCEL_LABELS: Record<string, string> = {
+      rate: 'Land purchase price (per sqm)',
+      area: 'Land area (sqm)',
+      cashPct: 'Land cost (cash) %',
+      inKindPct: 'Land cost (in-kind) %',
+    };
+    const label = PARCEL_LABELS[f.field] ?? humanizeLeaf(f.field);
+    return { label, context, category: 'construction', format: formatForField(f), curated: isCuratedField(f) };
   }
 
   // ── Attribution for the other entity rows. ──

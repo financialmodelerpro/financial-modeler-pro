@@ -431,15 +431,17 @@ export default function Module6Scenarios(): React.JSX.Element {
             No assumptions yet. Add one above to start comparing values across cases.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          // Bounded scroll area so the case-column header row stays pinned
+          // (position: sticky, top) while the grid body scrolls vertically.
+          <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
             <table style={{ borderCollapse: 'collapse', minWidth: 480 }}>
               <thead>
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={{ ...thL, position: 'sticky', left: 0, background: 'var(--color-navy)', minWidth: 240 }}>Assumption</th>
+                  <th style={{ ...thL, position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--color-navy)', minWidth: 240 }}>Assumption</th>
                   {s.cases.map((c) => {
                     const cnt = c.role === 'base' ? 0 : (c.id === s.activeCaseId ? overridePaths.length : Object.keys(c.overrides ?? {}).length);
                     return (
-                      <th key={c.id} style={{ ...thL, minWidth: 160 }}>
+                      <th key={c.id} style={{ ...thL, minWidth: 160, position: 'sticky', top: 0, zIndex: 2, background: 'var(--color-navy)' }}>
                         <button type="button" onClick={() => s.setActiveCase(c.id)} data-testid={`m6-grid-col-${c.id}`}
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-on-primary-navy)', fontWeight: c.id === s.activeCaseId ? 800 : 600 }}
                           title={c.id === s.activeCaseId ? 'Active case' : 'Switch to this case'}>
