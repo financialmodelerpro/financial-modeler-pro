@@ -108,9 +108,10 @@
     /* ── Layout ── */
     /* Pass 32 (2026-05-14): sidebar widened ~10% (240 -> 264) so the
        longer module labels ("Module N: <Name>") have room without
-       truncating. 2026-06-16: widened a further 15% (264 -> 304) for the
-       reordered / renumbered module labels. */
-    --sidebar-width:           304px;
+       truncating. 2026-06-16: widened a further 15% (264 -> 304), then a
+       further 15% (304 -> 350) for the workspace shell (the platform wrapper
+       applies zoom: 0.8, so the on-screen delta is smaller than the px value). */
+    --sidebar-width:           350px;
     --sidebar-width-collapsed: 52px;
     --topbar-height:           40px;
 

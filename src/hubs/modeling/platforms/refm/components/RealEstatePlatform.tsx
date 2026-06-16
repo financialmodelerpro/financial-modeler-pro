@@ -37,11 +37,12 @@ import {
   revertEditSession,
   getSessionState,
 } from '../lib/persistence/module1-sync';
-import { readActiveProjectId, writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
+import { writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
 import Dashboard from './Dashboard';
+import Overview from './Overview';
 import ProjectsScreen from './ProjectsScreen';
 import Module1ProjectPhases from './modules/Module1ProjectPhases';
 import Module1Assets from './modules/Module1Assets';
@@ -381,19 +382,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
         return;
       }
       setServerProjects(res.data?.projects ?? []);
-      const cached = readActiveProjectId();
-      if (cached && (res.data?.projects ?? []).some((p) => p.id === cached)) {
-        setIsSwitchingProject(true);
-        const attach = await attachSyncToProject(cached);
-        if (cancelled) return;
-        if (attach.error) setLoadError(attach.error);
-        if (attach.migrationNotice) setMigrationNotice(attach.migrationNotice);
-        if (!attach.error) {
-          setActiveProjectId(cached);
-          setActiveVersionId(attach.versionId ?? null);
-        }
-        setIsSwitchingProject(false);
-      }
+      // 2026-06-16: do NOT auto-open the last-cached project on sign-in. The
+      // user lands on the Dashboard (all-projects hub) with NO project open;
+      // every module stays locked until a project is opened explicitly from
+      // the Dashboard or Projects. (Previously this restored readActiveProjectId
+      // here, so a project was always open by default.)
     })();
     return () => {
       cancelled = true;
@@ -679,10 +672,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
       );
     }
 
-    // Pass 47 (2026-05-14): both 'dashboard' and 'overview' route to
-    // the Dashboard component. Overview was removed from the sidebar
-    // since the Pass 45 Dashboard covers everything it used to.
-    if (activeModule === 'dashboard' || activeModule === 'overview') {
+    // 2026-06-16: Dashboard and Overview are now DISTINCT. Dashboard is the
+    // all-projects hub (project-agnostic landing); Overview is the investor
+    // summary of the single open project (only meaningful with a project open).
+    if (activeModule === 'dashboard') {
       return (
         <Dashboard
           storage={storage}
@@ -697,6 +690,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
           can={can}
         />
       );
+    }
+    if (activeModule === 'overview') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="overview-no-project">
+            Open a project to see its investor summary.
+          </div>
+        );
+      }
+      return <Overview projectName={activeProjectData?.name ?? null} status={activeProjectData?.status ?? null} />;
     }
     if (activeModule === 'projects') {
       return (

@@ -123,17 +123,23 @@ export default function Sidebar({
         {sidebarModules.map((mod) => {
           const isDisabledByPermission = !canSeeModule(mod.key);
           const isDisabledByConfig = mod.disabled === true;
-          const isOverviewDisabled = mod.key === 'overview' && !activeProjectId;
+          // 2026-06-16: until a project is open, EVERY module locks universally
+          // (Overview + Module 1..11). Dashboard / Projects are not module keys,
+          // so they stay accessible with or without a project open.
+          const isModuleKey = mod.key === 'overview' || mod.key.startsWith('module');
+          const isLockedNoProject = isModuleKey && !activeProjectId;
           const isFeatureLocked = subLoaded && !!mod.featureKey && !canAccess(mod.featureKey);
 
-          const isDisabled = isFeatureLocked
-            ? false
-            : isDisabledByPermission || isDisabledByConfig || isOverviewDisabled;
+          const isDisabled = isLockedNoProject
+            ? true
+            : isFeatureLocked
+              ? false
+              : isDisabledByPermission || isDisabledByConfig;
 
-          const disabledReason = isDisabledByPermission
+          const disabledReason = isLockedNoProject
+            ? 'Open a project first'
+            : isDisabledByPermission
             ? 'Your role cannot view this module'
-            : isOverviewDisabled
-            ? 'Select a project first'
             : mod.disabledReason;
 
           const isActive = activeModule === mod.key;
@@ -145,6 +151,7 @@ export default function Sidebar({
               <button
                 className={`sidebar-item${isActive ? ' active' : ''}${isDisabled ? ' disabled' : ''}${isFeatureLocked ? ' feature-locked' : ''}`}
                 onClick={() => {
+                  if (isLockedNoProject) return;
                   if (
                     isFeatureLocked &&
                     mod.featureKey &&
