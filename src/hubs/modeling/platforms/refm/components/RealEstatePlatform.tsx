@@ -36,6 +36,7 @@ import {
   startEditSession,
   revertEditSession,
   getSessionState,
+  setEditingEnabled,
 } from '../lib/persistence/module1-sync';
 import { writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
@@ -335,6 +336,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Save state
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  // View/edit lock (2026-06-16): a project opens in VIEW mode (read-only, no
+  // version churn). The user clicks Edit -> names a version (save-as) -> this
+  // flips true and editing unlocks. Reset to false on open / load / close.
+  const [editMode, setEditMode] = useState(false);
   // 2026-05-31 BUG-B FIX: gates the UI during a project switch so no
   // stale snapshot is rendered between detach + hydrate.
   const [isSwitchingProject, setIsSwitchingProject] = useState(false);
@@ -480,6 +485,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     writeActiveProjectId(projectId);
     setActiveTab('project-phases');
     setActiveModule('overview'); // opening a project lands on its Overview
+    setEditMode(false);          // ...in VIEW mode until the user clicks Edit
     setHasUnsaved(false);
     setActiveVersionId(res.versionId ?? null);
     setEditingVersionLabel(null);
@@ -522,6 +528,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       attachToProjectFromLocalSnapshot(res.data.project.id, snapshot, res.data.version.id);
       setActiveTab('project-phases');
       setActiveModule('module1');
+      setEditMode(true); // a brand-new project opens ready to edit (Setup)
       setHasUnsaved(false);
       setEditingVersionLabel(null);
     },
@@ -536,6 +543,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     writeActiveProjectId(null);
     useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE });
     setActiveModule('dashboard'); // Projects tab removed; close returns to the Dashboard hub
+    setEditMode(false);
     setHasUnsaved(false);
     setLastSavedAt(null);
   }, [activeProjectId]);
@@ -550,6 +558,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveVersionId(versionId);
     setActiveTab('project-phases');
     setActiveModule('overview'); // loading a version lands on its Overview
+    setEditMode(false);          // ...in VIEW mode
     setHasUnsaved(false);
     // Phase M-Versioning: loadVersionInto re-anchors sessionBase to
     // the loaded version. Clear the editing label so the next edit
@@ -584,6 +593,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setNameVersionModalOpen(true);
   }, []);
 
+  // View -> Edit: the Edit button runs the save-as / name-version flow first;
+  // confirming it (handleNameVersionConfirm) starts the version and unlocks
+  // editing. This is the explicit gate that ends the "versions on every view"
+  // churn: nothing is written until the user names a version and starts editing.
+  const handleEnableEditing = useCallback(() => {
+    setNameVersionModalMode('start-session');
+    setEditingVersionLabel(null);
+    setNameVersionModalOpen(true);
+  }, []);
+
   // NameVersionModal callbacks.
   const handleNameVersionConfirm = useCallback(
     async (result: NameVersionConfirm): Promise<void> => {
@@ -605,6 +624,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
       }
       setHasUnsaved(true);
       setLastSavedAt(new Date().toLocaleTimeString());
+      // Confirming the save-as unlocks editing (the sync also enables its
+      // subscriber inside startEditSession; this flips the UI lock off).
+      setEditingEnabled(true);
+      setEditMode(true);
       setNameVersionModalOpen(false);
     },
     [],
@@ -683,6 +706,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           activeVersionId={activeVersionId}
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
+          onDeleteProject={(id) => void handleDeleteProject(id)}
           onSelectModule={setActiveModule}
           onSelectTab={setActiveTab}
           onSaveVersion={() => setVersionModalOpen(true)}
@@ -1008,6 +1032,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
     );
   };
 
+  // View lock: a module surface of an open project is read-only until the user
+  // clicks Edit. The Dashboard hub is never locked (it has no project inputs).
+  const viewLocked = !!activeProjectId && !editMode && activeModule !== 'dashboard';
+
   return (
     // M2.0i Fix 8 (2026-05-07): outer wrapper height: 100vh (was
     // minHeight: 100vh) so the page never grows beyond the viewport.
@@ -1027,6 +1055,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
         lastSavedAt={lastSavedAt}
         currentUserRole={currentUserRole}
         can={can}
+        editMode={editMode}
+        canEnableEditing={!!activeProjectId}
+        onEnableEditing={handleEnableEditing}
         onSave={handleSaveQuick}
         onOpenProjects={() => setProjectModalOpen(true)}
         onOpenVersions={() => setVersionModalOpen(true)}
@@ -1168,7 +1199,36 @@ export default function RealEstatePlatform(): React.JSX.Element {
               </button>
             </div>
           )}
-          {renderModule()}
+          {viewLocked && (
+            <div
+              data-testid="view-lock-banner"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap',
+                background: 'var(--color-navy-light)', border: '1px solid var(--color-navy)',
+                borderRadius: 'var(--radius-sm)', padding: '8px var(--sp-2)', marginBottom: 'var(--sp-2)',
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-navy)' }}>
+                👁 View only. Click Edit to make changes; a new version is saved when you start.
+              </span>
+              <div style={{ flex: 1 }} />
+              <button
+                type="button"
+                onClick={handleEnableEditing}
+                data-testid="view-lock-edit-btn"
+                className="btn-primary"
+                style={{ padding: '5px 16px', fontWeight: 700, fontSize: 13 }}
+              >
+                ✏️ Edit
+              </button>
+            </div>
+          )}
+          {/* pointer-events lock blocks input/control interaction in view mode;
+              the scroll container (main) still scrolls, the sidebar + this
+              banner stay interactive. */}
+          <div data-testid="module-content" style={{ pointerEvents: viewLocked ? 'none' : 'auto' }}>
+            {renderModule()}
+          </div>
         </main>
       </div>
 

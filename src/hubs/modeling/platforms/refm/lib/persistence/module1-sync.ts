@@ -104,6 +104,17 @@ let hasFiredNeedsName    = false;
 // load / revert) so a project switch can't leave it stuck.
 let isStartingSession    = false;
 
+// 2026-06-16 (view/edit lock): a project opens in VIEW mode. Until the user
+// explicitly clicks Edit (which names + starts a version), the store subscriber
+// ignores changes, so viewing never auto-creates a version. The UI flips this
+// via setEditingEnabled when entering edit mode, and a fresh open / load / close
+// resets it to false.
+let editingEnabled       = false;
+
+/** Enable or disable the auto-save / auto-session subscriber. View mode = false
+ *  (no version churn); edit mode = true. */
+export function setEditingEnabled(v: boolean): void { editingEnabled = v; }
+
 // ── Snapshot extraction ─────────────────────────────────────────────────────
 // Persistence snapshot = the BASE (Management) model fields + the scenario
 // cases registry + activeCaseId. The store flushes the active case's edits
@@ -191,6 +202,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   editingLabel      = null;
   hasFiredNeedsName = false;
   isStartingSession = false;
+  editingEnabled    = false;  // open existing project in VIEW mode
 
   // Wire the subscriber AFTER hydrate so the hydrate event itself
   // doesn't trigger the first-edit auto-start or auto-save.
@@ -229,6 +241,7 @@ export function attachToProjectFromLocalSnapshot(
   editingLabel         = null;
   hasFiredNeedsName    = false;
   isStartingSession    = false;
+  editingEnabled       = true;  // a freshly created project opens ready to edit
 
   // Subscribe AFTER setting lastSavedJson so the very first store
   // event is a no-op (json === lastSavedJson).
@@ -249,6 +262,7 @@ export function detach(): void {
   editingLabel         = null;
   hasFiredNeedsName    = false;
   isStartingSession    = false;
+  editingEnabled       = false;
 }
 
 // ── Load a specific historical version into the store ──────────────────────
@@ -273,6 +287,7 @@ export async function loadVersionInto(
     editingLabel         = null;
     hasFiredNeedsName    = false;
   isStartingSession    = false;
+  editingEnabled       = false;  // loading a version opens it in VIEW mode
   }
   isLoading = false;
   return { error: res.error };
@@ -314,6 +329,9 @@ export async function startEditSession(
   if (!activeProjectId) {
     return { versionId: null, error: 'No active project.' };
   }
+  // Starting a session (explicitly via Edit, or the auto-start once enabled)
+  // means we are now editing: allow the subscriber to autosave from here.
+  editingEnabled = true;
   if (editingVersionId) {
     // Session already started (typically auto-started on the first edit
     // with a default "Edits ..." label). Treat this as an in-place
@@ -396,6 +414,9 @@ function defaultSessionLabel(now: Date = new Date()): string {
 // window naturally flush via the next PATCH cycle.
 function onStoreChange(): void {
   if (isLoading || activeProjectId === null) return;
+  // View/edit lock: in view mode, ignore store changes entirely so neither an
+  // auto-session nor an autosave fires (the source of the version churn).
+  if (!editingEnabled) return;
 
   // Distinguish snapshot-affecting mutations from UI-only flips
   // (activePhaseId / activeAssetId). The cheap proxy is JSON

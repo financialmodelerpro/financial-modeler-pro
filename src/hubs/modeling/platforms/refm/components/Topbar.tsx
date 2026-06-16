@@ -31,6 +31,12 @@ interface TopbarProps {
   lastSavedAt: string | null;
   currentUserRole: Role;
   can: (permission: keyof PermissionMap) => boolean;
+  /** View/edit lock: true once the user has entered edit mode. */
+  editMode: boolean;
+  /** Whether the Edit affordance applies (a project is open). */
+  canEnableEditing: boolean;
+  /** Enter edit mode (runs the save-as / name-version flow, then unlocks). */
+  onEnableEditing: () => void;
   onSave: () => void;
   onOpenProjects: () => void;
   onOpenVersions: () => void;
@@ -137,6 +143,9 @@ export default function Topbar({
   lastSavedAt,
   currentUserRole,
   can,
+  editMode,
+  canEnableEditing,
+  onEnableEditing,
   onSave,
   onOpenProjects,
   onOpenVersions,
@@ -275,7 +284,21 @@ export default function Topbar({
 
       <div style={{ flex: 1 }} />
 
-      {can('canSave') && (
+      {/* View/edit lock: in view mode show Edit (starts the save-as flow and
+          unlocks); in edit mode show Save. Viewing never creates versions. */}
+      {canEnableEditing && !editMode && (
+        <button
+          className="pm-btn save"
+          onClick={onEnableEditing}
+          data-testid="topbar-edit"
+          title={'EDIT\n\nThe project opens read-only. Click Edit to name a version and start making changes. Nothing is saved until you do, so simply viewing a project never creates versions.'}
+          style={{ fontWeight: 700 }}
+        >
+          ✏️ Edit
+        </button>
+      )}
+
+      {can('canSave') && editMode && (
         <button
           className="pm-btn save"
           onClick={onSave}
