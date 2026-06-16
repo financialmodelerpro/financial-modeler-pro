@@ -116,11 +116,20 @@ const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\.rate$/, 'Indexation rate'],
 ];
 
+// Per-period / year-on-year levers: the engine reads a per-period series (e.g.
+// per-period occupancy on the operate config), NOT this single scalar, so they
+// cannot work as a single-value scenario override and only caused dead-lever
+// confusion. Excluded from BOTH the curated view and the add-row picker.
+const PER_PERIOD_GRID_LEAVES = new Set<string>(['occupancyPct']);
+export function isPerPeriodLever(field: string): boolean {
+  return PER_PERIOD_GRID_LEAVES.has(field);
+}
+
 const CURATED_LEAVES = new Set<string>([
   'returns.discountRate', 'returns.exitMultiple', 'returns.perpetuityGrowth',
   // Tax / Zakat rate is intentionally NOT curated: it is constant across cases,
   // so it is noise in the assumptions grid. Still reachable via "Show all".
-  'unitPrice', 'startingAdr', 'occupancyPct',
+  'unitPrice', 'startingAdr',
   'revenue.operate.startingADR', 'revenue.operate.adrIndexation.rate',
   'revenue.sell.indexation.rate', 'revenue.lease.baseRate', 'revenue.lease.rentIndexation.rate',
   'opex.defaultIndexation.rate',

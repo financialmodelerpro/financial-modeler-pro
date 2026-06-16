@@ -18,7 +18,7 @@ import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/l
 import {
   describeAssumption, curatedDefaultFields, ASSUMPTION_CATEGORY_ORDER,
   buildGridContext, formatAssumptionValue, parseAssumptionInput,
-  isAppliedValue, groupAssumptionRows, type GridRowLite,
+  isAppliedValue, groupAssumptionRows, isPerPeriodLever, type GridRowLite,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { normalizeOpexIndexation } from '../src/core/calculations/opex';
@@ -145,7 +145,10 @@ expectLabel(F('costLines[id=pre-operating__p1].value', 'Cost line: Pre-operating
 expectLabel(F('costLines[id=commission__p1].value', 'Cost line: Commission', 'value', 4), 'Commission %', 'construction', false);
 expectLabel(F('costLines[id=land-cash__p1].value', 'Cost line: Land (Cash)', 'value', 100), 'Land cost (cash) %', 'construction', false);
 expectLabel(F('subUnits[id=rsu1].unitPrice', 'Sub-unit: Apartments', 'unitPrice', 1500000), 'Unit price / rate', 'revenue', true);
-expectLabel(F('subUnits[id=ksu1].occupancyPct', 'Sub-unit: Keys', 'occupancyPct', 70), 'Occupancy %', 'revenue', true);
+// Occupancy % is a per-period lever (the engine uses per-period occupancy), so it
+// is excluded from the scenario grid entirely: not a per-period-safe single value.
+check('Occupancy % is flagged a per-period lever (excluded from the grid)', isPerPeriodLever('occupancyPct'));
+check('Occupancy % is NOT curated', !describeAssumption(F('subUnits[id=ksu1].occupancyPct', 'Sub-unit: Keys', 'occupancyPct', 70)).curated);
 expectLabel(F('assets[id=h1].revenue.operate.startingADR', 'Asset: Hotel', 'revenue.operate.startingADR', 900), 'Starting ADR', 'revenue', true);
 expectLabel(F('assets[id=h1].opex.defaultIndexation.rate', 'Asset: Hotel', 'opex.defaultIndexation.rate', 0.03), 'Opex inflation', 'opex', true);
 expectLabel(F('project.name', 'Project', 'name', 'X', 'string'), 'Name', 'project', false);

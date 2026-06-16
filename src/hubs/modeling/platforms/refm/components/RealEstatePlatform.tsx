@@ -161,8 +161,8 @@ interface SidebarNavItem {
 // component so legacy deep links and ProjectsScreen.setActiveModule
 // ('overview') calls keep working.
 const STATIC_NAV: readonly SidebarNavItem[] = [
+  // Projects tab removed (2026-06-16): the Dashboard hub replaces it.
   { key: 'dashboard', icon: '📊', label: 'Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
-  { key: 'projects', icon: '🏗️', label: 'Projects', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
 ];
 
 export const sidebarModules: readonly SidebarNavItem[] = [
@@ -479,7 +479,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveProjectId(projectId);
     writeActiveProjectId(projectId);
     setActiveTab('project-phases');
-    setActiveModule('module1');
+    setActiveModule('overview'); // opening a project lands on its Overview
     setHasUnsaved(false);
     setActiveVersionId(res.versionId ?? null);
     setEditingVersionLabel(null);
@@ -535,7 +535,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     if (activeProjectId) clearCachedSnapshot(activeProjectId);
     writeActiveProjectId(null);
     useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE });
-    setActiveModule('projects');
+    setActiveModule('dashboard'); // Projects tab removed; close returns to the Dashboard hub
     setHasUnsaved(false);
     setLastSavedAt(null);
   }, [activeProjectId]);
@@ -549,7 +549,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveProjectId(projectId);
     setActiveVersionId(versionId);
     setActiveTab('project-phases');
-    setActiveModule('module1');
+    setActiveModule('overview'); // loading a version lands on its Overview
     setHasUnsaved(false);
     // Phase M-Versioning: loadVersionInto re-anchors sessionBase to
     // the loaded version. Clear the editing label so the next edit

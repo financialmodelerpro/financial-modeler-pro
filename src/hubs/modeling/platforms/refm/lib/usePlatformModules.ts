@@ -53,8 +53,9 @@ export interface FetchedModule {
 }
 
 const STATIC_NAV: readonly SidebarNavItem[] = [
+  // Projects tab removed (2026-06-16): the Dashboard hub (project cards + New
+  // Project) fully replaces it.
   { key: 'dashboard', icon: '📊', label: 'Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
-  { key: 'projects', icon: '🏗️', label: 'Projects', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
   { key: 'overview', icon: '📋', label: 'Overview', featureKey: null, requiredPlan: null, badge: null, badgeClass: '', disabledReason: 'Select a project first' },
 ];
 

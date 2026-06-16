@@ -27,7 +27,7 @@ import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverrid
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
-  isAppliedValue, groupAssumptionRows, inactiveLeverReason,
+  isAppliedValue, groupAssumptionRows, inactiveLeverReason, isPerPeriodLever,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
@@ -185,8 +185,13 @@ export default function Module6Scenarios(): React.JSX.Element {
     return Object.keys(buildOverrides(s.baseSnapshot, applyOverrides(s.baseSnapshot, c.overrides ?? {}))).length;
   };
 
-  // ── Field catalog: only fields that round-trip the diff grammar. ──
-  const fields = useMemo(() => enumerateOverridableFields(s.baseSnapshot), [s.baseSnapshot]);
+  // ── Field catalog: only fields that round-trip the diff grammar. Per-period
+  // levers (e.g. sub-unit occupancy) are dropped: they cannot work as a single
+  // value override, so they belong in neither the picker nor the curated view. ──
+  const fields = useMemo(
+    () => enumerateOverridableFields(s.baseSnapshot).filter((f) => !isPerPeriodLever(f.field)),
+    [s.baseSnapshot],
+  );
   const fieldByPath = useMemo(() => new Map(fields.map((f) => [f.path, f])), [fields]);
   const [search, setSearch] = useState('');
   const [selectedPath, setSelectedPath] = useState('');

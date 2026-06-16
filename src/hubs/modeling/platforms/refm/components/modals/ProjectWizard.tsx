@@ -127,8 +127,9 @@ export default function ProjectWizard({
         justifyContent: 'center',
         zIndex: 9999,
       }}
-      onClick={onClose}
     >
+      {/* No backdrop-click close: the New Project modal dismisses only via the X
+          button or a successful Create, to prevent accidental work loss. */}
       <div
         style={{
           background: 'var(--color-bg)',
@@ -139,7 +140,6 @@ export default function ProjectWizard({
           maxHeight: '90vh',
           overflow: 'auto',
         }}
-        onClick={(e) => e.stopPropagation()}
         data-testid="project-wizard-body"
       >
         <div
