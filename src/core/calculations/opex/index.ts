@@ -26,6 +26,7 @@ export {
   defaultLeaseOpexLines,
   defaultHQOpexLines,
   defaultOpexIndexation,
+  normalizeOpexIndexation,
 } from './defaults';
 export { buildAccountsPayable } from './accountsPayable';
 export type {

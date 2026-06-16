@@ -26,6 +26,7 @@ import {
   defaultLeaseOpexLines,
   defaultHQOpexLines,
   defaultOpexIndexation,
+  normalizeOpexIndexation,
   type OpexLine,
   type OpexLineCategory,
   type OpexLineMode,
@@ -940,8 +941,7 @@ export default function Module3Opex(): React.JSX.Element {
     return defaultHQOpexLines();
   }, [project.hqOpex]);
   const hqDefaultIndexation: IndexationConfig = useMemo(() => {
-    const stored = project.hqOpex?.defaultIndexation as IndexationConfig | undefined;
-    return stored && stored.method ? stored : defaultOpexIndexation();
+    return normalizeOpexIndexation(project.hqOpex?.defaultIndexation);
   }, [project.hqOpex]);
 
   // M2 Fix (2026-05-20): regenerate ByPhase / ByYear siblings on every
@@ -1037,8 +1037,7 @@ export default function Module3Opex(): React.JSX.Element {
     updateAsset(assetId, { opex: { defaultIndexation: synced, lines: syncLinesByPhase(lines, phaseOffset) } });
   };
   const assetDefaultIndexation = (a: Asset): IndexationConfig => {
-    const stored = a.opex?.defaultIndexation as IndexationConfig | undefined;
-    return stored && stored.method ? stored : defaultOpexIndexation();
+    return normalizeOpexIndexation(a.opex?.defaultIndexation);
   };
 
   const seedAsset = (a: Asset): void => {

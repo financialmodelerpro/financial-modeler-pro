@@ -27,6 +27,30 @@ export function defaultOpexIndexation(): IndexationConfig {
   return { method: 'yoy_compound', rate: 0.03, startYear: 0 };
 }
 
+/**
+ * Coerce a stored / overridden opex indexation config into a usable one.
+ *
+ * A scenario override (Module 6 grid) writes a single leaf, so it can set
+ * `defaultIndexation.rate` while leaving `method` undefined. Such a config used
+ * to be silently dropped: the asset resolver gates on `stored.method` and falls
+ * back to the 3% default, and applyIndexation no-ops when `method` is missing.
+ * Either way an opex-inflation override never reached the engine. So when a
+ * config carries a finite numeric `rate` but no usable `method`, treat it as the
+ * platform-standard YoY compound (with that rate) instead of discarding it.
+ *
+ * A config that already has a `method` is returned unchanged, so existing base
+ * results are unaffected: a method-less-but-rated config only ever arises from
+ * an override, never from the Module 3 pills (which always set a method).
+ */
+export function normalizeOpexIndexation(stored: unknown): IndexationConfig {
+  const cfg = stored as Partial<IndexationConfig> | null | undefined;
+  if (cfg && cfg.method) return cfg as IndexationConfig;
+  if (cfg && typeof cfg.rate === 'number' && Number.isFinite(cfg.rate)) {
+    return { ...defaultOpexIndexation(), ...cfg, method: 'yoy_compound' };
+  }
+  return defaultOpexIndexation();
+}
+
 let _id = 0;
 const nid = (prefix: string): string => `${prefix}-${++_id}-${Math.random().toString(36).slice(2, 8)}`;
 

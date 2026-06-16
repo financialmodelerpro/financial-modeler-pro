@@ -21,6 +21,7 @@ import {
   isAppliedValue, groupAssumptionRows, type GridRowLite,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { deriveLineBaseId } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { normalizeOpexIndexation } from '../src/core/calculations/opex';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
 import { useModule1Store } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { buildExcelSampleState } from './excelSampleState';
@@ -187,6 +188,52 @@ if (contLine) {
   check('curated default EXCLUDES commission (revenue-driven)', !curatedLineIds.has('commission'));
   check('every category in the order list is a valid key', ASSUMPTION_CATEGORY_ORDER.length === 5);
   console.log('Curated key drivers in sample: ' + curated.map((f) => describeAssumption(f).label).join(', '));
+}
+
+// ── Opex inflation override flows to opex -> NOI -> IRR (dead-override fix) ───
+// Regression guard for the Module 6 audit (2026-06-16): a scenario override that
+// writes only the `defaultIndexation.rate` leaf (no `method`) used to be silently
+// discarded by the asset / HQ resolver, so opex inflation never moved a number.
+console.log('\n=== Opex inflation override flows to results ===');
+{
+  // The normalizer is the wiring fix: a rate-only config becomes YoY compound,
+  // a config that already carries a method is returned untouched, and an empty
+  // config falls back to the 3% default (so base results never shift).
+  const rateOnly = normalizeOpexIndexation({ rate: 0.05 } as any);
+  check('normalizeOpexIndexation coerces a rate-only override to YoY compound', rateOnly.method === 'yoy_compound' && Math.abs((rateOnly.rate ?? 0) - 0.05) < 1e-12, JSON.stringify(rateOnly));
+  const withMethod = normalizeOpexIndexation({ method: 'single_rate', rate: 0.07 } as any);
+  check('normalizeOpexIndexation leaves a method-bearing config unchanged', withMethod.method === 'single_rate' && Math.abs((withMethod.rate ?? 0) - 0.07) < 1e-12, JSON.stringify(withMethod));
+  const empty = normalizeOpexIndexation(undefined);
+  check('normalizeOpexIndexation falls back to the 3% default when no rate', empty.method === 'yoy_compound' && Math.abs((empty.rate ?? 0) - 0.03) < 1e-12, JSON.stringify(empty));
+
+  const sumOpex = (m: any): number => { const s = computeFinancialsSnapshot(m); return (s.pl.totalOpexPerPeriod ?? []).reduce((a: number, v: number) => a + (v ?? 0), 0); };
+  const opexAsset = (base.assets as any[]).find((a) => a.strategy === 'Operate' || a.strategy === 'Lease');
+  check('sample carries an opex-bearing (Operate / Lease) asset', !!opexAsset);
+  if (opexAsset) {
+    // Write the bare `.rate` leaf exactly as the grid does, with no method, on
+    // an asset whose opex block is unseeded -> this is the precise dead case.
+    const opexPath = `assets[id=${opexAsset.id}].opex.defaultIndexation.rate`;
+    const baseOpex = sumOpex(base);
+    const baseIrrO = irrOf(base);
+    const scen = applyOverrides(base, { [opexPath]: 0.08 });
+    // The override is a rate-only object (method-less) on the cloned model.
+    const injected = getByPath(scen as any, `assets[id=${opexAsset.id}].opex.defaultIndexation`);
+    check('grid-style override writes a rate-only defaultIndexation (no method)', !!injected && (injected as any).method === undefined && Math.abs((injected as any).rate - 0.08) < 1e-12, JSON.stringify(injected));
+    const scenOpex = sumOpex(scen);
+    const scenIrrO = irrOf(scen);
+    check('opex inflation override (3%->8%) raises total opex', scenOpex > baseOpex + 1, `baseOpex=${Math.round(baseOpex)} scenOpex=${Math.round(scenOpex)}`);
+    check('opex inflation override moves project IRR (non-zero)', baseIrrO === null || scenIrrO === null || Math.abs((scenIrrO ?? 0) - (baseIrrO ?? 0)) > 1e-9, `baseIRR=${baseIrrO} scenIRR=${scenIrrO}`);
+    check('base opex is unchanged after the override (base never mutated)', Math.abs(sumOpex(base) - baseOpex) < 1e-6);
+  }
+
+  // HQ opex inflation is the larger fixed-cost lever; the same rate-only path.
+  const hqOpex = (base.project as any).hqOpex;
+  if (hqOpex) {
+    const sumOpex2 = (m: any): number => { const s = computeFinancialsSnapshot(m); return (s.pl.totalOpexPerPeriod ?? []).reduce((a: number, v: number) => a + (v ?? 0), 0); };
+    const baseHq = sumOpex2(base);
+    const scenHq = sumOpex2(applyOverrides(base, { 'project.hqOpex.defaultIndexation.rate': 0.10 }));
+    check('HQ opex inflation override (rate-only) raises total opex', scenHq > baseHq + 1, `base=${Math.round(baseHq)} scen=${Math.round(scenHq)}`);
+  }
 }
 
 // ── Percent-scale detection + format / parse round-trip ──────────────────────

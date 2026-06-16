@@ -19,7 +19,7 @@ import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
-  defaultOpexIndexation,
+  normalizeOpexIndexation,
   type AccountsPayableResult,
   type AssetOpexInputs,
   type AssetOpexResult,
@@ -87,15 +87,12 @@ function resolveAssetOpexLines(asset: Asset): OpexLine[] {
   return [];
 }
 
-/** Resolve the asset-level inflation default. Stored config wins; when
- *  absent (legacy snapshots / fresh assets) we seed with the same 3%
- *  YoY compound the engine has always used for fixed-cost lines. */
+/** Resolve the asset-level inflation default. Stored config (with a method)
+ *  wins; an override that set only `rate` is coerced to YoY compound so it
+ *  reaches the engine; otherwise (legacy snapshots / fresh assets) we seed with
+ *  the same 3% YoY compound the engine has always used for fixed-cost lines. */
 function resolveAssetDefaultIndexation(asset: Asset): IndexationConfig {
-  const stored = asset.opex?.defaultIndexation;
-  if (stored && stored.method) {
-    return stored as IndexationConfig;
-  }
-  return defaultOpexIndexation();
+  return normalizeOpexIndexation(asset.opex?.defaultIndexation);
 }
 
 /**
@@ -350,8 +347,7 @@ export function computeAllOpexResults(
         return next;
       })
     : defaultHQOpexLines();
-  const hqDefaultIdxRaw: IndexationConfig = (project.hqOpex?.defaultIndexation as IndexationConfig | undefined)
-    ?? defaultOpexIndexation();
+  const hqDefaultIdxRaw: IndexationConfig = normalizeOpexIndexation(project.hqOpex?.defaultIndexation);
   const hqDefaultIdxStored = project.hqOpex?.defaultIndexation as { growthPerPeriodByYear?: Record<string, number>; growthPerPeriod?: number[] } | undefined;
   const hqDefaultIdx: IndexationConfig = hqDefaultIdxRaw.method === 'yoy_per_period'
     ? {
