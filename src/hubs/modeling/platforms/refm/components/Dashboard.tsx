@@ -1,17 +1,21 @@
 'use client';
 
 /**
- * Dashboard.tsx (2026-06-16 rebuild)
+ * Dashboard.tsx (2026-06-16 rebuild; visual design pass 2026-06-16b)
  *
  * The all-projects HUB and the platform landing view. Project-AGNOSTIC: it does
  * NOT read the open-project store and is identical whether or not a project is
  * open. Distinct from Overview (the investor summary of the single open
  * project, in Overview.tsx).
  *
- * Sections: portfolio stat tiles (counts across all projects), recent activity
- * (recently updated projects), and the projects list (open / create). Deeper
- * cross-project financial roll-up is the Portfolio module's territory; the
- * per-project summaries here carry no computed financials.
+ * Styling matches the platform design system (navy / gold palette, kpi-card
+ * pattern, section labels, card hover-lift). Portfolio KPIs + project cards use
+ * the per-project SUMMARY fields that are loaded here (status, market, asset
+ * mix, versions, last edited). Cross-project FINANCIAL roll-up (aggregate GDV /
+ * dev cost / funding, per-card IRR) is intentionally NOT shown: those require
+ * loading + computing every project's snapshot, which is a data/logic step the
+ * "visual only" scope of this pass excludes. That belongs with the Portfolio
+ * module.
  */
 
 import React from 'react';
@@ -50,31 +54,38 @@ function relativeTime(iso: string): string {
   return `${yr} year${yr === 1 ? '' : 's'} ago`;
 }
 
-const STATUS_COLOR: Record<StorageProject['status'], { bg: string; fg: string }> = {
-  Draft:       { bg: 'color-mix(in srgb, var(--color-meta) 14%, transparent)',    fg: 'var(--color-meta)' },
-  Active:      { bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)', fg: 'var(--color-success)' },
-  'IC Review': { bg: 'color-mix(in srgb, var(--color-navy) 14%, transparent)',    fg: 'var(--color-navy)' },
-  Approved:    { bg: 'color-mix(in srgb, var(--color-primary) 14%, transparent)', fg: 'var(--color-primary, #1d4ed8)' },
-  Archived:    { bg: 'color-mix(in srgb, var(--color-warning) 16%, transparent)', fg: 'var(--color-warning)' },
+// Status -> brand accent + badge tint (navy / green / gold from the palette).
+const STATUS_META: Record<StorageProject['status'], { accent: string; bg: string; fg: string }> = {
+  Draft:       { accent: 'var(--color-grey-light)', bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-mid)' },
+  Active:      { accent: 'var(--color-green)',       bg: 'var(--color-green-light)', fg: 'var(--color-green-dark)' },
+  'IC Review': { accent: 'var(--color-gold)',        bg: 'var(--color-gold-light)',  fg: 'var(--color-gold-dark)' },
+  Approved:    { accent: 'var(--color-navy)',        bg: 'var(--color-navy-light)',  fg: 'var(--color-navy)' },
+  Archived:    { accent: 'var(--color-grey-mid)',    bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-mid)' },
 };
 
 function StatusBadge({ status }: { status: StorageProject['status'] }): React.JSX.Element {
-  const c = STATUS_COLOR[status] ?? STATUS_COLOR.Draft;
+  const m = STATUS_META[status] ?? STATUS_META.Draft;
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: c.bg, color: c.fg }}>
+    <span style={{ fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 9px', borderRadius: 'var(--radius-pill)', background: m.bg, color: m.fg }}>
       {status}
     </span>
   );
 }
 
-const card: React.CSSProperties = { border: '1px solid var(--color-border)', borderRadius: 10, background: 'var(--color-surface, #fff)' };
-const sectionTitle: React.CSSProperties = { fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-meta)', margin: '0 0 10px' };
+const sectionLabel: React.CSSProperties = {
+  fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.06em',
+  textTransform: 'uppercase', color: 'var(--color-meta)', margin: '0 0 var(--sp-2)',
+};
 
-function StatTile({ label, value }: { label: string; value: string | number }): React.JSX.Element {
+// Brand-accented KPI tile (reuses the .kpi-card design language).
+function Kpi({ label, value, accent }: { label: string; value: string | number; accent: string }): React.JSX.Element {
   return (
-    <div style={{ ...card, padding: 'var(--sp-2)' }}>
-      <div style={{ fontSize: 11, color: 'var(--color-meta)', fontWeight: 600, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--color-heading)', lineHeight: 1 }}>{value}</div>
+    <div className="kpi-card">
+      <div className="kpi-card__accent" style={{ background: accent }} />
+      <div className="kpi-card__body">
+        <div className="kpi-card__label">{label}</div>
+        <div className="kpi-card__value">{value}</div>
+      </div>
     </div>
   );
 }
@@ -87,7 +98,7 @@ export default function Dashboard({
   const projects = Object.entries(storage.projects).map(([id, p]) => ({ id, ...p }));
   const total = projects.length;
   const byStatus = (s: StorageProject['status']): number => projects.filter((p) => p.status === s).length;
-  const totalVersions = projects.reduce((acc, p) => acc + (p.versionCount ?? 0), 0);
+  const markets = new Set(projects.map((p) => (p.location || '').trim()).filter(Boolean)).size;
   const recent = [...projects]
     .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
     .slice(0, 5);
@@ -95,79 +106,98 @@ export default function Dashboard({
   return (
     <div style={{ padding: 'var(--sp-3)', width: '100%' }} data-testid="dashboard">
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 'var(--sp-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 'var(--sp-3)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--font-h1)', fontWeight: 800, color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em' }}>Dashboard</h1>
-          <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-small)', marginTop: 6, marginBottom: 0 }}>
-            All your projects. Open one to unlock its modules and Overview.
+          <h1 style={{ fontSize: 'var(--font-h1)', fontWeight: 700, color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em' }}>Dashboard</h1>
+          <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', marginTop: 6, marginBottom: 0 }}>
+            Your project portfolio. Open a project to unlock its modules and Overview.
           </p>
         </div>
-        <button type="button" onClick={onCreateProject} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-2)' }} data-testid="dashboard-create">
+        <button type="button" onClick={onCreateProject} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-3)', fontWeight: 700 }} data-testid="dashboard-create">
           + New Project
         </button>
       </div>
 
       {total === 0 ? (
-        <div style={{ ...card, padding: 'var(--sp-4)', textAlign: 'center', border: '1px dashed var(--color-border)' }} data-testid="dashboard-empty">
-          <div style={{ fontSize: '2.5rem', marginBottom: 'var(--sp-1)' }}>🏗️</div>
-          <div style={{ fontWeight: 700, color: 'var(--color-heading)', marginBottom: 6 }}>No projects yet</div>
-          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
-            Create your first model to get started.
+        <div className="card" style={{ padding: 'var(--sp-5)', textAlign: 'center', border: '1px dashed var(--color-border)', background: 'var(--color-navy-pale)' }} data-testid="dashboard-empty">
+          <div style={{ fontSize: '2.75rem', marginBottom: 'var(--sp-1)' }}>🏗️</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--font-section)', color: 'var(--color-heading)', marginBottom: 6 }}>Start your first model</div>
+          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginBottom: 'var(--sp-3)', maxWidth: 420, marginLeft: 'auto', marginRight: 'auto' }}>
+            Create a project to build its feasibility model, then return here to compare your whole portfolio at a glance.
           </div>
-          <button type="button" onClick={onCreateProject} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-2)' }}>+ New Project</button>
+          <button type="button" onClick={onCreateProject} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-3)', fontWeight: 700 }}>+ New Project</button>
         </div>
       ) : (
         <>
-          {/* ── Portfolio stats ── */}
-          <div style={sectionTitle}>Portfolio</div>
+          {/* ── Portfolio KPIs (composition + pipeline; no weak "versions" stat) ── */}
+          <div style={sectionLabel}>Portfolio</div>
           <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 'var(--sp-3)' }}>
-            <StatTile label="Projects" value={total} />
-            <StatTile label="Active" value={byStatus('Active')} />
-            <StatTile label="Draft" value={byStatus('Draft')} />
-            <StatTile label="Approved" value={byStatus('Approved')} />
-            <StatTile label="Saved versions" value={totalVersions} />
+            <Kpi label="Projects" value={total} accent="var(--color-navy)" />
+            <Kpi label="Active" value={byStatus('Active')} accent="var(--color-green)" />
+            <Kpi label="In Review" value={byStatus('IC Review')} accent="var(--color-gold)" />
+            <Kpi label="Approved" value={byStatus('Approved')} accent="var(--color-navy-mid)" />
+            <Kpi label="Markets" value={markets} accent="var(--color-navy-dark)" />
           </div>
 
           {/* ── Recent activity ── */}
-          <div style={sectionTitle}>Recent activity</div>
-          <div style={{ ...card, marginBottom: 'var(--sp-3)' }} data-testid="dashboard-recent">
+          <div style={sectionLabel}>Recent activity</div>
+          <div className="card" style={{ marginBottom: 'var(--sp-3)', overflow: 'hidden' }} data-testid="dashboard-recent">
             {recent.map((p, i) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => onSelectProject(p.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i === 0 ? 'none' : '1px solid var(--color-border)', cursor: 'pointer' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-light)', cursor: 'pointer' }}
               >
-                <span style={{ fontWeight: 600, color: 'var(--color-heading)', fontSize: 13 }}>{p.name}</span>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: (STATUS_META[p.status] ?? STATUS_META.Draft).accent, flexShrink: 0 }} />
+                <span style={{ fontWeight: 600, color: 'var(--color-heading)', fontSize: 'var(--font-body)' }}>{p.name}</span>
                 <StatusBadge status={p.status} />
                 <div style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{relativeTime(p.lastModified)}</span>
+                <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{relativeTime(p.lastModified)}</span>
               </button>
             ))}
           </div>
 
-          {/* ── Projects list ── */}
-          <div style={sectionTitle}>All projects</div>
-          <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }} data-testid="dashboard-projects">
-            {projects.map((p) => (
-              <div key={p.id} style={{ ...card, padding: 'var(--sp-2)', display: 'flex', flexDirection: 'column', gap: 8 }} data-testid={`dashboard-project-${p.id}`}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--color-heading)', fontSize: 14, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                  <StatusBadge status={p.status} />
+          {/* ── Projects ── */}
+          <div style={sectionLabel}>All projects</div>
+          <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }} data-testid="dashboard-projects">
+            {projects.map((p) => {
+              const m = STATUS_META[p.status] ?? STATUS_META.Draft;
+              const tags = p.assetMix.slice(0, 4);
+              return (
+                <div key={p.id} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }} data-testid={`dashboard-project-${p.id}`}>
+                  <div style={{ height: 4, background: m.accent }} />
+                  <div style={{ padding: 'var(--sp-2)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-heading)', fontSize: 'var(--font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                      <StatusBadge status={p.status} />
+                    </div>
+                    <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>📍</span>{p.location || 'No market set'}
+                    </div>
+                    {tags.length > 0 && (
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }}>
+                        {tags.map((t) => (
+                          <span key={t} style={{ fontSize: 'var(--font-micro)', color: 'var(--color-navy)', background: 'var(--color-navy-light)', padding: '2px 8px', borderRadius: 'var(--radius-pill)' }}>{t}</span>
+                        ))}
+                        {p.assetMix.length > tags.length && (
+                          <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>+{p.assetMix.length - tags.length}</span>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'var(--sp-1)', paddingTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border-light)' }}>
+                      <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', flex: 1 }}>
+                        {(p.versionCount ?? 0)} version{(p.versionCount ?? 0) === 1 ? '' : 's'} · {relativeTime(p.lastModified)}
+                      </span>
+                      <button type="button" onClick={() => onSelectProject(p.id)} className="btn-primary" style={{ padding: '5px 16px', fontSize: 'var(--font-meta)', fontWeight: 700 }} data-testid={`dashboard-open-${p.id}`}>
+                        Open
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-                  {p.location || 'No location'}{p.assetMix.length > 0 ? ` · ${p.assetMix.slice(0, 3).join(', ')}` : ''}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--color-meta)', flex: 1 }}>
-                    {(p.versionCount ?? 0)} version{(p.versionCount ?? 0) === 1 ? '' : 's'} · {relativeTime(p.lastModified)}
-                  </span>
-                  <button type="button" onClick={() => onSelectProject(p.id)} className="btn-secondary" style={{ padding: '4px 12px', fontSize: 12 }} data-testid={`dashboard-open-${p.id}`}>
-                    Open
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
