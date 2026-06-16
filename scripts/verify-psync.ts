@@ -22,6 +22,11 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execSync } from 'node:child_process';
+import {
+  REFM_PLATFORM_SLUG,
+  toSidebarNavList,
+  type FetchedModule,
+} from '../src/hubs/modeling/platforms/refm/lib/usePlatformModules';
 
 const REPO_ROOT = resolve(__dirname, '..');
 
@@ -96,18 +101,38 @@ for (const f of routeFiles) {
   else fail('route file', `${f} missing`);
 }
 
-// Smoke-check: public list endpoint returns JSON when dev server up.
+// Smoke-check: the LIVE platform read path (same slug the workspace sidebar
+// uses) returns admin-written rows, ordered by display_order and with Hidden
+// excluded. This is the empirical guard the prior fix lacked: it exercises the
+// real endpoint + slug, so a hidden module leaking through, or an empty result
+// (wrong slug -> static fallback), fails here rather than passing green.
 let devServerUp = false;
 try {
-  const code = execSync('curl -s -o NUL -w "%{http_code}" http://localhost:3000/api/platforms/refm/modules', {
-    timeout: 4000,
-    encoding: 'utf8',
-  }).trim();
-  devServerUp = code === '200';
-  if (devServerUp) pass(`/api/platforms/refm/modules HTTP ${code}`);
-  else skip('public list endpoint', `HTTP ${code} (dev server may be down)`);
+  const url = `http://localhost:3000/api/platforms/${REFM_PLATFORM_SLUG}/modules`;
+  const body = execSync(`curl -s "${url}"`, { timeout: 4000, encoding: 'utf8' }).trim();
+  let parsed: { modules?: Array<{ status?: string; display_order?: number }> } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.modules ?? null;
+  if (!rows) {
+    skip('live platform read path', 'dev server not reachable / non-JSON');
+  } else {
+    devServerUp = true;
+    pass(`live read path reachable (${REFM_PLATFORM_SLUG}, ${rows.length} modules)`);
+    if (rows.length === 0) {
+      fail('live read path non-empty', `0 rows for slug '${REFM_PLATFORM_SLUG}' (wrong slug -> sidebar would fall back to the hardcoded static list)`);
+    } else {
+      pass('live read path non-empty (sidebar uses DB, not static fallback)');
+    }
+    const anyHidden = rows.some((r) => r.status === 'hidden');
+    if (anyHidden) fail('live read path excludes Hidden', 'a hidden module is present in the public list');
+    else pass('live read path excludes Hidden modules');
+    const orders = rows.map((r) => r.display_order ?? 0);
+    const sorted = orders.every((v, i) => i === 0 || orders[i - 1] <= v);
+    if (sorted) pass('live read path ordered by display_order (admin reorder propagates)');
+    else fail('live read path ordered by display_order', `out of order: ${orders.join(',')}`);
+  }
 } catch {
-  skip('public list endpoint', 'dev server not reachable');
+  skip('live platform read path', 'dev server not reachable');
 }
 
 try {
@@ -159,6 +184,61 @@ if (!existsSync(join(REPO_ROOT, libPath))) {
   }
 }
 
+// ── Section 3b: Platform read path (slug match + transform) ───────────────
+// The bug the prior fix missed: admin WRITES platform_slug='real-estate' (seed +
+// admin), but the workspace READ 'refm' -> empty -> hardcoded static fallback
+// (ignores order + visibility). These checks lock read slug == write slug and
+// verify the pure transform that turns DB rows into the sidebar list.
+console.log('\n[3b/5] Platform read path');
+
+{
+  const seedSql = existsSync(join(REPO_ROOT, sqlPath)) ? read(sqlPath) : '';
+  if (REFM_PLATFORM_SLUG === 'real-estate') pass(`read slug is the legacy platform slug ('${REFM_PLATFORM_SLUG}')`);
+  else fail('read slug', `REFM_PLATFORM_SLUG='${REFM_PLATFORM_SLUG}', expected 'real-estate'`);
+
+  if (seedSql.includes(`('${REFM_PLATFORM_SLUG}', 'project-setup', 1,`)) {
+    pass('read slug matches the migration WRITE/seed slug (no read/write disconnect)');
+  } else {
+    fail('read slug matches seed slug', `migration does not seed platform_slug='${REFM_PLATFORM_SLUG}'`);
+  }
+
+  // Pure transform: hidden excluded, ordered by display_order, stable number key,
+  // position-based label, Coming Soon visible-but-locked.
+  const fixture: FetchedModule[] = [
+    { slug: 'b', number: 2, name: 'B', short_name: 'Bravo', description: '', icon_emoji: null, status: 'live',        gating_tier: 'free', display_order: 1 },
+    { slug: 'a', number: 1, name: 'A', short_name: 'Alpha', description: '', icon_emoji: null, status: 'live',        gating_tier: 'free', display_order: 0 },
+    { slug: 'h', number: 3, name: 'H', short_name: 'Hidden', description: '', icon_emoji: null, status: 'hidden',      gating_tier: 'free', display_order: 2 },
+    { slug: 'c', number: 5, name: 'C', short_name: 'Soon', description: '', icon_emoji: null, status: 'coming_soon', gating_tier: 'free', display_order: 3 },
+  ];
+  const nav = toSidebarNavList(fixture);
+  const keys = nav.map((n) => n.key);
+
+  if (!keys.includes('module3')) pass('transform DROPS hidden modules (module3 absent)');
+  else fail('transform drops hidden', `hidden module leaked: keys=${keys.join(',')}`);
+
+  if (keys.length === 3) pass('transform keeps the 3 non-hidden modules');
+  else fail('transform count', `expected 3, got ${keys.length}`);
+
+  if (JSON.stringify(keys) === JSON.stringify(['module1', 'module2', 'module5'])) {
+    pass('transform orders by display_order with stable number keys');
+  } else {
+    fail('transform order', `keys=${keys.join(',')} (expected module1,module2,module5)`);
+  }
+
+  if (nav[0]?.label.includes('Module 1') && nav[2]?.label.includes('Module 3')) {
+    pass('transform labels by 1-based position (key stays the stable number)');
+  } else {
+    fail('transform position label', `labels=${nav.map((n) => n.label).join(' | ')}`);
+  }
+
+  const soon = nav.find((n) => n.key === 'module5');
+  if (soon && soon.disabled === true && soon.badge === 'SOON') {
+    pass('Coming Soon stays visible-but-locked (disabled + SOON badge)');
+  } else {
+    fail('Coming Soon visible-but-locked', `got disabled=${soon?.disabled} badge=${soon?.badge}`);
+  }
+}
+
 // ── Section 4: Source-file markers ────────────────────────────────────────
 console.log('\n[4/5] Source-file markers');
 
@@ -183,7 +263,8 @@ const markers: Marker[] = [
   { label: 'Sidebar: STATIC_SIDEBAR_MODULES',    path: 'src/hubs/modeling/platforms/refm/lib/usePlatformModules.ts', needle: 'export const STATIC_SIDEBAR_MODULES' },
   { label: 'Sidebar: fetchedToNav mapper',       path: 'src/hubs/modeling/platforms/refm/lib/usePlatformModules.ts', needle: 'function fetchedToNav' },
   { label: 'Sidebar: accepts modules prop',      path: 'src/hubs/modeling/platforms/refm/components/Sidebar.tsx',    needle: 'modules?: readonly SidebarNavItem[]' },
-  { label: 'RealEstatePlatform: hook wired',     path: 'src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', needle: "usePlatformModules('refm')" },
+  { label: 'RealEstatePlatform: hook wired to REFM_PLATFORM_SLUG (not hardcoded refm)', path: 'src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', needle: 'usePlatformModules(REFM_PLATFORM_SLUG)' },
+  { label: 'RealEstatePlatform: hidden module routing guard', path: 'src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', needle: 'visibleModuleKeys.has(activeModule)' },
   { label: 'RealEstatePlatform: prop threaded',  path: 'src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', needle: 'modules={dynamicSidebarModules}' },
   // Marketing pages
   { label: 'Marketing: overview platforms-grid', path: 'app/modeling-hub/page.tsx',                     needle: 'data-testid="platforms-grid"' },

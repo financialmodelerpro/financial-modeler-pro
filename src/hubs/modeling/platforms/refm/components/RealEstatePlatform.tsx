@@ -76,7 +76,7 @@ import { buildPlatformGuide } from '../lib/guide/platformGuide';
 
 import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import { MODULES } from '../lib/modules-config';
-import { usePlatformModules } from '../lib/usePlatformModules';
+import { usePlatformModules, REFM_PLATFORM_SLUG } from '../lib/usePlatformModules';
 
 // ── StorageShape (consumer contract for ProjectsScreen / Dashboard / Overview) ──
 export interface StorageProject {
@@ -290,7 +290,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // P-Sync: dynamic platform modules from /api/platforms/refm/modules.
   // Falls back to static MODULES list while in flight.
-  const { modules: dynamicSidebarModules } = usePlatformModules('refm');
+  const { modules: dynamicSidebarModules } = usePlatformModules(REFM_PLATFORM_SLUG);
 
   // Subscription / plan gating. Free modules are always accessible;
   // pro / enterprise modules stay locked behind the upgrade prompt

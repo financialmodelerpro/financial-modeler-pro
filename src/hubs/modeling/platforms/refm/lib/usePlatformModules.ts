@@ -17,6 +17,17 @@
 import { useEffect, useState } from 'react';
 import { MODULES, type ModuleConfig } from './modules-config';
 
+/**
+ * The platform slug the REFM workspace reads its modules under. This is the
+ * LEGACY `modules.slug` ('real-estate'), which is ALSO what the admin panel
+ * writes to (admin's activePlatformSlug) and what the migration seeds. The
+ * earlier P-Sync code read 'refm' here, which has no rows, so the fetch came
+ * back empty and the sidebar silently fell back to the hardcoded static list,
+ * ignoring admin order + visibility. Read and write MUST use the same slug.
+ * verify-psync asserts this equals the migration seed slug.
+ */
+export const REFM_PLATFORM_SLUG = 'real-estate';
+
 export interface SidebarNavItem {
   key: string;
   icon: string;
@@ -29,7 +40,7 @@ export interface SidebarNavItem {
   disabledReason?: string;
 }
 
-interface FetchedModule {
+export interface FetchedModule {
   slug: string;
   number: number;
   name: string;
@@ -107,6 +118,23 @@ export const STATIC_SIDEBAR_MODULES: readonly SidebarNavItem[] = [
 ];
 
 /**
+ * Pure transform: DB module rows -> ordered sidebar nav items. The single source
+ * of truth for HOW admin data renders on the platform, so it can be unit-tested
+ * (verify-psync) without the network. Hidden modules are dropped (defence in
+ * depth: the public API already excludes them, but a hidden module must NEVER
+ * reach the sidebar even if the API shape changes). Order follows display_order
+ * (admin-reorderable), number is the stable tiebreak; the 1-based position drives
+ * the displayed module number.
+ */
+export function toSidebarNavList(fetched: readonly FetchedModule[]): SidebarNavItem[] {
+  return fetched
+    .filter((m) => m.status !== 'hidden')
+    .slice()
+    .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
+    .map((m, i) => fetchedToNav(m, i + 1));
+}
+
+/**
  * Returns the live sidebar module list for a given platform slug, with the
  * static MODULES list as a synchronous initial render so the sidebar never
  * blanks. On fetch success, dynamic data replaces it.
@@ -129,13 +157,7 @@ export function usePlatformModules(platformSlug: string): {
           setLoaded(true);
           return;
         }
-        // Order by display_order (admin-reorderable), number as a stable
-        // tiebreak; the 1-based position drives the displayed module number.
-        const navFromDb = (j.modules as FetchedModule[])
-          .slice()
-          .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
-          .map((m, i) => fetchedToNav(m, i + 1));
-        setModules([...STATIC_NAV, ...navFromDb]);
+        setModules([...STATIC_NAV, ...toSidebarNavList(j.modules as FetchedModule[])]);
         setLoaded(true);
       })
       .catch(() => {
