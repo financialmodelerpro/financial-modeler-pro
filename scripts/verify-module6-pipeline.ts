@@ -127,7 +127,17 @@ const m3: any = { project: { financing: { fundingMethod: 3 } } };
 const m1: any = { project: { financing: { fundingMethod: 1 } } };
 check('Debt % inactive under funding method 3 (gap-sized)', !!inactiveLeverReason('project.financing.fixedRatio.debtPct', m3));
 check('Debt % ACTIVE under funding method 1', inactiveLeverReason('project.financing.fixedRatio.debtPct', m1) === null);
-check('Tranche interest inactive under fixed-ratio (method 1)', !!inactiveLeverReason('financingTranches[id=t1].interestRatePct', m1));
+// Interest-rate lever (corrected): the engine reads the effective-rate
+// COMPONENTS (interbank rate + credit spread) when present and ignores the single
+// interestRatePct, so that single field is gated only on a facility WITH
+// components; the components themselves are live levers (they drive interest cost
+// on drawn debt regardless of the funding/sizing method). A legacy facility with
+// no components keeps interestRatePct as its live rate lever.
+const mTrancheComponents: any = { project: { financing: { fundingMethod: 1 } }, financingTranches: [{ id: 't1', interbankRatePct: 5.5, creditSpreadPct: 2, interestRatePct: 7.5 }] };
+const mTrancheLegacy: any = { project: { financing: { fundingMethod: 1 } }, financingTranches: [{ id: 't1', interestRatePct: 7.5 }] };
+check('Single interestRatePct gated when the facility has rate components', !!inactiveLeverReason('financingTranches[id=t1].interestRatePct', mTrancheComponents));
+check('Interbank-rate component is a LIVE lever (drives interest cost)', inactiveLeverReason('financingTranches[id=t1].interbankRatePct', mTrancheComponents) === null);
+check('Single interestRatePct is LIVE on a facility without components', inactiveLeverReason('financingTranches[id=t1].interestRatePct', mTrancheLegacy) === null);
 const mOcc: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate' }], subUnits: [{ id: 'k', assetId: 'h', occupancyPct: 65 }] };
 check('Occupancy % inactive on an Operate (hospitality) asset', !!inactiveLeverReason('subUnits[id=k].occupancyPct', mOcc));
 const mOpexPct: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'pct_of_total_rev' }] } }] };

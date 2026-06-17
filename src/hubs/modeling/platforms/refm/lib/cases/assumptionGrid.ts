@@ -111,6 +111,8 @@ const FIELD_LABELS: Record<string, string> = {
 const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
   [/debtPct$/, 'Debt %'],
   [/equityPct$/, 'Equity %'],
+  [/interbankRatePct$/, 'Interest rate (interbank)'],
+  [/creditSpreadPct$/, 'Credit spread'],
   [/interestRatePct$/, 'Interest rate'],
   [/spreadBps$/, 'Spread (bps)'],
   [/\.rate$/, 'Indexation rate'],
@@ -246,7 +248,10 @@ function isCuratedField(f: OverridableField): boolean {
   if (CURATED_LEAVES.has(f.field)) return true;
   // Per-parcel land purchase price (currency / sqm) is a key driver.
   if (f.field === 'rate' && f.path.startsWith('parcels[')) return true;
-  if (/interestRatePct$/.test(f.field) && f.path.startsWith('financingTranches[')) return true;
+  // Interest-rate levers per facility: the effective-rate components (interbank
+  // rate + credit spread) the engine actually reads, plus the legacy single
+  // interestRatePct (live only on facilities without components; otherwise gated).
+  if (/(interbankRatePct|creditSpreadPct|interestRatePct)$/.test(f.field) && f.path.startsWith('financingTranches[')) return true;
   if (/debtPct$/.test(f.field) && f.path.startsWith('project.financing')) return true;
   return false;
 }
@@ -500,11 +505,25 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       return `This parcel is funded ${ft.replace(/_/g, ' ')}; the per-parcel funding split is not the funding driver`;
     }
   }
-  // Explicit tranche terms: debt is sized centrally (by the funding method or
-  // from the existing facilities), so a facility's own terms are not the funding
-  // driver. Method 1 (fixed-ratio) and the gap-sizing methods both size debt
-  // outside the facility's explicit terms.
-  if (/^financingTranches\[[^\]]+\]\.(interestRatePct|baseRate|ltvPct|facilitySharePct|repaymentPeriods|repaymentStartYear|remainingRepaymentPeriods|upfrontFeePct|drawdownStartPeriod|idcCapitalize|autoGenerateIdcCostLine)$/.test(path)
+  // Single interest-rate field: ignored by the engine when the facility carries
+  // rate COMPONENTS (interbank rate + credit spread), which is the effective rate
+  // it reads (schedule.ts). On such facilities the live levers are the interbank
+  // rate + credit spread (surfaced + curated separately), so the single
+  // interestRatePct is a dead control and is gated here. A facility WITHOUT
+  // components still reads interestRatePct, so it stays a live lever there.
+  const irate = /^financingTranches\[id=([^\]]+)\]\.interestRatePct$/.exec(path);
+  if (irate) {
+    const t = ((model as unknown as { financingTranches?: Array<{ id: string; interbankRatePct?: number; creditSpreadPct?: number }> }).financingTranches ?? [])
+      .find((x) => x.id === irate[1]);
+    if (t && (t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined)) {
+      return 'This facility\'s rate is set by the interbank rate + credit spread; the single interest rate field is not used';
+    }
+  }
+  // Other explicit tranche terms: debt is sized centrally (by the funding method
+  // or from the existing facilities), so a facility's own sizing / repayment
+  // terms are not the funding driver. (Interest-rate COMPONENTS are deliberately
+  // NOT here: they drive the interest cost on drawn debt and are live levers.)
+  if (/^financingTranches\[[^\]]+\]\.(baseRate|ltvPct|facilitySharePct|repaymentPeriods|repaymentStartYear|remainingRepaymentPeriods|upfrontFeePct|drawdownStartPeriod|idcCapitalize|autoGenerateIdcCostLine)$/.test(path)
       || /^financingTranches\[[^\]]+\]\.cashSweepConfig\.startingYear$/.test(path)) {
     return fundingMethod === 1
       ? 'Fixed-ratio funding is active; explicit tranche terms are not used'

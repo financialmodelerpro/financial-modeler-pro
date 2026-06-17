@@ -1,13 +1,14 @@
 /**
  * verify-module6-yoy.ts
  *
- * Guards the Module 6 "Year-on-Year Impact" report builder (lib/reports/
- * caseYoYReport.ts) on the LIVE FMP RE HUB snapshot. Asserts that, for each input
- * a scenario overrides, the block shows the driven per-period output for
- * Management + each scenario plus the scenario-vs-Management delta, and that every
- * value ties to the same computeFinancialsSnapshot series the platform renders
- * (no recompute / no engine change). Endpoint-only levers (discount rate) produce
- * no per-period block, and an empty case set yields no blocks (empty state).
+ * Guards the Module 6 "Year-on-Year Impact" report builder on the LIVE FMP RE HUB
+ * snapshot. Asserts, per changed-input block: the input value per case, every
+ * per-period output the input drives (a debt-ratio change shows debt drawdown AND
+ * financing cost; an interest-rate change shows financing cost + balance; revenue
+ * change shows revenue), per-case actuals + deltas, the flow/stock kind (for the
+ * Total column), and the inception (prior) value. Also asserts the axis leads with
+ * the prior year (2025 on FMP RE HUB) like the other modules, and that values tie
+ * to the existing computed series (no recompute).
  *
  * Fixture is gitignored live data; skip-with-notice when absent
  * (refresh: npx tsx scripts/fetch-fmp-re-hub.ts).
@@ -15,9 +16,11 @@
  * Run: npx tsx scripts/verify-module6-yoy.ts
  */
 import { readFileSync, existsSync } from 'node:fs';
-import { buildCaseYoYReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
-import { applyOverrides } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { buildCaseYoYReport, type YoYBlock, type YoYOutput } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
+import { applyOverrides, baseCaseId } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
+import { inactiveLeverReason, curatedDefaultFields, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { ProjectCase } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let passed = 0, failed = 0; const fails: string[] = [];
@@ -25,8 +28,8 @@ function check(label: string, ok: boolean, detail = ''): void {
   if (ok) { passed++; console.log(`  [PASS] ${label}`); }
   else { failed++; fails.push(label); console.log(`  [FAIL] ${label}${detail ? ` :: ${detail}` : ''}`); }
 }
-const seriesEqual = (a: number[], b: number[]) =>
-  a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6 * Math.max(1, Math.abs(b[i])));
+const seriesEqual = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6 * Math.max(1, Math.abs(b[i])));
+const nonZero = (a: number[]) => a.some((v) => Math.abs(v) > 1);
 
 const FIXTURE = 'scripts/fmpReHubSnapshot.json';
 if (!existsSync(FIXTURE)) {
@@ -39,86 +42,117 @@ const doc = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 const base: any = doc.snapshot;
 console.log(`=== Module 6 Year-on-Year Impact (LIVE "${doc.projectName}" v${doc.versionNumber}) ===\n`);
 
-// A revenue mover from the live model: a priced Sell sub-unit.
+const hasComponents = (t: any) => t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined;
+// Prefer an EXISTING facility with components so the stock-balance prior column
+// carries a real non-zero opening balance to assert against.
+const tranche = (base.financingTranches as any[]).find((t: any) => t.origin === 'existing' && hasComponents(t))
+  ?? (base.financingTranches as any[]).find(hasComponents)
+  ?? (base.financingTranches as any[])[0];
+const ratePath = `financingTranches[id=${tranche.id}].interbankRatePct`;
+const baseRate = Number(tranche?.interbankRatePct ?? tranche?.interestRatePct ?? 6);
 const sellAssetIds = new Set((base.assets ?? []).filter((a: any) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a: any) => a.id));
 const sellSub = (base.subUnits ?? []).find((u: any) => sellAssetIds.has(u.assetId) && Number(u.unitPrice) > 0);
 const unitPath = sellSub ? `subUnits[id=${sellSub.id}].unitPrice` : null;
 
-// Downside: paired debt/equity split (drives financing cost). Upside: unit price (drives revenue).
-const downside: ProjectCase = { id: 'case_down', name: 'Downside', role: 'scenario', overrides: {
-  'project.financing.cashDeficitConfig.debtPct': 50,
-  'project.financing.cashDeficitConfig.equityPct': 50,
-} };
-const upside: ProjectCase = { id: 'case_up', name: 'Upside', role: 'scenario', overrides:
-  unitPath ? { [unitPath]: Number(sellSub.unitPrice) * 1.2 } : {} };
-const cases: ProjectCase[] = [
-  { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
-  downside, upside,
-];
+// Downside: per-facility INTEREST RATE override. Upside: unit price (revenue).
+const downside: ProjectCase = { id: 'case_down', name: 'Downside', role: 'scenario', overrides: { [ratePath]: baseRate + 3 } };
+const upside: ProjectCase = { id: 'case_up', name: 'Upside', role: 'scenario', overrides: unitPath ? { [unitPath]: Number(sellSub.unitPrice) * 1.2 } : {} };
+const cases: ProjectCase[] = [{ id: 'case_management', name: 'Management Case', role: 'base', overrides: {} }, downside, upside];
 
 const report = buildCaseYoYReport({ baseModel: base, cases, activeCaseId: 'case_management' });
-console.log(`yearLabels: ${report.yearLabels[0]}..${report.yearLabels[report.yearLabels.length - 1]} (${report.yearLabels.length} periods)`);
-console.log(`blocks: ${report.blocks.map((b) => `${b.changedItems.join('+')} -> ${b.outputLabel}`).join(' | ')}\n`);
+const finSnap = computeFinancialsSnapshot(base);
+const N = report.yearLabels.length;
+console.log(`yearLabels: prior=${report.priorYearLabel}, ${report.yearLabels[0]}..${report.yearLabels[N - 1]} (${N})`);
+console.log(`blocks: ${report.blocks.map((b) => `${b.inputLabel} -> [${b.outputs.map((o) => o.key).join(', ')}]`).join(' | ')}\n`);
 
-check('report exposes the platform period axis (yearLabels)', report.yearLabels.length > 0 && report.yearLabels.length === computeFinancialsSnapshot(base).yearLabels.length);
-check('at least one impact block is produced', report.blocks.length > 0, `blocks=${report.blocks.length}`);
+// ── #5 Axis starts at the prior year (2025), matching other modules ──────────
+check('axis leads with the prior/inception year (yearLabels[0] - 1)', report.priorYearLabel === report.yearLabels[0] - 1, `prior=${report.priorYearLabel} first=${report.yearLabels[0]}`);
+check('on FMP RE HUB the first column is 2025 (project start 2026 minus one)', report.priorYearLabel === 2025 && report.yearLabels[0] === 2026, `prior=${report.priorYearLabel}`);
 
-// ── Financing Cost block (debt/equity override) ──────────────────────────────
-const fin = report.blocks.find((b) => b.outputKey === 'financingCost');
-check('a Financing Cost block exists (driven by the debt/equity override)', !!fin,
-  report.blocks.map((b) => b.outputKey).join(','));
-if (fin) {
-  check('Financing Cost block names the changed item (debt / equity %)', fin.changedItems.some((s) => /debt|equity/i.test(s)), fin.changedItems.join(','));
-  const baseFin = computeFinancialsSnapshot(base).pl.interestExpensePerPeriod.slice(0, report.yearLabels.length);
-  check('Management actuals tie to pl.interestExpensePerPeriod', seriesEqual(fin.base.values, baseFin),
-    `report=${fin.base.values.slice(0, 3).map(Math.round)} snap=${baseFin.slice(0, 3).map(Math.round)}`);
-  const downModel = applyOverrides(base, downside.overrides);
-  const downFin = computeFinancialsSnapshot(downModel).pl.interestExpensePerPeriod.slice(0, report.yearLabels.length);
-  const downRow = fin.scenarios.find((s) => s.id === 'case_down')!;
-  check('Downside actuals tie to its own computed financing cost', seriesEqual(downRow.values, downFin));
-  const downDelta = fin.deltas.find((d) => d.id === 'case_down')!;
-  check('Downside delta == Downside minus Management per period', downDelta.values.every((v, i) => Math.abs(v - (downRow.values[i] - fin.base.values[i])) < 1e-6));
-  check('the override actually moves financing cost (a non-zero delta exists)', downDelta.values.some((v) => Math.abs(v) > 1));
-}
+const find = (path: string): YoYBlock | undefined => report.blocks.find((b) => b.path === path);
+const out = (b: YoYBlock | undefined, pred: (o: YoYOutput) => boolean): YoYOutput | undefined => b?.outputs.find(pred);
 
-// ── Revenue block (unit price override) ──────────────────────────────────────
-if (unitPath) {
-  const rev = report.blocks.find((b) => b.outputKey === 'revenue');
-  check('a Revenue block exists (driven by the unit price override)', !!rev, report.blocks.map((b) => b.outputKey).join(','));
-  if (rev) {
-    const upModel = applyOverrides(base, upside.overrides);
-    const upRev = computeFinancialsSnapshot(upModel).pl.totalRevenuePerPeriod.slice(0, report.yearLabels.length);
-    const upRow = rev.scenarios.find((s) => s.id === 'case_up')!;
-    check('Upside revenue actuals tie to pl.totalRevenuePerPeriod', seriesEqual(upRow.values, upRev));
-    const upDelta = rev.deltas.find((d) => d.id === 'case_up')!;
-    check('Upside revenue delta is non-zero in at least one period', upDelta.values.some((v) => Math.abs(v) > 1));
-    check('Downside (no revenue override) has a zero revenue delta', rev.deltas.find((d) => d.id === 'case_down')!.values.every((v) => Math.abs(v) < 1e-6));
+// ── Interest-rate block: input row + financing cost (flow) + balance (stock) ──
+const rateBlock = find(ratePath);
+check('a block exists for the changed interest-rate input', !!rateBlock, report.blocks.map((b) => b.path).join(' ; '));
+if (rateBlock) {
+  // Input row: value per case.
+  const mIn = rateBlock.inputByCase.find((i) => i.role === 'base')!;
+  const dIn = rateBlock.inputByCase.find((i) => i.id === 'case_down')!;
+  check('input row shows the rate per case (Management base, Downside +3)', Number(mIn.value) === baseRate && Math.abs(Number(dIn.value) - (baseRate + 3)) < 1e-9,
+    `mgmt=${mIn.value} down=${dIn.value}`);
+
+  const finCost = out(rateBlock, (o) => o.key.startsWith('financing'));
+  check('the rate change drives a Financing cost output (interest + IDC)', !!finCost && /interest \+ IDC/i.test(finCost.label), finCost?.label);
+  if (finCost) {
+    check('financing cost is a FLOW (summed in Total)', finCost.kind === 'flow');
+    const facAccrued = finSnap.financing.facilities.get(tranche.id)!.interestAccrued.slice(0, N);
+    check('financing cost Management actuals tie to facility.interestAccrued', seriesEqual(finCost.base.values, facAccrued));
+    check('interest-rate override moves financing cost per period', nonZero(finCost.deltas.find((d) => d.id === 'case_down')!.values));
+    check('financing cost prior (2025/inception) is 0 for a flow', finCost.base.prior === 0);
   }
-} else {
-  console.log('  [SKIP] no priced Sell sub-unit in the live model (revenue block check skipped)');
+  const bal = out(rateBlock, (o) => o.key.startsWith('balance'));
+  check('the rate change drives a Debt closing balance output', !!bal, rateBlock.outputs.map((o) => o.key).join(','));
+  if (bal) {
+    check('debt closing balance is a STOCK (Total left blank by the UI)', bal.kind === 'stock');
+    check('balance prior (2025) is the facility opening balance, not 0', Math.abs(bal.base.prior - Number(finSnap.financing.facilities.get(tranche.id)!.openingBalance)) < 1,
+      `prior=${Math.round(bal.base.prior)} opening=${Math.round(Number(finSnap.financing.facilities.get(tranche.id)!.openingBalance))}`);
+  }
 }
 
-// ── Endpoint-only lever produces NO per-period block ─────────────────────────
-const discReport = buildCaseYoYReport({
-  baseModel: base,
-  cases: [
-    { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
-    { id: 'case_disc', name: 'Disc', role: 'scenario', overrides: { 'project.returns.discountRate': Number(base.project?.returns?.discountRate ?? 0.1) + 0.05 } },
-  ],
-  activeCaseId: 'case_management',
-});
-check('a discount-rate-only scenario produces no per-period block (endpoint lever)', discReport.blocks.length === 0, `blocks=${discReport.blocks.length}`);
+// ── Debt-RATIO block: must show BOTH debt drawdown AND financing cost ─────────
+const debtCases: ProjectCase[] = [
+  { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
+  { id: 'case_down', name: 'Downside', role: 'scenario', overrides: { 'project.financing.cashDeficitConfig.debtPct': 50, 'project.financing.cashDeficitConfig.equityPct': 50 } },
+];
+const debtReport = buildCaseYoYReport({ baseModel: base, cases: debtCases, activeCaseId: 'case_management' });
+const debtBlock = debtReport.blocks.find((b) => b.path === 'project.financing.cashDeficitConfig.debtPct');
+check('a Debt % block exists', !!debtBlock, debtReport.blocks.map((b) => b.path).join(' ; '));
+if (debtBlock) {
+  const hasDrawdown = debtBlock.outputs.some((o) => o.key.startsWith('drawdown') && /drawdown/i.test(o.label));
+  const hasFinancing = debtBlock.outputs.some((o) => o.key.startsWith('financing'));
+  check('Debt % change shows BOTH debt drawdown AND financing cost rows', hasDrawdown && hasFinancing,
+    debtBlock.outputs.map((o) => o.label).join(' | '));
+  const dd = debtBlock.outputs.find((o) => o.key.startsWith('drawdown'))!;
+  check('debt drawdown ties to combined.totalDrawdown', seriesEqual(dd.base.values, computeFinancialsSnapshot(base).financing.combined.totalDrawdown.slice(0, debtReport.yearLabels.length)));
+  check('Debt % input row shows 100 vs 50', Number(debtBlock.inputByCase.find((i) => i.role === 'base')!.value) === Number(base.project.financing.cashDeficitConfig.debtPct) && Number(debtBlock.inputByCase.find((i) => i.id === 'case_down')!.value) === 50);
+}
 
-// ── Empty state: no overrides -> no blocks ───────────────────────────────────
-const emptyReport = buildCaseYoYReport({
-  baseModel: base,
-  cases: [
-    { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
-    { id: 'case_empty', name: 'Empty', role: 'scenario', overrides: {} },
-  ],
-  activeCaseId: 'case_management',
-});
+// ── Revenue block (unit price) ───────────────────────────────────────────────
+if (unitPath) {
+  const revBlock = find(unitPath);
+  check('a Revenue block exists for the unit-price input', !!revBlock, report.blocks.map((b) => b.path).join(' ; '));
+  const rev = out(revBlock, (o) => o.key === 'revenue');
+  if (rev) {
+    const upRev = computeFinancialsSnapshot(applyOverrides(base, upside.overrides)).pl.totalRevenuePerPeriod.slice(0, N);
+    check('revenue actuals tie to pl.totalRevenuePerPeriod (Upside)', seriesEqual(rev.scenarios.find((s) => s.id === 'case_up')!.values, upRev));
+    check('revenue is a FLOW', rev.kind === 'flow');
+  }
+}
+
+// ── Endpoint-only lever + empty state ────────────────────────────────────────
+const discReport = buildCaseYoYReport({ baseModel: base, cases: [
+  { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
+  { id: 'case_disc', name: 'Disc', role: 'scenario', overrides: { 'project.returns.discountRate': Number(base.project?.returns?.discountRate ?? 0.1) + 0.05 } },
+], activeCaseId: 'case_management' });
+check('a discount-rate-only scenario produces no per-period block (endpoint lever)', discReport.blocks.length === 0, `blocks=${discReport.blocks.length}`);
+const emptyReport = buildCaseYoYReport({ baseModel: base, cases: [
+  { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
+  { id: 'case_empty', name: 'Empty', role: 'scenario', overrides: {} },
+], activeCaseId: 'case_management' });
 check('no overrides yields no blocks (empty state)', emptyReport.blocks.length === 0);
+
+// ── Interest-rate lever: curated, overridable, flows to the comparison ───────
+console.log('\n=== Interest rate lever (per facility) ===');
+const curatedPaths = new Set(curatedDefaultFields(base).map((f) => f.path));
+check('the effective interest-rate lever (interbank rate) is curated for the facility', curatedPaths.has(ratePath), ratePath);
+check('the interest-rate component lever is NOT gated (a live lever)', inactiveLeverReason(ratePath, base) === null && nonEconomicLeverReason(ratePath, 'interbankRatePct') === null);
+check('the single interestRatePct is gated when rate components are present', !!inactiveLeverReason(`financingTranches[id=${tranche.id}].interestRatePct`, base));
+const cmp = buildCaseComparisonReport({ baseModel: base, cases, activeCaseId: baseCaseId(cases) });
+const baseFinCost = cmp.columns.find((c) => c.role === 'base')!.values['Total Financing Cost'];
+const downFinCost = cmp.columns.find((c) => c.id === 'case_down')!.values['Total Financing Cost'];
+check('the interest-rate override moves Total Financing Cost in the comparison', baseFinCost != null && downFinCost != null && Math.abs(downFinCost - baseFinCost) > 1,
+  `base=${Math.round(baseFinCost ?? 0)} down=${Math.round(downFinCost ?? 0)}`);
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failed) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
