@@ -32,6 +32,7 @@ import {
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
+import { buildCaseYoYReport, type YoYBlock } from '../../lib/reports/caseYoYReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { fmtPct, fmtX } from './Module5Shared';
@@ -123,6 +124,48 @@ function GridCell({ value, format, isOverride, isBaseCol, baseValue, onCommit, o
         style={{ ...cellInputStyle(isOverride, isBaseCol), width: suffix ? 88 : 116, textAlign: 'right' }} />
       {suffix && <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{suffix}</span>}
       {isOverride && !isBaseCol && resetBtn(onReset)}
+    </div>
+  );
+}
+
+// ── Year-on-Year impact: compact multi-line chart (no chart dependency) ──────
+// One line per case over the period axis. Reads cleanly as a small inline SVG;
+// the table above it stays the primary view. Colours match the case rows.
+const YOY_CASE_COLORS = ['var(--color-navy)', 'var(--color-gold-dark, #92400e)', 'var(--color-success, #166534)', '#7c3aed', '#0891b2'];
+function YoYImpactChart({ yearLabels, series }: {
+  yearLabels: number[];
+  series: { name: string; values: number[]; color: string }[];
+}): React.JSX.Element | null {
+  const W = 720, H = 150, padL = 8, padR = 8, padT = 10, padB = 18;
+  const flat = series.flatMap((s) => s.values);
+  if (flat.length === 0) return null;
+  let min = Math.min(...flat, 0), max = Math.max(...flat, 0);
+  if (max === min) max = min + 1;
+  const n = yearLabels.length;
+  const x = (i: number): number => padL + (n <= 1 ? 0 : (i / (n - 1)) * (W - padL - padR));
+  const y = (v: number): number => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const zeroY = y(0);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" preserveAspectRatio="none">
+        {min < 0 && max > 0 && (
+          <line x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} stroke="var(--color-border)" strokeWidth={1} strokeDasharray="3 3" />
+        )}
+        {series.map((ser) => (
+          <polyline key={ser.name} fill="none" stroke={ser.color} strokeWidth={ser.name.startsWith('★') ? 2.5 : 1.8}
+            points={ser.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />
+        ))}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--color-meta)', padding: '0 8px' }}>
+        <span>{yearLabels[0]}</span><span>{yearLabels[yearLabels.length - 1]}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
+        {series.map((ser) => (
+          <span key={ser.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--color-meta)' }}>
+            <span style={{ width: 14, height: 2, background: ser.color, display: 'inline-block' }} />{ser.name}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -312,6 +355,16 @@ export default function Module6Scenarios(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.cases, s.activeCaseId, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, baseId]);
   const baseCol = computed.find((c) => c.id === baseId) ?? computed[0];
+
+  // ── Year-on-Year impact (shared builder). Per-period driven output for each
+  //    overridden item, Management + scenarios + deltas, read from the same
+  //    snapshot series the rest of the platform renders (no recompute). ──
+  const yoy = useMemo(() => {
+    const activeIsBase = s.activeCaseId === baseId;
+    const baseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
+    return buildCaseYoYReport({ baseModel, cases: s.cases, activeCaseId: s.activeCaseId, liveActiveModel: liveModel });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.cases, s.activeCaseId, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, baseId]);
 
   const fmtVal = (v: number | null, kind: KpiKind, nullLabel?: string): string => {
     if (v == null || !Number.isFinite(v)) return nullLabel ?? 'n/a';
@@ -592,6 +645,69 @@ export default function Module6Scenarios(): React.JSX.Element {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* ── 4. Year-on-Year Impact ───────────────────────────────── */}
+      <section style={card} data-testid="m6-yoy">
+        <div style={sectionTitle}>4. Year-on-Year Impact</div>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 10 }}>
+          For each input a scenario changes, the per-period output it drives, for the Management Case and every scenario, with each scenario&apos;s delta vs Management below the actuals. Money in {currency}. Values read directly from the computed model (the same series the other tabs show).
+        </div>
+        {yoy.blocks.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid="m6-yoy-empty">
+            No year-on-year impact yet. Override an input that drives a per-period output (for example debt %, a price / ADR, opex, or a construction cost) in a scenario to see how it diverges from Management over time.
+          </div>
+        ) : (
+          yoy.blocks.map((block: YoYBlock) => {
+            const yCol: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, minWidth: 92, whiteSpace: 'nowrap' };
+            const lblCol: React.CSSProperties = { textAlign: 'left', padding: '5px 10px', fontSize: 12, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)', minWidth: 230, whiteSpace: 'nowrap' };
+            const fmtD = (d: number): string => (Math.abs(d) < 1e-9 ? '0' : `${d > 0 ? '+' : ''}${fmt(d)}`);
+            const chartSeries = [
+              { name: `★ ${block.base.name}`, values: block.base.values, color: '#111827' },
+              ...block.scenarios.map((sc, i) => ({ name: sc.name, values: sc.values, color: YOY_CASE_COLORS[i % YOY_CASE_COLORS.length] })),
+            ];
+            return (
+              <div key={block.outputKey} style={{ marginBottom: 'var(--sp-3)', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }} data-testid={`m6-yoy-block-${block.outputKey}`}>
+                <div style={{ background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)', color: 'var(--color-heading)', fontWeight: 800, fontSize: 12, padding: '7px 12px', borderBottom: '1px solid var(--color-border)' }}>
+                  {block.changedItems.join(', ')} to {block.outputLabel}
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', minWidth: 480 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                        <th style={{ ...lblCol, background: 'var(--color-navy)', zIndex: 2, fontWeight: 700 }}>{block.outputLabel} (per year)</th>
+                        {yoy.yearLabels.map((yr) => <th key={yr} style={{ ...yCol, color: 'var(--color-on-primary-navy)' }}>{yr}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Actuals: Management first, then each scenario. */}
+                      <tr data-testid={`m6-yoy-${block.outputKey}-base`}>
+                        <td style={{ ...lblCol, fontWeight: 700 }}>★ {block.base.name}</td>
+                        {block.base.values.map((v, i) => <td key={i} style={yCol}>{fmt(v)}</td>)}
+                      </tr>
+                      {block.scenarios.map((sc) => (
+                        <tr key={sc.id} data-testid={`m6-yoy-${block.outputKey}-${sc.id}`}>
+                          <td style={lblCol}>◆ {sc.name}</td>
+                          {sc.values.map((v, i) => <td key={i} style={yCol}>{fmt(v)}</td>)}
+                        </tr>
+                      ))}
+                      {/* Deltas: after the actuals, each scenario vs Management. */}
+                      {block.deltas.map((d) => (
+                        <tr key={`d-${d.id}`} data-testid={`m6-yoy-${block.outputKey}-delta-${d.id}`} style={{ background: 'color-mix(in srgb, var(--color-navy) 4%, transparent)' }}>
+                          <td style={{ ...lblCol, background: 'color-mix(in srgb, var(--color-navy) 4%, transparent)', fontStyle: 'italic', color: 'var(--color-meta)' }}>{d.name} delta vs Management</td>
+                          {d.values.map((v, i) => <td key={i} style={{ ...yCol, color: deltaTone(v, 0) }}>{fmtD(v)}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: '4px 12px 10px' }}>
+                  <YoYImpactChart yearLabels={yoy.yearLabels} series={chartSeries} />
+                </div>
+              </div>
+            );
+          })
+        )}
       </section>
       </>)}
     </div>
