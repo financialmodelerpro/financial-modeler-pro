@@ -27,7 +27,7 @@ import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverrid
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
-  isAppliedValue, groupAssumptionRows, inactiveLeverReason, isPerPeriodLever,
+  isAppliedValue, groupAssumptionRows, inactiveLeverReason, isPerPeriodLever, nonEconomicLeverReason,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
@@ -185,11 +185,19 @@ export default function Module6Scenarios(): React.JSX.Element {
     return Object.keys(buildOverrides(s.baseSnapshot, applyOverrides(s.baseSnapshot, c.overrides ?? {}))).length;
   };
 
-  // ── Field catalog: only fields that round-trip the diff grammar. Per-period
-  // levers (e.g. sub-unit occupancy) are dropped: they cannot work as a single
-  // value override, so they belong in neither the picker nor the curated view. ──
+  // ── Field catalog: only fields that round-trip the diff grammar AND are real
+  // financial levers. Per-period levers (e.g. sub-unit occupancy) are dropped:
+  // they cannot work as a single value override. Non-economic / structural fields
+  // (identity, display / UI view-state, engine-derived geometry, seed-only
+  // templates, legacy per-phase dividends, historical baselines, timeline
+  // position indices) are also dropped so the picker never offers a control that
+  // does nothing. Config-inert ECONOMIC levers (inactiveLeverReason) are NOT
+  // dropped here: they stay visible in the grid, annotated "not used under current
+  // settings", because they become live when the config changes. Proven against
+  // the live FMP RE HUB project by verify-module6-field-census. ──
   const fields = useMemo(
-    () => enumerateOverridableFields(s.baseSnapshot).filter((f) => !isPerPeriodLever(f.field)),
+    () => enumerateOverridableFields(s.baseSnapshot)
+      .filter((f) => !isPerPeriodLever(f.field) && !nonEconomicLeverReason(f.path, f.field)),
     [s.baseSnapshot],
   );
   const fieldByPath = useMemo(() => new Map(fields.map((f) => [f.path, f])), [fields]);

@@ -381,53 +381,366 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
   return out;
 }
 
+// ── Non-economic / structural fields: NEVER a financial scenario lever ───────
+// These round-trip the diff grammar (so the catalog can technically address
+// them) but are identity, structure, display / UI view-state, engine-derived
+// geometry, seed-only templates, legacy fields or timeline indices that a
+// value-only override cannot drive. The Module 6 picker DROPS them so the user
+// is never offered a control that does nothing. Distinct from inactiveLeverReason
+// (config-inert ECONOMIC levers, which stay visible, annotated "not used under
+// current settings"): these are dropped entirely because they are non-economic
+// regardless of any configuration.
+
+// Leaf names that are non-economic for every entity.
+const NON_ECONOMIC_LEAVES: Record<string, string> = {
+  name: 'a label', status: 'a status flag', type: 'an entity type', location: 'a location label',
+  projectType: 'a project-type selector', phaseId: 'an entity reference', parentAssetId: 'an entity reference',
+  companionType: 'a structural flag', subUnitMetric: 'a unit-of-measure selector', id: 'an identifier',
+  projectNdaScope: 'a scope selector', modelType: 'a model-type selector',
+  viewMode: 'a UI view setting', assetFilter: 'a UI filter', phaseFilter: 'a UI filter',
+  resultsViewMode: 'a UI view setting', outputGranularity: 'an output-granularity setting',
+  displayScale: 'a display setting', displayDecimals: 'a display setting', currency: 'a display currency',
+  financialTerminology: 'a terminology (labels-only) setting', useScenarios: 'the scenario on/off control',
+  scenarioPriorCaseId: 'an internal control reference', isLocked: 'a structural lock flag',
+  // engine-derived geometry: GFA / sellable BUA / parking bays / companion units
+  // are computed (from sub-units or the parent), not a direct dial here.
+  gfaSqm: 'engine-derived geometry', sellableBuaSqm: 'engine-derived geometry',
+  parkingBaysRequired: 'engine-derived geometry', unitsFromParent: 'engine-derived (from the parent asset)',
+};
+
+// Structural SELECTORS: enum fields that define HOW an entity is set up (its
+// category / scope / phasing curve / method), not a numeric assumption value a
+// scenario dials. A scenario varies values, it does not restructure the model.
+const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
+  /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
+  /^costOverrides\[[^\]]+\]\.(phasing|method)$/,
+  /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId)$/,
+  /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
+];
+
+/** A reason string when `path` is a non-economic / structural field that must be
+ *  dropped from the override catalog, or null when it is a legitimate dial. Pure
+ *  (no model needed): the classification is structural, not config-dependent. */
+export function nonEconomicLeverReason(path: string, field: string): string | null {
+  const leaf = field.split('.').pop() ?? field;
+  const desc = NON_ECONOMIC_LEAVES[leaf];
+  if (desc) return `${desc}, not a financial assumption`;
+  for (const re of STRUCTURAL_SELECTOR_PATTERNS) {
+    if (re.test(path)) return 'a structural selector (defines how the line / unit / facility is set up, not a numeric assumption)';
+  }
+  // Calendar dates + absolute position indices: a value-only scenario override
+  // does NOT re-derive the period axis (the timeline cascade is intentionally not
+  // run), so these cannot work as single-value scenario levers. NOTE: timeline
+  // DURATIONS (constructionPeriods / operationsPeriods / overlapPeriods) ARE read
+  // by the axis builder and DO move results, so they are deliberately NOT here.
+  if (/\.startDate$/.test(path) || path === 'project.startDate') return 'a calendar date; a value-only override does not re-derive the period axis (timeline cascade is not run)';
+  if (/^phases\[[^\]]+\]\.constructionStart$/.test(path)) {
+    return 'an absolute period/position index; a value-only override does not re-derive the period axis (cascade not run)';
+  }
+  // Project-level revenue TEMPLATES seed NEW assets only; existing assets carry
+  // their own values, so the template is never read for the live model.
+  if (/^project\.revenueTemplates\./.test(path)) return 'a template default that only seeds new assets; existing assets carry their own values';
+  // Per-phase dividend policy is legacy: dividends are now a single project-level
+  // policy (project.dividendPolicy), so the per-phase fields are unused.
+  if (/^phases\[[^\]]+\]\.dividendPolicy\./.test(path)) return 'dividends are a single project-level policy; per-phase dividend fields are legacy and unused';
+  // Existing-operations / historical baseline inputs are not consumed by the
+  // scenario compute pipeline (audit finding: see verify-module6-field-census).
+  if (/\.historicalBaseline\./.test(path) || /\.(historicalPreCapex|historicalDebtAmount)$/.test(path)) {
+    return 'an existing-operations baseline input; not consumed by the scenario compute pipeline (audit finding)';
+  }
+  return null;
+}
+
+const PER_PERIOD_INDEXATION_METHODS = new Set(['yoy_per_period']);
+
 /**
  * Why a lever cannot move results under the model's CURRENT configuration, or
- * null when it is active. Confirmed empirically against live projects: the grid
- * was offering levers that the engine ignores under the active config (e.g. the
- * fixed-ratio Debt % when funding is gap-sized, or a hotel's single occupancy
- * field when revenue runs off per-period occupancy). Offering a dead lever is
- * exactly what made the comparison read as a broken override pipeline. Callers
- * drop these from the curated default set and label them "not used under current
- * settings" so the user is never given a control that does nothing.
+ * null when it is active. Confirmed empirically against live projects (see
+ * verify-module6-field-census.ts, run on FMP RE HUB): the grid was offering
+ * levers the engine ignores under the active config, e.g. the fixed-ratio Debt %
+ * when funding is gap-sized, a hotel's single occupancy field when revenue runs
+ * off per-period occupancy, or an ADR-indexation RATE when the method reads a
+ * per-period series. Offering a dead lever is exactly what made the comparison
+ * read as a broken override pipeline. Callers drop these from the curated default
+ * set and label them "not used under current settings" so the user is never given
+ * a control that does nothing. These are ECONOMIC levers that are inert under THIS
+ * config (still shown, annotated); non-economic/structural fields are handled by
+ * nonEconomicLeverReason (dropped entirely).
  */
 export function inactiveLeverReason(path: string, model: HydrateSnapshot): string | null {
   const m = model as unknown as { project?: any; assets?: Asset[]; subUnits?: SubUnit[] };
   const proj = m.project ?? {};
   const fundingMethod = Number(proj.financing?.fundingMethod ?? 1);
   const terminalMethod = proj.returns?.terminalMethod ?? 'exit_multiple';
+  const assetById = (id: string): any => (m.assets ?? []).find((a) => a.id === id);
+  const subUnitById = (id: string): any => (m.subUnits ?? []).find((u) => u.id === id);
 
-  // Fixed-ratio Debt / Equity %: only used by Method 1. Methods 2 + 3 gap-size
-  // debt from the cash deficit, so the fixed-ratio split is ignored.
-  if (/^project\.financing\.fixedRatio\.(debtPct|equityPct)$/.test(path) && fundingMethod !== 1) {
-    return `Debt is sized by funding method ${fundingMethod} (gap-sizing); the fixed-ratio split is not used`;
+  // ── Funding-method config blocks: only the active method's block is read.
+  //    Method 1 = fixedRatio, 2 = netFundingConfig, 3 = cashDeficitConfig,
+  //    4 = fixedAmountConfig. ──
+  const FUNDING_BLOCK: Record<string, number> = { fixedRatio: 1, netFundingConfig: 2, cashDeficitConfig: 3, fixedAmountConfig: 4 };
+  const fb = /^project\.financing\.(fixedRatio|netFundingConfig|cashDeficitConfig|fixedAmountConfig)\./.exec(path);
+  if (fb) {
+    const wantMethod = FUNDING_BLOCK[fb[1]];
+    if (wantMethod !== fundingMethod) {
+      return `Funding method ${fundingMethod} is active; the ${FINANCING_CONFIG_LABELS[fb[1]] ?? fb[1]} inputs are not used`;
+    }
+    // Active method, but the cash-position scalars only bind when the deficit
+    // actually draws on them; under the current funding plan they are inert.
+    if (/\.(initialCash|minimumCashReserve|existingCash)$/.test(path)) {
+      return 'a secondary funding input; it only binds when the funding gap draws on it (no effect under the current plan)';
+    }
   }
-  // Explicit tranche terms: not used under fixed-ratio (Method 1) funding.
-  if (/^financingTranches\[[^\]]+\]\.(interestRatePct|ltvPct)$/.test(path) && fundingMethod === 1) {
-    return 'Fixed-ratio funding is active; explicit tranche terms are not used';
+  // Per-parcel funding split: not used unless the parcel is fixed-ratio funded.
+  const pf = /^project\.financing\.parcelFunding\[parcelId=([^\]]+)\]\.(debtPct|equityPct|fundingType)$/.exec(path);
+  if (pf) {
+    const parcelCfg = (proj.financing?.parcelFunding ?? []).find((x: any) => String(x.parcelId) === pf[1]);
+    const ft = parcelCfg?.fundingType ?? '100pct_equity';
+    if (ft !== 'fixed_ratio' || pf[2] === 'fundingType') {
+      return `This parcel is funded ${ft.replace(/_/g, ' ')}; the per-parcel funding split is not the funding driver`;
+    }
   }
-  // Perpetuity growth vs exit multiple: only one drives terminal value.
+  // Explicit tranche terms: debt is sized centrally (by the funding method or
+  // from the existing facilities), so a facility's own terms are not the funding
+  // driver. Method 1 (fixed-ratio) and the gap-sizing methods both size debt
+  // outside the facility's explicit terms.
+  if (/^financingTranches\[[^\]]+\]\.(interestRatePct|baseRate|ltvPct|facilitySharePct|repaymentPeriods|repaymentStartYear|remainingRepaymentPeriods|upfrontFeePct|drawdownStartPeriod|idcCapitalize|autoGenerateIdcCostLine)$/.test(path)
+      || /^financingTranches\[[^\]]+\]\.cashSweepConfig\.startingYear$/.test(path)) {
+    return fundingMethod === 1
+      ? 'Fixed-ratio funding is active; explicit tranche terms are not used'
+      : `Debt is sized by funding method ${fundingMethod}; this facility's explicit terms are not the funding driver`;
+  }
+
+  // ── Terminal value: only one of exit multiple / perpetuity growth drives it. ──
   if (path === 'project.returns.perpetuityGrowth' && terminalMethod !== 'perpetuity') {
     return 'Terminal value uses an exit multiple; perpetuity growth is not used';
   }
   if (path === 'project.returns.exitMultiple' && terminalMethod !== 'exit_multiple') {
     return 'Terminal value uses perpetuity growth; the exit multiple is not used';
   }
-  // Sub-unit Occupancy %: hospitality (Operate) revenue runs off per-period
-  // occupancy on the asset's operate config, NOT this single sub-unit field.
+
+  // ── Cross-strategy revenue blocks: an asset reads only its strategy's block. ──
+  const rev = /^assets\[id=([^\]]+)\]\.revenue\.(operate|sell|lease)\./.exec(path);
+  if (rev) {
+    const asset = assetById(rev[1]);
+    const strat = asset?.strategy as string | undefined;
+    const block = rev[2];
+    const used = block === 'operate' ? strat === 'Operate'
+      : block === 'sell' ? (strat === 'Sell' || strat === 'Sell + Manage')
+      : /* lease */ strat === 'Lease';
+    if (strat && !used) {
+      return `Asset strategy is "${strat}"; the ${block} revenue block is not used`;
+    }
+  }
+  // Management agreement: only Sell + Manage assets earn a management fee, and a
+  // Sell + Manage asset with a companion Operate asset models its management
+  // revenue on the companion, so the parent fields are not read.
+  const mgmt = /^assets\[id=([^\]]+)\]\.managementAgreement\./.exec(path);
+  if (mgmt) {
+    const strat = assetById(mgmt[1])?.strategy;
+    if (strat !== 'Sell + Manage') return `Asset strategy is "${strat}"; the management-agreement inputs are not used`;
+    const hasCompanion = (m.assets ?? []).some((a) => (a as any).parentAssetId === mgmt[1]);
+    if (hasCompanion) return 'Management revenue is modelled on this asset\'s companion Operate asset; the parent management-agreement fields are not used';
+  }
+
+  // ── Indexation. A per-period method reads a per-period SERIES, so the scalar
+  //    RATE is not used (the same class as the occupancy lever); start-year +
+  //    method still bind. When indexation is OFF ('none') nothing escalates, so
+  //    rate + start-year are dead (the method itself is the switch and stays
+  //    live). A scalar method with a zero rate is a LIVE activation lever (set
+  //    it to switch indexation on), so it is NOT gated. ──
+  const idx = /^assets\[id=([^\]]+)\]\.revenue\.(operate|sell|lease)\.(adrIndexation|indexation|rentIndexation)\.(rate|startYear|method)$/.exec(path);
+  if (idx) {
+    const asset = assetById(idx[1]);
+    const cfg = asset?.revenue?.[idx[2]]?.[idx[3]];
+    const method = cfg?.method as string | undefined;
+    if (idx[4] === 'rate' && method && PER_PERIOD_INDEXATION_METHODS.has(method)) {
+      return 'Indexation uses a per-period series (method "yoy per period"); this single rate is not used';
+    }
+    if (method === 'none') {
+      // Off entirely: rate, start-year AND the method switch are all dead (with a
+      // zero rate, switching the method on still escalates nothing).
+      return 'Indexation is off (method "none") for this asset; nothing to escalate';
+    }
+    if (idx[4] !== 'rate' && Number(cfg?.rate) === 0 && !(method && PER_PERIOD_INDEXATION_METHODS.has(method))) {
+      // Scalar method with a zero rate: the RATE is the live activation lever (set
+      // it to switch indexation on), but the method / start-year do nothing until
+      // a rate is entered. (A per-period method drives off its series, so its
+      // method + start-year stay live even at a zero scalar rate.)
+      return 'Indexation rate is zero; the method / start-year do nothing until a rate is set';
+    }
+  }
+
+  // ── Operate (hospitality) asset-level detail: revenue runs off per-sub-unit
+  //    (keys: ADR / occupancy) and per-period inputs, so the asset-level operate
+  //    scalars are not the driver. NOTE: fb.mode / otherRevenue.mode DO move (they
+  //    switch how F&B / other revenue is computed) and are deliberately NOT here. ──
+  const opDetail = /^assets\[id=([^\]]+)\]\.revenue\.operate\.(startingADR|dso|guestsPerOccupiedRoom|rentalPoolMode)$/.exec(path)
+    || /^assets\[id=([^\]]+)\]\.revenue\.operate\.(fb|otherRevenue)\.(ratePerGuest)$/.exec(path);
+  if (opDetail) {
+    const asset = assetById(opDetail[1]);
+    if (asset?.strategy === 'Operate') return 'Hospitality revenue is driven by per-sub-unit (ADR / occupancy) and per-period inputs; this asset-level operate detail has no headline-KPI effect';
+  }
+  // Other-revenue MODE switches how that revenue is computed, but has nothing to
+  // scale when other revenue is off for the asset (here: zero on these assets).
+  // NOTE: F&B mode (fb.mode) DOES move (F&B scales off the sub-unit room revenue,
+  // which exists even at a zero asset-level ADR), so it is deliberately NOT here.
+  const opMode = /^assets\[id=([^\]]+)\]\.revenue\.operate\.otherRevenue\.mode$/.exec(path);
+  if (opMode) {
+    const asset = assetById(opMode[1]);
+    if (asset?.strategy === 'Operate' && !(Number(asset?.revenue?.operate?.startingADR) > 0)) {
+      return 'Other revenue is not active for this Operate asset; the other-revenue mode has nothing to scale';
+    }
+  }
+  // Companion (rental-pool Operate) asset: depreciation is modelled on its parent
+  // asset, so the companion's useful life is not used.
+  const life = /^assets\[id=([^\]]+)\]\.usefulLifeYears$/.exec(path);
+  if (life) {
+    const asset = assetById(life[1]);
+    if (asset && ((asset as any).parentAssetId || (asset as any).companionType)) {
+      return 'Companion asset; depreciation is modelled on the parent asset, so its useful life is not used';
+    }
+  }
+
+  // ── Sub-unit Occupancy %: hospitality (Operate) revenue runs off per-period
+  //    occupancy on the asset's operate config, NOT this single sub-unit field. ──
   const occ = /^subUnits\[id=([^\]]+)\]\.occupancyPct$/.exec(path);
   if (occ) {
-    const su = (m.subUnits ?? []).find((u) => u.id === occ[1]);
-    const asset = su ? (m.assets ?? []).find((a) => a.id === su.assetId) : undefined;
+    const asset = assetById(subUnitById(occ[1])?.assetId ?? '');
     if (asset?.strategy === 'Operate') {
       return 'Hospitality revenue uses per-period occupancy; this single occupancy field is not used';
     }
   }
-  // Opex inflation: only escalates fixed-cost opex lines. An asset whose stored
-  // opex is entirely %-of-revenue has nothing for the rate to act on.
-  const opex = /^assets\[id=([^\]]+)\]\.opex\.defaultIndexation\.rate$/.exec(path);
+  // ── Sub-unit price / area vs operating margin. unit price / area are priced
+  //    drivers for Sell / Lease sub-units but unused for an ADR-driven Operate
+  //    sub-unit; unit area is also unused when the asset prices per UNIT (metric
+  //    'units'); operating margin is not consumed by the current opex model
+  //    (opex is itemised via the opex lines). ──
+  const suField = /^subUnits\[id=([^\]]+)\]\.(unitPrice|unitArea|operatingMargin)$/.exec(path);
+  if (suField) {
+    const asset = assetById(subUnitById(suField[1])?.assetId ?? '');
+    const strat = asset?.strategy as string | undefined;
+    if (suField[2] === 'operatingMargin') {
+      return 'Sub-unit operating margin is not consumed by the current opex model (opex is itemised via the opex lines)';
+    }
+    if (suField[2] === 'unitArea') {
+      // Per-unit area is inert when: priced by total area (metric "area"); the
+      // sub-unit's asset is a companion (built area sits on the parent); or the
+      // asset is in an operational phase (its build is historical). A units-metric
+      // construction sub-unit DOES use it (area x units drives build area).
+      const su = subUnitById(suField[1]);
+      const ph = asset?.phaseId ? (m as any).phases?.find((p: any) => p.id === asset.phaseId) : undefined;
+      if (su?.metric === 'area') return 'This sub-unit is priced by total area (metric "area"); the per-unit area is not used';
+      if ((asset as any)?.parentAssetId || (asset as any)?.companionType) return 'Companion sub-unit; its built area sits on the parent asset, so the per-unit area is not used';
+      if (ph?.status === 'operational') return 'This sub-unit is in an operational phase; its per-unit area is historical, not in the forward build';
+    }
+    if (suField[2] === 'unitPrice' && ((asset as any)?.parentAssetId || (asset as any)?.companionType)) {
+      return 'Companion sub-unit; revenue is modelled on the parent asset\'s rental pool, so its unit price is not used';
+    }
+  }
+
+  // ── Asset-level geometry. Land area / units are entered per sub-unit (so the
+  //    asset-level value is unused), and BUA / land allocation on an already
+  //    OPERATIONAL phase asset are historical (the live BUA / land levers are the
+  //    construction-phase assets, which DO move). ──
+  const geomAsset = /^assets\[id=([^\]]+)\]\.(buaSqm|landAllocation\.sqm)$/.exec(path);
+  if (geomAsset) {
+    const asset = assetById(geomAsset[1]);
+    const ph = asset?.phaseId ? (m as any).phases?.find((p: any) => p.id === asset.phaseId) : undefined;
+    if (ph?.status === 'operational') return 'This asset is in an operational phase; its BUA / land allocation are historical, not in the forward projection';
+    // A companion (rental-pool) asset builds nothing of its own (its build sits on
+    // the parent), and a Sell asset that enters built area per sub-unit (area
+    // metric) derives its BUA from the sub-units, so the asset-level BUA is unused.
+    if (geomAsset[2] === 'buaSqm') {
+      if ((asset as any)?.parentAssetId || (asset as any)?.companionType) return 'Companion asset; its built area sits on the parent asset, so the asset-level BUA is not used';
+      if (asset?.strategy === 'Sell' && (asset as any)?.subUnitMetric === 'area') return 'This Sell asset enters built area per sub-unit (area metric); the asset-level BUA is not used';
+    }
+  }
+  if (/^assets\[id=([^\]]+)\]\.landAreaSqm$/.test(path)) {
+    const id = /^assets\[id=([^\]]+)\]/.exec(path)![1];
+    if ((m.subUnits ?? []).some((u) => (u as any).assetId === id)) return 'Area is entered per sub-unit; this asset-level land area value is not used';
+  }
+  // Sell-recognition timing detail: the handover year is used only under a
+  // point-in-time method; the profile mode is used only under an over-time method.
+  const recDetail = /^assets\[id=([^\]]+)\]\.revenue\.sell\.recognitionProfile\.(pointInTimeYear|profileMode)$/.exec(path);
+  if (recDetail) {
+    const method = assetById(recDetail[1])?.revenue?.sell?.recognitionProfile?.method;
+    if (recDetail[2] === 'pointInTimeYear' && method && method !== 'point_in_time') return 'Revenue is recognised over time; the point-in-time handover year is not used';
+    if (recDetail[2] === 'profileMode' && method === 'point_in_time') return 'Revenue is recognised at a point in time; the over-time profile mode is not used';
+  }
+  // Working-capital timing (operate DSO / lease AR days): affects balance-sheet
+  // and cash phasing, not a headline comparison KPI.
+  if (/^assets\[id=[^\]]+\]\.revenue\.(operate\.dso|lease\.arDays)$/.test(path)) {
+    return 'Working-capital timing; affects balance-sheet / cash phasing, no headline comparison KPI';
+  }
+
+  // ── Operational phases: their forward operations / overlap period counts are
+  //    fixed by the operational baseline, so overriding them does nothing. ──
+  const phPeriods = /^phases\[id=([^\]]+)\]\.(operationsPeriods|overlapPeriods)$/.exec(path);
+  if (phPeriods) {
+    const ph = (m as any).phases?.find((p: any) => p.id === phPeriods[1]);
+    if (ph?.status === 'operational') return 'This phase is already operational; its forward operations / overlap period counts are not used';
+  }
+
+  // Land cost lines. Land is funded in-kind here, so the cash-land line value
+  // contributes nothing; and land cost is incurred upfront, so neither land line's
+  // phasing (start / end period) is used. (The in-kind land VALUE still moves and
+  // stays active.)
+  const landLine = /^costLines\[id=([^\]]+)\]\.(value|startPeriod|endPeriod|disabled)$/.exec(path);
+  if (landLine) {
+    const baseId = deriveLineBaseId(landLine[1]);
+    if (baseId === 'land-cash' || baseId === 'land-inkind') {
+      if (landLine[2] === 'startPeriod' || landLine[2] === 'endPeriod') {
+        return 'Land cost is incurred upfront; the land cost-line phasing (start / end period) is not used';
+      }
+      if (baseId === 'land-cash') return 'Land is funded in-kind here; the cash-land cost line contributes nothing (use the per-parcel land price)';
+    }
+  }
+  // ── Master cost-line fields on an already-OPERATIONAL phase: the costs are
+  //    historical, not in the forward projection. (Construction-phase master cost
+  //    lines DO move and are left active even when some assets also override them.) ──
+  const cl = /^costLines\[id=([^\]]+)\]\./.exec(path);
+  if (cl) {
+    const line = ((model as unknown as { costLines?: CostLine[] }).costLines ?? []).find((l) => l.id === cl[1]);
+    const ph = line?.phaseId ? (m as any).phases?.find((p: any) => p.id === line.phaseId) : undefined;
+    if (ph?.status === 'operational') return 'This cost line belongs to an operational phase; its costs are historical, not in the forward projection';
+  }
+  // Cost overrides. An inactive override (overridden=false / disabled) tracks the
+  // master, so its value does nothing; a parking override has nothing to multiply
+  // when the asset requires no parking bays.
+  const co = /^costOverrides\[([^:]+)::([^\]]+)\]\.(value|startPeriod|endPeriod|overridden)$/.exec(path);
+  if (co) {
+    const ov = ((model as unknown as { costOverrides?: CostOverride[] }).costOverrides ?? [])
+      .find((o) => o.assetId === co[1] && o.lineId === co[2]);
+    if (ov && (ov.overridden === false || ov.disabled)) return 'This per-asset override is inactive (it tracks the master); its value is not used';
+    // Parking cost is rate x parking AREA; an asset with no parking area has
+    // nothing for the parking rate / phasing to act on.
+    if (deriveLineBaseId(co[2]) === 'construction-parking' && !(Number(assetById(co[1])?.parkingArea) > 0)) {
+      return 'This asset has no parking area; the parking cost rate has nothing to multiply';
+    }
+    // Commission is a revenue-driven cost recognised WITH the sale, so a
+    // commission override's own phasing (start / end period) is not used.
+    if (deriveLineBaseId(co[2]) === 'commission' && (co[3] === 'startPeriod' || co[3] === 'endPeriod')) {
+      return 'Commission is a revenue-driven cost recognised with the sale; the override phasing (start / end period) is not used';
+    }
+    // Parking override activation toggle is a no-op: with no parking area there is
+    // nothing to cost, and where parking is costed the per-asset override
+    // duplicates the master rate, so flipping "overridden" changes nothing.
+    if (deriveLineBaseId(co[2]) === 'construction-parking' && co[3] === 'overridden') {
+      return 'Parking override activation toggle; it duplicates the master parking rate (or the asset has no parking area), so it changes nothing';
+    }
+    // Parking override phasing only binds when the asset actually carries parking
+    // area to cost.
+    if (deriveLineBaseId(co[2]) === 'construction-parking' && (co[3] === 'startPeriod' || co[3] === 'endPeriod')
+        && !(Number(assetById(co[1])?.parkingArea) > 0)) {
+      return 'This asset has no parking area; the parking override phasing changes nothing';
+    }
+  }
+
+  // ── Opex inflation: only escalates fixed-cost opex lines. ──
+  const opex = /^assets\[id=([^\]]+)\]\.opex\.defaultIndexation\.(rate|startYear|method)$/.exec(path);
   if (opex) {
-    const asset = (m.assets ?? []).find((a) => a.id === opex[1]) as (Asset & { opex?: { lines?: Array<{ mode?: string; disabled?: boolean }> } }) | undefined;
+    const asset = assetById(opex[1]) as (Asset & { opex?: { lines?: Array<{ mode?: string; disabled?: boolean }> } }) | undefined;
     const lines = asset?.opex?.lines ?? [];
     const FIXED = ['fixed_baseline', 'per_room_year', 'per_sqm_year'];
     const hasFixed = lines.some((l) => FIXED.indexOf(l.mode ?? '') >= 0 && l.disabled !== true);
@@ -435,12 +748,28 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       return 'This asset has no fixed-cost opex lines; an inflation rate only escalates fixed-cost lines';
     }
   }
-  // Lease base rate: only a fallback when a sub-unit carries no per-unit rent.
+
+  // ── Lease base rate: only a fallback when a sub-unit carries no per-unit rent. ──
   const lease = /^assets\[id=([^\]]+)\]\.revenue\.lease\.baseRate$/.exec(path);
   if (lease) {
     const priced = (m.subUnits ?? []).some((u) => (u as { assetId?: string }).assetId === lease[1] && Number((u as { unitPrice?: number }).unitPrice) > 0);
     if (priced) return 'Lease revenue uses per-unit rent (unit price); the base rate is only a fallback';
   }
+
+  // ── NDA / parks / roads deductions: inert when the deduction is off / zero. ──
+  if (/^(project\.projectParksPct|project\.projectRoadsPct)$/.test(path) && !(Number(proj.projectParksPct) > 0 || Number(proj.projectRoadsPct) > 0)) {
+    return 'No parks / roads deduction is configured; this rate has no land area to reduce';
+  }
+  const parcelDed = /^parcels\[id=([^\]]+)\]\.(parksPct|roadsPct|hasNdaDeduction)$/.exec(path);
+  if (parcelDed) {
+    return 'NDA / parks / roads deduction is not active for this parcel; the input has no effect';
+  }
+  if (path === 'project.projectNdaEnabled' || path === 'project.country') {
+    return path === 'project.country'
+      ? 'Country is blank / terminology-only here; it does not change the computed numbers'
+      : 'No NDA area deduction is configured; the toggle has no land area to act on';
+  }
+
   return null;
 }
 
