@@ -73,14 +73,46 @@ function staticModuleToNav(m: ModuleConfig): SidebarNavItem {
   };
 }
 
+/**
+ * Canonical slug -> component identity map. The render switch in
+ * RealEstatePlatform (`activeModule === 'module6'` -> <Module6Scenarios/>),
+ * MODULE_VISIBILITY, and the ModuleKey union all hard-code which `moduleN`
+ * key maps to which component, in a FIXED order that never changes. The
+ * single immutable anchor that ties a DB row to its component is the `slug`:
+ * every migration keys rows by (platform_slug, slug), while `number` is
+ * mutable (the seed had reports=6 / scenarios=7; migration 157 swaps them, and
+ * 154/157 temp-park numbers to dodge the UNIQUE(platform_slug, number)
+ * constraint). Deriving the routing key from `number` therefore breaks
+ * whenever the DB numbering and the component order disagree (e.g. before the
+ * swap migration runs), which silently made the Live Scenarios module route to
+ * a non-existent `module7` branch. Routing must follow the stable slug.
+ */
+const SLUG_TO_COMPONENT_NUMBER: Readonly<Record<string, number>> = {
+  'project-setup': 1,
+  revenue: 2,
+  opex: 3,
+  financials: 4,
+  returns: 5,
+  scenarios: 6,
+  reports: 7,
+  portfolio: 8,
+  'market-data': 9,
+  collaborate: 10,
+  'api-access': 11,
+};
+
 function fetchedToNav(m: FetchedModule, position: number): SidebarNavItem {
   // Reuse the legacy `module1`..`moduleN` key shape so existing routing keeps
   // working (RealEstatePlatform switches the active view by this string). The
-  // key is derived from the STABLE `number` (the module's component identity),
-  // so admin reordering never re-points a row at a different component. The
-  // DISPLAYED number is the 1-based position in display_order, so reordering
-  // renumbers the sidebar cleanly without changing routing.
-  const key = `module${m.number}`;
+  // key is derived from the STABLE `slug` -> component identity (see map above),
+  // NOT from the mutable DB `number`, so admin reordering / renumbering never
+  // re-points a row at a different component and the routing key matches the
+  // hard-coded render switch even when the DB numbering disagrees. Unknown
+  // slugs (test fixtures, future modules) fall back to `number`. The DISPLAYED
+  // number is the 1-based position in display_order, so reordering renumbers
+  // the sidebar cleanly without changing routing.
+  const componentNumber = SLUG_TO_COMPONENT_NUMBER[m.slug] ?? m.number;
+  const key = `module${componentNumber}`;
   const badge =
     m.status === 'live' ? '✓' :
     m.status === 'coming_soon' ? 'SOON' :
@@ -99,7 +131,7 @@ function fetchedToNav(m: FetchedModule, position: number): SidebarNavItem {
     key,
     icon: m.icon_emoji ?? '·',
     label: `Module ${position}, ${m.short_name}`,
-    featureKey: `module_${m.number}`,
+    featureKey: `module_${componentNumber}`,
     requiredPlan,
     badge,
     badgeClass,

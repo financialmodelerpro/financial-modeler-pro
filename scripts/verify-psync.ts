@@ -237,6 +237,37 @@ console.log('\n[3b/5] Platform read path');
   } else {
     fail('Coming Soon visible-but-locked', `got disabled=${soon?.disabled} badge=${soon?.badge}`);
   }
+
+  // Regression guard (scenarios-unclickable): routing key follows the STABLE
+  // slug, not the mutable DB `number`. Reproduces the pre-swap DB state where
+  // the seed left scenarios=7 / reports=6 (migration 157 swaps them). The Live
+  // Scenarios row MUST still route to the hard-coded `module6` render branch,
+  // and Reports MUST map to `module7`, no matter what number the DB carries.
+  const swapFixture: FetchedModule[] = [
+    { slug: 'reports',   number: 6, name: 'Reports',  short_name: 'Reports',   description: '', icon_emoji: null, status: 'coming_soon', gating_tier: 'free', display_order: 7 },
+    { slug: 'scenarios', number: 7, name: 'Scenarios', short_name: 'Scenarios', description: '', icon_emoji: null, status: 'live',        gating_tier: 'free', display_order: 6 },
+  ];
+  const swapNav = toSidebarNavList(swapFixture);
+  const scn = swapNav.find((n) => n.label.includes('Scenarios'));
+  const rep = swapNav.find((n) => n.label.includes('Reports'));
+
+  if (scn?.key === 'module6') {
+    pass('scenarios slug routes to module6 even when DB number=7 (stable-slug key)');
+  } else {
+    fail('scenarios -> module6', `scenarios key=${scn?.key} (expected module6; key followed DB number, not slug)`);
+  }
+
+  if (scn?.key === 'module6' && scn?.disabled === false && scn?.featureKey === 'module_6') {
+    pass('Live Scenarios is clickable + plan-gated on module_6 (matches MODULE_VISIBILITY)');
+  } else {
+    fail('Scenarios clickable', `disabled=${scn?.disabled} featureKey=${scn?.featureKey}`);
+  }
+
+  if (rep?.key === 'module7') {
+    pass('reports slug routes to module7 even when DB number=6 (stable-slug key)');
+  } else {
+    fail('reports -> module7', `reports key=${rep?.key} (expected module7)`);
+  }
 }
 
 // ── Section 4: Source-file markers ────────────────────────────────────────
