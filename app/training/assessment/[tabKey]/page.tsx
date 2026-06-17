@@ -165,6 +165,10 @@ export default function AssessmentPage() {
   // Server-anchored timer state (migration 126). Drives countdown, pause UI,
   // and the visibility-change pause/resume flow.
   const [attemptState, setAttemptState] = useState<ServerAttemptState | null>(null);
+  // True while the Start handler is establishing the server-anchored attempt.
+  // Gates the Start button so a slow start cannot be double-fired, and lets the
+  // button show progress instead of looking dead.
+  const [startingAttempt, setStartingAttempt] = useState(false);
   // Shuffle settings
   const [shuffleOptions, setShuffleOptions] = useState(false);
   // Maps: for each question index, stores the mapping from shuffled option index → original option index
@@ -433,12 +437,36 @@ export default function AssessmentPage() {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function startAssessment() {
-    if (attemptForRun === null) return;
+    if (attemptForRun === null || startingAttempt) return;
+    setErrorMsg('');
     setCurrentQ(0);
     const timerMin = questions ? (questions.timeLimit || questions.questions.length) : null;
     const isFinalExam = questions?.isFinal ?? false;
-    const state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
-    if (state) setAttemptState(state);
+
+    // The server start is idempotent (it returns the existing row when one is
+    // already there). A transient failure, a network blip, a cold-start 500, or a
+    // session that expired between page load and pressing Start, must NEVER drop
+    // the student into the assessment with no timer. That silent drop is exactly
+    // why the timer "shows for some students and not others" on the same
+    // assessment: whoever's POST happened to fail took it untimed. So we try,
+    // retry once on a null result, then fall back to reading any row the server
+    // may already have created (covers a POST that succeeded server-side but whose
+    // response was lost). We only enter 'taking' once we actually hold the
+    // attemptState; otherwise we stay on the ready screen with a clear retry
+    // prompt rather than running untimed.
+    setStartingAttempt(true);
+    let state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
+    if (!state) state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
+    if (!state) state = await getAttemptStateApi({ tabKey, attemptNumber: attemptForRun });
+    setStartingAttempt(false);
+
+    if (!state) {
+      setErrorMsg('We could not start your timed attempt. Please check your connection and press Start again. Your timer begins only once the attempt starts cleanly, so you will not lose time.');
+      return; // stay on 'ready'; do NOT enter the assessment without a timer
+    }
+
+    setAttemptState(state);
+    setTimeLeft(state.secondsRemaining);
     setPageState('taking');
   }
 
@@ -757,13 +785,17 @@ export default function AssessmentPage() {
 
               <button
                 onClick={startAssessment}
+                disabled={startingAttempt}
                 style={{
                   background: accentColor, color: WHITE, border: 'none',
                   padding: '14px 32px', borderRadius: 8, fontSize: 16, fontWeight: 700,
-                  cursor: 'pointer', width: '100%',
+                  cursor: startingAttempt ? 'wait' : 'pointer', width: '100%',
+                  opacity: startingAttempt ? 0.7 : 1,
                 }}
               >
-                {isOnlyAttempt ? (isFinal ? 'Start Final Exam →' : 'Start Assessment (1 attempt only) →') : 'Start Assessment →'}
+                {startingAttempt
+                  ? 'Starting your timed attempt…'
+                  : isOnlyAttempt ? (isFinal ? 'Start Final Exam →' : 'Start Assessment (1 attempt only) →') : 'Start Assessment →'}
               </button>
             </div>
           </div>
