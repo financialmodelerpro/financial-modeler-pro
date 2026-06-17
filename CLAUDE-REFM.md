@@ -1,5 +1,17 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-06-16. Lock status: M1 LOCKED (M2.0 Pass 58 base), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE (Financial Statements: Schedules / P&L / CF / BS, balances by construction + Direct==Indirect), M5 DONE (Returns & RE Metrics + Lender Covenants), M6 Scenario Analysis LIVE, M7 Reports = stub. Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+**Last updated: 2026-06-17. Lock status: M1 LOCKED (M2.0 Pass 58 base), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE (Financial Statements: Schedules / P&L / CF / BS, balances by construction + Direct==Indirect), M5 DONE (Returns & RE Metrics + Lender Covenants), M6 Scenario Analysis LIVE, M7 Reports = stub. Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+
+## 2026-06-17 session: version edit choice (edit-in-place / save-as-new)
+
+Ends the "a new version on every Edit" churn from the view/edit lock. Clicking **Edit** now opens a CHOICE step (`components/modals/EditChoiceModal.tsx`, NEW) BEFORE editing starts; it shows the **current version name** clearly and offers: **edit this version in place** (default) / **edit a different version** / **create a new version**. No engine/calculation change, version/persistence + Edit-entry UX only.
+
+`module1-sync.ts` gained two session entry points beside `startEditSession` (which still POSTs a new version = the create-new path):
+- **`startEditInPlace()`** points the editing session at the LOADED version (`editingVersionId = sessionBaseVersionId`) so autosaves PATCH that SAME row. No new version is created; the loaded version is overwritten in place. Returns an error when no saved version is loaded (cache-only) so the caller falls back to create-new. Also added module state `sessionBaseLabel` (so in-place adopts the loaded version's name without a rename).
+- **`saveAsNewVersion(label, meta)`** POSTs a fresh version from the current working state, branched off the version being edited (`baseVersionId = editingVersionId ?? sessionBaseVersionId`), then re-anchors the session to the new row and CONTINUES editing it. The source version is left untouched.
+
+Wiring: `RealEstatePlatform.handleEnableEditing` opens the choice step; `handleEditChoice` routes in-place / different (history picker in "edit" intent -> `handleLoadVersionForEdit` loads then edits in place) / create-new. `NameVersionModal` gained a `save-as-new` mode (same auto-name + Task + Comment form); `handleNameVersionConfirm` routes it to `saveAsNewVersion`. `VersionModal` gained optional `initialTab` + `loadActionLabel` (edit-intent lands on History with an "Edit this version" action; keyed remount via `key={`versions-${versionPickMode}`}`). `Topbar` gained a **🌿 Save as new version** button (edit mode only, prop `onSaveAsNewVersion`). Non-destructive: editing one version in place never touches others; branching never alters the source; existing history + naming preserved. `scripts/verify-version-edit-choice.ts` 38/38 (real sync vs an in-memory fetch server + UI-wiring source invariants). Commit `6bc35629`.
+
+Also this session (separate commits): assessment-timer silent-drop fix (training, `0e66eff7`) and M6 YoY debt/equity dedup + drawdown-excludes-IDC (`ab4f49ec`).
 
 ## 2026-06-16 session: M6 override pipeline (empirical), platform shell, admin module mgmt
 
@@ -87,6 +99,7 @@ EDITING ──store mutation──▶ EDITING (PATCH in place)
 - **Detach-before-hydrate is non-negotiable.** Any code that mutates the Zustand store on behalf of a different project MUST call `detachSync()` first. Otherwise the prior project's autosave subscriber catches the hydrate event.
 - **Session = version.** One named version row per editing session. PATCHes in place. The pre-fix "auto-save creates N versions per session" pattern is retired.
 - **Auto-start on first edit, no blocking modal** (refined 2026-05-31 evening). The sync subscriber detects the first snapshot-changing edit and calls `startEditSession(defaultLabel)` automatically. UI shows a non-blocking banner with Rename + Dismiss buttons. Never lose an edit to a discarded modal.
+- **Edit-entry is a user choice (2026-06-17).** Three session entry points: `startEditSession` POSTs a new version (create-new), `startEditInPlace()` PATCHes the loaded version (no new row), `saveAsNewVersion()` branches the current state into a new row and continues there. The `EditChoiceModal` picks among them on Edit. "Session = version" still holds within a session; what changed is that opening one no longer forces a NEW row.
 - **Diff is server-computed against the row's base.** PATCH endpoint re-loads `existing.base_version_id` and recomputes `change_log`; it never trusts a client-supplied diff (defense against polluted history).
 - **`change_log` is on the row**, not derived. Survives base-version deletion (`ON DELETE SET NULL`). Versions stay readable even if their base is gone; the diff just records the pre-deletion comparison.
 - **`refm_project_versions` stays append-only.** Migration 152 adds columns but never deletes / mutates existing rows; recovery from data corruption uses the version history via VersionModal "Load".
