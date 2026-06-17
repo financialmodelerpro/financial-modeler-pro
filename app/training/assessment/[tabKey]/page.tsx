@@ -192,22 +192,24 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
 
-    // Migration 148 / Phase E.1 - model-submission gate. For final exams, ask
-    // the server whether the per-course gate is on AND the student has not
-    // been approved. If blocked, redirect to the dashboard so the student
-    // sees the unified ModelSubmissionCard + Final Exam Lock panel instead
-    // of a deeplink that would 403 on submit. Non-final tab keys skip the
-    // check. Failure modes are fail-open (cert engine still gates issuance).
+    // Model-submission gate (corrected flow). For final exams, EXAM ACCESS is
+    // gated only by "has the candidate submitted a model" (any status), NOT by
+    // approval, so submitting unlocks the exam immediately. We redirect to the
+    // dashboard (the unified ModelSubmissionCard + Final Exam panel) only when
+    // the gate is required AND no model has been submitted yet. A submitted-but-
+    // pending student is allowed into the exam; the result is withheld until an
+    // admin approves (submit-assessment records the attempt, the approval route
+    // declares the result, the cert engine holds the certificate). Non-final tab
+    // keys skip the check; failures fail-open.
     //
     // Resolution goes through resolveIsFinal so the scoping is canonical
-    // (looks up the session in COURSES) instead of a tabKey suffix string
-    // match, which is fragile across Apps Script naming variants.
+    // (looks up the session in COURSES) instead of a tabKey suffix string match.
     if (resolveIsFinal(tabKey)) {
       try {
         const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
         const gateRes = await fetch(`/api/training/model-submission?courseCode=${courseCode}`);
-        const gateJson = await gateRes.json() as { status?: { required?: boolean; hasApproved?: boolean } };
-        if (gateJson.status?.required === true && gateJson.status.hasApproved !== true) {
+        const gateJson = await gateRes.json() as { status?: { required?: boolean; latestStatus?: string } };
+        if (gateJson.status?.required === true && (gateJson.status.latestStatus ?? 'none') === 'none') {
           router.replace(`/training/dashboard?course=${courseCode.toLowerCase()}&gate=model-submission`);
           return;
         }

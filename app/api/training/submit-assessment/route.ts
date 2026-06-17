@@ -6,6 +6,7 @@ import { lockedOutTemplate } from '@/src/shared/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { deleteInProgressForKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
 import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
+import { examLockedNoSubmission, resultWithheldUntilApproval } from '@/src/hubs/training/lib/modelSubmission/examGate';
 import { resolveIsFinal } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 // Cert generation (PDF render + satori/sharp badge + Storage upload + DB write
@@ -64,34 +65,34 @@ export async function POST(req: NextRequest) {
     const numScore = Number(score);
     const didPass = passed ?? numScore >= 70;
 
-    // Migration 148 / Phase B gate: refuse to record a final-exam attempt
-    // when the per-course model-submission requirement is on and the
-    // student does not yet have an approved model. UI gate (Phase E) will
-    // hide the exam page from the dashboard; this is the defense-in-depth
-    // layer that catches stale tabs, deeplinks, and direct cURL hits.
-    // Dormant by default (per-course required flags ship 'false').
+    // Model-submission gate (corrected flow). EXAM ACCESS is gated only by
+    // "has the candidate submitted a model" (any status), NOT by approval, so
+    // submitting unlocks the exam immediately. The exam is refused only when the
+    // per-course requirement is on AND no model has been submitted at all. The
+    // RESULT (and certificate) is then withheld until an admin approves: when the
+    // model is submitted-but-not-yet-approved we still RECORD the attempt but
+    // hold its declaration (no result email here; the approval route declares it
+    // and the cert engine holds issuance until approval).
     //
     // The gate fires only when both the client body claims isFinal AND the
-    // tabKey resolves to a known Final session in the COURSES config. This
-    // pinning prevents a misreported isFinal=true on a per-session quiz
-    // from triggering the gate, the regression that surfaced as Session 2
-    // students being told to upload a model.
+    // tabKey resolves to a known Final session in the COURSES config, so a
+    // misreported isFinal=true on a per-session quiz cannot trigger it.
     const tabKeyIsFinal = resolveIsFinal(tabKey);
+    let withholdFinalResult = false;
     if (isFinal === true && tabKeyIsFinal) {
       const courseCodeForGate = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
       const cleanEmailForGate = email.trim().toLowerCase();
       try {
         const modelGate = await getModelSubmissionStatus(cleanEmailForGate, courseCodeForGate);
-        if (modelGate.required && !modelGate.hasApproved) {
-          console.warn('[submit-assessment] final-exam blocked by model gate', {
+        if (examLockedNoSubmission(modelGate)) {
+          console.warn('[submit-assessment] final-exam blocked: no model submitted', {
             email: cleanEmailForGate, courseCode: courseCodeForGate,
             latestStatus: modelGate.latestStatus,
-            attemptsUsed: modelGate.attemptsUsed,
           });
           return NextResponse.json({
             success: false,
-            error: 'model_not_approved',
-            message: 'Your model is being reviewed. The final exam unlocks once an admin approves your submission.',
+            error: 'model_not_submitted',
+            message: 'Submit your financial model to unlock the final exam.',
             modelStatus: {
               latestStatus: modelGate.latestStatus,
               attemptsUsed: modelGate.attemptsUsed,
@@ -100,10 +101,12 @@ export async function POST(req: NextRequest) {
             },
           }, { status: 403 });
         }
+        // Submitted but not yet approved -> record the attempt, withhold the
+        // result declaration until the admin approves the model.
+        withholdFinalResult = resultWithheldUntilApproval(modelGate);
       } catch (gateErr) {
-        // Fail-open: a settings or DB hiccup must not block a legitimate
-        // submission. The cert engine gate will catch any cert issuance
-        // that should have been blocked, so this stays a soft check.
+        // Fail-open on access: a settings or DB hiccup must not block a
+        // legitimate submission. The cert engine gate still holds issuance.
         console.warn('[submit-assessment] model-gate check failed, allowing submission:', gateErr);
       }
     }
@@ -184,8 +187,11 @@ export async function POST(req: NextRequest) {
     // Final-exam gate uses the same defense-in-depth pattern as the model
     // gate above (client `isFinal` flag AND server-side resolveIsFinal),
     // so a misreported isFinal on a per-session quiz cannot trigger the
-    // final-exam result email.
-    const sendFinalEmail = (isFinal ?? false) && tabKeyIsFinal;
+    // final-exam result email. When the result is withheld (model submitted
+    // but not yet approved) we record the attempt but do NOT declare the
+    // result here; the admin approval route declares it.
+    const finalResultHeld = (isFinal ?? false) && tabKeyIsFinal && withholdFinalResult;
+    const sendFinalEmail = (isFinal ?? false) && tabKeyIsFinal && !withholdFinalResult;
 
     after(async () => {
       if (sendFinalEmail) {
@@ -208,8 +214,9 @@ export async function POST(req: NextRequest) {
       // Send locked-out email if max attempts exhausted and not passed.
       // Applies to per-session quizzes too: students who exhaust attempts
       // need the support contact instructions, even though the regular
-      // pass/fail result no longer emails.
-      if (!didPass && attempt >= maxAtt) {
+      // pass/fail result no longer emails. Skipped for a withheld final exam
+      // (the outcome is held until the model is approved).
+      if (!didPass && attempt >= maxAtt && !finalResultHeld) {
         try {
           const { subject, html, text } = await lockedOutTemplate({
             name: studentName,
@@ -231,7 +238,12 @@ export async function POST(req: NextRequest) {
     // Idempotency is handled by the helper (skip-if-already-issued pre-check +
     // unique index on student_certificates). Failures log here and surface on
     // the admin "Eligible but not issued" safety-net panel.
-    if (didPass && (isFinal ?? false)) {
+    // When the result is withheld (model submitted, not yet approved) we skip
+    // cert issuance + BVM auto-unlock at exam time so nothing about the held
+    // result leaks to the candidate. The admin approval route re-triggers both
+    // once the model is approved. (The cert engine would hold issuance anyway;
+    // gating here also avoids the BVM-unlock leak and keeps logs clean.)
+    if (didPass && (isFinal ?? false) && !finalResultHeld) {
       const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
       after(async () => {
         // Definitive "trigger fired" signal - distinct from the success /

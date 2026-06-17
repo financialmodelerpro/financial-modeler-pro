@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { modelSubmissionApprovedTemplate } from '@/src/shared/email/templates/modelSubmissionApproved';
 import { modelSubmissionRejectedTemplate } from '@/src/shared/email/templates/modelSubmissionRejected';
+import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
+import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { COURSES } from '@/src/hubs/training/config/courses';
 import type { ModelSubmissionRow } from '@/src/hubs/training/lib/modelSubmission/types';
 
@@ -208,6 +210,93 @@ export async function POST(
     course: submission.course_code, attempt: submission.attempt_number,
     attemptsRemaining, by: adminEmail, emailSent,
   });
+
+  // Corrected flow: approving the model is the gate that DECLARES the (held)
+  // exam result and lets the certificate path proceed. Under the new rule the
+  // candidate could have already taken the final exam while the model was
+  // pending; submit-assessment recorded the attempt but withheld its result
+  // (no result email, cert held by the engine). On approval we now:
+  //   1. Declare the held final-exam result (the result email), if taken.
+  //   2. Re-trigger certificate issuance (idempotent + eligibility-gated; the
+  //      cert engine's model-approval gate now passes).
+  //   3. BVM auto-unlock when a passed 3SFM final was waiting on approval.
+  // Fire-and-forget so the admin response is immediate. No-ops cleanly when the
+  // student has not taken the final yet (then the normal exam-time path runs
+  // once they do, because the model is now approved).
+  if (decision === 'approve') {
+    const courseCode = submission.course_code; // '3SFM' | 'BVM'
+    const courseId = courseCode.toLowerCase();  // '3sfm' | 'bvm'
+    const studentEmail = submission.email.toLowerCase();
+    const finalSession = courseEntry?.sessions.find(s => s.isFinal);
+    after(async () => {
+      try {
+        const { data: finalRow } = await sb
+          .from('training_assessment_results')
+          .select('score, passed, attempts')
+          .ilike('email', studentEmail)
+          .eq('course_id', courseId)
+          .eq('is_final', true)
+          .maybeSingle();
+
+        // 1. Declare the held result (only when the final has actually been taken).
+        if (finalRow) {
+          try {
+            const { subject, html, text } = await quizResultTemplate({
+              name: firstName,
+              sessionName: finalSession?.title ?? `${courseCode} Final Exam`,
+              score: Number((finalRow as { score?: number }).score ?? 0),
+              passMark: finalSession?.passingScore ?? 70,
+              passed: (finalRow as { passed?: boolean }).passed === true,
+              attemptsUsed: Number((finalRow as { attempts?: number }).attempts ?? 1),
+              maxAttempts: finalSession?.maxAttempts ?? 1,
+            });
+            await sendEmail({ to: submission.email, subject, html, text, from: FROM.training });
+            console.log('[model-submissions review] held result declared on approval', { email: studentEmail, course: courseCode });
+          } catch (resErr) {
+            console.error('[model-submissions review] result declaration email failed (non-fatal):', resErr);
+          }
+        }
+
+        // 2. Re-trigger certificate issuance (idempotent; held until now by the
+        //    cert engine's model-approval gate, which this approval satisfies).
+        try {
+          const res = await issueCertificateForStudent(studentEmail, courseCode as '3SFM' | 'BVM', { issuedVia: 'auto' });
+          console.log('[model-submissions review] post-approval cert issuance', {
+            email: studentEmail, course: courseCode,
+            ok: res.ok, skipped: (res as { skipped?: boolean }).skipped === true,
+            error: res.ok ? undefined : (res as { error?: string }).error,
+          });
+        } catch (certErr) {
+          console.error('[model-submissions review] post-approval cert issuance threw (admin safety-net will surface):', certErr);
+        }
+
+        // 3. BVM auto-unlock when a passed 3SFM final was held pending approval.
+        if (courseCode === '3SFM' && (finalRow as { passed?: boolean } | null)?.passed === true) {
+          try {
+            const { data: metaRow } = await sb
+              .from('training_registrations_meta')
+              .select('registration_id')
+              .ilike('email', studentEmail)
+              .maybeSingle();
+            if (metaRow?.registration_id) {
+              const { error: enrollErr } = await sb
+                .from('training_enrollments')
+                .insert({ registration_id: metaRow.registration_id, course_code: 'BVM' });
+              if (enrollErr && !enrollErr.message.toLowerCase().includes('duplicate')) {
+                console.error('[model-submissions review] BVM auto-unlock failed', { email: studentEmail, error: enrollErr.message });
+              } else {
+                console.log('[model-submissions review] BVM auto-unlocked on approval', { email: studentEmail });
+              }
+            }
+          } catch (enrollErr) {
+            console.error('[model-submissions review] BVM auto-unlock threw:', enrollErr);
+          }
+        }
+      } catch (postErr) {
+        console.error('[model-submissions review] post-approval re-trigger failed (non-fatal):', postErr);
+      }
+    });
+  }
 
   return NextResponse.json({
     ok: true,

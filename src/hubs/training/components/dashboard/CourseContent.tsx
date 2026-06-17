@@ -12,6 +12,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { ModelSubmissionCard } from './ModelSubmissionCard';
 import { formatShareDate, type ShareVars } from '@/src/shared/share/shareTemplates';
 import type { ModelSubmissionStatusResult } from '@/src/hubs/training/lib/modelSubmission/types';
+import { examLockedNoSubmission, resultWithheldUntilApproval } from '@/src/hubs/training/lib/modelSubmission/examGate';
 
 /**
  * Every share button raised from this component flows through the central
@@ -176,21 +177,25 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const certStatus = bvmLocked ? 'Locked' : (courseCert ? 'Earned' : allRegularPassed ? 'Eligible' : 'Pending');
   const certColor = bvmLocked ? '#9CA3AF' : (certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280');
   const hasAny = passedCount > 0;
-  const isOfficial = finalPassed || !!courseCert;
 
-  // Model-submission gate (migration 148, Phase E.1). When the per-course
-  // required flag is on AND the student has no approved row, the Final Exam
-  // is locked even after every regular session has been passed. The server
-  // gates in /api/training/submit-assessment + issueCertificateForPending
-  // (Phase B) are authoritative; the UI branches below just keep the
-  // dashboard from showing actions the server will refuse.
-  const gateBlocksFinal = modelGate?.required === true && modelGate?.hasApproved !== true;
-  const finalLockReason = gateBlocksFinal
-    ? (modelGate?.latestStatus === 'pending_review'
-        ? 'Awaiting model approval - check your inbox for the decision.'
-      : modelGate?.latestStatus === 'rejected'
-        ? 'Your model needs another pass. Resubmit from the panel above.'
-        : 'Submit your financial model from the panel above to unlock the Final Exam.')
+  // Model-submission gate (corrected flow). EXAM ACCESS is gated only by "has a
+  // model been submitted" (any status), so submitting unlocks the Final Exam
+  // immediately; approval is no longer a prerequisite to sit the exam. The exam
+  // RESULT + certificate are withheld until an admin approves the model. The
+  // server gates (/api/training/submit-assessment, the cert engine, and the
+  // approval route which declares the held result) are authoritative; these UI
+  // branches mirror them so the dashboard never offers an action the server
+  // refuses, nor declares a result the server is holding.
+  const examLocked = examLockedNoSubmission(modelGate ?? null);     // required AND no submission
+  const resultHeld = resultWithheldUntilApproval(modelGate ?? null); // required AND not yet approved
+  const finalAttempted = finalSession
+    ? ((progressMap.get(finalSession.id)?.attempts ?? 0) > 0 || finalPassed)
+    : false;
+  // Withhold the "official / earned" declaration while the result is held, even
+  // if the recorded final shows a pass. It surfaces once the model is approved.
+  const isOfficial = (finalPassed || !!courseCert) && !resultHeld;
+  const finalLockReason = examLocked
+    ? 'Submit your financial model from the panel above to unlock the Final Exam.'
     : undefined;
 
   // "About This Course" - courses API keys by category (e.g. '3SFM', 'BVM')
@@ -377,7 +382,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           if (bvmLocked) {
             locked = true;
           } else if (isFinalRow) {
-            locked = !allRegularPassed || gateBlocksFinal;
+            locked = !allRegularPassed || examLocked;
           } else if (idx > 0) {
             const prev = course.sessions[idx - 1];
             locked = !progressMap.get(prev.id)?.passed;
@@ -424,32 +429,43 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               isInProgress={inProgressWatchKeys?.has(tk)}
               courseName={course.title}
               studentName={studentName}
-              lockReason={isFinalRow && gateBlocksFinal ? finalLockReason : undefined}
+              lockReason={isFinalRow && examLocked ? finalLockReason : undefined}
             />
           );
         })}
       </div>
 
-      {/* ── Final Exam Lock (replaces Exam Prep Mode when the model gate is
-              active per Phase E.1). Only one of the two ever renders. */}
-      {gateBlocksFinal && allRegularPassed && !courseCert && !finalPassed && finalSession && (
+      {/* ── Final Exam locked: no model submitted yet. Submitting (any status)
+              unlocks the exam immediately; approval is NOT required to sit it. */}
+      {examLocked && allRegularPassed && !courseCert && !finalPassed && finalSession && (
         <div style={{ background: 'linear-gradient(135deg,#FFFBEB,#FEF3C7)', border: '1px solid #FCD34D', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#92400E', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>🔒 Final Exam locked - model approval required</span>
+            <span>🔒 Final Exam locked - submit your model to unlock</span>
           </div>
           <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginBottom: 4 }}>
-            You have completed every {course.id === 'bvm' ? 'lesson' : 'session'} for <strong>{course.shortTitle}</strong>. To unlock the Final Exam,{' '}
-            {modelGate?.latestStatus === 'pending_review'
-              ? 'wait for the admin review of your submitted model. We typically respond within 5 business days and you will be emailed when a decision is made.'
-            : modelGate?.latestStatus === 'rejected'
-              ? 'review the reviewer note in the model panel above and upload a revised version. You have ' + (modelGate?.attemptsRemaining ?? 0) + ' attempt' + ((modelGate?.attemptsRemaining ?? 0) === 1 ? '' : 's') + ' remaining.'
-              : 'submit the financial model you have built using the panel above. Our experts team will review it within 5 business days.'}
+            You have completed every {course.id === 'bvm' ? 'lesson' : 'session'} for <strong>{course.shortTitle}</strong>. Submit the financial model you have built using the panel above to unlock the Final Exam right away. You can sit the exam as soon as your model is uploaded, your result and certificate are released once an admin approves the model.
+          </div>
+        </div>
+      )}
+
+      {/* ── Result held: model submitted (exam unlocked) but not yet approved.
+              The candidate may take the exam now; the result + certificate are
+              withheld until approval. Two phrasings: before vs after sitting. */}
+      {resultHeld && !examLocked && allRegularPassed && !courseCert && finalSession && (
+        <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>{finalAttempted ? '⏳ Final Exam recorded - result pending model approval' : '✅ Final Exam unlocked - result released after model approval'}</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: '#1E40AF', lineHeight: 1.55, marginBottom: 4 }}>
+            {finalAttempted
+              ? <>Your Final Exam attempt is recorded. Your result and certificate are released once an admin approves your submitted model. {modelGate?.latestStatus === 'rejected' ? 'Your latest model was returned for changes, resubmit from the panel above to proceed.' : 'We typically review within 5 business days and email you the decision.'}</>
+              : <>Your model is submitted, so the Final Exam is unlocked, you can take it now. Your result and certificate stay held until an admin approves the model. {modelGate?.latestStatus === 'rejected' ? 'Note: your latest model was returned for changes, you can still sit the exam, but approval of a revised model is needed to release the result.' : ''}</>}
           </div>
         </div>
       )}
 
       {/* ── Exam Prep Mode ───────────────────────────────────────────────── */}
-      {!gateBlocksFinal && !courseCert && allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
+      {!examLocked && !courseCert && allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
         <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode - You are ready for the Final Exam!</div>
           <div style={{ fontSize: 12, color: '#1E40AF', marginBottom: 12 }}>Review your weakest sessions before sitting the final:</div>
