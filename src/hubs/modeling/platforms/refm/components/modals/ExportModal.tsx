@@ -94,13 +94,26 @@ export default function ExportModal({
         if (cancelled) return;
         const list = res.data?.versions ?? [];
         setVersions(list);
-        // Default to the latest saved version (list is newest-first).
-        setSelectedVersionId(list.length ? list[0].id : CURRENT);
+        // The version default stays "Current working draft" (set in the open
+        // effect below) so the export reflects the LIVE active case. The saved
+        // versions populate the dropdown for explicit selection.
       })
       .catch(() => { if (!cancelled) setVersions([]); })
       .finally(() => { if (!cancelled) setVersionsLoading(false); });
     return () => { cancelled = true; };
   }, [open, projectId]);
+
+  // On open, follow the LIVE active case + current working draft so every export
+  // defaults to exactly the case the user has active across the platform (the
+  // topbar / Module 6 selection). Without this, the modal stays mounted and these
+  // selections would freeze at their mount-time values, so an export after a case
+  // switch would render the wrong (stale) case. The case / version pickers below
+  // still let the user choose a different case or a saved version explicitly.
+  useEffect(() => {
+    if (!open) return;
+    setSelectedCaseId(useModule1Store.getState().activeCaseId);
+    setSelectedVersionId(CURRENT);
+  }, [open]);
 
   // Only built (live) modules are selectable / exported. Future modules still
   // appear in the list but their checkbox is unchecked and disabled until the
