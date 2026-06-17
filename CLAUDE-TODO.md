@@ -4,9 +4,9 @@
 
 ---
 
-## ⭐ START HERE (current focus, 2026-06-14)
+## ⭐ START HERE (current focus, 2026-06-17)
 
-**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is DONE (case-engine surface + grouped multi-case assumptions grid with per-asset cost sourcing + attribution + percent-scale formatting + comparison matrix; `verify-module6-scenarios` 79/79). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
+**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is DONE (case-engine surface + multi-case assumptions grid with per-asset cost sourcing + attribution + percent-scale formatting + comparison matrix + a Year-on-Year Impact tab; exhaustively field-audited on the live project; `verify-module6-scenarios` 128/128). Version control: a project opens read-only (view/edit lock) and Edit offers edit-in-place / a different version / create-new + mid-session save-as-new (no more version churn). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
 
 **NEXT / pending units:**
 - **Module 7 Reports** (charts / dashboards): the remaining module surface (config: `module7` = Reports, currently a stub).
@@ -54,7 +54,7 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 
 ---
 
-## REFM Module Status (2026-06-14)
+## REFM Module Status (2026-06-17)
 
 Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md) + memory `project_*` files.
 
@@ -65,7 +65,7 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 | Module 3 | Operating Expenses | **LOCKED** at Pass 5d. |
 | Module 4 | Financial Statements | **DONE.** Schedules / P&L / CF / BS. Balances by construction (BS reconciles AND Direct == Indirect closing cash every period). |
 | Module 5 | Returns & Valuation | **DONE.** IRR/MOIC on FCFF/FCFE/Dividends + terminal value + RE metrics + multi-partner returns + exit / sensitivity / per-asset. Tabs: Returns / RE Metrics / Case Comparison. |
-| Module 6 | Scenario Analysis | **DONE (grid 2026-06-15, b9281cae).** Surface over the case engine: case list, multi-case **assumptions grid** (rows grouped by category with plain-English labels + asset/phase/facility attribution, columns = every case incl. an editable Management; curated key-driver default + "show all" toggle + add-row picker), comparison matrix. Construction levers are MODEL-AWARE: per-asset `costOverrides` win over the phase-level master (real rates, not 0/stale seed), zero/unused dropped. Percent-scale detection per field (fractions 0-1 vs whole 0-100) renders all percents at 2dp; rates/prices accounting. Verified on the live project. Only the construction-timeline override stays on the backlog. |
+| Module 6 | Scenario Analysis | **DONE (grid 2026-06-15, b9281cae).** Surface over the case engine: case list, multi-case **assumptions grid** (rows grouped by category with plain-English labels + asset/phase/facility attribution, columns = every case incl. an editable Management; curated key-driver default + "show all" toggle + add-row picker), comparison matrix, and a **Year-on-Year Impact tab** (per-period divergence per case; debt/equity split deduped to one block; drawdown is principal, excludes IDC). Construction levers are MODEL-AWARE: per-asset `costOverrides` win over the phase-level master (real rates, not 0/stale seed), zero/unused dropped. Percent-scale detection per field (fractions 0-1 vs whole 0-100) renders all percents at 2dp; rates/prices accounting. Exhaustively field-audited on the live project (`verify-module6-field-census`). Only the construction-timeline override stays on the backlog. |
 | Module 7 | Reports & Visualizations | Stub (next module surface). |
 
 **Cases (scenario management), shipped 2026-06-03:** Management Case = base; Downside + Upside are field-override cases (renamable, add custom). Topbar Case switcher + Returns Case Comparison tab. Engine `lib/cases/applyOverrides.ts` (merge) + `lib/cases/assumptionGrid.ts` (grid labels / categories / curated set), verify-cases 35/35. See the NEXT SESSION block above for follow-ups.
