@@ -38,6 +38,9 @@ interface TopbarProps {
   /** Enter edit mode (runs the save-as / name-version flow, then unlocks). */
   onEnableEditing: () => void;
   onSave: () => void;
+  /** Mid-session "Save as new version": branch the current state into a fresh
+   *  version and keep editing it. Only meaningful in edit mode. */
+  onSaveAsNewVersion?: () => void;
   onOpenProjects: () => void;
   onOpenVersions: () => void;
   onOpenRbac: () => void;
@@ -147,6 +150,7 @@ export default function Topbar({
   canEnableEditing,
   onEnableEditing,
   onSave,
+  onSaveAsNewVersion,
   onOpenProjects,
   onOpenVersions,
   onOpenRbac,
@@ -338,6 +342,18 @@ export default function Topbar({
               Saved
             </>
           )}
+        </button>
+      )}
+
+      {can('canSave') && editMode && onSaveAsNewVersion && (
+        <button
+          className="pm-btn"
+          onClick={onSaveAsNewVersion}
+          data-testid="topbar-save-as-new"
+          title={'SAVE AS NEW VERSION\n\nBranch the current working state into a brand-new named version and keep editing from there. Use this when you want to fork rather than keep overwriting the version you opened.'}
+          style={{ fontWeight: 600 }}
+        >
+          🌿 Save as new version
         </button>
       )}
 

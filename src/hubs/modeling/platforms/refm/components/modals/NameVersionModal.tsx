@@ -34,7 +34,7 @@ import {
   COMMENT_MAX,
 } from '../../lib/persistence/versionNaming';
 
-export type NameVersionModalMode = 'start-session' | 'rename';
+export type NameVersionModalMode = 'start-session' | 'save-as-new' | 'rename';
 
 export interface NameVersionConfirm {
   /** Final version label written to the row (the auto-name in create mode). */
@@ -121,16 +121,21 @@ export default function NameVersionModal({
   if (!open) return null;
   if (typeof document === 'undefined') return null;
 
+  // 'start-session' (first edit / create-new) and 'save-as-new' (mid-session
+  // branch) share the same auto-name + Task + Comment form; only 'rename' is the
+  // free-text label edit.
+  const isCreate = mode === 'start-session' || mode === 'save-as-new';
+
   const taskV = validateTaskName(taskName);
   const commentV = validateComment(comment);
   const createValid = taskV.ok && commentV.ok;
 
   const handleConfirm = async (): Promise<void> => {
     if (submitting) return;
-    if (mode === 'start-session' && !createValid) return;
+    if (isCreate && !createValid) return;
     setSubmitting(true);
     try {
-      if (mode === 'start-session') {
+      if (isCreate) {
         await onConfirm({
           label: previewName,
           versionLabel: nextVersionLabel,
@@ -145,8 +150,11 @@ export default function NameVersionModal({
     }
   };
 
-  const isCreate = mode === 'start-session';
-  const title = isCreate ? '📌 Create version' : '✏️ Rename this version';
+  const title = mode === 'rename'
+    ? '✏️ Rename this version'
+    : mode === 'save-as-new'
+      ? '🌿 Save as new version'
+      : '📌 Create version';
 
   const fieldLabel: React.CSSProperties = {
     display: 'block',
@@ -299,7 +307,7 @@ export default function NameVersionModal({
             data-testid="name-version-modal-save"
             disabled={submitting || (isCreate && !createValid)}
           >
-            {submitting ? 'Saving...' : isCreate ? 'Save Version' : 'Save Name'}
+            {submitting ? 'Saving...' : mode === 'save-as-new' ? 'Save as New Version' : isCreate ? 'Save Version' : 'Save Name'}
           </button>
         </div>
       </div>

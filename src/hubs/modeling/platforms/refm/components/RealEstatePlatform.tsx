@@ -34,6 +34,8 @@ import {
   detach as detachSync,
   loadVersionInto,
   startEditSession,
+  startEditInPlace,
+  saveAsNewVersion,
   revertEditSession,
   getSessionState,
   setEditingEnabled,
@@ -69,6 +71,7 @@ import ProjectModal from './modals/ProjectModal';
 import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
 import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode, type NameVersionConfirm } from './modals/NameVersionModal';
+import EditChoiceModal, { type EditChoice } from './modals/EditChoiceModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
@@ -351,6 +354,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+  // 2026-06-17 (version edit choice): when the version history picker is opened
+  // from the Edit choice ("edit a different version"), loading a version should
+  // open it FOR EDITING (in place) rather than for viewing. 'view' is the
+  // normal History-load behaviour.
+  const [versionPickMode, setVersionPickMode] = useState<'view' | 'edit'>('view');
+  // 2026-06-17: the Edit choice step (in-place / different / create-new) shown
+  // before any editing starts.
+  const [editChoiceOpen, setEditChoiceOpen] = useState(false);
   // Phase M-Versioning (2026-05-31): NameVersionModal state.
   const [nameVersionModalOpen, setNameVersionModalOpen] = useState(false);
   const [nameVersionModalMode, setNameVersionModalMode] = useState<NameVersionModalMode>('start-session');
@@ -593,12 +604,73 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setNameVersionModalOpen(true);
   }, []);
 
-  // View -> Edit: the Edit button runs the save-as / name-version flow first;
-  // confirming it (handleNameVersionConfirm) starts the version and unlocks
-  // editing. This is the explicit gate that ends the "versions on every view"
-  // churn: nothing is written until the user names a version and starts editing.
+  // View -> Edit: clicking Edit opens the CHOICE step (edit in place / a
+  // different version / create new) BEFORE any editing starts. This is what ends
+  // the "a new version on every Edit" churn: in-place reuses the loaded version,
+  // create-new is the old behaviour, and nothing is written until the user picks.
   const handleEnableEditing = useCallback(() => {
+    setEditChoiceOpen(true);
+  }, []);
+
+  // Apply the UI edit-mode flags once the session has been pointed at a version
+  // (used by in-place and load-for-edit). The sync layer has already enabled its
+  // autosave subscriber; this flips the UI lock off.
+  const enterEditMode = useCallback((versionId: string | null): void => {
+    if (versionId) setActiveVersionId(versionId);
+    setEditingVersionLabel(getSessionState().editingLabel);
+    setEditingEnabled(true);
+    setEditMode(true);
+    setHasUnsaved(false);
+  }, []);
+
+  // Load a DIFFERENT version then edit it in place (the "edit a different
+  // version" choice). loadVersionInto re-anchors the session base to the chosen
+  // version; startEditInPlace points the editing session at it so saves overwrite
+  // that row (no new version).
+  const handleLoadVersionForEdit = useCallback(async (projectId: string, versionId: string): Promise<void> => {
+    const res = await loadVersionInto(projectId, versionId);
+    if (res.error) { setLoadError(res.error); return; }
+    setActiveProjectId(projectId);
+    setActiveVersionId(versionId);
+    setActiveTab('project-phases');
+    setActiveModule('overview');
+    const ip = startEditInPlace();
+    if (ip.error) { setLoadError(ip.error); return; }
+    enterEditMode(versionId);
+  }, [enterEditMode]);
+
+  // Dispatch the Edit choice.
+  const handleEditChoice = useCallback((choice: EditChoice): void => {
+    setEditChoiceOpen(false);
+    if (choice === 'in-place') {
+      const res = startEditInPlace();
+      if (res.error) {
+        // No saved version to overwrite (e.g. a cache-only load): fall back to
+        // the create-new flow rather than dropping the user with no session.
+        setNameVersionModalMode('start-session');
+        setEditingVersionLabel(null);
+        setNameVersionModalOpen(true);
+        return;
+      }
+      enterEditMode(res.versionId);
+      return;
+    }
+    if (choice === 'different') {
+      // Open the history picker in "edit" intent; loading edits in place.
+      setVersionPickMode('edit');
+      setVersionModalOpen(true);
+      return;
+    }
+    // create-new: the existing rich create flow (POSTs a new version).
     setNameVersionModalMode('start-session');
+    setEditingVersionLabel(null);
+    setNameVersionModalOpen(true);
+  }, [enterEditMode]);
+
+  // Mid-session "Save as new version": branch the current working state into a
+  // fresh version (named via NameVersionModal) and continue editing from there.
+  const handleSaveAsNewVersion = useCallback(() => {
+    setNameVersionModalMode('save-as-new');
     setEditingVersionLabel(null);
     setNameVersionModalOpen(true);
   }, []);
@@ -606,11 +678,19 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // NameVersionModal callbacks.
   const handleNameVersionConfirm = useCallback(
     async (result: NameVersionConfirm): Promise<void> => {
-      const res = await startEditSession(result.label, {
-        versionLabel: result.versionLabel,
-        taskName: result.taskName,
-        comment: result.comment,
-      });
+      // 'save-as-new' branches the current state into a fresh version and keeps
+      // editing it; every other create path POSTs / promotes via startEditSession.
+      const res = nameVersionModalMode === 'save-as-new'
+        ? await saveAsNewVersion(result.label, {
+            versionLabel: result.versionLabel,
+            taskName: result.taskName,
+            comment: result.comment,
+          })
+        : await startEditSession(result.label, {
+            versionLabel: result.versionLabel,
+            taskName: result.taskName,
+            comment: result.comment,
+          });
       if (res.error) {
         setLoadError(res.error);
         return;
@@ -630,7 +710,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setEditMode(true);
       setNameVersionModalOpen(false);
     },
-    [],
+    [nameVersionModalMode],
   );
 
   const handleNameVersionCancel = useCallback((): void => {
@@ -1059,6 +1139,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         canEnableEditing={!!activeProjectId}
         onEnableEditing={handleEnableEditing}
         onSave={handleSaveQuick}
+        onSaveAsNewVersion={handleSaveAsNewVersion}
         onOpenProjects={() => setProjectModalOpen(true)}
         onOpenVersions={() => setVersionModalOpen(true)}
         onOpenRbac={() => setRbacModalOpen(true)}
@@ -1299,17 +1380,34 @@ export default function RealEstatePlatform(): React.JSX.Element {
         }}
       />
       <VersionModal
+        key={`versions-${versionPickMode}`}
         open={versionModalOpen}
-        onClose={() => setVersionModalOpen(false)}
+        onClose={() => { setVersionModalOpen(false); setVersionPickMode('view'); }}
         projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         activeVersionId={activeVersionId}
-        onCreateVersion={can('canSave') ? handleSaveQuick : undefined}
+        initialTab={versionPickMode === 'edit' ? 'history' : undefined}
+        loadActionLabel={versionPickMode === 'edit' ? 'Edit this version' : undefined}
+        onCreateVersion={versionPickMode === 'edit' ? undefined : (can('canSave') ? handleSaveQuick : undefined)}
         onLoadVersion={(versionId) => {
-          if (activeProjectId) void handleLoadVersion(activeProjectId, versionId);
           setVersionModalOpen(false);
+          const mode = versionPickMode;
+          setVersionPickMode('view');
+          if (!activeProjectId) return;
+          if (mode === 'edit') void handleLoadVersionForEdit(activeProjectId, versionId);
+          else void handleLoadVersion(activeProjectId, versionId);
         }}
       />
+      {editChoiceOpen && (
+        <EditChoiceModal
+          open={editChoiceOpen}
+          projectName={activeProjectData?.name ?? null}
+          currentVersionName={activeVersionData?.name ?? null}
+          canEditInPlace={!!activeVersionId}
+          onChoose={handleEditChoice}
+          onCancel={() => setEditChoiceOpen(false)}
+        />
+      )}
       <NameVersionModal
         open={nameVersionModalOpen}
         mode={nameVersionModalMode}

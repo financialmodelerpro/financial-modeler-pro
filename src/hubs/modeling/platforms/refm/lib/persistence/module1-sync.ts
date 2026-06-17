@@ -91,6 +91,10 @@ let lastSavedJson       = '';   // serialized snapshot at last successful save
 // Session-based versioning state (Phase M-Versioning, 2026-05-31).
 let sessionBaseSnapshot: HydrateSnapshot | null = null;
 let sessionBaseVersionId: string | null = null;
+// 2026-06-17 (version edit choice): the label of the version the session is
+// anchored to. Lets edit-in-place adopt the loaded version's name as the
+// editing label (no rename) when the user chooses to overwrite it in place.
+let sessionBaseLabel:    string | null = null;
 let editingVersionId:    string | null = null;
 let editingLabel:        string | null = null;
 // 2026-05-31 (auto-start refactor): retained as a no-op flag for
@@ -179,6 +183,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     lastSavedJson = dirtyJson(checked.snapshot);
     sessionBaseSnapshot  = checked.snapshot;
     sessionBaseVersionId = serverRes.data.version.id;
+    sessionBaseLabel     = serverRes.data.version.label ?? null;
     versionId = serverRes.data.version.id;
     loaded = 'server';
     migrationNotice = checked.migrationNotice;
@@ -193,6 +198,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
       lastSavedJson = dirtyJson(checked.snapshot);
       sessionBaseSnapshot  = checked.snapshot;
       sessionBaseVersionId = null;  // can't trust cache to know which version
+      sessionBaseLabel     = null;
       loaded = 'cache';
       migrationNotice = checked.migrationNotice;
     }
@@ -237,6 +243,7 @@ export function attachToProjectFromLocalSnapshot(
   lastSavedJson        = dirtyJson(snapshot);
   sessionBaseSnapshot  = snapshot;
   sessionBaseVersionId = versionId;
+  sessionBaseLabel     = null;
   editingVersionId     = null;
   editingLabel         = null;
   hasFiredNeedsName    = false;
@@ -258,6 +265,7 @@ export function detach(): void {
   lastSavedJson        = '';
   sessionBaseSnapshot  = null;
   sessionBaseVersionId = null;
+  sessionBaseLabel     = null;
   editingVersionId     = null;
   editingLabel         = null;
   hasFiredNeedsName    = false;
@@ -283,6 +291,7 @@ export async function loadVersionInto(
     lastSavedJson        = dirtyJson(snap);
     sessionBaseSnapshot  = snap;
     sessionBaseVersionId = res.data.version.id;
+    sessionBaseLabel     = res.data.version.label ?? null;
     editingVersionId     = null;
     editingLabel         = null;
     hasFiredNeedsName    = false;
@@ -374,6 +383,72 @@ export async function startEditSession(
   lastSavedJson    = dirtyJson(snapshot);
   // From this point onward, the auto-save subscriber will PATCH this
   // version row in place rather than POSTing new versions.
+  return { versionId: editingVersionId, error: null };
+}
+
+/**
+ * Begin an EDIT-IN-PLACE session on the currently loaded version (2026-06-17,
+ * version edit choice). Instead of POSTing a new version row, this points the
+ * editing session at the loaded version (`sessionBaseVersionId`) so every
+ * subsequent autosave PATCHes that SAME row. No new version is created; the
+ * loaded version is overwritten in place. Non-destructive to all other rows.
+ *
+ * Returns the version id being edited (= the loaded version) or an error when
+ * no saved version is loaded (e.g. a cache-only fallback with no known id), in
+ * which case the caller should fall back to the create-new flow.
+ */
+export function startEditInPlace(): { versionId: string | null; error: string | null } {
+  if (!activeProjectId) return { versionId: null, error: 'No active project.' };
+  if (!sessionBaseVersionId) {
+    return { versionId: null, error: 'No saved version is loaded to edit in place.' };
+  }
+  editingEnabled   = true;
+  editingVersionId = sessionBaseVersionId;
+  editingLabel     = sessionBaseLabel;
+  // lastSavedJson already equals the loaded snapshot (set at attach / load), so
+  // the next real edit (and only a real edit) flushes a PATCH to this row.
+  return { versionId: editingVersionId, error: null };
+}
+
+/**
+ * Save the CURRENT working state as a NEW version on demand (2026-06-17, mid-
+ * session "Save as new version"). POSTs a fresh row branched off the version we
+ * are currently working in (the editing row, or the loaded base), then re-
+ * anchors the session to the new row and continues editing FROM there. The
+ * source version is left untouched (non-destructive branch).
+ */
+export async function saveAsNewVersion(
+  label: string,
+  meta?: { versionLabel?: string | null; taskName?: string | null; comment?: string | null },
+): Promise<{ versionId: string | null; error: string | null }> {
+  if (!activeProjectId) {
+    return { versionId: null, error: 'No active project.' };
+  }
+  editingEnabled = true;
+  const snapshot = extractSnapshot();
+  // Branch point: the version we are working in (in-place or session), else the
+  // loaded base. The server diffs change_log against this base.
+  const baseVersionId = editingVersionId ?? sessionBaseVersionId;
+  const res = await saveVersion(activeProjectId, {
+    snapshot,
+    label:         label.trim() || null,
+    assetMix:      computeAssetMix(snapshot),
+    baseVersionId,
+    versionLabel:  meta?.versionLabel ?? null,
+    taskName:      meta?.taskName ?? null,
+    comment:       meta?.comment ?? null,
+  });
+  if (res.error || !res.data) {
+    return { versionId: null, error: res.error ?? 'Failed to save as new version.' };
+  }
+  // Continue editing the NEW row; re-anchor the base so subsequent autosaves
+  // PATCH the new row and future change_logs diff against this branch point.
+  editingVersionId     = res.data.version.id;
+  editingLabel         = res.data.version.label;
+  sessionBaseSnapshot  = snapshot;
+  sessionBaseVersionId = res.data.version.id;
+  sessionBaseLabel     = res.data.version.label;
+  lastSavedJson        = dirtyJson(snapshot);
   return { versionId: editingVersionId, error: null };
 }
 
@@ -506,3 +581,8 @@ async function runAutoSave(): Promise<void> {
 export function getActiveProjectIdForDebug(): string | null { return activeProjectId; }
 export function isAttachedForDebug(): boolean              { return unsubscribe !== null; }
 export function getEditingVersionIdForDebug(): string | null { return editingVersionId; }
+export function getEditingEnabledForDebug(): boolean        { return editingEnabled; }
+export function getSessionBaseVersionIdForDebug(): string | null { return sessionBaseVersionId; }
+/** Test-only: force the debounced autosave to run NOW (skips the 1.5 s wait) so
+ *  a verifier can assert the PATCH/POST routing without real timers. */
+export async function flushAutoSaveForTest(): Promise<void> { await runAutoSave(); }

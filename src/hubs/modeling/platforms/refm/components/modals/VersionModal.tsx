@@ -29,6 +29,12 @@ interface VersionModalProps {
    *  the modal is history-only. Replaces the old generic "Version N" save. */
   onCreateVersion?: () => void;
   onLoadVersion: (versionId: string) => void;
+  /** Tab to open on. Defaults to 'save' when create is available, else 'history'.
+   *  The "edit a different version" flow forces 'history'. */
+  initialTab?: 'save' | 'history';
+  /** Label for the per-version action button (default 'Load'). The "edit a
+   *  different version" flow passes 'Edit this version'. */
+  loadActionLabel?: string;
 }
 
 export default function VersionModal({
@@ -39,10 +45,12 @@ export default function VersionModal({
   activeVersionId,
   onCreateVersion,
   onLoadVersion,
+  initialTab,
+  loadActionLabel,
 }: VersionModalProps): React.JSX.Element | null {
   const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'save' | 'history'>(onCreateVersion ? 'save' : 'history');
+  const [tab, setTab] = useState<'save' | 'history'>(initialTab ?? (onCreateVersion ? 'save' : 'history'));
   // Phase M-Versioning (2026-05-31): which version's change log is
   // currently expanded in the history list. null = none expanded.
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
@@ -55,6 +63,9 @@ export default function VersionModal({
   const [labelSearch, setLabelSearch] = useState<string>('');
   const [maxToRender, setMaxToRender] = useState<number>(50); // progressive load
 
+  // Initial tab is set from initialTab in useState; the parent keys this modal
+  // on the pick intent, so switching to the "edit a different version" flow
+  // remounts it on History without a resetting effect.
   useEffect(() => {
     if (!open || !projectId) return;
     let cancelled = false;
@@ -435,7 +446,7 @@ export default function VersionModal({
                                   onClose();
                                 }}
                               >
-                                Load
+                                {loadActionLabel ?? 'Load'}
                               </button>
                             )}
                           </div>
