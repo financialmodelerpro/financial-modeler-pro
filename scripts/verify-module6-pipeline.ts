@@ -101,12 +101,15 @@ store.getState().setActiveCase(DOWN);
 store.getState().setCaseFieldValue(DOWN, 'project.financing.fixedRatio.debtPct', baseDebt);
 const noopDiff = Object.keys(buildOverrides(store.getState().baseSnapshot, live())).length;
 check('override == base value yields 0 real model diff (no phantom override)', noopDiff === 0, `realDiff=${noopDiff}`);
-// A real change registers exactly one real diff.
+// A debt/equity SPLIT change registers a PAIRED real diff: the edited half plus
+// its auto-derived partner (equity % = 100 - debt %), so the split stays
+// consistent and the engine (which normalizes by debt+equity) honours it fully.
+// See verify-module6-debt-equity-pair.ts.
 reset();
 store.getState().setActiveCase(DOWN);
 store.getState().setCaseFieldValue(DOWN, 'project.financing.fixedRatio.debtPct', baseDebt >= 50 ? 40 : 80);
 const realDiff = Object.keys(buildOverrides(store.getState().baseSnapshot, live())).length;
-check('a real change registers exactly one real model diff', realDiff === 1, `realDiff=${realDiff}`);
+check('a debt % change registers a paired real diff (debt + auto-derived equity)', realDiff === 2, `realDiff=${realDiff}`);
 
 // ── 4. Coverage census (informational, printed for the readout). ─────────────
 console.log('\n[4] Coverage census (numeric fields that move >=1 KPI on a real change)');

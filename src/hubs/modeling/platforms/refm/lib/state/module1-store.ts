@@ -225,6 +225,36 @@ export function pickModel(s: Record<string, unknown>): HydrateSnapshot {
   return out;
 }
 
+// ── Paired debt / equity split overrides ────────────────────────────────────
+// A funding method's debt % and equity % are a single split that sums to 100,
+// and the engine normalizes by (debt + equity). A scenario override that writes
+// only one half leaves the other stale, so the engine either mutes the change or
+// (when the other half is 0) renormalizes it away entirely. The Financing tab UI
+// already writes both halves together; a scenario override must do the same.
+// SPLIT_PAIR_RE matches each funding method's split and the per-parcel funding
+// split; splitCounterpart returns the partner path; withSplitPair adds the
+// derived partner (= 100 - value) so the stored split is always consistent.
+const SPLIT_PAIR_RE = /^(project\.financing\.(?:fixedRatio|netFundingConfig|cashDeficitConfig)\.|project\.financing\.parcelFunding\[parcelId=[^\]]+\]\.)(debtPct|equityPct)$/;
+function splitCounterpart(path: string): string | null {
+  const m = SPLIT_PAIR_RE.exec(path);
+  if (!m) return null;
+  return `${m[1]}${m[2] === 'debtPct' ? 'equityPct' : 'debtPct'}`;
+}
+/** The override entries to write for `path = value`, auto-deriving the paired
+ *  debt/equity half (100 - value) so the split stays consistent. */
+function withSplitPair(path: string, value: unknown): Record<string, unknown> {
+  const cp = splitCounterpart(path);
+  if (cp === null || typeof value !== 'number' || !Number.isFinite(value)) return { [path]: value };
+  return { [path]: value, [cp]: Math.max(0, Math.min(100, 100 - value)) };
+}
+/** Drop a field AND its paired half from an override map (reverting the whole
+ *  split together), so a reset never leaves an inconsistent debt/equity pair. */
+function deleteWithSplitPair(overrides: Record<string, unknown>, path: string): void {
+  delete overrides[path];
+  const cp = splitCounterpart(path);
+  if (cp !== null) delete overrides[cp];
+}
+
 /**
  * Pure: resolve a persisted version snapshot to its active-case-merged model,
  * WITHOUT touching the live store. Mirrors `hydrate`'s model resolution so a
@@ -735,7 +765,7 @@ export function createModule1Store() {
       if (s.activeCaseId === baseId) return {}; // base has no overrides
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
       const current = buildOverrides(s.baseSnapshot, liveModel);
-      delete current[path];
+      deleteWithSplitPair(current, path);
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = applyOverrides(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
@@ -750,7 +780,7 @@ export function createModule1Store() {
       const baseId = baseCaseId(s.cases);
       if (s.activeCaseId === baseId) return {};
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
-      const current = { ...buildOverrides(s.baseSnapshot, liveModel), [path]: value };
+      const current = { ...buildOverrides(s.baseSnapshot, liveModel), ...withSplitPair(path, value) };
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = applyOverrides(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
@@ -769,21 +799,22 @@ export function createModule1Store() {
         ...model, migrationsApplied: model.migrationsApplied ?? [],
         activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null, ...extra,
       });
+      const pair = withSplitPair(path, value); // auto-derives the equity/debt half
       if (caseId === baseId) {
         if (s.activeCaseId === baseId) {
-          return reseat(applyOverrides(liveModel, { [path]: value }));
+          return reseat(applyOverrides(liveModel, pair));
         }
-        const baseSnapshot = applyOverrides(s.baseSnapshot, { [path]: value });
+        const baseSnapshot = applyOverrides(s.baseSnapshot, pair);
         const activeCase = s.cases.find((c) => c.id === s.activeCaseId);
         const model = applyOverrides(baseSnapshot, activeCase?.overrides);
         return reseat(model, { baseSnapshot });
       }
       if (caseId === s.activeCaseId) {
-        const current = { ...buildOverrides(s.baseSnapshot, liveModel), [path]: value };
+        const current = { ...buildOverrides(s.baseSnapshot, liveModel), ...pair };
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
         return reseat(applyOverrides(s.baseSnapshot, current), { cases });
       }
-      const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: { ...(c.overrides ?? {}), [path]: value } } : c);
+      const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: { ...(c.overrides ?? {}), ...pair } } : c);
       return { cases };
     }),
 
@@ -796,7 +827,7 @@ export function createModule1Store() {
       if (caseId === s.activeCaseId) {
         const liveModel = pickModel(s as unknown as Record<string, unknown>);
         const current = buildOverrides(s.baseSnapshot, liveModel);
-        delete current[path];
+        deleteWithSplitPair(current, path);
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
         const model = applyOverrides(s.baseSnapshot, current);
         return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
@@ -804,7 +835,7 @@ export function createModule1Store() {
       const cases = s.cases.map((c) => {
         if (c.id !== caseId) return c;
         const next = { ...(c.overrides ?? {}) };
-        delete next[path];
+        deleteWithSplitPair(next, path);
         return { ...c, overrides: next };
       });
       return { cases };
