@@ -629,16 +629,19 @@ export default function Module6Scenarios(): React.JSX.Element {
                 <div style={{ background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)', color: 'var(--color-heading)', fontWeight: 800, fontSize: 12, padding: '7px 12px', borderBottom: '1px solid var(--color-border)' }}>
                   {block.inputLabel}
                 </div>
-                {/* Input row: the changed input's value per case. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '8px 12px', borderBottom: '1px solid var(--color-border)', fontSize: 11.5 }} data-testid={`m6-yoy-input-${block.path}`}>
-                  <span style={{ color: 'var(--color-meta)', fontWeight: 700 }}>Input value:</span>
-                  {block.inputByCase.map((iv) => (
-                    <span key={iv.id} data-testid={`m6-yoy-input-${block.path}-${iv.id}`}>
-                      <span style={{ color: 'var(--color-meta)' }}>{iv.role === 'base' ? '★ ' : '◆ '}{iv.name}: </span>
-                      <strong style={{ color: 'var(--color-heading)' }}>{formatAssumptionValue(iv.value, block.inputFormat)}{assumptionUnitSuffix(block.inputFormat)}</strong>
-                    </span>
-                  ))}
-                </div>
+                {/* Input rows: each changed input's value per case. A debt/equity
+                    split shows both halves (debt % and equity %) once. */}
+                {block.inputs.map((line) => (
+                  <div key={line.path} style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '8px 12px', borderBottom: '1px solid var(--color-border)', fontSize: 11.5 }} data-testid={`m6-yoy-input-${line.path}`}>
+                    <span style={{ color: 'var(--color-meta)', fontWeight: 700 }}>{line.label}:</span>
+                    {line.byCase.map((iv) => (
+                      <span key={iv.id} data-testid={`m6-yoy-input-${line.path}-${iv.id}`}>
+                        <span style={{ color: 'var(--color-meta)' }}>{iv.role === 'base' ? '★ ' : '◆ '}{iv.name}: </span>
+                        <strong style={{ color: 'var(--color-heading)' }}>{formatAssumptionValue(iv.value, line.format)}{assumptionUnitSuffix(line.format)}</strong>
+                      </span>
+                    ))}
+                  </div>
+                ))}
                 {/* Output sub-tables: one per driven output. */}
                 {block.outputs.map((out) => (
                   <div key={out.key} style={{ overflowX: 'auto', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-out-${out.key}`}>

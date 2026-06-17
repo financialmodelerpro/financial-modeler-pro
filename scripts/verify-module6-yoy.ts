@@ -76,9 +76,11 @@ const out = (b: YoYBlock | undefined, pred: (o: YoYOutput) => boolean): YoYOutpu
 const rateBlock = find(ratePath);
 check('a block exists for the changed interest-rate input', !!rateBlock, report.blocks.map((b) => b.path).join(' ; '));
 if (rateBlock) {
-  // Input row: value per case.
-  const mIn = rateBlock.inputByCase.find((i) => i.role === 'base')!;
-  const dIn = rateBlock.inputByCase.find((i) => i.id === 'case_down')!;
+  // Input row: value per case. A non-pair block has exactly one input line.
+  check('a non-pair input has a single input line', rateBlock.inputs.length === 1, `lines=${rateBlock.inputs.length}`);
+  const rateLine = rateBlock.inputs[0];
+  const mIn = rateLine.byCase.find((i) => i.role === 'base')!;
+  const dIn = rateLine.byCase.find((i) => i.id === 'case_down')!;
   check('input row shows the rate per case (Management base, Downside +3)', Number(mIn.value) === baseRate && Math.abs(Number(dIn.value) - (baseRate + 3)) < 1e-9,
     `mgmt=${mIn.value} down=${dIn.value}`);
 
@@ -100,22 +102,61 @@ if (rateBlock) {
   }
 }
 
-// ── Debt-RATIO block: must show BOTH debt drawdown AND financing cost ─────────
+// ── Debt/equity SPLIT block: ONE consolidated block (deduped), drawdown excl IDC ─
+console.log('\n=== Debt/equity split dedup + drawdown excludes IDC ===');
+const debtPath = 'project.financing.cashDeficitConfig.debtPct';
+const equityPath = 'project.financing.cashDeficitConfig.equityPct';
 const debtCases: ProjectCase[] = [
   { id: 'case_management', name: 'Management Case', role: 'base', overrides: {} },
-  { id: 'case_down', name: 'Downside', role: 'scenario', overrides: { 'project.financing.cashDeficitConfig.debtPct': 50, 'project.financing.cashDeficitConfig.equityPct': 50 } },
+  // withSplitPair writes BOTH halves; mirror that here.
+  { id: 'case_down', name: 'Downside', role: 'scenario', overrides: { [debtPath]: 50, [equityPath]: 50 } },
 ];
 const debtReport = buildCaseYoYReport({ baseModel: base, cases: debtCases, activeCaseId: 'case_management' });
-const debtBlock = debtReport.blocks.find((b) => b.path === 'project.financing.cashDeficitConfig.debtPct');
-check('a Debt % block exists', !!debtBlock, debtReport.blocks.map((b) => b.path).join(' ; '));
+
+// Dedup: exactly ONE financing-split block, keyed on the debt half; no separate equity block.
+const splitBlocks = debtReport.blocks.filter((b) => b.path === debtPath || b.path === equityPath);
+check('a debt/equity override produces exactly ONE block (deduped, not two)', splitBlocks.length === 1, `blocks=${debtReport.blocks.map((b) => b.path).join(' ; ')}`);
+check('the consolidated block is keyed on the debt half (canonical)', splitBlocks[0]?.path === debtPath, splitBlocks[0]?.path);
+check('no standalone Equity % block is emitted', !debtReport.blocks.some((b) => b.path === equityPath));
+
+const debtBlock = debtReport.blocks.find((b) => b.path === debtPath);
+check('a Debt/Equity split block exists', !!debtBlock, debtReport.blocks.map((b) => b.path).join(' ; '));
 if (debtBlock) {
+  check('block heading is the funding split label, not "Debt %"/"Equity %"', /Debt \/ Equity split/i.test(debtBlock.inputLabel), debtBlock.inputLabel);
+  // Both halves shown once, as two input lines.
+  check('the split block shows TWO input lines (debt % and equity %)', debtBlock.inputs.length === 2, `lines=${debtBlock.inputs.length}`);
+  const debtLine = debtBlock.inputs.find((l) => l.path === debtPath);
+  const eqLine = debtBlock.inputs.find((l) => l.path === equityPath);
+  check('debt % line present: 100 (base) -> 50 (down)', !!debtLine
+    && Number(debtLine!.byCase.find((i) => i.role === 'base')!.value) === Number(base.project.financing.cashDeficitConfig.debtPct)
+    && Number(debtLine!.byCase.find((i) => i.id === 'case_down')!.value) === 50, debtLine ? `base=${debtLine.byCase.find((i) => i.role === 'base')!.value}` : 'missing');
+  check('equity % line present: 50 (down, auto-balanced 100 - 50)', !!eqLine
+    && Number(eqLine!.byCase.find((i) => i.id === 'case_down')!.value) === 50, eqLine ? `down=${eqLine.byCase.find((i) => i.id === 'case_down')!.value}` : 'missing');
+
+  // Driven outputs once.
   const hasDrawdown = debtBlock.outputs.some((o) => o.key.startsWith('drawdown') && /drawdown/i.test(o.label));
   const hasFinancing = debtBlock.outputs.some((o) => o.key.startsWith('financing'));
-  check('Debt % change shows BOTH debt drawdown AND financing cost rows', hasDrawdown && hasFinancing,
+  check('the split block shows BOTH debt drawdown AND financing cost rows (once)', hasDrawdown && hasFinancing,
     debtBlock.outputs.map((o) => o.label).join(' | '));
+
+  // Drawdown is true principal, excluding capitalized IDC.
   const dd = debtBlock.outputs.find((o) => o.key.startsWith('drawdown'))!;
-  check('debt drawdown ties to combined.totalDrawdown', seriesEqual(dd.base.values, computeFinancialsSnapshot(base).financing.combined.totalDrawdown.slice(0, debtReport.yearLabels.length)));
-  check('Debt % input row shows 100 vs 50', Number(debtBlock.inputByCase.find((i) => i.role === 'base')!.value) === Number(base.project.financing.cashDeficitConfig.debtPct) && Number(debtBlock.inputByCase.find((i) => i.id === 'case_down')!.value) === 50);
+  const combined = computeFinancialsSnapshot(base).financing.combined;
+  const span = debtReport.yearLabels.length;
+  const totalDraw = combined.totalDrawdown.slice(0, span);
+  const totalIdcCap = combined.totalInterestCapitalized.slice(0, span);
+  check('debt drawdown ties to combined.totalDrawdown (principal series)', seriesEqual(dd.base.values, totalDraw));
+  check('debt drawdown label states it excludes IDC', /excludes idc/i.test(dd.label), dd.label);
+  const idcSum = totalIdcCap.reduce((a, b) => a + b, 0);
+  if (idcSum > 1) {
+    const inclIdc = totalDraw.map((v, i) => v + totalIdcCap[i]);
+    check('debt drawdown EXCLUDES capitalized IDC (differs from draw + IDC when IDC > 0)', !seriesEqual(dd.base.values, inclIdc), `idcSum=${Math.round(idcSum)}`);
+  } else {
+    console.log(`  [NOTE] capitalized IDC ~0 on this fixture (idcSum=${Math.round(idcSum)}); principal-only holds trivially.`);
+  }
+  // Financing cost keeps IDC (interest + IDC), confirming the two rows differ in meaning.
+  const fc = debtBlock.outputs.find((o) => o.key.startsWith('financing'));
+  check('financing-cost row still labelled interest + IDC (unchanged)', !!fc && /interest \+ IDC/i.test(fc.label), fc?.label);
 }
 
 // ── Revenue block (unit price) ───────────────────────────────────────────────
