@@ -157,7 +157,43 @@ if (debtBlock) {
   // Financing cost keeps IDC (interest + IDC), confirming the two rows differ in meaning.
   const fc = debtBlock.outputs.find((o) => o.key.startsWith('financing'));
   check('financing-cost row still labelled interest + IDC (unchanged)', !!fc && /interest \+ IDC/i.test(fc.label), fc?.label);
+
+  // ── Equity side of the split shown in the SAME block ──────────────────────
+  const eqContrib = debtBlock.outputs.find((o) => o.key === 'equityContribution');
+  const eqBalance = debtBlock.outputs.find((o) => o.key === 'equityBalance');
+  check('the split block ALSO shows an Equity contribution output (mirrors debt drawdown)', !!eqContrib, debtBlock.outputs.map((o) => o.key).join(','));
+  check('the split block ALSO shows an Equity closing balance output (mirrors debt closing balance)', !!eqBalance, debtBlock.outputs.map((o) => o.key).join(','));
+  const eqSnap = computeFinancialsSnapshot(base);
+  const span2 = debtReport.yearLabels.length;
+  if (eqContrib) {
+    check('equity contribution is a FLOW (summed in Total)', eqContrib.kind === 'flow');
+    check('equity contribution prior (2025/inception) is 0 for a flow', eqContrib.base.prior === 0);
+    // Ties to financing.equity cash + in-kind (the new-draw sources), no recompute.
+    const cash = eqSnap.financing.equity.cashPerPeriod.slice(0, span2);
+    const inKind = eqSnap.financing.equity.inKindPerPeriod.slice(0, span2);
+    const contribExpected = cash.map((v, i) => v + (inKind[i] ?? 0));
+    check('equity contribution Management actuals tie to financing.equity (cash + in-kind)', seriesEqual(eqContrib.base.values, contribExpected));
+    check('the debt/equity override moves equity contribution per period', nonZero(eqContrib.deltas.find((d) => d.id === 'case_down')!.values));
+  }
+  if (eqBalance) {
+    check('equity closing balance is a STOCK (Total left blank by the UI)', eqBalance.kind === 'stock');
+    // Ties to bs.shareCapitalPerPeriod (the equity running balance), no recompute.
+    const shareCap = eqSnap.bs.shareCapitalPerPeriod.slice(0, span2);
+    check('equity closing balance Management actuals tie to bs.shareCapitalPerPeriod', seriesEqual(eqBalance.base.values, shareCap));
+    // Prior = opening share capital = shareCapital[0] - first-period new draws.
+    const cash0 = Number(eqSnap.financing.equity.cashPerPeriod[0] ?? 0);
+    const inKind0 = Number(eqSnap.financing.equity.inKindPerPeriod[0] ?? 0);
+    const openingExpected = Number(eqSnap.bs.shareCapitalPerPeriod[0] ?? 0) - cash0 - inKind0;
+    check('equity closing balance prior (2025) is opening share capital, not 0', Math.abs(eqBalance.base.prior - openingExpected) < 1,
+      `prior=${Math.round(eqBalance.base.prior)} opening=${Math.round(openingExpected)}`);
+  }
 }
+
+// A per-facility (non-split) financing change must NOT show equity outputs.
+const rateBlockForEquity = report.blocks.find((b) => b.path === ratePath);
+check('a per-facility interest-rate change shows NO equity outputs (equity gated to the split block)',
+  !rateBlockForEquity || !rateBlockForEquity.outputs.some((o) => o.key.startsWith('equity')),
+  rateBlockForEquity?.outputs.map((o) => o.key).join(','));
 
 // ── Revenue block (unit price) ───────────────────────────────────────────────
 if (unitPath) {

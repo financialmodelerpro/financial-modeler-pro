@@ -8,8 +8,10 @@
  *   - every per-period OUTPUT that input drives, Management + each scenario, with
  *     each scenario's delta vs Management after the actuals. A debt-type change
  *     shows debt drawdown AND financing cost (interest + IDC) AND debt closing
- *     balance; a revenue change shows revenue; etc. Only outputs the input
- *     actually moves are shown.
+ *     balance; the debt/equity funding split ALSO shows the equity side in the
+ *     SAME block (equity contribution flow + equity closing balance / share
+ *     capital), so the auto-balanced pair is seen moving together; a revenue
+ *     change shows revenue; etc. Only outputs the input actually moves are shown.
  *
  * Layout helpers carried for the UI to match the other modules:
  *   - kind 'flow' (drawdown, financing cost, revenue, opex, capex, tax) is summed
@@ -125,10 +127,38 @@ function sumFacilityOpening(s: ProjectFinancialsSnapshot): number {
   return v;
 }
 
+// Consolidated equity contribution = cash + in-kind NEW draws (the two sources
+// that roll into share capital). Mirror of combined.totalDrawdown (new debt
+// principal): existing equity is the opening, not a draw, so it is excluded here
+// and carried as the closing-balance inception instead. Reads financing.equity
+// (cashPerPeriod = debtEquitySplit.equity, inKindPerPeriod = debtEquitySplit.inKind).
+function sumEquityContribution(s: ProjectFinancialsSnapshot): number[] {
+  const cash = s.financing?.equity?.cashPerPeriod ?? [];
+  const inKind = s.financing?.equity?.inKindPerPeriod ?? [];
+  const n = Math.max(cash.length, inKind.length);
+  const out = new Array<number>(n).fill(0);
+  for (let t = 0; t < n; t++) out[t] = Number(cash[t] ?? 0) + Number(inKind[t] ?? 0);
+  return out;
+}
+// Inception (prior) value for the equity closing balance = opening share capital
+// = shareCapital[0] - first-period new draws. Mirrors debt's openingBalance; read
+// from the existing share-capital series, no recompute of business logic.
+function openingShareCapital(s: ProjectFinancialsSnapshot): number {
+  const sc = s.bs?.shareCapitalPerPeriod ?? [];
+  if (sc.length === 0) return 0;
+  const cash0 = Number(s.financing?.equity?.cashPerPeriod?.[0] ?? 0);
+  const inKind0 = Number(s.financing?.equity?.inKindPerPeriod?.[0] ?? 0);
+  return Number(sc[0] ?? 0) - cash0 - inKind0;
+}
+
 // The driven outputs for one changed input path, by category. Financing inputs
 // fan out to drawdown + financing cost + closing balance, scoped to one facility
-// for a per-facility input or consolidated for a project-level one.
-function outputsForInput(path: string, category: AssumptionCategory, trancheName: (id: string) => string): OutputDef[] {
+// for a per-facility input or consolidated for a project-level one. For the
+// auto-balanced debt/equity funding split (includeEquity), the consolidated block
+// ALSO carries the equity side, contribution (flow) + closing balance (stock), so
+// the user sees both halves of the split move together; equity series come from
+// the same snapshot (financing.equity + bs.shareCapitalPerPeriod), no recompute.
+function outputsForInput(path: string, category: AssumptionCategory, trancheName: (id: string) => string, includeEquity = false): OutputDef[] {
   if (path === 'project.tax.rate') {
     return [{ key: 'tax', label: 'Tax', kind: 'flow', get: (s) => s.pl.taxPerPeriod, prior: () => 0 }];
   }
@@ -154,13 +184,23 @@ function outputsForInput(path: string, category: AssumptionCategory, trancheName
           { key: `balance:${id}`, label: `Debt closing balance, ${name}`, kind: 'stock', get: (s) => s.financing?.facilities?.get(id)?.outstanding ?? [], prior: (s) => Number(s.financing?.facilities?.get(id)?.openingBalance ?? 0) },
         ];
       }
-      return [
+      const consolidated: OutputDef[] = [
         // combined.totalDrawdown sums each facility's drawSchedule (principal
         // only); capitalised IDC is in totalInterestCapitalized, not here.
         { key: 'drawdown', label: 'Debt drawdown, all facilities (principal, excludes IDC)', kind: 'flow', get: (s) => s.financing?.combined?.totalDrawdown ?? [], prior: () => 0 },
         { key: 'financing', label: 'Financing cost, all facilities (interest + IDC)', kind: 'flow', get: (s) => s.financing?.combined?.totalInterestAccrued ?? [], prior: () => 0 },
         { key: 'balance', label: 'Debt closing balance, all facilities', kind: 'stock', get: sumFacilityOutstanding, prior: sumFacilityOpening },
       ];
+      if (includeEquity) {
+        // Equity side of the split. Contribution mirrors debt drawdown (new
+        // sources rolling into share capital, prior 0); closing balance mirrors
+        // debt closing balance (running share capital, prior = opening equity).
+        consolidated.push(
+          { key: 'equityContribution', label: 'Equity contribution, all sources (cash + in-kind)', kind: 'flow', get: sumEquityContribution, prior: () => 0 },
+          { key: 'equityBalance', label: 'Equity closing balance, share capital', kind: 'stock', get: (s) => s.bs?.shareCapitalPerPeriod ?? [], prior: openingShareCapital },
+        );
+      }
+      return consolidated;
     }
     default:
       return []; // 'project' endpoint levers (discount rate, exit multiple, perpetuity growth)
@@ -273,7 +313,7 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
     const canonical = isPair ? (isDebtHalf(path) ? path : partner!) : path;
     const canonMeta = changedPaths.get(canonical)!;
 
-    const outputs = outputsForInput(canonical, canonMeta.category, trancheName)
+    const outputs = outputsForInput(canonical, canonMeta.category, trancheName, isPair)
       .map(buildOutput)
       .filter((o): o is YoYOutput => o !== null);
     if (outputs.length === 0) {
