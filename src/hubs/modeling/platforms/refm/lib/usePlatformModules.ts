@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from 'react';
 import { MODULES, type ModuleConfig } from './modules-config';
+import { SLUG_TO_COMPONENT_NUMBER } from '@/src/shared/entitlements/moduleCatalog';
 
 /**
  * The platform slug the REFM workspace reads its modules under. This is the
@@ -87,19 +88,9 @@ function staticModuleToNav(m: ModuleConfig): SidebarNavItem {
  * swap migration runs), which silently made the Live Scenarios module route to
  * a non-existent `module7` branch. Routing must follow the stable slug.
  */
-const SLUG_TO_COMPONENT_NUMBER: Readonly<Record<string, number>> = {
-  'project-setup': 1,
-  revenue: 2,
-  opex: 3,
-  financials: 4,
-  returns: 5,
-  scenarios: 6,
-  reports: 7,
-  portfolio: 8,
-  'market-data': 9,
-  collaborate: 10,
-  'api-access': 11,
-};
+// SLUG_TO_COMPONENT_NUMBER now lives in the shared entitlements module so the
+// sidebar and the admin Plan Builder derive module feature keys identically
+// (single source, no drift).
 
 function fetchedToNav(m: FetchedModule, position: number): SidebarNavItem {
   // Reuse the legacy `module1`..`moduleN` key shape so existing routing keeps

@@ -15,20 +15,29 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from '../app/admin/plans/PlanMatrix';
+import { deriveModuleFeatureRows, type LiveModuleInput } from '../src/shared/entitlements/moduleCatalog';
 
-// 23 features in seed order (mirrors migration 158 features_registry seed).
-const features: MatrixFeature[] = [
-  { feature_key: 'module_1',  label: 'Module 1: Project Setup and Financial Structure', category: 'module',   feature_type: 'gate',  build_status: 'live',           display_order: 1 },
-  { feature_key: 'module_2',  label: 'Module 2: Revenue and Sales Projections',         category: 'module',   feature_type: 'gate',  build_status: 'in_development', display_order: 2 },
-  { feature_key: 'module_3',  label: 'Module 3: Operating Expenses',                    category: 'module',   feature_type: 'gate',  build_status: 'in_development', display_order: 3 },
-  { feature_key: 'module_4',  label: 'Module 4: Financial Statements',                  category: 'module',   feature_type: 'gate',  build_status: 'in_development', display_order: 4 },
-  { feature_key: 'module_5',  label: 'Module 5: Returns and Valuation Analysis',        category: 'module',   feature_type: 'gate',  build_status: 'in_development', display_order: 5 },
-  { feature_key: 'module_6',  label: 'Module 6: Scenario Analysis',                     category: 'module',   feature_type: 'gate',  build_status: 'live',           display_order: 6 },
-  { feature_key: 'module_7',  label: 'Module 7: Reports and Visualizations',            category: 'module',   feature_type: 'gate',  build_status: 'needs_build',    display_order: 7 },
-  { feature_key: 'module_8',  label: 'Module 8: Portfolio',                             category: 'module',   feature_type: 'gate',  build_status: 'needs_build',    display_order: 8 },
-  { feature_key: 'module_9',  label: 'Module 9: Market Data',                           category: 'module',   feature_type: 'gate',  build_status: 'needs_build',    display_order: 9 },
-  { feature_key: 'module_10', label: 'Module 10: Collaborate',                          category: 'module',   feature_type: 'gate',  build_status: 'needs_build',    display_order: 10 },
-  { feature_key: 'module_11', label: 'Module 11: API Access',                           category: 'module',   feature_type: 'gate',  build_status: 'needs_build',    display_order: 11 },
+// Module rows derived LIVE from a representative platform_modules list. This
+// proves the live behavior: market-data is HIDDEN (dropped), reports + portfolio
+// are COMING SOON (tagged, still assignable), collaborate is PRO, api-access is
+// ENTERPRISE. feature_key is slug-derived so it matches the gate + plan_permissions.
+const liveModules: LiveModuleInput[] = [
+  { slug: 'project-setup', number: 1,  name: 'Project Setup', short_name: 'Project Setup',  status: 'live',        display_order: 1 },
+  { slug: 'revenue',       number: 2,  name: 'Revenue',       short_name: 'Revenue',        status: 'live',        display_order: 2 },
+  { slug: 'opex',          number: 3,  name: 'Operating Exp', short_name: 'Operating Expenses', status: 'live',    display_order: 3 },
+  { slug: 'financials',    number: 4,  name: 'Financials',    short_name: 'Financial Statements', status: 'live',  display_order: 4 },
+  { slug: 'returns',       number: 5,  name: 'Returns',       short_name: 'Returns & Valuation', status: 'live',   display_order: 5 },
+  { slug: 'scenarios',     number: 6,  name: 'Scenarios',     short_name: 'Scenario Analysis', status: 'live',     display_order: 6 },
+  { slug: 'reports',       number: 7,  name: 'Reports',       short_name: 'Reports',        status: 'coming_soon', display_order: 7 },
+  { slug: 'portfolio',     number: 8,  name: 'Portfolio',     short_name: 'Portfolio',      status: 'coming_soon', display_order: 8 },
+  { slug: 'market-data',   number: 9,  name: 'Market Data',   short_name: 'Market Data',    status: 'hidden',      display_order: 9 },
+  { slug: 'collaborate',   number: 10, name: 'Collaborate',   short_name: 'Collaborate',    status: 'pro',         display_order: 10 },
+  { slug: 'api-access',    number: 11, name: 'API Access',    short_name: 'API Access',     status: 'enterprise',  display_order: 11 },
+];
+const moduleRows = deriveModuleFeatureRows(liveModules);
+
+// Non-module catalog features (owned by features_registry, status unchanged).
+const nonModule: MatrixFeature[] = [
   { feature_key: 'pdf_export',      label: 'PDF Export',                     category: 'export',   feature_type: 'gate',  build_status: 'live',        display_order: 12 },
   { feature_key: 'excel_snapshot',  label: 'Excel Export (snapshot)',        category: 'export',   feature_type: 'gate',  build_status: 'live',        display_order: 13 },
   { feature_key: 'excel_formula',   label: 'Excel Export (formula linked)',  category: 'export',   feature_type: 'gate',  build_status: 'live',        display_order: 14 },
@@ -42,6 +51,8 @@ const features: MatrixFeature[] = [
   { feature_key: 'ai_contextual',   label: 'AI Contextual Assist',           category: 'ai',       feature_type: 'gate',  build_status: 'stub',        display_order: 22 },
   { feature_key: 'ai_research',     label: 'AI Research Agent',              category: 'ai',       feature_type: 'gate',  build_status: 'stub',        display_order: 23 },
 ];
+
+const features: MatrixFeature[] = [...moduleRows, ...nonModule];
 
 const plans: MatrixPlan[] = [
   { plan_key: 'trial', label: 'Trial', active: true, display_order: 1 },
@@ -77,12 +88,14 @@ function cellOf(planKey: string, featureKey: string): CellValue {
 }
 
 async function main(): Promise<void> {
+  // Not readOnly: pass no-op handlers so checkboxes render enabled (proving
+  // coming_soon modules stay assignable), matching the real page's controls.
   const markup = renderToStaticMarkup(
-    React.createElement(PlanMatrix, { features, plans, cell: cellOf, readOnly: true }),
+    React.createElement(PlanMatrix, { features, plans, cell: cellOf, onToggle: () => {}, onLimit: () => {} }),
   );
   const html = `<!doctype html><html><head><meta charset="utf-8">
 <style>body{font-family:Inter,system-ui,sans-serif;margin:24px;background:#F4F7FC;color:#0f172a}</style></head>
-<body><h2 style="color:#0D2E5A">Admin Plan Builder matrix: Trial / Solo / Pro / Firm, 23 features</h2>${markup}</body></html>`;
+<body><h2 style="color:#0D2E5A">Admin Plan Builder, live module list (market-data hidden, reports/portfolio coming soon)</h2>${markup}</body></html>`;
 
   mkdirSync('scripts/.tmp', { recursive: true });
   const htmlPath = resolve('scripts/.tmp/plan-matrix.html');
@@ -94,23 +107,31 @@ async function main(): Promise<void> {
 
   const planCols = await page.locator('[data-testid^="plan-col-"]').count();
   const featureRows = await page.locator('[data-testid^="feature-row-"]').count();
+  const moduleTags = await page.locator('[data-testid^="module-status-"]').count();
   const buildTags = await page.locator('[data-testid^="build-status-"]').count();
+  const comingSoonTags = await page.locator('[data-testid="module-status-coming_soon"]').count();
+  const hiddenModuleRows = await page.locator('[data-testid="feature-row-module_9"]').count();
   const checkedFirmM11 = await page.locator('[data-testid="cell-firm-module_11"]').isChecked();
-  const trialM7 = await page.locator('[data-testid="cell-trial-module_7"]').isChecked();
-  const firmProjects = await page.locator('[data-testid="cell-firm-projects"]').inputValue();
+  const comingSoonAssignable = !(await page.locator('[data-testid="cell-firm-module_7"]').isDisabled());
+  const firmProjectsUnlimited = await page.locator('[data-testid="cell-firm-projects-unlimited"]').isChecked();
 
   mkdirSync('docs/screenshots', { recursive: true });
   await page.locator('[data-testid="plan-matrix"]').screenshot({ path: 'docs/screenshots/plan-builder-matrix.png' });
   await browser.close();
 
-  console.log(`plan columns      : ${planCols} (expect 4)`);
-  console.log(`feature rows      : ${featureRows} (expect 23)`);
-  console.log(`build_status tags : ${buildTags} (expect 23)`);
-  console.log(`firm module_11    : ${checkedFirmM11} (expect true)`);
-  console.log(`trial module_7    : ${trialM7} (expect false)`);
-  console.log(`firm projects cap : ${firmProjects} (expect -1)`);
+  console.log(`plan columns           : ${planCols} (expect 4)`);
+  console.log(`feature rows           : ${featureRows} (expect 22: 10 live modules + 12 catalog)`);
+  console.log(`module-status tags     : ${moduleTags} (expect 10)`);
+  console.log(`build-status tags      : ${buildTags} (expect 12, non-module catalog)`);
+  console.log(`coming-soon tags       : ${comingSoonTags} (expect 2: reports + portfolio)`);
+  console.log(`hidden module_9 rows   : ${hiddenModuleRows} (expect 0, dropped)`);
+  console.log(`firm module_11 checked : ${checkedFirmM11} (expect true)`);
+  console.log(`coming-soon assignable : ${comingSoonAssignable} (expect true)`);
+  console.log(`firm projects unlimited: ${firmProjectsUnlimited} (expect true)`);
 
-  const ok = planCols === 4 && featureRows === 23 && buildTags === 23 && checkedFirmM11 === true && trialM7 === false && firmProjects === '-1';
+  const ok = planCols === 4 && featureRows === 22 && moduleTags === 10 && buildTags === 12
+    && comingSoonTags === 2 && hiddenModuleRows === 0 && checkedFirmM11 === true
+    && comingSoonAssignable === true && firmProjectsUnlimited === true;
   console.log(ok ? '\n=== SCREENSHOT PROOF: PASS ===' : '\n=== SCREENSHOT PROOF: FAIL ===');
   process.exit(ok ? 0 : 1);
 }

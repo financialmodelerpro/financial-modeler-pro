@@ -2,11 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getPlatformModules } from '@/src/shared/cms/platform-modules';
+import { deriveModuleFeatureRows, type LiveModuleInput } from '@/src/shared/entitlements/moduleCatalog';
 
 // Admin plan builder data source. Reads the LIVE entitlement tables from
 // Phase A (features_registry, plan_permissions) plus plan metadata
 // (entitlement_plans, mig 159). This is separate from the marketing pricing
 // tables (platform_pricing / plan_feature_access) edited by /admin/pricing.
+//
+// Module rows are derived LIVE from the platform_modules registry (the modules
+// tab) at request time, not from the frozen status in features_registry: only
+// non-hidden modules appear, in the platform's order, each carrying its live
+// status. Non-module features stay owned by features_registry. plan_permissions
+// is keyed by feature_key, so assignments survive a module being hidden or
+// reordered (the row is retained in data, just not rendered).
+
+const isModuleKey = (k: string): boolean => /^module_\d+$/.test(k);
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -33,6 +44,23 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Module rows come LIVE from the registry. Non-module catalog features keep
+  // their features_registry rows (status owned by the catalog). If the registry
+  // table is unavailable (returns nothing), fall back to the catalog's module
+  // rows so the matrix is never empty.
+  const nonModuleFeatures = (features ?? []).filter((f: { feature_key: string }) => !isModuleKey(f.feature_key));
+  const liveModules = await getPlatformModules(platform);
+  let moduleRows: unknown[];
+  if (liveModules.length > 0) {
+    moduleRows = deriveModuleFeatureRows(liveModules as unknown as LiveModuleInput[]);
+  } else {
+    // Fallback: catalog module rows (keeps display order < non-module rows).
+    moduleRows = (features ?? [])
+      .filter((f: { feature_key: string }) => isModuleKey(f.feature_key))
+      .map((f: Record<string, unknown>) => ({ ...f, category: 'module' }));
+  }
+  const mergedFeatures = [...moduleRows, ...nonModuleFeatures];
+
   const { data: plans } = await sb
     .from('entitlement_plans')
     .select('id, platform_slug, plan_key, label, display_order, active')
@@ -46,7 +74,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     migrationApplied: true,
-    features: features ?? [],
+    features: mergedFeatures,
     plans: plans ?? [],
     permissions: permissions ?? [],
   });

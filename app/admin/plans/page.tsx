@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from './PlanMatrix';
+import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 const cellKey = (planKey: string, featureKey: string) => `${planKey}::${featureKey}`;
@@ -160,7 +161,7 @@ export default function AdminPlansPage() {
     for (const f of [...features].sort((x, y) => x.display_order - y.display_order)) {
       const v = cell(previewPlan, f.feature_key);
       if (f.feature_type === 'limit') {
-        if (v.limit_value !== null) out.push({ label: f.label, detail: v.limit_value === -1 ? 'unlimited' : String(v.limit_value) });
+        if (v.limit_value !== null) out.push({ label: f.label, detail: formatLimit(v.limit_value) });
       } else if (v.included) {
         out.push({ label: f.label, detail: '' });
       }
