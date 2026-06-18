@@ -9,7 +9,7 @@
  *
  * Run: npx tsx scripts/verify-covenants.ts
  */
-import { evaluateCovenant, covenantSeries, covenantUnit, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
+import { evaluateCovenant, covenantSeries, covenantUnit, reduceWorst, reduceAvg, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
 import { DEFAULT_COVENANTS, type CovenantThreshold } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -44,12 +44,24 @@ const inp: CovenantInputs = {
   ltvAtExit: 0.55,
 };
 
+// ── Reducers (the single derivation used by both covenants AND the cards) ──────
+{
+  check('reduceWorst min ignores nulls', reduceWorst([null, 1.8, 1.1, null, 2.0], 'min') === 1.1);
+  check('reduceWorst max ignores nulls', reduceWorst([null, 0.5, 0.3, 0.6], 'max') === 0.6);
+  check('reduceAvg = mean over non-null', near(reduceAvg([null, 1.0, 2.0, null, 3.0])!, 2.0));
+  check('reduceWorst all-null => null', reduceWorst([null, null], 'min') === null);
+  check('reduceAvg all-null => null', reduceAvg([null, null]) === null);
+}
+
 // ── DSCR ──────────────────────────────────────────────────────────────────────
 {
   const cov: CovenantThreshold = { id: 'd', metric: 'dscr', label: 'DSCR', operator: 'min', threshold: 1.20 };
   const ev = evaluateCovenant(cov, inp);
-  check('DSCR worst uses engine dscrMin (1.10)', ev.worst === 1.10);
-  check('DSCR avg uses engine dscrAvg', near(ev.avg!, 1.6125));
+  // Single source of truth: worst / avg are reduced from the per-period series.
+  check('DSCR worst = min over the per-period series (1.10)', ev.worst === 1.10);
+  check('DSCR worst === reduceWorst(covenantSeries) (no parallel path)', ev.worst === reduceWorst(covenantSeries('dscr', inp), 'min'));
+  check('DSCR avg = mean over the per-period series', near(ev.avg!, 1.6125) && near(ev.avg!, reduceAvg(covenantSeries('dscr', inp))!));
+  check('DSCR worst independent of (removed) engine dscrMin input', evaluateCovenant(cov, { ...inp, dscrMin: undefined, dscrAvg: undefined }).worst === 1.10);
   check('DSCR vs 1.20 => BREACH (worst 1.10 < 1.20)', ev.pass === false);
   check('DSCR series masks no-debt periods to null', ev.seriesPerPeriod[0] === null && ev.seriesPerPeriod[2] === 1.10);
   const ev2 = evaluateCovenant({ ...cov, threshold: 1.05 }, inp);
@@ -59,7 +71,9 @@ const inp: CovenantInputs = {
 // ── ICR ───────────────────────────────────────────────────────────────────────
 {
   const ev = evaluateCovenant({ id: 'i', metric: 'icr', label: 'ICR', operator: 'min', threshold: 2.00 }, inp);
-  check('ICR worst uses engine icrMin (2.50)', ev.worst === 2.50);
+  check('ICR worst = min over the per-period series (2.50)', ev.worst === 2.50);
+  check('ICR worst === reduceWorst(covenantSeries) (no parallel path)', ev.worst === reduceWorst(covenantSeries('icr', inp), 'min'));
+  check('ICR worst independent of (removed) engine icrMin input', evaluateCovenant({ id: 'i', metric: 'icr', label: 'ICR', operator: 'min', threshold: 2.0 }, { ...inp, icrMin: undefined }).worst === 2.50);
   check('ICR vs 2.00 => PASS', ev.pass === true);
   check('ICR breaches at a higher bar (3.00)', evaluateCovenant({ id: 'i2', metric: 'icr', label: 'ICR', operator: 'min', threshold: 3.0 }, inp).pass === false);
 }

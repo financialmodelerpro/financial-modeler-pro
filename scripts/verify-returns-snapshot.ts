@@ -13,6 +13,7 @@ import { computeReturnsSnapshot, resolveReturnsConfig, computeReturnsSensitivity
 import { terminalEnterpriseValue } from '../src/core/calculations/returns';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { applyOverrides } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { covenantSeries, reduceWorst, evaluateCovenant, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -175,6 +176,55 @@ console.log('=== M5 Returns snapshot integration ===');
   check('DATA PRESERVED: exitYears (hold-vs-sell) populated for RE Metrics', Array.isArray(rs.exitYears) && rs.exitYears.length > 0 && rs.exitYears.some((y: any) => y.isSelected));
   check('DATA PRESERVED: exitAnalysis / fundingMix / equityExposure / stabilization / debtAnalytics all present', !!rs.exitAnalysis && !!rs.fundingMix && !!rs.equityExposure && !!rs.stabilization && !!rs.debtAnalytics);
   check('DATA PRESERVED: Unit C pickups (peakEquity, maxNegativeCF, stabilisedYieldOnCost) computed', Number.isFinite(rs.equityExposure.maxNegativeCumulativeCF) && (rs.stabilization.stabilisedYieldOnCost === null || Number.isFinite(rs.stabilization.stabilisedYieldOnCost)));
+
+  // Lender covenants (RE Metrics tab) read these series off the snapshot; the
+  // derived Debt Yield = NOI / debt must tie to the snapshot with no drift.
+  const me = rs.result.realEstate;
+  const debtT = snap.bs.debtOutstandingPerPeriod;
+  const tt = debtT.findIndex((d: number, i: number) => (d ?? 0) > 0 && (rs.noiPerPeriod[i] ?? 0) > 0);
+  check('COVENANT INPUTS: dscr/icr per-period series present on snapshot', Array.isArray(me.dscrPerPeriod) && Array.isArray(me.icrPerPeriod) && me.dscrPerPeriod.length > 0);
+  check('COVENANT INPUTS: debt yield = NOI / debt derivable (finite) from snapshot', tt < 0 || Number.isFinite((rs.noiPerPeriod[tt] ?? 0) / debtT[tt]));
+  check('COVENANT INPUTS: ltvAtExit present (LTV is exit-only)', me.ltvAtExit === null || Number.isFinite(me.ltvAtExit));
+}
+
+// ── RE Metrics tab: headline ratios are SINGLE-SOURCED from the per-period
+//    series (the covenant heatmap), so a hero card always equals the row it
+//    summarises; the previously exit-based Debt Yield is corrected. ──────────
+{
+  const state = buildState();
+  const snap = computeFinancialsSnapshot(state);
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const me = rs.result.realEstate;
+  const ci: CovenantInputs = {
+    dscrPerPeriod: me.dscrPerPeriod,
+    icrPerPeriod: me.icrPerPeriod,
+    noiPerPeriod: rs.noiPerPeriod,
+    debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
+    gdvValue: rs.developmentEconomics.gdv,
+    ltvAtExit: me.ltvAtExit,
+  };
+  // Hero Min DSCR == covenant DSCR worst == min of the displayed series.
+  const heroMinDscr = reduceWorst(covenantSeries('dscr', ci), 'min');
+  const covDscr = evaluateCovenant({ id: 'd', metric: 'dscr', label: 'DSCR', operator: 'min', threshold: 1.2 }, ci);
+  check('SINGLE-SOURCE: hero Min DSCR == covenant DSCR worst (series min)',
+    (heroMinDscr === null && covDscr.worst === null) || near(heroMinDscr ?? NaN, covDscr.worst ?? NaN, 1e-9));
+
+  // Debt Yield headline is now the WORST of the per-period NOI/debt series
+  // (matches the heatmap), NOT the broken exit-debt single point.
+  const heroDebtYield = reduceWorst(covenantSeries('debt_yield', ci), 'min');
+  const covDy = evaluateCovenant({ id: 'dy', metric: 'debt_yield', label: 'DY', operator: 'min', threshold: 0.1 }, ci);
+  check('SINGLE-SOURCE: hero Debt Yield == covenant Debt Yield worst (series-derived)',
+    (heroDebtYield === null && covDy.worst === null) || near(heroDebtYield ?? NaN, covDy.worst ?? NaN, 1e-9));
+
+  // Peak-debt LTV headline == covenant LTV worst (max of the debt/GDV series).
+  const heroLtv = reduceWorst(covenantSeries('ltv', ci), 'max');
+  const covLtv = evaluateCovenant({ id: 'l', metric: 'ltv', label: 'LTV', operator: 'max', threshold: 0.6 }, ci);
+  check('SINGLE-SOURCE: hero peak LTV == covenant LTV worst',
+    heroLtv === null || near(heroLtv, covLtv.worst ?? NaN, 1e-9));
+
+  // Equity Multiple (hero) == selected Exit-Year row Equity MOIC == FCFE MOIC.
+  const sel = rs.exitYears.find((r) => r.isSelected)!;
+  check('SINGLE-SOURCE: hero Equity Multiple == selected Exit-Year Equity MOIC', near(rs.result.fcfe.moic, sel.equityMoic, 1e-9));
 }
 
 // ── Sponsor-IRR / project-inception view (2026-06-02) ─────────────────

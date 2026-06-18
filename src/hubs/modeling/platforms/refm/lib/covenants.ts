@@ -6,6 +6,11 @@
  * per-period series, worst + average over the loan life, and a pass / breach
  * verdict.
  *
+ * Single source of truth (2026-06-18): worst + avg are derived from the
+ * per-period series via reduceWorst / reduceAvg, the SAME reducers the RE
+ * Metrics headline cards use, so a headline (Min DSCR, Debt Yield, peak LTV)
+ * always equals the per-period row it summarises. No parallel engine min / avg.
+ *
  * LTV is measured at PEAK DEBT, not at exit: debt is repaid by exit here, so
  * LTV at exit is a trivial ~0% that means nothing to a lender. The model has no
  * per-period property value, so the best value basis the snapshot supports is
@@ -19,12 +24,15 @@ import type { CovenantMetric, CovenantThreshold } from './state/module1-types';
 export interface CovenantInputs {
   /** Per-period DSCR (CFADS / debt service), 0 where no debt service. */
   dscrPerPeriod: number[];
-  /** Engine min / avg DSCR over debt-service periods (used to match the cards). */
-  dscrMin: number | null;
-  dscrAvg: number | null;
+  /** Engine min / avg DSCR. RETAINED for back-compat only: evaluation now
+   *  derives worst / avg from the per-period series (single source of truth),
+   *  so these are no longer read. Safe to omit. */
+  dscrMin?: number | null;
+  dscrAvg?: number | null;
   /** Per-period ICR (EBITDA / interest), 0 where no interest. */
   icrPerPeriod: number[];
-  icrMin: number | null;
+  /** RETAINED for back-compat only (see dscrMin). Not read. */
+  icrMin?: number | null;
   /** Per-period NOI + debt outstanding, to derive Debt Yield = NOI / debt and
    *  peak-debt LTV = debt outstanding / GDV. */
   noiPerPeriod: number[];
@@ -62,6 +70,26 @@ export function covenantUnit(metric: CovenantMetric): 'x' | 'pct' {
   return metric === 'ltv' || metric === 'debt_yield' ? 'pct' : 'x';
 }
 
+/**
+ * Reduce a per-period (nullable) ratio series to its binding value: the min for
+ * a 'min' covenant, the max for a 'max' covenant. Null entries (periods the
+ * ratio does not apply to) are skipped. This and reduceAvg are the SINGLE
+ * derivation used by both the covenant evaluation AND the RE Metrics headline
+ * cards, so a card and the per-period row it summarises can never drift.
+ */
+export function reduceWorst(series: Array<number | null>, operator: 'min' | 'max'): number | null {
+  const vals = series.filter((x): x is number => x != null && Number.isFinite(x));
+  if (vals.length === 0) return null;
+  return operator === 'min' ? Math.min(...vals) : Math.max(...vals);
+}
+
+/** Mean of a per-period (nullable) ratio series over its applicable periods. */
+export function reduceAvg(series: Array<number | null>): number | null {
+  const vals = series.filter((x): x is number => x != null && Number.isFinite(x));
+  if (vals.length === 0) return null;
+  return vals.reduce((s, v) => s + v, 0) / vals.length;
+}
+
 /** Per-period ratio for a metric (null = not applicable). */
 export function covenantSeries(metric: CovenantMetric, inp: CovenantInputs): Array<number | null> {
   const n = inp.dscrPerPeriod.length;
@@ -96,10 +124,9 @@ export function evaluateCovenant(cov: CovenantThreshold, inp: CovenantInputs): C
     // Preferred: peak-debt LTV from the per-period debt / GDV series. The worst
     // (max for a 'max' covenant) is the peak-leverage point.
     const series = covenantSeries('ltv', inp);
-    const vals = series.filter((x): x is number => x != null);
-    if (vals.length > 0) {
-      const worst = cov.operator === 'min' ? Math.min(...vals) : Math.max(...vals);
-      const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const worst = reduceWorst(series, cov.operator);
+    if (worst !== null) {
+      const avg = reduceAvg(series);
       const pass = cov.operator === 'min' ? worst >= cov.threshold : worst <= cov.threshold;
       return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit, basis: 'peak-debt', basisLabel: 'peak debt / GDV' };
     }
@@ -115,18 +142,14 @@ export function evaluateCovenant(cov: CovenantThreshold, inp: CovenantInputs): C
   }
 
   const series = covenantSeries(cov.metric, inp);
-  const vals = series.filter((x): x is number => x != null);
-  if (vals.length === 0) {
+  // Single source of truth: worst + avg are derived from the per-period series
+  // (the same series the heatmap renders and the headline cards summarise), so
+  // the card, the covenant Worst column, and the heatmap can never disagree.
+  const worst = reduceWorst(series, cov.operator);
+  if (worst === null) {
     return { seriesPerPeriod: series, worst: null, avg: null, pass: null, exitOnly: false, unit };
   }
-  // Prefer engine-provided min / avg for DSCR / ICR so the covenant matches the
-  // Min DSCR / Min Interest Cover cards exactly (no drift); derive for the rest.
-  const computedWorst = cov.operator === 'min' ? Math.min(...vals) : Math.max(...vals);
-  const computedAvg = vals.reduce((s, v) => s + v, 0) / vals.length;
-  const worst = cov.metric === 'dscr' && inp.dscrMin != null ? inp.dscrMin
-    : cov.metric === 'icr' && inp.icrMin != null ? inp.icrMin
-    : computedWorst;
-  const avg = cov.metric === 'dscr' && inp.dscrAvg != null ? inp.dscrAvg : computedAvg;
+  const avg = reduceAvg(series);
   const pass = cov.operator === 'min' ? worst >= cov.threshold : worst <= cov.threshold;
   return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit };
 }

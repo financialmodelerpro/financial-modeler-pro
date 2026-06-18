@@ -9,17 +9,17 @@
  *
  * All math lives in returns-resolvers.ts -> core/calculations/returns.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
-import { MetricCard, MetricGrid, fmtPct, fmtX } from './Module5Shared';
+import { MetricCard, MetricGrid, CollapsibleSection, fmtPct, fmtX, type CardTone } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
-import { evaluateCovenant, covenantUnit, type CovenantInputs } from '../../lib/covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, type CovenantInputs } from '../../lib/covenants';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -54,58 +54,197 @@ export default function Module5Metrics(): React.JSX.Element {
   const ee = rs.equityExposure;
   const fm = rs.fundingMix;
 
-  const dscrTone = m.dscrMin === null ? 'neutral' : m.dscrMin >= 1.2 ? 'good' : 'bad';
-  const ltvTone = m.ltvAtExit === null ? 'neutral' : m.ltvAtExit <= 0.6 ? 'good' : 'bad';
-
-  // Snapshot-derived ratio inputs for the Lender Covenants section. DSCR + ICR
-  // come straight off the snapshot; Debt Yield is derived NOI / debt; LTV is
-  // measured at peak debt (debt outstanding / GDV), since LTV at exit is ~0%
-  // once debt is repaid. ltvAtExit is the fallback when no GDV basis exists.
+  // Snapshot-derived ratio inputs for the Lender Covenants section AND the
+  // headline cards. DSCR + ICR come straight off the snapshot; Debt Yield is
+  // derived NOI / debt; LTV is measured at peak debt (debt outstanding / GDV),
+  // since LTV at exit is ~0% once debt is repaid. ltvAtExit is the fallback.
   const covenantInputs: CovenantInputs = {
-    dscrPerPeriod: m.dscrPerPeriod, dscrMin: m.dscrMin, dscrAvg: m.dscrAvg,
-    icrPerPeriod: m.icrPerPeriod, icrMin: m.icrMin,
+    dscrPerPeriod: m.dscrPerPeriod,
+    icrPerPeriod: m.icrPerPeriod,
     noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
     gdvValue: de.gdv, ltvAtExit: m.ltvAtExit,
   };
   const covenants = project.covenants ?? DEFAULT_COVENANTS;
   const setCovenants = (next: CovenantThreshold[]): void => state.setProject({ covenants: next });
 
+  // ── Single source of truth ────────────────────────────────────────────────
+  // Every headline ratio is derived from the SAME per-period series the covenant
+  // heatmap renders, via the shared reducers (reduceWorst / reduceAvg), so a
+  // headline card can never disagree with the per-period row it summarises.
+  const dscrSeries = covenantSeries('dscr', covenantInputs);
+  const icrSeriesArr = covenantSeries('icr', covenantInputs);
+  const debtYieldSeries = covenantSeries('debt_yield', covenantInputs);
+  const ltvSeries = covenantSeries('ltv', covenantInputs);
+
+  const minDSCR = reduceWorst(dscrSeries, 'min');             // worst debt-service period
+  const avgDSCR = reduceAvg(dscrSeries);                      // mean over debt-service periods
+  const minICR = reduceWorst(icrSeriesArr, 'min');            // worst interest period
+  const debtYieldWorst = reduceWorst(debtYieldSeries, 'min'); // worst operating period with debt
+  const ltvPeak = reduceWorst(ltvSeries, 'max');             // peak debt / GDV; null if no GDV basis
+  const ltvHero = ltvPeak != null ? ltvPeak : m.ltvAtExit;   // fall back to LTV at exit
+  const equityMoic = rs.result.fcfe.moic;                     // == selected Exit-Year row Equity MOIC
+
+  // Covenant thresholds (editable, saved with the project) drive the hero
+  // pass / breach badges so they track the same bar as the covenant table.
+  const dscrThreshold = covenants.find((c) => c.metric === 'dscr')?.threshold ?? 1.20;
+  const ltvThreshold = covenants.find((c) => c.metric === 'ltv')?.threshold ?? 0.60;
+  const dscrPass = minDSCR == null ? null : minDSCR >= dscrThreshold;
+  const ltvPass = ltvHero == null ? null : ltvHero <= ltvThreshold;
+  const toneOf = (pass: boolean | null): CardTone => (pass == null ? 'neutral' : pass ? 'good' : 'bad');
+  const badgeOf = (pass: boolean | null): { text: string; tone: CardTone } | undefined =>
+    pass == null ? undefined : pass ? { text: 'Pass', tone: 'good' } : { text: 'Breach', tone: 'bad' };
+
+  // ── Operating KPI blocks (demoted detail; rendered only when present) ──────
+  const hospitalityBlock = (() => {
+    const hosp = [...snap.revenue.byHospitalityAsset.values()];
+    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+    let avail = 0, occRn = 0, rooms = 0, fb = 0, other = 0, totalHosp = 0;
+    for (const h of hosp) {
+      avail += sumArr(h.availableRoomNightsPerPeriod);
+      occRn += sumArr(h.occupiedRoomNightsPerPeriod);
+      rooms += sumArr(h.roomsRevenuePerPeriod);
+      fb += sumArr(h.fbRevenuePerPeriod);
+      other += sumArr(h.otherRevenuePerPeriod);
+      totalHosp += sumArr(h.totalRevenuePerPeriod);
+    }
+    if (avail <= 0) return null; // no hospitality demand => hide the section
+    const occupancy = avail > 0 ? occRn / avail : null;
+    const adr = occRn > 0 ? rooms / occRn : null;
+    const revpar = avail > 0 ? rooms / avail : null;
+    const ccy = project.currency ?? 'SAR';
+    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
+    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    return (
+      <>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
+          Hospitality Operations
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+          Blended across all hospitality (Operate) assets over the hold. ADR and RevPAR are per-night rates in {ccy} (not scaled); occupancy is occupied / available room nights.
+        </div>
+        <MetricGrid min={150}>
+          <MetricCard label="Occupancy" value={fmtPct(occupancy)} sub="occupied / available nights" />
+          <MetricCard label="ADR" value={rate(adr)} sub={`${ccy} / occupied night`} />
+          <MetricCard label="RevPAR" value={rate(revpar)} sub={`${ccy} / available night`} />
+          <MetricCard label="Rooms Revenue" value={fmt(rooms)} sub={currency} />
+          <MetricCard label="F&B Revenue" value={fmt(fb)} sub={currency} />
+          <MetricCard label="Other Revenue" value={fmt(other)} sub={currency} />
+          <MetricCard label="Total Hospitality Revenue" value={fmt(totalHosp)} sub={currency} />
+          <MetricCard label="Available Room Nights" value={intFmt(avail)} sub="capacity over hold" />
+        </MetricGrid>
+      </>
+    );
+  })();
+
+  const residentialBlock = (() => {
+    const sell = [...snap.revenue.bySellAsset.entries()];
+    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+    const areaOf = new Map<string, number>();
+    for (const a of state.assets) areaOf.set(a.id, a.sellableBuaSqm || a.buaSqm || 0);
+    let units = 0, preSale = 0, postSale = 0, area = 0;
+    const activeYears = new Set<number>();
+    for (const [id, s] of sell) {
+      const preU = sumArr(s.presalesUnitsPerPeriod);
+      const postU = sumArr(s.postSalesUnitsPerPeriod);
+      units += preU + postU;
+      preSale += sumArr(s.presalesRevenuePerPeriod);
+      postSale += sumArr(s.postSalesRevenuePerPeriod);
+      if (preU + postU > 0) area += areaOf.get(id) ?? 0;
+      s.presalesUnitsPerPeriod.forEach((v, t) => {
+        if ((v ?? 0) + (s.postSalesUnitsPerPeriod[t] ?? 0) > 0) activeYears.add(t);
+      });
+    }
+    const saleValue = preSale + postSale;
+    if (saleValue <= 0 && units <= 0) return null;
+    const pricePerUnit = units > 0 ? saleValue / units : null;
+    const pricePerSqm = area > 0 ? saleValue / area : null;
+    const preSalesPct = saleValue > 0 ? preSale / saleValue : null;
+    const velocity = activeYears.size > 0 ? units / activeYears.size : null;
+    const ccy = project.currency ?? 'SAR';
+    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
+    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    return (
+      <>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
+          Residential (For-Sale)
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+          Blended across all Sell / Sell+Manage assets over the hold. Prices are sale value; per-unit and per-sqm rates are in {ccy} (not scaled).
+        </div>
+        <MetricGrid min={150}>
+          <MetricCard label="Residential GDV" value={fmt(saleValue)} sub={`sale value, ${currency}`} />
+          <MetricCard label="Units Sold" value={intFmt(units)} sub="pre + post sales" />
+          <MetricCard label="Avg Sale Price / Unit" value={rate(pricePerUnit)} sub={`${ccy} / unit`} />
+          <MetricCard label="Avg Sale Price / sqm" value={rate(pricePerSqm)} sub={`${ccy} / sellable sqm`} />
+          <MetricCard label="Pre-Sales %" value={fmtPct(preSalesPct)} sub="pre-sales / residential GDV" />
+          <MetricCard label="Sales Velocity" value={rate(velocity)} sub="units / yr (active years)" />
+        </MetricGrid>
+      </>
+    );
+  })();
+
+  const leaseBlock = (() => {
+    const lease = [...snap.revenue.byLeaseAsset.values()];
+    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+    let gla = 0, revenue = 0, occupiedArea = 0, glaYears = 0;
+    for (const l of lease) {
+      const assetGla = Object.values(l.perSubUnit).reduce((s, su) => s + (su.gla ?? 0), 0);
+      gla += assetGla;
+      revenue += sumArr(l.totalRevenuePerPeriod);
+      occupiedArea += sumArr(l.occupiedAreaPerPeriod);
+      const activePeriods = l.occupiedAreaPerPeriod.filter((v) => (v ?? 0) > 0).length;
+      glaYears += assetGla * activePeriods;
+    }
+    if (gla <= 0 && revenue <= 0) return null;
+    const avgOcc = glaYears > 0 ? occupiedArea / glaYears : null;
+    const rentPerSqm = occupiedArea > 0 ? revenue / occupiedArea : null;
+    const ccy = project.currency ?? 'SAR';
+    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
+    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    return (
+      <>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
+          Lease / Income (Retail, Office)
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+          Blended across all Lease assets over the hold. Rent is achieved rent per occupied sqm per year in {ccy} (not scaled); occupancy is occupied area / GLA over operating periods.
+        </div>
+        <MetricGrid min={150}>
+          <MetricCard label="Total GLA" value={intFmt(gla)} sub="sqm leasable" />
+          <MetricCard label="Avg Occupancy" value={fmtPct(avgOcc)} sub="occupied / GLA over ops" />
+          <MetricCard label="Rent per Leased sqm" value={rate(rentPerSqm)} sub={`${ccy} / occupied sqm / yr`} />
+          <MetricCard label="Total Lease Revenue" value={fmt(revenue)} sub={currency} />
+        </MetricGrid>
+      </>
+    );
+  })();
+  const hasOperatingKpis = !!(hospitalityBlock || residentialBlock || leaseBlock);
+
+  const sectionTitle = (text: string): React.JSX.Element => (
+    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>{text}</div>
+  );
+
   return (
     <div data-testid="module5-metrics" style={{ padding: 'var(--sp-3)', width: '100%' }}>
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
-        Real-estate return + leverage metrics. Exit-based metrics (Cap Rate, LTV, Debt Yield) use the terminal value
-        from the Returns tab. Coverage ratios are shown per period below; the Total column carries the average / min.
+        Real-estate decision view. The hero metrics below are the deal-deciders; Lender Covenants and Exit-Year Analysis are the analytical centrepieces; supporting detail is grouped underneath. Every coverage / leverage headline (Min DSCR, Debt Yield, peak LTV) is derived from the per-period series shown in the covenant heatmap, so a headline always equals the row it summarises.
       </p>
 
-      {/* Profitability + yield KPIs */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 'var(--sp-1)' }}>
-        Profitability and Yield
+      {/* ── HERO: the handful of metrics that decide the deal ─────────────── */}
+      <div data-testid="re-metrics-hero">
+        <MetricGrid min={190}>
+          <MetricCard size="hero" label="Equity Multiple (MOIC)" value={fmtX(equityMoic)} sub="equity out / equity in, at the selected exit" tooltip="Total equity distributions divided by equity invested, computed on the FCFE stream. Ties to the selected Exit-Year row's Equity MOIC." />
+          <MetricCard size="hero" label="Yield on Cost" value={fmtPct(m.yieldOnCost)} sub="stabilised NOI / total cost" />
+          <MetricCard size="hero" label="Profit Margin" value={fmtPct(m.profitMargin)} sub="PAT / revenue" />
+          <MetricCard size="hero" label="Min DSCR" value={fmtX(minDSCR)} sub={`worst debt-service yr · vs ${fmtX(dscrThreshold)}`} tone={toneOf(dscrPass)} badge={badgeOf(dscrPass)} />
+          <MetricCard size="hero" label="Peak Equity" value={fmt(m.peakEquity)} sub={`max equity at risk · ${currency}`} />
+          <MetricCard size="hero" label={ltvPeak != null ? 'LTV (peak debt)' : 'LTV at Exit'} value={fmtPct(ltvHero)} sub={`${ltvPeak != null ? 'peak debt / GDV' : 'debt / exit value'} · vs ${fmtPct(ltvThreshold, 0)}`} tone={toneOf(ltvPass)} badge={badgeOf(ltvPass)} />
+        </MetricGrid>
       </div>
-      <MetricGrid min={150}>
-        <MetricCard label="Yield on Cost" value={fmtPct(m.yieldOnCost)} sub="stabilised NOI / cost" tone="neutral" />
-        <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
-        <MetricCard label="Profit on Cost" value={fmtPct(m.profitOnCost)} sub="(revenue - cost) / cost" />
-        <MetricCard label="Profit Margin" value={fmtPct(m.profitMargin)} sub="PAT / revenue" />
-        <MetricCard label="Equity Multiple" value={fmtX(m.equityMultiple)} sub="distributions / invested" />
-      </MetricGrid>
 
-      {/* Leverage + coverage KPIs */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 'var(--sp-1)' }}>
-        Leverage and Coverage
-      </div>
-      <MetricGrid min={150}>
-        <MetricCard label="LTV at Exit" value={fmtPct(m.ltvAtExit)} sub="debt / exit value" tone={ltvTone} />
-        <MetricCard label="Debt Yield" value={fmtPct(m.debtYield)} sub="NOI / debt" />
-        <MetricCard label="Min DSCR" value={fmtX(m.dscrMin)} sub="worst coverage period" tone={dscrTone} />
-        <MetricCard label="Avg DSCR" value={fmtX(m.dscrAvg)} sub="mean over debt years" />
-        <MetricCard label="Min Interest Cover" value={fmtX(m.icrMin)} sub="EBITDA / interest" />
-        <MetricCard label="Avg Cash-on-Cash" value={fmtPct(m.cashOnCashAvg)} sub="cash yield on equity" />
-        <MetricCard label="Peak Equity" value={fmt(m.peakEquity)} sub={currency} />
-        <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
-      </MetricGrid>
-
-      {/* ── Lender Covenants (NEW): per-period DSCR / ICR / Debt Yield + LTV at
-            exit, editable thresholds, pass / breach. Ratios are snapshot-derived. ── */}
+      {/* ── CENTREPIECE 1: Lender Covenants (per-period heatmap, editable
+            thresholds, pass / breach). Ratios are snapshot-derived; the hero
+            Min DSCR / LTV / Debt Yield are reduced from these same series. ── */}
       <LenderCovenants
         covenants={covenants}
         inputs={covenantInputs}
@@ -113,51 +252,10 @@ export default function Module5Metrics(): React.JSX.Element {
         onChange={setCovenants}
       />
 
-      {/* Development economics (real-estate residual / profit view) */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-        Development Economics
-      </div>
-      <MetricGrid min={150}>
-        <MetricCard label="Gross Development Value" value={fmt(de.gdv)} sub={`GDV, ${currency}`} />
-        <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub={currency} />
-        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub={currency} />
-        <MetricCard label="Profit before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV less cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Profit after Financing" value={fmt(de.profitAfterFinancing)} sub="less financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
-        <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : 'neutral'} />
-        <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
-      </MetricGrid>
-
-      {/* ── Funding Mix (received from Returns): capital structure as % of sources. ── */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-        Funding Mix
-      </div>
-      <MetricGrid min={150}>
-        <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
-        <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
-        <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
-        <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
-      </MetricGrid>
-
-      {/* Income + exit profile (going-in vs exit, NOI) */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-        Income and Exit Profile
-      </div>
-      <MetricGrid min={150}>
-        <MetricCard label="Stabilised NOI" value={fmt(rs.stabilisedNOI)} sub={currency} />
-        <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
-        <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
-        <MetricCard label="Stabilised Yield on Cost" value={fmtPct(rs.stabilization.stabilisedYieldOnCost)} sub="stabilised NOI / dev cost" />
-        <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
-        <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
-        <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
-      </MetricGrid>
-
-      {/* ── Exit-Year Analysis (received from Returns): hold vs sell timing. ── */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-        Exit-Year Analysis (hold vs sell timing)
-      </div>
+      {/* ── CENTREPIECE 2: Exit-Year Analysis (hold vs sell timing) ───────── */}
+      {sectionTitle('Exit-Year Analysis (hold vs sell timing)')}
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year.
+        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year; its Equity MOIC is the hero Equity Multiple above.
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
@@ -186,140 +284,63 @@ export default function Module5Metrics(): React.JSX.Element {
         </table>
       </div>
 
-      {/* Hospitality operations (only when the project has Operate assets with
-          room-night demand). Operating KPIs are blended across the hold and
-          across hospitality assets: ADR / RevPAR are per-night rates (NOT
-          scaled like the currency figures), occupancy is occupied / available. */}
-      {(() => {
-        const hosp = [...snap.revenue.byHospitalityAsset.values()];
-        const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-        let avail = 0, occRn = 0, rooms = 0, fb = 0, other = 0, totalHosp = 0;
-        for (const h of hosp) {
-          avail += sumArr(h.availableRoomNightsPerPeriod);
-          occRn += sumArr(h.occupiedRoomNightsPerPeriod);
-          rooms += sumArr(h.roomsRevenuePerPeriod);
-          fb += sumArr(h.fbRevenuePerPeriod);
-          other += sumArr(h.otherRevenuePerPeriod);
-          totalHosp += sumArr(h.totalRevenuePerPeriod);
-        }
-        if (avail <= 0) return null; // no hospitality demand => hide the section
-        const occupancy = avail > 0 ? occRn / avail : null;
-        const adr = occRn > 0 ? rooms / occRn : null;
-        const revpar = avail > 0 ? rooms / avail : null;
-        const ccy = project.currency ?? 'SAR';
-        const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-        const intFmt = (v: number): string => Math.round(v).toLocaleString();
-        return (
-          <>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-              Hospitality Operations
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-              Blended across all hospitality (Operate) assets over the hold. ADR and RevPAR are per-night rates in {ccy} (not scaled); occupancy is occupied / available room nights.
-            </div>
-            <MetricGrid min={150}>
-              <MetricCard label="Occupancy" value={fmtPct(occupancy)} sub="occupied / available nights" />
-              <MetricCard label="ADR" value={rate(adr)} sub={`${ccy} / occupied night`} />
-              <MetricCard label="RevPAR" value={rate(revpar)} sub={`${ccy} / available night`} />
-              <MetricCard label="Rooms Revenue" value={fmt(rooms)} sub={currency} />
-              <MetricCard label="F&B Revenue" value={fmt(fb)} sub={currency} />
-              <MetricCard label="Other Revenue" value={fmt(other)} sub={currency} />
-              <MetricCard label="Total Hospitality Revenue" value={fmt(totalHosp)} sub={currency} />
-              <MetricCard label="Available Room Nights" value={intFmt(avail)} sub="capacity over hold" />
-            </MetricGrid>
-          </>
-        );
-      })()}
+      {/* ── DETAIL (demoted): coverage + profitability, economics, income, funding ── */}
+      <CollapsibleSection title="Coverage and profitability detail" defaultOpen>
+        <MetricGrid min={150}>
+          <MetricCard label="Avg DSCR" value={fmtX(avgDSCR)} sub="mean over debt-service years" />
+          <MetricCard label="Min Interest Cover" value={fmtX(minICR)} sub="worst yr · EBITDA / interest" />
+          <MetricCard label="Debt Yield" value={fmtPct(debtYieldWorst)} sub="worst operating yr · NOI / debt" />
+          <MetricCard label="Avg Cash-on-Cash" value={fmtPct(m.cashOnCashAvg)} sub="cash yield on equity" />
+          <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
+          <MetricCard label="Profit on Cost" value={fmtPct(m.profitOnCost)} sub="(revenue - cost) / cost" />
+          <MetricCard label="Development Spread" value={fmtPct(m.developmentSpread)} sub="yield on cost - exit cap rate" />
+          <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
+        </MetricGrid>
+      </CollapsibleSection>
 
-      {/* Residential (for-sale) operating KPIs. Shown only when the project
-          has Sell / Sell+Manage assets with sales. Prices are sale value and
-          per-unit / per-sqm rates (NOT currency-scaled). */}
-      {(() => {
-        const sell = [...snap.revenue.bySellAsset.entries()];
-        const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-        const areaOf = new Map<string, number>();
-        for (const a of state.assets) areaOf.set(a.id, a.sellableBuaSqm || a.buaSqm || 0);
-        let units = 0, preSale = 0, postSale = 0, area = 0;
-        const activeYears = new Set<number>();
-        for (const [id, s] of sell) {
-          const preU = sumArr(s.presalesUnitsPerPeriod);
-          const postU = sumArr(s.postSalesUnitsPerPeriod);
-          units += preU + postU;
-          preSale += sumArr(s.presalesRevenuePerPeriod);
-          postSale += sumArr(s.postSalesRevenuePerPeriod);
-          if (preU + postU > 0) area += areaOf.get(id) ?? 0;
-          s.presalesUnitsPerPeriod.forEach((v, t) => {
-            if ((v ?? 0) + (s.postSalesUnitsPerPeriod[t] ?? 0) > 0) activeYears.add(t);
-          });
-        }
-        const saleValue = preSale + postSale;
-        if (saleValue <= 0 && units <= 0) return null;
-        const pricePerUnit = units > 0 ? saleValue / units : null;
-        const pricePerSqm = area > 0 ? saleValue / area : null;
-        const preSalesPct = saleValue > 0 ? preSale / saleValue : null;
-        const velocity = activeYears.size > 0 ? units / activeYears.size : null;
-        const ccy = project.currency ?? 'SAR';
-        const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-        const intFmt = (v: number): string => Math.round(v).toLocaleString();
-        return (
-          <>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-              Residential (For-Sale)
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-              Blended across all Sell / Sell+Manage assets over the hold. Prices are sale value; per-unit and per-sqm rates are in {ccy} (not scaled).
-            </div>
-            <MetricGrid min={150}>
-              <MetricCard label="Residential GDV" value={fmt(saleValue)} sub={`sale value, ${currency}`} />
-              <MetricCard label="Units Sold" value={intFmt(units)} sub="pre + post sales" />
-              <MetricCard label="Avg Sale Price / Unit" value={rate(pricePerUnit)} sub={`${ccy} / unit`} />
-              <MetricCard label="Avg Sale Price / sqm" value={rate(pricePerSqm)} sub={`${ccy} / sellable sqm`} />
-              <MetricCard label="Pre-Sales %" value={fmtPct(preSalesPct)} sub="pre-sales / residential GDV" />
-              <MetricCard label="Sales Velocity" value={rate(velocity)} sub="units / yr (active years)" />
-            </MetricGrid>
-          </>
-        );
-      })()}
+      <CollapsibleSection title="Development economics" defaultOpen>
+        <MetricGrid min={150}>
+          <MetricCard label="Gross Development Value" value={fmt(de.gdv)} sub={`GDV, ${currency}`} />
+          <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub={currency} />
+          <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub={currency} />
+          <MetricCard label="Profit before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV less cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+          <MetricCard label="Profit after Financing" value={fmt(de.profitAfterFinancing)} sub="less financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
+          <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : 'neutral'} />
+          <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
+        </MetricGrid>
+      </CollapsibleSection>
 
-      {/* Lease / income KPIs. Shown only when the project has Lease assets.
-          Rent is achieved rent per occupied sqm per year (NOT currency-scaled);
-          occupancy is occupied area over GLA across operating periods. (WAULT
-          is not shown: the lease model has no per-tenant lease-term input.) */}
-      {(() => {
-        const lease = [...snap.revenue.byLeaseAsset.values()];
-        const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-        let gla = 0, revenue = 0, occupiedArea = 0, glaYears = 0;
-        for (const l of lease) {
-          const assetGla = Object.values(l.perSubUnit).reduce((s, su) => s + (su.gla ?? 0), 0);
-          gla += assetGla;
-          revenue += sumArr(l.totalRevenuePerPeriod);
-          occupiedArea += sumArr(l.occupiedAreaPerPeriod);
-          const activePeriods = l.occupiedAreaPerPeriod.filter((v) => (v ?? 0) > 0).length;
-          glaYears += assetGla * activePeriods;
-        }
-        if (gla <= 0 && revenue <= 0) return null;
-        const avgOcc = glaYears > 0 ? occupiedArea / glaYears : null;
-        const rentPerSqm = occupiedArea > 0 ? revenue / occupiedArea : null;
-        const ccy = project.currency ?? 'SAR';
-        const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-        const intFmt = (v: number): string => Math.round(v).toLocaleString();
-        return (
-          <>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>
-              Lease / Income (Retail, Office)
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-              Blended across all Lease assets over the hold. Rent is achieved rent per occupied sqm per year in {ccy} (not scaled); occupancy is occupied area / GLA over operating periods.
-            </div>
-            <MetricGrid min={150}>
-              <MetricCard label="Total GLA" value={intFmt(gla)} sub="sqm leasable" />
-              <MetricCard label="Avg Occupancy" value={fmtPct(avgOcc)} sub="occupied / GLA over ops" />
-              <MetricCard label="Rent per Leased sqm" value={rate(rentPerSqm)} sub={`${ccy} / occupied sqm / yr`} />
-              <MetricCard label="Total Lease Revenue" value={fmt(revenue)} sub={currency} />
-            </MetricGrid>
-          </>
-        );
-      })()}
+      <CollapsibleSection title="Income and exit profile">
+        <MetricGrid min={150}>
+          <MetricCard label="Stabilised NOI" value={fmt(rs.stabilisedNOI)} sub={currency} />
+          <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
+          <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
+          <MetricCard label="Stabilised Yield on Cost" value={fmtPct(rs.stabilization.stabilisedYieldOnCost)} sub="stabilised NOI / dev cost" />
+          <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
+          <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
+          <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
+        </MetricGrid>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Funding mix">
+        <MetricGrid min={150}>
+          <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
+          <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
+          <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
+          <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
+        </MetricGrid>
+      </CollapsibleSection>
+
+      {/* Operating KPIs (hospitality / residential / lease), rendered only when
+          the project carries the matching asset strategies. Blended over the
+          hold; ADR / RevPAR / rent / price rates are per-unit (NOT scaled). */}
+      {hasOperatingKpis && (
+        <CollapsibleSection title="Operating KPIs (hospitality / residential / lease)">
+          {hospitalityBlock}
+          {residentialBlock}
+          {leaseBlock}
+        </CollapsibleSection>
+      )}
     </div>
   );
 }

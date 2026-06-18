@@ -34,31 +34,61 @@ const toneColor = (tone: CardTone): string =>
   : tone === 'bad' ? 'var(--color-warning, #92400e)'
   : 'var(--color-heading)';
 
+/** Small status pill (Pass / Breach / neutral note) using the covenant palette. */
+function StatusPill(props: { text: string; tone: CardTone }): React.JSX.Element {
+  const [bg, fg] = props.tone === 'good'
+    ? ['var(--color-success-bg, #dcfce7)', 'var(--color-success, #166534)']
+    : props.tone === 'bad'
+      ? ['var(--color-warning-bg, #fef3c7)', 'var(--color-warning, #92400e)']
+      : ['var(--color-grey-pale, #f3f4f6)', 'var(--color-meta)'];
+  return <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 8px', borderRadius: 12, background: bg, color: fg, whiteSpace: 'nowrap' }}>{props.text}</span>;
+}
+
 /** KPI tile: bold headline value + label + optional sub-line. An optional
- *  `tooltip` adds an ⓘ affordance + native title on hover (metric definition). */
-export function MetricCard(props: { label: string; value: string; sub?: string; tone?: CardTone; tooltip?: string }): React.JSX.Element {
+ *  `tooltip` adds an ⓘ affordance + native title on hover (metric definition).
+ *  `size: 'hero'` enlarges the tile for the decision-first strip at the top;
+ *  `badge` shows a Pass / Breach pill next to the value where a threshold exists. */
+export function MetricCard(props: { label: string; value: string; sub?: string; tone?: CardTone; tooltip?: string; size?: 'hero'; badge?: { text: string; tone: CardTone } }): React.JSX.Element {
+  const hero = props.size === 'hero';
   return (
     <div
       title={props.tooltip}
       style={{
-        border: '1px solid var(--color-border)',
+        border: hero ? '1px solid var(--color-navy, #1e293b)' : '1px solid var(--color-border)',
         borderRadius: 'var(--radius-md, 10px)',
         background: 'var(--color-surface)',
-        padding: 'var(--sp-2)',
+        padding: hero ? 'var(--sp-3)' : 'var(--sp-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
+        gap: hero ? 4 : 2,
         minWidth: 0,
+        boxShadow: hero ? '0 1px 3px rgba(15,23,42,0.08)' : undefined,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.25 }}>
+      <div style={{ fontSize: hero ? 12 : 11, fontWeight: hero ? 700 : 600, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.25 }}>
         {props.label}{props.tooltip && <span title={props.tooltip} style={{ cursor: 'help', color: 'var(--color-primary, #1d4ed8)', marginLeft: 4 }}>ⓘ</span>}
       </div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: toneColor(props.tone ?? 'neutral'), lineHeight: 1.1 }}>
-        {props.value}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: hero ? 30 : 20, fontWeight: 800, color: toneColor(props.tone ?? 'neutral'), lineHeight: 1.05 }}>
+          {props.value}
+        </div>
+        {props.badge && <StatusPill text={props.badge.text} tone={props.badge.tone} />}
       </div>
       {props.sub && <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>{props.sub}</div>}
     </div>
+  );
+}
+
+/** Collapsible detail section (native disclosure, design-token styled) used to
+ *  demote low-signal metric groups below the decision-first hero + centrepieces. */
+export function CollapsibleSection(props: { title: string; defaultOpen?: boolean; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <details open={props.defaultOpen} style={{ marginBottom: 'var(--sp-3)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)' }}>
+      <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', padding: '2px 0', userSelect: 'none' }}>
+        {props.title}
+      </summary>
+      <div style={{ marginTop: 'var(--sp-2)' }}>{props.children}</div>
+    </details>
   );
 }
 
