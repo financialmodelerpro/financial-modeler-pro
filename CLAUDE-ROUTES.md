@@ -72,7 +72,8 @@ app/admin/
 ├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
 ├── platform-modules/page.tsx       # Phase P-Sync 2026-05-07: 2-level admin UI for `platform_modules` (per-platform sub-modules). Level 1 platform tabs reading legacy `modules` table, Level 2 modules table per active platform with inline create/edit/delete + status cycling (live/coming_soon/pro/enterprise/hidden) + features textarea. CmsAdminNav entry "Platform Modules" 📚 under Modeling Hub group.
 ├── platform-modules/[id]/pages/page.tsx  # Phase P-Sync 2026-05-07: 5-section page-content editor (hero/features/how_it_works/cta/testimonials) for one platform module. JSON textarea per section, per-section visibility toggle, save button per section. Linked from each row on the parent /admin/platform-modules page.
-# NOTE: app/admin/overrides + app/admin/permissions + app/admin/plans DELETED 2026-04-27 (commit d8405e5), Permissions system removed in Phase 5 of admin cleanup. REFM canAccess() stubs to false until paid tiers go live. Migration 144 drops the underlying tables.
+# NOTE: app/admin/overrides + app/admin/permissions DELETED 2026-04-27 (commit d8405e5), old Permissions system removed in Phase 5 of admin cleanup. Migration 144 dropped the underlying tables.
+├── plans/page.tsx                  # Phase D 2026-06-18: Admin Plan Builder. Feature-by-plan matrix over the LIVE entitlement tables (features_registry + plan_permissions + entitlement_plans, migs 158/159). Rows = features in one ordered list with category bands; columns = plans; gate features = checkbox, limit features = number box, per-row build_status tag. Plan CRUD (create/rename/activate/order) + resolved per-plan preview. Writes plan_permissions + entitlement_plans ONLY. Distinct from /admin/pricing (marketing prices). Does NOT touch canAccess/gate. CmsAdminNav entry "Plan Builder" 🧩 under Modeling Hub. Presentational matrix in plans/PlanMatrix.tsx (also screenshot-rendered by scripts/screenshot-plan-matrix.tsx).
 ├── page-builder/page.tsx         # CMS page list
 ├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
 ├── pages/page.tsx
@@ -259,6 +260,9 @@ app/api/admin/
 ├── modeling-access/             # GET (list entries), POST { email, note } add - modeling_access_whitelist CRUD, admin-gated
 ├── modeling-access/[id]/        # DELETE: revoke whitelist entry by id
 ├── pricing/features/                # /api/admin/pricing/plans/ DELETED 2026-04-28 (commit 777e1bf), Plans tab removed + migration 145 drops pricing_plans table. /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3). Only /api/admin/pricing/features + /coupons + /platform remain.
+├── entitlements/route.ts            # Phase D 2026-06-18: GET features_registry + entitlement_plans + plan_permissions for a platform (?platform=real-estate). Admin-only. Powers /admin/plans. Returns migrationApplied:false if mig 158 not yet applied.
+├── entitlements/plans/route.ts      # Phase D: POST create plan + PATCH rename/activate/order in entitlement_plans. plan_key slugified + globally unique.
+├── entitlements/permissions/route.ts # Phase D: PATCH bulk upsert plan_permissions cells (included for gates, limit_value for limits) on conflict (plan_key, feature_key).
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
 ├── training-hub/ + analytics/ + assessments/ + certificates/

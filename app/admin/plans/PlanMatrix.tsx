@@ -1,0 +1,147 @@
+/**
+ * PlanMatrix.tsx
+ *
+ * Pure, presentational feature-by-plan matrix for the admin plan builder.
+ * Rows are features from features_registry in one ordered list (display_order),
+ * with category shown as a visual grouping band only. Columns are plans. Gate
+ * features render a checkbox; limit features render a number box. Each row shows
+ * a read-only build_status tag so a stub is never assigned as if it were live.
+ *
+ * No state, no data fetching: the page passes data + callbacks. Kept pure so it
+ * can also be server-rendered for screenshot proof.
+ */
+import React from 'react';
+
+export type FeatureType = 'gate' | 'limit' | 'metered';
+export type BuildStatus = 'live' | 'in_development' | 'stub' | 'needs_build';
+
+export interface MatrixFeature {
+  feature_key: string;
+  label: string;
+  category: string;
+  feature_type: FeatureType;
+  build_status: BuildStatus;
+  display_order: number;
+}
+export interface MatrixPlan {
+  id?: string;
+  plan_key: string;
+  label: string;
+  active: boolean;
+  display_order: number;
+}
+export interface CellValue { included: boolean; limit_value: number | null }
+
+export interface PlanMatrixProps {
+  features: MatrixFeature[];
+  plans: MatrixPlan[];
+  cell: (planKey: string, featureKey: string) => CellValue;
+  onToggle?: (planKey: string, featureKey: string, included: boolean) => void;
+  onLimit?: (planKey: string, featureKey: string, value: number | null) => void;
+  readOnly?: boolean;
+}
+
+const BUILD_TAG: Record<BuildStatus, { label: string; bg: string; fg: string }> = {
+  live:           { label: 'Live',            bg: '#dcfce7', fg: '#166534' },
+  in_development: { label: 'In development',  bg: '#dbeafe', fg: '#1e40af' },
+  stub:           { label: 'Stub',            bg: '#fef3c7', fg: '#92400e' },
+  needs_build:    { label: 'Needs build',     bg: '#f3f4f6', fg: '#6b7280' },
+};
+
+function BuildStatusTag({ status }: { status: BuildStatus }): React.JSX.Element {
+  const t = BUILD_TAG[status] ?? BUILD_TAG.needs_build;
+  return (
+    <span data-testid={`build-status-${status}`} style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 10, background: t.bg, color: t.fg, whiteSpace: 'nowrap' }}>
+      {t.label}
+    </span>
+  );
+}
+
+const th: React.CSSProperties = { padding: '8px 10px', fontSize: 12, color: '#fff', textAlign: 'center', whiteSpace: 'nowrap' };
+const tdLabel: React.CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #e5e7eb', position: 'sticky', left: 0, background: '#fff', zIndex: 1 };
+const tdCell: React.CSSProperties = { padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #f1f5f9' };
+
+export function PlanMatrix({ features, plans, cell, onToggle, onLimit, readOnly }: PlanMatrixProps): React.JSX.Element {
+  // Single ordered list; category bands are inserted when the category changes.
+  const ordered = [...features].sort((a, b) => a.display_order - b.display_order);
+  const rows: React.JSX.Element[] = [];
+  let lastCategory = '';
+
+  for (const f of ordered) {
+    if (f.category !== lastCategory) {
+      lastCategory = f.category;
+      rows.push(
+        <tr key={`cat-${f.category}`} data-testid={`category-band-${f.category}`}>
+          <td colSpan={plans.length + 1} style={{ padding: '6px 10px', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#475569', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+            {f.category}
+          </td>
+        </tr>,
+      );
+    }
+    rows.push(
+      <tr key={f.feature_key} data-testid={`feature-row-${f.feature_key}`}>
+        <td style={tdLabel}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 600 }}>{f.label}</span>
+            <BuildStatusTag status={f.build_status} />
+          </div>
+          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{f.feature_key} ({f.feature_type})</div>
+        </td>
+        {plans.map((p) => {
+          const v = cell(p.plan_key, f.feature_key);
+          const cellTestId = `cell-${p.plan_key}-${f.feature_key}`;
+          if (f.feature_type === 'limit') {
+            return (
+              <td key={p.plan_key} style={tdCell}>
+                <input
+                  type="number"
+                  data-testid={cellTestId}
+                  disabled={readOnly}
+                  value={v.limit_value ?? ''}
+                  placeholder="0"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    onLimit?.(p.plan_key, f.feature_key, raw === '' ? null : parseInt(raw, 10));
+                  }}
+                  style={{ width: 64, padding: '3px 6px', fontSize: 12, textAlign: 'center', border: '1px solid #cbd5e1', borderRadius: 5 }}
+                />
+              </td>
+            );
+          }
+          return (
+            <td key={p.plan_key} style={tdCell}>
+              <input
+                type="checkbox"
+                data-testid={cellTestId}
+                disabled={readOnly}
+                checked={v.included}
+                onChange={(e) => onToggle?.(p.plan_key, f.feature_key, e.target.checked)}
+                style={{ width: 16, height: 16, cursor: readOnly ? 'default' : 'pointer' }}
+              />
+            </td>
+          );
+        })}
+      </tr>,
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }} data-testid="plan-matrix">
+      <table style={{ borderCollapse: 'collapse', minWidth: 480, width: '100%' }}>
+        <thead>
+          <tr style={{ background: '#0D2E5A' }}>
+            <th style={{ ...th, textAlign: 'left', position: 'sticky', left: 0, background: '#0D2E5A', zIndex: 2 }}>
+              Feature ({ordered.length})
+            </th>
+            {plans.map((p) => (
+              <th key={p.plan_key} style={th} data-testid={`plan-col-${p.plan_key}`}>
+                {p.label}{!p.active && <div style={{ fontSize: 9, color: '#FCA5A5', fontWeight: 700 }}>inactive</div>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>
+  );
+}
