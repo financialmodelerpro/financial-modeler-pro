@@ -3,19 +3,28 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getAppsScriptUrl } from '@/src/hubs/training/lib/appsScript/sheets';
 import { getServerClient } from '@/src/core/db/supabase';
+import {
+  resetAttemptsCore, applyTabScope,
+  type ResetStore, type ResetExternal, type ScopeArgs,
+} from '@/src/hubs/training/lib/admin/resetAttempts';
 
 /**
  * POST /api/admin/reset-attempts
  *
- * Resets a student's assessment state. Historical bug: Apps Script was the only
- * store being cleared, `training_assessment_results` in Supabase kept the
- * passed row, so the dashboard still blocked the retake. This route now clears
- * both stores in every branch.
+ * Manual, admin-triggered reset of a student's assessment state. NOT automatic
+ * and NOT scheduled. Thin wiring over resetAttemptsCore (the orchestration +
+ * invariants live there and are unit-tested by verify-reset-attempts).
  *
- * Body: { regId, tabKey, course, email? }
- *   - tabKey = "3SFM_S16"   → single course session reset (Apps Script + DB row)
- *   - tabKey = "ALL"        → reset every session of `course` (Apps Script + all DB rows)
- *   - tabKey = "LIVE_<uuid>"→ live session reset (DB only, no Apps Script)
+ * Historical bugs fixed: the reset used to GATE everything on Apps Script's
+ * RegID-in-a-Sheet lookup, which is stale relative to the Supabase-sourced
+ * admin list, so registered students got "Student not found" and the
+ * Supabase row the dashboard reads was never cleared. Now Supabase is cleared
+ * first and unconditionally (by email AND reg_id); Apps Script is best-effort.
+ *
+ * Body: { regId?, email?, tabKey, course? }
+ *   - tabKey = "3SFM_S16"    -> single course session reset
+ *   - tabKey = "ALL"         -> reset every session of `course`
+ *   - tabKey = "LIVE_<uuid>" -> live session reset (Supabase only)
  */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -25,91 +34,55 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json() as { regId?: string; tabKey?: string; course?: string; email?: string };
-    const { regId, tabKey, course } = body;
-    let { email } = body;
-
-    if (!regId || !tabKey) {
-      return NextResponse.json({ success: false, error: 'regId and tabKey required' }, { status: 400 });
-    }
-
     const sb = getServerClient();
 
-    // Fall back to the regId → email lookup when the caller didn't send one.
-    if (!email) {
-      const { data: reg } = await sb
-        .from('training_registrations_meta')
-        .select('email')
-        .eq('registration_id', regId)
-        .maybeSingle();
-      email = (reg?.email as string | undefined) ?? '';
+    const store: ResetStore = {
+      async emailForRegId(regId) {
+        const { data } = await sb.from('training_registrations_meta').select('email').eq('registration_id', regId).maybeSingle();
+        return (data?.email as string | undefined) ?? null;
+      },
+      async regIdForEmail(email) {
+        const { data } = await sb.from('training_registrations_meta').select('registration_id').ilike('email', email).maybeSingle();
+        return (data?.registration_id as string | undefined) ?? null;
+      },
+      async clearResults(filter, scope: ScopeArgs) {
+        const base = sb.from('training_assessment_results').delete().eq(filter.by, filter.value);
+        const { data, error } = await applyTabScope(base, scope).select('id') as { data: unknown[] | null; error: { message: string } | null };
+        if (error) throw new Error(error.message);
+        return data?.length ?? 0;
+      },
+      async clearInProgress(email, scope: ScopeArgs) {
+        const base = sb.from('assessment_attempts_in_progress').delete().eq('email', email);
+        const { error } = await applyTabScope(base, scope) as { error: { message: string } | null };
+        if (error) throw new Error(error.message);
+      },
+      async clearLive(email, sessionId) {
+        await sb.from('live_session_attempts').delete().eq('email', email).eq('session_id', sessionId);
+        await sb.from('assessment_attempts_in_progress').delete().eq('email', email).eq('session_id', sessionId);
+      },
+    };
+
+    const external: ResetExternal = {
+      async resetSheet(regId, tabKey, course) {
+        const url = await getAppsScriptUrl();
+        if (!url) return { ok: false, error: 'Apps Script URL not configured' };
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'resetAttempts', regId, tabKey, course: course ?? '' }),
+          cache: 'no-store',
+        });
+        const data = await res.json() as { success: boolean; error?: string; message?: string };
+        if (data.success) return { ok: true };
+        return { ok: false, notFound: /not found/i.test(data.error ?? ''), error: data.error };
+      },
+    };
+
+    const result = await resetAttemptsCore(store, external, body);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status ?? 500 });
     }
-
-    const normalizedEmail = email ? email.toLowerCase() : '';
-    const isLive = tabKey.startsWith('LIVE_');
-    const isAll  = tabKey === 'ALL';
-
-    // ── Live session branch (no Apps Script) ────────────────────────────────
-    if (isLive) {
-      if (!normalizedEmail) {
-        return NextResponse.json({ success: false, error: 'Email not resolvable from regId' }, { status: 400 });
-      }
-      const sessionId = tabKey.slice('LIVE_'.length);
-      const { error } = await sb
-        .from('live_session_attempts')
-        .delete()
-        .eq('email', normalizedEmail)
-        .eq('session_id', sessionId);
-      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, message: 'Live session attempts cleared' });
-    }
-
-    // ── Course branch: Apps Script first, then mirror on Supabase ──────────
-    const url = await getAppsScriptUrl();
-    if (!url) {
-      return NextResponse.json({ success: false, error: 'Apps Script URL not configured' }, { status: 500 });
-    }
-
-    console.log('[reset-attempts] Calling Apps Script:', { regId, tabKey, course });
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'resetAttempts',
-        regId,
-        tabKey,
-        course: course ?? '',
-      }),
-      cache: 'no-store',
-    });
-
-    const data = await res.json() as { success: boolean; error?: string; message?: string };
-    console.log('[reset-attempts] Apps Script response:', data);
-
-    if (!data.success) {
-      return NextResponse.json({ success: false, error: data.error ?? 'Reset failed' });
-    }
-
-    // Mirror the reset in Supabase so the dashboard + retake gate unblock.
-    if (normalizedEmail) {
-      let q = sb.from('training_assessment_results').delete().eq('email', normalizedEmail);
-      if (isAll) {
-        // Course-wide reset → "3SFM_*" / "BVM_*".
-        if (course && course.trim()) {
-          q = q.ilike('tab_key', `${course.trim().toUpperCase()}\\_%`);
-        }
-        // No course filter → delete every assessment row for this student
-        // (same blast radius as Apps Script's ALL with empty course).
-      } else {
-        q = q.eq('tab_key', tabKey);
-      }
-      const { error: delErr } = await q;
-      if (delErr) console.error('[reset-attempts] Supabase delete error:', delErr.message);
-    } else {
-      console.warn('[reset-attempts] No email for regId, skipped Supabase cleanup:', regId);
-    }
-
-    return NextResponse.json({ success: true, message: data.message ?? 'Attempts reset successfully' });
+    return NextResponse.json(result);
   } catch (err) {
     console.error('[reset-attempts] Error:', err);
     return NextResponse.json({ success: false, error: 'An unexpected error occurred' }, { status: 500 });
