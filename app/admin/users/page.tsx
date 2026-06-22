@@ -320,9 +320,9 @@ export default function AdminUsersPage() {
                         </select>
                         <PlanBadge plan={u.subscription_plan ?? 'unassigned'} />
                         {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
-                        <Link href="/admin/access" title="Per-user overrides in User Access"
+                        <Link href={`/admin/users/${u.id}`} title="Manage plan, entitlements and per-user overrides"
                           style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '2px 7px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', whiteSpace: 'nowrap' }}>
-                          Overrides →
+                          Manage access →
                         </Link>
                       </div>
                     </td>

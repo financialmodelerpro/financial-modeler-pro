@@ -117,7 +117,7 @@ export default function AdminPricingPage() {
           Per-platform pricing cards, feature copy, and coupon codes for the PUBLIC marketing <strong>/pricing</strong> page only. Hero text and FAQ live in <strong>Page Builder &rarr; Pricing</strong>.
         </p>
         <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 24, maxWidth: 820 }}>
-          This editor feeds the public marketing page (the <code>platform_pricing</code> table) and does NOT control the live product. The actual plans, limits, and prices that the app enforces and shows in-app are owned by the <strong>Plan Builder</strong> (<code>/admin/plans</code>), and per-user plan changes happen in <strong>User Access</strong> (<code>/admin/access</code>).
+          This editor feeds the public marketing page (the <code>platform_pricing</code> table) and does NOT control the live product. The actual plans, limits, and prices that the app enforces and shows in-app are owned by the <strong>Plan Builder</strong> (<code>/admin/plans</code>), and per-user plan changes happen in <strong>Users</strong> (<code>/admin/users</code>).
         </div>
 
         {platLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading...</div> : (

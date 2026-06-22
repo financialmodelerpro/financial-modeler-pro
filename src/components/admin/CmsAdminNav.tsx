@@ -27,7 +27,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Users',             href: '/admin/users',                          icon: '👥' },
   { label: 'Marketing Pricing', href: '/admin/pricing',                        icon: '💰' },
   { label: 'Plan Builder',      href: '/admin/plans',                          icon: '🧩' },
-  { label: 'User Access',       href: '/admin/access',                         icon: '🪪' },
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },
   { type: 'divider',            label: 'Training Hub' },
   { label: 'Overview',          href: '/admin/training-hub',                   icon: '📊' },
