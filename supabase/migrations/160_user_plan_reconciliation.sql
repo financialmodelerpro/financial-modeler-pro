@@ -47,6 +47,13 @@
 -- no-op on environments where mig 144 already dropped it.
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_subscription_plan_check;
 
+-- Step 0b: ensure the trial column exists. trial_ends_at is declared in the
+-- src/lib/schema.sql bootstrap but was never applied to production, so the
+-- free -> trial UPDATE below (and resolveUserGate + the Phase C trial-approval
+-- route, which read this column) would fail without it. ADD ... IF NOT EXISTS
+-- is a no-op where it already exists.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz;
+
 -- The configured trial length, sourced from platform_pricing like the app
 -- does. CTE picks the first active plan with a positive trial_days; COALESCE
 -- falls back to 14 so the migration is self-contained even on a fresh DB.
