@@ -100,6 +100,7 @@ export interface PatchProjectInput {
   location?: string | null;
   status?:   ProjectStatus;
   assetMix?: string[];
+  archived?: boolean;
 }
 
 export function patchProject(

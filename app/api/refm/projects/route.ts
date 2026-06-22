@@ -20,13 +20,15 @@ import {
   setProjectCurrentVersion,
   deleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import {
   SCHEMA_VERSION,
   PROJECT_STATUSES,
   type ProjectStatus,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { canAddActiveProject } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -52,7 +54,7 @@ export async function GET() {
 // current_version_id pointer. On partial failure the orphan project is
 // deleted so the user doesn't see a half-created entry in the picker.
 export async function POST(req: NextRequest) {
-  const userId = await getRefmUserId();
+  const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
 
   let body: {
@@ -68,6 +70,24 @@ export async function POST(req: NextRequest) {
   const name = body.name?.trim();
   if (!name) return badRequest('name is required.');
   if (!body.snapshot) return badRequest('snapshot is required.');
+
+  // Entitlement cap: an admin / unlimited (-1) bypasses; otherwise the count of
+  // ACTIVE (non-archived) projects must stay under the resolved limit. Returns
+  // a stable CAP_REACHED code so the UI can show the archive-or-upgrade prompt.
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  if (!canAddActiveProject(gate.activeProjectCount, gate.projectLimit)) {
+    return NextResponse.json(
+      {
+        error: 'Project limit reached for your plan. Archive a project or upgrade to add another.',
+        code: 'CAP_REACHED',
+        projectLimit: gate.projectLimit,
+        activeProjectCount: gate.activeProjectCount,
+        archiveAllowed: gate.archiveAllowed,
+        planKey: gate.planKey,
+      },
+      { status: 403 },
+    );
+  }
 
   const status: ProjectStatus = body.status && (PROJECT_STATUSES as readonly string[]).includes(body.status)
     ? body.status

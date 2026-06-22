@@ -77,6 +77,8 @@ import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 import { buildPlatformGuide } from '../lib/guide/platformGuide';
+import { useEntitlements } from '../lib/useEntitlements';
+import { FEATURE_DISPLAY_LABELS } from '../lib/featureLabels';
 
 import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import { MODULES } from '../lib/modules-config';
@@ -92,6 +94,8 @@ export interface StorageProject {
   assetMix: string[];
   versions: Record<string, { name: string; createdAt: string; data: unknown }>;
   versionCount?: number;
+  /** Entitlement cap archive flag (mig 161), distinct from the status enum. */
+  archived?: boolean;
 }
 
 export interface StorageShape {
@@ -126,6 +130,7 @@ function projectsToStorageShape(
       assetMix: p.asset_mix,
       versions: {},
       versionCount: p.version_count,
+      archived: p.archived ?? false,
     };
   }
   return out;
@@ -296,18 +301,32 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Falls back to static MODULES list while in flight.
   const { modules: dynamicSidebarModules } = usePlatformModules(REFM_PLATFORM_SLUG);
 
-  // Subscription / plan gating. Free modules are always accessible;
-  // pro / enterprise modules stay locked behind the upgrade prompt
-  // until plan enforcement ships. Previous version returned false for
-  // every featureKey which silently lock-icon'd free modules in the
-  // sidebar (Module 1 / Module 2) and intercepted clicks for paid
-  // tiers - users reported Revenue sidebar feeling unclickable.
-  const canAccess = (featureKey: string): boolean => {
-    const mod = MODULES.find((m) => m.featureKey === featureKey);
-    return mod?.requiredPlan === 'free';
-  };
-  const subLoaded = true;
-  const [upgradePrompt, setUpgradePrompt] = useState<{ featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null>(null);
+  // Subscription / plan gating. Access is the user's RESOLVED effective
+  // entitlements (plan + overrides, trial expiry, admin bypass), fetched
+  // server-side via /api/refm/entitlements which reuses the Phase C resolver.
+  // While the gate is loading we treat features as accessible to avoid a flash
+  // of lock icons; the server choke points (create / archive / versions) are
+  // the authoritative boundary regardless of this client UX.
+  const ent = useEntitlements();
+  const canAccess = useCallback(
+    (featureKey: string): boolean => (ent.loaded ? ent.canAccess(featureKey) : true),
+    [ent],
+  );
+  const subLoaded = ent.loaded;
+  // Upgrade / cap prompt. kind 'feature' = a locked feature; kind 'cap' = the
+  // project cap reached (offers archive or upgrade).
+  const [upgradePrompt, setUpgradePrompt] = useState<
+    { kind: 'feature'; featureKey: string; message?: string }
+    | { kind: 'cap'; archiveAllowed: boolean; projectLimit: number; message?: string }
+    | null
+  >(null);
+  // Imperative gate helper for action points (export, save, branding,
+  // sensitivity): returns true if allowed, else opens the upgrade prompt.
+  const requireFeature = useCallback((featureKey: string): boolean => {
+    if (canAccess(featureKey)) return true;
+    setUpgradePrompt({ kind: 'feature', featureKey });
+    return false;
+  }, [canAccess]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -517,6 +536,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
       // demo data-loss incident traced to this exact sequence.
       detachSync();
 
+      // Cap pre-check (client UX): if the resolved limit is already reached,
+      // show the archive-or-upgrade prompt instead of attempting the create.
+      // The server enforces this authoritatively too (returns CAP_REACHED).
+      if (ent.loaded && !ent.isAdmin && ent.projectLimit !== -1 && ent.activeProjectCount >= ent.projectLimit) {
+        setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
+        return;
+      }
+
       useModule1Store.getState().hydrate(snapshot);
       const res = await pclient.createProject({
         name: snapshot.project.name,
@@ -526,9 +553,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
         assetMix: snapshot.assets.filter((a) => a.visible).map((a) => a.name),
       });
       if (res.error || !res.data) {
+        // Server-side cap rejection (race or stale client gate): show the prompt.
+        if (/CAP_REACHED/i.test(res.error ?? '') || /limit reached/i.test(res.error ?? '')) {
+          setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
+          return;
+        }
         setLoadError(res.error ?? 'Failed to create project');
         return;
       }
+      ent.refresh();
       setServerProjects((prev) => [...prev, res.data!.project]);
       setActiveProjectId(res.data.project.id);
       writeActiveProjectId(res.data.project.id);
@@ -543,8 +576,33 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setHasUnsaved(false);
       setEditingVersionLabel(null);
     },
-    [],
+    [ent],
   );
+
+  // Archive / unarchive a project (entitlement cap). Archive frees a slot;
+  // unarchive is treated like create (must fit the cap). The server is
+  // authoritative and returns CAP_REACHED / ARCHIVE_NOT_ALLOWED, which we map
+  // to the upgrade-or-archive prompt.
+  const handleArchiveProject = useCallback(async (projectId: string, archived: boolean): Promise<void> => {
+    const res = await pclient.patchProject(projectId, { archived });
+    if (res.error || !res.data) {
+      const msg = res.error ?? '';
+      if (/CAP_REACHED/i.test(msg) || /limit reached/i.test(msg)) {
+        setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
+        return;
+      }
+      if (/ARCHIVE_NOT_ALLOWED/i.test(msg) || /does not include archiving/i.test(msg)) {
+        setUpgradePrompt({ kind: 'feature', featureKey: 'projects', message: msg });
+        return;
+      }
+      setLoadError(msg || 'Failed to update project');
+      return;
+    }
+    // Reflect the new archived flag in the local list + refresh the gate
+    // (active count changed, which may free or consume a slot).
+    setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, archived } : p)));
+    ent.refresh();
+  }, [ent]);
 
   const handleCloseProject = useCallback((): void => {
     detachSync();
@@ -751,8 +809,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
       : null;
 
   const onLockedModuleClick = useCallback(
-    (featureKey: string, requiredPlan: 'professional' | 'enterprise') => {
-      setUpgradePrompt({ featureKey, requiredPlan });
+    (featureKey: string) => {
+      setUpgradePrompt({ kind: 'feature', featureKey });
     },
     [],
   );
@@ -1135,6 +1193,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
         lastSavedAt={lastSavedAt}
         currentUserRole={currentUserRole}
         can={can}
+        entitled={canAccess}
+        onLockedFeature={(featureKey) => setUpgradePrompt({ kind: 'feature', featureKey })}
         editMode={editMode}
         canEnableEditing={!!activeProjectId}
         onEnableEditing={handleEnableEditing}
@@ -1378,6 +1438,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
           setProjectModalOpen(false);
           void handleSelectProject(id);
         }}
+        archiveAllowed={ent.archiveAllowed}
+        onArchiveProject={(id, archived) => void handleArchiveProject(id, archived)}
       />
       <VersionModal
         key={`versions-${versionPickMode}`}
@@ -1461,18 +1523,49 @@ export default function RealEstatePlatform(): React.JSX.Element {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--color-bg)', padding: 'var(--sp-3)', borderRadius: 'var(--radius)' }}
+            data-testid={upgradePrompt.kind === 'cap' ? 'cap-prompt' : 'feature-upgrade-prompt'}
+            style={{ background: 'var(--color-bg)', padding: 'var(--sp-3)', borderRadius: 'var(--radius)', maxWidth: 460 }}
           >
-            <UpgradePrompt
-              featureKey={upgradePrompt.featureKey}
-              requiredPlan={upgradePrompt.requiredPlan}
-              variant="card"
-            />
-            <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
-              <button type="button" onClick={() => setUpgradePrompt(null)}>
-                Close
-              </button>
-            </div>
+            {upgradePrompt.kind === 'cap' ? (
+              <div style={{ fontFamily: 'Inter, sans-serif' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 24 }}>📦</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-heading, #0D2E5A)' }}>Project limit reached</span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--color-text, #475569)', lineHeight: 1.6, margin: '0 0 14px' }}>
+                  {upgradePrompt.message ?? `Your plan allows ${upgradePrompt.projectLimit === -1 ? 'unlimited' : upgradePrompt.projectLimit} active project${upgradePrompt.projectLimit === 1 ? '' : 's'}.`}{' '}
+                  {upgradePrompt.archiveAllowed
+                    ? 'Archive an existing project to free a slot, or upgrade your plan to add more.'
+                    : 'Upgrade your plan to add more projects (your current plan does not include archiving).'}
+                </p>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  {upgradePrompt.archiveAllowed && (
+                    <button type="button" data-testid="cap-archive-cta"
+                      onClick={() => { setUpgradePrompt(null); setProjectModalOpen(true); }}
+                      style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #0D2E5A', background: '#fff', color: '#0D2E5A', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                      Manage / archive projects
+                    </button>
+                  )}
+                  <a href="/settings" data-testid="cap-upgrade-cta"
+                    style={{ padding: '8px 16px', borderRadius: 6, background: '#2563EB', color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+                    Upgrade plan →
+                  </a>
+                  <button type="button" onClick={() => setUpgradePrompt(null)} style={{ padding: '8px 12px', fontSize: 13 }}>Close</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <UpgradePrompt
+                  featureKey={upgradePrompt.featureKey}
+                  requiredPlan="professional"
+                  variant="card"
+                  message={`${FEATURE_DISPLAY_LABELS[upgradePrompt.featureKey] ?? upgradePrompt.featureKey} is not included in your current plan. Upgrade to a higher plan to unlock it.`}
+                />
+                <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
+                  <button type="button" onClick={() => setUpgradePrompt(null)}>Close</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

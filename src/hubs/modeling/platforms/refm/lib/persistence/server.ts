@@ -19,8 +19,26 @@ import type {
   RefmProjectVersionListItem,
 } from './types';
 
-const PROJECT_COLS =
+const PROJECT_COLS_BASE =
   'id, user_id, name, location, status, asset_mix, schema_version, current_version_id, created_at, updated_at';
+// Migration 161 (2026-06-22) adds the `archived` boolean for the entitlement
+// project cap. Tried first; on "column does not exist" we fall back to the
+// base list and synthesize archived:false, so the platform keeps working
+// before the migration is applied (mirrors the m152 tolerance pattern).
+const PROJECT_COLS_FULL = `${PROJECT_COLS_BASE}, archived`;
+// Back-compat alias: existing call sites that don't need archived.
+const PROJECT_COLS = PROJECT_COLS_BASE;
+void PROJECT_COLS;
+
+// Cached after first probe: true once a FULL select succeeds, false once we
+// observe the missing-column error.
+let archivedApplied: boolean | undefined;
+
+function decorateProjectRow<T extends Record<string, unknown>>(row: T | null): T | null {
+  if (!row) return row;
+  if (!('archived' in row)) (row as Record<string, unknown>).archived = false;
+  return row;
+}
 // 2026-05-31 (migration 152): base_version_id + change_log columns added.
 // Hotfix 2026-05-31b: kept OUT of the base SELECT lists because production
 // Supabase may not yet have migration 152 applied. The widened lists
@@ -106,12 +124,18 @@ export async function listProjects(userId: string): Promise<{
   error: string | null;
 }> {
   const sb = getServerClient();
-  const { data, error } = await sb
-    .from('refm_projects')
-    .select(PROJECT_COLS)
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
-  if (error) return { rows: [], error: error.message };
+  let data: unknown[] | null = null;
+  if (archivedApplied !== false) {
+    const r = await sb.from('refm_projects').select(PROJECT_COLS_FULL).eq('user_id', userId).order('updated_at', { ascending: false });
+    if (!r.error) { archivedApplied = true; data = r.data as unknown[]; }
+    else if (!isMissingColumnError(r.error)) { return { rows: [], error: r.error.message }; }
+    else { archivedApplied = false; }
+  }
+  if (data === null) {
+    const r = await sb.from('refm_projects').select(PROJECT_COLS_BASE).eq('user_id', userId).order('updated_at', { ascending: false });
+    if (r.error) return { rows: [], error: r.error.message };
+    data = (r.data as unknown[]).map((row) => decorateProjectRow(row as Record<string, unknown>));
+  }
 
   const projects = (data ?? []) as unknown as RefmProjectRow[];
   if (projects.length === 0) {
@@ -141,14 +165,20 @@ export async function getProject(userId: string, projectId: string): Promise<{
   error: string | null;
 }> {
   const sb = getServerClient();
+  if (archivedApplied !== false) {
+    const r = await sb.from('refm_projects').select(PROJECT_COLS_FULL).eq('id', projectId).eq('user_id', userId).maybeSingle();
+    if (!r.error) { archivedApplied = true; return { row: (r.data ?? null) as RefmProjectRow | null, error: null }; }
+    if (!isMissingColumnError(r.error)) return { row: null, error: r.error.message };
+    archivedApplied = false;
+  }
   const { data, error } = await sb
     .from('refm_projects')
-    .select(PROJECT_COLS)
+    .select(PROJECT_COLS_BASE)
     .eq('id', projectId)
     .eq('user_id', userId)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectRow | null, error: null };
+  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
 }
 
 export async function insertProject(insert: {
@@ -163,10 +193,10 @@ export async function insertProject(insert: {
   const { data, error } = await sb
     .from('refm_projects')
     .insert(insert)
-    .select(PROJECT_COLS)
+    .select(PROJECT_COLS_BASE)
     .single();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectRow | null, error: null };
+  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
 }
 
 export async function updateProject(
@@ -180,10 +210,10 @@ export async function updateProject(
     .update(patch)
     .eq('id', projectId)
     .eq('user_id', userId)
-    .select(PROJECT_COLS)
+    .select(PROJECT_COLS_BASE)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data ?? null) as RefmProjectRow | null, error: null };
+  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
 }
 
 // Used by the create flow to stamp current_version_id without going

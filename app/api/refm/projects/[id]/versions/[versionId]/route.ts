@@ -102,6 +102,14 @@ export async function PATCH(
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 
+  // Archived projects are view-only: block in-place edits (the edit choke point).
+  if (project.archived) {
+    return NextResponse.json(
+      { error: 'This project is archived and is view-only. Unarchive it to save changes.', code: 'PROJECT_ARCHIVED' },
+      { status: 403 },
+    );
+  }
+
   const { row: existing, error: verErr } = await getVersionById(projectId, versionId);
   if (verErr) return serverError(verErr);
   if (!existing) return notFound();

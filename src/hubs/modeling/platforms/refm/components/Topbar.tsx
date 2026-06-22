@@ -31,6 +31,11 @@ interface TopbarProps {
   lastSavedAt: string | null;
   currentUserRole: Role;
   can: (permission: keyof PermissionMap) => boolean;
+  /** Plan-entitlement check, layered OVER the role-based can(). Defaults to
+   *  always-allowed so callers that do not pass it are unaffected. */
+  entitled?: (featureKey: string) => boolean;
+  /** Opens the upgrade prompt for a locked plan feature. */
+  onLockedFeature?: (featureKey: string) => void;
   /** View/edit lock: true once the user has entered edit mode. */
   editMode: boolean;
   /** Whether the Edit affordance applies (a project is open). */
@@ -146,6 +151,8 @@ export default function Topbar({
   lastSavedAt,
   currentUserRole,
   can,
+  entitled,
+  onLockedFeature,
   editMode,
   canEnableEditing,
   onEnableEditing,
@@ -159,6 +166,9 @@ export default function Topbar({
   darkMode,
   onToggleDark,
 }: TopbarProps): React.JSX.Element {
+  // Plan entitlement layered over role can(); default allows everything so the
+  // gate only bites when the parent passes a real resolver.
+  const isEntitled = (featureKey: string): boolean => (entitled ? entitled(featureKey) : true);
   const roleMeta = ROLE_META[currentUserRole];
   const branding = useBrandingStore((s) => s.branding);
   const platformLogo = getPlatformLogo(branding);
@@ -305,8 +315,8 @@ export default function Topbar({
       {can('canSave') && editMode && (
         <button
           className="pm-btn save"
-          onClick={onSave}
-          title={'SAVE\n\nCreates a new version snapshot of the current state, named with the current time (e.g. "Save 14:32:08"). Use the Version dropdown to view, name, or jump back between snapshots.\n\nTip: Save often. Snapshots are cheap and let you compare scenarios.'}
+          onClick={() => (isEntitled('versioning') ? onSave() : onLockedFeature?.('versioning'))}
+          title={isEntitled('versioning') ? 'SAVE\n\nCreates a new version snapshot of the current state, named with the current time (e.g. "Save 14:32:08"). Use the Version dropdown to view, name, or jump back between snapshots.\n\nTip: Save often. Snapshots are cheap and let you compare scenarios.' : 'Saving versions requires a higher plan. Click to upgrade.'}
           data-testid="topbar-save"
           style={{
             position: 'relative',
@@ -348,7 +358,7 @@ export default function Topbar({
       {can('canSave') && editMode && onSaveAsNewVersion && (
         <button
           className="pm-btn"
-          onClick={onSaveAsNewVersion}
+          onClick={() => (isEntitled('versioning') ? onSaveAsNewVersion() : onLockedFeature?.('versioning'))}
           data-testid="topbar-save-as-new"
           title={'SAVE AS NEW VERSION\n\nBranch the current working state into a brand-new named version and keep editing from there. Use this when you want to fork rather than keep overwriting the version you opened.'}
           style={{ fontWeight: 600 }}
@@ -384,8 +394,8 @@ export default function Topbar({
           <button
             ref={colorBtnRef}
             className="pm-btn"
-            onClick={handleColorBtn}
-            title={'COLOURS (admin)\n\nChange the platform Primary and Secondary colours. Affects buttons, charts, badges and accents across every workspace - this is a global brand setting, not per-project.'}
+            onClick={() => (isEntitled('branding') ? handleColorBtn() : onLockedFeature?.('branding'))}
+            title={isEntitled('branding') ? 'COLOURS (admin)\n\nChange the platform Primary and Secondary colours. Affects buttons, charts, badges and accents across every workspace - this is a global brand setting, not per-project.' : 'Custom branding requires a higher plan. Click to upgrade.'}
             style={{
               border: colorPanelOpen
                 ? '1.5px solid var(--color-primary)'

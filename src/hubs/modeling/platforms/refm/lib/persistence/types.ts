@@ -50,6 +50,10 @@ export interface RefmProjectRow {
   current_version_id:  string | null;
   created_at:          string;
   updated_at:          string;
+  // Migration 161 (2026-06-22): entitlement project-cap archive flag. Distinct
+  // from the workflow status value 'Archived'. Reads decorate it to false when
+  // the column is absent (pre-migration), so it is always present.
+  archived:            boolean;
 }
 
 // Picker-list shape (subset of RefmProjectRow excluding user_id, which

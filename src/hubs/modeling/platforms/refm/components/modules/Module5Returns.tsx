@@ -21,6 +21,8 @@ import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
+import { useEntitlements } from '../../lib/useEntitlements';
+import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 
 export default function Module5Returns(): React.JSX.Element {
   const state = useModule1Store(
@@ -323,6 +325,7 @@ function SensitivitySection(props: {
   snap: ProjectFinancialsSnapshot;
   project: import('../../lib/state/module1-types').Project;
 }): React.JSX.Element {
+  const ent = useEntitlements();
   const [xVar, setXVar] = useState<SensitivityVariable>('exit_cap_rate');
   const [yVar, setYVar] = useState<SensitivityVariable>('sales_price_pct');
   const grid = useMemo(() => computeReturnsSensitivity(props.snap, props.project, xVar, yVar), [props.snap, props.project, xVar, yVar]);
@@ -336,8 +339,24 @@ function SensitivitySection(props: {
   const sel: React.CSSProperties = { ...FAST_INPUT, cursor: 'pointer', width: 'auto' };
   const th: React.CSSProperties = { padding: '5px 8px', fontSize: 11, textAlign: 'right' };
 
+  // Sensitivity is a gated feature. While the gate loads we show the grid (no
+  // flash of lock); once loaded, a non-entitled user sees the upgrade prompt.
+  if (ent.loaded && !ent.canAccess('sensitivity')) {
+    return (
+      <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="sensitivity-locked">
+        <SectionTitle>Sensitivity, Equity IRR (FCFE)</SectionTitle>
+        <UpgradePrompt
+          featureKey="sensitivity"
+          requiredPlan="professional"
+          variant="card"
+          message="Sensitivity Analysis is not included in your current plan. Upgrade to unlock the two-way IRR sensitivity grid."
+        />
+      </section>
+    );
+  }
+
   return (
-    <section style={{ marginBottom: 'var(--sp-3)' }}>
+    <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="sensitivity-grid">
       <SectionTitle>Sensitivity, Equity IRR (FCFE)</SectionTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 'var(--sp-1)', flexWrap: 'wrap' }}>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>

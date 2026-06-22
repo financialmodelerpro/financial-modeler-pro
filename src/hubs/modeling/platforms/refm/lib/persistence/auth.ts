@@ -20,3 +20,14 @@ export async function getRefmUserId(): Promise<string | null> {
   const id = (session?.user as { id?: string } | undefined)?.id;
   return id ?? null;
 }
+
+/**
+ * Returns the user id plus whether the session role is admin. The admin flag
+ * lets entitlement choke points bypass the gate even if a later DB resolution
+ * fails (an admin is never blocked). Role comes from the JWT (set at sign in).
+ */
+export async function getRefmUserContext(): Promise<{ userId: string | null; isAdmin: boolean }> {
+  const session = await getServerSession(authOptions);
+  const u = session?.user as { id?: string; role?: string } | undefined;
+  return { userId: u?.id ?? null, isAdmin: u?.role === 'admin' };
+}

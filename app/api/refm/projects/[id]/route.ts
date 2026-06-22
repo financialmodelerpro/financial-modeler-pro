@@ -20,11 +20,13 @@ import {
   updateProject,
   deleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import {
   PROJECT_STATUSES,
   type ProjectStatus,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { canAddActiveProject } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -64,7 +66,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 // Body: subset of { name, location, status, assetMix }. Empty body returns
 // the unchanged row.
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const userId = await getRefmUserId();
+  const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
   const { id } = await ctx.params;
 
@@ -73,11 +75,66 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     location?: string | null;
     status?:   ProjectStatus;
     assetMix?: string[];
+    archived?: boolean;
   };
   try { body = await req.json(); }
   catch { return badRequest('Body must be valid JSON.'); }
 
+  // Read the current row so we know the live archived state (the choke point
+  // for both the archive toggle and the "archived = view-only" edit block).
+  const { row: current, error: curErr } = await getProject(userId, id);
+  if (curErr) return serverError(curErr);
+  if (!current) return notFound();
+
   const update: Record<string, unknown> = {};
+
+  // ── Archive toggle (handled before the view-only block, since unarchiving an
+  //    archived project is itself an allowed write). ──────────────────────────
+  const wantsArchiveChange = typeof body.archived === 'boolean' && body.archived !== current.archived;
+  if (wantsArchiveChange) {
+    if (body.archived === true) {
+      // Archiving: frees a slot. Trial plan can never archive.
+      const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+      if (!gate.archiveAllowed) {
+        return NextResponse.json(
+          { error: 'Your plan does not include archiving. Upgrade to archive projects.', code: 'ARCHIVE_NOT_ALLOWED', planKey: gate.planKey },
+          { status: 403 },
+        );
+      }
+      update.archived = true;
+    } else {
+      // Unarchiving: treated exactly like create (must fit under the cap).
+      const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+      if (!canAddActiveProject(gate.activeProjectCount, gate.projectLimit)) {
+        return NextResponse.json(
+          {
+            error: 'Project limit reached. Archive another project or upgrade to unarchive this one.',
+            code: 'CAP_REACHED',
+            projectLimit: gate.projectLimit,
+            activeProjectCount: gate.activeProjectCount,
+            archiveAllowed: gate.archiveAllowed,
+            planKey: gate.planKey,
+          },
+          { status: 403 },
+        );
+      }
+      update.archived = false;
+    }
+  }
+
+  // ── Metadata edits: blocked while the project is archived (view-only),
+  //    UNLESS the same request is unarchiving it. ─────────────────────────────
+  const hasMetadataEdit =
+    typeof body.name === 'string' || body.location !== undefined ||
+    body.status !== undefined || body.assetMix !== undefined;
+  const willBeArchived = update.archived === true || (current.archived && update.archived !== false);
+  if (hasMetadataEdit && willBeArchived) {
+    return NextResponse.json(
+      { error: 'This project is archived and is view-only. Unarchive it to edit.', code: 'PROJECT_ARCHIVED' },
+      { status: 403 },
+    );
+  }
+
   if (typeof body.name === 'string') {
     const trimmed = body.name.trim();
     if (!trimmed) return badRequest('name cannot be empty.');

@@ -36,7 +36,7 @@ interface SidebarProps {
   canSeeModule: (key: string) => boolean;
   canAccess: (featureKey: string) => boolean;
   subLoaded: boolean;
-  onLockedModuleClick: (featureKey: string, requiredPlan: 'professional' | 'enterprise') => void;
+  onLockedModuleClick: (featureKey: string) => void;
   onOpenProjects: () => void;
   onOpenRbac: () => void;
   /** Optional dynamic module list, overrides the static export. */
@@ -152,12 +152,11 @@ export default function Sidebar({
                 className={`sidebar-item${isActive ? ' active' : ''}${isDisabled ? ' disabled' : ''}${isFeatureLocked ? ' feature-locked' : ''}`}
                 onClick={() => {
                   if (isLockedNoProject) return;
-                  if (
-                    isFeatureLocked &&
-                    mod.featureKey &&
-                    (mod.requiredPlan === 'professional' || mod.requiredPlan === 'enterprise')
-                  ) {
-                    onLockedModuleClick(mod.featureKey, mod.requiredPlan);
+                  // Entitlement-locked (resolved gate): open the upgrade prompt
+                  // for ANY locked module, not just the statically pro/enterprise
+                  // ones, since access is now plan + override driven.
+                  if (isFeatureLocked && mod.featureKey) {
+                    onLockedModuleClick(mod.featureKey);
                     return;
                   }
                   if (isDisabled) return;
@@ -170,7 +169,7 @@ export default function Sidebar({
                   }
                 }}
                 disabled={isDisabled}
-                title={isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
+                title={isFeatureLocked ? 'Upgrade your plan to unlock this module' : isDisabled ? disabledReason : mod.label}
                 data-testid={`sidebar-${mod.key}`}
               >
                 <span className="sidebar-icon">{mod.icon}</span>
@@ -207,7 +206,7 @@ export default function Sidebar({
 
               {sidebarCollapsed && (
                 <div className="sidebar-tooltip">
-                  {isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
+                  {isFeatureLocked ? 'Upgrade your plan to unlock this module' : isDisabled ? disabledReason : mod.label}
                 </div>
               )}
 

@@ -94,6 +94,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 
+  // Archived projects are view-only: block new versions (the edit choke point).
+  if (project.archived) {
+    return NextResponse.json(
+      { error: 'This project is archived and is view-only. Unarchive it to save changes.', code: 'PROJECT_ARCHIVED' },
+      { status: 403 },
+    );
+  }
+
   // Resolve base version (if any) and compute change_log against it.
   // baseVersionId === null is the explicit "no base" case for the
   // first version of a project; baseVersionId === undefined means the

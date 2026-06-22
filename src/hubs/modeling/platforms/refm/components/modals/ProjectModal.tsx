@@ -21,6 +21,11 @@ interface ProjectModalProps {
   onClose: () => void;
   storage: StorageShape;
   onSelectProject: (id: string) => void;
+  /** Archive frees an active slot; unarchive requires a free slot (cap). When
+   *  absent, the archive controls are hidden (e.g. for plans without archive). */
+  onArchiveProject?: (id: string, archived: boolean) => void;
+  /** False for plans that cannot archive at all (trial). */
+  archiveAllowed?: boolean;
 }
 
 export default function ProjectModal({
@@ -28,6 +33,8 @@ export default function ProjectModal({
   onClose,
   storage,
   onSelectProject,
+  onArchiveProject,
+  archiveAllowed = true,
 }: ProjectModalProps): React.JSX.Element | null {
   const [search, setSearch] = useState('');
 
@@ -108,61 +115,64 @@ export default function ProjectModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '50vh', overflow: 'auto' }}>
               {filtered.map(([id, p]) => {
                 const isActive = storage.activeProjectId === id;
+                const isArchived = p.archived === true;
                 return (
-                  <button
+                  <div
                     key={id}
-                    type="button"
-                    data-testid={`project-modal-${id}`}
-                    onClick={() => {
-                      onSelectProject(id);
-                      onClose();
-                    }}
+                    data-testid={`project-modal-row-${id}`}
+                    data-archived={isArchived ? 'true' : 'false'}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
+                      gap: 8,
                       width: '100%',
-                      textAlign: 'left',
                       padding: '10px 12px',
                       border: isActive
                         ? '1px solid color-mix(in srgb, var(--color-primary) 40%, transparent)'
                         : '1px solid var(--color-border)',
                       borderRadius: 'var(--radius-sm)',
-                      background: isActive ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : 'transparent',
-                      cursor: 'pointer',
+                      background: isArchived
+                        ? 'color-mix(in srgb, var(--color-muted) 8%, transparent)'
+                        : isActive ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : 'transparent',
+                      opacity: isArchived ? 0.72 : 1,
                       fontFamily: 'Inter, sans-serif',
                     }}
                   >
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: 'var(--fw-semibold)',
-                          color: 'var(--color-heading)',
-                          fontSize: 'var(--font-body)',
-                          marginBottom: '2px',
-                        }}
-                      >
+                    <button
+                      type="button"
+                      data-testid={`project-modal-${id}`}
+                      onClick={() => { onSelectProject(id); onClose(); }}
+                      style={{ flex: 1, textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                    >
+                      <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)', fontSize: 'var(--font-body)', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {p.name}
+                        {isArchived && (
+                          <span data-testid={`project-viewonly-${id}`} style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 20, background: 'color-mix(in srgb, var(--color-muted) 20%, transparent)', color: 'var(--color-muted)' }}>
+                            ARCHIVED · VIEW ONLY
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
                         {p.location || 'No location'} · {p.status}
                       </div>
-                    </div>
-                    {isActive && (
-                      <span
-                        style={{
-                          fontSize: '9px',
-                          fontWeight: 700,
-                          padding: '1px 7px',
-                          borderRadius: '20px',
-                          background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                          color: 'var(--color-success)',
-                        }}
-                      >
+                    </button>
+                    {isActive && !isArchived && (
+                      <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 7px', borderRadius: '20px', background: 'color-mix(in srgb, var(--color-success) 15%, transparent)', color: 'var(--color-success)' }}>
                         ACTIVE
                       </span>
                     )}
-                  </button>
+                    {onArchiveProject && (isArchived || archiveAllowed) && (
+                      <button
+                        type="button"
+                        data-testid={`project-archive-toggle-${id}`}
+                        onClick={() => onArchiveProject(id, !isArchived)}
+                        title={isArchived ? 'Unarchive (uses an active slot)' : 'Archive (frees an active slot, makes view-only)'}
+                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-heading)', cursor: 'pointer', flexShrink: 0 }}
+                      >
+                        {isArchived ? 'Unarchive' : 'Archive'}
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
