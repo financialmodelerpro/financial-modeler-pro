@@ -36,6 +36,7 @@ export default async function PricingPage() {
   const livePlans = pricing.plans;
   const liveFeatures = visibleForCustomers(pricing.features);
   const liveCoverage = pricing.coverage;
+  const trialDays = pricing.trialDays;
 
   // CMS, hero + FAQ sourced from page_sections (Page Builder is canonical).
   const heroSection = pricingSections.find(s => s.section_type === 'hero' && s.visible !== false);
@@ -61,12 +62,13 @@ export default async function PricingPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* Hero */}
-      <section style={{ background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)', padding: '72px 40px 64px', textAlign: 'center', color: '#fff' }}>
-        <div style={{ maxWidth: 680, margin: '0 auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>{heroBadge}</div>
-          <h1 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: '#fff', marginBottom: 14, lineHeight: 1.1 }}>{heroTitle}</h1>
-          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.65 }}>{heroSubtitle}</p>
+      {/* Hero (FMP navy + orange; text from Page Builder) */}
+      <section style={{ position: 'relative', background: 'radial-gradient(1200px 400px at 50% -10%, #163a6b 0%, #0D2E5A 45%, #0A2448 100%)', padding: 'clamp(64px, 9vw, 96px) 40px clamp(56px, 7vw, 72px)', textAlign: 'center', color: '#fff', overflow: 'hidden' }}>
+        <div aria-hidden style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 220, height: 4, background: 'linear-gradient(90deg, #F97316, #EA580C)' }} />
+        <div style={{ maxWidth: 720, margin: '0 auto', position: 'relative' }}>
+          <div style={{ display: 'inline-block', fontSize: 11.5, fontWeight: 800, color: '#FFE7D1', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 18, padding: '6px 14px', borderRadius: 999, background: 'rgba(249,115,22,0.16)', border: '1px solid rgba(249,115,22,0.35)' }}>{heroBadge}</div>
+          <h1 style={{ fontSize: 'clamp(30px, 4.6vw, 52px)', fontWeight: 900, color: '#fff', marginBottom: 16, lineHeight: 1.08, letterSpacing: '-0.02em' }}>{heroTitle}</h1>
+          <p style={{ fontSize: 'clamp(15px, 1.7vw, 18px)', color: 'rgba(255,255,255,0.72)', lineHeight: 1.65, maxWidth: 560, margin: '0 auto' }}>{heroSubtitle}</p>
         </div>
       </section>
 
@@ -97,7 +99,7 @@ export default async function PricingPage() {
             <p style={{ fontSize: 16 }}>Pricing plans coming soon. Check back shortly.</p>
           </div>
         ) : (
-          <LivePlanCards plans={livePlans} features={liveFeatures} coverage={liveCoverage} />
+          <LivePlanCards plans={livePlans} features={liveFeatures} coverage={liveCoverage} trialDays={trialDays} />
         )}
 
         <CouponInput />
@@ -114,12 +116,12 @@ export default async function PricingPage() {
       )}
 
       {/* Bottom CTA */}
-      <section style={{ background: '#1B4F8A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
-        <div style={{ maxWidth: 600, margin: '0 auto' }}>
-          <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>Ready to get started?</h2>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>Start with our free trial. No credit card required.</p>
-          <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
-            Start Free Trial →
+      <section style={{ background: 'linear-gradient(90deg, #0D2E5A, #1B4F8A)', padding: 'clamp(56px,7vw,88px) 40px', textAlign: 'center' }}>
+        <div style={{ maxWidth: 640, margin: '0 auto' }}>
+          <h2 style={{ fontSize: 'clamp(24px,4vw,40px)', fontWeight: 900, color: '#fff', marginBottom: 12, lineHeight: 1.15, letterSpacing: '-0.01em' }}>Ready to get started?</h2>
+          <p style={{ fontSize: 15.5, color: 'rgba(255,255,255,0.8)', marginBottom: 32, lineHeight: 1.6 }}>Start your free {trialDays}-day trial. No credit card required.</p>
+          <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(90deg, #F97316, #EA580C)', color: '#fff', fontWeight: 800, fontSize: 16, padding: '15px 44px', borderRadius: 12, textDecoration: 'none', boxShadow: '0 12px 28px -8px rgba(234,88,12,0.6)' }}>
+            Start free trial →
           </Link>
         </div>
       </section>

@@ -44,6 +44,8 @@ export interface MatrixPlan {
   contact_sales?: boolean;
   popular?: boolean;
   badge_text?: string | null;
+  /** Trial length in days; meaningful on the Trial plan (mig 165). */
+  trial_days?: number | null;
 }
 export interface CellValue { included: boolean; limit_value: number | null }
 

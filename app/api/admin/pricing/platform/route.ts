@@ -1,3 +1,7 @@
+// DEPRECATED (2026-06-22): this route edited platform_pricing for the removed
+// /admin/pricing editor. The public marketing page no longer reads
+// platform_pricing (it renders from entitlement_plans via loadPricingCatalog).
+// Kept (not dropped) per the additive/deprecate-not-destroy rule; no UI calls it.
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';

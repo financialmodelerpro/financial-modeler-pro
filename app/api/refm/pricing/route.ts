@@ -42,5 +42,6 @@ export async function GET(req: NextRequest) {
     plans: catalog.plans,
     features: visibleForCustomers(catalog.features),
     coverage: catalog.coverage,
+    trialDays: catalog.trialDays,
   });
 }

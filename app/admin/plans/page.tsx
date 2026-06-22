@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * /admin/plans - Admin Plan Builder (Phase D)
+ * /admin/plans - Admin Plan Builder
  *
- * Create plans and assign features to each plan by checkbox, reading and
- * writing the LIVE entitlement tables (features_registry, plan_permissions,
- * entitlement_plans). This is feature COVERAGE only. Prices stay in the
- * separate marketing pricing editor at /admin/pricing (platform_pricing /
- * plan_feature_access), which this page never touches.
+ * The single home for a plan end to end: feature coverage + limits + price +
+ * marketing badge + the Trial length + coupons, all on the LIVE entitlement
+ * tables (features_registry, plan_permissions, entitlement_plans). The old
+ * /admin/pricing editor (platform_pricing) is removed; nothing customer-facing
+ * reads platform_pricing anymore.
  *
  * No gate changes and no enforcement here: writing plan_permissions does not
  * alter canAccess or any module/export behavior in this unit.
@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from './PlanMatrix';
+import { CouponManager } from './CouponManager';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
@@ -277,6 +278,22 @@ export default function AdminPlansPage() {
                         onBlur={() => p.id && patchPlan({ id: p.id, badge_text: p.badge_text ?? '' })}
                         style={{ width: 170, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
                     </div>
+                    {/* Trial length (single source, mig 165). Only meaningful on the
+                        Trial plan; every consumer (trial approval, marketing + in-app
+                        pricing) reads this one value. */}
+                    {p.plan_key === 'trial' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, paddingLeft: 26, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Trial</span>
+                        <label style={{ fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Length (days)
+                          <input type="number" min={1} data-testid="plan-trial-days" value={p.trial_days ?? ''} placeholder="14"
+                            onChange={(e) => setLocal({ trial_days: e.target.value === '' ? null : Number(e.target.value) })}
+                            onBlur={() => p.id && patchPlan({ id: p.id, trial_days: p.trial_days ?? null })}
+                            style={{ width: 64, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
+                        </label>
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>Drives trial approval + the &ldquo;free for N days&rdquo; copy everywhere.</span>
+                      </div>
+                    )}
                   </div>
                   );
                 })}
@@ -316,6 +333,9 @@ export default function AdminPlansPage() {
             </div>
           </div>
         )}
+
+        {/* Coupons (relocated from the removed /admin/pricing editor). */}
+        <CouponManager />
 
         {toast && (
           <div style={{ position: 'fixed', bottom: 20, right: 20, padding: '10px 18px', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 13, background: toast.type === 'success' ? '#2EAA4A' : '#DC2626', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 2000 }}>

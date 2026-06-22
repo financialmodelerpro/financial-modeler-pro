@@ -1,3 +1,7 @@
+// DEPRECATED (2026-06-22): platform_features / plan_feature_access editor for the
+// removed /admin/pricing page. The public marketing page no longer reads these
+// tables (it renders from entitlement_plans + plan_permissions). Kept, not
+// dropped (additive/deprecate-not-destroy); no UI calls it.
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';

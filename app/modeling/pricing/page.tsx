@@ -45,6 +45,7 @@ export default function RefmPricingPage() {
   const [coverage, setCoverage] = useState<Coverage[]>([]);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [checkoutPlan, setCheckoutPlan] = useState<PricePlan | null>(null);
+  const [trialDays, setTrialDays] = useState(0);
 
   useEffect(() => {
     fetch('/api/refm/pricing', { credentials: 'same-origin' })
@@ -55,6 +56,7 @@ export default function RefmPricingPage() {
         setPlans(j.plans ?? []);
         setFeatures(j.features ?? []);
         setCoverage(j.coverage ?? []);
+        setTrialDays(j.trialDays ?? 0);
       })
       .catch(() => setAuthed(true))
       .finally(() => setLoading(false));
@@ -134,7 +136,7 @@ export default function RefmPricingPage() {
         {/* Trial = request-access path, not a paid card */}
         {trialPlan && (
           <div data-testid="pricing-trial-strip" style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
-            <div style={{ fontSize: 13, color: '#475569' }}><b style={{ color: '#0D2E5A' }}>Just exploring?</b> Start with a free {trialPlan.label} to try the core modules. No card required.</div>
+            <div style={{ fontSize: 13, color: '#475569' }}><b style={{ color: '#0D2E5A' }}>Just exploring?</b> Start a free {trialDays}-day {trialPlan.label} to try the core modules. No card required.</div>
             <a href="/signin" style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', border: '1px solid #0D2E5A', borderRadius: 8, padding: '8px 16px', textDecoration: 'none' }} data-testid="pricing-trial-cta">Request {trialPlan.label} access</a>
           </div>
         )}

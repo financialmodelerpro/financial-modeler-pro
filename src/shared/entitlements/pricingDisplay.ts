@@ -31,6 +31,21 @@ export function formatPlanPrice(plan: PricedPlan, interval: BillingInterval): { 
   return { big: `${cur} ${v.toLocaleString()}`, sub: interval === 'monthly' ? 'per month' : 'per year' };
 }
 
+/**
+ * Pure single-source trial-length resolver: the Trial plan's trial_days, or the
+ * fallback when it is missing / non-positive. Both loadPricingCatalog (display)
+ * and resolveTrialDays (enforcement) resolve to this same value, so trial length
+ * has ONE source: entitlement_plans, never platform_pricing.
+ */
+export function trialDaysFromPlans(
+  plans: readonly { plan_key: string; trial_days?: number | null }[],
+  fallback: number,
+): number {
+  const trial = plans.find((p) => p.plan_key === 'trial');
+  const d = trial?.trial_days;
+  return typeof d === 'number' && d > 0 ? d : fallback;
+}
+
 /** Minimal feature shape for visibility filtering. */
 export interface VisibilityFeature {
   moduleStatus?: string;

@@ -13,7 +13,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadMergedFeatures, type MergedFeatureRow } from './serverCatalog';
-import { visibleForCustomers } from './pricingDisplay';
+import { visibleForCustomers, trialDaysFromPlans } from './pricingDisplay';
+import { DEFAULT_TRIAL_DAYS } from './trialConfig';
 
 // Re-export so existing server callers (marketing page, refm/pricing) keep
 // importing it from pricingCatalog. Pure impl lives in pricingDisplay.
@@ -31,6 +32,7 @@ export interface PricingPlan {
   contact_sales: boolean;
   popular: boolean;
   badge_text: string | null;
+  trial_days: number | null;
 }
 
 export interface PricingCoverage {
@@ -47,19 +49,22 @@ export interface PricingCatalog {
    *  surfaces should filter with visibleForCustomers(). */
   features: MergedFeatureRow[];
   coverage: PricingCoverage[];
+  /** The single-source trial length (Trial plan trial_days, fallback default). */
+  trialDays: number;
 }
 
 export async function loadPricingCatalog(sb: SupabaseClient, platform: string): Promise<PricingCatalog> {
   const catalog = await loadMergedFeatures(sb, platform);
   if (!catalog.migrationApplied) {
-    return { migrationApplied: false, plans: [], features: [], coverage: [] };
+    return { migrationApplied: false, plans: [], features: [], coverage: [], trialDays: DEFAULT_TRIAL_DAYS };
   }
 
-  // Active plans with prices + popular/badge (mig 162/163 tolerant fallback).
+  // Active plans with prices + popular/badge + trial_days (mig 162/163/165
+  // tolerant fallback).
   let plans: PricingPlan[];
   const full = await sb
     .from('entitlement_plans')
-    .select('id, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales, popular, badge_text')
+    .select('id, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales, popular, badge_text, trial_days')
     .eq('platform_slug', platform).eq('active', true).order('display_order');
   if (!full.error) {
     plans = (full.data ?? []) as PricingPlan[];
@@ -69,7 +74,7 @@ export async function loadPricingCatalog(sb: SupabaseClient, platform: string): 
       .select('id, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales')
       .eq('platform_slug', platform).eq('active', true).order('display_order');
     plans = (base.data ?? []).map((p: Record<string, unknown>) => ({
-      ...(p as object), popular: false, badge_text: null,
+      ...(p as object), popular: false, badge_text: null, trial_days: null,
     })) as PricingPlan[];
   }
 
@@ -78,10 +83,14 @@ export async function loadPricingCatalog(sb: SupabaseClient, platform: string): 
     ? await sb.from('plan_permissions').select('plan_key, feature_key, included, limit_value').in('plan_key', planKeys)
     : { data: [] as PricingCoverage[] };
 
+  // Single-source trial length: the Trial plan's trial_days (fallback default).
+  const trialDays = trialDaysFromPlans(plans, DEFAULT_TRIAL_DAYS);
+
   return {
     migrationApplied: true,
     plans,
     features: catalog.features,
     coverage: (coverage ?? []) as PricingCoverage[],
+    trialDays,
   };
 }
