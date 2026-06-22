@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getPlatformModules } from '@/src/shared/cms/platform-modules';
-import { deriveModuleFeatureRows, type LiveModuleInput } from '@/src/shared/entitlements/moduleCatalog';
+import { loadMergedFeatures } from '@/src/shared/entitlements/serverCatalog';
 
 // Admin plan builder data source. Reads the LIVE entitlement tables from
 // Phase A (features_registry, plan_permissions) plus plan metadata
@@ -17,8 +16,6 @@ import { deriveModuleFeatureRows, type LiveModuleInput } from '@/src/shared/enti
 // is keyed by feature_key, so assignments survive a module being hidden or
 // reordered (the row is retained in data, just not rendered).
 
-const isModuleKey = (k: string): boolean => /^module_\d+$/.test(k);
-
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
   return session?.user && (session.user as { role?: string }).role === 'admin';
@@ -29,37 +26,22 @@ export async function GET(req: NextRequest) {
   const platform = req.nextUrl.searchParams.get('platform') || 'real-estate';
   const sb = getServerClient();
 
-  const { data: features, error: fErr } = await sb
-    .from('features_registry')
-    .select('feature_key, label, category, feature_type, build_status, display_order, active')
-    .eq('active', true)
-    .order('display_order');
-
-  // Surface "migration not applied" clearly instead of a 500.
-  if (fErr) {
-    const notApplied = /relation .* does not exist|features_registry/i.test(fErr.message);
+  // Module rows come LIVE from the registry; non-module rows from the catalog.
+  // Shared with the per-user override screen so both show the same module list.
+  const catalog = await loadMergedFeatures(sb, platform);
+  if (!catalog.migrationApplied) {
     return NextResponse.json(
-      { error: fErr.message, migrationApplied: !notApplied, features: [], plans: [], permissions: [] },
-      { status: notApplied ? 200 : 500 },
+      { error: catalog.error, migrationApplied: false, features: [], plans: [], permissions: [] },
+      { status: 200 },
     );
   }
-
-  // Module rows come LIVE from the registry. Non-module catalog features keep
-  // their features_registry rows (status owned by the catalog). If the registry
-  // table is unavailable (returns nothing), fall back to the catalog's module
-  // rows so the matrix is never empty.
-  const nonModuleFeatures = (features ?? []).filter((f: { feature_key: string }) => !isModuleKey(f.feature_key));
-  const liveModules = await getPlatformModules(platform);
-  let moduleRows: unknown[];
-  if (liveModules.length > 0) {
-    moduleRows = deriveModuleFeatureRows(liveModules as unknown as LiveModuleInput[]);
-  } else {
-    // Fallback: catalog module rows (keeps display order < non-module rows).
-    moduleRows = (features ?? [])
-      .filter((f: { feature_key: string }) => isModuleKey(f.feature_key))
-      .map((f: Record<string, unknown>) => ({ ...f, category: 'module' }));
+  if (catalog.error) {
+    return NextResponse.json(
+      { error: catalog.error, migrationApplied: true, features: [], plans: [], permissions: [] },
+      { status: 500 },
+    );
   }
-  const mergedFeatures = [...moduleRows, ...nonModuleFeatures];
+  const mergedFeatures = catalog.features;
 
   const { data: plans } = await sb
     .from('entitlement_plans')
