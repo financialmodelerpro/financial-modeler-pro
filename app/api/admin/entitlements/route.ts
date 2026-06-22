@@ -43,13 +43,28 @@ export async function GET(req: NextRequest) {
   }
   const mergedFeatures = catalog.features;
 
-  const { data: plans } = await sb
+  // Try with the mig-162 price columns; fall back to the base columns +
+  // null-decorated prices if 162 is not applied yet, so the builder still loads.
+  let plans: Record<string, unknown>[] | null;
+  const plansFull = await sb
     .from('entitlement_plans')
-    .select('id, platform_slug, plan_key, label, display_order, active')
+    .select('id, platform_slug, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales')
     .eq('platform_slug', platform)
     .order('display_order');
+  if (!plansFull.error) {
+    plans = plansFull.data as Record<string, unknown>[];
+  } else {
+    const plansBase = await sb
+      .from('entitlement_plans')
+      .select('id, platform_slug, plan_key, label, display_order, active')
+      .eq('platform_slug', platform)
+      .order('display_order');
+    plans = (plansBase.data ?? []).map((p: Record<string, unknown>) => ({
+      ...p, price_monthly: null, price_annual: null, currency: 'SAR', contact_sales: false,
+    }));
+  }
 
-  const planKeys = (plans ?? []).map((p: { plan_key: string }) => p.plan_key);
+  const planKeys = (plans ?? []).map((p) => p.plan_key as string);
   const { data: permissions } = planKeys.length
     ? await sb.from('plan_permissions').select('plan_key, feature_key, included, limit_value').in('plan_key', planKeys)
     : { data: [] as unknown[] };

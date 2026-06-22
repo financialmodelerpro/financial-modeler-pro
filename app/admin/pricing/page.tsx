@@ -112,10 +112,13 @@ export default function AdminPricingPage() {
       <CmsAdminNav active="/admin/pricing" />
 
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Pricing Manager</h1>
-        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>
-          Per-platform pricing plans, feature access, and coupon codes. Hero text and FAQ for the public <strong>/pricing</strong> page are edited in <strong>Page Builder &rarr; Pricing</strong>.
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Marketing Pricing (public site copy)</h1>
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>
+          Per-platform pricing cards, feature copy, and coupon codes for the PUBLIC marketing <strong>/pricing</strong> page only. Hero text and FAQ live in <strong>Page Builder &rarr; Pricing</strong>.
         </p>
+        <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 24, maxWidth: 820 }}>
+          This editor feeds the public marketing page (the <code>platform_pricing</code> table) and does NOT control the live product. The actual plans, limits, and prices that the app enforces and shows in-app are owned by the <strong>Plan Builder</strong> (<code>/admin/plans</code>), and per-user plan changes happen in <strong>User Access</strong> (<code>/admin/access</code>).
+        </div>
 
         {platLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading...</div> : (
           <>

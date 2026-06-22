@@ -25,7 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Launch Settings',   href: '/admin/modules',                        icon: '🚀' },
   { label: 'Access Whitelist',  href: '/admin/modeling-access',                icon: '🔑' },
   { label: 'Users',             href: '/admin/users',                          icon: '👥' },
-  { label: 'Pricing',           href: '/admin/pricing',                        icon: '💰' },
+  { label: 'Marketing Pricing', href: '/admin/pricing',                        icon: '💰' },
   { label: 'Plan Builder',      href: '/admin/plans',                          icon: '🧩' },
   { label: 'User Access',       href: '/admin/access',                         icon: '🪪' },
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },

@@ -10,13 +10,22 @@ interface User {
   email: string;
   name: string | null;
   role: string;
-  subscription_plan: 'free' | 'professional' | 'enterprise';
+  // Data-driven plan key (trial/solo/pro/firm post-reconciliation; legacy values
+  // may still appear until reconciled). Display-only here; changed in /admin/access.
+  subscription_plan: string;
   subscription_status: 'active' | 'trial' | 'expired' | 'cancelled';
   created_at: string;
   projects?: [{ count: number }];
 }
 
 const PLAN_COLORS: Record<string, string> = {
+  // New entitlement plan set (post-reconciliation).
+  trial:        '#D97706',
+  solo:         '#0EA5E9',
+  pro:          '#2563EB',
+  firm:         '#7C3AED',
+  unassigned:   '#9CA3AF',
+  // Legacy keys kept for any un-reconciled row (still rendered, not written).
   free:         '#6B7280',
   professional: '#2563EB',
   enterprise:   '#7C3AED',
@@ -255,22 +264,20 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
-                    {/* Plan dropdown + badge */}
+                    {/* Plan: read-only resolved plan + link to the single write path
+                        (/admin/access). The plan dropdown here used to write legacy
+                        names (free/professional/enterprise) to subscription_plan,
+                        creating a second write path; that is removed. */}
                     <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <select
-                          value={u.subscription_plan ?? 'free'}
-                          disabled={savingField === 'plan'}
-                          onChange={e => patchUser(u.id, { plan: e.target.value })}
-                          style={selectStyle}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} data-testid={`user-plan-${u.id}`}>
+                        <PlanBadge plan={u.subscription_plan ?? 'unassigned'} />
+                        <Link
+                          href="/admin/access"
+                          title="Change plan and overrides in User Access"
+                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '2px 7px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', whiteSpace: 'nowrap' }}
                         >
-                          {availablePlans.length > 0
-                            ? availablePlans.map(p => <option key={p.code} value={p.code}>{p.name}{p.is_custom_client ? ' ●' : ''}</option>)
-                            : ['free','professional','enterprise'].map(c => <option key={c} value={c}>{c}</option>)
-                          }
-                        </select>
-                        <PlanBadge plan={u.subscription_plan ?? 'free'} />
-                        {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
+                          Manage →
+                        </Link>
                       </div>
                     </td>
 

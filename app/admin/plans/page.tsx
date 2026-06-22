@@ -191,7 +191,7 @@ export default function AdminPlansPage() {
           </div>
         </div>
         <p style={{ color: '#64748b', fontSize: 13, marginTop: 0, marginBottom: 20, maxWidth: 880 }}>
-          Assign features to each plan by checkbox (gate features) or cap (limit features). This writes coverage to plan_permissions only. Prices live in the separate Pricing editor. Saving here does not change the live gate.
+          Assign features to each plan by checkbox (gate features) or cap (limit features), and set each plan&apos;s price. This screen owns the live plan end to end: features, limits, and price (entitlement_plans + plan_permissions). The separate Marketing Pricing editor only feeds the public marketing page. Saving here does not change the live gate.
         </p>
 
         {!migrationApplied && (
@@ -208,21 +208,54 @@ export default function AdminPlansPage() {
               {/* Plan management */}
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginBottom: 20 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 10 }}>Plans</div>
-                {plans.map((p, i) => (
-                  <div key={p.id ?? p.plan_key} data-testid={`plan-row-${p.plan_key}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <button onClick={() => reorder(i, -1)} disabled={i === 0} title="Move up" style={arrowBtn}>▲</button>
-                      <button onClick={() => reorder(i, 1)} disabled={i === plans.length - 1} title="Move down" style={arrowBtn}>▼</button>
-                    </span>
-                    <input value={p.label} onChange={(e) => setPlans((prev) => prev.map((x) => x.plan_key === p.plan_key ? { ...x, label: e.target.value } : x))}
-                      onBlur={(e) => { if (e.target.value !== '' && p.id) patchPlan({ id: p.id, label: e.target.value }); }}
-                      style={{ flex: 1, padding: '5px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 5 }} />
-                    <code style={{ fontSize: 11, color: '#94a3b8', minWidth: 60 }}>{p.plan_key}</code>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={p.active} onChange={() => p.id && patchPlan({ id: p.id, active: !p.active })} /> active
-                    </label>
+                {plans.map((p, i) => {
+                  const setLocal = (patch: Partial<MatrixPlan>) =>
+                    setPlans((prev) => prev.map((x) => x.plan_key === p.plan_key ? { ...x, ...patch } : x));
+                  const numOrNull = (s: string): number | null => (s.trim() === '' || Number.isNaN(Number(s)) ? null : Number(s));
+                  return (
+                  <div key={p.id ?? p.plan_key} data-testid={`plan-row-${p.plan_key}`} style={{ border: '1px solid #eef2f7', borderRadius: 7, padding: '8px 10px', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ display: 'flex', flexDirection: 'column' }}>
+                        <button onClick={() => reorder(i, -1)} disabled={i === 0} title="Move up" style={arrowBtn}>▲</button>
+                        <button onClick={() => reorder(i, 1)} disabled={i === plans.length - 1} title="Move down" style={arrowBtn}>▼</button>
+                      </span>
+                      <input value={p.label} onChange={(e) => setLocal({ label: e.target.value })}
+                        onBlur={(e) => { if (e.target.value !== '' && p.id) patchPlan({ id: p.id, label: e.target.value }); }}
+                        style={{ flex: 1, padding: '5px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 5 }} />
+                      <code style={{ fontSize: 11, color: '#94a3b8', minWidth: 60 }}>{p.plan_key}</code>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={p.active} onChange={() => p.id && patchPlan({ id: p.id, active: !p.active })} /> active
+                      </label>
+                    </div>
+                    {/* Pricing line (mig 162). Trial is typically unpriced; Firm can be Contact sales. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, paddingLeft: 26, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Price</span>
+                      <label style={{ fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Monthly
+                        <input type="number" data-testid={`plan-price-monthly-${p.plan_key}`} value={p.price_monthly ?? ''} disabled={p.contact_sales}
+                          onChange={(e) => setLocal({ price_monthly: numOrNull(e.target.value) })}
+                          onBlur={() => p.id && patchPlan({ id: p.id, price_monthly: p.price_monthly })}
+                          style={{ width: 72, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5, background: p.contact_sales ? '#f1f5f9' : '#fff' }} />
+                      </label>
+                      <label style={{ fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Annual
+                        <input type="number" data-testid={`plan-price-annual-${p.plan_key}`} value={p.price_annual ?? ''} disabled={p.contact_sales}
+                          onChange={(e) => setLocal({ price_annual: numOrNull(e.target.value) })}
+                          onBlur={() => p.id && patchPlan({ id: p.id, price_annual: p.price_annual })}
+                          style={{ width: 72, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5, background: p.contact_sales ? '#f1f5f9' : '#fff' }} />
+                      </label>
+                      <input value={p.currency ?? 'SAR'} onChange={(e) => setLocal({ currency: e.target.value })}
+                        onBlur={() => p.id && patchPlan({ id: p.id, currency: p.currency ?? 'SAR' })}
+                        title="Currency" style={{ width: 52, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5, textAlign: 'center' }} />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', cursor: 'pointer' }}>
+                        <input type="checkbox" data-testid={`plan-contact-sales-${p.plan_key}`} checked={!!p.contact_sales}
+                          onChange={() => { const next = !p.contact_sales; setLocal({ contact_sales: next }); if (p.id) patchPlan({ id: p.id, contact_sales: next }); }} />
+                        Contact sales
+                      </label>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
                   <input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="plan_key (e.g. team)" style={{ width: 150, padding: '5px 8px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
                   <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label (e.g. Team)" style={{ width: 150, padding: '5px 8px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />

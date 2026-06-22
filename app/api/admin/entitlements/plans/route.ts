@@ -37,16 +37,24 @@ export async function POST(req: NextRequest) {
 }
 
 // Update a plan: rename (label), activate/deactivate (active), reorder
-// (display_order). plan_key is immutable (it links plan_permissions rows).
+// (display_order), and pricing (price_monthly / price_annual / currency /
+// contact_sales). plan_key is immutable (it links plan_permissions rows).
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, label, active, display_order } = await req.json();
+    const { id, label, active, display_order, price_monthly, price_annual, currency, contact_sales } = await req.json();
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (label !== undefined) updates.label = label;
     if (active !== undefined) updates.active = active;
     if (display_order !== undefined) updates.display_order = display_order;
+    // Prices are nullable (null = unpriced). Empty string / NaN coerces to null.
+    const toNum = (v: unknown): number | null =>
+      v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v);
+    if (price_monthly !== undefined) updates.price_monthly = toNum(price_monthly);
+    if (price_annual !== undefined) updates.price_annual = toNum(price_annual);
+    if (currency !== undefined) updates.currency = String(currency || 'SAR').toUpperCase().slice(0, 8);
+    if (contact_sales !== undefined) updates.contact_sales = !!contact_sales;
     const sb = getServerClient();
     const { error } = await sb.from('entitlement_plans').update(updates).eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

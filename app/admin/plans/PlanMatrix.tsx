@@ -34,6 +34,12 @@ export interface MatrixPlan {
   label: string;
   active: boolean;
   display_order: number;
+  // Pricing (mig 162). Null prices = unpriced; contact_sales overrides the
+  // number with a "Contact sales" treatment.
+  price_monthly?: number | null;
+  price_annual?: number | null;
+  currency?: string | null;
+  contact_sales?: boolean;
 }
 export interface CellValue { included: boolean; limit_value: number | null }
 
