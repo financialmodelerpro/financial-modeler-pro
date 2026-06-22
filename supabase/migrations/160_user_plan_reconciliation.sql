@@ -34,6 +34,19 @@
 --  Apply manually via the Supabase dashboard. Idempotent. No em dashes.
 -- ============================================================
 
+-- Step 0: relax the legacy plan CHECK constraint. The original constraint from
+-- src/lib/schema.sql restricts subscription_plan to ('free','professional',
+-- 'enterprise'), which would reject the new keys (pro/firm/trial) on the UPDATEs
+-- below. We DROP it rather than recreate a strict one with the new set, because
+-- plan keys are now DATA-DRIVEN: the entitlement tables (plan_permissions /
+-- entitlement_plans) use free-text plan keys by design, the admin users + Phase
+-- C trial-approval + pricing flows can write custom plan codes, and the
+-- application safety net (resolveUserGate) grants access-preserving access to
+-- any unknown key and logs it. A strict enum would re-introduce the exact
+-- lockout risk this whole migration exists to remove. IF EXISTS makes it a
+-- no-op on environments where mig 144 already dropped it.
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_subscription_plan_check;
+
 -- The configured trial length, sourced from platform_pricing like the app
 -- does. CTE picks the first active plan with a positive trial_days; COALESCE
 -- falls back to 14 so the migration is self-contained even on a fresh DB.
@@ -77,12 +90,12 @@ BEGIN
   RAISE NOTICE 'Plan reconciliation complete. Trial window = % days.', v_trial_days;
 END $$;
 
--- Note: users.subscription_plan may carry a CHECK constraint
--- (free/professional/enterprise) from src/lib/schema.sql. If the UPDATEs
--- above fail with a check-violation, the constraint must be relaxed first.
--- Production (post-migration-144) is expected to allow the new keys already
--- (the admin users + Phase C trial-approval paths write them). If a
--- constraint blocks it, run:
---   ALTER TABLE users DROP CONSTRAINT IF EXISTS users_subscription_plan_check;
--- then re-run this migration. We do not force-drop it here to avoid
--- silently removing a guard the founder may want re-created with the new set.
+-- Note: the legacy subscription_plan CHECK is dropped in Step 0 above (it only
+-- allowed free/professional/enterprise and would reject the new keys). Plan keys
+-- are intentionally data-driven from here on, matching plan_permissions /
+-- entitlement_plans, so no replacement enum is created. The constraint name
+-- targeted is the Postgres default `users_subscription_plan_check`; if a custom
+-- constraint name is in use, drop that name instead before re-running.
+--
+-- subscription_status keeps its own CHECK (active/trial/expired/cancelled),
+-- which already permits every value this migration writes, so it is untouched.
