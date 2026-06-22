@@ -390,6 +390,60 @@ export async function getCmsPage(slug: string): Promise<CmsPage | null> {
   }
 }
 
+// Legal pages shown in the footer bottom row, in display order. Each links to
+// /<slug> (served by app/(cms)/[slug]). Only PUBLISHED ones appear; a page set
+// to draft in the Page Builder disappears from the footer automatically (and
+// the page itself already 404s via getCmsPage's status='published' filter).
+export const FOOTER_LEGAL_SLUGS = [
+  'privacy-policy',
+  'terms-of-service',
+  'confidentiality',
+  'refund-policy',
+] as const;
+
+export interface FooterLegalLink { slug: string; label: string }
+
+const FOOTER_LEGAL_DEFAULT_LABELS: Record<string, string> = {
+  'privacy-policy': 'Privacy Policy',
+  'terms-of-service': 'Terms of Service',
+  'confidentiality': 'Confidentiality & Terms',
+  'refund-policy': 'Refund Policy',
+};
+
+/**
+ * Pure: pick the footer legal links from the set of PUBLISHED legal pages,
+ * preserving FOOTER_LEGAL_SLUGS order and labelling each with its title (or the
+ * default label). Drafts (absent from `published`) are excluded. Extracted so
+ * the publish-driven behavior is unit-testable without a DB.
+ */
+export function selectFooterLegalLinks(published: { slug: string; title?: string | null }[]): FooterLegalLink[] {
+  const titleBySlug = new Map(published.map((p) => [p.slug, p.title]));
+  return FOOTER_LEGAL_SLUGS
+    .filter((s) => titleBySlug.has(s))
+    .map((s) => ({ slug: s, label: titleBySlug.get(s) || FOOTER_LEGAL_DEFAULT_LABELS[s] }));
+}
+
+/**
+ * The published legal pages for the footer, in FOOTER_LEGAL_SLUGS order, labelled
+ * with each page's cms_pages.title. On a query error, falls back to the default
+ * three (privacy/terms/confidentiality) so the footer is never legally bare.
+ */
+export async function getFooterLegalLinks(): Promise<FooterLegalLink[]> {
+  try {
+    const sb = getServerClient();
+    const { data, error } = await sb
+      .from('cms_pages')
+      .select('slug, title, status')
+      .in('slug', FOOTER_LEGAL_SLUGS as unknown as string[])
+      .eq('status', 'published');
+    if (error) throw error;
+    return selectFooterLegalLinks((data ?? []) as { slug: string; title?: string | null }[]);
+  } catch {
+    // Conservative fallback: the three pages that have always been published.
+    return ['privacy-policy', 'terms-of-service', 'confidentiality'].map((s) => ({ slug: s, label: FOOTER_LEGAL_DEFAULT_LABELS[s] }));
+  }
+}
+
 /** Fetch all published CMS page slugs (for generateStaticParams / sitemap) */
 export async function getAllCmsPageSlugs(): Promise<string[]> {
   try {

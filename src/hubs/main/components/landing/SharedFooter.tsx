@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { InlineEdit } from './InlineEdit';
 import { NewsletterSubscribeForm } from '@/src/hubs/main/components/newsletter/NewsletterSubscribeForm';
+import { getFooterLegalLinks } from '@/src/shared/cms';
 
 interface SharedFooterProps {
   company:   string;
@@ -13,20 +14,25 @@ interface SharedFooterProps {
   showDescription?:    boolean;
   showQuickLinks?:     boolean;
   showCompanyLinks?:   boolean;
+  // Legacy props, retained for call-site compatibility. The legal row is now
+  // driven by each page's published/draft status (getFooterLegalLinks), so
+  // these no longer gate Privacy / Confidentiality individually.
   showPrivacy?:        boolean;
   showConfidentiality?: boolean;
 }
 
-export function SharedFooter({
+export async function SharedFooter({
   company, founder, copyright, isAdmin = false,
   height = 'standard',
   paddingTop, paddingBottom,
   showDescription  = true,
   showQuickLinks   = true,
   showCompanyLinks = true,
-  showPrivacy      = true,
-  showConfidentiality = true,
 }: SharedFooterProps) {
+  // Legal links are the PUBLISHED legal pages, in order. A page set to draft in
+  // the Page Builder disappears here; a newly published one (e.g. Refund Policy)
+  // appears automatically. No hardcoded list.
+  const legalLinks = await getFooterLegalLinks();
   const heightPadding = { compact: '32px', standard: '40px', large: '64px' }[height];
   const topPad    = paddingTop    ? `${paddingTop}px`    : heightPadding;
   const bottomPad = paddingBottom ? `${paddingBottom}px` : heightPadding;
@@ -126,20 +132,12 @@ export function SharedFooter({
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
             © <InlineEdit tag="span" section="footer" fieldKey="copyright" value={copyrightDisplay} isAdmin={isAdmin} darkBg />
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            {showPrivacy && (
-              <Link href="/privacy-policy" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
-                Privacy Policy
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }} data-testid="footer-legal-links">
+            {legalLinks.map((l) => (
+              <Link key={l.slug} href={`/${l.slug}`} data-testid={`footer-legal-${l.slug}`} style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
+                {l.label}
               </Link>
-            )}
-            <Link href="/terms-of-service" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
-              Terms of Service
-            </Link>
-            {showConfidentiality && (
-              <Link href="/confidentiality" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
-                Confidentiality &amp; Terms
-              </Link>
-            )}
+            ))}
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>
               Structured Modeling. Real-World Finance.
             </span>
