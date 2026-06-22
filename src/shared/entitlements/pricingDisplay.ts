@@ -31,6 +31,21 @@ export function formatPlanPrice(plan: PricedPlan, interval: BillingInterval): { 
   return { big: `${cur} ${v.toLocaleString()}`, sub: interval === 'monthly' ? 'per month' : 'per year' };
 }
 
+/** Minimal feature shape for visibility filtering. */
+export interface VisibilityFeature {
+  moduleStatus?: string;
+  visible: boolean;
+}
+
+/**
+ * Filter a merged feature list to what customers may see: module rows (those
+ * with a moduleStatus) are always kept (their visibility is the Modules tab),
+ * non-module rows are kept only when visible !== false (mig 164 toggle). Pure.
+ */
+export function visibleForCustomers<T extends VisibilityFeature>(features: readonly T[]): T[] {
+  return features.filter((f) => (f.moduleStatus ? true : f.visible !== false));
+}
+
 /** Comparison-table cell text for a feature under a plan. Gate -> check/dash;
  *  limit -> the cap (Unlimited for -1) when included, else dash. */
 export function comparisonCellText(

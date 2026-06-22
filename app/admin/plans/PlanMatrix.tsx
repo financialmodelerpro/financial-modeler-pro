@@ -27,6 +27,8 @@ export interface MatrixFeature {
   /** Present for module rows derived from the live registry. When set, the
    *  on-row tag reflects this live status instead of build_status. */
   moduleStatus?: ModuleStatus;
+  /** Customer-facing visibility (mig 164), non-module rows only. */
+  visible?: boolean;
 }
 export interface MatrixPlan {
   id?: string;
@@ -40,6 +42,8 @@ export interface MatrixPlan {
   price_annual?: number | null;
   currency?: string | null;
   contact_sales?: boolean;
+  popular?: boolean;
+  badge_text?: string | null;
 }
 export interface CellValue { included: boolean; limit_value: number | null }
 
@@ -49,6 +53,8 @@ export interface PlanMatrixProps {
   cell: (planKey: string, featureKey: string) => CellValue;
   onToggle?: (planKey: string, featureKey: string, included: boolean) => void;
   onLimit?: (planKey: string, featureKey: string, value: number | null) => void;
+  /** Toggle customer-facing visibility of a NON-MODULE feature (mig 164). */
+  onToggleVisible?: (featureKey: string, visible: boolean) => void;
   readOnly?: boolean;
 }
 
@@ -88,7 +94,7 @@ const th: React.CSSProperties = { padding: '8px 10px', fontSize: 12, color: '#ff
 const tdLabel: React.CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #e5e7eb', position: 'sticky', left: 0, background: '#fff', zIndex: 1 };
 const tdCell: React.CSSProperties = { padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #f1f5f9' };
 
-export function PlanMatrix({ features, plans, cell, onToggle, onLimit, readOnly }: PlanMatrixProps): React.JSX.Element {
+export function PlanMatrix({ features, plans, cell, onToggle, onLimit, onToggleVisible, readOnly }: PlanMatrixProps): React.JSX.Element {
   // Single ordered list; category bands are inserted when the category changes.
   const ordered = [...features].sort((a, b) => a.display_order - b.display_order);
   const rows: React.JSX.Element[] = [];
@@ -109,10 +115,21 @@ export function PlanMatrix({ features, plans, cell, onToggle, onLimit, readOnly 
       <tr key={f.feature_key} data-testid={`feature-row-${f.feature_key}`}>
         <td style={tdLabel}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600 }}>{f.label}</span>
+            <span style={{ fontWeight: 600, opacity: !f.moduleStatus && f.visible === false ? 0.5 : 1 }}>{f.label}</span>
             <StatusTag feature={f} />
           </div>
-          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{f.feature_key} ({f.feature_type})</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 1 }}>
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>{f.feature_key} ({f.feature_type})</span>
+            {/* Customer-facing visibility toggle: NON-MODULE features only.
+                Module visibility lives in the Modules tab. */}
+            {!f.moduleStatus && onToggleVisible && (
+              <label data-testid={`feature-visible-${f.feature_key}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: f.visible === false ? '#b91c1c' : '#16a34a', cursor: readOnly ? 'default' : 'pointer', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <input type="checkbox" disabled={readOnly} checked={f.visible !== false}
+                  onChange={(e) => onToggleVisible(f.feature_key, e.target.checked)} style={{ width: 11, height: 11 }} />
+                {f.visible === false ? 'Hidden' : 'Shown'}
+              </label>
+            )}
+          </div>
         </td>
         {plans.map((p) => {
           const v = cell(p.plan_key, f.feature_key);

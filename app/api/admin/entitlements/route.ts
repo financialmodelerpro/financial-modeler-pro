@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   let plans: Record<string, unknown>[] | null;
   const plansFull = await sb
     .from('entitlement_plans')
-    .select('id, platform_slug, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales')
+    .select('id, platform_slug, plan_key, label, display_order, active, price_monthly, price_annual, currency, contact_sales, popular, badge_text')
     .eq('platform_slug', platform)
     .order('display_order');
   if (!plansFull.error) {
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       .eq('platform_slug', platform)
       .order('display_order');
     plans = (plansBase.data ?? []).map((p: Record<string, unknown>) => ({
-      ...p, price_monthly: null, price_annual: null, currency: 'SAR', contact_sales: false,
+      ...p, price_monthly: null, price_annual: null, currency: 'SAR', contact_sales: false, popular: false, badge_text: null,
     }));
   }
 

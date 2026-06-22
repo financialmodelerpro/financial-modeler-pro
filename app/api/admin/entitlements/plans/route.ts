@@ -42,12 +42,14 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, label, active, display_order, price_monthly, price_annual, currency, contact_sales } = await req.json();
+    const { id, label, active, display_order, price_monthly, price_annual, currency, contact_sales, popular, badge_text } = await req.json();
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (label !== undefined) updates.label = label;
     if (active !== undefined) updates.active = active;
     if (display_order !== undefined) updates.display_order = display_order;
+    if (popular !== undefined) updates.popular = !!popular;
+    if (badge_text !== undefined) updates.badge_text = badge_text === '' || badge_text === null ? null : String(badge_text);
     // Prices are nullable (null = unpriced). Empty string / NaN coerces to null.
     const toNum = (v: unknown): number | null =>
       v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v);

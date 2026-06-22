@@ -56,14 +56,16 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json() as {
       id:      string;
       role?:   string;
-      plan?:   string;
       status?: string;
       reason?: string;
     };
 
-    const { id, role, plan, status: newStatus, reason } = body;
+    const { id, role, status: newStatus, reason } = body;
     if (!id) return NextResponse.json({ error: 'Missing user id' }, { status: 400 });
-    if (!role && !plan && !newStatus) {
+    // Plan changes do NOT go through this route. The single shared plan-setting
+    // path is POST /api/admin/entitlements/user/plan (setUserPlan), used by both
+    // /admin/users and /admin/access. This route only handles role + status.
+    if (!role && !newStatus) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
@@ -81,10 +83,9 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Build update payload
+    // Build update payload (plan intentionally excluded; see note above).
     const updates: Record<string, string> = {};
     if (role)      updates.role                = role;
-    if (plan)      updates.subscription_plan   = plan;
     if (newStatus) updates.subscription_status = newStatus;
 
     const { error: updateError } = await sb.from('users').update(updates).eq('id', id);
@@ -99,15 +100,6 @@ export async function PATCH(req: NextRequest) {
         action:      'role_change',
         beforeValue: { role: current.role },
         afterValue:  { role },
-      });
-    }
-
-    if (plan) {
-      await writeAuditLog({
-        ...auditBase,
-        action:      'plan_change',
-        beforeValue: { plan: current.subscription_plan },
-        afterValue:  { plan },
       });
     }
 

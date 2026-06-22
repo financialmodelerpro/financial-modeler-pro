@@ -207,10 +207,38 @@ export default function AdminAccessPage() {
         body: JSON.stringify({ user_id: user.id, platform }),
       }).then((r) => r.json());
       if (res.error) { showToast(res.error, 'error'); return; }
-      showToast(`Trial approved (${res.trialDays} days)`, 'success');
+      showToast('Trial approved', 'success');
       await loadUser(user.id);
     } catch {
       showToast('Trial approval failed', 'error');
+    } finally {
+      setBusyKey(null);
+    }
+  }, [user, platform, loadUser, showToast]);
+
+  // Live plan list (trial/solo/pro/firm) for the plan selector.
+  const [entPlans, setEntPlans] = useState<{ plan_key: string; label: string }[]>([]);
+  useEffect(() => {
+    fetch(`/api/admin/entitlements?platform=${encodeURIComponent(platform)}`)
+      .then((r) => r.json())
+      .then((j) => setEntPlans((j.plans ?? []).filter((p: { active: boolean }) => p.active).map((p: { plan_key: string; label: string }) => ({ plan_key: p.plan_key, label: p.label }))))
+      .catch(() => setEntPlans([]));
+  }, [platform]);
+
+  // Assign any plan via THE shared plan-setting endpoint (same path as /admin/users).
+  const assignPlan = useCallback(async (planKey: string) => {
+    if (!user || !planKey) return;
+    setBusyKey('__plan__');
+    try {
+      const res = await fetch('/api/admin/entitlements/user/plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id, plan_key: planKey, platform }),
+      }).then((r) => r.json());
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(`Plan set to ${planKey}`, 'success');
+      await loadUser(user.id);
+    } catch {
+      showToast('Plan assignment failed', 'error');
     } finally {
       setBusyKey(null);
     }
@@ -415,9 +443,31 @@ export default function AdminAccessPage() {
                 )}
               </div>
 
+              {/* Plan assignment: assign ANY plan via the shared plan-setting
+                  endpoint (same path /admin/users uses). */}
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="plan-assign-card">
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Assign plan</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>Set this user&apos;s plan. Paid plans clear the trial expiry and set status active; Trial sets a fresh expiry from config.</div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select
+                    data-testid="plan-assign-select"
+                    defaultValue={user.subscription_plan}
+                    onChange={(e) => assignPlan(e.target.value)}
+                    disabled={busyKey === '__plan__'}
+                    style={{ flex: 1, padding: '7px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 }}
+                  >
+                    {!entPlans.some((p) => p.plan_key === user.subscription_plan) && (
+                      <option value={user.subscription_plan} disabled>{user.subscription_plan || 'unassigned'}</option>
+                    )}
+                    {entPlans.map((p) => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
+                  </select>
+                  {busyKey === '__plan__' && <span style={{ fontSize: 11, color: '#64748b' }}>Saving...</span>}
+                </div>
+              </div>
+
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="trial-card">
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Trial approval</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>Place on the Trial plan with a {trialDays}-day expiry (from config).</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>Shortcut: place on the Trial plan with a {trialDays}-day expiry (from config).</div>
                 <button
                   data-testid="approve-trial"
                   onClick={approveTrial}

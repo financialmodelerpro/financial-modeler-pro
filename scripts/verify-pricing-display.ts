@@ -8,7 +8,7 @@
  *
  * Run: npx tsx scripts/verify-pricing-display.ts
  */
-import { formatPlanPrice, comparisonCellText, type PricedPlan } from '../src/shared/entitlements/pricingDisplay';
+import { formatPlanPrice, comparisonCellText, visibleForCustomers, type PricedPlan } from '../src/shared/entitlements/pricingDisplay';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -50,6 +50,26 @@ check('gate excluded -> dash', comparisonCellText('gate', false, null) === '–'
 check('limit included 25 -> 25', comparisonCellText('limit', true, 25) === '25');
 check('limit included -1 -> Unlimited', comparisonCellText('limit', true, -1) === 'Unlimited');
 check('limit excluded -> dash', comparisonCellText('limit', false, null) === '–');
+
+// Customer visibility filter (mig 164): non-module hidden dropped, modules kept.
+console.log('\n=== visibleForCustomers ===');
+const feats = [
+  { feature_key: 'module_1', moduleStatus: 'live', visible: true },
+  { feature_key: 'module_7', moduleStatus: 'coming_soon', visible: true },
+  { feature_key: 'pdf_export', visible: true },
+  { feature_key: 'rbac', visible: false },          // hidden non-module
+  { feature_key: 'seats', visible: false },         // hidden non-module
+  { feature_key: 'sensitivity', visible: true },
+];
+const vis = visibleForCustomers(feats);
+const keys = vis.map((f) => f.feature_key);
+check('hidden non-module rbac excluded', !keys.includes('rbac'));
+check('hidden non-module seats excluded', !keys.includes('seats'));
+check('visible non-module pdf_export kept', keys.includes('pdf_export'));
+check('module rows always kept (module_1 + module_7)', keys.includes('module_1') && keys.includes('module_7'));
+check('count = 4 (2 modules + 2 visible non-module)', vis.length === 4, String(vis.length));
+// A non-module with visible undefined (pre-mig default) is treated as shown.
+check('undefined visible treated as shown', visibleForCustomers([{ feature_key: 'x', visible: undefined as unknown as boolean }]).length === 1);
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }

@@ -20,6 +20,7 @@ import { formatPlanPrice, comparisonCellText, type BillingInterval } from '@/src
 interface PricePlan {
   id: string; plan_key: string; label: string; display_order: number; active: boolean;
   price_monthly: number | null; price_annual: number | null; currency: string | null; contact_sales: boolean;
+  popular?: boolean; badge_text?: string | null;
 }
 interface PriceFeature {
   feature_key: string; label: string; category: string; feature_type: 'gate' | 'limit' | 'metered';
@@ -112,11 +113,12 @@ export default function RefmPricingPage() {
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(cardPlans.length, 3)}, 1fr)`, gap: 16, marginBottom: 16 }}>
           {cardPlans.map((p) => {
             const pt = priceText(p, interval);
-            const featured = p.plan_key === 'pro';
+            const featured = !!p.popular;
+            const badge = p.badge_text || (p.popular ? 'MOST POPULAR' : null);
             return (
               <div key={p.plan_key} data-testid={`pricing-card-${p.plan_key}`}
                 style={{ background: '#fff', border: featured ? '2px solid #2563EB' : '1px solid #e5e7eb', borderRadius: 12, padding: '22px 20px', position: 'relative', boxShadow: featured ? '0 6px 20px rgba(37,99,235,0.12)' : '0 1px 3px rgba(0,0,0,0.05)' }}>
-                {featured && <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#2563EB', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 12px', borderRadius: 20, letterSpacing: '0.05em' }}>MOST POPULAR</div>}
+                {badge && <div data-testid={`pricing-badge-${p.plan_key}`} style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#2563EB', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 12px', borderRadius: 20, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{badge}</div>}
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0D2E5A' }}>{p.label}</div>
                 <div style={{ margin: '12px 0 4px', fontSize: 26, fontWeight: 800, color: '#0f172a' }} data-testid={`pricing-amount-${p.plan_key}`}>{pt.big}</div>
                 <div style={{ fontSize: 12, color: '#94a3b8', minHeight: 16 }}>{pt.sub}</div>

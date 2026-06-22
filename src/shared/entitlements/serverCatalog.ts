@@ -25,6 +25,10 @@ export interface MergedFeatureRow {
   build_status: 'live' | 'in_development' | 'stub' | 'needs_build';
   display_order: number;
   moduleStatus?: 'live' | 'coming_soon' | 'pro' | 'enterprise';
+  /** Customer-facing visibility (mig 164). Module rows are always true (their
+   *  visibility is the Modules tab); non-module rows reflect features_registry.
+   *  visible. Display-only: never affects gating. */
+  visible: boolean;
 }
 
 export interface MergedCatalog {
@@ -40,27 +44,44 @@ export interface MergedCatalog {
  * list instead of throwing, so the caller can surface a clear notice.
  */
 export async function loadMergedFeatures(sb: SupabaseClient, platform: string): Promise<MergedCatalog> {
-  const { data: features, error: fErr } = await sb
+  // Try with the mig-164 `visible` column; fall back to base cols + visible:true
+  // so the catalog still loads before the migration is applied.
+  let features: Record<string, unknown>[] | null = null;
+  const full = await sb
     .from('features_registry')
-    .select('feature_key, label, category, feature_type, build_status, display_order, active')
+    .select('feature_key, label, category, feature_type, build_status, display_order, active, visible')
     .eq('active', true)
     .order('display_order');
-
-  if (fErr) {
-    const notApplied = /relation .* does not exist|features_registry/i.test(fErr.message);
-    return { migrationApplied: !notApplied, error: fErr.message, features: [] };
+  if (!full.error) {
+    features = full.data as Record<string, unknown>[];
+  } else if (/relation .* does not exist|features_registry/i.test(full.error.message) && !/visible/i.test(full.error.message)) {
+    return { migrationApplied: false, error: full.error.message, features: [] };
+  } else {
+    const base = await sb
+      .from('features_registry')
+      .select('feature_key, label, category, feature_type, build_status, display_order, active')
+      .eq('active', true)
+      .order('display_order');
+    if (base.error) {
+      const notApplied = /relation .* does not exist|features_registry/i.test(base.error.message);
+      return { migrationApplied: !notApplied, error: base.error.message, features: [] };
+    }
+    features = (base.data ?? []).map((f: Record<string, unknown>) => ({ ...f, visible: true }));
   }
 
-  const nonModuleFeatures = (features ?? []).filter((f: { feature_key: string }) => !isModuleKey(f.feature_key));
+  const nonModuleFeatures = (features ?? [])
+    .filter((f) => !isModuleKey(f.feature_key as string))
+    .map((f) => ({ ...f, visible: f.visible !== false })) as unknown as MergedFeatureRow[];
   const liveModules = await getPlatformModules(platform);
   let moduleRows: MergedFeatureRow[];
   if (liveModules.length > 0) {
-    moduleRows = deriveModuleFeatureRows(liveModules as unknown as LiveModuleInput[]) as unknown as MergedFeatureRow[];
+    // Module rows are always customer-visible here (their visibility = Modules tab).
+    moduleRows = deriveModuleFeatureRows(liveModules as unknown as LiveModuleInput[])
+      .map((m) => ({ ...m, visible: true })) as unknown as MergedFeatureRow[];
   } else {
-    // Fallback: the catalog's own module rows (keeps display order < non-module).
     moduleRows = (features ?? [])
-      .filter((f: { feature_key: string }) => isModuleKey(f.feature_key))
-      .map((f: Record<string, unknown>) => ({ ...f, category: 'module' })) as unknown as MergedFeatureRow[];
+      .filter((f) => isModuleKey(f.feature_key as string))
+      .map((f) => ({ ...f, category: 'module', visible: true })) as unknown as MergedFeatureRow[];
   }
 
   return { migrationApplied: true, features: [...moduleRows, ...nonModuleFeatures] };

@@ -143,6 +143,17 @@ export default function AdminPlansPage() {
     await load();
   }, [load, showToast]);
 
+  // Customer-facing visibility toggle for a non-module feature (mig 164).
+  const toggleVisible = useCallback(async (featureKey: string, visible: boolean) => {
+    setFeatures((prev) => prev.map((f) => f.feature_key === featureKey ? { ...f, visible } : f));
+    const res = await fetch('/api/admin/entitlements/features', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feature_key: featureKey, visible }),
+    }).then((r) => r.json());
+    if (res.error) { showToast(res.error, 'error'); setFeatures((prev) => prev.map((f) => f.feature_key === featureKey ? { ...f, visible: !visible } : f)); return; }
+    showToast(visible ? 'Feature shown to customers' : 'Feature hidden from customers', 'success');
+  }, [showToast]);
+
   const reorder = useCallback(async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
     if (j < 0 || j >= plans.length) return;
@@ -253,6 +264,19 @@ export default function AdminPlansPage() {
                         Contact sales
                       </label>
                     </div>
+                    {/* Marketing highlight (mig 163): popular flag + optional badge text. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, paddingLeft: 26, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Badge</span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', cursor: 'pointer' }}>
+                        <input type="checkbox" data-testid={`plan-popular-${p.plan_key}`} checked={!!p.popular}
+                          onChange={() => { const next = !p.popular; setLocal({ popular: next }); if (p.id) patchPlan({ id: p.id, popular: next }); }} />
+                        Most popular (highlight)
+                      </label>
+                      <input value={p.badge_text ?? ''} placeholder="custom badge (optional)" data-testid={`plan-badge-${p.plan_key}`}
+                        onChange={(e) => setLocal({ badge_text: e.target.value })}
+                        onBlur={() => p.id && patchPlan({ id: p.id, badge_text: p.badge_text ?? '' })}
+                        style={{ width: 170, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
+                    </div>
                   </div>
                   );
                 })}
@@ -265,7 +289,7 @@ export default function AdminPlansPage() {
 
               {/* Matrix */}
               {plans.length > 0 && features.length > 0 ? (
-                <PlanMatrix features={features} plans={planCols} cell={cell} onToggle={onToggle} onLimit={onLimit} />
+                <PlanMatrix features={features} plans={planCols} cell={cell} onToggle={onToggle} onLimit={onLimit} onToggleVisible={toggleVisible} />
               ) : (
                 <div style={{ color: '#64748b', fontSize: 14 }}>No plans or features to show.</div>
               )}

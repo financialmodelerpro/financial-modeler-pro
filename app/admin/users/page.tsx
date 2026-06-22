@@ -109,6 +109,39 @@ export default function AdminUsersPage() {
       ]));
   }, []);
 
+  // Live entitlement plans (trial/solo/pro/firm) for the inline plan control.
+  const [entPlans, setEntPlans] = useState<{ plan_key: string; label: string }[]>([]);
+  useEffect(() => {
+    fetch('/api/admin/entitlements?platform=real-estate')
+      .then(r => r.json())
+      .then(j => setEntPlans((j.plans ?? []).filter((p: { active: boolean }) => p.active).map((p: { plan_key: string; label: string }) => ({ plan_key: p.plan_key, label: p.label }))))
+      .catch(() => setEntPlans([]));
+  }, []);
+
+  // Assign a plan via THE shared plan-setting endpoint (same path as /admin/access).
+  async function assignPlan(userId: string, planKey: string) {
+    setUpdating(userId + ':plan');
+    try {
+      const res = await fetch('/api/admin/entitlements/user/plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, plan_key: planKey, platform: 'real-estate' }),
+      });
+      const j = await res.json();
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId
+          ? { ...u, subscription_plan: planKey, subscription_status: (j.subscriptionStatus ?? u.subscription_status) as User['subscription_status'] }
+          : u));
+        showToast('Plan updated', 'success');
+      } else {
+        showToast(j.error ?? 'Plan update failed', 'error');
+      }
+    } catch {
+      showToast('Plan update failed', 'error');
+    } finally {
+      setUpdating(null);
+    }
+  }
+
   const fetchUsers = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
@@ -269,14 +302,27 @@ export default function AdminUsersPage() {
                         names (free/professional/enterprise) to subscription_plan,
                         creating a second write path; that is removed. */}
                     <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} data-testid={`user-plan-${u.id}`}>
-                        <PlanBadge plan={u.subscription_plan ?? 'unassigned'} />
-                        <Link
-                          href="/admin/access"
-                          title="Change plan and overrides in User Access"
-                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '2px 7px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', whiteSpace: 'nowrap' }}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} data-testid={`user-plan-${u.id}`}>
+                        <select
+                          value={u.subscription_plan ?? ''}
+                          disabled={savingField === 'plan'}
+                          onChange={e => assignPlan(u.id, e.target.value)}
+                          data-testid={`user-plan-select-${u.id}`}
+                          style={selectStyle}
                         >
-                          Manage →
+                          {/* If the user's current plan is not in the live set (legacy
+                              or unassigned), show it as a disabled placeholder so the
+                              true value is visible without offering it for re-selection. */}
+                          {!entPlans.some(p => p.plan_key === (u.subscription_plan ?? '')) && (
+                            <option value={u.subscription_plan ?? ''} disabled>{u.subscription_plan ?? 'unassigned'}</option>
+                          )}
+                          {entPlans.map(p => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
+                        </select>
+                        <PlanBadge plan={u.subscription_plan ?? 'unassigned'} />
+                        {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
+                        <Link href="/admin/access" title="Per-user overrides in User Access"
+                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '2px 7px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', whiteSpace: 'nowrap' }}>
+                          Overrides →
                         </Link>
                       </div>
                     </td>
