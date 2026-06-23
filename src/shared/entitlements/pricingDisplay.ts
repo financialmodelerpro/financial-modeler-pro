@@ -32,6 +32,25 @@ export function formatPlanPrice(plan: PricedPlan, interval: BillingInterval): { 
 }
 
 /**
+ * Pure, data-driven card action mode for a paid plan (Trial is handled by the
+ * caller via plan_key). The single `contact_sales` flag now composes with price:
+ *   - priced + contact_sales  -> 'dual'         (price + self-checkout + contact)
+ *   - unpriced + contact_sales -> 'contact_only' (legacy: Contact sales only)
+ *   - priced (no contact_sales) -> 'self_checkout'
+ * Not hardcoded to any plan: any plan an admin gives both a price and the
+ * Contact-sales flag becomes dual-action.
+ */
+export function planCardMode(
+  plan: { contact_sales: boolean; price_monthly: number | null; price_annual: number | null },
+  interval: BillingInterval,
+): 'dual' | 'contact_only' | 'self_checkout' {
+  const v = interval === 'monthly' ? plan.price_monthly : plan.price_annual;
+  const priced = v !== null && v !== undefined;
+  if (plan.contact_sales) return priced ? 'dual' : 'contact_only';
+  return 'self_checkout';
+}
+
+/**
  * Pure single-source trial-length resolver: the Trial plan's trial_days, or the
  * fallback when it is missing / non-positive. Both loadPricingCatalog (display)
  * and resolveTrialDays (enforcement) resolve to this same value, so trial length

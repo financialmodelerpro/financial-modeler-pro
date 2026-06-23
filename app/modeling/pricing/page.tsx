@@ -15,7 +15,7 @@
  * (no payment provider approved yet) -- it is clearly a placeholder.
  */
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { formatPlanPrice, comparisonCellText, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
+import { formatPlanPrice, comparisonCellText, planCardMode, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
 import { FeatureInfoLabel } from '@/src/shared/components/pricing/FeatureInfoLabel';
 
 interface PricePlan {
@@ -137,7 +137,10 @@ export default function RefmPricingPage() {
         {/* Plan cards */}
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(cardPlans.length, 3)}, 1fr)`, gap: 16, marginBottom: 16 }}>
           {cardPlans.map((p) => {
-            const pt = priceText(p, interval);
+            // Data-driven action: dual (price + checkout + contact) / contact-only
+            // / self-checkout. Same rule as the public page (shared helper).
+            const mode = planCardMode(p, interval);
+            const pt = priceText(mode === 'dual' ? { ...p, contact_sales: false } : p, interval);
             const featured = !!p.popular;
             const badge = p.badge_text || (p.popular ? 'MOST POPULAR' : null);
             return (
@@ -147,10 +150,25 @@ export default function RefmPricingPage() {
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0D2E5A' }}>{p.label}</div>
                 <div style={{ margin: '12px 0 4px', fontSize: 26, fontWeight: 800, color: '#0f172a' }} data-testid={`pricing-amount-${p.plan_key}`}>{pt.big}</div>
                 <div style={{ fontSize: 12, color: '#94a3b8', minHeight: 16 }}>{pt.sub}</div>
-                <button data-testid={`pricing-select-${p.plan_key}`} onClick={() => startCheckout(p)}
-                  style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#fff', background: featured ? '#2563EB' : '#0D2E5A' }}>
-                  {p.contact_sales ? 'Contact sales' : `Choose ${p.label}`}
-                </button>
+                {mode === 'contact_only' ? (
+                  <a href="/contact" data-testid={`pricing-contact-${p.plan_key}`}
+                    style={{ display: 'block', textAlign: 'center', width: '100%', marginTop: 16, padding: '10px', borderRadius: 8, fontWeight: 700, fontSize: 14, color: '#fff', background: featured ? '#2563EB' : '#0D2E5A', textDecoration: 'none' }}>
+                    Contact sales
+                  </a>
+                ) : (
+                  <>
+                    <button data-testid={`pricing-select-${p.plan_key}`} onClick={() => startCheckout(p)}
+                      style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#fff', background: featured ? '#2563EB' : '#0D2E5A' }}>
+                      Choose {p.label}
+                    </button>
+                    {mode === 'dual' && (
+                      <a href="/contact" data-testid={`pricing-contact-${p.plan_key}`}
+                        style={{ display: 'block', textAlign: 'center', marginTop: 8, fontSize: 12.5, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
+                        or contact sales
+                      </a>
+                    )}
+                  </>
+                )}
               </div>
             );
           })}

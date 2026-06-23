@@ -8,7 +8,7 @@
  *
  * Run: npx tsx scripts/verify-pricing-display.ts
  */
-import { formatPlanPrice, comparisonCellText, visibleForCustomers, type PricedPlan } from '../src/shared/entitlements/pricingDisplay';
+import { formatPlanPrice, comparisonCellText, visibleForCustomers, planCardMode, type PricedPlan } from '../src/shared/entitlements/pricingDisplay';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -70,6 +70,15 @@ check('module rows always kept (module_1 + module_7)', keys.includes('module_1')
 check('count = 4 (2 modules + 2 visible non-module)', vis.length === 4, String(vis.length));
 // A non-module with visible undefined (pre-mig default) is treated as shown.
 check('undefined visible treated as shown', visibleForCustomers([{ feature_key: 'x', visible: undefined as unknown as boolean }]).length === 1);
+
+// Data-driven card action mode (dual = priced + contact_sales).
+console.log('\n=== planCardMode (data-driven dual action) ===');
+check('priced + contact_sales -> dual', planCardMode(mk({ contact_sales: true, price_monthly: 7499, price_annual: 74990 }), 'monthly') === 'dual');
+check('priced + contact_sales -> dual (annual)', planCardMode(mk({ contact_sales: true, price_monthly: 7499, price_annual: 74990 }), 'annual') === 'dual');
+check('unpriced + contact_sales -> contact_only', planCardMode(mk({ contact_sales: true, price_monthly: null, price_annual: null }), 'monthly') === 'contact_only');
+check('priced + no contact_sales -> self_checkout', planCardMode(mk({ contact_sales: false, price_monthly: 99, price_annual: 990 }), 'monthly') === 'self_checkout');
+check('dual mode shows the number (helper unchanged)', formatPlanPrice({ ...mk({ contact_sales: true, price_monthly: 7499 }), contact_sales: false }, 'monthly').big === 'SAR 7,499');
+check('contact_sales still overrides number in formatPlanPrice', formatPlanPrice(mk({ contact_sales: true, price_monthly: 7499 }), 'monthly').big === 'Contact sales');
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }

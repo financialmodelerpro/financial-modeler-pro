@@ -22,7 +22,7 @@
  */
 import { useState } from 'react';
 import Link from 'next/link';
-import { formatPlanPrice, comparisonCellText, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
+import { formatPlanPrice, comparisonCellText, planCardMode, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
 import { FeatureInfoLabel } from '@/src/shared/components/pricing/FeatureInfoLabel';
 
 export interface LivePlan {
@@ -95,6 +95,8 @@ export default function LivePlanCards({
       maxSavePct = Math.max(maxSavePct, Math.round((1 - p.price_annual / (p.price_monthly * 12)) * 100));
     }
   }
+  // Disclosure uses the real annual discount when available, else a safe static.
+  const annualSavePct = maxSavePct > 0 ? maxSavePct : 17;
 
   const rowGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: GRID, columnGap: GAP };
 
@@ -133,7 +135,12 @@ export default function LivePlanCards({
               const featured = !!p.popular;
               const isTrial = p.plan_key === 'trial';
               const badge = p.badge_text || (p.popular ? 'Most Popular' : null);
-              const pt = formatPlanPrice(p, interval);
+              // Data-driven card action: trial / dual (price + checkout + contact)
+              // / contact-only / self-checkout. Not hardcoded to any plan.
+              const mode = isTrial ? 'trial' : planCardMode(p, interval);
+              // In dual mode the price IS shown (so formatPlanPrice must not be
+              // overridden to "Contact sales"); the helper stays unchanged.
+              const pt = formatPlanPrice(mode === 'dual' ? { ...p, contact_sales: false } : p, interval);
               return (
                 <div key={p.plan_key} data-testid={`pricing-card-${p.plan_key}`}
                   style={{
@@ -179,28 +186,63 @@ export default function LivePlanCards({
                         {pt.sub && <span style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>{pt.sub}</span>}
                       </div>
                       <div style={{ height: 1, background: LINE, margin: '20px 0' }} />
-                      <Link href="/register" aria-label={`${p.contact_sales ? 'Contact sales about' : 'Choose'} the ${p.label} plan`}
-                        style={{
-                          display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 'auto', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5,
-                          background: featured ? GOLD : '#fff',
-                          color: featured ? NAVY : NAVY,
-                          border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`,
-                          boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none',
-                        }}>
-                        {p.contact_sales ? 'Contact sales' : `Choose ${p.label}`}
-                      </Link>
+                      <div style={{ marginTop: 'auto' }}>
+                        {mode === 'contact_only' ? (
+                          // Unpriced contact plan: the single Contact sales action.
+                          <Link href="/contact" data-testid={`pricing-contact-${p.plan_key}`} aria-label={`Contact sales about the ${p.label} plan`}
+                            style={{ display: 'block', textAlign: 'center', textDecoration: 'none', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5, background: featured ? GOLD : '#fff', color: NAVY, border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`, boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none' }}>
+                            Contact sales
+                          </Link>
+                        ) : (
+                          // Self-checkout primary (same /register handoff as the
+                          // other paid cards). In dual mode, also a Contact sales link.
+                          <>
+                            <Link href="/register" data-testid={`pricing-checkout-${p.plan_key}`} aria-label={`Choose the ${p.label} plan`}
+                              style={{ display: 'block', textAlign: 'center', textDecoration: 'none', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5, background: featured ? GOLD : '#fff', color: NAVY, border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`, boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none' }}>
+                              Choose {p.label}
+                            </Link>
+                            {mode === 'dual' && (
+                              <Link href="/contact" data-testid={`pricing-contact-${p.plan_key}`} aria-label={`Contact sales about the ${p.label} plan`}
+                                style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 10, fontSize: 13, fontWeight: 700, color: NAVY_MID }}>
+                                or contact sales
+                              </Link>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
               );
             })}
           </div>
+        </div>
+      </div>
 
-          {/* ── Comparison: same grid template, so columns sit under their cards ── */}
-          <div style={{ marginTop: 56 }}>
-            <h2 style={{ fontSize: 26, fontWeight: 900, color: NAVY, textAlign: 'center', marginBottom: 6, letterSpacing: '-0.01em' }}>Compare every plan</h2>
-            <p style={{ fontSize: 14, color: MUTED, textAlign: 'center', marginTop: 0, marginBottom: 28 }}>Everything included, side by side.</p>
+      {/* Billing disclosure + subscription terms (below the cards) */}
+      <div style={{ maxWidth: 720, margin: '22px auto 0', textAlign: 'center' }}>
+        <p data-testid="billing-disclosure" style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6, margin: 0 }}>
+          Prices are exclusive of applicable taxes. Annual plans save up to {annualSavePct}%. Cancel anytime.
+        </p>
+        <p data-testid="subscription-terms" style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6, margin: '4px 0 0' }}>
+          Subscriptions renew automatically unless cancelled before the next billing cycle.
+        </p>
+      </div>
 
+      {/* Founder credibility band: a true experience statement only. */}
+      <div data-testid="founder-credibility" style={{ maxWidth: 720, margin: '20px auto 0', padding: '13px 20px', background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 12, textAlign: 'center' }}>
+        <span style={{ fontSize: 13, color: NAVY, fontWeight: 600, lineHeight: 1.6 }}>
+          Built by <b>PaceMakers Business Consultants</b>, 12+ years of corporate finance and transaction advisory experience.
+        </span>
+      </div>
+
+      {/* ── Comparison: same grid template + min width, so columns stay aligned under their cards ── */}
+      <div style={{ marginTop: 56 }}>
+        <h2 style={{ fontSize: 26, fontWeight: 900, color: NAVY, textAlign: 'center', marginBottom: 6, letterSpacing: '-0.01em' }}>Compare every plan</h2>
+        <p style={{ fontSize: 14, color: MUTED, textAlign: 'center', marginTop: 0, marginBottom: 28 }}>Everything included, side by side.</p>
+
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 6 }}>
+          <div style={{ minWidth: INNER_MIN }}>
             <div data-testid="comparison-table" role="table" aria-label="Compare every plan"
               style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 14px rgba(13,46,90,0.06)' }}>
               {/* Header row */}
