@@ -155,6 +155,18 @@ export default function AdminPlansPage() {
     showToast(visible ? 'Feature shown to customers' : 'Feature hidden from customers', 'success');
   }, [showToast]);
 
+  // Save a feature's short pricing description (mig 168). Optimistic local
+  // update + persist; allowed for module + non-module rows.
+  const saveDescription = useCallback(async (featureKey: string, description: string) => {
+    setFeatures((prev) => prev.map((f) => f.feature_key === featureKey ? { ...f, description } : f));
+    const res = await fetch('/api/admin/entitlements/features', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feature_key: featureKey, description }),
+    }).then((r) => r.json());
+    if (res.error) { showToast(res.error, 'error'); return; }
+    showToast('Description saved', 'success');
+  }, [showToast]);
+
   const reorder = useCallback(async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
     if (j < 0 || j >= plans.length) return;
@@ -324,7 +336,7 @@ export default function AdminPlansPage() {
 
               {/* Matrix */}
               {plans.length > 0 && features.length > 0 ? (
-                <PlanMatrix features={features} plans={planCols} cell={cell} onToggle={onToggle} onLimit={onLimit} onToggleVisible={toggleVisible} />
+                <PlanMatrix features={features} plans={planCols} cell={cell} onToggle={onToggle} onLimit={onLimit} onToggleVisible={toggleVisible} onSaveDescription={saveDescription} />
               ) : (
                 <div style={{ color: '#64748b', fontSize: 14 }}>No plans or features to show.</div>
               )}

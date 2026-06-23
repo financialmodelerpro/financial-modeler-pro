@@ -29,6 +29,8 @@ export interface MatrixFeature {
   moduleStatus?: ModuleStatus;
   /** Customer-facing visibility (mig 164), non-module rows only. */
   visible?: boolean;
+  /** Short blurb shown as the pricing info popover (mig 168). Editable here. */
+  description?: string | null;
 }
 export interface MatrixPlan {
   id?: string;
@@ -62,6 +64,8 @@ export interface PlanMatrixProps {
   onLimit?: (planKey: string, featureKey: string, value: number | null) => void;
   /** Toggle customer-facing visibility of a NON-MODULE feature (mig 164). */
   onToggleVisible?: (featureKey: string, visible: boolean) => void;
+  /** Save the short pricing description for a feature (mig 168). */
+  onSaveDescription?: (featureKey: string, description: string) => void;
   readOnly?: boolean;
 }
 
@@ -101,7 +105,7 @@ const th: React.CSSProperties = { padding: '8px 10px', fontSize: 12, color: '#ff
 const tdLabel: React.CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #e5e7eb', position: 'sticky', left: 0, background: '#fff', zIndex: 1 };
 const tdCell: React.CSSProperties = { padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #f1f5f9' };
 
-export function PlanMatrix({ features, plans, cell, onToggle, onLimit, onToggleVisible, readOnly }: PlanMatrixProps): React.JSX.Element {
+export function PlanMatrix({ features, plans, cell, onToggle, onLimit, onToggleVisible, onSaveDescription, readOnly }: PlanMatrixProps): React.JSX.Element {
   // Single ordered list; category bands are inserted when the category changes.
   const ordered = [...features].sort((a, b) => a.display_order - b.display_order);
   const rows: React.JSX.Element[] = [];
@@ -137,6 +141,22 @@ export function PlanMatrix({ features, plans, cell, onToggle, onLimit, onToggleV
               </label>
             )}
           </div>
+          {/* Editable short description (mig 168): shown as the pricing info
+              popover on the public + in-app comparison. Saves on blur. */}
+          {onSaveDescription && (
+            <input
+              key={`desc-${f.feature_key}`}
+              data-testid={`feature-desc-${f.feature_key}`}
+              defaultValue={f.description ?? ''}
+              disabled={readOnly}
+              placeholder="Short description (shown on pricing)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if ((f.description ?? '') !== v) onSaveDescription(f.feature_key, v);
+              }}
+              style={{ marginTop: 4, width: '100%', minWidth: 180, padding: '3px 6px', fontSize: 11, color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5 }}
+            />
+          )}
         </td>
         {plans.map((p) => {
           const v = cell(p.plan_key, f.feature_key);

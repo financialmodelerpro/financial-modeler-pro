@@ -16,6 +16,7 @@
  */
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { formatPlanPrice, comparisonCellText, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
+import { FeatureInfoLabel } from '@/src/shared/components/pricing/FeatureInfoLabel';
 
 interface PricePlan {
   id: string; plan_key: string; label: string; display_order: number; active: boolean;
@@ -25,6 +26,7 @@ interface PricePlan {
 interface PriceFeature {
   feature_key: string; label: string; category: string; feature_type: 'gate' | 'limit' | 'metered';
   display_order: number; moduleStatus?: 'live' | 'coming_soon' | 'pro' | 'enterprise';
+  description?: string | null;
 }
 interface Coverage { plan_key: string; feature_key: string; included: boolean; limit_value: number | null }
 
@@ -188,10 +190,12 @@ export default function RefmPricingPage() {
                     rows.push(
                       <tr key={f.feature_key} data-testid={`compare-row-${f.feature_key}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '8px 14px', fontSize: 12, color: '#334155', position: 'sticky', left: 0, background: '#fff' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            {f.label}
-                            {mod && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: mod.bg, color: mod.fg }}>{mod.label}</span>}
-                          </span>
+                          <FeatureInfoLabel
+                            label={f.label}
+                            description={f.description}
+                            testidPrefix={`feature-info-${f.feature_key}`}
+                            tag={mod ? <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: mod.bg, color: mod.fg, whiteSpace: 'nowrap' }}>{mod.label}</span> : undefined}
+                          />
                         </td>
                         {plans.map((p) => {
                           const c = cellFor(p.plan_key, f);

@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { formatPlanPrice, comparisonCellText, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
+import { FeatureInfoLabel } from '@/src/shared/components/pricing/FeatureInfoLabel';
 
 export interface LivePlan {
   plan_key: string; label: string;
@@ -33,6 +34,7 @@ export interface LiveFeature {
   feature_key: string; label: string; category: string;
   feature_type: 'gate' | 'limit' | 'metered'; display_order: number;
   moduleStatus?: 'live' | 'coming_soon' | 'pro' | 'enterprise';
+  description?: string | null;
 }
 export interface LiveCoverage { plan_key: string; feature_key: string; included: boolean; limit_value: number | null }
 
@@ -50,7 +52,10 @@ const LINE = '#E8EDF4';
 const GREEN = '#16A34A';
 
 // ── Shared column geometry (drives BOTH the cards and the comparison) ────────
-const LABEL_W = 200;                          // feature-label column, outside the lanes
+// Wide enough that the longest feature names (e.g. "Module 8: Collaborate" with
+// a Coming-soon tag) sit on ONE line with no wrap. Used by every row, so cards
+// and comparison columns stay perfectly aligned at any width.
+const LABEL_W = 320;                          // feature-label column, outside the lanes
 const GAP = 16;                               // column gap, identical in both grids
 
 const MODULE_TAG: Record<string, { label: string; bg: string; fg: string }> = {
@@ -142,7 +147,7 @@ export default function LivePlanCards({
                   {featured && <div aria-hidden style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 5, borderRadius: '18px 18px 0 0', background: GOLD }} />}
                   {badge && (
                     <div data-testid={`pricing-badge-${p.plan_key}`}
-                      style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: featured ? GOLD : NAVY_MID, color: featured ? NAVY : '#fff', fontSize: 10.5, fontWeight: 800, padding: '5px 16px', borderRadius: 999, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: featured ? '0 6px 16px rgba(201,168,76,0.45)' : 'none' }}>
+                      style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: featured ? GOLD : NAVY_MID, color: featured ? NAVY : '#fff', fontSize: 10.5, fontWeight: 800, padding: '5px 16px', borderRadius: 999, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: featured ? '0 4px 12px rgba(13,46,90,0.20)' : 'none' }}>
                       {badge}
                     </div>
                   )}
@@ -200,7 +205,7 @@ export default function LivePlanCards({
               style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 14px rgba(13,46,90,0.06)' }}>
               {/* Header row */}
               <div role="row" style={{ ...rowGrid, background: NAVY }}>
-                <div role="columnheader" style={{ padding: '15px 22px', textAlign: 'left', fontSize: 12, fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Feature</div>
+                <div role="columnheader" style={{ padding: '15px 18px', textAlign: 'left', fontSize: 12, fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Feature</div>
                 {displayPlans.map((p) => {
                   const featured = !!p.popular;
                   return (
@@ -223,7 +228,7 @@ export default function LivePlanCards({
                     rowInCat = 0;
                     rows.push(
                       <div key={`cat-${f.category}`} role="row" style={{ display: 'grid', gridTemplateColumns: '1fr' }}>
-                        <div style={{ gridColumn: '1 / -1', padding: '12px 22px 8px', fontSize: 11, fontWeight: 800, color: NAVY_MID, textTransform: 'uppercase', letterSpacing: '0.1em', background: '#F1F5FB', borderTop: `1px solid ${LINE}`, borderBottom: `1px solid ${LINE}` }}>
+                        <div style={{ gridColumn: '1 / -1', padding: '12px 18px 8px', fontSize: 11, fontWeight: 800, color: NAVY_MID, textTransform: 'uppercase', letterSpacing: '0.1em', background: '#F1F5FB', borderTop: `1px solid ${LINE}`, borderBottom: `1px solid ${LINE}` }}>
                           {CATEGORY_LABELS[f.category] || f.category}
                         </div>
                       </div>,
@@ -235,11 +240,13 @@ export default function LivePlanCards({
                   rows.push(
                     <div key={f.feature_key} role="row" data-testid={`compare-row-${f.feature_key}`}
                       style={{ ...rowGrid, borderBottom: `1px solid #F2F5F9`, background: zebra ? '#FBFCFE' : '#fff' }}>
-                      <div role="cell" style={{ padding: '13px 22px', fontSize: 13.5, color: '#334155', fontWeight: 500 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          {f.label}
-                          {mod && <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 999, background: mod.bg, color: mod.fg, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{mod.label}</span>}
-                        </span>
+                      <div role="cell" style={{ padding: '13px 18px', fontSize: 13.5, color: '#334155', fontWeight: 500 }}>
+                        <FeatureInfoLabel
+                          label={f.label}
+                          description={f.description}
+                          testidPrefix={`feature-info-${f.feature_key}`}
+                          tag={mod ? <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 999, background: mod.bg, color: mod.fg, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{mod.label}</span> : undefined}
+                        />
                       </div>
                       {displayPlans.map((p) => {
                         const c = cov.get(`${p.plan_key}::${f.feature_key}`);
