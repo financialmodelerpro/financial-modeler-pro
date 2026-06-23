@@ -278,6 +278,24 @@ export default function AdminPlansPage() {
                         onBlur={() => p.id && patchPlan({ id: p.id, badge_text: p.badge_text ?? '' })}
                         style={{ width: 170, padding: '4px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
                     </div>
+                    {/* Payment provider price / product ids (mig 166). Empty until a
+                        provider is approved; read server-side by the checkout handler
+                        and mapped back from webhook events. Not secrets. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, paddingLeft: 26, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Provider IDs</span>
+                      <input value={p.paddle_price_id_monthly ?? ''} placeholder="paddle price id (monthly)" data-testid={`plan-paddle-monthly-${p.plan_key}`}
+                        onChange={(e) => setLocal({ paddle_price_id_monthly: e.target.value })}
+                        onBlur={() => p.id && patchPlan({ id: p.id, paddle_price_id_monthly: p.paddle_price_id_monthly ?? '' })}
+                        style={{ width: 168, padding: '4px 6px', fontSize: 11, border: '1px solid #cbd5e1', borderRadius: 5, fontFamily: 'monospace' }} />
+                      <input value={p.paddle_price_id_annual ?? ''} placeholder="paddle price id (annual)" data-testid={`plan-paddle-annual-${p.plan_key}`}
+                        onChange={(e) => setLocal({ paddle_price_id_annual: e.target.value })}
+                        onBlur={() => p.id && patchPlan({ id: p.id, paddle_price_id_annual: p.paddle_price_id_annual ?? '' })}
+                        style={{ width: 168, padding: '4px 6px', fontSize: 11, border: '1px solid #cbd5e1', borderRadius: 5, fontFamily: 'monospace' }} />
+                      <input value={p.paypro_product_id ?? ''} placeholder="paypro product id" data-testid={`plan-paypro-${p.plan_key}`}
+                        onChange={(e) => setLocal({ paypro_product_id: e.target.value })}
+                        onBlur={() => p.id && patchPlan({ id: p.id, paypro_product_id: p.paypro_product_id ?? '' })}
+                        style={{ width: 150, padding: '4px 6px', fontSize: 11, border: '1px solid #cbd5e1', borderRadius: 5, fontFamily: 'monospace' }} />
+                    </div>
                     {/* Trial length (single source, mig 165). Only meaningful on the
                         Trial plan; every consumer (trial approval, marketing + in-app
                         pricing) reads this one value. */}

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, label, active, display_order, price_monthly, price_annual, currency, contact_sales, popular, badge_text, trial_days } = await req.json();
+    const { id, label, active, display_order, price_monthly, price_annual, currency, contact_sales, popular, badge_text, trial_days, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id } = await req.json();
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (label !== undefined) updates.label = label;
@@ -63,6 +63,15 @@ export async function PATCH(req: NextRequest) {
     if (price_annual !== undefined) updates.price_annual = toNum(price_annual);
     if (currency !== undefined) updates.currency = String(currency || 'SAR').toUpperCase().slice(0, 8);
     if (contact_sales !== undefined) updates.contact_sales = !!contact_sales;
+    // Payment provider price / product ids (mig 166). Empty string clears to
+    // null; trimmed otherwise. These are catalog identifiers, not secrets.
+    const idOrNull = (v: unknown): string | null => {
+      const s = typeof v === 'string' ? v.trim() : '';
+      return s === '' ? null : s;
+    };
+    if (paddle_price_id_monthly !== undefined) updates.paddle_price_id_monthly = idOrNull(paddle_price_id_monthly);
+    if (paddle_price_id_annual !== undefined) updates.paddle_price_id_annual = idOrNull(paddle_price_id_annual);
+    if (paypro_product_id !== undefined) updates.paypro_product_id = idOrNull(paypro_product_id);
     const sb = getServerClient();
     const { error } = await sb.from('entitlement_plans').update(updates).eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -45,6 +45,7 @@ export default function RefmPricingPage() {
   const [coverage, setCoverage] = useState<Coverage[]>([]);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [checkoutPlan, setCheckoutPlan] = useState<PricePlan | null>(null);
+  const [checkoutMsg, setCheckoutMsg] = useState<string | null>(null);
   const [trialDays, setTrialDays] = useState(0);
 
   useEffect(() => {
@@ -61,6 +62,26 @@ export default function RefmPricingPage() {
       .catch(() => setAuthed(true))
       .finally(() => setLoading(false));
   }, []);
+
+  // Checkout routing: ask the server which provider is active and what to do.
+  // With no provider activated the server returns the placeholder message, so
+  // behavior is unchanged from today (no fake checkout, no charge). Contact
+  // sales plans skip checkout entirely.
+  const startCheckout = useCallback((p: PricePlan) => {
+    setCheckoutPlan(p);
+    if (p.contact_sales) { setCheckoutMsg(null); return; }
+    setCheckoutMsg('Checking availability...');
+    fetch('/api/payments/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ plan_key: p.plan_key, interval }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res?.status === 'redirect' && res.url) { window.location.href = res.url; return; }
+        setCheckoutMsg(res?.message ?? 'Online payment is not enabled yet. No charge has been made.');
+      })
+      .catch(() => setCheckoutMsg('Online payment is not enabled yet. No charge has been made.'));
+  }, [interval]);
 
   const cov = useMemo(() => {
     const m = new Map<string, Coverage>();
@@ -124,7 +145,7 @@ export default function RefmPricingPage() {
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0D2E5A' }}>{p.label}</div>
                 <div style={{ margin: '12px 0 4px', fontSize: 26, fontWeight: 800, color: '#0f172a' }} data-testid={`pricing-amount-${p.plan_key}`}>{pt.big}</div>
                 <div style={{ fontSize: 12, color: '#94a3b8', minHeight: 16 }}>{pt.sub}</div>
-                <button data-testid={`pricing-select-${p.plan_key}`} onClick={() => setCheckoutPlan(p)}
+                <button data-testid={`pricing-select-${p.plan_key}`} onClick={() => startCheckout(p)}
                   style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#fff', background: featured ? '#2563EB' : '#0D2E5A' }}>
                   {p.contact_sales ? 'Contact sales' : `Choose ${p.label}`}
                 </button>
@@ -193,19 +214,21 @@ export default function RefmPricingPage() {
 
       {/* Checkout handoff STUB (no payment provider approved yet) */}
       {checkoutPlan && (
-        <div role="dialog" aria-modal="true" onClick={() => setCheckoutPlan(null)}
+        <div role="dialog" aria-modal="true" onClick={() => { setCheckoutPlan(null); setCheckoutMsg(null); }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} data-testid="checkout-stub"
             style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 420, fontFamily: 'Inter, sans-serif' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', marginBottom: 6 }}>Checkout coming soon</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', marginBottom: 6 }}>{checkoutPlan.contact_sales ? 'Contact sales' : 'Checkout'}</div>
             <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.6, margin: '0 0 8px' }}>
               You selected <b>{checkoutPlan.label}</b>{checkoutPlan.contact_sales ? '' : ` (${priceText(checkoutPlan, interval).big} ${priceText(checkoutPlan, interval).sub})`}.
             </p>
             <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', marginBottom: 14 }}>
-              This is a placeholder. Online payment is not enabled yet (no provider approved). No charge has been made and no checkout has started. To upgrade today, contact the team and an admin will set your plan in User Access.
+              {checkoutPlan.contact_sales
+                ? 'This plan is sold via contact sales. Reach out to the team and an admin will set up your plan.'
+                : (checkoutMsg ?? 'Online payment is not enabled yet (no provider approved). No charge has been made and no checkout has started. To upgrade today, contact the team and an admin will set your plan in User Access.')}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <button onClick={() => setCheckoutPlan(null)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Close</button>
+              <button onClick={() => { setCheckoutPlan(null); setCheckoutMsg(null); }} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Close</button>
             </div>
           </div>
         </div>

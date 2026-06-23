@@ -46,6 +46,11 @@ export interface MatrixPlan {
   badge_text?: string | null;
   /** Trial length in days; meaningful on the Trial plan (mig 165). */
   trial_days?: number | null;
+  /** Payment provider price / product ids (mig 166). Empty until a provider is
+   *  approved and an admin pastes the real ids. Server-read for checkout. */
+  paddle_price_id_monthly?: string | null;
+  paddle_price_id_annual?: string | null;
+  paypro_product_id?: string | null;
 }
 export interface CellValue { included: boolean; limit_value: number | null }
 

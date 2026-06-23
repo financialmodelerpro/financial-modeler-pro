@@ -1,0 +1,142 @@
+/**
+ * payments/config.ts (server)
+ *
+ * Loads + shapes the provider-agnostic payment config (payment_settings table,
+ * mig 167) and the per-plan provider price ids (entitlement_plans, mig 166).
+ * Read ONLY server-side with the service-role client. The mask helper produces
+ * the client-safe view (booleans for "secret is set"), so secrets never reach
+ * the browser.
+ *
+ * Pure helpers (mask / providerConfigFrom / planProviderPriceId / defaults) are
+ * exported separately so they are unit-testable without a database.
+ *
+ * No em dashes in this file.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActiveProvider, PaymentProvider, ProviderConfig, BillingInterval } from './types';
+
+/** The plan a cancelled / expired subscriber drops to (re-resolved like any
+ *  admin change via setUserPlan). Trial is the entry plan in this catalog. */
+export const BASELINE_PLAN_KEY = 'trial';
+
+export interface PaymentSettingsRow {
+  platform_slug: string;
+  active_provider: ActiveProvider;
+  paddle_api_key: string | null;
+  paddle_api_secret: string | null;
+  paddle_webhook_secret: string | null;
+  paddle_sandbox: boolean;
+  paypro_api_key: string | null;
+  paypro_api_secret: string | null;
+  paypro_webhook_secret: string | null;
+  paypro_sandbox: boolean;
+}
+
+/** Client-safe masked view: never carries a raw secret, only whether it is set. */
+export interface MaskedProvider {
+  configured: boolean;
+  has_api_key: boolean;
+  has_api_secret: boolean;
+  has_webhook_secret: boolean;
+  sandbox: boolean;
+}
+export interface MaskedPaymentSettings {
+  active_provider: ActiveProvider;
+  paddle: MaskedProvider;
+  paypro: MaskedProvider;
+}
+
+export function defaultPaymentSettings(platform: string): PaymentSettingsRow {
+  return {
+    platform_slug: platform,
+    active_provider: 'none',
+    paddle_api_key: null, paddle_api_secret: null, paddle_webhook_secret: null, paddle_sandbox: true,
+    paypro_api_key: null, paypro_api_secret: null, paypro_webhook_secret: null, paypro_sandbox: true,
+  };
+}
+
+/**
+ * Load the singleton payment-settings row for a platform. Tolerant of the
+ * migration not being applied yet (returns the safe default: provider 'none'),
+ * so checkout stays a placeholder rather than erroring.
+ */
+export async function loadPaymentSettings(
+  sb: SupabaseClient, platform = 'real-estate',
+): Promise<PaymentSettingsRow> {
+  const { data, error } = await sb
+    .from('payment_settings')
+    .select('platform_slug, active_provider, paddle_api_key, paddle_api_secret, paddle_webhook_secret, paddle_sandbox, paypro_api_key, paypro_api_secret, paypro_webhook_secret, paypro_sandbox')
+    .eq('platform_slug', platform)
+    .maybeSingle();
+  if (error || !data) return defaultPaymentSettings(platform);
+  return { ...defaultPaymentSettings(platform), ...(data as Partial<PaymentSettingsRow>) } as PaymentSettingsRow;
+}
+
+/** Build a provider's resolved credentials from the settings row (server only). */
+export function providerConfigFrom(row: PaymentSettingsRow, provider: PaymentProvider): ProviderConfig {
+  if (provider === 'paddle') {
+    return { provider, apiKey: row.paddle_api_key, apiSecret: row.paddle_api_secret, webhookSecret: row.paddle_webhook_secret, sandbox: row.paddle_sandbox };
+  }
+  return { provider, apiKey: row.paypro_api_key, apiSecret: row.paypro_api_secret, webhookSecret: row.paypro_webhook_secret, sandbox: row.paypro_sandbox };
+}
+
+/** Produce the client-safe masked view. Pure, no secret ever leaves here. */
+export function maskPaymentSettings(row: PaymentSettingsRow): MaskedPaymentSettings {
+  const m = (key: string | null, secret: string | null, webhook: string | null, sandbox: boolean): MaskedProvider => ({
+    configured: !!key && !!secret && !!webhook,
+    has_api_key: !!key,
+    has_api_secret: !!secret,
+    has_webhook_secret: !!webhook,
+    sandbox,
+  });
+  return {
+    active_provider: row.active_provider,
+    paddle: m(row.paddle_api_key, row.paddle_api_secret, row.paddle_webhook_secret, row.paddle_sandbox),
+    paypro: m(row.paypro_api_key, row.paypro_api_secret, row.paypro_webhook_secret, row.paypro_sandbox),
+  };
+}
+
+/** Minimal plan shape carrying the provider id columns (mig 166). */
+export interface PlanProviderIds {
+  plan_key: string;
+  paddle_price_id_monthly: string | null;
+  paddle_price_id_annual: string | null;
+  paypro_product_id: string | null;
+}
+
+/** Pick the provider price/product id for a plan at a billing interval. Pure. */
+export function planProviderPriceId(
+  plan: PlanProviderIds, provider: PaymentProvider, interval: BillingInterval,
+): string | null {
+  if (provider === 'paddle') {
+    return interval === 'annual' ? plan.paddle_price_id_annual : plan.paddle_price_id_monthly;
+  }
+  return plan.paypro_product_id;
+}
+
+/**
+ * Map a provider price/product id from a webhook event back to the internal
+ * plan_key (+ the interval it represents for Paddle). Returns null when no plan
+ * carries that id. Server-side query against entitlement_plans (mig 166).
+ */
+export async function mapProviderPriceIdToPlan(
+  sb: SupabaseClient,
+  provider: PaymentProvider,
+  providerPriceOrProductId: string | null,
+  platform = 'real-estate',
+): Promise<{ plan_key: string; interval: BillingInterval } | null> {
+  if (!providerPriceOrProductId) return null;
+  const { data } = await sb
+    .from('entitlement_plans')
+    .select('plan_key, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id')
+    .eq('platform_slug', platform);
+  for (const p of (data ?? []) as PlanProviderIds[]) {
+    if (provider === 'paddle') {
+      if (p.paddle_price_id_monthly === providerPriceOrProductId) return { plan_key: p.plan_key, interval: 'monthly' };
+      if (p.paddle_price_id_annual === providerPriceOrProductId) return { plan_key: p.plan_key, interval: 'annual' };
+    } else if (p.paypro_product_id === providerPriceOrProductId) {
+      return { plan_key: p.plan_key, interval: 'monthly' };
+    }
+  }
+  return null;
+}
