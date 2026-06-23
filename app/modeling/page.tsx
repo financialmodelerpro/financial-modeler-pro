@@ -7,10 +7,23 @@ import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSecti
 import type { Module } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
+import { getServerClient } from '@/src/core/db/supabase';
+import { resolveTrialDays, withTrialDays } from '@/src/shared/entitlements/trialConfig';
 
 export const revalidate = 0;
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
+const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
+// CMS button URLs are relative; main-site paths (pricing, about, contact, etc.)
+// live on the apex domain, the rest on the app subdomain. Absolute URLs pass
+// through. Keeps a "/pricing" CTA from bouncing through a subdomain redirect.
+const MAIN_SITE_PATH = /^\/(pricing|about|contact|articles|privacy-policy|confidentiality|t)(\/|$)/;
+function ctaHref(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${MAIN_SITE_PATH.test(url) ? MAIN_URL : APP_URL}${url}`;
+}
 
 export const metadata: Metadata = {
   title: 'Financial Modeling Platform | Real Estate, Valuation, LBO, Project Finance',
@@ -52,11 +65,12 @@ const WHY_ITEMS = [
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ModelingHubPage() {
-  const [content, dbModules, testimonials, cmsSections] = await Promise.all([
+  const [content, dbModules, testimonials, cmsSections, trialDays] = await Promise.all([
     getCmsContent(),
     getModules(),
     getTestimonialsForPage('modeling'),
     getAllPageSections('modeling'),
+    resolveTrialDays(getServerClient(), 'real-estate'),
   ]);
 
   // Build a lookup from slug → DB row so the grid respects admin visibility + edits
@@ -88,9 +102,9 @@ export default async function ModelingHubPage() {
   const heroBadge    = (h?.badge as string)              || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
   const heroHeadline = (h?.headline as string)           || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models');
   const heroSub      = (h?.subtitle as string)           || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline - real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
-  const ctaPrimary   = (h?.cta_primary_text as string)   || cms(content, 'modeling_hub', 'cta_primary',   'Register Free →');
+  const ctaPrimary   = withTrialDays((h?.cta_primary_text as string)   || cms(content, 'modeling_hub', 'cta_primary',   'Register Free →'), trialDays);
   const ctaPriUrl    = (h?.cta_primary_url as string)    || '/register';
-  const ctaSecondary = (h?.cta_secondary_text as string) || cms(content, 'modeling_hub', 'cta_secondary', 'Login to Dashboard →');
+  const ctaSecondary = withTrialDays((h?.cta_secondary_text as string) || cms(content, 'modeling_hub', 'cta_secondary', 'Login to Dashboard →'), trialDays);
   const ctaSecUrl    = (h?.cta_secondary_url as string)  || '/signin';
 
   const ac = fc(audienceRaw);
@@ -126,7 +140,7 @@ export default async function ModelingHubPage() {
   const bc = fc(bottomCtaRaw);
   const bottomH2      = (bc?.heading as string)      || cms(content, 'modeling_hub', 'bottom_cta_heading', 'Ready to build your first model?');
   const bottomSub     = (bc?.subtitle as string)     || (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models - completely free.';
-  const bottomCtaText = (bc?.buttonText as string)   || (bc?.cta_text as string)    || 'Launch Platform Free →';
+  const bottomCtaText = withTrialDays((bc?.buttonText as string) || (bc?.cta_text as string) || 'Launch Platform Free →', trialDays);
   const bottomCtaUrl  = (bc?.buttonUrl as string)    || (bc?.cta_url as string)     || '/register';
 
   const bottomCtaVisible = bottomCtaRaw
@@ -225,7 +239,7 @@ export default async function ModelingHubPage() {
             {(cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl) || (cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl) ? (
               <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
                 {cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl && (
-                  <a href={`${APP_URL}${ctaPriUrl}`} style={{
+                  <a href={ctaHref(ctaPriUrl)} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 8,
                     background: '#1B4F8A', color: '#fff',
                     fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -236,7 +250,7 @@ export default async function ModelingHubPage() {
                   </a>
                 )}
                 {cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl && (
-                  <a href={`${APP_URL}${ctaSecUrl}`} style={{
+                  <a href={ctaHref(ctaSecUrl)} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 8,
                     background: 'transparent', color: '#fff',
                     fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -526,7 +540,7 @@ export default async function ModelingHubPage() {
               style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}
             />
             {cmsVisible(bc ?? {}, 'buttonText') && bottomCtaText && bottomCtaUrl && (
-              <a href={`${APP_URL}${bottomCtaUrl}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+              <a href={ctaHref(bottomCtaUrl)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
                 {bottomCtaText}
               </a>
             )}

@@ -26,6 +26,23 @@ export function trialEndsAtIso(startMs: number, days: number): string {
 }
 
 /**
+ * Inject the single-source trial length into CTA / marketing copy so there is no
+ * hardcoded number. Pure. Two substitutions:
+ *   - a `{trialDays}` token is always replaced with the live value;
+ *   - inside any string that mentions "trial", a legacy "NN-day" / "NN day"
+ *     literal is normalized to the live value, so old copy self-heals.
+ * Anything without a token or a trial context is returned unchanged.
+ */
+export function withTrialDays(text: string, trialDays: number): string {
+  if (!text) return text;
+  let out = text.replace(/\{\s*trialDays\s*\}/gi, String(trialDays));
+  if (/trial/i.test(out)) {
+    out = out.replace(/\b\d+\s*-?\s*(day)\b/gi, (_m, day: string) => `${trialDays}-${day}`);
+  }
+  return out;
+}
+
+/**
  * Resolve the configured trial length (in days) for a platform from the Trial
  * plan in entitlement_plans. Falls back to DEFAULT_TRIAL_DAYS if the row, the
  * value, or the column (pre-mig-165) is missing. Never throws.
