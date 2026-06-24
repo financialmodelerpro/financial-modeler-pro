@@ -24,6 +24,15 @@ async function requireAdmin() {
   return session;
 }
 
+// True when a Supabase/PostgREST error means the table is absent (mig 174 not
+// applied yet). Keeps the admin screen from crashing while the table is missing.
+function isMissingTable(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  const msg = (err.message ?? '').toLowerCase();
+  return err.code === 'PGRST205' || err.code === '42P01'
+    || msg.includes('could not find the table') || msg.includes('does not exist');
+}
+
 export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,7 +43,12 @@ export async function GET() {
       .from('modeling_access_whitelist')
       .select('id, email, note, added_by, added_at')
       .order('added_at', { ascending: false });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // Table briefly absent (mig 174 unapplied): render an empty list with a
+    // notice instead of crashing the admin screen.
+    if (error) {
+      if (isMissingTable(error)) return NextResponse.json({ entries: [], tableMissing: true });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
     return NextResponse.json({ entries: data ?? [] });
   } catch {
     return NextResponse.json({ error: 'Failed to load whitelist' }, { status: 500 });
@@ -74,6 +88,9 @@ export async function POST(req: NextRequest) {
     if (error) {
       if (error.message.toLowerCase().includes('duplicate')) {
         return NextResponse.json({ error: 'That email is already on the whitelist' }, { status: 409 });
+      }
+      if (isMissingTable(error)) {
+        return NextResponse.json({ error: 'The whitelist table is not available yet. Apply migration 174, then try again.' }, { status: 503 });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
