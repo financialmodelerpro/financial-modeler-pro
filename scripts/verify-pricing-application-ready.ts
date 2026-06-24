@@ -23,6 +23,8 @@ const ORANGE = /#F97316|#EA580C|#FB923C|#FDBA74|#FFEDD5|249,\s*115,\s*22|234,\s*
 const lpc = read('src/hubs/main/components/pricing/LivePlanCards.tsx');
 const inapp = read('app/modeling/pricing/page.tsx');
 const helper = read('src/shared/entitlements/pricingDisplay.ts');
+const settings = read('src/shared/entitlements/pricingPageSettings.ts');
+const adminPlans = read('app/admin/plans/page.tsx');
 
 console.log('=== Dual-action is data-driven (not hardcoded) ===');
 check('planCardMode helper exists (pure, data-driven)', /export function planCardMode/.test(helper));
@@ -38,9 +40,18 @@ console.log('=== New copy lines render ===');
 check('billing disclosure line present', /data-testid="billing-disclosure"/.test(lpc) && /exclusive of applicable taxes/.test(lpc) && /Cancel anytime/.test(lpc));
 check('annual save % is dynamic (annualSavePct)', /Annual plans save up to \{annualSavePct\}%/.test(lpc) && /const annualSavePct =/.test(lpc));
 check('subscription terms line present', /data-testid="subscription-terms"/.test(lpc) && /renew automatically unless cancelled/.test(lpc));
-check('founder credibility line present', /data-testid="founder-credibility"/.test(lpc) && /PaceMakers Business Consultants/.test(lpc) && /12\+ years/.test(lpc));
+// Editable model: the band still renders, but the text is a prop driven by the
+// Plan Builder setting (cms_content), NOT hardcoded in the component.
+check('founder credibility band renders from prop (editable, not hardcoded)',
+  /data-testid="founder-credibility"/.test(lpc) && /\{credibilityLine\}/.test(lpc) && !/PaceMakers Business Consultants/.test(lpc));
+check('band hidden when the value is blank (no broken band)', /credibilityLine\.trim\(\) !== ''/.test(lpc));
+check('default credibility text says Platform (not product) + Ahmad Din + 12+ years',
+  /A PaceMakers Business Consultants Platform\./.test(settings) && /Ahmad Din/.test(settings) && /12\+ years/.test(settings) && !/product of PaceMakers/i.test(settings));
 const founderBlock = lpc.slice(lpc.indexOf('data-testid="founder-credibility"'), lpc.indexOf('data-testid="founder-credibility"') + 420);
-check('founder line has no customer/geography trust claims', !/customers|clients|countries|trusted by|\bworldwide\b/i.test(founderBlock));
+check('founder band has no customer/geography trust claims', !/customers|clients|countries|trusted by|\bworldwide\b/i.test(founderBlock));
+// Plan Builder owns the editable setting; in-app page renders the same band.
+check('Plan Builder has the editable credibility field + save', /data-testid="pricing-credibility-input"/.test(adminPlans) && /data-testid="save-credibility"/.test(adminPlans));
+check('in-app pricing page renders the same credibility band from data', /data-testid="founder-credibility"/.test(inapp) && /\{credibilityLine\}/.test(inapp));
 
 console.log('=== Coming Soon modules kept (nothing hidden) ===');
 check('comparison still renders every ordered feature (no module hiding)', /ordered\.forEach\(/.test(lpc) && !/filter\([^)]*coming_soon/.test(lpc));

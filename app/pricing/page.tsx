@@ -99,7 +99,7 @@ export default async function PricingPage() {
             <p style={{ fontSize: 16 }}>Pricing plans coming soon. Check back shortly.</p>
           </div>
         ) : (
-          <LivePlanCards plans={livePlans} features={liveFeatures} coverage={liveCoverage} trialDays={trialDays} />
+          <LivePlanCards plans={livePlans} features={liveFeatures} coverage={liveCoverage} trialDays={trialDays} credibilityLine={pricing.credibilityLine} />
         )}
 
         <CouponInput />

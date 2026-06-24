@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   // Same single pricing source as the public marketing page.
   const catalog = await loadPricingCatalog(sb, platform);
   if (!catalog.migrationApplied) {
-    return NextResponse.json({ migrationApplied: false, plans: [], features: [], coverage: [] }, { status: 200 });
+    return NextResponse.json({ migrationApplied: false, plans: [], features: [], coverage: [], credibilityLine: catalog.credibilityLine }, { status: 200 });
   }
 
   // Hidden non-module features are excluded from customer-facing surfaces.
@@ -43,5 +43,6 @@ export async function GET(req: NextRequest) {
     features: visibleForCustomers(catalog.features),
     coverage: catalog.coverage,
     trialDays: catalog.trialDays,
+    credibilityLine: catalog.credibilityLine,
   });
 }

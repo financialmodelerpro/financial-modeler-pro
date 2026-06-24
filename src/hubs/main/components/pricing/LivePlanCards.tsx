@@ -68,8 +68,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function LivePlanCards({
-  plans, features, coverage, trialDays = 0,
-}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number }) {
+  plans, features, coverage, trialDays = 0, credibilityLine = '',
+}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number; credibilityLine?: string }) {
   const [interval, setInterval] = useState<BillingInterval>('monthly');
 
   const cov = new Map<string, LiveCoverage>();
@@ -229,12 +229,15 @@ export default function LivePlanCards({
         </p>
       </div>
 
-      {/* Founder credibility band: a true experience statement only. */}
-      <div data-testid="founder-credibility" style={{ maxWidth: 720, margin: '20px auto 0', padding: '13px 20px', background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 12, textAlign: 'center' }}>
-        <span style={{ fontSize: 13, color: NAVY, fontWeight: 600, lineHeight: 1.6 }}>
-          Built by <b>PaceMakers Business Consultants</b>, 12+ years of corporate finance and transaction advisory experience.
-        </span>
-      </div>
+      {/* Founder credibility band: editable in the Plan Builder (pricing-page
+          setting). Blank value renders nothing (no broken band). */}
+      {credibilityLine.trim() !== '' && (
+        <div data-testid="founder-credibility" style={{ maxWidth: 720, margin: '20px auto 0', padding: '13px 20px', background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 12, textAlign: 'center' }}>
+          <span style={{ fontSize: 13, color: NAVY, fontWeight: 600, lineHeight: 1.6 }}>
+            {credibilityLine}
+          </span>
+        </div>
+      )}
 
       {/* ── Comparison: same grid template + min width, so columns stay aligned under their cards ── */}
       <div style={{ marginTop: 56 }}>

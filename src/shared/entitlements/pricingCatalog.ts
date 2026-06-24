@@ -15,10 +15,35 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadMergedFeatures, type MergedFeatureRow } from './serverCatalog';
 import { visibleForCustomers, trialDaysFromPlans } from './pricingDisplay';
 import { DEFAULT_TRIAL_DAYS } from './trialConfig';
+import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from './pricingPageSettings';
 
 // Re-export so existing server callers (marketing page, refm/pricing) keep
 // importing it from pricingCatalog. Pure impl lives in pricingDisplay.
 export { visibleForCustomers };
+
+// ── Pricing-page credibility band (editable in the Plan Builder) ─────────────
+// Stored as a single cms_content row so it can be changed anytime without code.
+// Keys + default live in pricingPageSettings (pure, also imported by the admin
+// client). When NO row exists the page shows the default; when the row is
+// present but blank, the band renders nothing (admin cleared it).
+export { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE };
+
+/** Read the pricing-page credibility line (cms_content). Row absent -> default;
+ *  row present (even blank) -> verbatim, so an admin can blank the band. */
+export async function loadCredibilityLine(sb: SupabaseClient): Promise<string> {
+  try {
+    const { data } = await sb
+      .from('cms_content')
+      .select('value')
+      .eq('section', CREDIBILITY_SECTION)
+      .eq('key', CREDIBILITY_KEY)
+      .maybeSingle();
+    if (!data) return DEFAULT_CREDIBILITY_LINE;
+    return (data as { value: string | null }).value ?? '';
+  } catch {
+    return DEFAULT_CREDIBILITY_LINE;
+  }
+}
 
 export interface PricingPlan {
   id: string;
@@ -51,12 +76,17 @@ export interface PricingCatalog {
   coverage: PricingCoverage[];
   /** The single-source trial length (Trial plan trial_days, fallback default). */
   trialDays: number;
+  /** Pricing-page credibility band text (cms_content; blank = render nothing). */
+  credibilityLine: string;
 }
 
 export async function loadPricingCatalog(sb: SupabaseClient, platform: string): Promise<PricingCatalog> {
-  const catalog = await loadMergedFeatures(sb, platform);
+  const [catalog, credibilityLine] = await Promise.all([
+    loadMergedFeatures(sb, platform),
+    loadCredibilityLine(sb),
+  ]);
   if (!catalog.migrationApplied) {
-    return { migrationApplied: false, plans: [], features: [], coverage: [], trialDays: DEFAULT_TRIAL_DAYS };
+    return { migrationApplied: false, plans: [], features: [], coverage: [], trialDays: DEFAULT_TRIAL_DAYS, credibilityLine };
   }
 
   // Active plans with prices + popular/badge + trial_days (mig 162/163/165
@@ -92,5 +122,6 @@ export async function loadPricingCatalog(sb: SupabaseClient, platform: string): 
     features: catalog.features,
     coverage: (coverage ?? []) as PricingCoverage[],
     trialDays,
+    credibilityLine,
   };
 }

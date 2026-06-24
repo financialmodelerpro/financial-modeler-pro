@@ -18,6 +18,7 @@ import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from './PlanMatrix';
 import { CouponManager } from './CouponManager';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
+import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from '@/src/shared/entitlements/pricingPageSettings';
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 const cellKey = (planKey: string, featureKey: string) => `${planKey}::${featureKey}`;
@@ -36,6 +37,10 @@ export default function AdminPlansPage() {
   const [newKey, setNewKey] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [previewPlan, setPreviewPlan] = useState<string | null>(null);
+  // Pricing-page credibility band (cms_content row, editable here). Row absent
+  // -> show the default in the field; row present (even blank) -> show verbatim.
+  const [credibilityLine, setCredibilityLine] = useState('');
+  const [savingCred, setSavingCred] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -64,6 +69,38 @@ export default function AdminPlansPage() {
   }, [platform, showToast]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Load the current pricing-page credibility line (cms_content). If no row is
+  // stored yet, prefill the default so the admin sees what the page renders.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/admin/content?section=${encodeURIComponent(CREDIBILITY_SECTION)}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled) return;
+        const rows = (res.rows ?? []) as { key: string; value: string | null }[];
+        const row = rows.find((r) => r.key === CREDIBILITY_KEY);
+        setCredibilityLine(row ? (row.value ?? '') : DEFAULT_CREDIBILITY_LINE);
+      })
+      .catch(() => { if (!cancelled) setCredibilityLine(DEFAULT_CREDIBILITY_LINE); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveCredibility = useCallback(async () => {
+    setSavingCred(true);
+    try {
+      const res = await fetch('/api/admin/content', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: CREDIBILITY_SECTION, key: CREDIBILITY_KEY, value: credibilityLine }),
+      }).then((r) => r.json());
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast('Credibility line saved', 'success');
+    } catch {
+      showToast('Save failed', 'error');
+    } finally {
+      setSavingCred(false);
+    }
+  }, [credibilityLine, showToast]);
 
   const featureType = useMemo(() => {
     const m = new Map<string, MatrixFeature>();
@@ -217,6 +254,34 @@ export default function AdminPlansPage() {
         <p style={{ color: '#64748b', fontSize: 13, marginTop: 0, marginBottom: 20, maxWidth: 880 }}>
           Assign features to each plan by checkbox (gate features) or cap (limit features), and set each plan&apos;s price. This screen owns the live plan end to end: features, limits, and price (entitlement_plans + plan_permissions). The separate Marketing Pricing editor only feeds the public marketing page. Saving here does not change the live gate.
         </p>
+
+        {/* Pricing page settings: the founder credibility band shown on both the
+            public and in-app pricing pages. Stored as a cms_content row, so it is
+            editable anytime without code. Blank = the band is hidden. */}
+        <div data-testid="pricing-page-settings" style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginBottom: 20, maxWidth: 880 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 4 }}>Pricing page credibility line</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+            Shown in the gold band on the public and in-app pricing pages. Leave blank to hide the band entirely.
+          </div>
+          <textarea
+            data-testid="pricing-credibility-input"
+            value={credibilityLine}
+            onChange={(e) => setCredibilityLine(e.target.value)}
+            rows={2}
+            placeholder={DEFAULT_CREDIBILITY_LINE}
+            style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <button onClick={saveCredibility} disabled={savingCred} data-testid="save-credibility"
+              style={{ padding: '7px 16px', borderRadius: 6, border: 'none', cursor: savingCred ? 'default' : 'pointer', fontWeight: 700, fontSize: 13, color: '#fff', background: savingCred ? '#9CA3AF' : '#2EAA4A' }}>
+              {savingCred ? 'Saving...' : 'Save credibility line'}
+            </button>
+            <button onClick={() => setCredibilityLine(DEFAULT_CREDIBILITY_LINE)} data-testid="reset-credibility"
+              style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12.5, color: '#475569' }}>
+              Reset to default
+            </button>
+          </div>
+        </div>
 
         {!migrationApplied && (
           <div style={{ padding: 14, borderRadius: 8, background: '#fef3c7', color: '#92400e', fontSize: 13, marginBottom: 20, border: '1px solid #fde68a' }}>

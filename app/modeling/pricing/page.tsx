@@ -49,6 +49,7 @@ export default function RefmPricingPage() {
   const [checkoutPlan, setCheckoutPlan] = useState<PricePlan | null>(null);
   const [checkoutMsg, setCheckoutMsg] = useState<string | null>(null);
   const [trialDays, setTrialDays] = useState(0);
+  const [credibilityLine, setCredibilityLine] = useState('');
 
   useEffect(() => {
     fetch('/api/refm/pricing', { credentials: 'same-origin' })
@@ -60,6 +61,7 @@ export default function RefmPricingPage() {
         setFeatures(j.features ?? []);
         setCoverage(j.coverage ?? []);
         setTrialDays(j.trialDays ?? 0);
+        setCredibilityLine(j.credibilityLine ?? '');
       })
       .catch(() => setAuthed(true))
       .finally(() => setLoading(false));
@@ -179,6 +181,14 @@ export default function RefmPricingPage() {
           <div data-testid="pricing-trial-strip" style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
             <div style={{ fontSize: 13, color: '#475569' }}><b style={{ color: '#0D2E5A' }}>Just exploring?</b> Start a free {trialDays}-day {trialPlan.label} to try the core modules. No card required.</div>
             <a href="/signin" style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', border: '1px solid #0D2E5A', borderRadius: 8, padding: '8px 16px', textDecoration: 'none' }} data-testid="pricing-trial-cta">Request {trialPlan.label} access</a>
+          </div>
+        )}
+
+        {/* Founder credibility band: same editable pricing-page setting as the
+            public page (Plan Builder). Blank value renders nothing. */}
+        {credibilityLine.trim() !== '' && (
+          <div data-testid="founder-credibility" style={{ maxWidth: 720, margin: '0 auto 28px', padding: '13px 20px', background: '#FDF6E3', border: '1px solid #C9A84C', borderRadius: 12, textAlign: 'center' }}>
+            <span style={{ fontSize: 13, color: '#0D2E5A', fontWeight: 600, lineHeight: 1.6 }}>{credibilityLine}</span>
           </div>
         )}
 
