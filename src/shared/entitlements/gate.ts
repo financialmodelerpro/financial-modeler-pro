@@ -47,6 +47,17 @@ export function isNonePlan(k: string): boolean {
   return k === NONE_PLAN_KEY;
 }
 
+/**
+ * Whether a user must be blocked from the workspace and sent to get-access
+ * (choose-plan). True only for a non-admin on the deliberate 'none' state. Admin
+ * always bypasses; a real plan or the unknown-plan safety net passes. This is
+ * the single decision the /refm server gate and the dashboard cards both use, so
+ * direct-URL access and card routing agree. Pure + testable.
+ */
+export function isNoPlanLockedOut(planKey: string, isAdmin: boolean): boolean {
+  return !isAdmin && isNonePlan(planKey);
+}
+
 /** The limit feature key the project cap is driven by. */
 export const PROJECTS_FEATURE = 'projects';
 

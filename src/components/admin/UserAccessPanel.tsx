@@ -26,7 +26,7 @@ import {
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 
-interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null }
+interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null }
 interface FeatureRow extends ResolveFeature { build_status?: string }
 
 interface EditState { mode: '' | 'grant' | 'revoke'; valueStr: string; unlimited: boolean; expires: string; reason: string }
@@ -365,6 +365,8 @@ export function UserAccessPanel({ userId }: { userId: string }) {
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="user-card">
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>{user.email}</div>
               <div style={{ fontSize: 12, color: '#475569', marginBottom: 2 }}>{user.name ?? 'No name'}</div>
+              <div style={{ fontSize: 12, color: '#475569' }} data-testid="user-company">Company: <b style={{ color: '#0f172a' }}>{user.company || 'n/a'}</b></div>
+              <div style={{ fontSize: 12, color: '#475569' }} data-testid="user-job-title">Title: <b style={{ color: '#0f172a' }}>{user.job_title || 'n/a'}</b></div>
               <div style={{ fontSize: 12, color: '#475569' }}>Plan: <b style={{ color: '#0f172a' }}>{user.subscription_plan}</b></div>
               <div style={{ fontSize: 12, color: '#475569' }}>Status: <b style={{ color: '#0f172a' }}>{user.subscription_status}</b></div>
               <div style={{ fontSize: 12, color: '#475569' }}>Trial ends: <b style={{ color: '#0f172a' }} data-testid="trial-ends">{user.trial_ends_at ? new Date(user.trial_ends_at).toLocaleDateString() : 'n/a'}</b></div>

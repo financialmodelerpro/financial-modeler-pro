@@ -5,12 +5,13 @@
 // App Router rejects named function exports from page modules). This standalone
 // page shows only the signup form - no tab switcher needed.
 
-import React, { useState, useRef, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { PhoneInput } from '@/src/shared/components/PhoneInput';
 import { PreLaunchBanner } from '@/src/shared/components/PreLaunchBanner';
+import { parsePlanIntent, savePlanIntent } from '@/src/hubs/modeling/lib/planIntent';
 
 interface RegisterFormProps {
   /** True while the Modeling Hub is in Coming Soon mode. */
@@ -45,12 +46,23 @@ const labelStyle: React.CSSProperties = {
 function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProps) {
   const router = useRouter();
 
+  const searchParams = useSearchParams();
+
   const [name,       setName]       = useState('');
   const [email,      setEmail]      = useState(invitedEmail ?? '');
+  const [company,    setCompany]    = useState('');
+  const [jobTitle,   setJobTitle]   = useState('');
   const [phoneCode,  setPhoneCode]  = useState('+1');
   const [phoneLocal, setPhoneLocal] = useState('');
   const [city,       setCity]       = useState('');
   const [country,    setCountry]    = useState('');
+
+  // Remember a plan chosen on the (logged-out) pricing page so the action
+  // resumes after the user signs in. No dead ends for a logged-out click.
+  useEffect(() => {
+    const intent = parsePlanIntent(searchParams);
+    if (intent) savePlanIntent(intent);
+  }, [searchParams]);
   const [password,   setPassword]   = useState('');
   const [confirm,    setConfirm]    = useState('');
   const [newsletterOptIn, setNewsletterOptIn] = useState(true);
@@ -66,6 +78,8 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim())         { setError('Full name is required.');       return; }
+    if (!company.trim())      { setError('Company / organization is required.'); return; }
+    if (!jobTitle.trim())     { setError('Job title is required.');        return; }
     if (password !== confirm) { setError('Passwords do not match.');       return; }
     if (!captchaToken)        { setError('Please complete the captcha.'); return; }
 
@@ -78,6 +92,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         name, email, password,
+        company, job_title: jobTitle,
         phone: phoneCode + phoneLocal,
         city, country, captchaToken,
       }),
@@ -128,7 +143,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                 Create Your Account
               </h1>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', margin: 0 }}>
-                Join Financial Modeler Pro · Free plan included
+                Join Financial Modeler Pro · Choose a plan or start a free trial after sign-up
               </p>
             </div>
 
@@ -184,11 +199,32 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                     onFocus={e => { if (!invitedEmail) e.currentTarget.style.borderColor = BLUE; }}
                     onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
                   />
-                  {invitedEmail && (
+                  {invitedEmail ? (
                     <div style={{ marginTop: 4, fontSize: 11, color: '#6B7280' }}>
                       This invite link is tied to <strong>{invitedEmail}</strong>. Ask the admin for a new link if you need a different address.
                     </div>
+                  ) : (
+                    <div data-testid="company-email-hint" style={{ marginTop: 4, fontSize: 11, color: '#6B7280' }}>
+                      Tip: use your company email for trial eligibility.
+                    </div>
                   )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
+                  <div>
+                    <label style={labelStyle}>COMPANY / ORGANIZATION <span style={{ color: '#DC2626' }}>*</span></label>
+                    <input type="text" required value={company} onChange={e => setCompany(e.target.value)}
+                      placeholder="Acme Capital" style={inputStyle} data-testid="register-company"
+                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>JOB TITLE <span style={{ color: '#DC2626' }}>*</span></label>
+                    <input type="text" required value={jobTitle} onChange={e => setJobTitle(e.target.value)}
+                      placeholder="Investment Analyst" style={inputStyle} data-testid="register-job-title"
+                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                  </div>
                 </div>
 
                 <div>
@@ -296,7 +332,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                 </button>
 
                 <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', margin: 0 }}>
-                  Free plan · 3 projects included · No credit card required
+                  Free trial available · No credit card required
                 </p>
               </form>
             </div>

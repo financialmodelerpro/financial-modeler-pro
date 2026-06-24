@@ -51,6 +51,11 @@ const MUTED = '#64748b';
 const LINE = '#E8EDF4';
 const GREEN = '#16A34A';
 
+// The app subdomain hosts register + the in-app checkout/trial. A logged-out
+// pricing click hands the chosen plan + interval + intent to /register, which
+// persists it and resumes the action after the user is signed in (no dead ends).
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
+
 // ── Shared column geometry (drives BOTH the cards and the comparison) ────────
 // Wide enough that the longest feature names (e.g. "Module 8: Collaborate" with
 // a Coming-soon tag) sit on ONE line with no wrap. Used by every row, so cards
@@ -171,7 +176,7 @@ export default function LivePlanCards({
                       </div>
                       <div style={{ fontSize: 12.5, color: GOLD_DARK, fontWeight: 700, marginTop: 6 }}>No credit card required</div>
                       <div style={{ height: 1, background: LINE, margin: '20px 0' }} />
-                      <Link href="/register" aria-label={`Start a free ${trialDays}-day trial`}
+                      <Link href={`${APP_URL}/register?plan=trial&interval=${interval}&intent=trial`} data-testid="pricing-trial-cta" aria-label={`Start a free ${trialDays}-day trial`}
                         style={{
                           display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 'auto', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5,
                           background: GOLD_LIGHT, color: GOLD_DARK, border: `1.5px solid ${GOLD}`,
@@ -197,7 +202,7 @@ export default function LivePlanCards({
                           // Self-checkout primary (same /register handoff as the
                           // other paid cards). In dual mode, also a Contact sales link.
                           <>
-                            <Link href="/register" data-testid={`pricing-checkout-${p.plan_key}`} aria-label={`Choose the ${p.label} plan`}
+                            <Link href={`${APP_URL}/register?plan=${p.plan_key}&interval=${interval}&intent=checkout`} data-testid={`pricing-checkout-${p.plan_key}`} aria-label={`Choose the ${p.label} plan`}
                               style={{ display: 'block', textAlign: 'center', textDecoration: 'none', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5, background: featured ? GOLD : '#fff', color: NAVY, border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`, boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none' }}>
                               Choose {p.label}
                             </Link>

@@ -121,10 +121,15 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settings',     icon: '⚙️', label: 'Settings', href: '/settings' },
 ];
 
-function PlatformCard({ platform, theme }: { platform: Platform; theme: Theme }) {
+function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: Theme; noPlan: boolean }) {
   const [hovered, setHovered] = useState(false);
   const route  = PLATFORM_ROUTES[platform.slug];
   const isLive = platform.status === 'live';
+  // A no-plan (non-admin) user does not enter the locked tool: the card routes
+  // them to get-access (choose-plan). Entitled users open the workspace. The
+  // /refm server gate enforces this independently of the card.
+  const entryHref  = noPlan ? '/modeling/choose-plan' : route;
+  const entryLabel = noPlan ? 'Get access →' : 'Open Platform →';
 
   return (
     <div
@@ -179,9 +184,10 @@ function PlatformCard({ platform, theme }: { platform: Platform; theme: Theme })
         {platform.tagline}
       </p>
 
-      {isLive && route ? (
+      {isLive && entryHref ? (
         <a
-          href={route}
+          href={entryHref}
+          data-testid={`platform-open-${platform.slug}`}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: platform.color, color: '#fff',
@@ -190,7 +196,7 @@ function PlatformCard({ platform, theme }: { platform: Platform; theme: Theme })
             transition: 'opacity 0.15s',
           }}
         >
-          Open Platform →
+          {entryLabel}
         </a>
       ) : (
         <div style={{
@@ -271,11 +277,6 @@ export default function ModelingDashboardPage() {
     }
   }, [status, router]);
 
-  // Route a no-plan (none) user to the choose-a-plan screen.
-  useEffect(() => {
-    if (noPlan) router.replace('/modeling/choose-plan');
-  }, [noPlan, router]);
-
   // Fetch platform catalog from DB. Replaces the previous static
   // `PLATFORMS` import so admin edits via /admin/platform-modules are
   // reflected on the dashboard immediately.
@@ -333,16 +334,6 @@ export default function ModelingDashboardPage() {
   }
 
   if (!session?.user) return null;
-
-  // No-plan user: the effect above redirects to /modeling/choose-plan. Render a
-  // placeholder (not the platform picker) while the redirect happens.
-  if (noPlan) {
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: theme.sidebarBg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Redirecting…</div>
-      </div>
-    );
-  }
 
   const user = session.user;
   const userName = user.name ?? user.email ?? 'User';
@@ -598,14 +589,27 @@ export default function ModelingDashboardPage() {
           className="mh-main"
           style={{ flex: 1, padding: '32px 32px 60px', overflowY: 'auto', minWidth: 0 }}
         >
-          <div style={{ marginBottom: 36 }}>
+          <div style={{ marginBottom: noPlan ? 20 : 36 }}>
             <h1 style={{ fontSize: 26, fontWeight: 800, color: theme.heading, margin: '0 0 6px' }}>
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
             </h1>
             <p style={{ fontSize: 13.5, color: theme.muted, margin: 0, lineHeight: 1.6 }}>
-              Select a platform to open your modeling workspace.
+              {noPlan ? 'Choose a plan to unlock the modeling platforms.' : 'Select a platform to open your modeling workspace.'}
             </p>
           </div>
+
+          {/* No-plan banner: the storefront shows the platforms, but entering one
+              routes to get-access (the cards + the /refm server gate enforce it). */}
+          {noPlan && (
+            <div data-testid="dashboard-no-plan-banner" style={{ marginBottom: 28, padding: '14px 18px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
+                You do not have an active plan yet. Choose a plan or start a free trial to unlock the platforms.
+              </span>
+              <a href="/modeling/choose-plan" data-testid="dashboard-get-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                Get access →
+              </a>
+            </div>
+          )}
 
           {platformsLoading && (
             <section style={{ marginBottom: 40 }}>
@@ -642,7 +646,7 @@ export default function ModelingDashboardPage() {
                 className="mh-grid"
                 style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
               >
-                {livePlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} />)}
+                {livePlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} noPlan={noPlan} />)}
               </div>
             </section>
           )}
@@ -659,7 +663,7 @@ export default function ModelingDashboardPage() {
                 className="mh-grid"
                 style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
               >
-                {comingPlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} />)}
+                {comingPlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} noPlan={noPlan} />)}
               </div>
             </section>
           )}

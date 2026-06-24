@@ -27,18 +27,21 @@ export async function GET(req: NextRequest) {
     const role   = searchParams.get('role')   ?? '';
 
     const sb = getServerClient();
-    let q = sb
-      .from('users')
-      .select(
-        'id, email, name, role, subscription_plan, subscription_status, created_at, projects(count)',
-        { count: 'exact' },
-      );
+    // company / job_title are mig 172. Select them when present; fall back to the
+    // base columns if the migration is not applied yet (never break the list).
+    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, projects(count)';
+    const runQuery = async (cols: string) => {
+      let q = sb.from('users').select(cols, { count: 'exact' });
+      if (search) q = q.ilike('email', `%${search}%`);
+      if (role && role !== 'all') q = q.eq('role', role);
+      q = q.order('created_at', { ascending: false }).range(page * size, (page + 1) * size - 1);
+      return q;
+    };
 
-    if (search) q = q.ilike('email', `%${search}%`);
-    if (role && role !== 'all') q = q.eq('role', role);
-    q = q.order('created_at', { ascending: false }).range(page * size, (page + 1) * size - 1);
-
-    const { data, count, error: dbError } = await q;
+    let { data, count, error: dbError } = await runQuery(`${BASE}, company, job_title`);
+    if (dbError && /company|job_title/.test(dbError.message)) {
+      ({ data, count, error: dbError } = await runQuery(BASE));
+    }
     if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
     return NextResponse.json({ users: data ?? [], total: count ?? 0 });

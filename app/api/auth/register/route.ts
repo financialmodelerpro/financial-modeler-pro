@@ -14,6 +14,8 @@ export async function POST(req: NextRequest) {
     email?: string;
     name?: string;
     password?: string;
+    company?: string;
+    job_title?: string;
     phone?: string;
     city?: string;
     country?: string;
@@ -73,28 +75,37 @@ export async function POST(req: NextRequest) {
 
   const password_hash = await hashPassword(body.password as string);
 
-  const { error: insertErr } = await serverClient
-    .from('users')
-    .insert({
-      email,
-      name:                body.name.trim(),
-      password_hash,
-      phone:               body.phone?.trim() || null,
-      city:                body.city?.trim()  || null,
-      country:             body.country?.trim() || null,
-      role:                'user',
-      // No-access by default: a new registration gets the 'none' plan (zero
-      // entitlements). Access comes only from an approved trial or a purchase
-      // (a plan change via setUserPlan). subscription_status uses an allowed
-      // value ('expired' = no active subscription); gating is plan-driven, so
-      // the status is cosmetic for a none user. Not 'trial' (trial is gated and
-      // approved via /admin/access), not 'free' (which would hit the
-      // access-preserving safety net and wrongly grant access).
-      subscription_plan:   'none',
-      subscription_status: 'expired',
-      projects_limit:      0,
-      email_confirmed:     false,
-    });
+  // Base row. No-access by default: a new registration gets the 'none' plan
+  // (zero entitlements). Access comes only from an approved trial or a purchase
+  // (a plan change via setUserPlan). subscription_status uses an allowed value
+  // ('expired' = no active subscription); gating is plan-driven, so the status
+  // is cosmetic for a none user. Not 'trial' (trial is gated), not 'free'
+  // (which would hit the access-preserving safety net and wrongly grant access).
+  const baseRow = {
+    email,
+    name:                body.name.trim(),
+    password_hash,
+    phone:               body.phone?.trim() || null,
+    city:                body.city?.trim()  || null,
+    country:             body.country?.trim() || null,
+    role:                'user',
+    subscription_plan:   'none',
+    subscription_status: 'expired',
+    projects_limit:      0,
+    email_confirmed:     false,
+  };
+  // Company / Job Title (mig 172). Schema-tolerant: if the columns are not yet
+  // applied, retry without them so registration never breaks pre-migration.
+  const withProfile = {
+    ...baseRow,
+    company:   body.company?.trim()   || null,
+    job_title: body.job_title?.trim() || null,
+  };
+
+  let insertErr = (await serverClient.from('users').insert(withProfile)).error;
+  if (insertErr && /company|job_title/.test(insertErr.message)) {
+    insertErr = (await serverClient.from('users').insert(baseRow)).error;
+  }
 
   if (insertErr) {
     return NextResponse.json({ error: insertErr.message }, { status: 500 });

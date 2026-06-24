@@ -14,9 +14,11 @@
  * order) plus the non-module features. Plan select is a CHECKOUT STUB only
  * (no payment provider approved yet) -- it is clearly a placeholder.
  */
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { formatPlanPrice, comparisonCellText, planCardMode, type BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
 import { FeatureInfoLabel } from '@/src/shared/components/pricing/FeatureInfoLabel';
+import { parsePlanIntent, readPlanIntent, clearPlanIntent } from '@/src/hubs/modeling/lib/planIntent';
 
 interface PricePlan {
   id: string; plan_key: string; label: string; display_order: number; active: boolean;
@@ -38,7 +40,7 @@ const MODULE_TAG: Record<string, { label: string; bg: string; fg: string }> = {
 
 const priceText = formatPlanPrice;
 
-export default function RefmPricingPage() {
+function RefmPricingInner() {
   const [loading, setLoading] = useState(true);
   const [authed, setAuthed] = useState(true);
   const [migrationApplied, setMigrationApplied] = useState(true);
@@ -50,6 +52,9 @@ export default function RefmPricingPage() {
   const [checkoutMsg, setCheckoutMsg] = useState<string | null>(null);
   const [trialDays, setTrialDays] = useState(0);
   const [credibilityLine, setCredibilityLine] = useState('');
+  const [trialMsg, setTrialMsg] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const resumedRef = useRef(false);
 
   useEffect(() => {
     fetch('/api/refm/pricing', { credentials: 'same-origin' })
@@ -106,6 +111,35 @@ export default function RefmPricingPage() {
       })
       .catch(() => setCheckoutMsg('Online payment is not enabled yet. No charge has been made.'));
   }, [interval]);
+
+  // Start free trial (self-serve grant or admin-approval request, server-driven
+  // via /api/refm/trial which reuses setUserPlan). Granted -> into the platform.
+  const startTrial = useCallback(async () => {
+    setTrialMsg('Starting your free trial...');
+    try {
+      const res = await fetch('/api/refm/trial', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
+      if (res.status === 'granted') { window.location.href = '/refm'; return; }
+      if (res.status === 'requested') { setTrialMsg('Your free trial request has been submitted. An admin will review it shortly.'); return; }
+      setTrialMsg(res.error ? `Could not start the trial: ${res.error}` : 'Could not start the trial. Please try again.');
+    } catch {
+      setTrialMsg('Could not start the trial. Please try again.');
+    }
+  }, []);
+
+  // Resume a remembered plan choice (logged-out pricing click). Once plans are
+  // loaded, run the matching action ONCE: trial -> startTrial, checkout -> the
+  // Paddle flow for the chosen plan. Then clear the saved intent.
+  useEffect(() => {
+    if (resumedRef.current || loading || plans.length === 0) return;
+    const intent = parsePlanIntent(searchParams) ?? readPlanIntent();
+    if (!intent) return;
+    resumedRef.current = true;
+    clearPlanIntent();
+    if (intent.interval === 'annual' || intent.interval === 'monthly') setInterval(intent.interval);
+    if (intent.intent === 'trial' || intent.plan === 'trial') { void startTrial(); return; }
+    const target = plans.find((p) => p.plan_key === intent.plan && p.plan_key !== 'trial');
+    if (target) startCheckout(target);
+  }, [loading, plans, searchParams, startTrial, startCheckout]);
 
   const cov = useMemo(() => {
     const m = new Map<string, Coverage>();
@@ -196,12 +230,15 @@ export default function RefmPricingPage() {
           })}
         </div>
 
-        {/* Trial = request-access path, not a paid card */}
+        {/* Trial = self-serve (or admin-approval) action, not a paid card */}
         {trialPlan && (
-          <div data-testid="pricing-trial-strip" style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
+          <div data-testid="pricing-trial-strip" style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: trialMsg ? 10 : 32 }}>
             <div style={{ fontSize: 13, color: '#475569' }}><b style={{ color: '#0D2E5A' }}>Just exploring?</b> Start a free {trialDays}-day {trialPlan.label} to try the core modules. No card required.</div>
-            <a href="/signin" style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', border: '1px solid #0D2E5A', borderRadius: 8, padding: '8px 16px', textDecoration: 'none' }} data-testid="pricing-trial-cta">Request {trialPlan.label} access</a>
+            <button onClick={startTrial} style={{ fontSize: 13, fontWeight: 700, color: '#fff', background: '#0D2E5A', border: '1px solid #0D2E5A', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit' }} data-testid="pricing-trial-cta">Start free trial</button>
           </div>
+        )}
+        {trialMsg && (
+          <div data-testid="pricing-trial-message" style={{ fontSize: 13, color: '#0D2E5A', background: '#FDF6E3', border: '1px solid #C9A84C', borderRadius: 10, padding: '10px 14px', marginBottom: 32 }}>{trialMsg}</div>
         )}
 
         {/* Founder credibility band: same editable pricing-page setting as the
@@ -286,5 +323,15 @@ export default function RefmPricingPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// useSearchParams (resume-after-login) requires a Suspense boundary at the
+// route level for static prerender.
+export default function RefmPricingPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40, fontFamily: 'Inter, sans-serif', color: '#64748b' }}>Loading pricing...</div>}>
+      <RefmPricingInner />
+    </Suspense>
   );
 }

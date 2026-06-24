@@ -41,6 +41,11 @@ export default function AdminPlansPage() {
   // -> show the default in the field; row present (even blank) -> show verbatim.
   const [credibilityLine, setCredibilityLine] = useState('');
   const [savingCred, setSavingCred] = useState(false);
+  // Trial approval toggle (cms_content entitlements/trial_requires_approval) +
+  // the pending trial-request queue (only used when the toggle is on).
+  const [trialApproval, setTrialApproval] = useState(false);
+  const [savingApproval, setSavingApproval] = useState(false);
+  const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string } | null }[]>([]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -101,6 +106,60 @@ export default function AdminPlansPage() {
       setSavingCred(false);
     }
   }, [credibilityLine, showToast]);
+
+  // Trial approval toggle (cms_content entitlements/trial_requires_approval).
+  const loadTrialRequests = useCallback(() => {
+    fetch('/api/admin/trial-requests')
+      .then((r) => r.json())
+      .then((res) => setTrialRequests(res.requests ?? []))
+      .catch(() => setTrialRequests([]));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/content?section=entitlements')
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled) return;
+        const rows = (res.rows ?? []) as { key: string; value: string | null }[];
+        const row = rows.find((r) => r.key === 'trial_requires_approval');
+        setTrialApproval(row?.value === 'true');
+      })
+      .catch(() => { if (!cancelled) setTrialApproval(false); });
+    loadTrialRequests();
+    return () => { cancelled = true; };
+  }, [loadTrialRequests]);
+
+  const saveTrialApproval = useCallback(async (next: boolean) => {
+    setSavingApproval(true);
+    setTrialApproval(next); // optimistic
+    try {
+      const res = await fetch('/api/admin/content', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'entitlements', key: 'trial_requires_approval', value: next ? 'true' : 'false' }),
+      }).then((r) => r.json());
+      if (res.error) { showToast(res.error, 'error'); setTrialApproval(!next); return; }
+      showToast(next ? 'Trial now requires approval' : 'Trial is now self-serve', 'success');
+    } catch {
+      showToast('Save failed', 'error'); setTrialApproval(!next);
+    } finally {
+      setSavingApproval(false);
+    }
+  }, [showToast]);
+
+  const decideRequest = useCallback(async (id: string, action: 'approve' | 'decline') => {
+    try {
+      const res = await fetch('/api/admin/trial-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      }).then((r) => r.json());
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(action === 'approve' ? 'Trial approved' : 'Request declined', 'success');
+      loadTrialRequests();
+    } catch {
+      showToast('Action failed', 'error');
+    }
+  }, [showToast, loadTrialRequests]);
 
   const featureType = useMemo(() => {
     const m = new Map<string, MatrixFeature>();
@@ -280,6 +339,44 @@ export default function AdminPlansPage() {
               style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12.5, color: '#475569' }}>
               Reset to default
             </button>
+          </div>
+        </div>
+
+        {/* Trial access: the approval toggle + the pending request queue. Both
+            grant via the SHARED setUserPlan; OFF (default) is self-serve. */}
+        <div data-testid="trial-settings" style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginBottom: 20, maxWidth: 880 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 4 }}>Free trial access</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+            When OFF (default), clicking Start free trial grants the trial instantly. When ON, it creates a request you approve below.
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', cursor: 'pointer', fontWeight: 600 }}>
+            <input type="checkbox" data-testid="trial-approval-toggle" checked={trialApproval} disabled={savingApproval}
+              onChange={(e) => saveTrialApproval(e.target.checked)} />
+            Trial requires approval {trialApproval ? '(ON, admin approves)' : '(OFF, self-serve)'}
+          </label>
+
+          <div style={{ marginTop: 14, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 8 }} data-testid="trial-requests-heading">
+              Pending trial requests ({trialRequests.length})
+            </div>
+            {trialRequests.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>No pending requests.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {trialRequests.map((r) => (
+                  <div key={r.id} data-testid={`trial-request-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid #eef2f7', borderRadius: 7, padding: '8px 10px' }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{r.users?.email ?? r.id}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{[r.company, r.job_title].filter(Boolean).join(' - ') || 'no company/title on file'}</div>
+                    </div>
+                    <button onClick={() => decideRequest(r.id, 'approve')} data-testid={`trial-approve-${r.id}`}
+                      style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, color: '#fff', background: '#2EAA4A' }}>Approve</button>
+                    <button onClick={() => decideRequest(r.id, 'decline')} data-testid={`trial-decline-${r.id}`}
+                      style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 12, color: '#475569' }}>Decline</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

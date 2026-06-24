@@ -23,6 +23,7 @@ import {
   capCheck,
   isKnownPlanKey,
   isNonePlan,
+  isNoPlanLockedOut,
   NONE_PLAN_KEY,
   type GateInput,
 } from '../src/shared/entitlements/gate';
@@ -145,6 +146,14 @@ check('admin on none: fullAccess (admin bypass independent of plan)', adminNone.
 // A none user who is then moved to a real plan resolves that plan normally.
 const noneThenPro = computeGate(baseInput({ planKey: 'pro', knownPlan: true, planCells: PLAN.pro }));
 check('none -> pro (granted a plan): resolves pro access', featureAllowed(noneThenPro, 'excel_formula') && noneThenPro.projectLimit === 25);
+
+// Workspace lockout decision (the /refm server gate + dashboard cards both use it).
+console.log('\n=== Direct-URL / card gating (isNoPlanLockedOut) ===');
+check('none non-admin is locked out of the workspace', isNoPlanLockedOut('none', false) === true);
+check('admin on none is NOT locked out (bypass)', isNoPlanLockedOut('none', true) === false);
+check('real plan is NOT locked out', isNoPlanLockedOut('pro', false) === false && isNoPlanLockedOut('trial', false) === false);
+check('unknown plan is NOT locked out (safety net)', isNoPlanLockedOut('legacy_weird', false) === false);
+check('empty plan is NOT locked out (only explicit none)', isNoPlanLockedOut('', false) === false);
 
 // ── 3. Admin bypass everywhere.
 console.log('\n=== Admin bypass ===');

@@ -25,11 +25,14 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
   const sb = getServerClient();
 
-  const { data: user, error: uErr } = await sb
-    .from('users')
-    .select('id, email, name, role, subscription_plan, subscription_status, trial_ends_at')
-    .eq('id', userId)
-    .single();
+  // company / job_title are mig 172; select them when present, else fall back so
+  // the panel still loads pre-migration.
+  const USER_BASE = 'id, email, name, role, subscription_plan, subscription_status, trial_ends_at';
+  let { data: user, error: uErr } = await sb
+    .from('users').select(`${USER_BASE}, company, job_title`).eq('id', userId).single();
+  if (uErr && /company|job_title/.test(uErr.message)) {
+    ({ data: user, error: uErr } = await sb.from('users').select(USER_BASE).eq('id', userId).single());
+  }
   if (uErr || !user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   // Same merged module + catalog list the Plan Builder uses.
