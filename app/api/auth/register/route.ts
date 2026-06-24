@@ -83,9 +83,16 @@ export async function POST(req: NextRequest) {
       city:                body.city?.trim()  || null,
       country:             body.country?.trim() || null,
       role:                'user',
-      subscription_plan:   'free',
-      subscription_status: 'trial',
-      projects_limit:      3,
+      // No-access by default: a new registration gets the 'none' plan (zero
+      // entitlements). Access comes only from an approved trial or a purchase
+      // (a plan change via setUserPlan). subscription_status uses an allowed
+      // value ('expired' = no active subscription); gating is plan-driven, so
+      // the status is cosmetic for a none user. Not 'trial' (trial is gated and
+      // approved via /admin/access), not 'free' (which would hit the
+      // access-preserving safety net and wrongly grant access).
+      subscription_plan:   'none',
+      subscription_status: 'expired',
+      projects_limit:      0,
       email_confirmed:     false,
     });
 

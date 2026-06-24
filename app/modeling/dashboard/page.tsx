@@ -5,6 +5,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { Platform, PlatformStatus } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
+import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
+import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -207,6 +209,11 @@ function PlatformCard({ platform, theme }: { platform: Platform; theme: Theme })
 export default function ModelingDashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  // No-plan gate: a 'none' (no-access) user is routed to the choose-a-plan
+  // screen instead of the platform picker. Admins and any real/unknown plan
+  // continue here normally. The gate is server-authoritative (resolveUserGate).
+  const ent = useEntitlements();
+  const noPlan = ent.loaded && !ent.isAdmin && ent.planKey === NONE_PLAN_KEY;
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -264,6 +271,11 @@ export default function ModelingDashboardPage() {
     }
   }, [status, router]);
 
+  // Route a no-plan (none) user to the choose-a-plan screen.
+  useEffect(() => {
+    if (noPlan) router.replace('/modeling/choose-plan');
+  }, [noPlan, router]);
+
   // Fetch platform catalog from DB. Replaces the previous static
   // `PLATFORMS` import so admin edits via /admin/platform-modules are
   // reflected on the dashboard immediately.
@@ -309,7 +321,10 @@ export default function ModelingDashboardPage() {
 
   const theme = buildTheme(darkMode);
 
-  if (status === 'loading') {
+  // Hold the dashboard until both the session AND the entitlement gate are known,
+  // so a no-plan user is routed to choose-a-plan WITHOUT a flash of the platform
+  // picker. (An unauthenticated entitlements fetch resolves loaded=true quickly.)
+  if (status === 'loading' || (status === 'authenticated' && !ent.loaded)) {
     return (
       <div style={{ fontFamily: "'Inter', sans-serif", background: theme.sidebarBg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Loading…</div>
@@ -318,6 +333,16 @@ export default function ModelingDashboardPage() {
   }
 
   if (!session?.user) return null;
+
+  // No-plan user: the effect above redirects to /modeling/choose-plan. Render a
+  // placeholder (not the platform picker) while the redirect happens.
+  if (noPlan) {
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: theme.sidebarBg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Redirecting…</div>
+      </div>
+    );
+  }
 
   const user = session.user;
   const userName = user.name ?? user.email ?? 'User';

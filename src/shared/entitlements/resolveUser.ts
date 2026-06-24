@@ -26,6 +26,7 @@ import { loadMergedFeatures } from './serverCatalog';
 import {
   computeGate,
   isKnownPlanKey,
+  isNonePlan,
   type GateResult,
   type GateInput,
 } from './gate';
@@ -108,8 +109,10 @@ export async function resolveUserGate(
     const planKey = (user.subscription_plan as string) ?? '';
     const knownPlan = isKnownPlanKey(planKey);
 
-    // Safety net: never lock out an unknown plan. Log it for review.
-    if (!isAdmin && !knownPlan) {
+    // 'none' is the deliberate no-access state, NOT an unknown plan: do not warn
+    // and do not grant the safety-net access. computeGate denies it explicitly.
+    // Safety net: an unknown plan (neither known nor 'none') is never locked out.
+    if (!isAdmin && !knownPlan && !isNonePlan(planKey)) {
       console.warn('[entitlements] unknown plan key, granting access-preserving default', {
         userId, subscription_plan: planKey,
       });

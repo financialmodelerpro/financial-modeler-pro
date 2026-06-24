@@ -22,6 +22,8 @@ import {
   canAddActiveProject,
   capCheck,
   isKnownPlanKey,
+  isNonePlan,
+  NONE_PLAN_KEY,
   type GateInput,
 } from '../src/shared/entitlements/gate';
 import type { ResolveFeature, PlanCell, UserOverride } from '../src/shared/entitlements/resolveOverrides';
@@ -122,6 +124,27 @@ const unknownGate = computeGate(baseInput({ planKey: 'legacy_weird', knownPlan: 
 check('unknown plan: fullAccess granted (access-preserving)', unknownGate.fullAccess === true);
 check('unknown plan: every gate point allowed (no lockout)', GATE_POINTS.every((k) => featureAllowed(unknownGate, k)));
 check('unknown plan: projects unlimited', unknownGate.projectLimit === -1);
+
+// ── 2b. None state: deliberate NO-ACCESS, distinct from the unknown safety net.
+console.log('\n=== None state (deliberate no-access, distinct from unknown) ===');
+check('NONE_PLAN_KEY is "none"', NONE_PLAN_KEY === 'none');
+check('isNonePlan true for none, false for others', isNonePlan('none') && !isNonePlan('pro') && !isNonePlan('legacy_weird'));
+check('none is NOT a known (paid) plan key', !isKnownPlanKey('none'));
+const noneGate = computeGate(baseInput({ planKey: NONE_PLAN_KEY, knownPlan: false, planCells: new Map() }));
+check('none: NOT fullAccess (does not hit the safety net)', noneGate.fullAccess === false);
+check('none: every gate point DENIED (zero entitlements)', GATE_POINTS.every((k) => !featureAllowed(noneGate, k)));
+check('none: no projects, no archive', noneGate.projectLimit === 0 && noneGate.archiveAllowed === false);
+check('none vs unknown are DISTINCT: none denies, unknown grants', noneGate.fullAccess === false && unknownGate.fullAccess === true);
+// A none user must not gain access via an override (access requires a plan).
+const noneGrantOv: UserOverride[] = [{ feature_key: 'sensitivity', mode: 'grant', override_value: null, reason: 'beta', expires_at: null }];
+const noneWithGrant = computeGate(baseInput({ planKey: NONE_PLAN_KEY, knownPlan: false, planCells: new Map(), overrides: noneGrantOv }));
+check('none: an override does NOT leak access (still denied)', !featureAllowed(noneWithGrant, 'sensitivity'));
+// Admin on 'none' still bypasses (never locked out).
+const adminNone = computeGate(baseInput({ isAdmin: true, planKey: NONE_PLAN_KEY, knownPlan: false, planCells: new Map() }));
+check('admin on none: fullAccess (admin bypass independent of plan)', adminNone.fullAccess === true && GATE_POINTS.every((k) => featureAllowed(adminNone, k)));
+// A none user who is then moved to a real plan resolves that plan normally.
+const noneThenPro = computeGate(baseInput({ planKey: 'pro', knownPlan: true, planCells: PLAN.pro }));
+check('none -> pro (granted a plan): resolves pro access', featureAllowed(noneThenPro, 'excel_formula') && noneThenPro.projectLimit === 25);
 
 // ── 3. Admin bypass everywhere.
 console.log('\n=== Admin bypass ===');

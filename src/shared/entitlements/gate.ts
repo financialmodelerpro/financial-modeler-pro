@@ -34,6 +34,19 @@ export function isKnownPlanKey(k: string): k is KnownPlanKey {
   return (KNOWN_PLAN_KEYS as readonly string[]).includes(k);
 }
 
+/**
+ * The deliberate NO-ACCESS plan. A user on 'none' has zero entitlements (no
+ * modules, exports, scenarios, or projects). This is the signup default and is
+ * STRICTLY DIFFERENT from an unknown plan key: 'none' is intentional no-access,
+ * an unknown key is the anti-lockout safety net that PRESERVES access. The gate
+ * checks 'none' before the safety net so a none user can never fall through to
+ * access. Admin always bypasses, even on 'none'.
+ */
+export const NONE_PLAN_KEY = 'none';
+export function isNonePlan(k: string): boolean {
+  return k === NONE_PLAN_KEY;
+}
+
 /** The limit feature key the project cap is driven by. */
 export const PROJECTS_FEATURE = 'projects';
 
@@ -72,26 +85,50 @@ export interface GateResult {
 }
 
 /**
- * Compute the gate for one user. Admin and unknown-plan both grant full
- * access (the safety net never locks out). Otherwise resolve plan + overrides,
- * substituting an empty plan baseline when the trial has expired.
+ * A wholesale gate: every feature granted (or every feature denied). Used for
+ * the three non-plan-resolved outcomes: admin / unknown-plan (granted), and the
+ * deliberate 'none' no-access state (denied).
+ */
+function wholesaleGate(
+  features: readonly ResolveFeature[], granted: boolean, trialExpired: boolean,
+): GateResult {
+  const featureMap: Record<string, FeatureAccess> = {};
+  for (const f of features) {
+    featureMap[f.feature_key] = {
+      included: granted,
+      value: granted && f.feature_type === 'limit' ? -1 : null,
+      feature_type: f.feature_type,
+    };
+  }
+  return {
+    featureMap,
+    projectLimit: granted ? -1 : 0,
+    archiveAllowed: granted,
+    fullAccess: granted,
+    trialExpired,
+  };
+}
+
+/**
+ * Compute the gate for one user. Order matters:
+ *   1. Admin -> full access (bypass, even on 'none').
+ *   2. 'none' -> NO access (zero entitlements). Checked BEFORE the safety net so
+ *      a none user can never fall through to access.
+ *   3. Unknown plan -> full access (anti-lockout safety net; caller logs it).
+ *   4. Known plan -> resolve plan coverage + overrides (empty baseline if the
+ *      trial has expired).
  */
 export function computeGate(input: GateInput): GateResult {
-  const fullAccess = input.isAdmin || !input.knownPlan;
+  // 1. Admin bypass (never blocked, even when their plan is 'none').
+  if (input.isAdmin) return wholesaleGate(input.features, true, input.trialExpired);
 
-  if (fullAccess) {
-    const featureMap: Record<string, FeatureAccess> = {};
-    for (const f of input.features) {
-      featureMap[f.feature_key] = {
-        included: true,
-        value: f.feature_type === 'limit' ? -1 : null,
-        feature_type: f.feature_type,
-      };
-    }
-    return { featureMap, projectLimit: -1, archiveAllowed: true, fullAccess: true, trialExpired: input.trialExpired };
-  }
+  // 2. Deliberate no-access. Distinct from the unknown-plan safety net below.
+  if (isNonePlan(input.planKey)) return wholesaleGate(input.features, false, input.trialExpired);
 
-  // Trial expiry: lose all trial-granted features (empty plan baseline).
+  // 3. Unknown-plan safety net: preserve access (never a silent lockout).
+  if (!input.knownPlan) return wholesaleGate(input.features, true, input.trialExpired);
+
+  // 4. Known plan. Trial expiry: lose all trial-granted features (empty baseline).
   // Overrides still apply (resolveEffectiveFeatures ignores expired ones).
   const effectivePlanCells: ReadonlyMap<string, PlanCell> = input.trialExpired
     ? new Map<string, PlanCell>()
