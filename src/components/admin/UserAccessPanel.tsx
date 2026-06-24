@@ -388,7 +388,10 @@ export function UserAccessPanel({ userId }: { userId: string }) {
                   disabled={busyKey === '__plan__'}
                   style={{ flex: 1, padding: '7px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 }}
                 >
-                  {!entPlans.some((p) => p.plan_key === user.subscription_plan) && (
+                  {/* No-access state: same shared write path (setUserPlan) as the
+                      real plans; the gate treats 'none' as zero access. */}
+                  <option value="none">No access</option>
+                  {user.subscription_plan !== 'none' && !entPlans.some((p) => p.plan_key === user.subscription_plan) && (
                     <option value={user.subscription_plan} disabled>{user.subscription_plan || 'unassigned'}</option>
                   )}
                   {entPlans.map((p) => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}

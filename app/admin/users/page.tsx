@@ -76,14 +76,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-interface PlanOption { code: string; name: string; is_custom_client: boolean; }
-
 export default function AdminUsersPage() {
   const { loading: authLoading } = useRequireAdmin();
   const { data: session } = useSession();
   const [users, setUsers]                   = useState<User[]>([]);
   const [loading, setLoading]               = useState(true);
-  const [availablePlans, setAvailablePlans] = useState<PlanOption[]>([]);
   const [search, setSearch]                 = useState('');
   const [planFilter, setPlanFilter]         = useState('all');
   const [roleFilter, setRoleFilter]         = useState('all');
@@ -97,17 +94,6 @@ export default function AdminUsersPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   };
-
-  useEffect(() => {
-    fetch('/api/admin/pricing/plans?all=true')
-      .then(r => r.json())
-      .then(j => setAvailablePlans((j.plans ?? []).map((p: { code: string; name: string; is_custom_client: boolean }) => ({ code: p.code, name: p.name, is_custom_client: p.is_custom_client }))))
-      .catch(() => setAvailablePlans([
-        { code: 'free', name: 'Free', is_custom_client: false },
-        { code: 'professional', name: 'Professional', is_custom_client: false },
-        { code: 'enterprise', name: 'Enterprise', is_custom_client: false },
-      ]));
-  }, []);
 
   // Live entitlement plans (trial/solo/pro/firm) for the inline plan control.
   const [entPlans, setEntPlans] = useState<{ plan_key: string; label: string }[]>([]);
@@ -243,7 +229,8 @@ export default function AdminUsersPage() {
           <select value={planFilter} onChange={e => { setPlanFilter(e.target.value); setPage(0); }}
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
             <option value="all">All Plans</option>
-            {availablePlans.map(p => <option key={p.code} value={p.code}>{p.name}{p.is_custom_client ? ' (Client)' : ''}</option>)}
+            <option value="none">No access</option>
+            {entPlans.map(p => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
           </select>
           <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(0); }}
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
@@ -310,10 +297,15 @@ export default function AdminUsersPage() {
                           data-testid={`user-plan-select-${u.id}`}
                           style={selectStyle}
                         >
-                          {/* If the user's current plan is not in the live set (legacy
-                              or unassigned), show it as a disabled placeholder so the
-                              true value is visible without offering it for re-selection. */}
-                          {!entPlans.some(p => p.plan_key === (u.subscription_plan ?? '')) && (
+                          {/* No-access state (foundation). Selecting it writes the
+                              'none' value the gate treats as zero access, via the
+                              SAME shared plan path (setUserPlan) as the real plans. */}
+                          <option value="none">No access</option>
+                          {/* A legacy / unassigned current value (e.g. an old "free")
+                              shows as a disabled placeholder so the true value is
+                              visible without offering it for re-selection. 'none' is
+                              a real selectable option above, so it is excluded here. */}
+                          {(u.subscription_plan ?? '') !== 'none' && !entPlans.some(p => p.plan_key === (u.subscription_plan ?? '')) && (
                             <option value={u.subscription_plan ?? ''} disabled>{u.subscription_plan ?? 'unassigned'}</option>
                           )}
                           {entPlans.map(p => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}

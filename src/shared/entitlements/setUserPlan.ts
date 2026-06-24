@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTrialDays, trialEndsAtIso } from './trialConfig';
 import { writeAuditLog } from '@/src/shared/audit';
+import { NONE_PLAN_KEY } from './gate';
 
 export interface SetUserPlanResult {
   ok: boolean;
@@ -42,16 +43,25 @@ export async function setUserPlan(
   if (!userId) return { ok: false, error: 'user_id required', status: 400 };
   if (!planKey) return { ok: false, error: 'plan_key required', status: 400 };
 
-  // Validate against the live plan catalog (data-driven, so only real plans are
-  // ever written, never legacy free/professional/enterprise).
-  const { data: plan, error: planErr } = await sb
-    .from('entitlement_plans')
-    .select('plan_key')
-    .eq('platform_slug', platform)
-    .eq('plan_key', planKey)
-    .maybeSingle();
-  if (planErr) return { ok: false, error: planErr.message, status: 500 };
-  if (!plan) return { ok: false, error: `Unknown plan "${planKey}" for ${platform}`, status: 400 };
+  // 'none' is the deliberate NO-ACCESS state (foundation). It is a first-class
+  // value here (the ONE write path), but it is NOT an entitlement_plans row, so
+  // it bypasses the catalog validation. status uses an allowed value ('expired'
+  // = no active subscription); the resolver treats subscription_plan='none' as
+  // zero access. This is NOT a legacy write (legacy free/professional/enterprise
+  // are still rejected below).
+  const isNone = planKey === NONE_PLAN_KEY;
+  if (!isNone) {
+    // Validate against the live plan catalog (data-driven, so only real plans
+    // are ever written, never legacy free/professional/enterprise).
+    const { data: plan, error: planErr } = await sb
+      .from('entitlement_plans')
+      .select('plan_key')
+      .eq('platform_slug', platform)
+      .eq('plan_key', planKey)
+      .maybeSingle();
+    if (planErr) return { ok: false, error: planErr.message, status: 500 };
+    if (!plan) return { ok: false, error: `Unknown plan "${planKey}" for ${platform}`, status: 400 };
+  }
 
   const { data: current, error: curErr } = await sb
     .from('users')
@@ -63,7 +73,11 @@ export async function setUserPlan(
   const isTrial = planKey === 'trial';
   let trialEndsAt: string | null = null;
   let status: string;
-  if (isTrial) {
+  if (isNone) {
+    // No-access: no trial window, status reads as no active subscription.
+    trialEndsAt = null;
+    status = 'expired';
+  } else if (isTrial) {
     const days = await resolveTrialDays(sb, platform);
     trialEndsAt = trialEndsAtIso(Date.now(), days);
     status = 'trial';
