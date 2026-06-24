@@ -190,7 +190,7 @@ export default async function LandingPage() {
   const ctaStyles          = getSectionStyles(content, 'cta');
 
   // ── Footer ────────────────────────────────────────────────────────────────
-  const footerCompany          = cms(content, 'footer', 'company_line',         'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerCompany          = cms(content, 'footer', 'company_line',         'Financial Modeler Pro is a platform by PaceMakers Business Consultants');
   const footerFounder          = cms(content, 'footer', 'founder_line',         'Ahmad Din - CEO & Founder');
   const footerCopyright        = cms(content, 'footer', 'copyright',            `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
   const footerHeight           = cms(content, 'footer', 'height',               'standard') as 'compact' | 'standard' | 'large';
@@ -595,7 +595,7 @@ export default async function LandingPage() {
         const pmLogoW = (pm?.logo_width as string) || '180px';
         const pmBadge = (pm?.badge as string) || 'The Firm Behind the Platform';
         const pmHead  = (pm?.heading as string) || 'Powered by PaceMakers Business Consultants';
-        const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a product of PaceMakers - a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
+        const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a platform by PaceMakers - a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
         const pmCta   = (pm?.cta_text as string) || 'Visit PaceMakers →';
         const pmUrl   = (pm?.cta_url as string) || 'https://www.pacemakersglobal.com';
         const pmSvcs  = (pm?.services as { id: string; text: string }[]) ?? [

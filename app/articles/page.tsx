@@ -30,7 +30,7 @@ export default async function ArticlesPage() {
   const pageTitle    = cms(content, 'articles_page', 'title',         'Financial Modeling Insights');
   const pageSubtitle = cms(content, 'articles_page', 'subtitle',      'Expert guides, tutorials and market analysis from corporate finance professionals');
 
-  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a platform by PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Financial Modeler Pro Team');
   const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 

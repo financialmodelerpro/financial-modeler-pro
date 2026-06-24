@@ -50,7 +50,7 @@ export default async function CmsPage(
   if (!page) notFound();
 
   // Footer CMS content
-  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a platform by PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din - CEO & Founder');
   const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 

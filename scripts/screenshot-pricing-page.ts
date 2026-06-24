@@ -24,25 +24,32 @@ const OUT = process.cwd();
 async function main(): Promise<void> {
   const browser = await chromium.launch();
 
+  // The page now opens on the platform picker; click into the live REFM
+  // platform to reveal the plans (LivePlanCards) before capturing.
+  async function revealPlans(page: import('@playwright/test').Page): Promise<void> {
+    await page.goto(URL, { waitUntil: 'networkidle', timeout: 90000 });
+    const refm = page.locator('[data-testid="platform-card-real-estate"]').first();
+    await refm.waitFor({ timeout: 30000 });
+    await refm.click();
+    await page.locator('[data-testid="live-plan-cards"]').first().waitFor({ timeout: 30000 });
+    await page.waitForTimeout(400);
+  }
+
   // Desktop.
   const desk = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   console.log(`Loading ${URL} (desktop) ...`);
-  await desk.goto(URL, { waitUntil: 'networkidle', timeout: 90000 });
+  await revealPlans(desk);
   const cards = desk.locator('[data-testid="live-plan-cards"]').first();
-  await cards.waitFor({ timeout: 30000 });
   await cards.scrollIntoViewIfNeeded();
-  await desk.waitForTimeout(400);
   await cards.screenshot({ path: path.join(OUT, 'pricing-desktop.png') });
   console.log('Saved pricing-desktop.png');
 
   // Narrow / mobile width.
   const narrow = await browser.newPage({ viewport: { width: 560, height: 1000 } });
   console.log(`Loading ${URL} (narrow) ...`);
-  await narrow.goto(URL, { waitUntil: 'networkidle', timeout: 90000 });
+  await revealPlans(narrow);
   const cardsN = narrow.locator('[data-testid="live-plan-cards"]').first();
-  await cardsN.waitFor({ timeout: 30000 });
   await cardsN.scrollIntoViewIfNeeded();
-  await narrow.waitForTimeout(400);
   await cardsN.screenshot({ path: path.join(OUT, 'pricing-narrow.png') });
   console.log('Saved pricing-narrow.png');
 

@@ -25,6 +25,9 @@ const inapp = read('app/modeling/pricing/page.tsx');
 const helper = read('src/shared/entitlements/pricingDisplay.ts');
 const settings = read('src/shared/entitlements/pricingPageSettings.ts');
 const adminPlans = read('app/admin/plans/page.tsx');
+const pricingPage = read('app/pricing/page.tsx');
+const explorer = read('src/hubs/main/components/pricing/PricingExplorer.tsx');
+const platformsConfig = read('src/hubs/modeling/config/platforms.ts');
 
 console.log('=== Dual-action is data-driven (not hardcoded) ===');
 check('planCardMode helper exists (pure, data-driven)', /export function planCardMode/.test(helper));
@@ -62,8 +65,35 @@ check('GRID derives from LABEL_W', /const GRID = `\$\{LABEL_W\}px repeat/.test(l
 check('both blocks use INNER_MIN min width', (lpc.match(/minWidth: INNER_MIN/g) ?? []).length >= 2);
 check('rowGrid used for card row + comparison rows', (lpc.match(/\.\.\.rowGrid/g) ?? []).length >= 3);
 
+console.log('=== One-page platform picker (config-driven) -> plans in place ===');
+check('pricing page reads the platform config (PLATFORMS), not a hardcoded list', /from '@\/src\/hubs\/modeling\/config\/platforms'/.test(pricingPage) && /PLATFORMS\.map\(/.test(pricingPage));
+check('pricing page renders the PricingExplorer (picker + plans)', /<PricingExplorer\b/.test(pricingPage));
+check('explorer step 1: a platform picker built from the platforms prop', /data-testid="platform-picker"/.test(explorer) && /platforms\.map\(/.test(explorer));
+check('explorer marks live as Available now (clickable) + coming-soon disabled', /Available now/.test(explorer) && /Coming soon/.test(explorer) && /aria-disabled="true"/.test(explorer));
+check('live platform card is a clickable button that selects in place', /platform-card-\$\{p\.slug\}/.test(explorer) && /onClick=\{\(\) => setSelected\(p\.slug\)\}/.test(explorer));
+check('explorer step 2: plans view reuses LivePlanCards scoped to the selection', /data-testid="pricing-plans-view"/.test(explorer) && /<LivePlanCards\b/.test(explorer));
+check('explorer step 2 has a back-to-platforms control', /data-testid="back-to-platforms"/.test(explorer));
+check('explorer shows the real platform NAME (not a generic label)', /data-testid="selected-platform-name"/.test(explorer) && /selectedPlatform\.name/.test(explorer));
+check('platform config has REFM live + coming-soon others', /slug: 'real-estate'[\s\S]*?status: 'live'/.test(platformsConfig) && /status: 'coming_soon'/.test(platformsConfig));
+
+console.log('=== No Training Hub content + no generic "Modeling Platform" label in the pricing flow ===');
+for (const [label, src] of [['app/pricing/page.tsx', pricingPage], ['PricingExplorer.tsx', explorer]] as const) {
+  check(`no Training Hub banner/button in ${label}`,
+    !/Browse Free Courses/i.test(src) && !/Always 100% Free/i.test(src) && !/learn\.financialmodelerpro/.test(src) && !src.includes('\u{1F393}'));
+  check(`no generic "Modeling Platform" label in ${label}`, !/Modeling Platform/i.test(src));
+}
+
+console.log('=== Footer wording aligned to Platform (no "product of" in code) ===');
+check('no "product of PaceMakers" string remains under app/', (() => {
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    return d.isDirectory() ? walk(p) : (/\.(tsx?|jsx?)$/.test(d.name) ? [p] : []);
+  });
+  return !walk(path.join(process.cwd(), 'app')).some((f) => /product of PaceMakers/i.test(fs.readFileSync(f, 'utf8')));
+})());
+
 console.log('=== No orange + no em dashes ===');
-for (const f of ['src/hubs/main/components/pricing/LivePlanCards.tsx', 'app/pricing/page.tsx', 'app/modeling/pricing/page.tsx']) {
+for (const f of ['src/hubs/main/components/pricing/LivePlanCards.tsx', 'src/hubs/main/components/pricing/PricingExplorer.tsx', 'app/pricing/page.tsx', 'app/modeling/pricing/page.tsx']) {
   const src = read(f);
   check(`no orange: ${f}`, !ORANGE.test(src));
   check(`no em dash: ${f}`, !src.includes(EM));

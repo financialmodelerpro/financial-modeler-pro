@@ -59,7 +59,7 @@ export default async function ContactPage() {
   const bookingUrl = (founderSection?.content as Record<string, unknown>)?.booking_url as string || '';
 
   // ── Footer ───────────────────────────────────────────────────────────────
-  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a platform by PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Financial Modeler Pro Team');
   const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 

@@ -5,9 +5,9 @@ import { getCmsContent, cms, getAllPageSections } from '@/src/shared/cms';
 import { getServerClient } from '@/src/core/db/supabase';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { PricingAccordion } from '@/src/hubs/main/components/pricing/PricingAccordion';
-import LivePlanCards from '@/src/hubs/main/components/pricing/LivePlanCards';
+import PricingExplorer, { type PickerPlatform, type PlatformPricing } from '@/src/hubs/main/components/pricing/PricingExplorer';
 import { loadPricingCatalog, visibleForCustomers } from '@/src/shared/entitlements/pricingCatalog';
-import { CouponInput } from './CouponInput';
+import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 
 export const revalidate = 0;
 
@@ -19,8 +19,6 @@ export const metadata: Metadata = {
   alternates: { canonical: `${MAIN_URL_PR}/pricing` },
 };
 
-const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-
 export default async function PricingPage() {
   const [content, pricingSections] = await Promise.all([
     getCmsContent(),
@@ -28,15 +26,34 @@ export default async function PricingPage() {
   ]);
   const sb = getServerClient();
 
-  // LIVE plan cards + comparison come from the entitlement tables (the single
-  // source of truth), NOT the old platform_pricing table. loadPricingCatalog
-  // runs server-side with the service-role client, so it works for an
-  // unauthenticated visitor. Hidden non-module features are filtered out.
-  const pricing = await loadPricingCatalog(sb, 'real-estate');
-  const livePlans = pricing.plans;
-  const liveFeatures = visibleForCustomers(pricing.features);
-  const liveCoverage = pricing.coverage;
-  const trialDays = pricing.trialDays;
+  // Platform PICKER is driven entirely by the platform config (PLATFORMS), so a
+  // new platform shows up here with no edit to this page. Only the lightweight,
+  // serialisable fields cross to the client island.
+  const pickerPlatforms: PickerPlatform[] = PLATFORMS.map((p) => ({
+    slug: p.slug, name: p.name, shortName: p.shortName, icon: p.icon, status: p.status, tagline: p.tagline,
+  }));
+
+  // For each LIVE platform, load its plans/comparison from the entitlement
+  // tables (the single source of truth), so selecting it reveals real plans in
+  // place. loadPricingCatalog runs server-side with the service-role client, so
+  // it works for an unauthenticated visitor. Hidden non-module features are
+  // filtered out. Coming-soon platforms are never loaded (not clickable).
+  const livePlatforms = PLATFORMS.filter((p) => p.status === 'live');
+  const loaded = await Promise.all(
+    livePlatforms.map(async (p) => [p.slug, await loadPricingCatalog(sb, p.slug)] as const),
+  );
+  const pricingByPlatform: Record<string, PlatformPricing> = {};
+  for (const [slug, cat] of loaded) {
+    pricingByPlatform[slug] = {
+      plans: cat.plans,
+      features: visibleForCustomers(cat.features),
+      coverage: cat.coverage,
+      trialDays: cat.trialDays,
+      credibilityLine: cat.credibilityLine,
+    };
+  }
+  // The single-source trial length for the bottom CTA copy (live REFM platform).
+  const trialDays = pricingByPlatform['real-estate']?.trialDays ?? 0;
 
   // CMS, hero + FAQ sourced from page_sections (Page Builder is canonical).
   const heroSection = pricingSections.find(s => s.section_type === 'hero' && s.visible !== false);
@@ -53,7 +70,7 @@ export default async function PricingPage() {
     .filter(f => f.visible !== false)
     .map(f => ({ question: f.question, answer: f.answer }));
 
-  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a platform by PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Financial Modeler Pro Team');
   const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
@@ -72,37 +89,12 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      {/* Training Hub Banner */}
-      <section style={{ background: '#F0FDF4', padding: '24px 40px', borderBottom: '1px solid #BBF7D0' }}>
-        <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 28, flexShrink: 0 }}>🎓</span>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#15803D', marginBottom: 2 }}>Training Hub - Always 100% Free</div>
-            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>All courses, certificates, and live sessions are completely free. No credit card required.</div>
-          </div>
-          <a href={`${LEARN_URL}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#15803D', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none', flexShrink: 0 }}>
-            Browse Free Courses →
-          </a>
-        </div>
-      </section>
-
-      {/* Plan Cards + comparison: LIVE from entitlement_plans (single source of
-          truth), rendered by the LivePlanCards client island. The old
-          platform_pricing / platform_features / plan_feature_access tables are no
-          longer read for the live plans. */}
+      {/* Platform picker (step 1) -> plans for the selected platform in place
+          (step 2). Both steps are one page, no navigation. The picker is driven
+          by the platform config, so new platforms appear automatically. No
+          course or free-training content lives in this flow. */}
       <section style={{ padding: '64px 40px', maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Modeling Platform</div>
-        </div>
-        {livePlans.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 24px', color: '#6B7280' }}>
-            <p style={{ fontSize: 16 }}>Pricing plans coming soon. Check back shortly.</p>
-          </div>
-        ) : (
-          <LivePlanCards plans={livePlans} features={liveFeatures} coverage={liveCoverage} trialDays={trialDays} credibilityLine={pricing.credibilityLine} />
-        )}
-
-        <CouponInput />
+        <PricingExplorer platforms={pickerPlatforms} pricingByPlatform={pricingByPlatform} />
       </section>
 
       {/* FAQ */}
