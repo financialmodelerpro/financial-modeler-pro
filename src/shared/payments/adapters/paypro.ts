@@ -43,6 +43,6 @@ export const payproAdapter: PaymentAdapter = {
   parseEvent(_rawBody: string): ParsedSubscriptionEvent {
     // STUB: a real implementation maps PayPro subscription lifecycle events to
     // the neutral type and pulls the product id + customer email.
-    return { type: 'unknown', providerPriceOrProductId: null, customerEmail: null };
+    return { type: 'unknown', eventId: null, providerPriceOrProductId: null, userRef: null, customDataPlanKey: null, customerEmail: null };
   },
 };

@@ -3,6 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
+  wasWebhookEventProcessed, recordWebhookEvent,
 } from '@/src/shared/payments/config';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
@@ -60,43 +61,56 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     return NextResponse.json({ ok: false, reason: verify.reason ?? 'invalid_signature' }, { status: 401 });
   }
 
-  // 3. Parse to a neutral event.
+  // 3. Parse to a neutral event. parseEvent never throws (malformed -> unknown).
   const event = adapter.parseEvent(rawBody);
 
-  // Stub guard: a stubbed adapter (or an unrecognised event) stops here, AFTER
-  // a successful signature check, without writing any plan.
+  // Stub guard: a stubbed adapter (or an unrecognised / malformed event) stops
+  // here, AFTER a successful signature check, without writing any plan.
   if (!adapter.implemented || event.type === 'unknown') {
     return NextResponse.json({
       ok: false,
-      stub: true,
-      reason: 'adapter_not_implemented',
+      stub: !adapter.implemented,
+      reason: adapter.implemented ? 'unrecognised_event' : 'adapter_not_implemented',
       signatureVerified: true,
     });
   }
 
-  // ── Live plan-setting path (reached once an adapter is implemented) ──────────
-  // 4. Map the provider id back to an internal plan.
-  const mapped = await mapProviderPriceIdToPlan(sb, provider, event.providerPriceOrProductId, PLATFORM);
+  // 4. Idempotency: the SAME event id must not be applied twice. A replayed /
+  //    redelivered event short-circuits here without re-running setUserPlan.
+  if (await wasWebhookEventProcessed(sb, provider, event.eventId)) {
+    return NextResponse.json({ ok: true, idempotent: true, skipped: true, eventId: event.eventId });
+  }
 
-  // Resolve the internal user by the event's customer email.
+  // 5. Map the provider price id back to an internal plan; fall back to the
+  //    plan_key carried in custom_data when the price id is not recognised.
+  const mapped = await mapProviderPriceIdToPlan(sb, provider, event.providerPriceOrProductId, PLATFORM);
+  const planKey = mapped?.plan_key ?? event.customDataPlanKey ?? null;
+
+  // 6. Resolve the internal user: prefer the custom-data user reference passed at
+  //    checkout, then fall back to matching by email.
   let userId: string | null = null;
-  if (event.customerEmail) {
-    const { data: user } = await sb
-      .from('users')
-      .select('id')
-      .eq('email', event.customerEmail.toLowerCase())
-      .maybeSingle();
-    userId = (user as { id?: string } | null)?.id ?? null;
+  if (event.userRef) {
+    const { data: byRef } = await sb.from('users').select('id').eq('id', event.userRef).maybeSingle();
+    userId = (byRef as { id?: string } | null)?.id ?? null;
+  }
+  if (!userId && event.customerEmail) {
+    const { data: byEmail } = await sb
+      .from('users').select('id').eq('email', event.customerEmail.toLowerCase()).maybeSingle();
+    userId = (byEmail as { id?: string } | null)?.id ?? null;
   }
   if (!userId) {
+    // Not recorded: a later redelivery (after the user exists) can still apply.
     return NextResponse.json({ ok: false, reason: 'user_not_found' });
   }
 
-  // 5. Apply via the SHARED plan-setting function (same path as admin changes).
+  // 7. Apply via the SHARED plan-setting function (the SAME path admin screens
+  //    use), so entitlements re-resolve exactly like an admin change. Record the
+  //    event id only on success so a failed apply can be retried by redelivery.
   if (event.type === 'activated' || event.type === 'updated') {
-    if (!mapped) return NextResponse.json({ ok: false, reason: 'plan_not_mapped' });
-    const res = await setUserPlan(sb, userId, mapped.plan_key, { platform: PLATFORM });
+    if (!planKey) return NextResponse.json({ ok: false, reason: 'plan_not_mapped' });
+    const res = await setUserPlan(sb, userId, planKey, { platform: PLATFORM });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
+    await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus });
   }
 
@@ -104,6 +118,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     // Drop to the baseline plan; re-resolution is automatic (same function).
     const res = await setUserPlan(sb, userId, BASELINE_PLAN_KEY, { platform: PLATFORM });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
+    await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus });
   }
 

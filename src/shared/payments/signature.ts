@@ -48,3 +48,50 @@ export function verifyHmacSignature(
     ? { valid: true }
     : { valid: false, reason: 'signature_mismatch' };
 }
+
+/**
+ * Parse a Paddle-Signature header ("ts=...;h1=...") into its parts. Returns null
+ * when the header is missing or does not carry both ts and h1.
+ */
+export function parsePaddleSignatureHeader(header: string | null): { ts: string; h1: string } | null {
+  if (!header) return null;
+  let ts = '', h1 = '';
+  for (const part of header.split(';')) {
+    const [k, v] = part.split('=');
+    if (k?.trim() === 'ts') ts = (v ?? '').trim();
+    else if (k?.trim() === 'h1') h1 = (v ?? '').trim();
+  }
+  return ts && h1 ? { ts, h1 } : null;
+}
+
+/**
+ * Verify a Paddle Billing webhook signature per Paddle docs: the signed payload
+ * is `${ts}:${rawBody}` (the EXACT raw bytes, never reparsed), HMAC-SHA256 under
+ * the notification destination secret key, compared in constant time to h1.
+ *
+ * Optional `toleranceSeconds` rejects a stale timestamp (replay protection at
+ * the signature layer). Pass `nowMs` for testability. A value of 0 disables the
+ * freshness check (the webhook route also enforces idempotency, the definitive
+ * replay guard). Never throws; an unparseable header is an explicit failure.
+ */
+export function verifyPaddleSignature(
+  rawBody: string,
+  header: string | null,
+  secret: string | null,
+  toleranceSeconds = 0,
+  nowMs = 0,
+): { valid: boolean; reason?: string } {
+  if (!secret) return { valid: false, reason: 'no_webhook_secret' };
+  const parsed = parsePaddleSignatureHeader(header);
+  if (!parsed) return { valid: false, reason: 'missing_signature' };
+  const expected = hmacSha256Hex(`${parsed.ts}:${rawBody}`, secret);
+  if (!timingSafeHexEqual(parsed.h1, expected)) return { valid: false, reason: 'signature_mismatch' };
+  if (toleranceSeconds > 0) {
+    const tsSec = Number(parsed.ts);
+    const now = (nowMs > 0 ? nowMs : Date.now()) / 1000;
+    if (!Number.isFinite(tsSec) || Math.abs(now - tsSec) > toleranceSeconds) {
+      return { valid: false, reason: 'timestamp_out_of_tolerance' };
+    }
+  }
+  return { valid: true };
+}

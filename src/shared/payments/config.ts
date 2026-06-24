@@ -25,6 +25,8 @@ export interface PaymentSettingsRow {
   paddle_api_key: string | null;
   paddle_api_secret: string | null;
   paddle_webhook_secret: string | null;
+  /** Publishable Paddle.js client-side token (mig 170). Not a secret. */
+  paddle_client_token: string | null;
   paddle_sandbox: boolean;
   paypro_api_key: string | null;
   paypro_api_secret: string | null;
@@ -32,12 +34,15 @@ export interface PaymentSettingsRow {
   paypro_sandbox: boolean;
 }
 
-/** Client-safe masked view: never carries a raw secret, only whether it is set. */
+/** Client-safe masked view: never carries a raw SECRET, only whether it is set.
+ *  `client_token` is the one publishable value and IS returned in full (the
+ *  browser needs it to open Paddle.js checkout). */
 export interface MaskedProvider {
   configured: boolean;
   has_api_key: boolean;
   has_api_secret: boolean;
   has_webhook_secret: boolean;
+  client_token: string | null;
   sandbox: boolean;
 }
 export interface MaskedPaymentSettings {
@@ -50,49 +55,66 @@ export function defaultPaymentSettings(platform: string): PaymentSettingsRow {
   return {
     platform_slug: platform,
     active_provider: 'none',
-    paddle_api_key: null, paddle_api_secret: null, paddle_webhook_secret: null, paddle_sandbox: true,
+    paddle_api_key: null, paddle_api_secret: null, paddle_webhook_secret: null, paddle_client_token: null, paddle_sandbox: true,
     paypro_api_key: null, paypro_api_secret: null, paypro_webhook_secret: null, paypro_sandbox: true,
   };
 }
 
+const BASE_COLUMNS =
+  'platform_slug, active_provider, paddle_api_key, paddle_api_secret, paddle_webhook_secret, paddle_sandbox, paypro_api_key, paypro_api_secret, paypro_webhook_secret, paypro_sandbox';
+
 /**
  * Load the singleton payment-settings row for a platform. Tolerant of the
  * migration not being applied yet (returns the safe default: provider 'none'),
- * so checkout stays a placeholder rather than erroring.
+ * so checkout stays a placeholder rather than erroring. Schema-tolerant for the
+ * paddle_client_token column (mig 170): tries to read it, and if the column is
+ * absent falls back to the base columns so the rest keeps working pre-migration.
  */
 export async function loadPaymentSettings(
   sb: SupabaseClient, platform = 'real-estate',
 ): Promise<PaymentSettingsRow> {
-  const { data, error } = await sb
+  const withToken = await sb
     .from('payment_settings')
-    .select('platform_slug, active_provider, paddle_api_key, paddle_api_secret, paddle_webhook_secret, paddle_sandbox, paypro_api_key, paypro_api_secret, paypro_webhook_secret, paypro_sandbox')
+    .select(`${BASE_COLUMNS}, paddle_client_token`)
     .eq('platform_slug', platform)
     .maybeSingle();
-  if (error || !data) return defaultPaymentSettings(platform);
-  return { ...defaultPaymentSettings(platform), ...(data as Partial<PaymentSettingsRow>) } as PaymentSettingsRow;
+  if (!withToken.error) {
+    if (!withToken.data) return defaultPaymentSettings(platform);
+    return { ...defaultPaymentSettings(platform), ...(withToken.data as Partial<PaymentSettingsRow>) } as PaymentSettingsRow;
+  }
+  // Fallback: column not present yet (mig 170 not applied). Read the rest.
+  const base = await sb
+    .from('payment_settings')
+    .select(BASE_COLUMNS)
+    .eq('platform_slug', platform)
+    .maybeSingle();
+  if (base.error || !base.data) return defaultPaymentSettings(platform);
+  return { ...defaultPaymentSettings(platform), ...(base.data as Partial<PaymentSettingsRow>) } as PaymentSettingsRow;
 }
 
 /** Build a provider's resolved credentials from the settings row (server only). */
 export function providerConfigFrom(row: PaymentSettingsRow, provider: PaymentProvider): ProviderConfig {
   if (provider === 'paddle') {
-    return { provider, apiKey: row.paddle_api_key, apiSecret: row.paddle_api_secret, webhookSecret: row.paddle_webhook_secret, sandbox: row.paddle_sandbox };
+    return { provider, apiKey: row.paddle_api_key, apiSecret: row.paddle_api_secret, webhookSecret: row.paddle_webhook_secret, clientToken: row.paddle_client_token, sandbox: row.paddle_sandbox };
   }
-  return { provider, apiKey: row.paypro_api_key, apiSecret: row.paypro_api_secret, webhookSecret: row.paypro_webhook_secret, sandbox: row.paypro_sandbox };
+  return { provider, apiKey: row.paypro_api_key, apiSecret: row.paypro_api_secret, webhookSecret: row.paypro_webhook_secret, clientToken: null, sandbox: row.paypro_sandbox };
 }
 
-/** Produce the client-safe masked view. Pure, no secret ever leaves here. */
+/** Produce the client-safe masked view. No SECRET ever leaves here; the paddle
+ *  client token IS returned (publishable, needed by the browser). */
 export function maskPaymentSettings(row: PaymentSettingsRow): MaskedPaymentSettings {
-  const m = (key: string | null, secret: string | null, webhook: string | null, sandbox: boolean): MaskedProvider => ({
+  const m = (key: string | null, secret: string | null, webhook: string | null, clientToken: string | null, sandbox: boolean): MaskedProvider => ({
     configured: !!key && !!secret && !!webhook,
     has_api_key: !!key,
     has_api_secret: !!secret,
     has_webhook_secret: !!webhook,
+    client_token: clientToken,
     sandbox,
   });
   return {
     active_provider: row.active_provider,
-    paddle: m(row.paddle_api_key, row.paddle_api_secret, row.paddle_webhook_secret, row.paddle_sandbox),
-    paypro: m(row.paypro_api_key, row.paypro_api_secret, row.paypro_webhook_secret, row.paypro_sandbox),
+    paddle: m(row.paddle_api_key, row.paddle_api_secret, row.paddle_webhook_secret, row.paddle_client_token, row.paddle_sandbox),
+    paypro: m(row.paypro_api_key, row.paypro_api_secret, row.paypro_webhook_secret, null, row.paypro_sandbox),
   };
 }
 
@@ -112,6 +134,50 @@ export function planProviderPriceId(
     return interval === 'annual' ? plan.paddle_price_id_annual : plan.paddle_price_id_monthly;
   }
   return plan.paypro_product_id;
+}
+
+// ── Webhook idempotency (mig 171: payment_webhook_events) ───────────────────
+// The definitive replay guard: the same provider event id is applied at most
+// once. Both helpers are tolerant of the table not existing yet (pre-migration),
+// degrading to "no guard" rather than erroring, so the webhook still functions.
+
+/** True when this provider event id has already been processed. */
+export async function wasWebhookEventProcessed(
+  sb: SupabaseClient, provider: PaymentProvider, eventId: string | null,
+): Promise<boolean> {
+  if (!eventId) return false;
+  try {
+    const { data, error } = await sb
+      .from('payment_webhook_events')
+      .select('event_id')
+      .eq('provider', provider)
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (error) return false; // table absent pre-migration: no guard, proceed
+    return !!data;
+  } catch {
+    return false;
+  }
+}
+
+/** Record a processed event id (best effort). A duplicate / missing table is
+ *  swallowed so a redelivery is still treated idempotently by the read above. */
+export async function recordWebhookEvent(
+  sb: SupabaseClient, provider: PaymentProvider, eventId: string | null,
+  info: { eventType?: string | null; planKey?: string | null; userId?: string | null; status?: string | null },
+): Promise<void> {
+  if (!eventId) return;
+  try {
+    await sb.from('payment_webhook_events').insert({
+      provider, event_id: eventId,
+      event_type: info.eventType ?? null,
+      plan_key: info.planKey ?? null,
+      user_id: info.userId ?? null,
+      status: info.status ?? null,
+    });
+  } catch {
+    // duplicate (PK conflict) or table absent: ignore.
+  }
 }
 
 /**

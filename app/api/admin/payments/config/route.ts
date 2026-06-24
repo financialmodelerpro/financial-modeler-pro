@@ -34,7 +34,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json() as {
       active_provider?: ActiveProvider;
-      paddle?: { api_key?: string; api_secret?: string; webhook_secret?: string; sandbox?: boolean };
+      paddle?: { api_key?: string; api_secret?: string; webhook_secret?: string; client_token?: string; sandbox?: boolean };
       paypro?: { api_key?: string; api_secret?: string; webhook_secret?: string; sandbox?: boolean };
     };
 
@@ -57,9 +57,20 @@ export async function PATCH(req: NextRequest) {
       if (typeof p.webhook_secret === 'string' && p.webhook_secret.trim() !== '') updates[`${provider}_webhook_secret`] = p.webhook_secret.trim();
       if (typeof p.sandbox === 'boolean') updates[`${provider}_sandbox`] = p.sandbox;
     }
+    // Paddle client token is publishable (shown in the UI): a blank value clears
+    // it; a value replaces it. Only paddle has this column (mig 170).
+    if (body.paddle && typeof body.paddle.client_token === 'string') {
+      updates.paddle_client_token = body.paddle.client_token.trim() === '' ? null : body.paddle.client_token.trim();
+    }
 
     const sb = getServerClient();
-    const { error } = await sb.from('payment_settings').upsert(updates, { onConflict: 'platform_slug' });
+    let { error } = await sb.from('payment_settings').upsert(updates, { onConflict: 'platform_slug' });
+    // Schema-tolerant: if mig 170 (paddle_client_token) is not applied yet, retry
+    // without that column so the rest of the config still saves.
+    if (error && /paddle_client_token/.test(error.message)) {
+      const rest = { ...updates }; delete (rest as Record<string, unknown>).paddle_client_token;
+      ({ error } = await sb.from('payment_settings').upsert(rest, { onConflict: 'platform_slug' }));
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Return the fresh masked view so the UI updates its "set" indicators.

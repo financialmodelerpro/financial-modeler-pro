@@ -80,8 +80,28 @@ export default function RefmPricingPage() {
       body: JSON.stringify({ plan_key: p.plan_key, interval }),
     })
       .then((r) => r.json())
-      .then((res) => {
+      .then(async (res) => {
+        // Provider-hosted redirect (e.g. a redirect-style adapter).
         if (res?.status === 'redirect' && res.url) { window.location.href = res.url; return; }
+        // Paddle.js overlay: load Paddle.js with the publishable client token and
+        // open the hosted checkout for the plan's price id. No secret reaches here.
+        if (res?.status === 'open_overlay' && res.clientToken && res.priceId) {
+          try {
+            const { openPaddleCheckout } = await import('@/src/shared/payments/paddleBrowser');
+            await openPaddleCheckout({
+              clientToken: res.clientToken,
+              priceId: res.priceId,
+              sandbox: res.sandbox !== false,
+              email: res.email ?? null,
+              customData: res.customData,
+            });
+            setCheckoutPlan(null);
+            setCheckoutMsg(null);
+          } catch {
+            setCheckoutMsg('Could not open the checkout. Please try again, or contact the team to set your plan.');
+          }
+          return;
+        }
         setCheckoutMsg(res?.message ?? 'Online payment is not enabled yet. No charge has been made.');
       })
       .catch(() => setCheckoutMsg('Online payment is not enabled yet. No charge has been made.'));

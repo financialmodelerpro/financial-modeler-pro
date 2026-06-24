@@ -17,12 +17,18 @@ export type PaymentProvider = 'paddle' | 'paypro';
 export type ActiveProvider = 'none' | PaymentProvider;
 export type BillingInterval = 'monthly' | 'annual';
 
-/** Resolved server-side credentials for one provider (never sent to a client). */
+/** Resolved server-side credentials for one provider (never sent to a client).
+ *  NOTE: `clientToken` is the ONE publishable value here. It is Paddle's
+ *  client-side token (sandbox tokens start with `test_`), safe to hand to the
+ *  browser so Paddle.js can open the hosted checkout. apiKey / apiSecret /
+ *  webhookSecret are secrets and never leave the server. */
 export interface ProviderConfig {
   provider: PaymentProvider;
   apiKey: string | null;
   apiSecret: string | null;
   webhookSecret: string | null;
+  /** Publishable client-side token (Paddle.js). Null for providers without one. */
+  clientToken: string | null;
   sandbox: boolean;
 }
 
@@ -35,15 +41,32 @@ export interface CheckoutRequest {
   userEmail: string | null;
 }
 
-/** A checkout outcome. With every adapter stubbed today, the result is always
- *  'placeholder' (provider none) or 'not_configured' (provider active but the
- *  adapter is not implemented). 'redirect' is the shape a live adapter returns. */
+/** A checkout outcome.
+ *  - 'placeholder'     provider none (UI shows the coming-soon placeholder)
+ *  - 'not_configured'  provider active but its adapter is a stub
+ *  - 'error'           a graceful, non-crashing failure (e.g. missing price id)
+ *  - 'redirect'        provider-hosted checkout URL to navigate to
+ *  - 'open_overlay'    the browser must open an in-page overlay checkout
+ *                      (Paddle.js). Carries the publishable client token + the
+ *                      price id + sandbox flag + custom data, NO secrets. */
 export interface CheckoutResult {
   ok: boolean;
-  status: 'placeholder' | 'not_configured' | 'redirect' | 'error';
+  status: 'placeholder' | 'not_configured' | 'redirect' | 'open_overlay' | 'error';
   /** Provider-hosted checkout URL, only on a live 'redirect' result. */
   url?: string;
   message: string;
+  // ── 'open_overlay' payload (Paddle.js). All client-safe; no secrets. ──
+  provider?: PaymentProvider;
+  /** Publishable client-side token for Paddle.js initialization. */
+  clientToken?: string;
+  /** The provider price id the overlay should open. */
+  priceId?: string;
+  /** Use the provider sandbox environment in the browser. */
+  sandbox?: boolean;
+  /** Customer email to prefill (optional). */
+  email?: string | null;
+  /** Passthrough mapped back by the webhook (user_id + plan_key). */
+  customData?: Record<string, string>;
 }
 
 export interface WebhookVerifyResult {
@@ -56,9 +79,16 @@ export type SubscriptionEventType = 'activated' | 'updated' | 'cancelled' | 'unk
 /** Provider-neutral subscription event after an adapter parses a raw webhook. */
 export interface ParsedSubscriptionEvent {
   type: SubscriptionEventType;
+  /** Provider event id (e.g. Paddle `evt_...`), used for webhook idempotency. */
+  eventId: string | null;
   /** The provider price/product id the event refers to; mapped back to a plan. */
   providerPriceOrProductId: string | null;
-  /** The customer email the event refers to; mapped to the internal user. */
+  /** Internal user reference passed at checkout via custom data (preferred user
+   *  mapping). Null when absent. */
+  userRef: string | null;
+  /** Plan key passed at checkout via custom data (fallback plan mapping). */
+  customDataPlanKey: string | null;
+  /** The customer email the event refers to; fallback user mapping. */
   customerEmail: string | null;
 }
 

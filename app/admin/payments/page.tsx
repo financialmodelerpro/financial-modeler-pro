@@ -19,7 +19,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 type ActiveProvider = 'none' | 'paddle' | 'paypro';
-interface MaskedProvider { configured: boolean; has_api_key: boolean; has_api_secret: boolean; has_webhook_secret: boolean; sandbox: boolean }
+interface MaskedProvider { configured: boolean; has_api_key: boolean; has_api_secret: boolean; has_webhook_secret: boolean; client_token: string | null; sandbox: boolean }
 interface MaskedConfig { active_provider: ActiveProvider; paddle: MaskedProvider; paypro: MaskedProvider }
 
 const NAVY = '#0D2E5A';
@@ -28,8 +28,8 @@ const PROVIDERS: { key: 'paddle' | 'paypro'; label: string }[] = [
   { key: 'paypro', label: 'PayPro' },
 ];
 
-interface Draft { api_key: string; api_secret: string; webhook_secret: string; sandbox: boolean }
-const emptyDraft = (): Draft => ({ api_key: '', api_secret: '', webhook_secret: '', sandbox: true });
+interface Draft { api_key: string; api_secret: string; webhook_secret: string; client_token: string; sandbox: boolean }
+const emptyDraft = (): Draft => ({ api_key: '', api_secret: '', webhook_secret: '', client_token: '', sandbox: true });
 
 export default function AdminPaymentsPage() {
   const { loading: authLoading } = useRequireAdmin();
@@ -49,7 +49,8 @@ export default function AdminPaymentsPage() {
     setConfig(c);
     setActive(c.active_provider);
     setDrafts({
-      paddle: { ...emptyDraft(), sandbox: c.paddle.sandbox },
+      // Client token is publishable: prefill it so the admin can see/verify it.
+      paddle: { ...emptyDraft(), sandbox: c.paddle.sandbox, client_token: c.paddle.client_token ?? '' },
       paypro: { ...emptyDraft(), sandbox: c.paypro.sandbox },
     });
   }, []);
@@ -73,7 +74,7 @@ export default function AdminPaymentsPage() {
     try {
       const body = {
         active_provider: active,
-        paddle: { api_key: drafts.paddle.api_key, api_secret: drafts.paddle.api_secret, webhook_secret: drafts.paddle.webhook_secret, sandbox: drafts.paddle.sandbox },
+        paddle: { api_key: drafts.paddle.api_key, api_secret: drafts.paddle.api_secret, webhook_secret: drafts.paddle.webhook_secret, client_token: drafts.paddle.client_token, sandbox: drafts.paddle.sandbox },
         paypro: { api_key: drafts.paypro.api_key, api_secret: drafts.paypro.api_secret, webhook_secret: drafts.paypro.webhook_secret, sandbox: drafts.paypro.sandbox },
       };
       const res = await fetch('/api/admin/payments/config', {
@@ -142,6 +143,19 @@ export default function AdminPaymentsPage() {
                     </span>
                   </div>
                   <div style={{ display: 'grid', gap: 12 }}>
+                    {key === 'paddle' && (
+                      <label style={{ display: 'block' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                          Client-side token <span style={{ fontWeight: 700, color: '#1A7A30' }}>(publishable)</span>
+                        </div>
+                        <input type="text" data-testid="paddle-client-token" value={d.client_token} onChange={(e) => setDraft('paddle', { client_token: e.target.value })}
+                          placeholder="test_xxxxx (sandbox)"
+                          style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6, fontFamily: 'monospace' }} />
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                          Used by Paddle.js in the browser to open checkout. Sandbox tokens start with <code>test_</code>. This is the only value sent to the browser, no secret leaves the server.
+                        </div>
+                      </label>
+                    )}
                     <SecretField label="API key" testid={`${key}-api-key`} isSet={!!mask?.has_api_key} value={d.api_key} onChange={(v) => setDraft(key, { api_key: v })} />
                     <SecretField label="API secret" testid={`${key}-api-secret`} isSet={!!mask?.has_api_secret} value={d.api_secret} onChange={(v) => setDraft(key, { api_secret: v })} />
                     <SecretField label="Webhook secret" testid={`${key}-webhook-secret`} isSet={!!mask?.has_webhook_secret} value={d.webhook_secret} onChange={(v) => setDraft(key, { webhook_secret: v })} />
@@ -149,6 +163,11 @@ export default function AdminPaymentsPage() {
                       <input type="checkbox" data-testid={`${key}-sandbox`} checked={d.sandbox} onChange={(e) => setDraft(key, { sandbox: e.target.checked })} />
                       Sandbox mode {d.sandbox ? '(test)' : '(live)'}
                     </label>
+                    {key === 'paddle' && (
+                      <div style={{ fontSize: 11, color: '#64748b', background: '#F1F5F9', borderRadius: 6, padding: '8px 10px' }}>
+                        For sandbox checkout you need the <b>client-side token</b> (above) and the <b>webhook secret</b> (notification destination secret, <code>pdl_ntfset_…</code>). Set the per-plan Paddle price IDs in the Plan Builder. Point your Paddle webhook to <code>/api/payments/webhook/paddle</code>.
+                      </div>
+                    )}
                   </div>
                 </div>
               );
