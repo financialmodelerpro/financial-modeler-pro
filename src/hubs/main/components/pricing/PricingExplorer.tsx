@@ -36,7 +36,7 @@ const LINE = '#E8EDF4';
 export interface PickerPlatform {
   slug: string;
   name: string;
-  shortName: string;
+  shortName?: string;
   icon: string;
   status: 'live' | 'coming_soon';
   tagline: string;

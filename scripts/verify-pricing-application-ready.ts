@@ -65,8 +65,10 @@ check('GRID derives from LABEL_W', /const GRID = `\$\{LABEL_W\}px repeat/.test(l
 check('both blocks use INNER_MIN min width', (lpc.match(/minWidth: INNER_MIN/g) ?? []).length >= 2);
 check('rowGrid used for card row + comparison rows', (lpc.match(/\.\.\.rowGrid/g) ?? []).length >= 3);
 
-console.log('=== One-page platform picker (config-driven) -> plans in place ===');
-check('pricing page reads the platform config (PLATFORMS), not a hardcoded list', /from '@\/src\/hubs\/modeling\/config\/platforms'/.test(pricingPage) && /PLATFORMS\.map\(/.test(pricingPage));
+console.log('=== One-page platform picker (DASHBOARD-driven visibility + order) -> plans in place ===');
+check('picker visibility + order come from the dashboard (getModules / modules table), not the static list', /getModules\b/.test(pricingPage) && /const dashboardPlatforms = await getModules\(\)/.test(pricingPage));
+check('static config is only a presentational lookup keyed by slug (not the source of which platforms show)', /new Map\(PLATFORMS\.map/.test(pricingPage) && /dashboardPlatforms\.map\(/.test(pricingPage) && !/PLATFORMS\.map\(\(p\) => \(\{/.test(pricingPage));
+check('live platforms loaded for plans come from the dashboard list', /dashboardPlatforms\.filter\(\(p\) => p\.status === 'live'\)/.test(pricingPage));
 check('pricing page renders the PricingExplorer (picker + plans)', /<PricingExplorer\b/.test(pricingPage));
 check('explorer step 1: a platform picker built from the platforms prop', /data-testid="platform-picker"/.test(explorer) && /platforms\.map\(/.test(explorer));
 check('explorer marks live as Available now (clickable) + coming-soon disabled', /Available now/.test(explorer) && /Coming soon/.test(explorer) && /aria-disabled="true"/.test(explorer));
@@ -74,7 +76,7 @@ check('live platform card is a clickable button that selects in place', /platfor
 check('explorer step 2: plans view reuses LivePlanCards scoped to the selection', /data-testid="pricing-plans-view"/.test(explorer) && /<LivePlanCards\b/.test(explorer));
 check('explorer step 2 has a back-to-platforms control', /data-testid="back-to-platforms"/.test(explorer));
 check('explorer shows the real platform NAME (not a generic label)', /data-testid="selected-platform-name"/.test(explorer) && /selectedPlatform\.name/.test(explorer));
-check('platform config has REFM live + coming-soon others', /slug: 'real-estate'[\s\S]*?status: 'live'/.test(platformsConfig) && /status: 'coming_soon'/.test(platformsConfig));
+check('static config retained as presentational lookup (REFM entry present)', /slug: 'real-estate'/.test(platformsConfig));
 
 console.log('=== No Training Hub content + no generic "Modeling Platform" label in the pricing flow ===');
 for (const [label, src] of [['app/pricing/page.tsx', pricingPage], ['PricingExplorer.tsx', explorer]] as const) {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { getCmsContent, cms, getAllPageSections } from '@/src/shared/cms';
+import { getCmsContent, cms, getAllPageSections, getModules } from '@/src/shared/cms';
 import { getServerClient } from '@/src/core/db/supabase';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { PricingAccordion } from '@/src/hubs/main/components/pricing/PricingAccordion';
@@ -26,19 +26,35 @@ export default async function PricingPage() {
   ]);
   const sb = getServerClient();
 
-  // Platform PICKER is driven entirely by the platform config (PLATFORMS), so a
-  // new platform shows up here with no edit to this page. Only the lightweight,
-  // serialisable fields cross to the client island.
-  const pickerPlatforms: PickerPlatform[] = PLATFORMS.map((p) => ({
-    slug: p.slug, name: p.name, shortName: p.shortName, icon: p.icon, status: p.status, tagline: p.tagline,
-  }));
+  // VISIBILITY + ORDER are owned by the admin dashboard, NOT the static config.
+  // getModules() reads the `modules` table (which stores platforms) the exact
+  // same way the modeling-hub overview + sidebar do: it returns only platforms
+  // whose status is not 'hidden', in display_order. The static config is used
+  // ONLY as a presentational lookup (tagline / shortName) keyed by slug, never
+  // to decide which platforms appear or their order. So hiding / reordering /
+  // toggling a platform in the dashboard reflects here automatically.
+  const dashboardPlatforms = await getModules();
+  const presentation = new Map(PLATFORMS.map((p) => [p.slug, p]));
+  const pickerPlatforms: PickerPlatform[] = dashboardPlatforms.map((p) => {
+    const meta = presentation.get(p.slug);
+    return {
+      slug: p.slug,
+      name: p.name,
+      shortName: meta?.shortName ?? p.name,
+      icon: p.icon || meta?.icon || '',
+      // getModules() already excludes 'hidden'; only live / coming_soon remain.
+      status: p.status === 'live' ? 'live' : 'coming_soon',
+      tagline: meta?.tagline ?? p.description ?? '',
+    };
+  });
 
-  // For each LIVE platform, load its plans/comparison from the entitlement
-  // tables (the single source of truth), so selecting it reveals real plans in
-  // place. loadPricingCatalog runs server-side with the service-role client, so
-  // it works for an unauthenticated visitor. Hidden non-module features are
-  // filtered out. Coming-soon platforms are never loaded (not clickable).
-  const livePlatforms = PLATFORMS.filter((p) => p.status === 'live');
+  // For each LIVE platform (per the dashboard), load its plans/comparison from
+  // the entitlement tables (the single source of truth), so selecting it reveals
+  // real plans in place. loadPricingCatalog runs server-side with the
+  // service-role client, so it works for an unauthenticated visitor. Hidden
+  // non-module features are filtered out. Coming-soon platforms are never loaded
+  // (not clickable).
+  const livePlatforms = dashboardPlatforms.filter((p) => p.status === 'live');
   const loaded = await Promise.all(
     livePlatforms.map(async (p) => [p.slug, await loadPricingCatalog(sb, p.slug)] as const),
   );
@@ -52,8 +68,9 @@ export default async function PricingPage() {
       credibilityLine: cat.credibilityLine,
     };
   }
-  // The single-source trial length for the bottom CTA copy (live REFM platform).
-  const trialDays = pricingByPlatform['real-estate']?.trialDays ?? 0;
+  // The single-source trial length for the bottom CTA copy (the live REFM
+  // platform; falls back to the first live platform if REFM is ever hidden).
+  const trialDays = pricingByPlatform['real-estate']?.trialDays ?? Object.values(pricingByPlatform)[0]?.trialDays ?? 0;
 
   // CMS, hero + FAQ sourced from page_sections (Page Builder is canonical).
   const heroSection = pricingSections.find(s => s.section_type === 'hero' && s.visible !== false);
