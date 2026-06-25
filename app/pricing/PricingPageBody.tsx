@@ -25,7 +25,7 @@ import PricingExplorer, { type PickerPlatform, type PlatformPricing } from '@/sr
 import { loadPricingCatalog, visibleForCustomers } from '@/src/shared/entitlements/pricingCatalog';
 import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 
-export default async function PricingPageBody() {
+export default async function PricingPageBody({ initialPlatform }: { initialPlatform?: string } = {}) {
   const [content, pricingSections] = await Promise.all([
     getCmsContent(),
     getAllPageSections('pricing'),
@@ -117,7 +117,7 @@ export default async function PricingPageBody() {
           by the platform config, so new platforms appear automatically. No
           course or free-training content lives in this flow. */}
       <section style={{ padding: '64px 40px', maxWidth: 1200, margin: '0 auto' }}>
-        <PricingExplorer platforms={pickerPlatforms} pricingByPlatform={pricingByPlatform} />
+        <PricingExplorer platforms={pickerPlatforms} pricingByPlatform={pricingByPlatform} initialPlatform={initialPlatform} />
       </section>
 
       {/* FAQ */}

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { PLATFORMS, getPlatform } from '@/src/hubs/modeling/config/platforms';
+import { PLATFORMS, getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 import type { PlatformModule } from '@/src/hubs/modeling/config/platforms';
 import { getModules, getAllPageSections } from '@/src/shared/cms';
 import { getPlatformModules } from '@/src/shared/cms/platform-modules';
@@ -328,6 +328,18 @@ export default async function PlatformDetailPage({
                       {heroCta2Text}
                     </Link>
                   )}
+                  {/* Marketing platform pricing link: the SAME canonical
+                      per-platform pricing URL the dashboard "Get access" uses,
+                      derived from the platform source (never hardcoded). */}
+                  <a href={`${APP_URL}/pricing/${platformPricingSegment(platform)}`} data-testid="platform-view-pricing" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: 'rgba(255,255,255,0.12)', color: '#fff',
+                    fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                    borderRadius: 8, textDecoration: 'none',
+                    border: '2px solid rgba(255,255,255,0.25)',
+                  }}>
+                    View plans &amp; pricing &rarr;
+                  </a>
                 </div>
               )}
             </div>

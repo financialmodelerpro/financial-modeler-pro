@@ -54,8 +54,8 @@ export interface PlatformPricing {
 }
 
 export default function PricingExplorer({
-  platforms, pricingByPlatform,
-}: { platforms: PickerPlatform[]; pricingByPlatform: Record<string, PlatformPricing> }) {
+  platforms, pricingByPlatform, initialPlatform,
+}: { platforms: PickerPlatform[]; pricingByPlatform: Record<string, PlatformPricing>; initialPlatform?: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const { data: session, status } = useSession();
   const authed = status === 'authenticated' && !!session?.user;
@@ -128,21 +128,24 @@ export default function PricingExplorer({
     }
   }, []);
 
-  // Deep-link: /pricing?platform=<slug> pre-selects that platform's plans,
-  // skipping the picker. The dashboard "Get access" card uses this (the user
-  // already chose a platform, so it should not be asked again). Runs once on
-  // mount, independent of auth, so it works for both logged-in (in-app actions)
-  // and logged-out (register handoff) visitors. A missing / unknown slug leaves
-  // `selected` null, so a cold visitor still lands on the picker.
+  // Pre-select a platform's plans, skipping the picker. The slug comes from the
+  // path-based route (/pricing/<segment> resolves to a slug passed as
+  // `initialPlatform`); a legacy ?platform=<slug> query is also honored as a
+  // back-compat fallback (the redirect normalizes these to the path form). Runs
+  // once on mount, independent of auth, so it works for both logged-in (in-app
+  // actions) and logged-out (register handoff) visitors. A missing / unknown
+  // slug leaves `selected` null, so a cold visitor still lands on the picker.
   const platformAppliedRef = useRef(false);
   useEffect(() => {
     if (platformAppliedRef.current) return;
-    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const slug = (params.get('platform') ?? '').trim().toLowerCase();
+    let slug = (initialPlatform ?? '').trim().toLowerCase();
+    if (!slug && typeof window !== 'undefined') {
+      slug = (new URLSearchParams(window.location.search).get('platform') ?? '').trim().toLowerCase();
+    }
     if (!slug) return;
     platformAppliedRef.current = true;
     if (platforms.some((p) => p.slug === slug)) setSelected(slug);
-  }, [platforms]);
+  }, [platforms, initialPlatform]);
 
   // Resume a remembered plan choice (logged-out pricing click handed to
   // /register, persisted to localStorage; or a ?plan= query forwarded from

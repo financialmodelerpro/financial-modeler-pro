@@ -400,3 +400,32 @@ export const PLATFORMS: Platform[] = [
 export function getPlatform(slug: string): Platform | undefined {
   return PLATFORMS.find((p) => p.slug === slug);
 }
+
+/**
+ * URL segment for the per-platform pricing route (/pricing/<segment>). Derived
+ * from the platform's shortName so it is short and branded (REFM -> refm),
+ * sanitized to URL-safe lowercase (FP&A -> fpa). Falls back to the slug if a
+ * platform has no usable shortName. NEVER hardcoded: pass any platform from the
+ * config or the dashboard modules source (both carry shortName + slug) and this
+ * returns its segment, so a newly-added platform gets a working URL with no code
+ * change.
+ */
+export function platformPricingSegment(p: { shortName?: string | null; slug: string }): string {
+  const fromShort = (p.shortName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return fromShort || p.slug;
+}
+
+/**
+ * Resolve a /pricing/<segment> back to a platform slug. Matches the derived
+ * (shortName-based) segment first, then the raw slug as a fallback (so the old
+ * /pricing?platform=<slug> redirect target still resolves). Returns null when no
+ * platform matches, so the route can fall back to the picker gracefully.
+ */
+export function platformSlugForSegment(segment: string): string | null {
+  const seg = (segment ?? '').trim().toLowerCase();
+  if (!seg) return null;
+  const byShort = PLATFORMS.find((p) => platformPricingSegment(p) === seg);
+  if (byShort) return byShort.slug;
+  const bySlug = PLATFORMS.find((p) => p.slug === seg);
+  return bySlug ? bySlug.slug : null;
+}

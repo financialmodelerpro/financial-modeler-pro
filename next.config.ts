@@ -236,6 +236,18 @@ const nextConfig: NextConfig = {
       // and learn.*/pricing redirect TO it, so there is a single pricing URL.
       // 307 (permanent: false) during this transition; can be hardened to 308
       // later once the move has settled.
+      //
+      // Back-compat: the legacy /pricing?platform=<slug> deep-link is normalized
+      // to the path form /pricing/<slug> (host-agnostic, fires first). The route
+      // resolver accepts the raw slug too, so /pricing/real-estate resolves to
+      // the platform's plans. `/pricing/<slug>` does not match source '/pricing',
+      // so this never loops. Placed BEFORE the bare-pricing host redirects.
+      {
+        source: '/pricing',
+        has: [{ type: 'query' as const, key: 'platform', value: '(?<plat>[^&]+)' }],
+        destination: '/pricing/:plat',
+        permanent: false,
+      },
       {
         source: '/pricing',
         destination: `${APP_URL}/pricing`,
@@ -245,6 +257,21 @@ const nextConfig: NextConfig = {
       {
         source: '/pricing',
         destination: `${APP_URL}/pricing`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }],
+      },
+      // Per-platform pricing path (/pricing/<segment>) has ONE canonical home on
+      // the app subdomain too: apex/www + learn redirect to app.*, matching the
+      // bare /pricing behavior. The app subdomain serves the real route directly.
+      {
+        source: '/pricing/:platform',
+        destination: `${APP_URL}/pricing/:platform`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
+      },
+      {
+        source: '/pricing/:platform',
+        destination: `${APP_URL}/pricing/:platform`,
         permanent: false,
         has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }],
       },

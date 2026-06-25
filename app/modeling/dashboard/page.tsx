@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { Platform, PlatformStatus } from '@/src/hubs/modeling/config/platforms';
+import { platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
@@ -128,11 +129,12 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
   // A no-plan (non-admin) user does not enter the locked tool. The card already
   // knows WHICH platform was chosen, so it deep-links straight to that
   // platform's plans (skipping the choose-plan interstitial AND the platform
-  // picker): /pricing?platform=<slug> pre-selects the platform on the pricing
-  // page. Entitled users open the workspace. The /refm server gate enforces all
-  // of this independently of the card; /choose-plan still serves users sent
-  // there from /refm with no platform context.
-  const entryHref  = noPlan ? `/pricing?platform=${platform.slug}` : route;
+  // picker): /pricing/<segment> (clean path, segment derived from the platform
+  // source, never hardcoded) pre-selects the platform on the pricing page. This
+  // is the SAME canonical URL the marketing site links to. Entitled users open
+  // the workspace. The /refm server gate enforces all of this independently of
+  // the card; /choose-plan still serves users sent there with no platform context.
+  const entryHref  = noPlan ? `/pricing/${platformPricingSegment(platform)}` : route;
   const entryLabel = noPlan ? 'Get access →' : 'Open Platform →';
 
   return (
