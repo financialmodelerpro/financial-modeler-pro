@@ -26,8 +26,10 @@ app/
 ├── modeling-hub/page.tsx        # Phase P-Sync 2026-05-07: public overview of all platforms (REFM, BVM, FPA, ...) reading legacy `modules` table via getModules. Grid of platform cards with icon + name + description + status pill, each linking to /modeling-hub/[platformSlug].
 ├── modeling-hub/[platformSlug]/page.tsx  # Phase P-Sync 2026-05-07: per-platform overview, lists every visible platform_modules row with description + status pill + link to per-module marketing page. Uses getPlatformModules helper.
 ├── modeling-hub/[platformSlug]/[moduleSlug]/page.tsx  # Phase P-Sync 2026-05-07: per-module marketing landing rendering hero + features + how_it_works + testimonials + cta sections from platform_module_pages. Uses getPlatformModuleWithPages + getSectionContent. notFound() on missing module. ISR 60s.
-├── portal/page.tsx              # 5-line redirect → ${APP_URL}/modeling/dashboard (2026-04-30). Modeling Hub is canonically on app.* subdomain; this main-domain entry is preserved only so historical bookmarks keep working. Removed from MAIN_PATHS in next.config.ts.
-├── pricing/page.tsx
+├── portal/page.tsx              # 5-line redirect → ${APP_URL}/dashboard (2026-06-25; was /modeling/dashboard). Modeling Hub is canonically on app.* subdomain; this main-domain entry is preserved only so historical bookmarks keep working. Removed from MAIN_PATHS in next.config.ts.
+├── pricing/page.tsx             # Thin wrapper -> renders shared <PricingPageBody/> (2026-06-25). apex /pricing 307s to app.*/pricing (next.config); the body is the ONE pricing design used by marketing + in-app.
+├── pricing/PricingPageBody.tsx  # SHARED pricing body (2026-06-25): server-loads plans (loadPricingCatalog) + renders PricingExplorer (picker -> per-platform plans). Session-aware island: logged-out = register handoff, logged-in = in-app Paddle checkout/trial + resume. Optional initialPlatform pre-selects a platform. Rendered by app/pricing/page.tsx, app/modeling/pricing/page.tsx, AND app/pricing/[platform]/page.tsx.
+├── pricing/[platform]/page.tsx  # Per-platform pricing on a clean path /pricing/<segment> (2026-06-25). Segment is SOURCE-DERIVED via platformPricingSegment (shortName lowercased: REFM->refm, FP&A->fpa; slug fallback) + platformSlugForSegment reverse-map in src/hubs/modeling/config/platforms.ts. Renders PricingPageBody with that platform pre-selected (skips picker); unknown segment -> picker fallback (200). Canonical URL used by dashboard "Get access" + the live platform marketing CTA. Old /pricing?platform=<slug> 307s to the path (next.config).
 ├── reset-password/page.tsx
 ├── settings/page.tsx
 ├── t/[token]/page.tsx
@@ -146,12 +148,23 @@ app/training/
 ```
 
 ### Modeling Hub (`app.financialmodelerpro.com`)
+# CLEAN URLs (2026-06-25): the app subdomain drops the "modeling" segment via host-gated
+# beforeFiles rewrites in next.config.ts (same pattern as /signin,/register): /dashboard ->
+# /modeling/dashboard, /pricing -> /modeling/pricing, /choose-plan -> /modeling/choose-plan.
+# Physical pages STAY under app/modeling/*. Old /modeling/{dashboard,pricing,choose-plan} 308
+# to the clean URLs. confirm-email/submit-testimonial/[slug] intentionally kept under /modeling.
+# Internal navigators (signin callbackUrl + redirects, register, choose-plan, dashboard cards,
+# /refm no-plan gate, Topbar, settings, /portal, account-confirmation email, robots) all use the
+# clean paths. apex/learn /pricing(/[platform]) 307 to app.*.
 ```
 app/modeling/
 ├── layout.tsx                   # OG metadata for app. domain (metadataBase, og:image → /api/og/modeling)
 ├── page.tsx                     # CMS Option B (070), revalidate=0
 ├── ComingSoon.tsx               # Coming soon page component (shared by signin/register)
-├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0
+├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0. LIVE platforms now carry a "View plans & pricing" CTA -> ${APP_URL}/pricing/<segment> (same canonical per-platform pricing URL as the dashboard).
+├── pricing/page.tsx             # In-app pricing, served at clean /pricing via rewrite. Thin wrapper -> shared <PricingPageBody/> (2026-06-25). Old standalone client page replaced.
+├── choose-plan/page.tsx         # No-plan get-access screen (served at /choose-plan). "View plans" -> /pricing (picker); resume -> /pricing?<planIntent>. Still serves /refm-gate redirects with no platform context.
+├── dashboard/page.tsx           # see below; no-plan "Get access" card -> /pricing/<segment> (platformPricingSegment, 2026-06-25)
 ├── confirm-email/page.tsx
 ├── dashboard/page.tsx           # Canonical post-signin landing on app.* (rebuilt 2026-04-30). Server-fetches CMS keys logo_url + logo_height_px + header_height_px (defaults 36 / 64) so the hub topbar matches main-site NavbarServer dimensions. Renders the sidebar layout (topbar minHeight=headerHeight, sidebar top=headerHeight + height=calc(100vh - {headerHeight}px)). Owns its own dark-mode toggle via localStorage['modelingDarkMode'] (default → prefers-color-scheme), data-theme attribute does NOT leak into /admin or /training surfaces.
 ├── register/page.tsx            # Server component - gates on modeling_hub_register_coming_soon (migration 136); supports ?email=whitelisted@address shortcut that server-verifies the whitelist and renders the form with the email locked; otherwise renders ModelingRegisterComingSoonWrapper
