@@ -126,7 +126,7 @@ export default function AdminPaymentsPage() {
                 ))}
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
-                Current: <b style={{ color: NAVY }}>{active === 'none' ? 'None, checkout is a placeholder' : active}</b>. Both adapters are stubbed in this release, selecting one keeps checkout a placeholder until that adapter is implemented.
+                Current: <b style={{ color: NAVY }}>{active === 'none' ? 'None, checkout is a placeholder' : active}</b>. Paddle is implemented (real sandbox or live checkout once it is configured and active). PayPro is still a placeholder. While None is selected, checkout shows the placeholder and nothing is charged.
               </div>
             </div>
 

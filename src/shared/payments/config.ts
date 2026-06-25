@@ -103,8 +103,11 @@ export function providerConfigFrom(row: PaymentSettingsRow, provider: PaymentPro
 /** Produce the client-safe masked view. No SECRET ever leaves here; the paddle
  *  client token IS returned (publishable, needed by the browser). */
 export function maskPaymentSettings(row: PaymentSettingsRow): MaskedPaymentSettings {
-  const m = (key: string | null, secret: string | null, webhook: string | null, clientToken: string | null, sandbox: boolean): MaskedProvider => ({
-    configured: !!key && !!secret && !!webhook,
+  // `configured` reflects what each provider ACTUALLY needs to operate, so the
+  // admin badge tells the truth. It is passed in per provider rather than
+  // computed identically, because the two providers have different requirements.
+  const m = (key: string | null, secret: string | null, webhook: string | null, clientToken: string | null, sandbox: boolean, configured: boolean): MaskedProvider => ({
+    configured,
     has_api_key: !!key,
     has_api_secret: !!secret,
     has_webhook_secret: !!webhook,
@@ -113,8 +116,20 @@ export function maskPaymentSettings(row: PaymentSettingsRow): MaskedPaymentSetti
   });
   return {
     active_provider: row.active_provider,
-    paddle: m(row.paddle_api_key, row.paddle_api_secret, row.paddle_webhook_secret, row.paddle_client_token, row.paddle_sandbox),
-    paypro: m(row.paypro_api_key, row.paypro_api_secret, row.paypro_webhook_secret, null, row.paypro_sandbox),
+    // Paddle (Billing) overlay checkout needs only the publishable client-side
+    // token + the webhook secret: createCheckout uses clientToken + the per-plan
+    // price id, verifyWebhook uses the webhook secret. There is NO api_secret in
+    // Paddle Billing, and the api_key is only for optional server-side REST calls
+    // the overlay flow never makes. So readiness = client token + webhook secret.
+    paddle: m(
+      row.paddle_api_key, row.paddle_api_secret, row.paddle_webhook_secret, row.paddle_client_token, row.paddle_sandbox,
+      !!row.paddle_client_token && !!row.paddle_webhook_secret,
+    ),
+    // PayPro is still a stub; keep its original key + secret + webhook readiness.
+    paypro: m(
+      row.paypro_api_key, row.paypro_api_secret, row.paypro_webhook_secret, null, row.paypro_sandbox,
+      !!row.paypro_api_key && !!row.paypro_api_secret && !!row.paypro_webhook_secret,
+    ),
   };
 }
 
