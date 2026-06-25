@@ -128,7 +128,7 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
   // A no-plan (non-admin) user does not enter the locked tool: the card routes
   // them to get-access (choose-plan). Entitled users open the workspace. The
   // /refm server gate enforces this independently of the card.
-  const entryHref  = noPlan ? '/modeling/choose-plan' : route;
+  const entryHref  = noPlan ? '/choose-plan' : route;
   const entryLabel = noPlan ? 'Get access →' : 'Open Platform →';
 
   return (
@@ -605,7 +605,7 @@ export default function ModelingDashboardPage() {
               <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
                 You do not have an active plan yet. Choose a plan or start a free trial to unlock the platforms.
               </span>
-              <a href="/modeling/choose-plan" data-testid="dashboard-get-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              <a href="/choose-plan" data-testid="dashboard-get-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Get access →
               </a>
             </div>

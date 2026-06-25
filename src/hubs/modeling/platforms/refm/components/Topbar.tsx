@@ -453,7 +453,7 @@ export default function Topbar({
       </button>
 
       <Link
-        href="/modeling/dashboard"
+        href="/dashboard"
         className="topbar-icon-btn"
         title={'HUB\n\nReturn to the Modeling Hub home page where you can pick a different platform (Real Estate, Business Valuation, etc.). Your current draft stays loaded - you can come back via the project list.'}
         data-testid="topbar-hub"

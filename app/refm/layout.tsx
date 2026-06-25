@@ -13,7 +13,7 @@ import { isNoPlanLockedOut } from '@/src/shared/entitlements/gate';
  *   1. Coming-Soon gate (existing).
  *   2. No-plan gate (foundation): a non-admin on the deliberate 'none' state has
  *      ZERO access, so the workspace itself redirects them to get-access
- *      (/modeling/choose-plan). Admin always bypasses; a real plan or the
+ *      (/choose-plan). Admin always bypasses; a real plan or the
  *      unknown-plan safety net passes. The plan is read LIVE from the users row
  *      (not the JWT) so a just-granted trial/purchase lets the user straight in.
  *
@@ -34,7 +34,7 @@ export default async function RefmLayout({ children }: { children: React.ReactNo
     const sb = getServerClient();
     const { data } = await sb.from('users').select('subscription_plan').eq('id', userId).maybeSingle();
     const planKey = (data as { subscription_plan?: string } | null)?.subscription_plan ?? '';
-    if (isNoPlanLockedOut(planKey, isAdmin)) redirect('/modeling/choose-plan');
+    if (isNoPlanLockedOut(planKey, isAdmin)) redirect('/choose-plan');
   }
 
   return <>{children}</>;

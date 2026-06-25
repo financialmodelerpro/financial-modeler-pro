@@ -1,20 +1,20 @@
 'use client';
 
 /**
- * /modeling/choose-plan
+ * /choose-plan (served on app.* ; physically app/modeling/choose-plan)
  *
  * The get-access screen for a user with NO plan (subscription_plan = 'none').
  * A none user has zero platform access, so this is where they choose a plan or
  * start a free trial. Access comes only from an approved trial or a purchase.
  *
  * Actions:
- *   - View plans and pricing -> /modeling/pricing.
+ *   - View plans and pricing -> /pricing.
  *   - Start free trial -> POST /api/refm/trial. Self-serve by default (granted
  *     instantly, then into the platform); if the admin toggle "Trial requires
  *     approval" is on, it submits a request for admin approval.
  *
  * Resume: if the user arrived here after a logged-out pricing click (intent
- * persisted in localStorage during register), we forward to /modeling/pricing
+ * persisted in localStorage during register), we forward to /pricing
  * with that intent so the original action resumes. No dead ends.
  *
  * Guard: only a none, non-admin user sees this; admins and real/unknown-plan
@@ -49,14 +49,14 @@ export default function ChoosePlanPage() {
     if (status !== 'authenticated' || !ent.loaded) return;
     if (ent.isAdmin || (ent.planKey !== NONE_PLAN_KEY && ent.planKey !== '')) return;
     const intent = readPlanIntent();
-    if (intent) router.replace(`/modeling/pricing?${planIntentQuery(intent)}`);
+    if (intent) router.replace(`/pricing?${planIntentQuery(intent)}`);
   }, [status, ent.loaded, ent.isAdmin, ent.planKey, router]);
 
   // Non-none users (admin / real / unknown) belong on the dashboard.
   useEffect(() => {
     if (!ent.loaded || ent.error) return;
     if (ent.isAdmin || (ent.planKey !== NONE_PLAN_KEY && ent.planKey !== '')) {
-      router.replace('/modeling/dashboard');
+      router.replace('/dashboard');
     }
   }, [ent.loaded, ent.error, ent.isAdmin, ent.planKey, router]);
 
@@ -108,7 +108,7 @@ export default function ChoosePlanPage() {
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 360, margin: '0 auto' }}>
-          <a href="/modeling/pricing" data-testid="choose-plan-view-plans"
+          <a href="/pricing" data-testid="choose-plan-view-plans"
             style={{ display: 'block', textAlign: 'center', textDecoration: 'none', padding: '14px 0', borderRadius: 12, fontWeight: 800, fontSize: 15, background: GOLD, color: NAVY, boxShadow: '0 12px 28px -8px rgba(201,168,76,0.55)' }}>
             View plans and pricing
           </a>

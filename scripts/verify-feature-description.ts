@@ -76,15 +76,17 @@ check('badge uses brand gold fill', /background: featured \? GOLD/.test(lpc));
 check('comparison uses FeatureInfoLabel', /<FeatureInfoLabel/.test(lpc));
 check('LivePlanCards has NO orange hex', !ORANGE.test(lpc));
 
-console.log('=== In-app pricing comparison uses the same popover ===');
+console.log('=== In-app pricing reuses the shared component (same popover) ===');
 const inapp = read('app/modeling/pricing/page.tsx');
-check('in-app imports FeatureInfoLabel', /FeatureInfoLabel/.test(inapp));
-check('in-app PriceFeature has description', /description\?:\s*string \| null/.test(inapp));
-check('in-app comparison uses FeatureInfoLabel', /<FeatureInfoLabel/.test(inapp));
+const body = read('app/pricing/PricingPageBody.tsx');
+check('in-app pricing route renders the shared PricingPageBody', /PricingPageBody/.test(inapp));
+check('shared body renders the PricingExplorer (cards + comparison)', /<PricingExplorer\b/.test(body));
+check('shared cards use the FeatureInfoLabel popover', /<FeatureInfoLabel/.test(lpc));
 
 console.log('=== No orange + no em dashes on touched pricing files ===');
 const files = [
   'src/hubs/main/components/pricing/LivePlanCards.tsx',
+  'app/pricing/PricingPageBody.tsx',
   'app/pricing/page.tsx',
   'app/modeling/pricing/page.tsx',
   'src/shared/components/pricing/FeatureInfoLabel.tsx',

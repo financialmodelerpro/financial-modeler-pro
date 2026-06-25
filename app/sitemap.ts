@@ -23,7 +23,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     s(`${MAIN_URL}/about/ahmad-din`,        0.9, 'monthly'),
     s(`${MAIN_URL}/book-a-meeting`,         0.8, 'monthly'),
     s(`${MAIN_URL}/contact`,                0.7, 'monthly'),
-    s(`${MAIN_URL}/pricing`,                0.8, 'monthly'),
+    // Pricing is canonically served on the app subdomain now (apex /pricing 307s
+    // to it); point the sitemap at the real destination so Google does not flag
+    // a "Page with redirect".
+    s(`${APP_URL}/pricing`,                 0.8, 'monthly'),
     s(`${MAIN_URL}/articles`,               0.9, 'weekly'),
     // training-sessions is canonically served on learn (main-domain hits 307
     // to learn via next.config.ts redirects), point sitemap at the actual

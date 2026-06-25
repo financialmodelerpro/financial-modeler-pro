@@ -21,9 +21,12 @@
  *
  * No em dashes in this file.
  */
-import { useState } from 'react';
-import LivePlanCards, { type LivePlan, type LiveFeature, type LiveCoverage } from './LivePlanCards';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import LivePlanCards, { type LivePlan, type LiveFeature, type LiveCoverage, type PricingActions } from './LivePlanCards';
 import { CouponInput } from '@/app/pricing/CouponInput';
+import type { BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
+import { parsePlanIntent, readPlanIntent, clearPlanIntent } from '@/src/hubs/modeling/lib/planIntent';
 
 const NAVY = '#0D2E5A';
 const NAVY_MID = '#1B4F8A';
@@ -54,6 +57,101 @@ export default function PricingExplorer({
   platforms, pricingByPlatform,
 }: { platforms: PickerPlatform[]; pricingByPlatform: Record<string, PlatformPricing> }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const { data: session, status } = useSession();
+  const authed = status === 'authenticated' && !!session?.user;
+
+  // In-app checkout / trial state (only used when logged in). The same APIs the
+  // former standalone in-app pricing page used; the webhook still owns plan
+  // changes, this only opens checkout / requests a trial.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const resumedRef = useRef(false);
+
+  // The first live platform whose catalog carries a given plan_key (used to
+  // resume a remembered plan choice onto the right platform). Falls back to the
+  // first live platform.
+  const platformForPlan = useCallback((planKey: string): string | null => {
+    for (const [slug, pricing] of Object.entries(pricingByPlatform)) {
+      if (pricing.plans.some((p) => p.plan_key === planKey)) return slug;
+    }
+    return Object.keys(pricingByPlatform)[0] ?? null;
+  }, [pricingByPlatform]);
+
+  const startCheckout = useCallback((planKey: string, interval: BillingInterval) => {
+    setBusyKey(planKey);
+    setMessage('Checking availability...');
+    fetch('/api/payments/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ plan_key: planKey, interval }),
+    })
+      .then((r) => r.json())
+      .then(async (res) => {
+        // Provider-hosted redirect (e.g. a redirect-style adapter).
+        if (res?.status === 'redirect' && res.url) { window.location.href = res.url; return; }
+        // Paddle.js overlay: open the hosted checkout for the plan's price id.
+        if (res?.status === 'open_overlay' && res.clientToken && res.priceId) {
+          try {
+            const { openPaddleCheckout } = await import('@/src/shared/payments/paddleBrowser');
+            await openPaddleCheckout({
+              clientToken: res.clientToken,
+              priceId: res.priceId,
+              sandbox: res.sandbox !== false,
+              email: res.email ?? null,
+              customData: res.customData,
+            });
+            setMessage(null);
+          } catch (err) {
+            // Surface the specific failure (price not found, env mismatch, etc.).
+            const msg = err instanceof Error && err.message ? err.message : null;
+            setMessage(msg ?? 'Could not open the checkout. Please try again, or contact the team to set your plan.');
+          }
+          return;
+        }
+        setMessage(res?.message ?? 'Online payment is not enabled yet. No charge has been made.');
+      })
+      .catch(() => setMessage('Online payment is not enabled yet. No charge has been made.'))
+      .finally(() => setBusyKey((k) => (k === planKey ? null : k)));
+  }, []);
+
+  const startTrial = useCallback(async (_interval: BillingInterval) => {
+    setBusyKey('trial');
+    setMessage('Starting your free trial...');
+    try {
+      const res = await fetch('/api/refm/trial', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
+      if (res.status === 'granted') { window.location.href = '/refm'; return; }
+      if (res.status === 'requested') { setMessage('Your free trial request has been submitted. An admin will review it shortly.'); return; }
+      setMessage(res.error ? `Could not start the trial: ${res.error}` : 'Could not start the trial. Please try again.');
+    } catch {
+      setMessage('Could not start the trial. Please try again.');
+    } finally {
+      setBusyKey((k) => (k === 'trial' ? null : k));
+    }
+  }, []);
+
+  // Resume a remembered plan choice (logged-out pricing click handed to
+  // /register, persisted to localStorage; or a ?plan= query forwarded from
+  // choose-plan). Once, when authed: select the matching platform and run the
+  // action (checkout -> Paddle, trial -> trial request). No dead ends.
+  useEffect(() => {
+    if (!authed || resumedRef.current) return;
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const intent = parsePlanIntent(params) ?? readPlanIntent();
+    if (!intent) return;
+    resumedRef.current = true;
+    clearPlanIntent();
+    const slug = platformForPlan(intent.plan);
+    if (slug) setSelected(slug);
+    if (intent.intent === 'trial' || intent.plan === 'trial') { void startTrial(intent.interval); return; }
+    startCheckout(intent.plan, intent.interval);
+  }, [authed, platformForPlan, startCheckout, startTrial]);
+
+  // Only hand action callbacks to the cards when logged in. Logged-out keeps the
+  // original /register handoff (actions === undefined), so the SAME cards serve
+  // both the public marketing page and the in-app pricing page.
+  const actions: PricingActions | undefined = useMemo(
+    () => (authed ? { busyKey, message, onCheckout: startCheckout, onTrial: startTrial } : undefined),
+    [authed, busyKey, message, startCheckout, startTrial],
+  );
 
   const selectedPlatform = selected ? platforms.find((p) => p.slug === selected) ?? null : null;
   const selectedPricing = selected ? pricingByPlatform[selected] : undefined;
@@ -81,6 +179,7 @@ export default function PricingExplorer({
               coverage={selectedPricing.coverage}
               trialDays={selectedPricing.trialDays}
               credibilityLine={selectedPricing.credibilityLine}
+              actions={actions}
             />
             <CouponInput />
           </>

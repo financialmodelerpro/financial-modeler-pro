@@ -25,7 +25,9 @@ const inapp = read('app/modeling/pricing/page.tsx');
 const helper = read('src/shared/entitlements/pricingDisplay.ts');
 const settings = read('src/shared/entitlements/pricingPageSettings.ts');
 const adminPlans = read('app/admin/plans/page.tsx');
-const pricingPage = read('app/pricing/page.tsx');
+// The public + in-app pricing routes both render this ONE shared body, so the
+// picker / data-source assertions check the shared component, not a page file.
+const pricingPage = read('app/pricing/PricingPageBody.tsx');
 const explorer = read('src/hubs/main/components/pricing/PricingExplorer.tsx');
 const platformsConfig = read('src/hubs/modeling/config/platforms.ts');
 
@@ -37,7 +39,9 @@ check('public renders a contact-sales link', /data-testid=\{`pricing-contact-\$\
 check('dual mode adds the contact link conditionally', /mode === 'dual'/.test(lpc));
 check('NOT hardcoded to firm/the plan key', !/['"`]firm['"`]/.test(lpc));
 check('dual price shows the number (helper not overridden)', /contact_sales: false/.test(lpc));
-check('in-app also data-driven via planCardMode', /planCardMode\(/.test(inapp));
+// The in-app pricing route reuses the SAME shared body + cards (one design, one
+// data path), so it is data-driven by construction rather than via duplicated code.
+check('in-app pricing reuses the shared PricingPageBody (same data-driven cards)', /PricingPageBody/.test(inapp));
 
 console.log('=== New copy lines render ===');
 check('billing disclosure line present', /data-testid="billing-disclosure"/.test(lpc) && /exclusive of applicable taxes/.test(lpc) && /Cancel anytime/.test(lpc));
@@ -54,7 +58,8 @@ const founderBlock = lpc.slice(lpc.indexOf('data-testid="founder-credibility"'),
 check('founder band has no customer/geography trust claims', !/customers|clients|countries|trusted by|\bworldwide\b/i.test(founderBlock));
 // Plan Builder owns the editable setting; in-app page renders the same band.
 check('Plan Builder has the editable credibility field + save', /data-testid="pricing-credibility-input"/.test(adminPlans) && /data-testid="save-credibility"/.test(adminPlans));
-check('in-app pricing page renders the same credibility band from data', /data-testid="founder-credibility"/.test(inapp) && /\{credibilityLine\}/.test(inapp));
+check('shared cards render the credibility band from data', /data-testid="founder-credibility"/.test(lpc) && /\{credibilityLine\}/.test(lpc));
+check('in-app pricing route renders the same shared body (same band)', /PricingPageBody/.test(inapp));
 
 console.log('=== Coming Soon modules kept (nothing hidden) ===');
 check('comparison still renders every ordered feature (no module hiding)', /ordered\.forEach\(/.test(lpc) && !/filter\([^)]*coming_soon/.test(lpc));
@@ -95,7 +100,7 @@ check('no "product of PaceMakers" string remains under app/', (() => {
 })());
 
 console.log('=== No orange + no em dashes ===');
-for (const f of ['src/hubs/main/components/pricing/LivePlanCards.tsx', 'src/hubs/main/components/pricing/PricingExplorer.tsx', 'app/pricing/page.tsx', 'app/modeling/pricing/page.tsx']) {
+for (const f of ['src/hubs/main/components/pricing/LivePlanCards.tsx', 'src/hubs/main/components/pricing/PricingExplorer.tsx', 'app/pricing/PricingPageBody.tsx', 'app/pricing/page.tsx', 'app/modeling/pricing/page.tsx']) {
   const src = read(f);
   check(`no orange: ${f}`, !ORANGE.test(src));
   check(`no em dash: ${f}`, !src.includes(EM));

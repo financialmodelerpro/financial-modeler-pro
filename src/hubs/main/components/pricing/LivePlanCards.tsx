@@ -38,6 +38,22 @@ export interface LiveFeature {
 }
 export interface LiveCoverage { plan_key: string; feature_key: string; included: boolean; limit_value: number | null }
 
+/**
+ * Optional in-app action behavior. When PROVIDED (logged-in, in-app context) the
+ * card buttons trigger real in-app checkout / trial instead of the logged-out
+ * register handoff. When OMITTED (public marketing / logged-out) the cards keep
+ * the original `<Link>` handoff to /register, so the same component serves both
+ * contexts with no design change.
+ */
+export interface PricingActions {
+  /** plan_key (or 'trial') currently being processed, to show a busy state. */
+  busyKey?: string | null;
+  /** A status / error line shown under the cards. */
+  message?: string | null;
+  onCheckout: (planKey: string, interval: BillingInterval) => void;
+  onTrial: (interval: BillingInterval) => void;
+}
+
 // ── FMP brand: navy primary, gold accent (the existing brand token) ──────────
 const NAVY = '#0D2E5A';
 const NAVY_MID = '#1B4F8A';
@@ -73,8 +89,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function LivePlanCards({
-  plans, features, coverage, trialDays = 0, credibilityLine = '',
-}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number; credibilityLine?: string }) {
+  plans, features, coverage, trialDays = 0, credibilityLine = '', actions,
+}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number; credibilityLine?: string; actions?: PricingActions }) {
   const [interval, setInterval] = useState<BillingInterval>('monthly');
 
   const cov = new Map<string, LiveCoverage>();
@@ -176,13 +192,25 @@ export default function LivePlanCards({
                       </div>
                       <div style={{ fontSize: 12.5, color: GOLD_DARK, fontWeight: 700, marginTop: 6 }}>No credit card required</div>
                       <div style={{ height: 1, background: LINE, margin: '20px 0' }} />
-                      <Link href={`${APP_URL}/register?plan=trial&interval=${interval}&intent=trial`} data-testid="pricing-trial-cta" aria-label={`Start a free ${trialDays}-day trial`}
-                        style={{
+                      {(() => {
+                        const trialStyle: React.CSSProperties = {
                           display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 'auto', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5,
                           background: GOLD_LIGHT, color: GOLD_DARK, border: `1.5px solid ${GOLD}`,
-                        }}>
-                        Start free trial
-                      </Link>
+                        };
+                        // In-app (logged-in): start the trial directly. Public
+                        // (logged-out): hand off to the gated /register flow.
+                        return actions ? (
+                          <button type="button" data-testid="pricing-trial-cta" onClick={() => actions.onTrial(interval)} disabled={actions.busyKey === 'trial'}
+                            style={{ ...trialStyle, width: '100%', cursor: actions.busyKey === 'trial' ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                            {actions.busyKey === 'trial' ? 'Starting...' : 'Start free trial'}
+                          </button>
+                        ) : (
+                          <Link href={`${APP_URL}/register?plan=trial&interval=${interval}&intent=trial`} data-testid="pricing-trial-cta" aria-label={`Start a free ${trialDays}-day trial`}
+                            style={trialStyle}>
+                            Start free trial
+                          </Link>
+                        );
+                      })()}
                     </>
                   ) : (
                     <>
@@ -199,13 +227,24 @@ export default function LivePlanCards({
                             Contact sales
                           </Link>
                         ) : (
-                          // Self-checkout primary (same /register handoff as the
-                          // other paid cards). In dual mode, also a Contact sales link.
+                          // Self-checkout primary. In-app (logged-in) runs the
+                          // real checkout; public (logged-out) hands off to
+                          // /register. In dual mode, also a Contact sales link.
                           <>
-                            <Link href={`${APP_URL}/register?plan=${p.plan_key}&interval=${interval}&intent=checkout`} data-testid={`pricing-checkout-${p.plan_key}`} aria-label={`Choose the ${p.label} plan`}
-                              style={{ display: 'block', textAlign: 'center', textDecoration: 'none', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5, background: featured ? GOLD : '#fff', color: NAVY, border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`, boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none' }}>
-                              Choose {p.label}
-                            </Link>
+                            {(() => {
+                              const checkoutStyle: React.CSSProperties = { display: 'block', textAlign: 'center', textDecoration: 'none', padding: '13px 0', borderRadius: 10, fontWeight: 800, fontSize: 14.5, background: featured ? GOLD : '#fff', color: NAVY, border: featured ? `1.5px solid ${GOLD}` : `1.5px solid ${NAVY}`, boxShadow: featured ? `0 8px 20px -6px ${GOLD_GLOW}` : 'none' };
+                              return actions ? (
+                                <button type="button" data-testid={`pricing-checkout-${p.plan_key}`} onClick={() => actions.onCheckout(p.plan_key, interval)} disabled={actions.busyKey === p.plan_key}
+                                  style={{ ...checkoutStyle, width: '100%', cursor: actions.busyKey === p.plan_key ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                                  {actions.busyKey === p.plan_key ? 'Starting...' : `Choose ${p.label}`}
+                                </button>
+                              ) : (
+                                <Link href={`${APP_URL}/register?plan=${p.plan_key}&interval=${interval}&intent=checkout`} data-testid={`pricing-checkout-${p.plan_key}`} aria-label={`Choose the ${p.label} plan`}
+                                  style={checkoutStyle}>
+                                  Choose {p.label}
+                                </Link>
+                              );
+                            })()}
                             {mode === 'dual' && (
                               <Link href="/contact" data-testid={`pricing-contact-${p.plan_key}`} aria-label={`Contact sales about the ${p.label} plan`}
                                 style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 10, fontSize: 13, fontWeight: 700, color: NAVY_MID }}>
@@ -233,6 +272,14 @@ export default function LivePlanCards({
           Subscriptions renew automatically unless cancelled before the next billing cycle.
         </p>
       </div>
+
+      {/* In-app action status / error (checkout + trial). Public render has no
+          actions, so this never appears on the logged-out marketing page. */}
+      {actions?.message && (
+        <div data-testid="pricing-action-message" style={{ maxWidth: 560, margin: '16px auto 0', padding: '11px 16px', background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 10, textAlign: 'center', fontSize: 13, color: NAVY, fontWeight: 600, lineHeight: 1.55 }}>
+          {actions.message}
+        </div>
+      )}
 
       {/* Founder credibility band: editable in the Plan Builder (pricing-page
           setting). Blank value renders nothing (no broken band). */}

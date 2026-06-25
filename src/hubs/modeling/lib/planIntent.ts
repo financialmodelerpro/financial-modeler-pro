@@ -20,7 +20,7 @@ export interface PlanIntent {
 
 const KEY = 'fmp_plan_intent';
 
-/** Build the query string used on /register and /modeling/pricing URLs. */
+/** Build the query string used on /register and /pricing URLs. */
 export function planIntentQuery(i: PlanIntent): string {
   return `plan=${encodeURIComponent(i.plan)}&interval=${i.interval}&intent=${i.intent}`;
 }

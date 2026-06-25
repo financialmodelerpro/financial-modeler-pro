@@ -16,8 +16,12 @@ const APP_URL   = 'https://app.financialmodelerpro.com';
 // stale bookmarks keep working. Including `/portal` here would have made
 // `app.*/portal` redirect to apex first, which drops the NextAuth session
 // cookie (cookie scoped to app.* by default) and breaks post-signin auth.
+// NOTE: '/pricing' is deliberately NOT here. Pricing is now served on the app
+// subdomain (app.*/pricing, the unified pricing page); the apex /pricing redirects
+// TO it (see redirects() below). Keeping it in MAIN_PATHS would have made
+// app.*/pricing redirect back to the apex, the opposite of what we want.
 const MAIN_PATHS = [
-  '/about', '/articles', '/pricing', '/contact', '/login',
+  '/about', '/articles', '/contact', '/login',
   '/forgot-password', '/reset-password', '/admin',
   '/t', '/testimonials', '/confidentiality', '/privacy-policy',
 ];
@@ -77,6 +81,15 @@ const nextConfig: NextConfig = {
         // app. clean auth URLs
         { source: '/signin',   destination: '/modeling/signin',             has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
         { source: '/register', destination: '/modeling/register',            has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
+        // app. clean hub URLs (drop the "modeling" segment). The physical pages
+        // stay under app/modeling/*; these rewrites serve them at the clean URL,
+        // exactly like /signin + /register above. The old /modeling/* paths 308
+        // to these clean URLs (see redirects() below). beforeFiles rewrites run
+        // AFTER redirects, so /modeling/dashboard -> /dashboard (redirect) then
+        // /dashboard -> /modeling/dashboard (rewrite) has no loop.
+        { source: '/dashboard',   destination: '/modeling/dashboard',   has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
+        { source: '/pricing',     destination: '/modeling/pricing',     has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
+        { source: '/choose-plan', destination: '/modeling/choose-plan', has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
       ],
     };
   },
@@ -216,6 +229,47 @@ const nextConfig: NextConfig = {
         destination: `${APP_URL}/modeling/:path*`,
         permanent: true,
         has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
+      },
+
+      // ── Pricing: ONE destination on the app subdomain ───────────────────
+      // The unified pricing page is app.*/pricing. The apex (and www) /pricing
+      // and learn.*/pricing redirect TO it, so there is a single pricing URL.
+      // 307 (permanent: false) during this transition; can be hardened to 308
+      // later once the move has settled.
+      {
+        source: '/pricing',
+        destination: `${APP_URL}/pricing`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
+      },
+      {
+        source: '/pricing',
+        destination: `${APP_URL}/pricing`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }],
+      },
+
+      // ── App subdomain: drop the "modeling" segment ──────────────────────
+      // Old /modeling/{dashboard,pricing,choose-plan} 308 to the clean URLs so
+      // existing links + bookmarks never dead-end. The clean URLs are served by
+      // the beforeFiles rewrites above (which run AFTER redirects: no loop).
+      {
+        source: '/modeling/dashboard',
+        destination: '/dashboard',
+        permanent: true,
+        has: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }],
+      },
+      {
+        source: '/modeling/pricing',
+        destination: '/pricing',
+        permanent: true,
+        has: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }],
+      },
+      {
+        source: '/modeling/choose-plan',
+        destination: '/choose-plan',
+        permanent: true,
+        has: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }],
       },
     ];
   },
