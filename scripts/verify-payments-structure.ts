@@ -61,6 +61,23 @@ check('paddle parseEvent never throws on junk (unknown)', getAdapter('paddle').p
     { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' }, { ...cfg, clientToken: null },
   );
   check('paddle checkout fails gracefully on missing client token (no throw)', noToken.ok === false && noToken.status === 'error');
+  // Environment guard: a live token under sandbox (or test token under live)
+  // fails up front with an actionable message rather than a generic overlay error.
+  const liveTokenSandbox = await getAdapter('paddle').createCheckout(
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { ...cfg, clientToken: 'live_abc', sandbox: true },
+  );
+  check('paddle checkout flags a LIVE token used in sandbox mode (error)', liveTokenSandbox.ok === false && liveTokenSandbox.status === 'error' && /sandbox/i.test(liveTokenSandbox.message));
+  const testTokenLive = await getAdapter('paddle').createCheckout(
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { ...cfg, clientToken: 'test_abc', sandbox: false },
+  );
+  check('paddle checkout flags a TEST token used in live mode (error)', testTokenLive.ok === false && testTokenLive.status === 'error' && /live/i.test(testTokenLive.message));
+  const matchedSandbox = await getAdapter('paddle').createCheckout(
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { ...cfg, clientToken: 'test_ok', sandbox: true },
+  );
+  check('paddle checkout opens when token env matches sandbox flag', matchedSandbox.ok === true && matchedSandbox.status === 'open_overlay');
   const ppRes = await getAdapter('paypro').createCheckout(
     { planKey: 'pro', interval: 'monthly', providerPriceId: 'pp1', userId: 'u1', userEmail: 'a@b.com' }, { ...cfg, provider: 'paypro' },
   );
@@ -148,7 +165,7 @@ check('paddle parseEvent never throws on junk (unknown)', getAdapter('paddle').p
     'src/shared/payments/types.ts', 'src/shared/payments/signature.ts',
     'src/shared/payments/registry.ts', 'src/shared/payments/config.ts',
     'src/shared/payments/adapters/paddle.ts', 'src/shared/payments/adapters/paypro.ts',
-    'src/shared/payments/paddleBrowser.ts',
+    'src/shared/payments/paddleBrowser.ts', 'src/shared/payments/paddleEnv.ts',
     'app/api/payments/checkout/route.ts', 'app/api/payments/webhook/[provider]/route.ts',
     'app/api/admin/payments/config/route.ts', 'app/admin/payments/page.tsx',
   ];

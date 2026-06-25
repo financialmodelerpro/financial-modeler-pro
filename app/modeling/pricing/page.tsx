@@ -102,8 +102,11 @@ function RefmPricingInner() {
             });
             setCheckoutPlan(null);
             setCheckoutMsg(null);
-          } catch {
-            setCheckoutMsg('Could not open the checkout. Please try again, or contact the team to set your plan.');
+          } catch (err) {
+            // Surface the SPECIFIC Paddle failure (price not found, environment
+            // mismatch, etc.) instead of a generic message, so it is diagnosable.
+            const msg = err instanceof Error && err.message ? err.message : null;
+            setCheckoutMsg(msg ?? 'Could not open the checkout. Please try again, or contact the team to set your plan.');
           }
           return;
         }

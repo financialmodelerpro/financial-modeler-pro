@@ -33,6 +33,7 @@ import type {
   WebhookVerifyResult, ParsedSubscriptionEvent, SubscriptionEventType,
 } from '../types';
 import { verifyPaddleSignature } from '../signature';
+import { paddleEnvMismatch } from '../paddleEnv';
 
 // Paddle Billing event_type -> neutral subscription event type.
 function mapEventType(eventType: string): SubscriptionEventType {
@@ -82,6 +83,14 @@ export const paddleAdapter: PaymentAdapter = {
         status: 'error',
         message: 'This plan does not have a Paddle price id for the selected billing interval yet. Set the Paddle price IDs in the Plan Builder.',
       };
+    }
+    // Environment guard. A token whose environment does not match the sandbox
+    // flag (live token + sandbox on, or test token + sandbox off) makes Paddle.js
+    // open the overlay and then fail with a generic "Something went wrong". Catch
+    // it here with an actionable message rather than handing it to the browser.
+    const mismatch = paddleEnvMismatch(cfg.clientToken, cfg.sandbox);
+    if (mismatch) {
+      return { ok: false, status: 'error', message: mismatch };
     }
     // Hand the browser exactly what Paddle.js needs (all client-safe). The
     // webhook maps the purchase back via custom_data.user_id + plan_key.
