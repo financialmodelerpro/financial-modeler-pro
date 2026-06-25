@@ -125,10 +125,14 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
   const [hovered, setHovered] = useState(false);
   const route  = PLATFORM_ROUTES[platform.slug];
   const isLive = platform.status === 'live';
-  // A no-plan (non-admin) user does not enter the locked tool: the card routes
-  // them to get-access (choose-plan). Entitled users open the workspace. The
-  // /refm server gate enforces this independently of the card.
-  const entryHref  = noPlan ? '/choose-plan' : route;
+  // A no-plan (non-admin) user does not enter the locked tool. The card already
+  // knows WHICH platform was chosen, so it deep-links straight to that
+  // platform's plans (skipping the choose-plan interstitial AND the platform
+  // picker): /pricing?platform=<slug> pre-selects the platform on the pricing
+  // page. Entitled users open the workspace. The /refm server gate enforces all
+  // of this independently of the card; /choose-plan still serves users sent
+  // there from /refm with no platform context.
+  const entryHref  = noPlan ? `/pricing?platform=${platform.slug}` : route;
   const entryLabel = noPlan ? 'Get access →' : 'Open Platform →';
 
   return (

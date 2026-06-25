@@ -128,6 +128,22 @@ export default function PricingExplorer({
     }
   }, []);
 
+  // Deep-link: /pricing?platform=<slug> pre-selects that platform's plans,
+  // skipping the picker. The dashboard "Get access" card uses this (the user
+  // already chose a platform, so it should not be asked again). Runs once on
+  // mount, independent of auth, so it works for both logged-in (in-app actions)
+  // and logged-out (register handoff) visitors. A missing / unknown slug leaves
+  // `selected` null, so a cold visitor still lands on the picker.
+  const platformAppliedRef = useRef(false);
+  useEffect(() => {
+    if (platformAppliedRef.current) return;
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const slug = (params.get('platform') ?? '').trim().toLowerCase();
+    if (!slug) return;
+    platformAppliedRef.current = true;
+    if (platforms.some((p) => p.slug === slug)) setSelected(slug);
+  }, [platforms]);
+
   // Resume a remembered plan choice (logged-out pricing click handed to
   // /register, persisted to localStorage; or a ?plan= query forwarded from
   // choose-plan). Once, when authed: select the matching platform and run the
