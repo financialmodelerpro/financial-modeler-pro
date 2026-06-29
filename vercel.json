@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/model-submission-stale",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/apply-scheduled-changes",
+      "schedule": "0 9 * * *"
     }
   ],
   "headers": [
