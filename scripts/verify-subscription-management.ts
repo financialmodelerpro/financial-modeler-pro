@@ -83,39 +83,74 @@ check('webhook does NOT write subscription_plan directly', !/subscription_plan\s
 const cfg = read('src/shared/payments/config.ts');
 check('store helper writes only paddle id columns', /paddle_subscription_id\s*=/.test(cfg) && /paddle_customer_id\s*=/.test(cfg) && !/subscription_plan/.test(cfg.split('storeUserSubscriptionIds')[1] ?? ''));
 
-console.log('=== API routes: session-guarded, server-side ===');
+console.log('=== Per-platform store (mig 177) + platform-keyed webhook ===');
+const mig177 = read('supabase/migrations/177_user_platform_subscriptions.sql');
+check('mig 177 creates user_platform_subscriptions PK (user_id, platform_slug)', /CREATE TABLE IF NOT EXISTS user_platform_subscriptions/.test(mig177) && /PRIMARY KEY \(user_id, platform_slug\)/.test(mig177));
+check('mig 177 RLS enabled, no destructive drops', /ENABLE ROW LEVEL SECURITY/.test(mig177) && !/DROP\s+(TABLE|COLUMN)/i.test(mig177));
+check('mig 177 backfills real-estate from the global columns', /INSERT INTO user_platform_subscriptions/.test(mig177) && /'real-estate'/.test(mig177));
+const webhookSrc = read('app/api/payments/webhook/[provider]/route.ts');
+check('webhook derives the platform from custom data', /event\.customDataPlatform \?\? PLATFORM/.test(webhookSrc));
+check('webhook upserts the per-platform subscription', /storeUserPlatformSubscription\(/.test(webhookSrc));
+check('paddle parseEvent captures custom-data platform', getAdapter('paddle').parseEvent(JSON.stringify({
+  event_type: 'subscription.activated', event_id: 'e', data: { id: 'sub_1', custom_data: { platform: 'real-estate' } },
+})).customDataPlatform === 'real-estate');
+const ctxSrc = read('src/shared/payments/subscriptionContext.ts');
+check('context is platform-scoped (reads per-platform table + fallback)', /user_platform_subscriptions/.test(ctxSrc) && /platform === DEFAULT_PAYMENTS_PLATFORM/.test(ctxSrc));
+check('checkout passes the platform through (per-platform custom data)', /platform/.test(read('app/api/payments/checkout/route.ts')) && /req\.platform/.test(read('src/shared/payments/adapters/paddle.ts')));
+
+console.log('=== API routes: session-guarded, server-side, platform-scoped ===');
 const routes = [
   'app/api/payments/subscription/route.ts',
   'app/api/payments/subscription/cancel/route.ts',
   'app/api/payments/invoices/route.ts',
   'app/api/payments/invoice/[id]/route.ts',
+  'app/api/payments/subscription/change-plan/route.ts',
 ];
 for (const r of routes) {
   const src = read(r);
   check(`route session-guarded: ${r}`, /getServerSession\(authOptions\)/.test(src) && /Unauthorized/.test(src));
   check(`route uses server paddle context: ${r}`, /loadUserPaddleContext\(/.test(src));
+  check(`route is platform-scoped: ${r}`, /platform/.test(src));
 }
 check('cancel route calls cancelSubscriptionAtPeriodEnd', /cancelSubscriptionAtPeriodEnd\(/.test(read('app/api/payments/subscription/cancel/route.ts')));
 check('invoice route checks ownership before issuing a URL', /some\(\(inv\) => inv\.transactionId === id\)/.test(read('app/api/payments/invoice/[id]/route.ts')));
 
-console.log('=== Dashboard panel: rendered, client-safe, no card form ===');
+console.log('=== Upgrade / downgrade (server-side plan change) ===');
+const api2 = read('src/shared/payments/paddleApi.ts');
+check('paddleApi exposes changeSubscriptionPlan (PATCH + proration)', /export async function changeSubscriptionPlan\(/.test(api2) && /proration_billing_mode/.test(api2) && /method:\s*'PATCH'/.test(api2));
+const changeRoute = read('app/api/payments/subscription/change-plan/route.ts');
+check('change-plan resolves the target price id by interval', /planProviderPriceId\(/.test(changeRoute) && /billingInterval/.test(changeRoute));
+check('change-plan guards the same-plan no-op', /already_on_plan/.test(changeRoute));
+check('change-plan does NOT write the plan itself (webhook syncs)', !/setUserPlan\(/.test(changeRoute));
+
+console.log('=== Billing tab + per-platform rendering, client-safe ===');
 const dash = read('app/modeling/dashboard/page.tsx');
-check('dashboard imports SubscriptionPanel', /import SubscriptionPanel from/.test(dash));
-check('dashboard renders SubscriptionPanel', /<SubscriptionPanel\b/.test(dash));
+check('dashboard has a Billing nav item', /id:\s*'billing'/.test(dash));
+check('dashboard renders BillingView in the billing view', /import BillingView from/.test(dash) && /<BillingView\b/.test(dash));
+check('dashboard switches an in-page activeView', /activeView/.test(dash) && /setActiveView/.test(dash));
+const billingView = read('src/hubs/modeling/components/BillingView.tsx');
+check('BillingView is source-driven (maps platforms -> one panel each)', /platforms\.map\(/.test(billingView) && /<SubscriptionPanel\b/.test(billingView));
 const panel = read('src/hubs/modeling/components/SubscriptionPanel.tsx');
+check('panel is platform-scoped (platform prop + query)', /platform:\s*string/.test(panel) && /platform=\$\{encodeURIComponent\(platform\)\}/.test(panel));
 check('panel reads from our server routes', /\/api\/payments\/subscription/.test(panel) && /\/api\/payments\/invoices/.test(panel));
 check('panel makes NO direct Paddle API call', !/paddle\.com/i.test(panel) && !/paddleApi/.test(panel));
 check('panel never references an api key / secret', !/apiKey/i.test(panel) && !/api_secret/i.test(panel));
 check('panel update-payment uses the hosted url (no card form)', /updatePaymentMethodUrl/.test(panel) && !/card number/i.test(panel) && !/<input/i.test(panel));
 check('panel has a confirm step before cancel', /subscription-cancel-confirm/.test(panel) && /subscription-cancel-btn/.test(panel));
+check('panel has upgrade/downgrade with a confirm step', /change-plan-confirm/.test(panel) && /switch-to-/.test(panel) && /\/api\/payments\/subscription\/change-plan/.test(panel));
 check('panel shows invoices list', /invoices-list/.test(panel) && /invoice-row/.test(panel));
+
+console.log('=== Invoice in-dashboard viewer (no forced download) ===');
+check('panel opens an in-dashboard viewer (iframe), not a new-tab download', /invoice-viewer/.test(panel) && /<iframe/.test(panel) && /invoice-view-btn/.test(panel));
+check('viewer offers an optional Download button', /invoice-download-btn/.test(panel));
+check('View PDF is a button (no forced download anchor)', !/View PDF &rarr;/.test(panel));
 
 console.log('=== Post-payment redirect ===');
 const browser = read('src/shared/payments/paddleBrowser.ts');
 check('opener fires onComplete on checkout.completed', /checkout\.completed/.test(browser) && /pendingComplete\?\.\(\)/.test(browser) && /onComplete\?:/.test(browser));
 check('loaded does not count as paid (separate branch)', /checkout\.loaded/.test(browser));
 const pricing = read('src/hubs/main/components/pricing/PricingExplorer.tsx');
-check('pricing redirects into the app on completion', /onComplete:/.test(pricing) && /window\.location\.href = '\/dashboard'/.test(pricing));
+check('pricing redirects into the app (billing tab) on completion', /onComplete:/.test(pricing) && /window\.location\.href = '\/dashboard#billing'/.test(pricing));
 
 console.log('=== Migration 176 (additive id columns) ===');
 const mig = read('supabase/migrations/176_users_paddle_subscription.sql');
@@ -134,6 +169,10 @@ const files = [
   'app/api/payments/invoices/route.ts', 'app/api/payments/invoice/[id]/route.ts',
   'app/modeling/dashboard/page.tsx', 'src/hubs/main/components/pricing/PricingExplorer.tsx',
   'supabase/migrations/176_users_paddle_subscription.sql',
+  'supabase/migrations/177_user_platform_subscriptions.sql',
+  'src/hubs/modeling/components/BillingView.tsx',
+  'app/api/payments/subscription/change-plan/route.ts',
+  'app/api/payments/checkout/route.ts',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

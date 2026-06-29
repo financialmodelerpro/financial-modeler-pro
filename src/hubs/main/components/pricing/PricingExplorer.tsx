@@ -80,9 +80,13 @@ export default function PricingExplorer({
   const startCheckout = useCallback((planKey: string, interval: BillingInterval) => {
     setBusyKey(planKey);
     setMessage('Checking availability...');
+    // The platform this checkout is for (the selected platform, else the one
+    // whose catalog carries this plan). Sent so the webhook keys the
+    // subscription PER platform.
+    const platform = selected ?? platformForPlan(planKey) ?? undefined;
     fetch('/api/payments/checkout', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ plan_key: planKey, interval }),
+      body: JSON.stringify({ plan_key: planKey, interval, platform }),
     })
       .then((r) => r.json())
       .then(async (res) => {
@@ -102,8 +106,10 @@ export default function PricingExplorer({
               // leaving them on the pricing page. The webhook provisions the
               // plan; the dashboard then shows their subscription panel.
               onComplete: () => {
-                setMessage('Payment complete. Taking you to your dashboard...');
-                window.location.href = '/dashboard';
+                setMessage('Payment complete. Taking you to your billing tab...');
+                // Land on the Billing tab so the new subscription shows once the
+                // webhook has provisioned it.
+                window.location.href = '/dashboard#billing';
               },
             });
             setMessage(null);
@@ -118,7 +124,7 @@ export default function PricingExplorer({
       })
       .catch(() => setMessage('Online payment is not enabled yet. No charge has been made.'))
       .finally(() => setBusyKey((k) => (k === planKey ? null : k)));
-  }, []);
+  }, [selected, platformForPlan]);
 
   const startTrial = useCallback(async (_interval: BillingInterval) => {
     setBusyKey('trial');

@@ -27,17 +27,19 @@ export async function POST(req: NextRequest) {
 
   let plan_key = '';
   let interval: BillingInterval = 'monthly';
+  let platform = PLATFORM;
   try {
-    const body = await req.json() as { plan_key?: string; interval?: BillingInterval };
+    const body = await req.json() as { plan_key?: string; interval?: BillingInterval; platform?: string };
     plan_key = String(body.plan_key ?? '').trim().toLowerCase();
     if (body.interval === 'annual') interval = 'annual';
+    if (body.platform) platform = String(body.platform).trim().toLowerCase();
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
   if (!plan_key) return NextResponse.json({ error: 'plan_key required' }, { status: 400 });
 
   const sb = getServerClient();
-  const settings = await loadPaymentSettings(sb, PLATFORM);
+  const settings = await loadPaymentSettings(sb, platform);
 
   // No active provider: checkout is a placeholder (unchanged from today).
   if (settings.active_provider === 'none') {
@@ -55,15 +57,17 @@ export async function POST(req: NextRequest) {
   const { data: planRow } = await sb
     .from('entitlement_plans')
     .select('plan_key, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id')
-    .eq('platform_slug', PLATFORM)
+    .eq('platform_slug', platform)
     .eq('plan_key', plan_key)
     .maybeSingle();
   if (!planRow) return NextResponse.json({ error: `Unknown plan "${plan_key}"` }, { status: 400 });
 
   const providerPriceId = planProviderPriceId(planRow as PlanProviderIds, provider, interval);
   const adapter = getAdapter(provider);
+  // Pass the platform through so the webhook can key the subscription PER
+  // platform (custom_data.platform).
   const result = await adapter.createCheckout(
-    { planKey: plan_key, interval, providerPriceId, userId, userEmail },
+    { planKey: plan_key, interval, providerPriceId, userId, userEmail, platform },
     providerConfigFrom(settings, provider),
   );
 

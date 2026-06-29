@@ -3,7 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
-  wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds,
+  wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds, storeUserPlatformSubscription,
 } from '@/src/shared/payments/config';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
@@ -139,9 +139,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     return NextResponse.json({ ok: true, idempotent: true, skipped: true, eventId: event.eventId });
   }
 
+  // The platform this event is for. Carried in custom_data at checkout so the
+  // subscription is keyed PER platform; defaults to the single live platform for
+  // any legacy event without it. Used for plan mapping, plan validation, and the
+  // per-platform subscription store. The GLOBAL enforcement write (setUserPlan ->
+  // users.subscription_plan) is unchanged in shape; only the platform it
+  // validates against follows the event (real-estate by default, so REFM is
+  // byte-for-byte unchanged).
+  const eventPlatform = event.customDataPlatform ?? PLATFORM;
+
   // 5. Map the provider price id back to an internal plan; fall back to the
   //    plan_key carried in custom_data when the price id is not recognised.
-  const mapped = await mapProviderPriceIdToPlan(sb, provider, event.providerPriceOrProductId, PLATFORM);
+  const mapped = await mapProviderPriceIdToPlan(sb, provider, event.providerPriceOrProductId, eventPlatform);
   const planKey = mapped?.plan_key ?? event.customDataPlanKey ?? null;
 
   // 6. Resolve the internal user: prefer the custom-data user reference passed at
@@ -166,22 +175,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
   //    event id only on success so a failed apply can be retried by redelivery.
   if (event.type === 'activated' || event.type === 'updated') {
     if (!planKey) return NextResponse.json({ ok: false, reason: 'plan_not_mapped' });
-    const res = await setUserPlan(sb, userId, planKey, { platform: PLATFORM });
+    const res = await setUserPlan(sb, userId, planKey, { platform: eventPlatform });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
     // Capture the provider subscription + customer ids so the dashboard can
     // manage this subscription via the provider API. Additive to the user row;
     // does not touch plan/status (the gate's inputs), so enforcement is unchanged.
     await storeUserSubscriptionIds(sb, userId, { subscriptionId: event.subscriptionId, customerId: event.customerId });
+    // Per-platform store (mig 177): keyed by (user, platform) so the billing tab
+    // renders one subscription per platform. Carries the applied plan key.
+    await storeUserPlatformSubscription(sb, userId, eventPlatform, { subscriptionId: event.subscriptionId, customerId: event.customerId, planKey: res.planKey ?? planKey });
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
-    return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus });
+    return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
   }
 
   if (event.type === 'cancelled') {
     // Drop to the baseline plan; re-resolution is automatic (same function).
-    const res = await setUserPlan(sb, userId, BASELINE_PLAN_KEY, { platform: PLATFORM });
+    const res = await setUserPlan(sb, userId, BASELINE_PLAN_KEY, { platform: eventPlatform });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
+    // Reflect the baseline drop in the per-platform store too (keeps the id so a
+    // later resubscribe upserts cleanly; the plan key now reads as baseline).
+    await storeUserPlatformSubscription(sb, userId, eventPlatform, { subscriptionId: event.subscriptionId, customerId: event.customerId, planKey: res.planKey ?? BASELINE_PLAN_KEY });
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
-    return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus });
+    return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
   }
 
   return NextResponse.json({ ok: false, reason: 'unhandled_event_type' });

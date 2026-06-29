@@ -3,15 +3,19 @@
 /**
  * SubscriptionPanel.tsx (client)
  *
- * In-dashboard Subscription & Billing panel. Reads the user's subscription and
- * invoices from OUR server routes (which call Paddle server-side; the API key
- * never reaches here) and lets the user:
+ * One platform's Subscription & Billing section, rendered by BillingView (one
+ * per platform the user has). Reads the platform's subscription + invoices from
+ * OUR server routes (which call Paddle server-side; the API key never reaches
+ * here) and lets the user:
  *   - see plan, status, next billing date + amount;
- *   - cancel AT PERIOD END (confirm step + clear result; access is kept until
- *     the period ends, then the existing webhook drops them to baseline);
- *   - list invoices / receipts with a link to the Paddle-hosted PDF;
- *   - open Paddle's secure hosted flow to update the payment method (we never
- *     render a card form; the card entry happens in Paddle's component).
+ *   - upgrade / downgrade to another plan on this platform (confirm step; calls
+ *     Paddle to swap the price id; the webhook keeps the app plan in sync);
+ *   - cancel AT PERIOD END (confirm + result; access kept until period end, then
+ *     the existing webhook drops to baseline);
+ *   - open each invoice in an IN-DASHBOARD viewer (iframe) with an optional
+ *     Download button (no forced download);
+ *   - open Paddle's secure hosted flow to update the payment method (no card
+ *     form here; the card entry happens in Paddle's component).
  *
  * No raw card data is ever handled here. No Paddle API call is ever made from
  * the client. No em dashes in this file.
@@ -31,6 +35,8 @@ interface SubscriptionSummary {
   scheduledCancelAt: string | null;
   canceled: boolean;
   updatePaymentMethodUrl: string | null;
+  currentPriceId: string | null;
+  billingInterval: 'monthly' | 'annual' | null;
 }
 interface InvoiceSummary {
   transactionId: string;
@@ -40,6 +46,7 @@ interface InvoiceSummary {
   amountMinor: number | null;
   currency: string | null;
 }
+interface PlanOption { plan_key: string; label: string }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '-';
@@ -49,8 +56,6 @@ function fmtDate(iso: string | null): string {
 }
 function fmtAmount(minor: number | null, currency: string | null): string {
   if (minor === null || currency === null) return '-';
-  // Paddle amounts are in minor units. Most currencies are 2-decimal; format via
-  // Intl so the currency symbol + grouping are correct for the sandbox currency.
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(minor / 100);
   } catch {
@@ -68,8 +73,14 @@ function statusLabel(status: string, canceled: boolean): { label: string; bg: st
     default:         return { label: status || 'Unknown', bg: '#F3F4F6', fg: '#374151' };
   }
 }
+function titleCase(key: string | null): string | null {
+  if (!key) return null;
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
 
-export default function SubscriptionPanel({ dark = false, planKey = null }: { dark?: boolean; planKey?: string | null }) {
+export default function SubscriptionPanel({
+  platform, platformName, dark = false,
+}: { platform: string; platformName?: string; dark?: boolean }) {
   const surface = dark ? '#1A222F' : '#FFFFFF';
   const border = dark ? '#2A3543' : '#E5E7EB';
   const heading = dark ? '#F1F5F9' : NAVY;
@@ -79,32 +90,43 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
   const [loading, setLoading] = useState(true);
   const [sub, setSub] = useState<SubscriptionSummary | null>(null);
   const [reason, setReason] = useState<string | null>(null);
+  const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
+  const [currentPlanKey, setCurrentPlanKey] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<InvoiceSummary[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [cancelResult, setCancelResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Upgrade/downgrade target (plan_key) pending confirmation, and busy flag.
+  const [switchTarget, setSwitchTarget] = useState<PlanOption | null>(null);
+  const [switching, setSwitching] = useState(false);
+  // In-dashboard invoice viewer (transaction id being viewed).
+  const [viewInvoice, setViewInvoice] = useState<string | null>(null);
+
+  const q = `platform=${encodeURIComponent(platform)}`;
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      fetch('/api/payments/subscription', { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
-      fetch('/api/payments/invoices', { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
+      fetch(`/api/payments/subscription?${q}`, { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
+      fetch(`/api/payments/invoices?${q}`, { credentials: 'same-origin' }).then((r) => r.json()).catch(() => null),
     ])
       .then(([s, inv]) => {
         setSub(s?.subscription ?? null);
         setReason(s?.reason ?? null);
+        setPlanOptions(Array.isArray(s?.planOptions) ? s.planOptions : []);
+        setCurrentPlanKey(s?.currentPlanKey ?? null);
         setInvoices(Array.isArray(inv?.invoices) ? inv.invoices : []);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [q]);
 
   useEffect(() => { load(); }, [load]);
 
   const doCancel = useCallback(() => {
     setCanceling(true);
     setError(null);
-    fetch('/api/payments/subscription/cancel', { method: 'POST', credentials: 'same-origin' })
+    fetch(`/api/payments/subscription/cancel?${q}`, { method: 'POST', credentials: 'same-origin' })
       .then((r) => r.json())
       .then((res) => {
         if (res?.ok && res.subscription) {
@@ -117,38 +139,59 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
       })
       .catch(() => setError('Could not cancel the subscription. Please try again.'))
       .finally(() => setCanceling(false));
-  }, []);
+  }, [q]);
+
+  const doSwitch = useCallback((target: PlanOption) => {
+    setSwitching(true);
+    setError(null);
+    fetch('/api/payments/subscription/change-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ platform, plan_key: target.plan_key }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res?.ok && res.subscription) {
+          setSub(res.subscription);
+          setCurrentPlanKey(res.planKey ?? target.plan_key);
+          setSwitchTarget(null);
+        } else {
+          setError(res?.reason ? `Could not change plan: ${res.reason}` : 'Could not change the plan. Please try again.');
+        }
+      })
+      .catch(() => setError('Could not change the plan. Please try again.'))
+      .finally(() => setSwitching(false));
+  }, [platform]);
 
   const card: React.CSSProperties = {
     background: surface, border: `1px solid ${border}`, borderRadius: 14,
-    padding: '22px 24px', marginBottom: 28,
+    padding: '22px 24px', marginBottom: 22,
   };
   const sectionTitle: React.CSSProperties = {
-    fontSize: 13, fontWeight: 700, color: body, margin: 0,
-    textTransform: 'uppercase', letterSpacing: '0.06em',
+    fontSize: 15, fontWeight: 800, color: heading, margin: 0,
   };
+  const headerName = platformName ?? 'Subscription';
 
   if (loading) {
     return (
-      <div data-testid="subscription-panel" style={card}>
-        <h2 style={sectionTitle}>Subscription & Billing</h2>
-        <p style={{ fontSize: 13, color: muted, marginTop: 12 }}>Loading your subscription...</p>
+      <div data-testid="subscription-panel" data-platform={platform} style={card}>
+        <h3 style={sectionTitle}>{headerName}</h3>
+        <p style={{ fontSize: 13, color: muted, marginTop: 12 }}>Loading subscription...</p>
       </div>
     );
   }
 
-  // No managed subscription: friendly empty state (trial / none / not configured).
+  // No managed subscription for this platform: friendly empty state.
   if (!sub) {
     return (
-      <div data-testid="subscription-panel" style={card}>
-        <h2 style={sectionTitle}>Subscription & Billing</h2>
+      <div data-testid="subscription-panel" data-platform={platform} style={card}>
+        <h3 style={sectionTitle}>{headerName}</h3>
         <div data-testid="no-subscription-state" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <p style={{ fontSize: 13.5, color: muted, margin: 0, flex: 1, minWidth: 240, lineHeight: 1.6 }}>
             {reason === 'not_configured'
-              ? 'Online subscription management is not enabled yet. Your plan is managed by the team for now.'
-              : 'You do not have a self-managed subscription yet. Choose a plan to subscribe online and manage it here.'}
+              ? 'Online subscription management is not enabled for this platform yet. Your plan is managed by the team for now.'
+              : 'No active subscription for this platform yet. Choose a plan to subscribe online and manage it here.'}
           </p>
-          <a href="/pricing" style={{ background: GOLD, color: NAVY, fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          <a href={`/pricing/${encodeURIComponent(platform)}`} style={{ background: GOLD, color: NAVY, fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
             View plans &rarr;
           </a>
         </div>
@@ -157,12 +200,14 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
   }
 
   const st = statusLabel(sub.status, sub.canceled);
-  const planName = planKey ? planKey.charAt(0).toUpperCase() + planKey.slice(1) : null;
+  const planName = titleCase(currentPlanKey);
+  // Switchable plans = every active plan for this platform except the current one.
+  const otherPlans = planOptions.filter((p) => p.plan_key !== currentPlanKey);
 
   return (
-    <div data-testid="subscription-panel" style={card}>
+    <div data-testid="subscription-panel" data-platform={platform} style={card}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-        <h2 style={sectionTitle}>Subscription & Billing</h2>
+        <h3 style={sectionTitle}>{headerName}</h3>
         <span data-testid="subscription-status" style={{ fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 999, background: st.bg, color: st.fg, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
           {st.label}
         </span>
@@ -178,7 +223,9 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
         )}
         <div>
           <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Amount</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: heading }}>{fmtAmount(sub.amountMinor, sub.currency)}</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: heading }}>
+            {fmtAmount(sub.amountMinor, sub.currency)}{sub.billingInterval ? <span style={{ fontSize: 12, color: muted, fontWeight: 600 }}> / {sub.billingInterval === 'annual' ? 'yr' : 'mo'}</span> : null}
+          </div>
         </div>
         <div>
           <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
@@ -196,6 +243,53 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
           <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
             Your subscription is set to cancel. You keep full access until {fmtDate(sub.scheduledCancelAt ?? sub.currentPeriodEndsAt)}, after which your plan reverts automatically.
           </span>
+        </div>
+      )}
+
+      {/* Upgrade / downgrade */}
+      {!sub.canceled && otherPlans.length > 0 && (
+        <div data-testid="change-plan" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Change plan</div>
+          {!switchTarget ? (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {otherPlans.map((p) => (
+                <button
+                  key={p.plan_key}
+                  data-testid={`switch-to-${p.plan_key}`}
+                  type="button"
+                  onClick={() => { setSwitchTarget(p); setError(null); }}
+                  style={{ background: 'transparent', border: `1.5px solid ${NAVY}`, color: heading, fontWeight: 700, fontSize: 13, padding: '8px 16px', borderRadius: 9, cursor: 'pointer' }}
+                >
+                  Switch to {p.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div data-testid="change-plan-confirm" style={{ background: dark ? '#222B3A' : '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 10, padding: '16px 18px' }}>
+              <p style={{ fontSize: 13.5, color: body, margin: '0 0 14px', lineHeight: 1.6 }}>
+                Change to <strong>{switchTarget.label}</strong>? The new plan takes effect <strong>immediately</strong>. Paddle prorates the difference (charging or crediting the unused part of the current period) on your {sub.billingInterval === 'annual' ? 'annual' : 'monthly'} cycle.
+              </p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  data-testid="change-plan-confirm-yes"
+                  type="button"
+                  onClick={() => doSwitch(switchTarget)}
+                  disabled={switching}
+                  style={{ background: NAVY, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: switching ? 'default' : 'pointer', opacity: switching ? 0.7 : 1 }}
+                >
+                  {switching ? 'Changing...' : `Confirm switch to ${switchTarget.label}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSwitchTarget(null)}
+                  disabled={switching}
+                  style={{ background: 'transparent', border: `1.5px solid ${border}`, color: body, fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: 'pointer' }}
+                >
+                  Keep current plan
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -224,7 +318,9 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
         )}
       </div>
 
-      {/* Confirmation step */}
+      {error && <p style={{ fontSize: 12.5, color: '#DC2626', margin: '0 0 14px' }}>{error}</p>}
+
+      {/* Cancel confirmation step */}
       {confirming && !sub.canceled && (
         <div data-testid="subscription-cancel-confirm" style={{ background: dark ? '#222B3A' : '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 10, padding: '16px 18px', marginBottom: 22 }}>
           <p style={{ fontSize: 13.5, color: body, margin: '0 0 14px', lineHeight: 1.6 }}>
@@ -249,7 +345,6 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
               Keep my subscription
             </button>
           </div>
-          {error && <p style={{ fontSize: 12.5, color: '#DC2626', margin: '12px 0 0' }}>{error}</p>}
         </div>
       )}
 
@@ -262,7 +357,7 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
       {/* Invoices */}
       {invoices.length > 0 && (
         <div>
-          <h3 style={{ ...sectionTitle, fontSize: 12, marginBottom: 12 }}>Invoices & receipts</h3>
+          <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Invoices & receipts</div>
           <div data-testid="invoices-list" style={{ border: `1px solid ${border}`, borderRadius: 10, overflow: 'hidden' }}>
             {invoices.map((inv, i) => (
               <div
@@ -276,17 +371,57 @@ export default function SubscriptionPanel({ dark = false, planKey = null }: { da
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: body }}>{fmtAmount(inv.amountMinor, inv.currency)}</span>
-                  <a
-                    href={`/api/payments/invoice/${encodeURIComponent(inv.transactionId)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, textDecoration: 'none', whiteSpace: 'nowrap' }}
+                  <button
+                    type="button"
+                    data-testid="invoice-view-btn"
+                    onClick={() => setViewInvoice(inv.transactionId)}
+                    style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
-                    View PDF &rarr;
-                  </a>
+                    View PDF
+                  </button>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* In-dashboard invoice viewer (no forced download; optional Download). */}
+      {viewInvoice && (
+        <div
+          data-testid="invoice-viewer"
+          onClick={() => setViewInvoice(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: surface, borderRadius: 14, width: 'min(900px, 100%)', height: 'min(85vh, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: heading }}>Invoice</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <a
+                  data-testid="invoice-download-btn"
+                  href={`/api/payments/invoice/${encodeURIComponent(viewInvoice)}?${q}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 12.5, fontWeight: 700, color: '#fff', background: NAVY, padding: '7px 14px', borderRadius: 8, textDecoration: 'none' }}
+                >
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setViewInvoice(null)}
+                  style={{ fontSize: 18, lineHeight: 1, color: muted, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+            <iframe
+              data-testid="invoice-viewer-frame"
+              title="Invoice PDF"
+              src={`/api/payments/invoice/${encodeURIComponent(viewInvoice)}?${q}`}
+              style={{ border: 'none', width: '100%', flex: 1, background: '#fff' }}
+            />
           </div>
         </div>
       )}

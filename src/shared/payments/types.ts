@@ -39,6 +39,9 @@ export interface CheckoutRequest {
   providerPriceId: string | null;
   userId: string;
   userEmail: string | null;
+  /** The platform this checkout is for. Passed through to the provider as custom
+   *  data so the webhook can key the subscription PER platform. */
+  platform: string;
 }
 
 /** A checkout outcome.
@@ -97,6 +100,9 @@ export interface ParsedSubscriptionEvent {
   /** Provider customer id (Paddle `ctm_...`). Stored alongside the subscription
    *  id for provider API calls scoped to the customer. */
   customerId: string | null;
+  /** Platform slug passed at checkout via custom data, so the subscription is
+   *  keyed PER platform. Null when absent (callers default to real-estate). */
+  customDataPlatform: string | null;
 }
 
 export interface PaymentAdapter {

@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { loadUserPaddleContext } from '@/src/shared/payments/subscriptionContext';
+import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { cancelSubscriptionAtPeriodEnd } from '@/src/shared/payments/paddleApi';
 
 // POST /api/payments/subscription/cancel
@@ -12,14 +12,15 @@ import { cancelSubscriptionAtPeriodEnd } from '@/src/shared/payments/paddleApi';
 // then Paddle sends subscription.canceled and the existing webhook drops the
 // user to the baseline plan (the single enforcement path, unchanged). The Paddle
 // API key is used server-side only.
-export async function POST() {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = (session.user as { id?: string }).id ?? '';
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const platform = req.nextUrl.searchParams.get('platform') || DEFAULT_PAYMENTS_PLATFORM;
   const sb = getServerClient();
-  const ctx = await loadUserPaddleContext(sb, userId);
+  const ctx = await loadUserPaddleContext(sb, userId, platform);
   if (ctx.state !== 'ok' || !ctx.subscriptionId) {
     return NextResponse.json({ ok: false, reason: ctx.state }, { status: 400 });
   }

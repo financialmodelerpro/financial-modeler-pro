@@ -2,26 +2,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { loadUserPaddleContext } from '@/src/shared/payments/subscriptionContext';
+import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getInvoicePdfUrl, listSubscriptionInvoices } from '@/src/shared/payments/paddleApi';
 
-// GET /api/payments/invoice/[id]
+// GET /api/payments/invoice/[id]?platform=<slug>
 // Redirects to the Paddle-hosted, signed invoice/receipt PDF for one of the
 // signed-in user's transactions. The Paddle API key is used server-side only;
-// the client receives a 302 to the time-limited Paddle URL.
+// the client receives a 302 to the time-limited Paddle URL. The billing tab
+// EMBEDS this route in an in-dashboard iframe (PDF renders inline, no forced
+// download); a Download button opens the same route in a new tab.
 //
 // OWNERSHIP: the transaction id is verified to belong to THIS user's
 // subscription (it must appear in their transaction list) before any URL is
 // issued, so a user cannot fetch another customer's invoice by id.
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = (session.user as { id?: string }).id ?? '';
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const platform = req.nextUrl.searchParams.get('platform') || DEFAULT_PAYMENTS_PLATFORM;
   const sb = getServerClient();
-  const pctx = await loadUserPaddleContext(sb, userId);
+  const pctx = await loadUserPaddleContext(sb, userId, platform);
   if (pctx.state !== 'ok' || !pctx.subscriptionId) {
     return NextResponse.json({ error: 'no_subscription' }, { status: 404 });
   }

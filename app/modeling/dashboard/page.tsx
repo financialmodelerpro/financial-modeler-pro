@@ -8,7 +8,7 @@ import { platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
-import SubscriptionPanel from '@/src/hubs/modeling/components/SubscriptionPanel';
+import BillingView from '@/src/hubs/modeling/components/BillingView';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -118,10 +118,15 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard',    icon: '🏠', label: 'Dashboard' },
+  { id: 'billing',      icon: '💳', label: 'Billing' },
   { id: 'projects',     icon: '📁', label: 'My Projects',  disabled: true, badge: 'Soon' },
   { id: 'certificates', icon: '🏆', label: 'Certificates', disabled: true, badge: 'Soon' },
   { id: 'settings',     icon: '⚙️', label: 'Settings', href: '/settings' },
 ];
+
+// In-page views the sidebar switches between (no separate route, so the shell is
+// not duplicated). Items with an href still navigate away.
+type DashView = 'dashboard' | 'billing';
 
 function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: Theme; noPlan: boolean }) {
   const [hovered, setHovered] = useState(false);
@@ -228,6 +233,7 @@ export default function ModelingDashboardPage() {
   const ent = useEntitlements();
   const noPlan = ent.loaded && !ent.isAdmin && ent.planKey === NONE_PLAN_KEY;
 
+  const [activeView, setActiveView] = useState<DashView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
@@ -245,6 +251,13 @@ export default function ModelingDashboardPage() {
     onLogout: async () => { await signOut({ redirect: false }); },
     redirectUrl: '/signin?reason=inactivity&bypass=true',
   });
+
+  // Open the Billing tab directly when linked with #billing (in-page tab).
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#billing') {
+      setActiveView('billing');
+    }
+  }, []);
 
   // Restore sidebar state
   useEffect(() => {
@@ -500,12 +513,13 @@ export default function ModelingDashboardPage() {
             )}
 
             {navItems.map(item => {
-              const isActive = item.id === 'dashboard';
+              const isActive = item.id === activeView;
               return (
                 <div
                   key={item.id}
                   title={collapsed ? item.label : undefined}
                   className="mh-nav-item"
+                  data-testid={`nav-${item.id}`}
                   style={{
                     display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
                     justifyContent: collapsed ? 'center' : 'flex-start',
@@ -519,8 +533,15 @@ export default function ModelingDashboardPage() {
                     textDecoration: 'none', color: 'inherit',
                   }}
                   onClick={() => {
-                    if (item.href && !item.disabled) {
-                      window.location.href = item.href;
+                    if (item.disabled) return;
+                    if (item.href) { window.location.href = item.href; return; }
+                    // In-page view switch (Dashboard / Billing): no navigation.
+                    if (item.id === 'dashboard' || item.id === 'billing') {
+                      setActiveView(item.id);
+                      setMobileSidebarOpen(false);
+                      if (typeof window !== 'undefined') {
+                        window.history.replaceState(null, '', item.id === 'billing' ? '#billing' : ' ');
+                      }
                     }
                   }}
                 >
@@ -596,6 +617,15 @@ export default function ModelingDashboardPage() {
           className="mh-main"
           style={{ flex: 1, padding: '32px 32px 60px', overflowY: 'auto', minWidth: 0 }}
         >
+          {/* BILLING TAB: per-platform subscription management, source-driven
+              (one section per live platform). Lives here, NOT on the main
+              dashboard, which keeps only the platform cards. */}
+          {activeView === 'billing' && (
+            <BillingView platforms={livePlatforms.map((p) => ({ slug: p.slug, name: p.name }))} dark={darkMode} />
+          )}
+
+          {activeView === 'dashboard' && (
+          <>
           <div style={{ marginBottom: noPlan ? 20 : 36 }}>
             <h1 style={{ fontSize: 26, fontWeight: 800, color: theme.heading, margin: '0 0 6px' }}>
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
@@ -617,11 +647,6 @@ export default function ModelingDashboardPage() {
               </a>
             </div>
           )}
-
-          {/* Subscription & Billing: self-managed Paddle subscription panel. Reads
-              from server routes (Paddle API key stays server-side); shows a
-              friendly empty state for trial / no-subscription users. */}
-          <SubscriptionPanel dark={darkMode} planKey={ent.planKey} />
 
           {platformsLoading && (
             <section style={{ marginBottom: 40 }}>
@@ -678,6 +703,8 @@ export default function ModelingDashboardPage() {
                 {comingPlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} noPlan={noPlan} />)}
               </div>
             </section>
+          )}
+          </>
           )}
         </main>
       </div>

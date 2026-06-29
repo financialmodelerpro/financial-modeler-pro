@@ -102,7 +102,7 @@ export const paddleAdapter: PaymentAdapter = {
       priceId: req.providerPriceId,
       sandbox: cfg.sandbox,
       email: req.userEmail,
-      customData: { user_id: req.userId, plan_key: req.planKey },
+      customData: { user_id: req.userId, plan_key: req.planKey, platform: req.platform },
       message: 'Opening Paddle checkout.',
     };
   },
@@ -119,7 +119,7 @@ export const paddleAdapter: PaymentAdapter = {
     const empty: ParsedSubscriptionEvent = {
       type: 'unknown', eventId: null, providerPriceOrProductId: null,
       userRef: null, customDataPlanKey: null, customerEmail: null,
-      subscriptionId: null, customerId: null,
+      subscriptionId: null, customerId: null, customDataPlatform: null,
     };
     try {
       const body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -148,6 +148,7 @@ export const paddleAdapter: PaymentAdapter = {
         customerEmail: email,
         subscriptionId,
         customerId,
+        customDataPlatform: (custom.platform as string | undefined) ?? null,
       };
     } catch {
       // Malformed body: never throw, the route stops on type 'unknown'.

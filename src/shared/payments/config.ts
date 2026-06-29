@@ -141,6 +141,34 @@ export interface PlanProviderIds {
   paypro_product_id: string | null;
 }
 
+/** A plan option for the upgrade/downgrade picker: key + label + Paddle price
+ *  ids. Read from entitlement_plans (active only) for one platform. */
+export interface PlatformPlanOption extends PlanProviderIds {
+  label: string;
+  display_order: number | null;
+}
+
+/** Load a platform's active plans (key + label + price ids) in display order.
+ *  Used by the billing tab to show the upgrade/downgrade choices and by the
+ *  change-plan route to resolve the target Paddle price id. Tolerant: returns []
+ *  if the table/columns are absent. */
+export async function loadPlatformPlanOptions(
+  sb: SupabaseClient, platform: string,
+): Promise<PlatformPlanOption[]> {
+  try {
+    const { data, error } = await sb
+      .from('entitlement_plans')
+      .select('plan_key, label, display_order, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id')
+      .eq('platform_slug', platform)
+      .eq('active', true)
+      .order('display_order');
+    if (error) return [];
+    return (data ?? []) as PlatformPlanOption[];
+  } catch {
+    return [];
+  }
+}
+
 /** Pick the provider price/product id for a plan at a billing interval. Pure. */
 export function planProviderPriceId(
   plan: PlanProviderIds, provider: PaymentProvider, interval: BillingInterval,
@@ -218,6 +246,35 @@ export async function storeUserSubscriptionIds(
     await sb.from('users').update(patch).eq('id', userId);
   } catch {
     // column absent pre-migration, or transient error: ignore (plan apply stands).
+  }
+}
+
+/**
+ * Upsert the user's subscription row FOR ONE PLATFORM (mig 177). Keyed by
+ * (user_id, platform_slug) so a user can hold one subscription per platform.
+ * Called by the webhook AFTER a successful plan apply. Like the global store it
+ * never touches the gate's inputs, so enforcement is unaffected. Best effort +
+ * schema-tolerant: a missing table (pre mig 177) or any error is swallowed so
+ * the plan apply still stands.
+ */
+export async function storeUserPlatformSubscription(
+  sb: SupabaseClient,
+  userId: string,
+  platform: string,
+  data: { subscriptionId: string | null; customerId: string | null; planKey: string | null },
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').upsert({
+      user_id: userId,
+      platform_slug: platform,
+      paddle_subscription_id: data.subscriptionId,
+      paddle_customer_id: data.customerId,
+      plan_key: data.planKey,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,platform_slug' });
+  } catch {
+    // table absent pre-migration, or transient error: ignore (plan apply stands).
   }
 }
 

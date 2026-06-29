@@ -47,39 +47,39 @@ check('paddle parseEvent never throws on junk (unknown)', getAdapter('paddle').p
 
   console.log('=== Paddle checkout (overlay instruction, graceful failures) ===');
   const okRes = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' }, cfg,
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' }, cfg,
   );
   check('paddle checkout returns open_overlay (ok)', okRes.ok === true && okRes.status === 'open_overlay');
   check('paddle checkout carries the publishable client token + price id', okRes.clientToken === 'test_tok' && okRes.priceId === 'pri_123');
   check('paddle checkout passes custom data (user_id + plan_key) for webhook mapping', okRes.customData?.user_id === 'u1' && okRes.customData?.plan_key === 'pro');
   check('paddle checkout result leaks NO secret', !JSON.stringify(okRes).includes('whsec') && !JSON.stringify(okRes).includes('"k"') && !JSON.stringify(okRes).includes('apiSecret'));
   const noPrice = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: null, userId: 'u1', userEmail: 'a@b.com' }, cfg,
+    { planKey: 'pro', interval: 'monthly', providerPriceId: null, userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' }, cfg,
   );
   check('paddle checkout fails gracefully on missing price id (no throw)', noPrice.ok === false && noPrice.status === 'error');
   const noToken = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' }, { ...cfg, clientToken: null },
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' }, { ...cfg, clientToken: null },
   );
   check('paddle checkout fails gracefully on missing client token (no throw)', noToken.ok === false && noToken.status === 'error');
   // Environment guard: a live token under sandbox (or test token under live)
   // fails up front with an actionable message rather than a generic overlay error.
   const liveTokenSandbox = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' },
     { ...cfg, clientToken: 'live_abc', sandbox: true },
   );
   check('paddle checkout flags a LIVE token used in sandbox mode (error)', liveTokenSandbox.ok === false && liveTokenSandbox.status === 'error' && /sandbox/i.test(liveTokenSandbox.message));
   const testTokenLive = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' },
     { ...cfg, clientToken: 'test_abc', sandbox: false },
   );
   check('paddle checkout flags a TEST token used in live mode (error)', testTokenLive.ok === false && testTokenLive.status === 'error' && /live/i.test(testTokenLive.message));
   const matchedSandbox = await getAdapter('paddle').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com' },
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pri_123', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' },
     { ...cfg, clientToken: 'test_ok', sandbox: true },
   );
   check('paddle checkout opens when token env matches sandbox flag', matchedSandbox.ok === true && matchedSandbox.status === 'open_overlay');
   const ppRes = await getAdapter('paypro').createCheckout(
-    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pp1', userId: 'u1', userEmail: 'a@b.com' }, { ...cfg, provider: 'paypro' },
+    { planKey: 'pro', interval: 'monthly', providerPriceId: 'pp1', userId: 'u1', userEmail: 'a@b.com', platform: 'real-estate' }, { ...cfg, provider: 'paypro' },
   );
   check('paypro checkout returns not_configured (still stubbed)', ppRes.ok === false && ppRes.status === 'not_configured');
 
