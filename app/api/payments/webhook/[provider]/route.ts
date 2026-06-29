@@ -3,7 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
-  wasWebhookEventProcessed, recordWebhookEvent,
+  wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds,
 } from '@/src/shared/payments/config';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
@@ -168,6 +168,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     if (!planKey) return NextResponse.json({ ok: false, reason: 'plan_not_mapped' });
     const res = await setUserPlan(sb, userId, planKey, { platform: PLATFORM });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
+    // Capture the provider subscription + customer ids so the dashboard can
+    // manage this subscription via the provider API. Additive to the user row;
+    // does not touch plan/status (the gate's inputs), so enforcement is unchanged.
+    await storeUserSubscriptionIds(sb, userId, { subscriptionId: event.subscriptionId, customerId: event.customerId });
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus });
   }

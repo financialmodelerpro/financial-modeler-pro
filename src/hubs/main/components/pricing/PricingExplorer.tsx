@@ -98,6 +98,13 @@ export default function PricingExplorer({
               sandbox: res.sandbox !== false,
               email: res.email ?? null,
               customData: res.customData,
+              // Post-payment: route the user back into the app instead of
+              // leaving them on the pricing page. The webhook provisions the
+              // plan; the dashboard then shows their subscription panel.
+              onComplete: () => {
+                setMessage('Payment complete. Taking you to your dashboard...');
+                window.location.href = '/dashboard';
+              },
             });
             setMessage(null);
           } catch (err) {

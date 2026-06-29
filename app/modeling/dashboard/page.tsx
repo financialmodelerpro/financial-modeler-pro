@@ -8,6 +8,7 @@ import { platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
+import SubscriptionPanel from '@/src/hubs/modeling/components/SubscriptionPanel';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -616,6 +617,11 @@ export default function ModelingDashboardPage() {
               </a>
             </div>
           )}
+
+          {/* Subscription & Billing: self-managed Paddle subscription panel. Reads
+              from server routes (Paddle API key stays server-side); shows a
+              friendly empty state for trial / no-subscription users. */}
+          <SubscriptionPanel dark={darkMode} planKey={ent.planKey} />
 
           {platformsLoading && (
             <section style={{ marginBottom: 40 }}>

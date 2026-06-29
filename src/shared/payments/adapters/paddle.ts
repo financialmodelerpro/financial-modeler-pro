@@ -119,6 +119,7 @@ export const paddleAdapter: PaymentAdapter = {
     const empty: ParsedSubscriptionEvent = {
       type: 'unknown', eventId: null, providerPriceOrProductId: null,
       userRef: null, customDataPlanKey: null, customerEmail: null,
+      subscriptionId: null, customerId: null,
     };
     try {
       const body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -130,6 +131,14 @@ export const paddleAdapter: PaymentAdapter = {
       const email = (customer?.email as string | undefined)
         ?? (data?.customer_email as string | undefined)
         ?? null;
+      // The subscription id: on subscription.* events the event data IS the
+      // subscription (data.id); on transaction.completed it is data.subscription_id.
+      const subscriptionId = eventType.startsWith('subscription.')
+        ? ((data?.id as string | undefined) ?? null)
+        : ((data?.subscription_id as string | undefined) ?? null);
+      const customerId = (data?.customer_id as string | undefined)
+        ?? (customer?.id as string | undefined)
+        ?? null;
       return {
         type: mapEventType(eventType),
         eventId,
@@ -137,6 +146,8 @@ export const paddleAdapter: PaymentAdapter = {
         userRef: (custom.user_id as string | undefined) ?? null,
         customDataPlanKey: (custom.plan_key as string | undefined) ?? null,
         customerEmail: email,
+        subscriptionId,
+        customerId,
       };
     } catch {
       // Malformed body: never throw, the route stops on type 'unknown'.

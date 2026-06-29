@@ -1,0 +1,34 @@
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { loadUserPaddleContext } from '@/src/shared/payments/subscriptionContext';
+import { cancelSubscriptionAtPeriodEnd } from '@/src/shared/payments/paddleApi';
+
+// POST /api/payments/subscription/cancel
+// Cancels the signed-in user's subscription AT PERIOD END via Paddle's API (the
+// user keeps access until the period they paid for ends). This route does NOT
+// change the user's plan or entitlements: access continues until period end,
+// then Paddle sends subscription.canceled and the existing webhook drops the
+// user to the baseline plan (the single enforcement path, unchanged). The Paddle
+// API key is used server-side only.
+export async function POST() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = (session.user as { id?: string }).id ?? '';
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const sb = getServerClient();
+  const ctx = await loadUserPaddleContext(sb, userId);
+  if (ctx.state !== 'ok' || !ctx.subscriptionId) {
+    return NextResponse.json({ ok: false, reason: ctx.state }, { status: 400 });
+  }
+
+  const res = await cancelSubscriptionAtPeriodEnd(ctx.cfg, ctx.subscriptionId);
+  if (!res.ok) {
+    return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
+  }
+  // Return the refreshed summary so the panel can reflect canceled-at-period-end
+  // and the date access ends, without stripping access now.
+  return NextResponse.json({ ok: true, subscription: res.data });
+}

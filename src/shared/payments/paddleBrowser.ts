@@ -68,6 +68,10 @@ let initializedFor: string | null = null;
 // closed) to whichever checkout is open right now.
 let pendingResolve: (() => void) | null = null;
 let pendingReject: ((e: Error) => void) | null = null;
+// Fired specifically on checkout.completed (a successful payment), distinct from
+// checkout.loaded (overlay merely opened). The caller uses this to redirect the
+// user back into the app after a successful checkout instead of stranding them.
+let pendingComplete: (() => void) | null = null;
 
 /** Pull a human message out of a Paddle error event, with a clear fallback that
  *  names the two most common causes (unknown price id / environment mismatch). */
@@ -83,7 +87,7 @@ function paddleErrorMessage(e: PaddleEvent): string {
     + 'environment, or the sandbox/live setting may not match the configured token.';
 }
 
-function settleClear(): void { pendingResolve = null; pendingReject = null; }
+function settleClear(): void { pendingResolve = null; pendingReject = null; pendingComplete = null; }
 
 export interface OpenPaddleArgs {
   clientToken: string;
@@ -91,6 +95,10 @@ export interface OpenPaddleArgs {
   sandbox: boolean;
   email?: string | null;
   customData?: Record<string, string>;
+  /** Called once when the payment actually completes (checkout.completed), so
+   *  the caller can redirect into the app. Not called on a mere overlay open or
+   *  on close without payment. */
+  onComplete?: () => void;
 }
 
 /**
@@ -120,9 +128,18 @@ export async function openPaddleCheckout(args: OpenPaddleArgs): Promise<void> {
         if (name === 'checkout.error') {
           pendingReject?.(new Error(paddleErrorMessage(e)));
           settleClear();
-        } else if (name === 'checkout.loaded' || name === 'checkout.completed') {
+        } else if (name === 'checkout.completed') {
+          // Payment succeeded: fire the completion hook (redirect) then resolve.
+          pendingComplete?.();
           pendingResolve?.();
           settleClear();
+        } else if (name === 'checkout.loaded') {
+          // Overlay is up: stop the caller's spinner, but do NOT treat as paid.
+          pendingResolve?.();
+          // Keep the completion hook armed so a later checkout.completed still
+          // fires (loaded does not clear it).
+          pendingResolve = null;
+          pendingReject = null;
         } else if (name === 'checkout.closed') {
           // User closed the overlay before completing: nothing to surface.
           settleClear();
@@ -135,6 +152,7 @@ export async function openPaddleCheckout(args: OpenPaddleArgs): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     pendingResolve = resolve;
     pendingReject = reject;
+    pendingComplete = args.onComplete ?? null;
     try {
       Paddle.Checkout.open({
         items: [{ priceId: args.priceId, quantity: 1 }],

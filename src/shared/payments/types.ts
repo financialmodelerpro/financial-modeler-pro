@@ -90,6 +90,13 @@ export interface ParsedSubscriptionEvent {
   customDataPlanKey: string | null;
   /** The customer email the event refers to; fallback user mapping. */
   customerEmail: string | null;
+  /** Provider subscription id (Paddle `sub_...`). Stored on the user so the
+   *  dashboard can manage the subscription via the provider API. Null when the
+   *  event carries no subscription (e.g. a one-off transaction). */
+  subscriptionId: string | null;
+  /** Provider customer id (Paddle `ctm_...`). Stored alongside the subscription
+   *  id for provider API calls scoped to the customer. */
+  customerId: string | null;
 }
 
 export interface PaymentAdapter {

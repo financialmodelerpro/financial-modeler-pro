@@ -196,6 +196,32 @@ export async function recordWebhookEvent(
 }
 
 /**
+ * Persist the provider subscription + customer ids on the user (mig 176). Called
+ * by the webhook AFTER a successful plan apply, so the dashboard can act on the
+ * subscription via the provider API. This writes ONLY the two opaque id columns:
+ * it never touches subscription_plan / subscription_status / trial_ends_at (the
+ * gate's inputs), so enforcement is unaffected. Best effort + schema-tolerant:
+ * a missing column (pre-migration) or any error is swallowed, so the webhook
+ * still succeeds at setting the plan even before mig 176 is applied.
+ */
+export async function storeUserSubscriptionIds(
+  sb: SupabaseClient,
+  userId: string,
+  ids: { subscriptionId: string | null; customerId: string | null },
+): Promise<void> {
+  if (!userId) return;
+  const patch: Record<string, string> = {};
+  if (ids.subscriptionId) patch.paddle_subscription_id = ids.subscriptionId;
+  if (ids.customerId) patch.paddle_customer_id = ids.customerId;
+  if (Object.keys(patch).length === 0) return;
+  try {
+    await sb.from('users').update(patch).eq('id', userId);
+  } catch {
+    // column absent pre-migration, or transient error: ignore (plan apply stands).
+  }
+}
+
+/**
  * Map a provider price/product id from a webhook event back to the internal
  * plan_key (+ the interval it represents for Paddle). Returns null when no plan
  * carries that id. Server-side query against entitlement_plans (mig 166).
