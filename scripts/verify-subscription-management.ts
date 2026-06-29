@@ -26,6 +26,7 @@ import fs from 'fs';
 import path from 'path';
 import { getAdapter } from '../src/shared/payments/registry';
 import { paddleApiBase, paddleServerReady } from '../src/shared/payments/paddleApi';
+import { classifyPlanChange, effectiveMonthlyPrice } from '../src/shared/payments/config';
 import type { ProviderConfig } from '../src/shared/payments/types';
 
 let pass = 0, fail = 0; const fails: string[] = [];
@@ -138,6 +139,34 @@ check('panel previews before confirming (feature list + differential)', /\/api\/
 check('panel offers an interval toggle + interval-change action', /interval-\$\{iv\}/.test(panelP) && /'monthly', 'annual'/.test(panelP) && /switch-interval/.test(panelP));
 check('panel shows charge vs credit from the preview', /You will be charged/.test(panelP) && /credit of/.test(panelP));
 
+console.log('=== Upgrade immediate / downgrade next-cycle timing rule ===');
+// Pure classification: by monthly-equivalent effective price (interval-aware).
+check('effectiveMonthlyPrice normalizes annual to /12', effectiveMonthlyPrice({ price_monthly: 50, price_annual: 480 }, 'annual') === 40);
+check('classify higher target -> upgrade', classifyPlanChange(40, 80) === 'upgrade');
+check('classify lower target -> downgrade', classifyPlanChange(80, 40) === 'downgrade');
+check('classify equal -> lateral', classifyPlanChange(50, 50) === 'lateral');
+check('classify unknown price -> upgrade (never silently defer)', classifyPlanChange(null, 40) === 'upgrade');
+check('interval-aware: annual Pro (40/mo) below monthly Firm (80) -> downgrade', classifyPlanChange(80, effectiveMonthlyPrice({ price_monthly: 50, price_annual: 480 }, 'annual')) === 'downgrade');
+const mig178 = read('supabase/migrations/178_scheduled_plan_change.sql');
+check('mig 178 adds scheduled_* columns (additive)', /ADD COLUMN IF NOT EXISTS scheduled_plan_key/.test(mig178) && /ADD COLUMN IF NOT EXISTS scheduled_price_id/.test(mig178) && /ADD COLUMN IF NOT EXISTS scheduled_effective_at/.test(mig178) && !/DROP\s+(TABLE|COLUMN)/i.test(mig178));
+const previewR = read('app/api/payments/subscription/preview-change/route.ts');
+check('preview-change classifies + returns changeType', /classifyPlanChange\(/.test(previewR) && /changeType/.test(previewR));
+check('preview-change downgrade = no charge + effective date', /changeType === 'downgrade'/.test(previewR) && /differential: null/.test(previewR) && /effectiveAt/.test(previewR));
+const changeR = read('app/api/payments/subscription/change-plan/route.ts');
+check('change-plan defers a downgrade (schedules, no Paddle call)', /changeType === 'downgrade'/.test(changeR) && /storeScheduledChange\(/.test(changeR));
+check('change-plan upgrade stays immediate + clears any schedule', /changeSubscriptionPlan\(/.test(changeR) && /clearScheduledChange\(/.test(changeR));
+check('change-plan still does NOT write the plan (webhook syncs)', !/setUserPlan\(/.test(changeR));
+const subR = read('app/api/payments/subscription/route.ts');
+check('subscription route surfaces the scheduled change', /scheduledChange/.test(subR));
+const cancelSchedR = read('app/api/payments/subscription/cancel-scheduled-change/route.ts');
+check('cancel-scheduled-change is session-guarded + clears the schedule', /getServerSession\(authOptions\)/.test(cancelSchedR) && /clearScheduledChange\(/.test(cancelSchedR));
+const cronR = read('app/api/cron/apply-scheduled-changes/route.ts');
+check('apply-scheduled worker is CRON_SECRET-guarded', /Bearer \$\{process\.env\.CRON_SECRET\}/.test(cronR));
+check('apply-scheduled worker applies due downgrades via Paddle', /scheduled_effective_at/.test(cronR) && /changeSubscriptionPlan\(/.test(cronR) && /clearScheduledChange\(/.test(cronR));
+check('panel states upgrade-immediate + downgrade-next-cycle timing', /timing-downgrade/.test(panelP) && /timing-upgrade/.test(panelP) && /Takes effect on/.test(panelP) && /Takes effect immediately/.test(panelP));
+check('panel shows a scheduled-downgrade notice + cancel action', /scheduled-change-notice/.test(panelP) && /cancel-scheduled-change/.test(panelP) && /Cancel scheduled change/.test(panelP));
+check('panel handles applied:scheduled (no immediate change)', /res\.applied === 'scheduled'/.test(panelP));
+
 console.log('=== Billing tab + per-platform rendering, client-safe ===');
 const dash = read('app/modeling/dashboard/page.tsx');
 check('dashboard has a Billing nav item', /id:\s*'billing'/.test(dash));
@@ -188,8 +217,12 @@ const files = [
   'src/hubs/modeling/components/BillingView.tsx',
   'app/api/payments/subscription/change-plan/route.ts',
   'app/api/payments/subscription/preview-change/route.ts',
+  'app/api/payments/subscription/cancel-scheduled-change/route.ts',
+  'app/api/cron/apply-scheduled-changes/route.ts',
   'app/api/payments/checkout/route.ts',
   'src/shared/entitlements/pricingCatalog.ts',
+  'src/shared/payments/subscriptionContext.ts',
+  'supabase/migrations/178_scheduled_plan_change.sql',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

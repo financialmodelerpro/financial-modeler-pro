@@ -24,15 +24,27 @@ export async function GET(req: NextRequest) {
 
   // Plan options are platform-scoped and useful even with no subscription (to
   // show what is available); only labels + keys leave the server, no secrets.
-  const planOptions = (await loadPlatformPlanOptions(sb, platform)).map((p) => ({ plan_key: p.plan_key, label: p.label }));
+  const planOptionRows = await loadPlatformPlanOptions(sb, platform);
+  const planOptions = planOptionRows.map((p) => ({ plan_key: p.plan_key, label: p.label }));
+
+  // A pending deferred downgrade (mig 178), with the target plan's label for the
+  // panel's "switches to X on [date]" note.
+  const scheduledChange = ctx.scheduled
+    ? {
+        planKey: ctx.scheduled.planKey,
+        interval: ctx.scheduled.interval,
+        effectiveAt: ctx.scheduled.effectiveAt,
+        label: planOptionRows.find((p) => p.plan_key === ctx.scheduled!.planKey)?.label ?? ctx.scheduled.planKey,
+      }
+    : null;
 
   if (ctx.state !== 'ok' || !ctx.subscriptionId) {
-    return NextResponse.json({ subscription: null, reason: ctx.state, platform, planOptions, currentPlanKey: ctx.planKey });
+    return NextResponse.json({ subscription: null, reason: ctx.state, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
   }
 
   const res = await getSubscription(ctx.cfg, ctx.subscriptionId);
   if (!res.ok) {
-    return NextResponse.json({ subscription: null, reason: res.error, platform, planOptions, currentPlanKey: ctx.planKey }, { status: res.status >= 500 ? 502 : 200 });
+    return NextResponse.json({ subscription: null, reason: res.error, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange }, { status: res.status >= 500 ? 502 : 200 });
   }
-  return NextResponse.json({ subscription: res.data, platform, planOptions, currentPlanKey: ctx.planKey });
+  return NextResponse.json({ subscription: res.data, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
 }

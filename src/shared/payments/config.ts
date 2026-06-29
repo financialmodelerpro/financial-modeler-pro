@@ -142,30 +142,108 @@ export interface PlanProviderIds {
 }
 
 /** A plan option for the upgrade/downgrade picker: key + label + Paddle price
- *  ids. Read from entitlement_plans (active only) for one platform. */
+ *  ids + the catalog prices (for upgrade/downgrade classification). Read from
+ *  entitlement_plans (active only) for one platform. */
 export interface PlatformPlanOption extends PlanProviderIds {
   label: string;
   display_order: number | null;
+  price_monthly: number | null;
+  price_annual: number | null;
+  currency: string | null;
 }
 
-/** Load a platform's active plans (key + label + price ids) in display order.
- *  Used by the billing tab to show the upgrade/downgrade choices and by the
- *  change-plan route to resolve the target Paddle price id. Tolerant: returns []
- *  if the table/columns are absent. */
+/** Load a platform's active plans (key + label + price ids + prices) in display
+ *  order. Used by the billing tab to show the upgrade/downgrade choices, by the
+ *  change-plan route to resolve the target Paddle price id, and to classify a
+ *  change as upgrade vs downgrade. Tolerant: returns [] if the table is absent,
+ *  and falls back to a price-free select if the price columns are missing. */
 export async function loadPlatformPlanOptions(
   sb: SupabaseClient, platform: string,
 ): Promise<PlatformPlanOption[]> {
   try {
-    const { data, error } = await sb
+    const withPrices = await sb
+      .from('entitlement_plans')
+      .select('plan_key, label, display_order, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id, price_monthly, price_annual, currency')
+      .eq('platform_slug', platform)
+      .eq('active', true)
+      .order('display_order');
+    if (!withPrices.error) return (withPrices.data ?? []) as PlatformPlanOption[];
+    // Price columns absent (older schema): fall back, leaving prices null.
+    const base = await sb
       .from('entitlement_plans')
       .select('plan_key, label, display_order, paddle_price_id_monthly, paddle_price_id_annual, paypro_product_id')
       .eq('platform_slug', platform)
       .eq('active', true)
       .order('display_order');
-    if (error) return [];
-    return (data ?? []) as PlatformPlanOption[];
+    if (base.error) return [];
+    return (base.data ?? []).map((p) => ({ ...(p as object), price_monthly: null, price_annual: null, currency: null })) as PlatformPlanOption[];
   } catch {
     return [];
+  }
+}
+
+/** Whether a plan change is an upgrade, downgrade, or lateral move. Drives the
+ *  timing rule: upgrades apply immediately (prorated now), downgrades are
+ *  deferred to the next billing cycle, laterals apply immediately. */
+export type PlanChangeType = 'upgrade' | 'downgrade' | 'lateral';
+
+/** Monthly-equivalent price for a plan at an interval (annual normalized /12), so
+ *  an interval change is compared on the same basis. Null when the price is not
+ *  set (the caller then defaults to immediate, never a silent deferral). */
+export function effectiveMonthlyPrice(
+  plan: { price_monthly: number | null; price_annual: number | null }, interval: BillingInterval,
+): number | null {
+  const v = interval === 'annual' ? plan.price_annual : plan.price_monthly;
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return null;
+  return interval === 'annual' ? Number(v) / 12 : Number(v);
+}
+
+/** Classify a change by comparing effective monthly prices. Unknown prices ->
+ *  'upgrade' (immediate) so we never silently defer a change we cannot price. */
+export function classifyPlanChange(currentEff: number | null, targetEff: number | null): PlanChangeType {
+  if (currentEff === null || targetEff === null) return 'upgrade';
+  const eps = 0.005;
+  if (targetEff > currentEff + eps) return 'upgrade';
+  if (targetEff < currentEff - eps) return 'downgrade';
+  return 'lateral';
+}
+
+/** Store a DEFERRED downgrade on the per-platform row (mig 178): apply it at
+ *  `effectiveAt` (the current period end). Best effort + schema-tolerant. */
+export async function storeScheduledChange(
+  sb: SupabaseClient, userId: string, platform: string,
+  data: { planKey: string; interval: BillingInterval; priceId: string; effectiveAt: string | null },
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').update({
+      scheduled_plan_key: data.planKey,
+      scheduled_interval: data.interval,
+      scheduled_price_id: data.priceId,
+      scheduled_effective_at: data.effectiveAt,
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // columns absent pre mig 178: ignore.
+  }
+}
+
+/** Clear any scheduled change on the per-platform row (mig 178). Called when an
+ *  upgrade applies (supersedes a pending downgrade) or the user cancels it. */
+export async function clearScheduledChange(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').update({
+      scheduled_plan_key: null,
+      scheduled_interval: null,
+      scheduled_price_id: null,
+      scheduled_effective_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // columns absent pre mig 178: ignore.
   }
 }
 

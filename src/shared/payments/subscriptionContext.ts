@@ -17,6 +17,14 @@ import type { ProviderConfig } from './types';
 
 export const DEFAULT_PAYMENTS_PLATFORM = 'real-estate';
 
+/** A deferred (next-cycle) downgrade stored on the per-platform row (mig 178). */
+export interface ScheduledChange {
+  planKey: string;
+  interval: 'monthly' | 'annual' | null;
+  priceId: string;
+  effectiveAt: string | null;
+}
+
 export interface UserPaddleContext {
   /** 'ok' once a paddle subscription id is on record and the api key is set. */
   state: 'ok' | 'no_subscription' | 'not_paddle' | 'not_configured';
@@ -26,6 +34,8 @@ export interface UserPaddleContext {
   customerId: string | null;
   /** The plan key stored for this platform (mig 177), for display + change-plan. */
   planKey: string | null;
+  /** A pending deferred downgrade (mig 178), or null. */
+  scheduled: ScheduledChange | null;
 }
 
 /**
@@ -78,11 +88,37 @@ export async function loadUserPaddleContext(
     }
   }
 
+  // Pending deferred downgrade (mig 178). Separate query so a pre-migration
+  // schema (columns absent) degrades to "no schedule" without breaking the read.
+  let scheduled: ScheduledChange | null = null;
+  if (subscriptionId) {
+    try {
+      const { data } = await sb
+        .from('user_platform_subscriptions')
+        .select('scheduled_plan_key, scheduled_interval, scheduled_price_id, scheduled_effective_at')
+        .eq('user_id', userId)
+        .eq('platform_slug', platform)
+        .maybeSingle();
+      const row = data as { scheduled_plan_key?: string | null; scheduled_interval?: string | null; scheduled_price_id?: string | null; scheduled_effective_at?: string | null } | null;
+      if (row?.scheduled_plan_key && row.scheduled_price_id) {
+        const iv = row.scheduled_interval;
+        scheduled = {
+          planKey: row.scheduled_plan_key,
+          interval: iv === 'annual' || iv === 'monthly' ? iv : null,
+          priceId: row.scheduled_price_id,
+          effectiveAt: row.scheduled_effective_at ?? null,
+        };
+      }
+    } catch {
+      // columns absent pre mig 178: no schedule.
+    }
+  }
+
   let state: UserPaddleContext['state'];
   if (settings.active_provider !== 'paddle') state = 'not_paddle';
   else if (!cfg.apiKey) state = 'not_configured';
   else if (!subscriptionId) state = 'no_subscription';
   else state = 'ok';
 
-  return { state, platform, cfg, subscriptionId, customerId, planKey };
+  return { state, platform, cfg, subscriptionId, customerId, planKey, scheduled };
 }

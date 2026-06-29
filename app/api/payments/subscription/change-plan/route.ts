@@ -4,7 +4,10 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription, changeSubscriptionPlan } from '@/src/shared/payments/paddleApi';
-import { loadPlatformPlanOptions, planProviderPriceId } from '@/src/shared/payments/config';
+import {
+  loadPlatformPlanOptions, planProviderPriceId, effectiveMonthlyPrice, classifyPlanChange,
+  storeScheduledChange, clearScheduledChange,
+} from '@/src/shared/payments/config';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
 // POST /api/payments/subscription/change-plan
@@ -60,10 +63,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'already_on_plan' }, { status: 400 });
   }
 
+  // Classify by monthly-equivalent effective price (same basis for interval
+  // changes). Upgrade / lateral -> apply now; downgrade -> defer to next cycle.
+  const currentPlan = plans.find((p) => p.plan_key === (ctx.planKey ?? ''));
+  const currentInterval: BillingInterval = current.data.billingInterval ?? 'monthly';
+  const currentEff = currentPlan ? effectiveMonthlyPrice(currentPlan, currentInterval) : null;
+  const targetEff = effectiveMonthlyPrice(target, targetInterval);
+  const changeType = classifyPlanChange(currentEff, targetEff);
+
+  // DOWNGRADE: schedule for the next billing cycle. Do NOT touch Paddle now (no
+  // charge, the user keeps their current higher plan). The apply-scheduled-changes
+  // worker performs the swap at effectiveAt; the subscription.updated webhook then
+  // syncs the app plan. Storing the schedule does not change the gate's inputs.
+  if (changeType === 'downgrade') {
+    const effectiveAt = current.data.currentPeriodEndsAt ?? current.data.nextBilledAt ?? null;
+    await storeScheduledChange(sb, userId, platform, { planKey, interval: targetInterval, priceId: targetPriceId, effectiveAt });
+    return NextResponse.json({
+      ok: true, applied: 'scheduled', planKey,
+      scheduledChange: { planKey, interval: targetInterval, effectiveAt },
+    });
+  }
+
+  // UPGRADE / LATERAL: apply immediately with proration. Clear any pending
+  // downgrade it supersedes.
   const res = await changeSubscriptionPlan(ctx.cfg, ctx.subscriptionId, targetPriceId);
   if (!res.ok) {
     return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
   }
+  await clearScheduledChange(sb, userId, platform);
   // Return the refreshed summary; the webhook keeps the app plan in sync.
-  return NextResponse.json({ ok: true, subscription: res.data, planKey });
+  return NextResponse.json({ ok: true, applied: 'immediate', subscription: res.data, planKey });
 }

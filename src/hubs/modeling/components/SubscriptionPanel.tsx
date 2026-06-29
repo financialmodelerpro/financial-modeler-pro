@@ -49,14 +49,21 @@ interface InvoiceSummary {
 interface PlanOption { plan_key: string; label: string }
 interface PlanFeatureLine { feature_key: string; label: string; detail: string | null }
 interface ChangeDifferential { action: 'charge' | 'credit' | 'none'; amountMinor: number; currency: string | null; billedAt: string | null }
+interface NewPrice { amount: number; currency: string | null; interval: 'monthly' | 'annual' }
+type ChangeType = 'upgrade' | 'downgrade' | 'lateral';
 interface ChangePreviewResult {
   sameAsCurrent: boolean;
+  changeType?: ChangeType;
   interval: 'monthly' | 'annual';
   targetLabel: string;
   targetFeatures: PlanFeatureLine[];
   differential: ChangeDifferential | null;
   previewError?: string | null;
+  effectiveAt?: string | null;
+  currentLabel?: string;
+  newPrice?: NewPrice | null;
 }
+interface ScheduledChange { planKey: string; label: string; interval: 'monthly' | 'annual' | null; effectiveAt: string | null }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '-';
@@ -71,6 +78,14 @@ function fmtAmount(minor: number | null, currency: string | null): string {
   } catch {
     return `${(minor / 100).toFixed(2)} ${currency}`;
   }
+}
+// Format a catalog price (MAJOR units, e.g. 49) with its currency + interval.
+function fmtPrice(p: NewPrice | null | undefined): string {
+  if (!p || p.currency === null) return '-';
+  let amt: string;
+  try { amt = new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency }).format(p.amount); }
+  catch { amt = `${p.amount} ${p.currency}`; }
+  return `${amt}/${p.interval === 'annual' ? 'yr' : 'mo'}`;
 }
 function statusLabel(status: string, canceled: boolean): { label: string; bg: string; fg: string } {
   if (canceled) return { label: 'Canceling at period end', bg: '#FEF3C7', fg: '#92400E' };
@@ -114,6 +129,10 @@ export default function SubscriptionPanel({
   const [preview, setPreview] = useState<ChangePreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // A pending deferred downgrade (mig 178): current plan stays active, switches
+  // to this plan on the renewal date. Cancelable before it applies.
+  const [scheduledChange, setScheduledChange] = useState<ScheduledChange | null>(null);
+  const [cancelingSchedule, setCancelingSchedule] = useState(false);
   // In-dashboard invoice viewer (transaction id being viewed).
   const [viewInvoice, setViewInvoice] = useState<string | null>(null);
 
@@ -130,6 +149,7 @@ export default function SubscriptionPanel({
         setReason(s?.reason ?? null);
         setPlanOptions(Array.isArray(s?.planOptions) ? s.planOptions : []);
         setCurrentPlanKey(s?.currentPlanKey ?? null);
+        setScheduledChange(s?.scheduledChange ?? null);
         setInvoices(Array.isArray(inv?.invoices) ? inv.invoices : []);
       })
       .finally(() => setLoading(false));
@@ -193,9 +213,21 @@ export default function SubscriptionPanel({
     })
       .then((r) => r.json())
       .then((res) => {
-        if (res?.ok && res.subscription) {
+        if (res?.ok && res.applied === 'scheduled') {
+          // Downgrade: nothing changes now. Show the pending change; keep the
+          // current plan active.
+          setScheduledChange({
+            planKey: pendingChange.planKey,
+            label: pendingChange.label,
+            interval: pendingChange.interval,
+            effectiveAt: res.scheduledChange?.effectiveAt ?? null,
+          });
+          setPendingChange(null);
+        } else if (res?.ok && res.subscription) {
+          // Upgrade / lateral: applied immediately.
           setSub(res.subscription);
           setCurrentPlanKey(res.planKey ?? pendingChange.planKey);
+          setScheduledChange(null);
           setPendingChange(null);
         } else {
           setError(res?.reason ? `Could not change plan: ${res.reason}` : 'Could not change the plan. Please try again.');
@@ -204,6 +236,19 @@ export default function SubscriptionPanel({
       .catch(() => setError('Could not change the plan. Please try again.'))
       .finally(() => setSwitching(false));
   }, [platform, pendingChange]);
+
+  const doCancelSchedule = useCallback(() => {
+    setCancelingSchedule(true);
+    setError(null);
+    fetch(`/api/payments/subscription/cancel-scheduled-change?${q}`, { method: 'POST', credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res?.ok) setScheduledChange(null);
+        else setError(res?.reason ? `Could not cancel the scheduled change: ${res.reason}` : 'Could not cancel the scheduled change.');
+      })
+      .catch(() => setError('Could not cancel the scheduled change. Please try again.'))
+      .finally(() => setCancelingSchedule(false));
+  }, [q]);
 
   const card: React.CSSProperties = {
     background: surface, border: `1px solid ${border}`, borderRadius: 14,
@@ -286,6 +331,25 @@ export default function SubscriptionPanel({
           <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
             Your subscription is set to cancel. You keep full access until {fmtDate(sub.scheduledCancelAt ?? sub.currentPeriodEndsAt)}, after which your plan reverts automatically.
           </span>
+        </div>
+      )}
+
+      {/* Scheduled downgrade: current plan stays active until the renewal date,
+          then switches to the lower plan. Cancelable before it applies. */}
+      {scheduledChange && !sub.canceled && (
+        <div data-testid="scheduled-change-notice" style={{ background: dark ? '#222B3A' : '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: body, fontWeight: 600, flex: 1, minWidth: 240, lineHeight: 1.6 }}>
+            Scheduled change: your plan switches to <strong style={{ color: heading }}>{scheduledChange.label}</strong>{scheduledChange.interval ? ` (${scheduledChange.interval})` : ''} on <strong style={{ color: heading }}>{fmtDate(scheduledChange.effectiveAt)}</strong>. You keep {planName ?? 'your current plan'} until then. No charge until then.
+          </span>
+          <button
+            data-testid="cancel-scheduled-change"
+            type="button"
+            onClick={doCancelSchedule}
+            disabled={cancelingSchedule}
+            style={{ background: 'transparent', border: `1.5px solid ${NAVY}`, color: heading, fontWeight: 700, fontSize: 12.5, padding: '7px 14px', borderRadius: 8, cursor: cancelingSchedule ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {cancelingSchedule ? 'Canceling...' : 'Cancel scheduled change'}
+          </button>
         </div>
       )}
 
@@ -373,18 +437,24 @@ export default function SubscriptionPanel({
                   </ul>
                 )}
 
-                {/* Differential amount (preview only, no charge yet). */}
+                {/* Timing + differential (preview only, no charge yet). The copy
+                    states WHEN the change applies: upgrades immediately (charge
+                    now), downgrades at the next billing date (no charge now). */}
                 <div data-testid="change-plan-differential" style={{ background: surface, border: `1px solid ${border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
                   {previewLoading ? (
-                    <span style={{ fontSize: 13, color: muted }}>Calculating the prorated amount...</span>
+                    <span style={{ fontSize: 13, color: muted }}>Calculating...</span>
                   ) : preview?.sameAsCurrent ? (
                     <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>This is your current plan and interval. No price change.</span>
+                  ) : preview?.changeType === 'downgrade' ? (
+                    <span data-testid="timing-downgrade" style={{ fontSize: 13.5, color: body, fontWeight: 600, lineHeight: 1.6 }}>
+                      Takes effect on <strong style={{ color: heading }}>{fmtDate(preview.effectiveAt ?? null)}</strong>. You keep <strong style={{ color: heading }}>{preview.currentLabel ?? planName}</strong> until then, then move to <strong style={{ color: heading }}>{preview.targetLabel}</strong>{preview.newPrice ? <> at <strong style={{ color: heading }}>{fmtPrice(preview.newPrice)}</strong></> : null}. <strong style={{ color: heading }}>No charge today.</strong>
+                    </span>
                   ) : diff && diff.action === 'charge' ? (
-                    <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>You will be charged <strong style={{ color: heading }}>{fmtAmount(diff.amountMinor, diff.currency)}</strong> today, prorated for the rest of this billing period.</span>
+                    <span data-testid="timing-upgrade" style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>Takes effect immediately. You will be charged <strong style={{ color: heading }}>{fmtAmount(diff.amountMinor, diff.currency)}</strong> today, prorated for the rest of this billing period.</span>
                   ) : diff && diff.action === 'credit' ? (
-                    <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>You will receive a <strong style={{ color: heading }}>credit of {fmtAmount(diff.amountMinor, diff.currency)}</strong>, applied to your account.</span>
+                    <span data-testid="timing-upgrade" style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>Takes effect immediately. You will receive a <strong style={{ color: heading }}>credit of {fmtAmount(diff.amountMinor, diff.currency)}</strong>, applied to your account.</span>
                   ) : (
-                    <span style={{ fontSize: 13, color: muted }}>{preview?.previewError ? 'The exact prorated amount could not be previewed; Paddle will prorate when you confirm.' : 'No charge is due now for this change.'}</span>
+                    <span style={{ fontSize: 13, color: muted }}>Takes effect immediately. {preview?.previewError ? 'The exact prorated amount could not be previewed; Paddle will prorate when you confirm.' : 'No charge is due now for this change.'}</span>
                   )}
                 </div>
 
@@ -396,7 +466,11 @@ export default function SubscriptionPanel({
                     disabled={switching || previewLoading || preview?.sameAsCurrent}
                     style={{ background: NAVY, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: (switching || previewLoading || preview?.sameAsCurrent) ? 'default' : 'pointer', opacity: (switching || previewLoading || preview?.sameAsCurrent) ? 0.6 : 1 }}
                   >
-                    {switching ? 'Changing...' : `Confirm: ${pendingChange.label}, ${intervalWord(pendingChange.interval)}`}
+                    {switching
+                      ? 'Changing...'
+                      : preview?.changeType === 'downgrade'
+                        ? `Schedule downgrade to ${pendingChange.label}`
+                        : `Confirm: ${pendingChange.label}, ${intervalWord(pendingChange.interval)}`}
                   </button>
                   <button
                     type="button"

@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription, previewSubscriptionChange } from '@/src/shared/payments/paddleApi';
-import { loadPlatformPlanOptions, planProviderPriceId } from '@/src/shared/payments/config';
+import { loadPlatformPlanOptions, planProviderPriceId, effectiveMonthlyPrice, classifyPlanChange } from '@/src/shared/payments/config';
 import { loadPlanFeatureList } from '@/src/shared/entitlements/pricingCatalog';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
@@ -59,18 +59,47 @@ export async function POST(req: NextRequest) {
   // Same price as today: no charge, just confirm the (unchanged) feature list.
   if (targetPriceId === current.data.currentPriceId) {
     return NextResponse.json({
-      ok: true, sameAsCurrent: true, interval: targetInterval,
+      ok: true, sameAsCurrent: true, changeType: 'lateral', interval: targetInterval,
       targetLabel: featureList.label, targetFeatures: featureList.features, differential: null,
     });
   }
 
-  // Preview the proration (no charge). On a preview error still return the
-  // feature list so the confirm step works; the UI notes the amount is unknown.
+  // Classify upgrade vs downgrade by monthly-equivalent effective price, so an
+  // interval change is compared on the same basis. The current plan = the plan
+  // key stored for this platform at the subscription's current interval.
+  const currentPlan = plans.find((p) => p.plan_key === (ctx.planKey ?? ''));
+  const currentInterval: BillingInterval = current.data.billingInterval ?? 'monthly';
+  const currentEff = currentPlan ? effectiveMonthlyPrice(currentPlan, currentInterval) : null;
+  const targetEff = effectiveMonthlyPrice(target, targetInterval);
+  const changeType = classifyPlanChange(currentEff, targetEff);
+
+  // The target plan's recurring price for the chosen interval (for the copy).
+  const newPriceAmount = targetInterval === 'annual' ? target.price_annual : target.price_monthly;
+  const newPrice = (newPriceAmount !== null && newPriceAmount !== undefined)
+    ? { amount: Number(newPriceAmount), currency: target.currency ?? null, interval: targetInterval }
+    : null;
+  const currentLabel = currentPlan?.label ?? ctx.planKey ?? 'your current plan';
+
+  // DOWNGRADE: deferred to the next billing cycle. No charge now; nothing changes
+  // today. The confirm copy states the effective date + the new price from then.
+  if (changeType === 'downgrade') {
+    const effectiveAt = current.data.currentPeriodEndsAt ?? current.data.nextBilledAt ?? null;
+    return NextResponse.json({
+      ok: true, sameAsCurrent: false, changeType: 'downgrade', interval: targetInterval,
+      targetLabel: featureList.label, targetFeatures: featureList.features,
+      differential: null,            // no immediate charge or credit
+      effectiveAt, currentLabel, newPrice,
+    });
+  }
+
+  // UPGRADE / LATERAL: immediate, prorated. Preview the proration (no charge yet).
+  // On a preview error still return the feature list so confirm works.
   const preview = await previewSubscriptionChange(ctx.cfg, ctx.subscriptionId, targetPriceId);
   return NextResponse.json({
-    ok: true, sameAsCurrent: false, interval: targetInterval,
+    ok: true, sameAsCurrent: false, changeType, interval: targetInterval,
     targetLabel: featureList.label, targetFeatures: featureList.features,
     differential: preview.ok ? preview.data : null,
     previewError: preview.ok ? null : preview.error,
+    currentLabel, newPrice,
   });
 }
