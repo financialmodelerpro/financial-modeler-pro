@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
-import { loadPlatformSubscriptionRow, isLivePaddleSubscription } from '@/src/shared/payments/config';
+import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction } from '@/src/shared/payments/config';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -60,6 +60,14 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
+    // Log the manual payment to the revenue ledger (counts toward admin revenue).
+    if (body.amount_minor && body.amount_minor > 0) {
+      await recordPaymentTransaction(sb, {
+        source: 'manual', externalId: null, userId: user_id, platform, planKey: res.planKey ?? plan_key,
+        amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual',
+        billedAt: body.started_at ?? new Date().toISOString(),
+      });
+    }
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, trialEndsAt: res.trialEndsAt, source: 'manual' });
   } catch {
     return NextResponse.json({ error: 'Failed to set plan' }, { status: 500 });

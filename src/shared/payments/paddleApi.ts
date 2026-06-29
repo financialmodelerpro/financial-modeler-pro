@@ -190,6 +190,20 @@ export async function cancelSubscriptionAtPeriodEnd(
   return { ok: true, data: shapeSummary(subscriptionId, res.data, true) };
 }
 
+/** POST /subscriptions/{id}/cancel with effective_from=immediately. Ends Paddle
+ *  access NOW (used by the immediate convert-to-manual option, which warns about
+ *  unused prepaid time). Refunds are handled separately by the admin in Paddle. */
+export async function cancelSubscriptionNow(
+  cfg: ProviderConfig, subscriptionId: string,
+): Promise<PaddleApiResult<SubscriptionSummary>> {
+  const res = await paddleFetch(cfg, `/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ effective_from: 'immediately' }),
+  });
+  if (!res.ok) return res;
+  return { ok: true, data: shapeSummary(subscriptionId, res.data, true) };
+}
+
 /**
  * Change a subscription's plan (upgrade / downgrade) by swapping its item to a
  * new price id. PATCH /subscriptions/{id} with proration. Default proration mode

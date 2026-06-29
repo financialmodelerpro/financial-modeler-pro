@@ -4,7 +4,9 @@ import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
   wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds, storeUserPlatformSubscription,
+  recordPaymentTransaction, loadScheduledManualConversion,
 } from '@/src/shared/payments/config';
+import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
 
@@ -184,11 +186,30 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     // Per-platform store (mig 177): keyed by (user, platform) so the billing tab
     // renders one subscription per platform. Carries the applied plan key.
     await storeUserPlatformSubscription(sb, userId, eventPlatform, { subscriptionId: event.subscriptionId, customerId: event.customerId, planKey: res.planKey ?? planKey });
+    // Revenue ledger: record the completed transaction (reconcilable; idempotent
+    // on the Paddle transaction id). Reporting only, does not affect the plan.
+    if (event.transactionId && event.transactionAmountMinor !== null) {
+      await recordPaymentTransaction(sb, {
+        source: 'paddle', externalId: event.transactionId, userId, platform: eventPlatform,
+        planKey: res.planKey ?? planKey, amountMinor: event.transactionAmountMinor,
+        currency: event.transactionCurrency, status: 'completed', billedAt: new Date().toISOString(),
+      });
+    }
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
   }
 
   if (event.type === 'cancelled') {
+    // CONVERT-TO-MANUAL: if a manual conversion was scheduled for this period end
+    // (mig 180), apply it now (the user moves to the manual plan) INSTEAD of the
+    // baseline drop. This is the primary trigger; the cron is a backstop.
+    const conv = await loadScheduledManualConversion(sb, userId, eventPlatform);
+    if (conv) {
+      const ok = await applyScheduledManualConversion(sb, userId, eventPlatform, conv);
+      await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: conv.planKey, userId, status: ok ? 'manual' : 'convert_failed' });
+      return NextResponse.json({ ok, converted: 'manual', planKey: conv.planKey, platform: eventPlatform });
+    }
+
     // Drop to the baseline plan; re-resolution is automatic (same function).
     const res = await setUserPlan(sb, userId, BASELINE_PLAN_KEY, { platform: eventPlatform });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });

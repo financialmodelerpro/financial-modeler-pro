@@ -19,8 +19,9 @@
  */
 import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { loadPaymentSettings, providerConfigFrom, clearScheduledChange } from '@/src/shared/payments/config';
+import { loadPaymentSettings, providerConfigFrom, clearScheduledChange, loadScheduledManualConversion } from '@/src/shared/payments/config';
 import { changeSubscriptionPlan } from '@/src/shared/payments/paddleApi';
+import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -75,5 +76,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return Response.json({ ok: true, due: rows.length, applied, failures });
+  // Backstop for convert-to-manual (mig 180): the subscription.canceled webhook
+  // is the primary trigger, but if it did not fire, apply any due conversion here.
+  let convertsApplied = 0;
+  try {
+    const nowIso2 = new Date().toISOString();
+    const { data: convRows, error: convErr } = await sb
+      .from('user_platform_subscriptions')
+      .select('user_id, platform_slug')
+      .eq('scheduled_to_manual', true)
+      .lte('scheduled_effective_at', nowIso2);
+    if (!convErr) {
+      for (const r of (convRows ?? []) as { user_id: string; platform_slug: string }[]) {
+        const conv = await loadScheduledManualConversion(sb, r.user_id, r.platform_slug);
+        if (conv && await applyScheduledManualConversion(sb, r.user_id, r.platform_slug, conv)) convertsApplied += 1;
+      }
+    }
+  } catch {
+    // columns absent pre mig 180: skip.
+  }
+
+  return Response.json({ ok: true, due: rows.length, applied, convertsApplied, failures });
 }

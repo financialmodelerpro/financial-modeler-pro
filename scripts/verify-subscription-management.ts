@@ -242,6 +242,46 @@ check('panel labels an interval change (not downgrade)', /timing-interval/.test(
 const adminPanel = read('src/components/admin/UserAccessPanel.tsx');
 check('admin panel shows subscription dates + revenue + manual assign', /subscription-card/.test(adminPanel) && /revenue-card/.test(adminPanel) && /assign-manual-plan/.test(adminPanel) && /paddle-billed-block/.test(adminPanel));
 
+console.log('=== Revenue ledger + convert-to-manual (mig 180) ===');
+const mig180 = read('supabase/migrations/180_payment_ledger_and_convert.sql');
+check('mig 180 creates payment_transactions ledger + unique external id', /CREATE TABLE IF NOT EXISTS payment_transactions/.test(mig180) && /uq_payment_transactions_external/.test(mig180) && /ENABLE ROW LEVEL SECURITY/.test(mig180));
+check('mig 180 adds scheduled_to_manual conversion columns', /scheduled_to_manual/.test(mig180) && /scheduled_manual_plan_key/.test(mig180) && !/DROP\s+(TABLE|COLUMN)/i.test(mig180));
+// Paddle adapter captures the transaction amount for the ledger.
+const txnEvt2 = getAdapter('paddle').parseEvent(JSON.stringify({
+  event_type: 'transaction.completed', event_id: 'e', data: { id: 'txn_9', subscription_id: 'sub', customer_id: 'ctm', details: { totals: { grand_total: '4900', currency_code: 'USD' } }, items: [{ price: { id: 'pri' } }] },
+}));
+check('paddle parseEvent captures the transaction id + amount', txnEvt2.transactionId === 'txn_9' && txnEvt2.transactionAmountMinor === 4900 && txnEvt2.transactionCurrency === 'USD');
+check('non-transaction event carries no txn amount', getAdapter('paddle').parseEvent(JSON.stringify({ event_type: 'subscription.activated', event_id: 'e', data: { id: 'sub' } })).transactionAmountMinor === null);
+// Webhook records the ledger + applies a pending conversion on cancel.
+const wh = read('app/api/payments/webhook/[provider]/route.ts');
+check('webhook records the completed transaction to the ledger', /recordPaymentTransaction\(/.test(wh) && /event\.transactionId/.test(wh));
+check('webhook applies a scheduled manual conversion on cancel (not baseline)', /loadScheduledManualConversion\(/.test(wh) && /applyScheduledManualConversion\(/.test(wh));
+// Shared conversion applier reuses setUserPlan (no duplicate plan logic).
+const mc = read('src/shared/payments/manualConversion.ts');
+check('applyScheduledManualConversion reuses setUserPlan + logs + clears', /setUserPlan\(/.test(mc) && /recordPaymentTransaction\(/.test(mc) && /clearScheduledManualConversion\(/.test(mc));
+// Convert route: period-end default + immediate, reuses cancel mechanisms.
+const conv = read('app/api/admin/subscription/convert-to-manual/route.ts');
+check('convert route is admin-guarded', /role\?: string \}\)\.role !== 'admin'/.test(conv));
+check('convert route requires a live Paddle sub', /isLivePaddleSubscription\(/.test(conv));
+check('convert period-end: cancel at period end + schedule manual', /cancelSubscriptionAtPeriodEnd\(/.test(conv) && /storeScheduledManualConversion\(/.test(conv));
+check('convert immediate: cancel now + setUserPlan manual', /cancelSubscriptionNow\(/.test(conv) && /source: 'manual'/.test(conv));
+check('convert route shows the paid-through date', /paidThrough/.test(conv) && /currentPeriodEndsAt/.test(conv));
+check('paddleApi adds cancelSubscriptionNow (effective_from immediately)', /export async function cancelSubscriptionNow\(/.test(api2) && /effective_from: 'immediately'/.test(api2));
+// Cron backstop for conversions.
+check('cron applies due conversions as a backstop', /scheduled_to_manual/.test(cronR) && /applyScheduledManualConversion\(/.test(cronR));
+// Revenue page + API.
+const revApi = read('app/api/admin/revenue/route.ts');
+check('revenue API admin-guarded + aggregates the ledger', /role !== 'admin'/.test(revApi) && /aggregateRevenue\(/.test(revApi));
+const revPage = read('app/admin/revenue/page.tsx');
+check('revenue page: total + paddle/manual split + by-plan + periods', /revenue-total/.test(revPage) && /revenue-paddle/.test(revPage) && /revenue-manual/.test(revPage) && /revenue-by-plan/.test(revPage) && /period-\$\{k\}/.test(revPage) && /periodBtn\('month'/.test(revPage) && /periodBtn\('year'/.test(revPage) && /custom-range/.test(revPage));
+check('revenue marks the Paddle portion reconcilable', /reconcilable/i.test(revPage));
+const nav = read('src/components/admin/CmsAdminNav.tsx');
+check('admin nav has a Revenue link', /\/admin\/revenue/.test(nav));
+// Admin panel convert UI (period-end default + immediate warning + paid-through).
+check('admin panel has convert-to-manual (period-end + immediate warn + paid-through)', /convert-to-manual/.test(adminPanel) && /convert-period-end/.test(adminPanel) && /convert-immediate-warn/.test(adminPanel) && /paid-through/.test(adminPanel));
+// Manual assignment logs revenue.
+check('admin manual assign logs revenue to the ledger', /recordPaymentTransaction\(/.test(adminPlan));
+
 console.log('=== Migration 176 (additive id columns) ===');
 const mig = read('supabase/migrations/176_users_paddle_subscription.sql');
 check('mig 176 adds paddle_subscription_id (IF NOT EXISTS)', /ADD COLUMN IF NOT EXISTS paddle_subscription_id text/.test(mig));
@@ -276,6 +316,11 @@ const files = [
   'app/api/admin/entitlements/user/plan/route.ts',
   'app/api/admin/entitlements/user/route.ts',
   'src/components/admin/UserAccessPanel.tsx',
+  'supabase/migrations/180_payment_ledger_and_convert.sql',
+  'src/shared/payments/manualConversion.ts',
+  'app/api/admin/subscription/convert-to-manual/route.ts',
+  'app/api/admin/revenue/route.ts',
+  'app/admin/revenue/page.tsx',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

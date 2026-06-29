@@ -120,6 +120,7 @@ export const paddleAdapter: PaymentAdapter = {
       type: 'unknown', eventId: null, providerPriceOrProductId: null,
       userRef: null, customDataPlanKey: null, customerEmail: null,
       subscriptionId: null, customerId: null, customDataPlatform: null,
+      transactionId: null, transactionAmountMinor: null, transactionCurrency: null,
     };
     try {
       const body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -139,6 +140,11 @@ export const paddleAdapter: PaymentAdapter = {
       const customerId = (data?.customer_id as string | undefined)
         ?? (customer?.id as string | undefined)
         ?? null;
+      // Transaction-level fields for the revenue ledger (transaction.completed:
+      // data.id is the transaction id, data.details.totals.grand_total the total).
+      const isTxn = eventType === 'transaction.completed';
+      const totals = (((data?.details as Record<string, unknown> | undefined)?.totals) as Record<string, unknown> | undefined) ?? {};
+      const grand = Number(totals.grand_total);
       return {
         type: mapEventType(eventType),
         eventId,
@@ -149,6 +155,9 @@ export const paddleAdapter: PaymentAdapter = {
         subscriptionId,
         customerId,
         customDataPlatform: (custom.platform as string | undefined) ?? null,
+        transactionId: isTxn ? ((data?.id as string | undefined) ?? null) : null,
+        transactionAmountMinor: isTxn && Number.isFinite(grand) ? grand : null,
+        transactionCurrency: isTxn ? ((totals.currency_code as string | undefined) ?? (data?.currency_code as string | undefined) ?? null) : null,
       };
     } catch {
       // Malformed body: never throw, the route stops on type 'unknown'.

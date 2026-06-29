@@ -284,6 +284,167 @@ export function isLivePaddleSubscription(row: PlatformSubscriptionRow | null): b
   return row.source !== 'manual' && !!row.paddle_subscription_id && row.status !== 'canceled';
 }
 
+// ── Revenue ledger (mig 180: payment_transactions) ──────────────────────────
+// A unified ledger so the admin Revenue page aggregates across ALL users from
+// the DB (no per-user Paddle calls). Paddle rows are reconcilable (external_id =
+// Paddle transaction id); manual rows are admin-logged offline payments.
+
+export interface LedgerEntry {
+  source: 'paddle' | 'manual';
+  externalId: string | null;
+  userId: string | null;
+  platform: string;
+  planKey: string | null;
+  amountMinor: number;
+  currency: string | null;
+  status: string;
+  billedAt: string | null;
+}
+
+/** Record one ledger row. Idempotent for Paddle (unique on source+external_id):
+ *  a redelivered transaction.completed will not double-count. Best effort. */
+export async function recordPaymentTransaction(sb: SupabaseClient, e: LedgerEntry): Promise<void> {
+  if (!Number.isFinite(e.amountMinor)) return;
+  try {
+    if (e.source === 'paddle' && e.externalId) {
+      await sb.from('payment_transactions').upsert({
+        source: e.source, external_id: e.externalId, user_id: e.userId, platform_slug: e.platform,
+        plan_key: e.planKey, amount_minor: e.amountMinor, currency: e.currency, status: e.status, billed_at: e.billedAt,
+      }, { onConflict: 'source,external_id' });
+    } else {
+      await sb.from('payment_transactions').insert({
+        source: e.source, external_id: e.externalId, user_id: e.userId, platform_slug: e.platform,
+        plan_key: e.planKey, amount_minor: e.amountMinor, currency: e.currency, status: e.status, billed_at: e.billedAt,
+      });
+    }
+  } catch {
+    // table absent pre mig 180: ignore (reporting only).
+  }
+}
+
+export interface RevenueSummary {
+  totalMinor: number;
+  paddleMinor: number;
+  manualMinor: number;
+  currency: string | null;
+  byPlan: { plan_key: string; source: 'paddle' | 'manual'; amountMinor: number }[];
+  rowCount: number;
+}
+
+/** Aggregate revenue from the ledger over a date range (billed_at), grouped by
+ *  source + plan. Structured to extend to a per-platform split later (the row
+ *  carries platform_slug; pass `platform` to scope). One DB read, no Paddle calls. */
+export async function aggregateRevenue(
+  sb: SupabaseClient, opts: { from?: string | null; to?: string | null; platform?: string | null },
+): Promise<RevenueSummary> {
+  const empty: RevenueSummary = { totalMinor: 0, paddleMinor: 0, manualMinor: 0, currency: null, byPlan: [], rowCount: 0 };
+  try {
+    let q = sb.from('payment_transactions').select('source, plan_key, amount_minor, currency, billed_at');
+    if (opts.from) q = q.gte('billed_at', opts.from);
+    if (opts.to) q = q.lte('billed_at', opts.to);
+    if (opts.platform) q = q.eq('platform_slug', opts.platform);
+    const { data, error } = await q;
+    if (error) return empty;
+    const rows = (data ?? []) as { source: string; plan_key: string | null; amount_minor: number; currency: string | null }[];
+    const planMap = new Map<string, { plan_key: string; source: 'paddle' | 'manual'; amountMinor: number }>();
+    let paddleMinor = 0; let manualMinor = 0; let currency: string | null = null;
+    for (const r of rows) {
+      const amt = Number(r.amount_minor) || 0;
+      const src: 'paddle' | 'manual' = r.source === 'manual' ? 'manual' : 'paddle';
+      if (src === 'manual') manualMinor += amt; else paddleMinor += amt;
+      currency = currency ?? r.currency;
+      const key = `${src}::${r.plan_key ?? 'unknown'}`;
+      const cur = planMap.get(key) ?? { plan_key: r.plan_key ?? 'unknown', source: src, amountMinor: 0 };
+      cur.amountMinor += amt;
+      planMap.set(key, cur);
+    }
+    return {
+      totalMinor: paddleMinor + manualMinor, paddleMinor, manualMinor, currency,
+      byPlan: Array.from(planMap.values()).sort((a, b) => b.amountMinor - a.amountMinor),
+      rowCount: rows.length,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+// ── Scheduled convert-to-manual (mig 180) ───────────────────────────────────
+
+export interface ScheduledManualConversion {
+  planKey: string;
+  expiresAt: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  note: string | null;
+  effectiveAt: string | null;
+}
+
+/** Schedule a convert-to-manual at the Paddle period end. The webhook
+ *  (subscription.canceled) applies it at that date; the cron is a backstop. */
+export async function storeScheduledManualConversion(
+  sb: SupabaseClient, userId: string, platform: string, c: ScheduledManualConversion,
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').update({
+      scheduled_to_manual: true,
+      scheduled_manual_plan_key: c.planKey,
+      scheduled_manual_expires_at: c.expiresAt,
+      scheduled_manual_amount_minor: c.amountMinor,
+      scheduled_manual_currency: c.currency,
+      scheduled_manual_note: c.note,
+      scheduled_effective_at: c.effectiveAt,
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // columns absent pre mig 180: ignore.
+  }
+}
+
+/** Clear a pending convert-to-manual schedule (after it applies, or if canceled). */
+export async function clearScheduledManualConversion(sb: SupabaseClient, userId: string, platform: string): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').update({
+      scheduled_to_manual: false,
+      scheduled_manual_plan_key: null,
+      scheduled_manual_expires_at: null,
+      scheduled_manual_amount_minor: null,
+      scheduled_manual_currency: null,
+      scheduled_manual_note: null,
+      scheduled_effective_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // ignore.
+  }
+}
+
+/** Read a pending convert-to-manual for a user (schema-tolerant). */
+export async function loadScheduledManualConversion(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<ScheduledManualConversion | null> {
+  try {
+    const { data, error } = await sb
+      .from('user_platform_subscriptions')
+      .select('scheduled_to_manual, scheduled_manual_plan_key, scheduled_manual_expires_at, scheduled_manual_amount_minor, scheduled_manual_currency, scheduled_manual_note, scheduled_effective_at')
+      .eq('user_id', userId).eq('platform_slug', platform).maybeSingle();
+    if (error || !data) return null;
+    const r = data as Record<string, unknown>;
+    if (!r.scheduled_to_manual || !r.scheduled_manual_plan_key) return null;
+    return {
+      planKey: r.scheduled_manual_plan_key as string,
+      expiresAt: (r.scheduled_manual_expires_at as string | null) ?? null,
+      amountMinor: (r.scheduled_manual_amount_minor as number | null) ?? null,
+      currency: (r.scheduled_manual_currency as string | null) ?? null,
+      note: (r.scheduled_manual_note as string | null) ?? null,
+      effectiveAt: (r.scheduled_effective_at as string | null) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Upsert a MANUAL (admin-assigned, offline-paid) subscription on the per-platform
  *  row. Sets source='manual', the plan + status + dates + amount, and clears any
  *  stale Paddle ids (a manual plan is not Paddle-billed). Best effort +

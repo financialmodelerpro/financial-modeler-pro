@@ -85,6 +85,9 @@ export function UserAccessPanel({ userId }: { userId: string }) {
   const [mAmount, setMAmount] = useState('');
   const [mCurrency, setMCurrency] = useState('USD');
   const [mNote, setMNote] = useState('');
+  // Convert-to-manual (Paddle-billed users): immediate-confirm + busy.
+  const [confirmImmediate, setConfirmImmediate] = useState(false);
+  const [convertBusy, setConvertBusy] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -255,6 +258,34 @@ export function UserAccessPanel({ userId }: { userId: string }) {
   }, [user, platform, mStart, mExpiry, mAmount, mCurrency, mNote, loadUser, showToast]);
 
   const paddleBilled = subscription?.source === 'paddle';
+
+  // Convert a Paddle-billed user to a manual plan. Default 'period_end' (no wasted
+  // prepaid time); 'immediate' cancels Paddle now (warned in the UI). Reuses the
+  // server cancel + setUserPlan + scheduled-change mechanisms.
+  const doConvert = useCallback(async (when: 'period_end' | 'immediate') => {
+    if (!user) return;
+    setConvertBusy(true);
+    try {
+      const amountMinor = mAmount.trim() ? Math.round(parseFloat(mAmount) * 100) : null;
+      const res = await fetch('/api/admin/subscription/convert-to-manual', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id, platform, when, plan_key: mPlan || user.subscription_plan,
+          expires_at: mExpiry ? new Date(mExpiry).toISOString() : null,
+          amount_minor: amountMinor !== null && !Number.isNaN(amountMinor) ? amountMinor : null,
+          currency: mCurrency.trim() || null, note: mNote.trim() || null,
+        }),
+      }).then((r) => r.json());
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(when === 'period_end' ? 'Conversion scheduled at period end' : 'Converted to manual now', 'success');
+      setConfirmImmediate(false);
+      await loadUser();
+    } catch {
+      showToast('Conversion failed', 'error');
+    } finally {
+      setConvertBusy(false);
+    }
+  }, [user, platform, mPlan, mExpiry, mAmount, mCurrency, mNote, loadUser, showToast]);
 
   return (
     <div data-testid="user-access-panel">
@@ -464,8 +495,50 @@ export function UserAccessPanel({ userId }: { userId: string }) {
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="plan-assign-card">
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Assign manual plan</div>
               {paddleBilled ? (
-                <div data-testid="paddle-billed-block" style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px' }}>
-                  This user is billed by Paddle. Change their plan through the billing flow (the subscription upgrade/downgrade or cancel), not a manual override, so Paddle is not left billing the old plan.
+                <div data-testid="convert-to-manual">
+                  <div data-testid="paddle-billed-block" style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', marginBottom: 10 }}>
+                    This user is billed by Paddle. An ordinary plan change is blocked. Use Convert to manual below to move them off Paddle safely.
+                  </div>
+                  <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }} data-testid="paid-through">
+                    Paid through (Paddle): <b style={{ color: '#0f172a' }}>{fmtDay(subscription?.currentPeriodEnd ?? null)}</b>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                    <select data-testid="convert-plan-select" value={mPlan || user.subscription_plan} onChange={(e) => setMPlan(e.target.value)} style={{ padding: '7px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 }}>
+                      {user.subscription_plan !== 'none' && !entPlans.some((p) => p.plan_key === user.subscription_plan) && (
+                        <option value={user.subscription_plan} disabled>{user.subscription_plan || 'unassigned'}</option>
+                      )}
+                      {entPlans.map((p) => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Manual expiry<input type="date" data-testid="convert-expiry" value={mExpiry} onChange={(e) => setMExpiry(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Amount<input type="number" data-testid="convert-amount" value={mAmount} placeholder="0.00" onChange={(e) => setMAmount(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                    </div>
+                    <input type="text" data-testid="convert-note" value={mNote} placeholder="Note (e.g. bank transfer ref)" onChange={(e) => setMNote(e.target.value)} style={{ padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
+                  </div>
+                  <button
+                    data-testid="convert-period-end"
+                    onClick={() => doConvert('period_end')}
+                    disabled={convertBusy}
+                    style={{ width: '100%', padding: '8px 12px', fontSize: 12, fontWeight: 700, color: '#fff', background: '#0D2E5A', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 8 }}
+                  >{convertBusy ? 'Working...' : 'Convert at period end (keeps prepaid access)'}</button>
+                  {!confirmImmediate ? (
+                    <button
+                      data-testid="convert-immediate-start"
+                      onClick={() => setConfirmImmediate(true)}
+                      disabled={convertBusy}
+                      style={{ width: '100%', padding: '7px 12px', fontSize: 12, fontWeight: 700, color: '#b91c1c', background: '#fff', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer' }}
+                    >Convert immediately...</button>
+                  ) : (
+                    <div data-testid="convert-immediate-warn" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 11.5, color: '#991b1b', lineHeight: 1.5, marginBottom: 8 }}>
+                        This user has paid through <b>{fmtDay(subscription?.currentPeriodEnd ?? null)}</b>. Converting now ends Paddle access early and forfeits the remaining prepaid time (especially costly for annual). Handle any refund separately in Paddle.
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button data-testid="convert-immediate-confirm" onClick={() => doConvert('immediate')} disabled={convertBusy} style={{ flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 700, color: '#fff', background: '#b91c1c', border: 'none', borderRadius: 6, cursor: 'pointer' }}>{convertBusy ? 'Working...' : 'Yes, convert now'}</button>
+                        <button onClick={() => setConfirmImmediate(false)} disabled={convertBusy} style={{ flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 700, color: '#334155', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer' }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>

@@ -103,6 +103,13 @@ export interface ParsedSubscriptionEvent {
   /** Platform slug passed at checkout via custom data, so the subscription is
    *  keyed PER platform. Null when absent (callers default to real-estate). */
   customDataPlatform: string | null;
+  /** The provider TRANSACTION id (Paddle `txn_...`) on a transaction.completed
+   *  event, for the reconcilable revenue ledger. Null otherwise. */
+  transactionId: string | null;
+  /** The transaction total in minor units (revenue ledger). Null when absent. */
+  transactionAmountMinor: number | null;
+  /** The transaction currency code (revenue ledger). Null when absent. */
+  transactionCurrency: string | null;
 }
 
 export interface PaymentAdapter {
