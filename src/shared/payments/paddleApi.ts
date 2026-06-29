@@ -212,6 +212,55 @@ export async function changeSubscriptionPlan(
   return { ok: true, data: shapeSummary(subscriptionId, res.data) };
 }
 
+/** The prorated differential for a pending plan / interval change, previewed
+ *  WITHOUT committing (no charge happens). `action` says whether confirming
+ *  would charge or credit the user; `amountMinor` is the absolute amount. */
+export interface ChangePreview {
+  action: 'charge' | 'credit' | 'none';
+  amountMinor: number;
+  currency: string | null;
+  /** When the immediate proration transaction would bill (usually now). */
+  billedAt: string | null;
+}
+
+/**
+ * Preview a plan / interval change via PATCH /subscriptions/{id}/preview. Same
+ * body as the real change but Paddle does NOT apply it: it returns the proration
+ * result (charge or credit) so the user can see the differential amount before
+ * confirming. Nothing is charged here. Server-side only.
+ */
+export async function previewSubscriptionChange(
+  cfg: ProviderConfig, subscriptionId: string, newPriceId: string,
+  prorationMode: 'prorated_immediately' | 'full_next_billing_period' = 'prorated_immediately',
+): Promise<PaddleApiResult<ChangePreview>> {
+  const res = await paddleFetch(cfg, `/subscriptions/${encodeURIComponent(subscriptionId)}/preview`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      items: [{ price_id: newPriceId, quantity: 1 }],
+      proration_billing_mode: prorationMode,
+    }),
+  });
+  if (!res.ok) return res;
+  const d = asRecord(res.data);
+  const summary = asRecord(d.update_summary);
+  const result = asRecord(summary.result);
+  let action = str(result.action);              // 'charge' | 'credit'
+  let amount = Number(result.amount);
+  let currency = str(result.currency_code);
+  // Fallback when result is absent: derive from the charge / credit blocks.
+  if (action !== 'charge' && action !== 'credit') {
+    const charge = asRecord(summary.charge);
+    const credit = asRecord(summary.credit);
+    if (Number(charge.amount) > 0) { action = 'charge'; amount = Number(charge.amount); currency = str(charge.currency_code); }
+    else if (Number(credit.amount) > 0) { action = 'credit'; amount = Number(credit.amount); currency = str(credit.currency_code); }
+  }
+  const immediate = asRecord(d.immediate_transaction);
+  const billedAt = str(immediate.billed_at) ?? str(d.next_billed_at);
+  const amt = Number.isFinite(amount) ? Math.abs(amount) : 0;
+  const norm: ChangePreview['action'] = action === 'charge' || action === 'credit' ? action : 'none';
+  return { ok: true, data: { action: norm, amountMinor: amt, currency, billedAt } };
+}
+
 /** GET /transactions?subscription_id=... -> invoice/receipt rows (newest first). */
 export async function listSubscriptionInvoices(
   cfg: ProviderConfig, subscriptionId: string,

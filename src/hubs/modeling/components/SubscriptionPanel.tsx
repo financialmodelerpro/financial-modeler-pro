@@ -47,6 +47,16 @@ interface InvoiceSummary {
   currency: string | null;
 }
 interface PlanOption { plan_key: string; label: string }
+interface PlanFeatureLine { feature_key: string; label: string; detail: string | null }
+interface ChangeDifferential { action: 'charge' | 'credit' | 'none'; amountMinor: number; currency: string | null; billedAt: string | null }
+interface ChangePreviewResult {
+  sameAsCurrent: boolean;
+  interval: 'monthly' | 'annual';
+  targetLabel: string;
+  targetFeatures: PlanFeatureLine[];
+  differential: ChangeDifferential | null;
+  previewError?: string | null;
+}
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '-';
@@ -97,8 +107,12 @@ export default function SubscriptionPanel({
   const [canceling, setCanceling] = useState(false);
   const [cancelResult, setCancelResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Upgrade/downgrade target (plan_key) pending confirmation, and busy flag.
-  const [switchTarget, setSwitchTarget] = useState<PlanOption | null>(null);
+  // Upgrade/downgrade/interval change pending confirmation. `target` carries the
+  // plan + chosen interval; `preview` is the catalog feature list + the Paddle
+  // proration differential (fetched before the user confirms; preview only).
+  const [pendingChange, setPendingChange] = useState<{ planKey: string; label: string; interval: 'monthly' | 'annual' } | null>(null);
+  const [preview, setPreview] = useState<ChangePreviewResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
   // In-dashboard invoice viewer (transaction id being viewed).
   const [viewInvoice, setViewInvoice] = useState<string | null>(null);
@@ -141,26 +155,55 @@ export default function SubscriptionPanel({
       .finally(() => setCanceling(false));
   }, [q]);
 
-  const doSwitch = useCallback((target: PlanOption) => {
+  // Open the confirm step for a target plan + interval, and fetch the preview
+  // (full feature list + prorated differential). Nothing is charged here.
+  const openChange = useCallback((planKey: string, label: string, interval: 'monthly' | 'annual') => {
+    setPendingChange({ planKey, label, interval });
+    setError(null);
+  }, []);
+
+  // Whenever the pending target (plan or interval) changes, refresh the preview.
+  useEffect(() => {
+    if (!pendingChange) { setPreview(null); return; }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreview(null);
+    fetch('/api/payments/subscription/preview-change', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval }),
+    })
+      .then((r) => r.json())
+      .then((res: ChangePreviewResult & { ok?: boolean; reason?: string }) => {
+        if (cancelled) return;
+        if (res?.ok) setPreview(res);
+        else setError(res?.reason ? `Could not preview the change: ${res.reason}` : 'Could not preview the change.');
+      })
+      .catch(() => { if (!cancelled) setError('Could not preview the change. Please try again.'); })
+      .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [pendingChange, platform]);
+
+  const doSwitch = useCallback(() => {
+    if (!pendingChange) return;
     setSwitching(true);
     setError(null);
     fetch('/api/payments/subscription/change-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ platform, plan_key: target.plan_key }),
+      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval }),
     })
       .then((r) => r.json())
       .then((res) => {
         if (res?.ok && res.subscription) {
           setSub(res.subscription);
-          setCurrentPlanKey(res.planKey ?? target.plan_key);
-          setSwitchTarget(null);
+          setCurrentPlanKey(res.planKey ?? pendingChange.planKey);
+          setPendingChange(null);
         } else {
           setError(res?.reason ? `Could not change plan: ${res.reason}` : 'Could not change the plan. Please try again.');
         }
       })
       .catch(() => setError('Could not change the plan. Please try again.'))
       .finally(() => setSwitching(false));
-  }, [platform]);
+  }, [platform, pendingChange]);
 
   const card: React.CSSProperties = {
     background: surface, border: `1px solid ${border}`, borderRadius: 14,
@@ -246,52 +289,129 @@ export default function SubscriptionPanel({
         </div>
       )}
 
-      {/* Upgrade / downgrade */}
-      {!sub.canceled && otherPlans.length > 0 && (
-        <div data-testid="change-plan" style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Change plan</div>
-          {!switchTarget ? (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {otherPlans.map((p) => (
-                <button
-                  key={p.plan_key}
-                  data-testid={`switch-to-${p.plan_key}`}
-                  type="button"
-                  onClick={() => { setSwitchTarget(p); setError(null); }}
-                  style={{ background: 'transparent', border: `1.5px solid ${NAVY}`, color: heading, fontWeight: 700, fontSize: 13, padding: '8px 16px', borderRadius: 9, cursor: 'pointer' }}
-                >
-                  Switch to {p.label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div data-testid="change-plan-confirm" style={{ background: dark ? '#222B3A' : '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 10, padding: '16px 18px' }}>
-              <p style={{ fontSize: 13.5, color: body, margin: '0 0 14px', lineHeight: 1.6 }}>
-                Change to <strong>{switchTarget.label}</strong>? The new plan takes effect <strong>immediately</strong>. Paddle prorates the difference (charging or crediting the unused part of the current period) on your {sub.billingInterval === 'annual' ? 'annual' : 'monthly'} cycle.
-              </p>
+      {/* Upgrade / downgrade / interval change. Picking any target opens a
+          confirm step that shows the target plan's full feature list + the
+          prorated differential (previewed via Paddle; no charge until confirm). */}
+      {!sub.canceled && planOptions.length > 0 && (() => {
+        const curInterval: 'monthly' | 'annual' = sub.billingInterval ?? 'monthly';
+        const otherInterval: 'monthly' | 'annual' = curInterval === 'annual' ? 'monthly' : 'annual';
+        const currentLabel = planOptions.find((p) => p.plan_key === currentPlanKey)?.label ?? planName ?? 'current plan';
+        const intervalWord = (iv: 'monthly' | 'annual') => (iv === 'annual' ? 'annual' : 'monthly');
+        const diff = preview?.differential ?? null;
+        return (
+          <div data-testid="change-plan" style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Change plan or billing</div>
+            {!pendingChange ? (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  data-testid="change-plan-confirm-yes"
-                  type="button"
-                  onClick={() => doSwitch(switchTarget)}
-                  disabled={switching}
-                  style={{ background: NAVY, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: switching ? 'default' : 'pointer', opacity: switching ? 0.7 : 1 }}
-                >
-                  {switching ? 'Changing...' : `Confirm switch to ${switchTarget.label}`}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSwitchTarget(null)}
-                  disabled={switching}
-                  style={{ background: 'transparent', border: `1.5px solid ${border}`, color: body, fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: 'pointer' }}
-                >
-                  Keep current plan
-                </button>
+                {otherPlans.map((p) => (
+                  <button
+                    key={p.plan_key}
+                    data-testid={`switch-to-${p.plan_key}`}
+                    type="button"
+                    onClick={() => openChange(p.plan_key, p.label, curInterval)}
+                    style={{ background: 'transparent', border: `1.5px solid ${NAVY}`, color: heading, fontWeight: 700, fontSize: 13, padding: '8px 16px', borderRadius: 9, cursor: 'pointer' }}
+                  >
+                    Switch to {p.label}
+                  </button>
+                ))}
+                {currentPlanKey && (
+                  <button
+                    data-testid="switch-interval"
+                    type="button"
+                    onClick={() => openChange(currentPlanKey, currentLabel, otherInterval)}
+                    style={{ background: 'transparent', border: `1.5px solid ${GOLD}`, color: heading, fontWeight: 700, fontSize: 13, padding: '8px 16px', borderRadius: 9, cursor: 'pointer' }}
+                  >
+                    Switch to {intervalWord(otherInterval)} billing
+                  </button>
+                )}
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div data-testid="change-plan-confirm" style={{ background: dark ? '#222B3A' : '#EFF6FF', border: '1px solid #93C5FD', borderRadius: 10, padding: '18px 20px' }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: heading, marginBottom: 4 }}>
+                  Switch to {pendingChange.label}
+                </div>
+
+                {/* Billing interval selector (re-previews the differential). */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 16px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: muted }}>Billing</span>
+                  <div role="group" style={{ display: 'inline-flex', border: `1px solid ${border}`, borderRadius: 999, overflow: 'hidden' }}>
+                    {(['monthly', 'annual'] as const).map((iv) => {
+                      const on = pendingChange.interval === iv;
+                      return (
+                        <button
+                          key={iv}
+                          type="button"
+                          data-testid={`interval-${iv}`}
+                          onClick={() => setPendingChange((pc) => (pc ? { ...pc, interval: iv } : pc))}
+                          disabled={switching}
+                          style={{ background: on ? NAVY : 'transparent', color: on ? '#fff' : body, fontWeight: 700, fontSize: 12.5, padding: '7px 16px', border: 'none', cursor: 'pointer' }}
+                        >
+                          {iv === 'annual' ? 'Annual' : 'Monthly'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Full feature list of the target plan (from the pricing catalog). */}
+                <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  What you get on {pendingChange.label}
+                </div>
+                {previewLoading && !preview ? (
+                  <p style={{ fontSize: 13, color: muted, margin: '0 0 14px' }}>Loading plan details...</p>
+                ) : (
+                  <ul data-testid="change-plan-features" style={{ listStyle: 'none', padding: 0, margin: '0 0 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px 18px' }}>
+                    {(preview?.targetFeatures ?? []).map((f) => (
+                      <li key={f.feature_key} style={{ fontSize: 13, color: body, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: '#16A34A', fontWeight: 800 }}>✓</span>
+                        <span>{f.label}{f.detail ? <strong style={{ color: heading }}>{` (${f.detail})`}</strong> : null}</span>
+                      </li>
+                    ))}
+                    {preview && (preview.targetFeatures?.length ?? 0) === 0 && (
+                      <li style={{ fontSize: 13, color: muted }}>Feature list unavailable.</li>
+                    )}
+                  </ul>
+                )}
+
+                {/* Differential amount (preview only, no charge yet). */}
+                <div data-testid="change-plan-differential" style={{ background: surface, border: `1px solid ${border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                  {previewLoading ? (
+                    <span style={{ fontSize: 13, color: muted }}>Calculating the prorated amount...</span>
+                  ) : preview?.sameAsCurrent ? (
+                    <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>This is your current plan and interval. No price change.</span>
+                  ) : diff && diff.action === 'charge' ? (
+                    <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>You will be charged <strong style={{ color: heading }}>{fmtAmount(diff.amountMinor, diff.currency)}</strong> today, prorated for the rest of this billing period.</span>
+                  ) : diff && diff.action === 'credit' ? (
+                    <span style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>You will receive a <strong style={{ color: heading }}>credit of {fmtAmount(diff.amountMinor, diff.currency)}</strong>, applied to your account.</span>
+                  ) : (
+                    <span style={{ fontSize: 13, color: muted }}>{preview?.previewError ? 'The exact prorated amount could not be previewed; Paddle will prorate when you confirm.' : 'No charge is due now for this change.'}</span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    data-testid="change-plan-confirm-yes"
+                    type="button"
+                    onClick={doSwitch}
+                    disabled={switching || previewLoading || preview?.sameAsCurrent}
+                    style={{ background: NAVY, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: (switching || previewLoading || preview?.sameAsCurrent) ? 'default' : 'pointer', opacity: (switching || previewLoading || preview?.sameAsCurrent) ? 0.6 : 1 }}
+                  >
+                    {switching ? 'Changing...' : `Confirm: ${pendingChange.label}, ${intervalWord(pendingChange.interval)}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingChange(null)}
+                    disabled={switching}
+                    style={{ background: 'transparent', border: `1.5px solid ${border}`, color: body, fontWeight: 700, fontSize: 13, padding: '9px 18px', borderRadius: 9, cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: invoices.length ? 22 : 0 }}>

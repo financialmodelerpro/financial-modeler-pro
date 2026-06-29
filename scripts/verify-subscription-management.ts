@@ -119,9 +119,24 @@ console.log('=== Upgrade / downgrade (server-side plan change) ===');
 const api2 = read('src/shared/payments/paddleApi.ts');
 check('paddleApi exposes changeSubscriptionPlan (PATCH + proration)', /export async function changeSubscriptionPlan\(/.test(api2) && /proration_billing_mode/.test(api2) && /method:\s*'PATCH'/.test(api2));
 const changeRoute = read('app/api/payments/subscription/change-plan/route.ts');
-check('change-plan resolves the target price id by interval', /planProviderPriceId\(/.test(changeRoute) && /billingInterval/.test(changeRoute));
+check('change-plan resolves the target price id by interval', /planProviderPriceId\(/.test(changeRoute) && /targetInterval/.test(changeRoute));
+check('change-plan accepts an interval (interval change supported)', /body\.interval === 'annual'/.test(changeRoute) && /body\.interval === 'monthly'/.test(changeRoute));
 check('change-plan guards the same-plan no-op', /already_on_plan/.test(changeRoute));
 check('change-plan does NOT write the plan itself (webhook syncs)', !/setUserPlan\(/.test(changeRoute));
+
+console.log('=== Preview differential (no charge) + feature list + interval ===');
+check('paddleApi exposes previewSubscriptionChange (PATCH /preview)', /export async function previewSubscriptionChange\(/.test(api2) && /\/preview`/.test(api2) && /update_summary/.test(api2));
+const catalog = read('src/shared/entitlements/pricingCatalog.ts');
+check('catalog exposes loadPlanFeatureList (catalog feature source)', /export async function loadPlanFeatureList\(/.test(catalog) && /visibleForCustomers\(/.test(catalog) && /comparisonCellText\(/.test(catalog));
+const previewRoute = read('app/api/payments/subscription/preview-change/route.ts');
+check('preview-change is session-guarded + platform context', /getServerSession\(authOptions\)/.test(previewRoute) && /loadUserPaddleContext\(/.test(previewRoute));
+check('preview-change returns the target feature list + differential', /loadPlanFeatureList\(/.test(previewRoute) && /previewSubscriptionChange\(/.test(previewRoute) && /targetFeatures/.test(previewRoute) && /differential/.test(previewRoute));
+check('preview-change PREVIEWS ONLY (never changes the plan)', !/changeSubscriptionPlan\(/.test(previewRoute));
+check('preview-change supports an interval', /body\.interval === 'annual'/.test(previewRoute));
+const panelP = read('src/hubs/modeling/components/SubscriptionPanel.tsx');
+check('panel previews before confirming (feature list + differential)', /\/api\/payments\/subscription\/preview-change/.test(panelP) && /change-plan-features/.test(panelP) && /change-plan-differential/.test(panelP));
+check('panel offers an interval toggle + interval-change action', /interval-\$\{iv\}/.test(panelP) && /'monthly', 'annual'/.test(panelP) && /switch-interval/.test(panelP));
+check('panel shows charge vs credit from the preview', /You will be charged/.test(panelP) && /credit of/.test(panelP));
 
 console.log('=== Billing tab + per-platform rendering, client-safe ===');
 const dash = read('app/modeling/dashboard/page.tsx');
@@ -172,7 +187,9 @@ const files = [
   'supabase/migrations/177_user_platform_subscriptions.sql',
   'src/hubs/modeling/components/BillingView.tsx',
   'app/api/payments/subscription/change-plan/route.ts',
+  'app/api/payments/subscription/preview-change/route.ts',
   'app/api/payments/checkout/route.ts',
+  'src/shared/entitlements/pricingCatalog.ts',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

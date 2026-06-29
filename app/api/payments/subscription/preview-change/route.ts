@@ -3,20 +3,18 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
-import { getSubscription, changeSubscriptionPlan } from '@/src/shared/payments/paddleApi';
+import { getSubscription, previewSubscriptionChange } from '@/src/shared/payments/paddleApi';
 import { loadPlatformPlanOptions, planProviderPriceId } from '@/src/shared/payments/config';
+import { loadPlanFeatureList } from '@/src/shared/entitlements/pricingCatalog';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
-// POST /api/payments/subscription/change-plan
+// POST /api/payments/subscription/preview-change
 // body: { platform, plan_key, interval? }
-// Upgrades / downgrades the signed-in user's subscription FOR ONE PLATFORM to a
-// target plan (and optionally a different billing interval) by swapping the
-// Paddle subscription's item to that plan's price id. interval defaults to the
-// subscription's current interval, so a plan-only switch keeps the interval and
-// an interval-only change keeps the plan. Server-side only; the API key never
-// reaches the client. This route does NOT write the user's plan: Paddle applies
-// the change and the existing subscription.updated webhook syncs the app plan
-// (the single enforcement path), unchanged.
+// PREVIEW ONLY (no charge): returns the target plan's full feature list + the
+// prorated differential (charge or credit) Paddle would apply if the user
+// confirmed. Used to populate the switch confirmation. interval (monthly/annual)
+// lets the preview cover an interval change too; it defaults to the
+// subscription's current interval. All Paddle calls are server-side.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -42,28 +40,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: ctx.state }, { status: 400 });
   }
 
-  // Read the current subscription to learn its billing interval (the fallback
-  // when none is requested) and detect a no-op.
   const current = await getSubscription(ctx.cfg, ctx.subscriptionId);
   if (!current.ok) return NextResponse.json({ ok: false, reason: current.error }, { status: 502 });
   const targetInterval: BillingInterval = interval ?? current.data.billingInterval ?? 'monthly';
 
-  // Resolve the target plan's Paddle price id for this platform + interval.
+  // The target plan's full feature list (catalog), shown before confirming.
+  const featureList = await loadPlanFeatureList(sb, platform, planKey);
+
+  // Resolve the target price id for the chosen plan + interval.
   const plans = await loadPlatformPlanOptions(sb, platform);
   const target = plans.find((p) => p.plan_key === planKey);
   if (!target) return NextResponse.json({ ok: false, reason: 'unknown_plan' }, { status: 400 });
   const targetPriceId = planProviderPriceId(target, 'paddle', targetInterval);
   if (!targetPriceId) {
-    return NextResponse.json({ ok: false, reason: 'plan_has_no_price_for_interval' }, { status: 400 });
-  }
-  if (targetPriceId === current.data.currentPriceId) {
-    return NextResponse.json({ ok: false, reason: 'already_on_plan' }, { status: 400 });
+    return NextResponse.json({ ok: false, reason: 'plan_has_no_price_for_interval', interval: targetInterval, targetLabel: featureList.label, targetFeatures: featureList.features }, { status: 200 });
   }
 
-  const res = await changeSubscriptionPlan(ctx.cfg, ctx.subscriptionId, targetPriceId);
-  if (!res.ok) {
-    return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
+  // Same price as today: no charge, just confirm the (unchanged) feature list.
+  if (targetPriceId === current.data.currentPriceId) {
+    return NextResponse.json({
+      ok: true, sameAsCurrent: true, interval: targetInterval,
+      targetLabel: featureList.label, targetFeatures: featureList.features, differential: null,
+    });
   }
-  // Return the refreshed summary; the webhook keeps the app plan in sync.
-  return NextResponse.json({ ok: true, subscription: res.data, planKey });
+
+  // Preview the proration (no charge). On a preview error still return the
+  // feature list so the confirm step works; the UI notes the amount is unknown.
+  const preview = await previewSubscriptionChange(ctx.cfg, ctx.subscriptionId, targetPriceId);
+  return NextResponse.json({
+    ok: true, sameAsCurrent: false, interval: targetInterval,
+    targetLabel: featureList.label, targetFeatures: featureList.features,
+    differential: preview.ok ? preview.data : null,
+    previewError: preview.ok ? null : preview.error,
+  });
 }

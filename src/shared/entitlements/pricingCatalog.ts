@@ -13,7 +13,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadMergedFeatures, type MergedFeatureRow } from './serverCatalog';
-import { visibleForCustomers, trialDaysFromPlans } from './pricingDisplay';
+import { visibleForCustomers, trialDaysFromPlans, comparisonCellText } from './pricingDisplay';
 import { DEFAULT_TRIAL_DAYS } from './trialConfig';
 import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from './pricingPageSettings';
 
@@ -124,4 +124,45 @@ export async function loadPricingCatalog(sb: SupabaseClient, platform: string): 
     trialDays,
     credibilityLine,
   };
+}
+
+/** One line of a plan's feature list: the feature label, plus a `detail` for
+ *  limit features (the numeric cap, formatted like the comparison table). */
+export interface PlanFeatureLine {
+  feature_key: string;
+  label: string;
+  detail: string | null;
+}
+
+/**
+ * The full, customer-facing feature list a plan INCLUDES, built from the SAME
+ * catalog the pricing comparison uses (visible features + plan_permissions
+ * coverage). Used by the billing tab's switch-confirmation so the user sees what
+ * they will have on the target plan. Returns the plan label + its included
+ * features in display order. Empty when the catalog is not available.
+ */
+export async function loadPlanFeatureList(
+  sb: SupabaseClient, platform: string, planKey: string,
+): Promise<{ label: string; features: PlanFeatureLine[] }> {
+  const catalog = await loadPricingCatalog(sb, platform);
+  const label = catalog.plans.find((p) => p.plan_key === planKey)?.label ?? planKey;
+  if (!catalog.migrationApplied) return { label, features: [] };
+
+  // Coverage for THIS plan, keyed by feature.
+  const cov = new Map<string, PricingCoverage>();
+  for (const c of catalog.coverage) if (c.plan_key === planKey) cov.set(c.feature_key, c);
+
+  const features = visibleForCustomers(catalog.features)
+    .filter((f) => cov.get(f.feature_key)?.included)
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+    .map((f) => {
+      const c = cov.get(f.feature_key);
+      // For a limit feature show the cap (e.g. "25 projects"); gate -> no detail.
+      const detail = f.feature_type === 'limit'
+        ? comparisonCellText('limit', true, c?.limit_value ?? null)
+        : null;
+      return { feature_key: f.feature_key, label: f.label, detail };
+    });
+
+  return { label, features };
 }
