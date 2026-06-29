@@ -29,20 +29,53 @@ import type { PaymentProvider } from '@/src/shared/payments/types';
 const PLATFORM = 'real-estate';
 const VALID: PaymentProvider[] = ['paddle', 'paypro'];
 
+// Diagnostic-only logger. A single greppable prefix so the founder can filter the
+// Vercel runtime logs (Project > Logs, filter on "[payments-webhook]") to see
+// whether a provider event ARRIVED and, if so, why it was accepted or rejected.
+// It logs NO secret values and NO payload body (only its byte length), so a
+// silent 401 (signature reject, which records no row) becomes visible.
+function logWebhook(stage: string, fields: Record<string, unknown>): void {
+  try {
+    console.log(`[payments-webhook] ${stage}`, JSON.stringify({ at: new Date().toISOString(), ...fields }));
+  } catch {
+    console.log(`[payments-webhook] ${stage}`);
+  }
+}
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { provider: providerRaw } = await ctx.params;
   const provider = providerRaw as PaymentProvider;
   if (!VALID.includes(provider)) {
+    logWebhook('arrived', { method: req.method, provider: providerRaw, outcome: 'unknown_provider', status: 404 });
     return NextResponse.json({ ok: false, reason: 'unknown_provider' }, { status: 404 });
   }
 
   // Read the RAW body once (signature must be computed over the exact bytes).
   const rawBody = await req.text();
+  // Which signature header (if any) the provider supplied. We log only WHICH
+  // header matched and whether one was present, never the signature value.
+  const sigHeaderName =
+    (req.headers.get('paddle-signature') !== null && 'paddle-signature') ||
+    (req.headers.get('x-paypro-signature') !== null && 'x-paypro-signature') ||
+    (req.headers.get('x-signature') !== null && 'x-signature') ||
+    null;
   const signature =
     req.headers.get('paddle-signature') ??
     req.headers.get('x-paypro-signature') ??
     req.headers.get('x-signature') ??
     null;
+
+  // A request reached the endpoint. This line ALONE answers the delivery
+  // question: if it never appears in the logs, Paddle is not delivering here
+  // (fix the destination URL / subscription in Paddle). If it appears, the
+  // event arrived and a later line tells you why it passed or failed.
+  logWebhook('arrived', {
+    method: req.method,
+    provider,
+    bodyBytes: rawBody.length,
+    hasSignature: signature !== null,
+    sigHeader: sigHeaderName,
+  });
 
   const sb = getServerClient();
   const settings = await loadPaymentSettings(sb, PLATFORM);
@@ -50,6 +83,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
 
   // Only the active, fully-configured provider processes webhooks.
   if (settings.active_provider !== provider || !cfg.webhookSecret) {
+    logWebhook('rejected', {
+      provider,
+      outcome: 'provider_not_active',
+      activeProvider: settings.active_provider,
+      hasWebhookSecret: !!cfg.webhookSecret,
+      sandbox: cfg.sandbox,
+    });
     return NextResponse.json({ ok: false, reason: 'provider_not_active' });
   }
 
@@ -58,8 +98,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
   // 2. Signature verification against the stored webhook secret.
   const verify = adapter.verifyWebhook(rawBody, signature, cfg);
   if (!verify.valid) {
+    // THE KEY DIAGNOSTIC: the event arrived but the signature did not match the
+    // stored webhook secret. This is a 401 that records no row, so without this
+    // line it is invisible. Reason tells you why (missing header / wrong secret
+    // / tampered body / stale timestamp). Fix = align the secret in Paddle with
+    // Admin > Payments. We log the failure reason only, never the secret.
+    logWebhook('rejected', {
+      provider,
+      outcome: 'signature_invalid',
+      status: 401,
+      reason: verify.reason ?? 'invalid_signature',
+      hasSignature: signature !== null,
+      sigHeader: sigHeaderName,
+      sandbox: cfg.sandbox,
+    });
     return NextResponse.json({ ok: false, reason: verify.reason ?? 'invalid_signature' }, { status: 401 });
   }
+
+  // Signature passed: the secret is aligned. Anything after this is parsing /
+  // mapping, not a delivery or auth problem.
+  logWebhook('verified', { provider, signatureVerified: true, sandbox: cfg.sandbox });
 
   // 3. Parse to a neutral event. parseEvent never throws (malformed -> unknown).
   const event = adapter.parseEvent(rawBody);
