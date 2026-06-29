@@ -22,6 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTrialDays, trialEndsAtIso } from './trialConfig';
 import { writeAuditLog } from '@/src/shared/audit';
 import { NONE_PLAN_KEY } from './gate';
+import { upsertManualSubscription } from '@/src/shared/payments/config';
 
 export interface SetUserPlanResult {
   ok: boolean;
@@ -32,11 +33,26 @@ export interface SetUserPlanResult {
   trialEndsAt?: string | null;
 }
 
+/** Manual (admin-assigned, offline-paid) subscription details. When provided,
+ *  setUserPlan ALSO upserts the per-platform row (source 'manual') so the gate
+ *  and the billing panel read consistent plan data, with a start + expiry the
+ *  gate honors and an amount for revenue. Omitted on the webhook path (which
+ *  writes the per-platform row itself with source 'paddle'). */
+export interface ManualSubscriptionInput {
+  source: 'manual';
+  startedAt?: string | null;
+  currentPeriodEnd?: string | null;
+  expiresAt?: string | null;
+  amountMinor?: number | null;
+  currency?: string | null;
+  note?: string | null;
+}
+
 export async function setUserPlan(
   sb: SupabaseClient,
   userId: string,
   planKeyRaw: string,
-  opts?: { platform?: string; adminId?: string | null },
+  opts?: { platform?: string; adminId?: string | null; subscription?: ManualSubscriptionInput },
 ): Promise<SetUserPlanResult> {
   const platform = opts?.platform ?? 'real-estate';
   const planKey = String(planKeyRaw ?? '').trim().toLowerCase();
@@ -94,6 +110,22 @@ export async function setUserPlan(
     updated_at: new Date().toISOString(),
   }).eq('id', userId);
   if (updErr) return { ok: false, error: updErr.message, status: 500 };
+
+  // Converge the per-platform row (store B) so the billing panel reads the SAME
+  // plan as the gate (fixes the admin/user divergence). Only on the manual path;
+  // the webhook writes store B itself with source 'paddle'.
+  if (opts?.subscription?.source === 'manual') {
+    await upsertManualSubscription(sb, userId, platform, {
+      planKey,
+      status,
+      startedAt: opts.subscription.startedAt ?? new Date().toISOString(),
+      currentPeriodEnd: opts.subscription.currentPeriodEnd ?? null,
+      expiresAt: opts.subscription.expiresAt ?? trialEndsAt,
+      amountMinor: opts.subscription.amountMinor ?? null,
+      currency: opts.subscription.currency ?? null,
+      note: opts.subscription.note ?? null,
+    });
+  }
 
   if (opts?.adminId) {
     await writeAuditLog({

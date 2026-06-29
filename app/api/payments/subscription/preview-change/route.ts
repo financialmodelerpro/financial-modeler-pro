@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription, previewSubscriptionChange } from '@/src/shared/payments/paddleApi';
-import { loadPlatformPlanOptions, planProviderPriceId, effectiveMonthlyPrice, classifyPlanChange } from '@/src/shared/payments/config';
+import { loadPlatformPlanOptions, planProviderPriceId, classifyPlanOrIntervalChange } from '@/src/shared/payments/config';
 import { loadPlanFeatureList } from '@/src/shared/entitlements/pricingCatalog';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
@@ -64,14 +64,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Classify upgrade vs downgrade by monthly-equivalent effective price, so an
-  // interval change is compared on the same basis. The current plan = the plan
-  // key stored for this platform at the subscription's current interval.
+  // Classify the change. A same-plan interval change is 'interval' (NOT a tier
+  // downgrade); tier upgrade/downgrade is compared at a single interval so the
+  // annual discount never masquerades as a downgrade (bug b fix).
   const currentPlan = plans.find((p) => p.plan_key === (ctx.planKey ?? ''));
   const currentInterval: BillingInterval = current.data.billingInterval ?? 'monthly';
-  const currentEff = currentPlan ? effectiveMonthlyPrice(currentPlan, currentInterval) : null;
-  const targetEff = effectiveMonthlyPrice(target, targetInterval);
-  const changeType = classifyPlanChange(currentEff, targetEff);
+  const changeType = classifyPlanOrIntervalChange(ctx.planKey, currentInterval, planKey, targetInterval, plans);
 
   // The target plan's recurring price for the chosen interval (for the copy).
   const newPriceAmount = targetInterval === 'annual' ? target.price_annual : target.price_monthly;

@@ -26,7 +26,7 @@ import fs from 'fs';
 import path from 'path';
 import { getAdapter } from '../src/shared/payments/registry';
 import { paddleApiBase, paddleServerReady } from '../src/shared/payments/paddleApi';
-import { classifyPlanChange, effectiveMonthlyPrice } from '../src/shared/payments/config';
+import { classifyPlanChange, effectiveMonthlyPrice, classifyPlanOrIntervalChange, isLivePaddleSubscription, type PlatformPlanOption, type PlatformSubscriptionRow } from '../src/shared/payments/config';
 import type { ProviderConfig } from '../src/shared/payments/types';
 
 let pass = 0, fail = 0; const fails: string[] = [];
@@ -150,7 +150,7 @@ check('interval-aware: annual Pro (40/mo) below monthly Firm (80) -> downgrade',
 const mig178 = read('supabase/migrations/178_scheduled_plan_change.sql');
 check('mig 178 adds scheduled_* columns (additive)', /ADD COLUMN IF NOT EXISTS scheduled_plan_key/.test(mig178) && /ADD COLUMN IF NOT EXISTS scheduled_price_id/.test(mig178) && /ADD COLUMN IF NOT EXISTS scheduled_effective_at/.test(mig178) && !/DROP\s+(TABLE|COLUMN)/i.test(mig178));
 const previewR = read('app/api/payments/subscription/preview-change/route.ts');
-check('preview-change classifies + returns changeType', /classifyPlanChange\(/.test(previewR) && /changeType/.test(previewR));
+check('preview-change classifies + returns changeType', /classifyPlanOrIntervalChange\(/.test(previewR) && /changeType/.test(previewR));
 check('preview-change downgrade = no charge + effective date', /changeType === 'downgrade'/.test(previewR) && /differential: null/.test(previewR) && /effectiveAt/.test(previewR));
 const changeR = read('app/api/payments/subscription/change-plan/route.ts');
 check('change-plan defers a downgrade (schedules, no Paddle call)', /changeType === 'downgrade'/.test(changeR) && /storeScheduledChange\(/.test(changeR));
@@ -196,6 +196,52 @@ check('loaded does not count as paid (separate branch)', /checkout\.loaded/.test
 const pricing = read('src/hubs/main/components/pricing/PricingExplorer.tsx');
 check('pricing redirects into the app (billing tab) on completion', /onComplete:/.test(pricing) && /window\.location\.href = '\/dashboard#billing'/.test(pricing));
 
+console.log('=== Single source of truth + manual plans + expiry + interval fix ===');
+// Interval classification (bug b): same-plan interval change is 'interval', not downgrade.
+const vplans: PlatformPlanOption[] = [
+  { plan_key: 'pro', label: 'Pro', display_order: 1, paddle_price_id_monthly: 'pm', paddle_price_id_annual: 'pa', paypro_product_id: null, price_monthly: 50, price_annual: 480, currency: 'USD' },
+  { plan_key: 'firm', label: 'Firm', display_order: 2, paddle_price_id_monthly: 'fm', paddle_price_id_annual: 'fa', paypro_product_id: null, price_monthly: 100, price_annual: 960, currency: 'USD' },
+];
+check('same-plan monthly->annual is an INTERVAL change (not downgrade)', classifyPlanOrIntervalChange('pro', 'monthly', 'pro', 'annual', vplans) === 'interval');
+check('same-plan annual->monthly is an INTERVAL change', classifyPlanOrIntervalChange('firm', 'annual', 'firm', 'monthly', vplans) === 'interval');
+check('tier compared at single interval: pro->firm = upgrade (even annual target)', classifyPlanOrIntervalChange('pro', 'monthly', 'firm', 'annual', vplans) === 'upgrade');
+check('tier: firm->pro = downgrade (annual discount does not mask it)', classifyPlanOrIntervalChange('firm', 'monthly', 'pro', 'annual', vplans) === 'downgrade');
+// Paddle-billed block (pure).
+const paddleRow: PlatformSubscriptionRow = { plan_key: 'firm', source: 'paddle', status: 'active', paddle_subscription_id: 'sub_1', paddle_customer_id: 'ctm', started_at: null, current_period_end: null, expires_at: null, amount_minor: null, currency: null, note: null };
+const manualRow: PlatformSubscriptionRow = { ...paddleRow, source: 'manual', paddle_subscription_id: null };
+const canceledRow: PlatformSubscriptionRow = { ...paddleRow, status: 'canceled' };
+check('isLivePaddleSubscription true for a live paddle row', isLivePaddleSubscription(paddleRow) === true);
+check('isLivePaddleSubscription false for a manual row', isLivePaddleSubscription(manualRow) === false);
+check('isLivePaddleSubscription false for a canceled paddle row', isLivePaddleSubscription(canceledRow) === false);
+check('isLivePaddleSubscription false for no row', isLivePaddleSubscription(null) === false);
+// mig 179.
+const mig179 = read('supabase/migrations/179_manual_subscriptions.sql');
+check('mig 179 adds source/status/started_at/expires_at/amount (additive)', /ADD COLUMN IF NOT EXISTS source/.test(mig179) && /ADD COLUMN IF NOT EXISTS expires_at/.test(mig179) && /ADD COLUMN IF NOT EXISTS amount_minor/.test(mig179) && !/DROP\s+(TABLE|COLUMN)/i.test(mig179));
+// Convergence: setUserPlan upserts the per-platform row on the manual path.
+const sup = read('src/shared/entitlements/setUserPlan.ts');
+check('setUserPlan converges on the per-platform row (manual upsert)', /upsertManualSubscription\(/.test(sup) && /subscription\?\.source === 'manual'/.test(sup));
+// Gate honors expires_at (additive only).
+const gateSrc = read('src/shared/entitlements/gate.ts');
+check('gate adds planExpired (additive, mirrors trial expiry)', /planExpired\?: boolean/.test(gateSrc) && /input\.trialExpired \|\| \(input\.planExpired/.test(gateSrc));
+const resolveSrc = read('src/shared/entitlements/resolveUser.ts');
+check('resolveUser reads expires_at + passes planExpired', /expires_at/.test(resolveSrc) && /planExpired/.test(resolveSrc));
+check('gate change is ADDITIVE (admin bypass + none still present)', /input\.isAdmin\) return wholesaleGate/.test(gateSrc) && /isNonePlan\(input\.planKey\)/.test(gateSrc));
+// Admin plan route blocks Paddle-billed users + accepts manual fields.
+const adminPlan = read('app/api/admin/entitlements/user/plan/route.ts');
+check('admin plan route blocks a Paddle-billed user', /isLivePaddleSubscription\(/.test(adminPlan) && /paddle_billed/.test(adminPlan));
+check('admin plan route assigns manual (source manual + dates + amount)', /source: 'manual'/.test(adminPlan) && /expiresAt/.test(adminPlan) && /amountMinor/.test(adminPlan));
+// Admin GET surfaces subscription dates + revenue.
+const adminGet = read('app/api/admin/entitlements/user/route.ts');
+check('admin user GET returns subscription + revenue', /subscription/.test(adminGet) && /revenue/.test(adminGet) && /listSubscriptionInvoices\(/.test(adminGet));
+// Manual billing panel branch (no Paddle actions).
+check('billing panel branches on source manual (no Paddle actions)', /sub\.source === 'manual'/.test(panelP) && /Managed by your team/.test(panelP) && /manual-expires/.test(panelP));
+check('subscription route returns a manual subscription branch', /ctx\.state === 'manual'/.test(read('app/api/payments/subscription/route.ts')) && /source: 'manual'/.test(read('app/api/payments/subscription/route.ts')));
+// Panel interval copy (bug b).
+check('panel labels an interval change (not downgrade)', /timing-interval/.test(panelP) && /Switch to \$\{intervalWord\(pendingChange\.interval\)\} billing/.test(panelP));
+// Admin panel shows dates + revenue.
+const adminPanel = read('src/components/admin/UserAccessPanel.tsx');
+check('admin panel shows subscription dates + revenue + manual assign', /subscription-card/.test(adminPanel) && /revenue-card/.test(adminPanel) && /assign-manual-plan/.test(adminPanel) && /paddle-billed-block/.test(adminPanel));
+
 console.log('=== Migration 176 (additive id columns) ===');
 const mig = read('supabase/migrations/176_users_paddle_subscription.sql');
 check('mig 176 adds paddle_subscription_id (IF NOT EXISTS)', /ADD COLUMN IF NOT EXISTS paddle_subscription_id text/.test(mig));
@@ -223,6 +269,13 @@ const files = [
   'src/shared/entitlements/pricingCatalog.ts',
   'src/shared/payments/subscriptionContext.ts',
   'supabase/migrations/178_scheduled_plan_change.sql',
+  'supabase/migrations/179_manual_subscriptions.sql',
+  'src/shared/entitlements/setUserPlan.ts',
+  'src/shared/entitlements/gate.ts',
+  'src/shared/entitlements/resolveUser.ts',
+  'app/api/admin/entitlements/user/plan/route.ts',
+  'app/api/admin/entitlements/user/route.ts',
+  'src/components/admin/UserAccessPanel.tsx',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

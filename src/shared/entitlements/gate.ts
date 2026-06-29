@@ -76,6 +76,10 @@ export interface GateInput {
   knownPlan: boolean;
   /** True when planKey is 'trial' AND trial_ends_at has passed. */
   trialExpired: boolean;
+  /** True when the plan carries an expires_at (manual plans, mig 179) that has
+   *  passed. Treated like trial expiry: the plan baseline becomes empty, so an
+   *  expired manual plan loses access. Additive; defaults to false. */
+  planExpired?: boolean;
   features: readonly ResolveFeature[];
   planCells: ReadonlyMap<string, PlanCell>;
   overrides: readonly UserOverride[];
@@ -139,9 +143,11 @@ export function computeGate(input: GateInput): GateResult {
   // 3. Unknown-plan safety net: preserve access (never a silent lockout).
   if (!input.knownPlan) return wholesaleGate(input.features, true, input.trialExpired);
 
-  // 4. Known plan. Trial expiry: lose all trial-granted features (empty baseline).
-  // Overrides still apply (resolveEffectiveFeatures ignores expired ones).
-  const effectivePlanCells: ReadonlyMap<string, PlanCell> = input.trialExpired
+  // 4. Known plan. Expiry (trial window OR a manual plan's expires_at): lose all
+  // plan-granted features (empty baseline). Overrides still apply
+  // (resolveEffectiveFeatures ignores expired ones).
+  const expired = input.trialExpired || (input.planExpired ?? false);
+  const effectivePlanCells: ReadonlyMap<string, PlanCell> = expired
     ? new Map<string, PlanCell>()
     : input.planCells;
 

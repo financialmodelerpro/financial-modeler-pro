@@ -12,7 +12,7 @@
  * No em dashes in this file.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { loadPaymentSettings, providerConfigFrom } from './config';
+import { loadPaymentSettings, providerConfigFrom, loadPlatformSubscriptionRow } from './config';
 import type { ProviderConfig } from './types';
 
 export const DEFAULT_PAYMENTS_PLATFORM = 'real-estate';
@@ -25,15 +25,30 @@ export interface ScheduledChange {
   effectiveAt: string | null;
 }
 
+/** A manual (admin-assigned, offline-paid) subscription's display fields (mig 179). */
+export interface ManualSubscription {
+  status: string | null;
+  startedAt: string | null;
+  currentPeriodEnd: string | null;
+  expiresAt: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  note: string | null;
+}
+
 export interface UserPaddleContext {
-  /** 'ok' once a paddle subscription id is on record and the api key is set. */
-  state: 'ok' | 'no_subscription' | 'not_paddle' | 'not_configured';
+  /** 'ok' = a live Paddle sub + api key; 'manual' = an admin-assigned plan (no
+   *  Paddle); otherwise no subscription / not configured. */
+  state: 'ok' | 'manual' | 'no_subscription' | 'not_paddle' | 'not_configured';
   platform: string;
   cfg: ProviderConfig;
+  source: 'paddle' | 'manual' | null;
   subscriptionId: string | null;
   customerId: string | null;
   /** The plan key stored for this platform (mig 177), for display + change-plan. */
   planKey: string | null;
+  /** Manual-plan display fields (mig 179) when source is manual. */
+  manual: ManualSubscription | null;
   /** A pending deferred downgrade (mig 178), or null. */
   scheduled: ScheduledChange | null;
 }
@@ -50,29 +65,20 @@ export async function loadUserPaddleContext(
   const settings = await loadPaymentSettings(sb, platform);
   const cfg = providerConfigFrom(settings, 'paddle');
 
-  let subscriptionId: string | null = null;
-  let customerId: string | null = null;
-  let planKey: string | null = null;
-
-  // Per-platform store (mig 177).
-  try {
-    const { data } = await sb
-      .from('user_platform_subscriptions')
-      .select('paddle_subscription_id, paddle_customer_id, plan_key')
-      .eq('user_id', userId)
-      .eq('platform_slug', platform)
-      .maybeSingle();
-    const row = data as { paddle_subscription_id?: string | null; paddle_customer_id?: string | null; plan_key?: string | null } | null;
-    subscriptionId = row?.paddle_subscription_id ?? null;
-    customerId = row?.paddle_customer_id ?? null;
-    planKey = row?.plan_key ?? null;
-  } catch {
-    // table absent pre mig 177: fall through to the global fallback below.
-  }
+  // Per-platform row (mig 177 + 179), schema-tolerant. Carries the plan + source
+  // + (for manual) the dates/amount.
+  const row = await loadPlatformSubscriptionRow(sb, userId, platform);
+  let subscriptionId: string | null = row?.paddle_subscription_id ?? null;
+  let customerId: string | null = row?.paddle_customer_id ?? null;
+  let planKey: string | null = row?.plan_key ?? null;
+  const source: 'paddle' | 'manual' | null = row?.source ?? null;
+  const manual: ManualSubscription | null = row && row.source === 'manual'
+    ? { status: row.status, startedAt: row.started_at, currentPeriodEnd: row.current_period_end, expiresAt: row.expires_at, amountMinor: row.amount_minor, currency: row.currency, note: row.note }
+    : null;
 
   // Global fallback for the original single platform (mig 176), so a user stored
   // only globally (or before the per-platform backfill) still resolves.
-  if (!subscriptionId && platform === DEFAULT_PAYMENTS_PLATFORM) {
+  if (!subscriptionId && source !== 'manual' && platform === DEFAULT_PAYMENTS_PLATFORM) {
     try {
       const { data } = await sb
         .from('users')
@@ -115,10 +121,18 @@ export async function loadUserPaddleContext(
   }
 
   let state: UserPaddleContext['state'];
-  if (settings.active_provider !== 'paddle') state = 'not_paddle';
-  else if (!cfg.apiKey) state = 'not_configured';
-  else if (!subscriptionId) state = 'no_subscription';
-  else state = 'ok';
+  if (source === 'manual' && planKey) {
+    // Manual (offline) plan: rendered from the local row, no Paddle needed.
+    state = 'manual';
+  } else if (settings.active_provider !== 'paddle') {
+    state = 'not_paddle';
+  } else if (!cfg.apiKey) {
+    state = 'not_configured';
+  } else if (!subscriptionId) {
+    state = 'no_subscription';
+  } else {
+    state = 'ok';
+  }
 
-  return { state, platform, cfg, subscriptionId, customerId, planKey, scheduled };
+  return { state, platform, cfg, source, subscriptionId, customerId, planKey, manual, scheduled };
 }

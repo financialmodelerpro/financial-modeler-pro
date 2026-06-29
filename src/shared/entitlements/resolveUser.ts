@@ -121,6 +121,24 @@ export async function resolveUserGate(
     const trialEndsAt = (user.trial_ends_at as string | null) ?? null;
     const trialExpired = planKey === 'trial' && !!trialEndsAt && Date.parse(trialEndsAt) < Date.now();
 
+    // Additive: a manual plan (mig 179) can carry an expires_at the gate honors
+    // like a trial. Separate, schema-tolerant query so a pre-migration DB (or no
+    // row) simply yields no expiry. Does not change the plan input (still
+    // users.subscription_plan); only adds the expiry check.
+    let planExpired = false;
+    try {
+      const { data: subRow } = await sb
+        .from('user_platform_subscriptions')
+        .select('expires_at')
+        .eq('user_id', userId)
+        .eq('platform_slug', platform)
+        .maybeSingle();
+      const exp = (subRow as { expires_at?: string | null } | null)?.expires_at ?? null;
+      planExpired = !!exp && Date.parse(exp) < Date.now();
+    } catch {
+      // table/column absent pre-migration: no manual expiry.
+    }
+
     const catalog = await loadMergedFeatures(sb, platform);
     const features = catalog.features as unknown as ResolveFeature[];
 
@@ -148,6 +166,7 @@ export async function resolveUserGate(
       planKey,
       knownPlan,
       trialExpired,
+      planExpired,
       features,
       planCells,
       overrides,

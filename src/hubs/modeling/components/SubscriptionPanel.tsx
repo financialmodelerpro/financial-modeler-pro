@@ -26,6 +26,7 @@ const NAVY = '#0D2E5A';
 const GOLD = '#C9A84C';
 
 interface SubscriptionSummary {
+  source?: 'paddle' | 'manual';
   subscriptionId: string;
   status: string;
   nextBilledAt: string | null;
@@ -37,6 +38,11 @@ interface SubscriptionSummary {
   updatePaymentMethodUrl: string | null;
   currentPriceId: string | null;
   billingInterval: 'monthly' | 'annual' | null;
+  // Manual (admin-assigned, offline-paid) plans:
+  planKey?: string | null;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  note?: string | null;
 }
 interface InvoiceSummary {
   transactionId: string;
@@ -50,7 +56,7 @@ interface PlanOption { plan_key: string; label: string }
 interface PlanFeatureLine { feature_key: string; label: string; detail: string | null }
 interface ChangeDifferential { action: 'charge' | 'credit' | 'none'; amountMinor: number; currency: string | null; billedAt: string | null }
 interface NewPrice { amount: number; currency: string | null; interval: 'monthly' | 'annual' }
-type ChangeType = 'upgrade' | 'downgrade' | 'lateral';
+type ChangeType = 'upgrade' | 'downgrade' | 'lateral' | 'interval';
 interface ChangePreviewResult {
   sameAsCurrent: boolean;
   changeType?: ChangeType;
@@ -292,6 +298,43 @@ export default function SubscriptionPanel({
   // Switchable plans = every active plan for this platform except the current one.
   const otherPlans = planOptions.filter((p) => p.plan_key !== currentPlanKey);
 
+  // Manual (admin-assigned, offline-paid) plan: show plan + status + start +
+  // expiry from the local row. NO Paddle-only actions (no cancel / upgrade /
+  // update-card / invoices), since this plan is not billed through Paddle.
+  if (sub.source === 'manual') {
+    return (
+      <div data-testid="subscription-panel" data-platform={platform} data-source="manual" style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+          <h3 style={sectionTitle}>{headerName}</h3>
+          <span data-testid="subscription-source" style={{ fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            Managed by your team
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Plan</div>
+            <div data-testid="subscription-plan" style={{ fontSize: 16, fontWeight: 800, color: heading }}>{planName ?? '-'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Status</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: heading }}>{titleCase(sub.status) ?? 'Active'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Started</div>
+            <div data-testid="manual-started" style={{ fontSize: 16, fontWeight: 800, color: heading }}>{fmtDate(sub.startedAt ?? null)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Expires</div>
+            <div data-testid="manual-expires" style={{ fontSize: 16, fontWeight: 800, color: heading }}>{fmtDate(sub.expiresAt ?? null)}</div>
+          </div>
+        </div>
+        <p style={{ fontSize: 12.5, color: muted, margin: '16px 0 0', lineHeight: 1.6 }}>
+          This plan was set up by the team (offline / bank payment). To change or renew it, contact the team.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="subscription-panel" data-platform={platform} style={card}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -449,6 +492,10 @@ export default function SubscriptionPanel({
                     <span data-testid="timing-downgrade" style={{ fontSize: 13.5, color: body, fontWeight: 600, lineHeight: 1.6 }}>
                       Takes effect on <strong style={{ color: heading }}>{fmtDate(preview.effectiveAt ?? null)}</strong>. You keep <strong style={{ color: heading }}>{preview.currentLabel ?? planName}</strong> until then, then move to <strong style={{ color: heading }}>{preview.targetLabel}</strong>{preview.newPrice ? <> at <strong style={{ color: heading }}>{fmtPrice(preview.newPrice)}</strong></> : null}. <strong style={{ color: heading }}>No charge today.</strong>
                     </span>
+                  ) : preview?.changeType === 'interval' ? (
+                    <span data-testid="timing-interval" style={{ fontSize: 13.5, color: body, fontWeight: 600, lineHeight: 1.6 }}>
+                      Switch to <strong style={{ color: heading }}>{pendingChange.interval === 'annual' ? 'annual' : 'monthly'} billing</strong>{preview.newPrice ? <>, billed <strong style={{ color: heading }}>{fmtPrice(preview.newPrice)}</strong></> : null}. Takes effect <strong style={{ color: heading }}>immediately</strong>{diff && diff.action === 'charge' ? <>, charged <strong style={{ color: heading }}>{fmtAmount(diff.amountMinor, diff.currency)}</strong> now (prorated)</> : null}.
+                    </span>
                   ) : diff && diff.action === 'charge' ? (
                     <span data-testid="timing-upgrade" style={{ fontSize: 13.5, color: body, fontWeight: 600 }}>Takes effect immediately. You will be charged <strong style={{ color: heading }}>{fmtAmount(diff.amountMinor, diff.currency)}</strong> today, prorated for the rest of this billing period.</span>
                   ) : diff && diff.action === 'credit' ? (
@@ -470,7 +517,9 @@ export default function SubscriptionPanel({
                       ? 'Changing...'
                       : preview?.changeType === 'downgrade'
                         ? `Schedule downgrade to ${pendingChange.label}`
-                        : `Confirm: ${pendingChange.label}, ${intervalWord(pendingChange.interval)}`}
+                        : preview?.changeType === 'interval'
+                          ? `Switch to ${intervalWord(pendingChange.interval)} billing`
+                          : `Confirm: ${pendingChange.label}, ${intervalWord(pendingChange.interval)}`}
                   </button>
                   <button
                     type="button"

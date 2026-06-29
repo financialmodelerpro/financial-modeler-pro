@@ -4,6 +4,8 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadMergedFeatures } from '@/src/shared/entitlements/serverCatalog';
 import { resolveTrialDays } from '@/src/shared/entitlements/trialConfig';
+import { loadPlatformSubscriptionRow, loadPaymentSettings, providerConfigFrom } from '@/src/shared/payments/config';
+import { listSubscriptionInvoices, getSubscription } from '@/src/shared/payments/paddleApi';
 
 // Per-user entitlement override data source (Phase C). Reads the LIVE
 // entitlement tables (features_registry + live module registry, plan_permissions
@@ -56,6 +58,54 @@ export async function GET(req: NextRequest) {
 
   const trialDays = await resolveTrialDays(sb, platform);
 
+  // Per-platform subscription row (source, dates, manual amount). Drives the
+  // admin "Subscription" card + the revenue summary.
+  const subRow = await loadPlatformSubscriptionRow(sb, userId, platform);
+
+  // Subscription dates + revenue. For a Paddle sub, fetch live dates + sum the
+  // customer's completed transactions (reconcilable with Paddle). For a manual
+  // plan, use the row's dates + amount. All Paddle calls are server-side.
+  let subscription: Record<string, unknown> | null = null;
+  let revenue = { paddleMinor: 0, manualMinor: 0, currency: null as string | null, totalMinor: 0, paddleTxnCount: 0, reconcilable: false };
+  if (subRow) {
+    if (subRow.source === 'paddle' && subRow.paddle_subscription_id) {
+      const settings = await loadPaymentSettings(sb, platform);
+      const cfg = providerConfigFrom(settings, 'paddle');
+      if (cfg.apiKey) {
+        const det = await getSubscription(cfg, subRow.paddle_subscription_id);
+        if (det.ok) {
+          subscription = {
+            source: 'paddle', planKey: subRow.plan_key, status: det.data.status,
+            startedAt: subRow.started_at, currentPeriodEnd: det.data.currentPeriodEndsAt,
+            nextBilledAt: det.data.nextBilledAt, expiresAt: null,
+            amountMinor: det.data.amountMinor, currency: det.data.currency, interval: det.data.billingInterval,
+          };
+        }
+        const inv = await listSubscriptionInvoices(cfg, subRow.paddle_subscription_id);
+        if (inv.ok) {
+          let sum = 0; let cur: string | null = null; let n = 0;
+          for (const t of inv.data) {
+            if ((t.status === 'completed' || t.status === 'paid') && t.amountMinor !== null) { sum += t.amountMinor; cur = cur ?? t.currency; n += 1; }
+          }
+          revenue = { paddleMinor: sum, manualMinor: 0, currency: cur, totalMinor: sum, paddleTxnCount: n, reconcilable: true };
+        }
+      }
+      if (!subscription) {
+        // API key absent / Paddle unreachable: still show what the row knows.
+        subscription = { source: 'paddle', planKey: subRow.plan_key, status: subRow.status, startedAt: subRow.started_at, currentPeriodEnd: subRow.current_period_end, nextBilledAt: null, expiresAt: null, amountMinor: subRow.amount_minor, currency: subRow.currency, interval: null };
+      }
+    } else if (subRow.source === 'manual') {
+      subscription = {
+        source: 'manual', planKey: subRow.plan_key, status: subRow.status,
+        startedAt: subRow.started_at, currentPeriodEnd: subRow.current_period_end,
+        nextBilledAt: null, expiresAt: subRow.expires_at,
+        amountMinor: subRow.amount_minor, currency: subRow.currency, interval: null, note: subRow.note,
+      };
+      const m = subRow.amount_minor ?? 0;
+      revenue = { paddleMinor: 0, manualMinor: m, currency: subRow.currency, totalMinor: m, paddleTxnCount: 0, reconcilable: false };
+    }
+  }
+
   return NextResponse.json({
     migrationApplied: true,
     user,
@@ -63,6 +113,8 @@ export async function GET(req: NextRequest) {
     permissions: permissions ?? [],
     overrides: overrides ?? [],
     trialDays,
+    subscription,
+    revenue,
   });
 }
 

@@ -5,7 +5,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription, changeSubscriptionPlan } from '@/src/shared/payments/paddleApi';
 import {
-  loadPlatformPlanOptions, planProviderPriceId, effectiveMonthlyPrice, classifyPlanChange,
+  loadPlatformPlanOptions, planProviderPriceId, classifyPlanOrIntervalChange,
   storeScheduledChange, clearScheduledChange,
 } from '@/src/shared/payments/config';
 import type { BillingInterval } from '@/src/shared/payments/types';
@@ -63,13 +63,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'already_on_plan' }, { status: 400 });
   }
 
-  // Classify by monthly-equivalent effective price (same basis for interval
-  // changes). Upgrade / lateral -> apply now; downgrade -> defer to next cycle.
-  const currentPlan = plans.find((p) => p.plan_key === (ctx.planKey ?? ''));
+  // Classify the change. Upgrade / lateral / INTERVAL -> apply now; only a tier
+  // downgrade is deferred to the next cycle. A same-plan interval change is never
+  // a downgrade (bug b fix): annual is paid upfront and applies immediately.
   const currentInterval: BillingInterval = current.data.billingInterval ?? 'monthly';
-  const currentEff = currentPlan ? effectiveMonthlyPrice(currentPlan, currentInterval) : null;
-  const targetEff = effectiveMonthlyPrice(target, targetInterval);
-  const changeType = classifyPlanChange(currentEff, targetEff);
+  const changeType = classifyPlanOrIntervalChange(ctx.planKey, currentInterval, planKey, targetInterval, plans);
 
   // DOWNGRADE: schedule for the next billing cycle. Do NOT touch Paddle now (no
   // charge, the user keeps their current higher plan). The apply-scheduled-changes

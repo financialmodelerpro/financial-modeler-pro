@@ -38,6 +38,23 @@ export async function GET(req: NextRequest) {
       }
     : null;
 
+  // Manual (admin-assigned, offline-paid) plan: render from the local row, no
+  // Paddle calls and no Paddle-only actions (cancel/upgrade/update-card).
+  if (ctx.state === 'manual' && ctx.manual) {
+    const manualSub = {
+      source: 'manual' as const,
+      planKey: ctx.planKey,
+      status: ctx.manual.status ?? 'active',
+      startedAt: ctx.manual.startedAt,
+      currentPeriodEnd: ctx.manual.currentPeriodEnd,
+      expiresAt: ctx.manual.expiresAt,
+      amountMinor: ctx.manual.amountMinor,
+      currency: ctx.manual.currency,
+      note: ctx.manual.note,
+    };
+    return NextResponse.json({ subscription: manualSub, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
+  }
+
   if (ctx.state !== 'ok' || !ctx.subscriptionId) {
     return NextResponse.json({ subscription: null, reason: ctx.state, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
   }
@@ -46,5 +63,5 @@ export async function GET(req: NextRequest) {
   if (!res.ok) {
     return NextResponse.json({ subscription: null, reason: res.error, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange }, { status: res.status >= 500 ? 502 : 200 });
   }
-  return NextResponse.json({ subscription: res.data, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
+  return NextResponse.json({ subscription: { source: 'paddle' as const, ...res.data }, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
 }

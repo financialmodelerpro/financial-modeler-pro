@@ -182,10 +182,12 @@ export async function loadPlatformPlanOptions(
   }
 }
 
-/** Whether a plan change is an upgrade, downgrade, or lateral move. Drives the
- *  timing rule: upgrades apply immediately (prorated now), downgrades are
- *  deferred to the next billing cycle, laterals apply immediately. */
-export type PlanChangeType = 'upgrade' | 'downgrade' | 'lateral';
+/** Whether a plan change is an upgrade, downgrade, lateral, or a same-plan
+ *  INTERVAL change. Drives the timing rule: upgrades + interval changes apply
+ *  immediately (prorated/annual-upfront now), downgrades defer to the next
+ *  billing cycle, laterals apply immediately. An interval change is NOT a tier
+ *  move and must never be classified as a downgrade by the annual discount. */
+export type PlanChangeType = 'upgrade' | 'downgrade' | 'lateral' | 'interval';
 
 /** Monthly-equivalent price for a plan at an interval (annual normalized /12), so
  *  an interval change is compared on the same basis. Null when the price is not
@@ -206,6 +208,112 @@ export function classifyPlanChange(currentEff: number | null, targetEff: number 
   if (targetEff > currentEff + eps) return 'upgrade';
   if (targetEff < currentEff - eps) return 'downgrade';
   return 'lateral';
+}
+
+/**
+ * Classify a plan/interval change, distinguishing a same-plan INTERVAL change
+ * from a tier upgrade/downgrade (bug b fix). A same plan_key with a different
+ * interval is an 'interval' change (applied immediately), NOT a downgrade. The
+ * tier comparison is done at a SINGLE interval (monthly list price) so the
+ * annual discount never makes an annual switch look like a tier downgrade.
+ */
+export function classifyPlanOrIntervalChange(
+  currentPlanKey: string | null, currentInterval: BillingInterval,
+  targetPlanKey: string, targetInterval: BillingInterval,
+  plans: PlatformPlanOption[],
+): PlanChangeType {
+  // Same plan, different interval -> interval change (not a tier move).
+  if (currentPlanKey && targetPlanKey === currentPlanKey && targetInterval !== currentInterval) {
+    return 'interval';
+  }
+  // Tier comparison at a single interval (monthly list price), so the interval
+  // discount is excluded from the upgrade/downgrade decision.
+  const cur = plans.find((p) => p.plan_key === currentPlanKey)?.price_monthly ?? null;
+  const tgt = plans.find((p) => p.plan_key === targetPlanKey)?.price_monthly ?? null;
+  return classifyPlanChange(
+    cur === null ? null : Number(cur),
+    tgt === null ? null : Number(tgt),
+  );
+}
+
+/** The full per-platform subscription row (mig 177 + 178 + 179), schema-tolerant.
+ *  Used to detect a live Paddle subscription (block manual changes) and to drive
+ *  the admin view + the manual billing-panel branch. */
+export interface PlatformSubscriptionRow {
+  plan_key: string | null;
+  source: 'paddle' | 'manual';
+  status: string | null;
+  paddle_subscription_id: string | null;
+  paddle_customer_id: string | null;
+  started_at: string | null;
+  current_period_end: string | null;
+  expires_at: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  note: string | null;
+}
+
+/** Load the per-platform subscription row, tolerant of pre-mig-179 schema (the
+ *  manual columns absent) by falling back to the mig-177 columns. */
+export async function loadPlatformSubscriptionRow(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<PlatformSubscriptionRow | null> {
+  const FULL = 'plan_key, source, status, paddle_subscription_id, paddle_customer_id, started_at, current_period_end, expires_at, amount_minor, currency, note';
+  try {
+    const full = await sb.from('user_platform_subscriptions').select(FULL).eq('user_id', userId).eq('platform_slug', platform).maybeSingle();
+    if (!full.error) {
+      if (!full.data) return null;
+      const r = full.data as Partial<PlatformSubscriptionRow>;
+      return { source: 'paddle', status: null, plan_key: null, paddle_subscription_id: null, paddle_customer_id: null, started_at: null, current_period_end: null, expires_at: null, amount_minor: null, currency: null, note: null, ...r } as PlatformSubscriptionRow;
+    }
+    // Pre mig 179: read the mig-177 columns only.
+    const base = await sb.from('user_platform_subscriptions').select('plan_key, paddle_subscription_id, paddle_customer_id').eq('user_id', userId).eq('platform_slug', platform).maybeSingle();
+    if (base.error || !base.data) return null;
+    const r = base.data as { plan_key: string | null; paddle_subscription_id: string | null; paddle_customer_id: string | null };
+    return { plan_key: r.plan_key, source: 'paddle', status: null, paddle_subscription_id: r.paddle_subscription_id, paddle_customer_id: r.paddle_customer_id, started_at: null, current_period_end: null, expires_at: null, amount_minor: null, currency: null, note: null };
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the user has a LIVE Paddle subscription for the platform (a Paddle id
+ *  present, source paddle, not canceled). Admin manual plan changes are blocked
+ *  for such users (the change must go through the billing flow / Paddle). */
+export function isLivePaddleSubscription(row: PlatformSubscriptionRow | null): boolean {
+  if (!row) return false;
+  return row.source !== 'manual' && !!row.paddle_subscription_id && row.status !== 'canceled';
+}
+
+/** Upsert a MANUAL (admin-assigned, offline-paid) subscription on the per-platform
+ *  row. Sets source='manual', the plan + status + dates + amount, and clears any
+ *  stale Paddle ids (a manual plan is not Paddle-billed). Best effort +
+ *  schema-tolerant: a missing table/column is swallowed so the users-row write
+ *  (the gate input) still stands. */
+export async function upsertManualSubscription(
+  sb: SupabaseClient, userId: string, platform: string,
+  data: { planKey: string; status: string; startedAt: string | null; currentPeriodEnd: string | null; expiresAt: string | null; amountMinor: number | null; currency: string | null; note: string | null },
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions').upsert({
+      user_id: userId,
+      platform_slug: platform,
+      plan_key: data.planKey,
+      source: 'manual',
+      status: data.status,
+      started_at: data.startedAt,
+      current_period_end: data.currentPeriodEnd,
+      expires_at: data.expiresAt,
+      amount_minor: data.amountMinor,
+      currency: data.currency,
+      note: data.note,
+      paddle_subscription_id: null,
+      paddle_customer_id: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,platform_slug' });
+  } catch {
+    // table/columns absent pre-migration: ignore (gate input still written).
+  }
 }
 
 /** Store a DEFERRED downgrade on the per-platform row (mig 178): apply it at

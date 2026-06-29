@@ -192,6 +192,19 @@ check('expired trial: projects cap drops to 0', trialExpired.projectLimit === 0)
 const trialExpiredWithGrant = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, trialExpired: true, overrides: grantOv }));
 check('expired trial: an explicit grant override still applies', featureAllowed(trialExpiredWithGrant, 'sensitivity'));
 
+// Manual-plan expiry (mig 179): expires_at past -> planExpired -> empty baseline,
+// mirroring trial expiry. A paid plan (pro) is NOT trial but still expires.
+const proActive = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: false }));
+const proExpired = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: true }));
+check('active manual plan (pro): features included', featureAllowed(proActive, 'module_1'));
+check('expired manual plan (pro): loses ALL features (baseline)', GATE_POINTS.every((k) => !featureAllowed(proExpired, k)));
+check('expired manual plan: projects cap drops to 0', proExpired.projectLimit === 0);
+const proExpiredWithGrant = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: true, overrides: grantOv }));
+check('expired manual plan: an explicit grant override still applies', featureAllowed(proExpiredWithGrant, 'sensitivity'));
+const adminExpired = computeGate(baseInput({ isAdmin: true, planKey: 'pro', planCells: PLAN.pro, planExpired: true }));
+check('admin bypass survives plan expiry (still full access)', adminExpired.fullAccess && GATE_POINTS.every((k) => featureAllowed(adminExpired, k)));
+check('planExpired defaults to false when omitted (no behavior change)', featureAllowed(proGate, 'module_1'));
+
 // ── 7. Cap + archive.
 console.log('\n=== Cap + archive ===');
 check('trial (limit 1): create blocked at 1 active', capCheck(1, 1) === 'CAP_REACHED');

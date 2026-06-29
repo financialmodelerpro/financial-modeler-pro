@@ -28,6 +28,28 @@ const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 
 interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null }
 interface FeatureRow extends ResolveFeature { build_status?: string }
+interface SubscriptionInfo {
+  source: 'paddle' | 'manual';
+  planKey: string | null;
+  status: string | null;
+  startedAt: string | null;
+  currentPeriodEnd: string | null;
+  nextBilledAt: string | null;
+  expiresAt: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  interval: string | null;
+  note?: string | null;
+}
+interface RevenueInfo { paddleMinor: number; manualMinor: number; currency: string | null; totalMinor: number; paddleTxnCount: number; reconcilable: boolean }
+
+const fmtMinor = (minor: number | null, currency: string | null): string => {
+  if (minor === null) return '-';
+  const cur = currency ?? 'USD';
+  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); }
+  catch { return `${(minor / 100).toFixed(2)} ${cur}`; }
+};
+const fmtDay = (iso: string | null): string => (iso ? new Date(iso).toLocaleDateString() : 'n/a');
 
 interface EditState { mode: '' | 'grant' | 'revoke'; valueStr: string; unlimited: boolean; expires: string; reason: string }
 const EMPTY_EDIT: EditState = { mode: '', valueStr: '', unlimited: false, expires: '', reason: '' };
@@ -54,6 +76,15 @@ export function UserAccessPanel({ userId }: { userId: string }) {
   const [trialDays, setTrialDays] = useState(0);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [revenue, setRevenue] = useState<RevenueInfo | null>(null);
+  // Manual-plan assignment inputs (offline / bank-paid users).
+  const [mPlan, setMPlan] = useState('');
+  const [mStart, setMStart] = useState('');
+  const [mExpiry, setMExpiry] = useState('');
+  const [mAmount, setMAmount] = useState('');
+  const [mCurrency, setMCurrency] = useState('USD');
+  const [mNote, setMNote] = useState('');
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -68,6 +99,8 @@ export function UserAccessPanel({ userId }: { userId: string }) {
       setUser(res.user ?? null);
       setFeatures(res.features ?? []);
       setTrialDays(res.trialDays ?? 0);
+      setSubscription(res.subscription ?? null);
+      setRevenue(res.revenue ?? null);
       const pc = new Map<string, PlanCell>();
       for (const p of (res.permissions ?? []) as { feature_key: string; included: boolean; limit_value: number | null }[]) {
         pc.set(p.feature_key, { included: p.included, limit_value: p.limit_value });
@@ -199,19 +232,29 @@ export function UserAccessPanel({ userId }: { userId: string }) {
     if (!user || !planKey) return;
     setBusyKey('__plan__');
     try {
+      const amountMinor = mAmount.trim() ? Math.round(parseFloat(mAmount) * 100) : null;
       const res = await fetch('/api/admin/entitlements/user/plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id, plan_key: planKey, platform }),
+        body: JSON.stringify({
+          user_id: user.id, plan_key: planKey, platform,
+          started_at: mStart ? new Date(mStart).toISOString() : null,
+          expires_at: mExpiry ? new Date(mExpiry).toISOString() : null,
+          amount_minor: amountMinor !== null && !Number.isNaN(amountMinor) ? amountMinor : null,
+          currency: mCurrency.trim() || null,
+          note: mNote.trim() || null,
+        }),
       }).then((r) => r.json());
       if (res.error) { showToast(res.error, 'error'); return; }
-      showToast(`Plan set to ${planKey}`, 'success');
+      showToast(`Manual plan set to ${planKey}`, 'success');
       await loadUser();
     } catch {
       showToast('Plan assignment failed', 'error');
     } finally {
       setBusyKey(null);
     }
-  }, [user, platform, loadUser, showToast]);
+  }, [user, platform, mStart, mExpiry, mAmount, mCurrency, mNote, loadUser, showToast]);
+
+  const paddleBilled = subscription?.source === 'paddle';
 
   return (
     <div data-testid="user-access-panel">
@@ -377,27 +420,88 @@ export function UserAccessPanel({ userId }: { userId: string }) {
               )}
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="plan-assign-card">
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Assign plan</div>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>Set this user&apos;s plan. Paid plans clear the trial expiry and set status active; Trial sets a fresh expiry from config.</div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select
-                  data-testid="plan-assign-select"
-                  value={user.subscription_plan}
-                  onChange={(e) => assignPlan(e.target.value)}
-                  disabled={busyKey === '__plan__'}
-                  style={{ flex: 1, padding: '7px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 }}
-                >
-                  {/* No-access state: same shared write path (setUserPlan) as the
-                      real plans; the gate treats 'none' as zero access. */}
-                  <option value="none">No access</option>
-                  {user.subscription_plan !== 'none' && !entPlans.some((p) => p.plan_key === user.subscription_plan) && (
-                    <option value={user.subscription_plan} disabled>{user.subscription_plan || 'unassigned'}</option>
+            {/* Subscription card: source + dates (Paddle or manual). */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="subscription-card">
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Subscription</div>
+              {!subscription ? (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>No subscription on record for this platform.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: '#475569', marginBottom: 2 }}>Source: <b style={{ color: subscription.source === 'paddle' ? '#1d4ed8' : '#92400e' }} data-testid="subscription-source">{subscription.source === 'paddle' ? 'Paddle' : 'Manual (offline)'}</b></div>
+                  <div style={{ fontSize: 12, color: '#475569' }}>Plan: <b style={{ color: '#0f172a' }}>{subscription.planKey ?? user.subscription_plan}</b>{subscription.interval ? ` (${subscription.interval})` : ''}</div>
+                  <div style={{ fontSize: 12, color: '#475569' }}>Status: <b style={{ color: '#0f172a' }}>{subscription.status ?? 'n/a'}</b></div>
+                  <div style={{ fontSize: 12, color: '#475569' }}>Started: <b style={{ color: '#0f172a' }} data-testid="subscription-started">{fmtDay(subscription.startedAt)}</b></div>
+                  {subscription.source === 'paddle' ? (
+                    <>
+                      <div style={{ fontSize: 12, color: '#475569' }}>Current period end: <b style={{ color: '#0f172a' }}>{fmtDay(subscription.currentPeriodEnd)}</b></div>
+                      <div style={{ fontSize: 12, color: '#475569' }}>Next billing: <b style={{ color: '#0f172a' }}>{fmtDay(subscription.nextBilledAt)}</b></div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12, color: '#475569' }}>Expires: <b style={{ color: '#0f172a' }} data-testid="subscription-expires">{fmtDay(subscription.expiresAt)}</b></div>
+                      {subscription.note && <div style={{ fontSize: 11, color: '#94a3b8' }}>Note: {subscription.note}</div>}
+                    </>
                   )}
-                  {entPlans.map((p) => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
-                </select>
-                {busyKey === '__plan__' && <span style={{ fontSize: 11, color: '#64748b' }}>Saving...</span>}
-              </div>
+                </>
+              )}
+            </div>
+
+            {/* Revenue card: Paddle transactions (reconcilable) + manual. */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="revenue-card">
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Revenue</div>
+              {!revenue ? (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>No revenue data.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: '#475569' }}>Paddle{revenue.reconcilable ? ` (${revenue.paddleTxnCount} txns, reconcilable)` : ''}: <b style={{ color: '#0f172a' }} data-testid="revenue-paddle">{fmtMinor(revenue.paddleMinor, revenue.currency)}</b></div>
+                  <div style={{ fontSize: 12, color: '#475569' }}>Manual: <b style={{ color: '#0f172a' }} data-testid="revenue-manual">{fmtMinor(revenue.manualMinor, revenue.currency)}</b></div>
+                  <div style={{ fontSize: 13, color: '#0D2E5A', fontWeight: 800, marginTop: 4, borderTop: '1px solid #e5e7eb', paddingTop: 6 }}>Total: <span data-testid="revenue-total">{fmtMinor(revenue.totalMinor, revenue.currency)}</span></div>
+                </>
+              )}
+            </div>
+
+            {/* Plan assignment: BLOCKED for Paddle-billed users; manual otherwise. */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="plan-assign-card">
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Assign manual plan</div>
+              {paddleBilled ? (
+                <div data-testid="paddle-billed-block" style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px' }}>
+                  This user is billed by Paddle. Change their plan through the billing flow (the subscription upgrade/downgrade or cancel), not a manual override, so Paddle is not left billing the old plan.
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>For offline / bank-paid users. Sets the plan (gate access) plus a start, expiry, and amount (counts toward revenue). Trial sets a fresh expiry from config.</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <select
+                      data-testid="plan-assign-select"
+                      value={mPlan || user.subscription_plan}
+                      onChange={(e) => setMPlan(e.target.value)}
+                      disabled={busyKey === '__plan__'}
+                      style={{ padding: '7px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 }}
+                    >
+                      <option value="none">No access</option>
+                      {user.subscription_plan !== 'none' && !entPlans.some((p) => p.plan_key === user.subscription_plan) && (
+                        <option value={user.subscription_plan} disabled>{user.subscription_plan || 'unassigned'}</option>
+                      )}
+                      {entPlans.map((p) => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Start<input type="date" data-testid="manual-start" value={mStart} onChange={(e) => setMStart(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Expiry<input type="date" data-testid="manual-expiry" value={mExpiry} onChange={(e) => setMExpiry(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 2 }}>Amount paid<input type="number" data-testid="manual-amount" value={mAmount} placeholder="0.00" onChange={(e) => setMAmount(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                      <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Currency<input type="text" value={mCurrency} onChange={(e) => setMCurrency(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
+                    </div>
+                    <input type="text" data-testid="manual-note" value={mNote} placeholder="Note (e.g. bank transfer ref)" onChange={(e) => setMNote(e.target.value)} style={{ padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
+                    <button
+                      data-testid="assign-manual-plan"
+                      onClick={() => assignPlan(mPlan || user.subscription_plan)}
+                      disabled={busyKey === '__plan__'}
+                      style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, color: '#fff', background: '#0D2E5A', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                    >{busyKey === '__plan__' ? 'Saving...' : 'Assign manual plan'}</button>
+                  </div>
+                </>
+              )}
             </div>
 
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }} data-testid="trial-card">
