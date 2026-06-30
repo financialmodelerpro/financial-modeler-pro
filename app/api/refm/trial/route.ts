@@ -20,6 +20,11 @@ export async function POST() {
 
   const sb = getServerClient();
   const result = await startTrialForUser(sb, userId, PLATFORM);
-  if (!result.ok) return NextResponse.json(result, { status: 500 });
+  if (!result.ok) {
+    // A Paddle-billed user blocked from self-moving to trial is a 409 (conflict),
+    // not a 500: the directing message tells them to use the billing flow.
+    const status = result.code === 'paddle_billed' ? 409 : 500;
+    return NextResponse.json(result, { status });
+  }
   return NextResponse.json(result);
 }

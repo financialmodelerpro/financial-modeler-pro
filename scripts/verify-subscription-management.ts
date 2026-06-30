@@ -288,6 +288,54 @@ check('mig 176 adds paddle_subscription_id (IF NOT EXISTS)', /ADD COLUMN IF NOT 
 check('mig 176 adds paddle_customer_id (IF NOT EXISTS)', /ADD COLUMN IF NOT EXISTS paddle_customer_id\s+text/.test(mig));
 check('mig 176 alters/drops nothing destructive', !/DROP\s+(TABLE|COLUMN)/i.test(mig));
 
+// ── Store-B convergence on EVERY plan write + trial-path Paddle guard ─────────
+console.log('=== Store-B convergence (setUserPlan) + trial Paddle guard ===');
+const setPlanSrc = read('src/shared/entitlements/setUserPlan.ts');
+const cfgSrc = read('src/shared/payments/config.ts');
+
+// 1. setUserPlan converges store B on BOTH paths: full upsert for manual, partial
+//    (UPDATE-only) sync for every other caller (trial shortcut, self-serve,
+//    approval, webhook), so A and B never diverge from any path.
+check('setUserPlan keeps the full manual upsert (source/dates/amount)', /upsertManualSubscription\(/.test(setPlanSrc));
+check('setUserPlan converges store B on the NON-manual path too', /else\s*\{[\s\S]*syncPlatformSubscriptionFields\(/.test(setPlanSrc));
+check('setUserPlan partial converge sends plan_key + status', /syncPlatformSubscriptionFields\(sb,\s*userId,\s*platform,\s*\{\s*planKey,\s*status\s*\}\)/.test(setPlanSrc));
+
+// 2. syncPlatformSubscriptionFields is UPDATE-only (never upsert/insert) and its
+//    patch never touches webhook-owned metadata (source / paddle ids / dates).
+const syncFn = cfgSrc.slice(cfgSrc.indexOf('export async function syncPlatformSubscriptionFields'));
+const syncBody = syncFn.slice(0, syncFn.indexOf('\n}\n') + 2);
+check('sync is UPDATE-only (no upsert/insert that would fabricate a row)', /\.update\(patch\)/.test(syncBody) && !/\.upsert\(|\.insert\(/.test(syncBody));
+check('sync patch never writes source (the .eq filter is allowed)', !/patch\.source|source:/.test(syncBody));
+check('sync patch never writes paddle ids', !/paddle_subscription_id|paddle_customer_id/.test(syncBody));
+check('sync patch never writes Paddle period/dates', !/current_period_end|expires_at|started_at/.test(syncBody));
+check('sync supports manualOnly (status seam, never clobbers Paddle status)', /opts\?\.manualOnly[\s\S]*\.eq\('source',\s*'manual'\)/.test(syncBody));
+
+// 3. The shared block message + guard helper exist and are reused (single source).
+check('shared PADDLE_BILLED_BLOCK_MESSAGE constant exists', /export const PADDLE_BILLED_BLOCK_MESSAGE\s*=/.test(cfgSrc));
+check('isUserLivePaddle helper wraps the row read + pure check', /export async function isUserLivePaddle\([\s\S]*isLivePaddleSubscription\(row\)/.test(cfgSrc));
+
+// 4. EVERY trial path applies the live-Paddle guard (no silent app-vs-Paddle drift).
+const trialShortcut = read('app/api/admin/entitlements/user/trial/route.ts');
+const trialReq = read('src/shared/entitlements/trialRequests.ts');
+const trialApprove = read('app/api/admin/trial-requests/route.ts');
+const planRoute = read('app/api/admin/entitlements/user/plan/route.ts');
+check('admin trial shortcut guards on isUserLivePaddle', /isUserLivePaddle\(/.test(trialShortcut) && /paddle_billed/.test(trialShortcut));
+check('self-serve startTrialForUser guards on isUserLivePaddle', /isUserLivePaddle\(/.test(trialReq) && /paddle_billed/.test(trialReq));
+check('trial-request approve guards on isUserLivePaddle', /isUserLivePaddle\(/.test(trialApprove) && /paddle_billed/.test(trialApprove));
+check('plan route reuses the shared block message (single source)', /PADDLE_BILLED_BLOCK_MESSAGE/.test(planRoute));
+check('self-serve trial route maps paddle_billed -> 409', /code === 'paddle_billed' \? 409/.test(read('app/api/refm/trial/route.ts')));
+
+// 5. The /admin/users status dropdown converges store B status, manual-only.
+const usersRoute = read('app/api/admin/users/route.ts');
+check('admin status dropdown syncs store B status (manualOnly)', /syncPlatformSubscriptionFields\(sb,\s*id,\s*'real-estate',\s*\{\s*status:\s*newStatus\s*\},\s*\{\s*manualOnly:\s*true\s*\}\)/.test(usersRoute));
+
+// 6. Pure guard logic: a manual row and a canceled paddle row are NOT "live".
+const liveRow: PlatformSubscriptionRow = { plan_key: 'firm', source: 'paddle', status: 'active', paddle_subscription_id: 'sub_x', paddle_customer_id: 'ctm', started_at: null, current_period_end: null, expires_at: null, amount_minor: null, currency: null, note: null };
+check('live paddle row IS live (guard fires)', isLivePaddleSubscription(liveRow) === true);
+check('manual row is NOT live (guard does not fire)', isLivePaddleSubscription({ ...liveRow, source: 'manual' }) === false);
+check('canceled paddle row is NOT live', isLivePaddleSubscription({ ...liveRow, status: 'canceled' }) === false);
+check('no paddle id is NOT live', isLivePaddleSubscription({ ...liveRow, paddle_subscription_id: null }) === false);
+
 console.log('=== No em dashes in new/edited files ===');
 const files = [
   'src/shared/payments/types.ts', 'src/shared/payments/adapters/paddle.ts',
@@ -321,6 +369,11 @@ const files = [
   'app/api/admin/subscription/convert-to-manual/route.ts',
   'app/api/admin/revenue/route.ts',
   'app/admin/revenue/page.tsx',
+  'app/api/admin/entitlements/user/trial/route.ts',
+  'src/shared/entitlements/trialRequests.ts',
+  'app/api/admin/trial-requests/route.ts',
+  'app/api/refm/trial/route.ts',
+  'app/api/admin/users/route.ts',
 ];
 for (const f of files) check(`no em dash: ${f}`, !read(f).includes(EM));
 

@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { writeAuditLog } from '@/src/shared/audit';
 import { resolveLapseAnchorMs, computeLapseState, type LapseState } from '@/src/shared/entitlements/gate';
+import { syncPlatformSubscriptionFields } from '@/src/shared/payments/config';
 
 // ── Admin guard ───────────────────────────────────────────────────────────────
 async function requireAdmin() {
@@ -140,6 +141,14 @@ export async function PATCH(req: NextRequest) {
 
     const { error: updateError } = await sb.from('users').update(updates).eq('id', id);
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+    // Converge store B status when the admin changes the status here, but ONLY for
+    // a manual-source row: this closes the status-only seam (store A status was
+    // written without B) without ever overwriting webhook-owned Paddle status.
+    // Plan is not written by this route, so only status is synced.
+    if (newStatus) {
+      await syncPlatformSubscriptionFields(sb, id, 'real-estate', { status: newStatus }, { manualOnly: true });
+    }
 
     // Write audit log entries - one per changed field
     const auditBase = { adminId, targetUserId: id, reason: reason ?? null };

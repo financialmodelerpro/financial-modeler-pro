@@ -20,6 +20,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { setUserPlan } from './setUserPlan';
+import { isUserLivePaddle, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
 
 export const TRIAL_APPROVAL_SECTION = 'entitlements';
 export const TRIAL_APPROVAL_KEY = 'trial_requires_approval';
@@ -40,7 +41,7 @@ export async function loadTrialRequiresApproval(sb: SupabaseClient): Promise<boo
 export type TrialActionResult =
   | { ok: true; status: 'granted'; trialEndsAt: string | null }
   | { ok: true; status: 'requested' }
-  | { ok: false; status: 'error'; error: string };
+  | { ok: false; status: 'error'; error: string; code?: string };
 
 /**
  * Self-serve grant OR queue a request for the signed-in user, based on the
@@ -50,6 +51,13 @@ export async function startTrialForUser(
   sb: SupabaseClient, userId: string, platform = 'real-estate',
 ): Promise<TrialActionResult> {
   if (!userId) return { ok: false, status: 'error', error: 'user_id required' };
+
+  // A user already billed by Paddle must not self-move onto trial in the app
+  // (the SAME guard the admin plan route uses), so Paddle is never left billing
+  // a paid plan while the app shows trial.
+  if (await isUserLivePaddle(sb, userId, platform)) {
+    return { ok: false, status: 'error', error: PADDLE_BILLED_BLOCK_MESSAGE, code: 'paddle_billed' };
+  }
 
   const requiresApproval = await loadTrialRequiresApproval(sb);
 

@@ -22,7 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTrialDays, trialEndsAtIso } from './trialConfig';
 import { writeAuditLog } from '@/src/shared/audit';
 import { NONE_PLAN_KEY } from './gate';
-import { upsertManualSubscription } from '@/src/shared/payments/config';
+import { upsertManualSubscription, syncPlatformSubscriptionFields } from '@/src/shared/payments/config';
 
 export interface SetUserPlanResult {
   ok: boolean;
@@ -111,10 +111,12 @@ export async function setUserPlan(
   }).eq('id', userId);
   if (updErr) return { ok: false, error: updErr.message, status: 500 };
 
-  // Converge the per-platform row (store B) so the billing panel reads the SAME
-  // plan as the gate (fixes the admin/user divergence). Only on the manual path;
-  // the webhook writes store B itself with source 'paddle'.
+  // Converge the per-platform row (store B) so the billing panel + admin views
+  // read the SAME plan as the gate, on EVERY plan write (fixes the admin/user
+  // divergence from any path, not just manual plans).
   if (opts?.subscription?.source === 'manual') {
+    // Manual (admin-assigned, offline) plan: write the FULL row (source 'manual',
+    // dates, amount). This creates the row if absent.
     await upsertManualSubscription(sb, userId, platform, {
       planKey,
       status,
@@ -125,6 +127,15 @@ export async function setUserPlan(
       currency: opts.subscription.currency ?? null,
       note: opts.subscription.note ?? null,
     });
+  } else {
+    // Any other caller (trial shortcut, self-serve trial, approval queue, the
+    // webhook's setUserPlan call, etc.): PARTIAL converge. Update only
+    // plan_key + status on an EXISTING store B row, leaving webhook-owned
+    // metadata (source, paddle ids, Paddle period/dates) untouched. If no row
+    // exists (a brand-new trial user) this is a no-op, so no misleading
+    // 'paddle'-defaulted row is fabricated. The webhook still writes the Paddle
+    // ids + creates the row via storeUserPlatformSubscription after this call.
+    await syncPlatformSubscriptionFields(sb, userId, platform, { planKey, status });
   }
 
   if (opts?.adminId) {

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
-import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction } from '@/src/shared/payments/config';
+import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -41,10 +41,7 @@ export async function POST(req: NextRequest) {
     // Block a local plan change for a Paddle-billed user (no silent divergence).
     const row = await loadPlatformSubscriptionRow(sb, user_id, platform);
     if (isLivePaddleSubscription(row)) {
-      return NextResponse.json({
-        error: 'This user is billed by Paddle. Change their plan through the billing flow (upgrade/downgrade or cancel in the subscription), not a manual override, so Paddle is not left billing the old plan.',
-        code: 'paddle_billed',
-      }, { status: 409 });
+      return NextResponse.json({ error: PADDLE_BILLED_BLOCK_MESSAGE, code: 'paddle_billed' }, { status: 409 });
     }
 
     const adminId = (session.user as { id?: string }).id ?? null;

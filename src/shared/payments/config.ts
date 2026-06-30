@@ -284,6 +284,59 @@ export function isLivePaddleSubscription(row: PlatformSubscriptionRow | null): b
   return row.source !== 'manual' && !!row.paddle_subscription_id && row.status !== 'canceled';
 }
 
+/** The single shared message shown when a local/manual plan change is blocked
+ *  because the user is billed by Paddle. Reused by the plan route AND the trial
+ *  paths so a Paddle-billed user is never silently moved in the app while Paddle
+ *  keeps billing the old plan. */
+export const PADDLE_BILLED_BLOCK_MESSAGE =
+  'This user is billed by Paddle. Change their plan through the billing flow (upgrade/downgrade or cancel in the subscription), not a manual override, so Paddle is not left billing the old plan.';
+
+/** True when the user currently holds a LIVE Paddle subscription for the platform.
+ *  Wraps the row read + the pure check so the trial paths can reuse the SAME guard
+ *  the plan route uses, without duplicating the row-loading logic. Tolerant: any
+ *  read failure resolves to false (the guard only BLOCKS on a positive match, so a
+ *  failed read never wrongly blocks a legitimate grant). */
+export async function isUserLivePaddle(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<boolean> {
+  if (!userId || !platform) return false;
+  const row = await loadPlatformSubscriptionRow(sb, userId, platform);
+  return isLivePaddleSubscription(row);
+}
+
+/**
+ * Converge store B (user_platform_subscriptions) to match a plan write on store A,
+ * WITHOUT disturbing webhook-owned metadata. This is an UPDATE-only (never an
+ * insert): it sets only the provided fields + updated_at on an EXISTING
+ * (user, platform) row, so source, paddle_subscription_id/customer_id, and the
+ * Paddle period/dates are all preserved. If no row exists (e.g. a brand-new trial
+ * user), it is a no-op (no fabricated 'paddle'-defaulted row). Best effort +
+ * schema-tolerant. When opts.manualOnly is set, it only touches manual-source
+ * rows (used by the legacy admin status dropdown, so webhook-owned Paddle status
+ * is never overwritten).
+ */
+export async function syncPlatformSubscriptionFields(
+  sb: SupabaseClient, userId: string, platform: string,
+  fields: { planKey?: string; status?: string },
+  opts?: { manualOnly?: boolean },
+): Promise<void> {
+  if (!userId || !platform) return;
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (fields.planKey !== undefined) patch.plan_key = fields.planKey;
+  if (fields.status !== undefined) patch.status = fields.status;
+  // Nothing but updated_at to write: skip.
+  if (Object.keys(patch).length <= 1) return;
+  try {
+    let q = sb.from('user_platform_subscriptions').update(patch)
+      .eq('user_id', userId).eq('platform_slug', platform);
+    if (opts?.manualOnly) q = q.eq('source', 'manual');
+    await q;
+  } catch {
+    // table/columns absent pre-migration, or transient error: ignore (store A,
+    // the gate input, was already written by the caller).
+  }
+}
+
 // ── Revenue ledger (mig 180: payment_transactions) ──────────────────────────
 // A unified ledger so the admin Revenue page aggregates across ALL users from
 // the DB (no per-user Paddle calls). Paddle rows are reconcilable (external_id =
