@@ -16,6 +16,13 @@ interface User {
   subscription_status: 'active' | 'trial' | 'expired' | 'cancelled';
   created_at: string;
   projects?: [{ count: number }];
+  // Auto-computed (by date) on the server from the plan's access-expiry anchor.
+  // accessExpiresAt = the lapse anchor (ISO) or null when the plan does not
+  // expire; accessStatus = the live date-driven state (active / grace / lapsed)
+  // or the stored status when there is no expiry. lapseState is the raw state.
+  accessExpiresAt?: string | null;
+  accessStatus?: string;
+  lapseState?: 'active' | 'grace' | 'lapsed';
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -37,6 +44,27 @@ const STATUS_COLORS: Record<string, string> = {
   expired:   '#DC2626',
   cancelled: '#DC2626',
 };
+
+// Auto-computed (date-driven) access state colors. 'grace' = read-only window,
+// 'lapsed' = grace elapsed (no access). 'active' falls through to green.
+const ACCESS_STATUS_META: Record<string, { color: string; label: string }> = {
+  active: { color: '#1A7A30', label: 'active' },
+  grace:  { color: '#D97706', label: 'grace (read-only)' },
+  lapsed: { color: '#DC2626', label: 'expired (lapsed)' },
+};
+
+function AccessStatusBadge({ status }: { status: string }) {
+  const meta = ACCESS_STATUS_META[status] ?? { color: STATUS_COLORS[status] ?? '#6B7280', label: status };
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: 12,
+      fontSize: 11, fontWeight: 700, color: '#fff', background: meta.color,
+      letterSpacing: '0.03em', textTransform: 'capitalize', whiteSpace: 'nowrap',
+    }}>
+      {meta.label}
+    </span>
+  );
+}
 
 function PlanBadge({ plan }: { plan: string }) {
   const color = PLAN_COLORS[plan] ?? '#6B7280';
@@ -244,16 +272,16 @@ export default function AdminUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Projects', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Access', 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+                <tr><td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
+                <tr><td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {
                 const isSelf      = u.id === selfId;
                 const savingField = updating?.startsWith(u.id) ? updating.split(':')[1] : null;
@@ -336,6 +364,16 @@ export default function AdminUsersPage() {
                         <StatusBadge status={u.subscription_status ?? 'active'} />
                         {savingField === 'status' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
                       </div>
+                    </td>
+
+                    {/* Access status (auto-computed by date: active / grace / lapsed) */}
+                    <td style={{ padding: '12px 16px' }} data-testid={`user-access-${u.id}`}>
+                      <AccessStatusBadge status={u.accessStatus ?? u.subscription_status ?? 'active'} />
+                    </td>
+
+                    {/* Expires (the plan's access-expiry anchor; blank when it does not expire) */}
+                    <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280', whiteSpace: 'nowrap' }} data-testid={`user-expiry-${u.id}`}>
+                      {u.accessExpiresAt ? new Date(u.accessExpiresAt).toLocaleDateString() : 'n/a'}
                     </td>
 
                     {/* Projects */}

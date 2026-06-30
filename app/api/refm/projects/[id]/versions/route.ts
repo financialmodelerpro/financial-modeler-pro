@@ -23,10 +23,12 @@ import {
   setProjectCurrentVersion,
   updateProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { SCHEMA_VERSION } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { diffSnapshots } from '@/src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { writeBlockReason } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -71,9 +73,31 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 // changed in this version" without a second fetch. Diff entries are
 // stored pre-computed on the row (see migration 152).
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const userId = await getRefmUserId();
+  const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
   const { id: projectId } = await ctx.params;
+
+  // Lapse gate: saving a version IS the edit choke point. A read-only GRACE user
+  // (plan expired, within the 1-month grace) and a LAPSED user (grace elapsed)
+  // can VIEW but cannot SAVE. Enforced server-side so it cannot be bypassed by
+  // posting directly; admin bypasses (writeBlockReason returns null on fullAccess).
+  // No project data is read or written before this check.
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  const writeBlock = writeBlockReason(gate);
+  if (writeBlock) {
+    return NextResponse.json(
+      {
+        error: writeBlock === 'LAPSED'
+          ? 'Your subscription has lapsed. Renew your plan to save changes.'
+          : 'Your subscription has expired. Access is read-only during the grace period, renew to save changes.',
+        code: writeBlock,
+        accessExpiresAt: gate.accessExpiresAt,
+        graceEndsAt: gate.graceEndsAt,
+        planKey: gate.planKey,
+      },
+      { status: 403 },
+    );
+  }
 
   let body: {
     snapshot?:      HydrateSnapshot;

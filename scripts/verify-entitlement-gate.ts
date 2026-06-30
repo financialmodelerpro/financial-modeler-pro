@@ -24,6 +24,11 @@ import {
   isKnownPlanKey,
   isNonePlan,
   isNoPlanLockedOut,
+  computeLapseState,
+  addCalendarMonths,
+  resolveLapseAnchorMs,
+  writeBlockReason,
+  GRACE_PERIOD_MONTHS,
   NONE_PLAN_KEY,
   type GateInput,
 } from '../src/shared/entitlements/gate';
@@ -183,16 +188,23 @@ const proRevoke = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, o
 check('revoke locks at the gate: pro + revoke pdf_export -> denied', !featureAllowed(proRevoke, 'pdf_export'));
 
 // ── 6. Trial expiry: loses paid features at the gate.
-console.log('\n=== Trial expiry ===');
+// NOTE: the legacy boolean path (trialExpired / planExpired with NO lapseState)
+// now maps a fully-expired plan to the 'lapsed' state, which is the deliberate
+// NO-ACCESS shape (identical to 'none'). This supersedes the pre-grace behavior
+// where an override could still leak through a fully-expired plan: a lapsed user
+// has no active plan, so overrides do not leak (consistent with the 'none'
+// override test above). The read-only GRACE window (where features ARE still
+// viewable) is exercised in section 9 via the explicit lapseState input.
+console.log('\n=== Trial expiry (legacy boolean -> lapsed) ===');
 const trialActive = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, trialExpired: false }));
 const trialExpired = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, trialExpired: true }));
 check('active trial: module_1 + pdf included', featureAllowed(trialActive, 'module_1') && featureAllowed(trialActive, 'pdf_export'));
 check('expired trial: loses ALL features (baseline)', GATE_POINTS.every((k) => !featureAllowed(trialExpired, k)));
 check('expired trial: projects cap drops to 0', trialExpired.projectLimit === 0);
 const trialExpiredWithGrant = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, trialExpired: true, overrides: grantOv }));
-check('expired trial: an explicit grant override still applies', featureAllowed(trialExpiredWithGrant, 'sensitivity'));
+check('lapsed trial: an override does NOT leak access (no active plan, like none)', !featureAllowed(trialExpiredWithGrant, 'sensitivity'));
 
-// Manual-plan expiry (mig 179): expires_at past -> planExpired -> empty baseline,
+// Manual-plan expiry (mig 179): expires_at past -> planExpired -> lapsed (no access),
 // mirroring trial expiry. A paid plan (pro) is NOT trial but still expires.
 const proActive = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: false }));
 const proExpired = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: true }));
@@ -200,7 +212,7 @@ check('active manual plan (pro): features included', featureAllowed(proActive, '
 check('expired manual plan (pro): loses ALL features (baseline)', GATE_POINTS.every((k) => !featureAllowed(proExpired, k)));
 check('expired manual plan: projects cap drops to 0', proExpired.projectLimit === 0);
 const proExpiredWithGrant = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, planExpired: true, overrides: grantOv }));
-check('expired manual plan: an explicit grant override still applies', featureAllowed(proExpiredWithGrant, 'sensitivity'));
+check('lapsed manual plan: an override does NOT leak access (no active plan, like none)', !featureAllowed(proExpiredWithGrant, 'sensitivity'));
 const adminExpired = computeGate(baseInput({ isAdmin: true, planKey: 'pro', planCells: PLAN.pro, planExpired: true }));
 check('admin bypass survives plan expiry (still full access)', adminExpired.fullAccess && GATE_POINTS.every((k) => featureAllowed(adminExpired, k)));
 check('planExpired defaults to false when omitted (no behavior change)', featureAllowed(proGate, 'module_1'));
@@ -223,6 +235,70 @@ const deniedNonAdmin = { featureMap: {} as Record<string, never>, fullAccess: fa
 check('denied gate (non-admin): every gate point denied', GATE_POINTS.every((k) => !featureAllowed(deniedNonAdmin, k)));
 const deniedAdmin = { featureMap: {} as Record<string, never>, fullAccess: true };
 check('denied gate (admin fullAccess): every gate point still allowed', GATE_POINTS.every((k) => featureAllowed(deniedAdmin, k)));
+
+// ── 9. Three-state lapse model: active / grace (read-only) / lapsed.
+console.log('\n=== Lapse model: active / grace / lapsed ===');
+const DAY = 86400000;
+const EXPIRY = Date.parse('2026-06-01T00:00:00Z');
+
+// 9a. computeLapseState pure boundaries.
+check('lapse: null anchor -> active (never expires)', computeLapseState(null, NOW).state === 'active');
+check('lapse: now before expiry -> active', computeLapseState(EXPIRY, EXPIRY - DAY).state === 'active');
+check('lapse: at expiry -> grace (boundary inclusive)', computeLapseState(EXPIRY, EXPIRY).state === 'grace');
+check('lapse: mid grace (15 days after) -> grace', computeLapseState(EXPIRY, EXPIRY + 15 * DAY).state === 'grace');
+const graceEnd = addCalendarMonths(EXPIRY, GRACE_PERIOD_MONTHS);
+check('lapse: 1 day before grace end -> grace', computeLapseState(EXPIRY, graceEnd - DAY).state === 'grace');
+check('lapse: at grace end -> lapsed (boundary)', computeLapseState(EXPIRY, graceEnd).state === 'lapsed');
+check('lapse: well past grace -> lapsed', computeLapseState(EXPIRY, graceEnd + 60 * DAY).state === 'lapsed');
+check('lapse: grace window is exactly 1 calendar month', addCalendarMonths(Date.parse('2026-01-31T00:00:00Z'), 1) === Date.parse('2026-02-28T00:00:00Z'));
+
+// 9b. resolveLapseAnchorMs source priority (trial / manual / canceled-paddle).
+const T = Date.parse('2026-06-10T00:00:00Z'); const M = Date.parse('2026-07-01T00:00:00Z'); const P = Date.parse('2026-08-01T00:00:00Z');
+check('anchor: trial plan uses trial_ends_at', resolveLapseAnchorMs({ planKey: 'trial', trialEndsAtMs: T, subExpiresAtMs: M, subPeriodEndMs: P, subStatus: 'active' }) === T);
+check('anchor: manual expires_at wins for a paid plan', resolveLapseAnchorMs({ planKey: 'pro', trialEndsAtMs: null, subExpiresAtMs: M, subPeriodEndMs: P, subStatus: 'active' }) === M);
+check('anchor: canceled paddle uses period end', resolveLapseAnchorMs({ planKey: 'pro', trialEndsAtMs: null, subExpiresAtMs: null, subPeriodEndMs: P, subStatus: 'canceled' }) === P);
+check('anchor: active renewing paddle -> null (never lapses)', resolveLapseAnchorMs({ planKey: 'pro', trialEndsAtMs: null, subExpiresAtMs: null, subPeriodEndMs: P, subStatus: 'active' }) === null);
+
+// 9c. Grace gate: read-only, but the feature map + project view are PRESERVED.
+const proGrace = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, lapseState: 'grace' }));
+check('grace (pro): lapseState grace + readOnly true', proGrace.lapseState === 'grace' && proGrace.readOnly === true);
+check('grace (pro): features still resolve (can VIEW modules)', featureAllowed(proGrace, 'module_1') && featureAllowed(proGrace, 'module_10'));
+check('grace (pro): project cap preserved (can open existing projects)', proGrace.projectLimit === 25);
+check('grace (pro): archiving (a write) is denied', proGrace.archiveAllowed === false);
+check('grace: writeBlockReason = READ_ONLY_GRACE (create/save/export denied)', writeBlockReason(proGrace) === 'READ_ONLY_GRACE');
+check('grace: not full access, not locked out of workspace (can log in + view)', proGrace.fullAccess === false && isNoPlanLockedOut('pro', false, 'grace') === false);
+
+// 9d. Lapsed gate: behaves exactly like 'none' (no access), distinct from grace.
+const proLapsed = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro, lapseState: 'lapsed' }));
+check('lapsed (pro): lapseState lapsed + readOnly false', proLapsed.lapseState === 'lapsed' && proLapsed.readOnly === false);
+check('lapsed (pro): every gate point DENIED (no access)', GATE_POINTS.every((k) => !featureAllowed(proLapsed, k)));
+check('lapsed (pro): no projects, no archive', proLapsed.projectLimit === 0 && proLapsed.archiveAllowed === false);
+check('lapsed: writeBlockReason = LAPSED', writeBlockReason(proLapsed) === 'LAPSED');
+check('lapsed: locked out of workspace (sent to choose-plan)', isNoPlanLockedOut('pro', false, 'lapsed') === true);
+check('grace vs lapsed DISTINCT: grace views, lapsed denied', featureAllowed(proGrace, 'module_1') && !featureAllowed(proLapsed, 'module_1'));
+
+// 9e. Applies to ended trials too (trial in grace can still view).
+const trialGrace = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, lapseState: 'grace' }));
+check('grace (trial): can still VIEW trial modules, read-only', featureAllowed(trialGrace, 'module_1') && trialGrace.readOnly === true);
+const trialLapsed = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, lapseState: 'lapsed' }));
+check('lapsed (trial): no access', GATE_POINTS.every((k) => !featureAllowed(trialLapsed, k)) && writeBlockReason(trialLapsed) === 'LAPSED');
+
+// 9f. Admin bypass SURVIVES grace + lapsed (never read-only, never locked out).
+const adminGrace = computeGate(baseInput({ isAdmin: true, planKey: 'pro', planCells: PLAN.pro, lapseState: 'grace' }));
+const adminLapsed = computeGate(baseInput({ isAdmin: true, planKey: 'pro', planCells: PLAN.pro, lapseState: 'lapsed' }));
+check('admin-bypass-survives-grace: fullAccess, not readOnly, no write block', adminGrace.fullAccess && !adminGrace.readOnly && writeBlockReason(adminGrace) === null);
+check('admin-bypass-survives-lapsed: fullAccess, every gate point allowed', adminLapsed.fullAccess && GATE_POINTS.every((k) => featureAllowed(adminLapsed, k)) && writeBlockReason(adminLapsed) === null);
+check('admin never locked out by lapse', isNoPlanLockedOut('pro', true, 'lapsed') === false && isNoPlanLockedOut('none', true, 'lapsed') === false);
+
+// 9g. Backward compat: legacy boolean (no lapseState) still maps expired -> lapsed.
+const legacyTrialExpired = computeGate(baseInput({ planKey: 'trial', planCells: PLAN.trial, trialExpired: true }));
+check('legacy fallback: trialExpired (no lapseState) -> lapsed (empty baseline)', legacyTrialExpired.lapseState === 'lapsed' && GATE_POINTS.every((k) => !featureAllowed(legacyTrialExpired, k)));
+const activeNoLapse = computeGate(baseInput({ planKey: 'pro', planCells: PLAN.pro }));
+check('active (no lapseState, not expired): lapseState active, not readOnly, no write block', activeNoLapse.lapseState === 'active' && !activeNoLapse.readOnly && writeBlockReason(activeNoLapse) === null);
+
+// 9h. None + unknown carry the new fields without changing behavior.
+check('none: lapseState active, no write block applies after the none deny', noneGate.lapseState === 'active');
+check('unknown safety net: fullAccess so writeBlockReason null (never write-blocked)', writeBlockReason(unknownGate) === null);
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }

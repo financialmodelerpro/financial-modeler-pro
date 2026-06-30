@@ -39,6 +39,11 @@ export async function GET() {
     knownPlan: gate.knownPlan,
     trialExpired: gate.trialExpired,
     trialEndsAt: gate.trialEndsAt,
+    // Three-state lapse model: 'active' | 'grace' (read-only) | 'lapsed'.
+    lapseState: gate.lapseState,
+    readOnly: gate.readOnly,
+    accessExpiresAt: gate.accessExpiresAt,
+    graceEndsAt: gate.graceEndsAt,
     featureMap: gate.featureMap,
     projectLimit: gate.projectLimit,
     archiveAllowed: gate.archiveAllowed,

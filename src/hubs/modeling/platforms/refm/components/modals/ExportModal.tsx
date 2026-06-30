@@ -38,6 +38,10 @@ interface ExportModalProps {
   open: boolean;
   onClose: () => void;
   canAccess?: (featureKey: string) => boolean;
+  /** True when the workspace is in read-only GRACE (plan expired, within the
+   *  1-month grace). Export is denied: the live app generates files client-side,
+   *  so this is the genuine enforcement point (the export API routes also guard). */
+  readOnly?: boolean;
   projectId?: string | null;
   projectName?: string | null;
   versionLabel?: string | null;
@@ -84,6 +88,7 @@ export default function ExportModal({
   open,
   onClose,
   canAccess,
+  readOnly = false,
   projectId,
   projectName,
   versionLabel,
@@ -180,6 +185,12 @@ export default function ExportModal({
 
   const handleGenerate = async (): Promise<void> => {
     setError(null);
+    // Read-only grace: export is denied entirely (the file is built client-side,
+    // so this is the genuine enforcement point; the export API routes also guard).
+    if (readOnly) {
+      setError('Your subscription has expired. Access is read-only during the grace period, renew to export.');
+      return;
+    }
     // Entitlement gate for the chosen format. Server export paths are pure
     // client-side here, so this is the enforcement point for export access.
     const requiredFeature = FEATURE_FOR_KIND[reportKind];

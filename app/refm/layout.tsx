@@ -2,8 +2,8 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { ensureNotComingSoon } from '@/src/hubs/modeling/lib/ensureNotComingSoon';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getServerClient } from '@/src/core/db/supabase';
 import { isNoPlanLockedOut } from '@/src/shared/entitlements/gate';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 
 /**
  * Server gate for the Modeling Hub's authed workspace (REFM and any future
@@ -11,14 +11,18 @@ import { isNoPlanLockedOut } from '@/src/shared/entitlements/gate';
  * access is blocked, not just the dashboard:
  *
  *   1. Coming-Soon gate (existing).
- *   2. No-plan gate (foundation): a non-admin on the deliberate 'none' state has
- *      ZERO access, so the workspace itself redirects them to get-access
- *      (/choose-plan). Admin always bypasses; a real plan or the
- *      unknown-plan safety net passes. The plan is read LIVE from the users row
- *      (not the JWT) so a just-granted trial/purchase lets the user straight in.
+ *   2. No-plan / lapsed gate: a non-admin on the deliberate 'none' state OR a
+ *      non-admin whose plan has LAPSED (the 1-month read-only grace has elapsed)
+ *      has ZERO access, so the workspace redirects them to get-access
+ *      (/choose-plan). A GRACE user (plan expired but still inside the grace
+ *      month) is NOT redirected: they keep read-only access to VIEW their
+ *      projects (the workspace itself enforces read-only). Admin always bypasses;
+ *      a real ACTIVE plan or the unknown-plan safety net passes. Everything is
+ *      read LIVE via resolveUserGate (not the JWT) so a just-granted / renewed
+ *      plan lets the user straight in and the lapse state is computed from dates.
  *
- * This reuses the foundation's pure decision (isNoPlanLockedOut) so direct-URL
- * gating and the dashboard cards agree. No resolver logic is duplicated.
+ * This reuses the resolver + the pure decision (isNoPlanLockedOut) so direct-URL
+ * gating and the dashboard cards agree. No gate logic is duplicated.
  */
 export default async function RefmLayout({ children }: { children: React.ReactNode }) {
   await ensureNotComingSoon();
@@ -31,10 +35,10 @@ export default async function RefmLayout({ children }: { children: React.ReactNo
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
   if (!isAdmin) {
-    const sb = getServerClient();
-    const { data } = await sb.from('users').select('subscription_plan').eq('id', userId).maybeSingle();
-    const planKey = (data as { subscription_plan?: string } | null)?.subscription_plan ?? '';
-    if (isNoPlanLockedOut(planKey, isAdmin)) redirect('/choose-plan');
+    const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+    // Locked out by 'none' OR a lapsed plan (grace elapsed). A grace user passes
+    // here and lands in the read-only workspace with the renew banner.
+    if (isNoPlanLockedOut(gate.planKey, gate.isAdmin, gate.lapseState)) redirect('/choose-plan');
   }
 
   return <>{children}</>;

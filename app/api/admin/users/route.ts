@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { writeAuditLog } from '@/src/shared/audit';
+import { resolveLapseAnchorMs, computeLapseState, type LapseState } from '@/src/shared/entitlements/gate';
 
 // ── Admin guard ───────────────────────────────────────────────────────────────
 async function requireAdmin() {
@@ -27,9 +28,10 @@ export async function GET(req: NextRequest) {
     const role   = searchParams.get('role')   ?? '';
 
     const sb = getServerClient();
-    // company / job_title are mig 172. Select them when present; fall back to the
-    // base columns if the migration is not applied yet (never break the list).
-    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, projects(count)';
+    // company / job_title are mig 172, trial_ends_at gives the trial expiry anchor.
+    // Select them when present; fall back to the base columns if a migration is
+    // not applied yet (never break the list).
+    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects(count)';
     const runQuery = async (cols: string) => {
       let q = sb.from('users').select(cols, { count: 'exact' });
       if (search) q = q.ilike('email', `%${search}%`);
@@ -44,7 +46,52 @@ export async function GET(req: NextRequest) {
     }
     if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-    return NextResponse.json({ users: data ?? [], total: count ?? 0 });
+    // Decorate each user with the access-expiry anchor + auto-computed lapse
+    // state (active / grace / lapsed), so the admin list shows who is expiring,
+    // when, and the live status by DATE (independent of any stored status / cron).
+    // The lapse model is identical to the live gate (shared pure helpers), so the
+    // column and the user's actual access never diverge. Schema-tolerant: a
+    // pre-migration DB (no subscription rows) simply shows no expiry.
+    const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    const nowMs = Date.now();
+    let subsByUser = new Map<string, { expires_at?: string | null; current_period_end?: string | null; status?: string | null }>();
+    try {
+      const ids = rows.map((r) => r.id as string).filter(Boolean);
+      if (ids.length) {
+        const { data: subs } = await sb
+          .from('user_platform_subscriptions')
+          .select('user_id, expires_at, current_period_end, status')
+          .eq('platform_slug', 'real-estate')
+          .in('user_id', ids);
+        subsByUser = new Map(
+          ((subs ?? []) as Array<{ user_id: string; expires_at?: string | null; current_period_end?: string | null; status?: string | null }>)
+            .map((s) => [s.user_id, s]),
+        );
+      }
+    } catch {
+      // table absent pre-migration: leave subsByUser empty (no expiry shown).
+    }
+
+    const users = rows.map((u) => {
+      const planKey = (u.subscription_plan as string) ?? '';
+      const trialEndsAt = (u.trial_ends_at as string | null) ?? null;
+      const sub = subsByUser.get(u.id as string);
+      const anchorMs = resolveLapseAnchorMs({
+        planKey,
+        trialEndsAtMs: trialEndsAt ? Date.parse(trialEndsAt) : null,
+        subExpiresAtMs: sub?.expires_at ? Date.parse(sub.expires_at) : null,
+        subPeriodEndMs: sub?.current_period_end ? Date.parse(sub.current_period_end) : null,
+        subStatus: sub?.status ?? null,
+      });
+      const { state } = computeLapseState(anchorMs, nowMs);
+      const accessExpiresAt = anchorMs != null ? new Date(anchorMs).toISOString() : null;
+      // The admin display status: the date-driven lapse state when the plan has an
+      // expiry, otherwise the stored subscription_status.
+      const accessStatus: LapseState | string = anchorMs != null ? state : (u.subscription_status as string) ?? 'active';
+      return { ...u, accessExpiresAt, lapseState: anchorMs != null ? state : 'active', accessStatus };
+    });
+
+    return NextResponse.json({ users, total: count ?? 0 });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
   }

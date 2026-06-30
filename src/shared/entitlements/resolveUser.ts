@@ -25,6 +25,8 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { loadMergedFeatures } from './serverCatalog';
 import {
   computeGate,
+  computeLapseState,
+  resolveLapseAnchorMs,
   isKnownPlanKey,
   isNonePlan,
   type GateResult,
@@ -40,6 +42,14 @@ export interface ResolvedUserGate extends GateResult {
   knownPlan: boolean;
   trialEndsAt: string | null;
   activeProjectCount: number;
+  /** The plan's access-expiry anchor (ISO): trial_ends_at for a trial, a manual
+   *  plan's expires_at, or a canceled Paddle sub's current_period_end. Null when
+   *  the plan does not expire (active / renewing). Drives the lapse state + the
+   *  admin expiry column. */
+  accessExpiresAt: string | null;
+  /** The end of the 1-month read-only grace window (ISO), accessExpiresAt + 1
+   *  month. Null when the plan does not expire. Shown in the renew banner. */
+  graceEndsAt: string | null;
   /** True when resolution failed and the gate is the fail-closed default. */
   error: boolean;
 }
@@ -59,6 +69,10 @@ function deniedGate(userId: string, isAdmin: boolean): ResolvedUserGate {
     archiveAllowed: isAdmin,
     fullAccess: isAdmin,
     trialExpired: false,
+    lapseState: 'active',
+    readOnly: false,
+    accessExpiresAt: null,
+    graceEndsAt: null,
     error: true,
   };
 }
@@ -118,26 +132,56 @@ export async function resolveUserGate(
       });
     }
 
+    const nowMs = Date.now();
     const trialEndsAt = (user.trial_ends_at as string | null) ?? null;
-    const trialExpired = planKey === 'trial' && !!trialEndsAt && Date.parse(trialEndsAt) < Date.now();
+    const trialEndsMs = trialEndsAt ? Date.parse(trialEndsAt) : null;
+    const trialExpired = planKey === 'trial' && trialEndsMs != null && trialEndsMs < nowMs;
 
-    // Additive: a manual plan (mig 179) can carry an expires_at the gate honors
-    // like a trial. Separate, schema-tolerant query so a pre-migration DB (or no
-    // row) simply yields no expiry. Does not change the plan input (still
-    // users.subscription_plan); only adds the expiry check.
-    let planExpired = false;
+    // Resolve the per-platform subscription expiry anchor (mig 179). The anchor is
+    // the date at which access lapses, and it drives the three-state model
+    // (active -> read-only grace -> lapsed). Schema-tolerant: a pre-migration DB
+    // (or no row) simply yields no anchor, so the plan never lapses on dates.
+    //   - manual plan (source 'manual'): expires_at is the access-until date.
+    //   - canceled / expired Paddle sub: current_period_end is the final paid date.
+    //   - active / renewing Paddle sub: no past anchor, stays active.
+    // The plan input is unchanged (still users.subscription_plan); this only adds
+    // the lapse anchor the gate honors (additive, mirrors the old trial check).
+    let subExpiresAtMs: number | null = null;
+    let subPeriodEndMs: number | null = null;
+    let subStatus: string | null = null;
     try {
       const { data: subRow } = await sb
         .from('user_platform_subscriptions')
-        .select('expires_at')
+        .select('expires_at, current_period_end, status, source')
         .eq('user_id', userId)
         .eq('platform_slug', platform)
         .maybeSingle();
-      const exp = (subRow as { expires_at?: string | null } | null)?.expires_at ?? null;
-      planExpired = !!exp && Date.parse(exp) < Date.now();
+      const row = subRow as {
+        expires_at?: string | null;
+        current_period_end?: string | null;
+        status?: string | null;
+        source?: string | null;
+      } | null;
+      if (row) {
+        subExpiresAtMs = row.expires_at ? Date.parse(row.expires_at) : null;
+        subPeriodEndMs = row.current_period_end ? Date.parse(row.current_period_end) : null;
+        subStatus = row.status ?? null;
+      }
     } catch {
-      // table/column absent pre-migration: no manual expiry.
+      // table/columns absent pre-migration: no subscription anchor.
     }
+
+    // The single access-expiry anchor (trial_ends_at for a trial, else the
+    // subscription's manual expiry or a non-renewing sub's period end). Pure,
+    // shared with the admin user list so both compute the same expiry + status.
+    const accessExpiresMs = resolveLapseAnchorMs({
+      planKey, trialEndsAtMs: trialEndsMs, subExpiresAtMs, subPeriodEndMs, subStatus,
+    });
+    const accessExpiresAt = accessExpiresMs != null ? new Date(accessExpiresMs).toISOString() : null;
+    const { state: lapseState, graceEndsAtMs } = computeLapseState(accessExpiresMs, nowMs);
+    const graceEndsAt = graceEndsAtMs != null ? new Date(graceEndsAtMs).toISOString() : null;
+    // Kept for the legacy GateInput fallback + the "trial expired" message echo.
+    const planExpired = lapseState !== 'active';
 
     const catalog = await loadMergedFeatures(sb, platform);
     const features = catalog.features as unknown as ResolveFeature[];
@@ -167,10 +211,11 @@ export async function resolveUserGate(
       knownPlan,
       trialExpired,
       planExpired,
+      lapseState,
       features,
       planCells,
       overrides,
-      nowMs: Date.now(),
+      nowMs,
     };
     const gate = computeGate(gateInput);
     const activeProjectCount = await countActiveProjects(sb, userId);
@@ -184,6 +229,8 @@ export async function resolveUserGate(
       knownPlan,
       trialEndsAt,
       activeProjectCount,
+      accessExpiresAt,
+      graceEndsAt,
       error: false,
     };
   } catch (e) {

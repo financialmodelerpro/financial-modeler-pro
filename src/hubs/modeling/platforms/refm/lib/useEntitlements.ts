@@ -19,6 +19,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface FeatureAccess { included: boolean; value: number | null; feature_type: string }
 
+export type LapseState = 'active' | 'grace' | 'lapsed';
+
 export interface EntitlementsState {
   loaded: boolean;
   isAdmin: boolean;
@@ -27,6 +29,15 @@ export interface EntitlementsState {
   knownPlan: boolean;
   trialExpired: boolean;
   trialEndsAt: string | null;
+  /** Three-state lapse model: 'active' | 'grace' (read-only) | 'lapsed'. */
+  lapseState: LapseState;
+  /** True only in the grace window: the workspace is read-only (view but no
+   *  edit / save / export / create). */
+  readOnly: boolean;
+  /** The plan's access-expiry anchor (ISO), or null when it does not expire. */
+  accessExpiresAt: string | null;
+  /** End of the 1-month read-only grace window (ISO), shown in the renew banner. */
+  graceEndsAt: string | null;
   featureMap: Record<string, FeatureAccess>;
   projectLimit: number;
   archiveAllowed: boolean;
@@ -36,7 +47,8 @@ export interface EntitlementsState {
 
 const INITIAL: EntitlementsState = {
   loaded: false, isAdmin: false, fullAccess: false, planKey: '', knownPlan: false,
-  trialExpired: false, trialEndsAt: null, featureMap: {}, projectLimit: 0,
+  trialExpired: false, trialEndsAt: null, lapseState: 'active', readOnly: false,
+  accessExpiresAt: null, graceEndsAt: null, featureMap: {}, projectLimit: 0,
   archiveAllowed: false, activeProjectCount: 0, error: false,
 };
 
@@ -66,6 +78,10 @@ export function useEntitlements(): UseEntitlements {
           knownPlan: !!j.knownPlan,
           trialExpired: !!j.trialExpired,
           trialEndsAt: j.trialEndsAt ?? null,
+          lapseState: (j.lapseState as LapseState) ?? 'active',
+          readOnly: !!j.readOnly,
+          accessExpiresAt: j.accessExpiresAt ?? null,
+          graceEndsAt: j.graceEndsAt ?? null,
           featureMap: j.featureMap ?? {},
           projectLimit: typeof j.projectLimit === 'number' ? j.projectLimit : 0,
           archiveAllowed: !!j.archiveAllowed,

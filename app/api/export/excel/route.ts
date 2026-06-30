@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildWorkbook, type ExportPayload } from '@modeling/lib/exporters/excel';
+import { assertExportAllowed } from '@/src/shared/entitlements/exportGuard';
 
 /**
  * REFM Module 1 Excel export.
@@ -7,8 +8,14 @@ import { buildWorkbook, type ExportPayload } from '@modeling/lib/exporters/excel
  * Thin wrapper around `buildWorkbook()` from `@modeling/lib/exporters/excel`.
  * The builder is extracted so a fixture script can call it directly without
  * spinning up the Next.js dev server (see `scripts/excel-export-fixture.ts`).
+ *
+ * Lapse guard: export is denied for a read-only GRACE / LAPSED user (defense in
+ * depth, the live app generates the file client-side and gates there too). Admin
+ * and active plans pass.
  */
 export async function POST(req: NextRequest) {
+  const denied = await assertExportAllowed();
+  if (denied) return denied;
   const payload: ExportPayload = await req.json();
   const wb = buildWorkbook(payload);
   const buf = await wb.xlsx.writeBuffer();

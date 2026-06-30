@@ -231,7 +231,11 @@ export default function ModelingDashboardPage() {
   // screen instead of the platform picker. Admins and any real/unknown plan
   // continue here normally. The gate is server-authoritative (resolveUserGate).
   const ent = useEntitlements();
-  const noPlan = ent.loaded && !ent.isAdmin && ent.planKey === NONE_PLAN_KEY;
+  // No-plan routing also covers a LAPSED plan (grace month elapsed): the user can
+  // still log in but has no platform access, so the storefront routes them to
+  // get-access, exactly like the deliberate 'none' state. A GRACE user (read-only)
+  // is NOT treated as no-plan: they keep entering the workspace to view.
+  const noPlan = ent.loaded && !ent.isAdmin && (ent.planKey === NONE_PLAN_KEY || ent.lapseState === 'lapsed');
 
   const [activeView, setActiveView] = useState<DashView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);

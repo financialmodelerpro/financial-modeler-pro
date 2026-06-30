@@ -28,7 +28,7 @@ import {
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
-import { canAddActiveProject } from '@/src/shared/entitlements/gate';
+import { canAddActiveProject, writeBlockReason } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -75,6 +75,27 @@ export async function POST(req: NextRequest) {
   // ACTIVE (non-archived) projects must stay under the resolved limit. Returns
   // a stable CAP_REACHED code so the UI can show the archive-or-upgrade prompt.
   const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+
+  // Lapse gate: a read-only GRACE user (plan expired, within 1-month grace) and a
+  // LAPSED user (grace elapsed) can VIEW but cannot CREATE. Enforced here so it
+  // cannot be bypassed by calling the API directly; admin bypasses (writeBlockReason
+  // returns null on fullAccess). Data is never touched, this only denies the write.
+  const writeBlock = writeBlockReason(gate);
+  if (writeBlock) {
+    return NextResponse.json(
+      {
+        error: writeBlock === 'LAPSED'
+          ? 'Your subscription has lapsed. Renew your plan to create projects.'
+          : 'Your subscription has expired. Access is read-only during the grace period, renew to create projects.',
+        code: writeBlock,
+        accessExpiresAt: gate.accessExpiresAt,
+        graceEndsAt: gate.graceEndsAt,
+        planKey: gate.planKey,
+      },
+      { status: 403 },
+    );
+  }
+
   if (!canAddActiveProject(gate.activeProjectCount, gate.projectLimit)) {
     return NextResponse.json(
       {

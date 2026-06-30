@@ -313,6 +313,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
     [ent],
   );
   const subLoaded = ent.loaded;
+  // Read-only GRACE state (plan expired, within the 1-month grace). The user can
+  // VIEW projects but every write (edit / save / export / create / archive) is
+  // denied, here in the UI AND server-side at the choke points. Admin never grace.
+  const graceReadOnly = ent.loaded && !ent.isAdmin && ent.lapseState === 'grace';
+  // Human-readable grace end for the renew banner.
+  const graceEndLabel = ent.graceEndsAt
+    ? new Date(ent.graceEndsAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
   // Upgrade / cap prompt. kind 'feature' = a locked feature; kind 'cap' = the
   // project cap reached (offers archive or upgrade).
   const [upgradePrompt, setUpgradePrompt] = useState<
@@ -524,6 +532,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   const handleCreateFromWizard = useCallback(
     async (draft: WizardDraft): Promise<void> => {
+      // Read-only grace: creating projects is blocked (server enforces too).
+      if (graceReadOnly) { setWizardOpen(false); return; }
       const snapshot = buildWizardSnapshot(draft);
 
       // 2026-05-31 BUG-A FIX: detach the PREVIOUS project's autosave
@@ -576,7 +586,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setHasUnsaved(false);
       setEditingVersionLabel(null);
     },
-    [ent],
+    [ent, graceReadOnly],
   );
 
   // Archive / unarchive a project (entitlement cap). Archive frees a slot;
@@ -667,8 +677,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // the "a new version on every Edit" churn: in-place reuses the loaded version,
   // create-new is the old behaviour, and nothing is written until the user picks.
   const handleEnableEditing = useCallback(() => {
+    // Read-only grace: editing is blocked (the renew banner is shown instead).
+    if (graceReadOnly) return;
     setEditChoiceOpen(true);
-  }, []);
+  }, [graceReadOnly]);
 
   // Apply the UI edit-mode flags once the session has been pointed at a version
   // (used by in-place and load-for-edit). The sync layer has already enabled its
@@ -1172,7 +1184,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // View lock: a module surface of an open project is read-only until the user
   // clicks Edit. The Dashboard hub is never locked (it has no project inputs).
-  const viewLocked = !!activeProjectId && !editMode && activeModule !== 'dashboard';
+  // During read-only GRACE the same lock applies and the Edit affordance is
+  // suppressed (editing is impossible), the renew banner replaces the view-lock
+  // banner. The pointer-events lock on module content covers both.
+  const viewLocked = !!activeProjectId && (!editMode || graceReadOnly) && activeModule !== 'dashboard';
+  // Show the normal "click Edit" view-lock banner only when NOT in grace (grace
+  // shows its own renew banner instead, since Edit is unavailable).
+  const showViewLockBanner = viewLocked && !graceReadOnly;
 
   return (
     // M2.0i Fix 8 (2026-05-07): outer wrapper height: 100vh (was
@@ -1195,15 +1213,15 @@ export default function RealEstatePlatform(): React.JSX.Element {
         can={can}
         entitled={canAccess}
         onLockedFeature={(featureKey) => setUpgradePrompt({ kind: 'feature', featureKey })}
-        editMode={editMode}
-        canEnableEditing={!!activeProjectId}
+        editMode={editMode && !graceReadOnly}
+        canEnableEditing={!!activeProjectId && !graceReadOnly}
         onEnableEditing={handleEnableEditing}
         onSave={handleSaveQuick}
         onSaveAsNewVersion={handleSaveAsNewVersion}
         onOpenProjects={() => setProjectModalOpen(true)}
         onOpenVersions={() => setVersionModalOpen(true)}
         onOpenRbac={() => setRbacModalOpen(true)}
-        onExportClick={() => setExportModalOpen(true)}
+        onExportClick={() => { if (graceReadOnly) return; setExportModalOpen(true); }}
         onGuideClick={() => setGuideOpen(true)}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode((v) => !v)}
@@ -1340,7 +1358,35 @@ export default function RealEstatePlatform(): React.JSX.Element {
               </button>
             </div>
           )}
-          {viewLocked && (
+          {graceReadOnly && (
+            <div
+              data-testid="grace-renew-banner"
+              role="alert"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap',
+                background: '#FDF6E3', border: '1px solid #C9A84C',
+                borderRadius: 'var(--radius-sm)', padding: '10px var(--sp-2)', marginBottom: 'var(--sp-2)',
+              }}
+            >
+              <span style={{ fontSize: 18 }} aria-hidden>⏳</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#0D2E5A', flex: 1, minWidth: 240 }}>
+                Your subscription has expired. You have <strong>read-only</strong> access
+                {graceEndLabel ? <> until <strong>{graceEndLabel}</strong></> : null}, you can view your
+                projects but cannot edit, export, or create. Renew to restore full access.
+              </span>
+              <a
+                href="/pricing"
+                data-testid="grace-renew-link"
+                style={{
+                  background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13,
+                  padding: '7px 16px', borderRadius: 8, textDecoration: 'none', whiteSpace: 'nowrap',
+                }}
+              >
+                Renew plan →
+              </a>
+            </div>
+          )}
+          {showViewLockBanner && (
             <div
               data-testid="view-lock-banner"
               style={{
@@ -1496,6 +1542,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         canAccess={canAccess}
+        readOnly={graceReadOnly}
         projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}

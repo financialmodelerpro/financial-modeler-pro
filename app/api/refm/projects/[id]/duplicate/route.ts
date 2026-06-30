@@ -23,16 +23,37 @@ import {
   setProjectCurrentVersion,
   deleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { writeBlockReason } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function notFound() { return NextResponse.json({ error: 'Not found' }, { status: 404 }); }
 function serverError(msg: string) { return NextResponse.json({ error: msg }, { status: 500 }); }
 
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const userId = await getRefmUserId();
+  const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
   const { id: sourceId } = await ctx.params;
+
+  // Lapse gate: duplicating creates a new project, a write. Read-only GRACE and
+  // LAPSED users cannot create; admin bypasses. Checked before any DB read/write.
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  const writeBlock = writeBlockReason(gate);
+  if (writeBlock) {
+    return NextResponse.json(
+      {
+        error: writeBlock === 'LAPSED'
+          ? 'Your subscription has lapsed. Renew your plan to duplicate projects.'
+          : 'Your subscription has expired. Access is read-only during the grace period, renew to duplicate projects.',
+        code: writeBlock,
+        accessExpiresAt: gate.accessExpiresAt,
+        graceEndsAt: gate.graceEndsAt,
+        planKey: gate.planKey,
+      },
+      { status: 403 },
+    );
+  }
 
   // Step 1: load source project (with ownership check).
   const { row: source, error: srcErr } = await getProject(userId, sourceId);
