@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-06-29.**
+**Last updated: 2026-06-30.**
 
 **Module status (REFM platform), one line each. Full narrative + commits live in [CLAUDE-REFM.md](CLAUDE-REFM.md), NOT here:**
 - **Module 1 (Setup / Costs / Financing)**: LOCKED at M2.0 Pass 58 (base). Funding Methods 2/3 gap-sized; conditional IDC + iterative fixed-point solver. Financing sub-tabs: Inputs / Schedules / Funding Gap / Cash Sweep. Dividends are ONE project-level after-debt policy (`Project.dividendPolicy` + `dividendStartYear`) with a terminal 100% payout in the engine.
