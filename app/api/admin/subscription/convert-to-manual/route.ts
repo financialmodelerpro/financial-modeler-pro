@@ -8,7 +8,7 @@ import {
   storeScheduledManualConversion, recordPaymentTransaction,
 } from '@/src/shared/payments/config';
 import { getSubscription, cancelSubscriptionAtPeriodEnd, cancelSubscriptionNow } from '@/src/shared/payments/paddleApi';
-import { sendManualPlanWelcomeEmail } from '@/src/shared/email/subscriptionEmails';
+import { sendManualPlanWelcomeEmail, issueManualInvoice } from '@/src/shared/email/subscriptionEmails';
 
 // POST /api/admin/subscription/convert-to-manual
 // body: { user_id, platform?, when: 'period_end'|'immediate', plan_key, expires_at?, amount_minor?, currency?, note? }
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
     if (body.amount_minor && body.amount_minor > 0) {
       await recordPaymentTransaction(sb, { source: 'manual', externalId: null, userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual', billedAt: startedAt });
+      await issueManualInvoice(sb, { userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt });
     }
     // Manual plan-active welcome (self-contained; skips 'none'/'trial').
     await sendManualPlanWelcomeEmail(sb, {

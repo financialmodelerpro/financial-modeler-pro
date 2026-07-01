@@ -24,8 +24,9 @@ import path from 'path';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, fmtAmount, fmtDate, planLabel,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, fmtAmount, fmtDate, planLabel,
 } from '../src/shared/email/templates/subscription';
+import { generateManualReceiptPdf, makeReceiptNumber } from '../src/shared/payments/manualInvoice';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -139,6 +140,49 @@ const lc = (s: string) => s.toLowerCase();
   ]) {
     check(`no em dash: ${f}`, !read(f).includes('—'));
   }
+
+  // ── Billing display + invoices + manual receipts (this task) ────────────────
+  console.log('=== FMP footer branding (not the Training tagline) ===');
+  const subTpl = read('src/shared/email/templates/subscription.ts');
+  check('subscription emails force an FMP footer wrapper', subTpl.includes('function subLayout(') && !subTpl.includes('await baseLayoutBranded('));
+  check('footer uses the PaceMakers company line', subTpl.includes('A PaceMakers Business Consultants Platform'));
+  check('footer drops the Training Hub tagline', !subTpl.includes('Professional Financial Modeling Training') && !subTpl.includes('training program'));
+  const baseTpl = read('src/shared/email/templates/_base.ts');
+  check('baseLayoutBranded accepts signature/footer overrides', /overrides\?:\s*\{[^}]*signature_html/.test(baseTpl));
+
+  console.log('=== Billing source precedence (Paddle wins) ===');
+  const cfgSrc = read('src/shared/payments/config.ts');
+  check('storeUserPlatformSubscription sets source=paddle', /storeUserPlatformSubscription[\s\S]*?source:\s*'paddle'/.test(cfgSrc));
+  check('storeUserPlatformSubscription clears stale manual columns', /storeUserPlatformSubscription[\s\S]*?expires_at:\s*null/.test(cfgSrc));
+  const ctxSrc = read('src/shared/payments/subscriptionContext.ts');
+  check('context resolves manual only when no Paddle id (Paddle wins)', ctxSrc.includes("source === 'manual' && planKey && !subscriptionId"));
+
+  console.log('=== Combined invoice list (Paddle + manual) ===');
+  const invRoute = read('app/api/payments/invoices/route.ts');
+  check('invoices route merges Paddle + manual', invRoute.includes('listManualInvoices') && invRoute.includes('listSubscriptionInvoices'));
+  check('invoices route normalizes with a source field', invRoute.includes("source: 'paddle'") && /\.\.\.paddle,\s*\.\.\.manual/.test(invRoute));
+  const panel = read('src/hubs/modeling/components/SubscriptionPanel.tsx');
+  check('panel routes View by source (manual -> manual-invoice route)', panel.includes('/api/payments/manual-invoice/') && panel.includes('/api/payments/invoice/'));
+  check('panel shows invoices in BOTH manual + Paddle panels', (panel.match(/\{invoicesBlock\}/g) ?? []).length >= 2);
+
+  console.log('=== Manual receipt (generate + store + ownership) ===');
+  const rn = makeReceiptNumber('2026-07-02T00:00:00Z');
+  check('receipt number format FMP-YYYYMMDD-XXXXXX', /^FMP-20260702-[0-9A-F]{6}$/.test(rn), rn);
+  const pdf = await generateManualReceiptPdf({ receiptNumber: rn, issuedAt: '2026-07-02T00:00:00Z', planKey: 'pro', amountMinor: 14900, currency: 'usd', customerName: 'Sam Doe', customerEmail: 's@x.com' });
+  const head = Buffer.from(pdf.slice(0, 5)).toString('latin1');
+  check('receipt is a real PDF (%PDF header) with content', head === '%PDF-' && pdf.length > 800, `${head} len=${pdf.length}`);
+  const manualInv = await manualInvoiceEmail({ name: 'Sam', planKey: 'pro', amount: 'USD 149.00', receiptNumber: rn, issuedAt: '2026-07-02T00:00:00Z', billingUrl: 'https://x/dashboard#billing' });
+  check('receipt email names receipt no + amount + PaceMakers footer', manualInv.html.includes(rn) && manualInv.html.includes('USD 149.00') && manualInv.html.includes('A PaceMakers Business Consultants Platform'));
+  const miSrc = read('src/shared/payments/manualInvoice.ts');
+  check('manual receipts use a PRIVATE bucket', miSrc.includes("createBucket(BUCKET, { public: false })"));
+  check('manual receipt served via ownership check + signed URL', miSrc.includes('loadOwnedManualInvoice') && miSrc.includes('createSignedUrl'));
+  const miRoute = read('app/api/payments/manual-invoice/[id]/route.ts');
+  check('manual-invoice route enforces ownership before signing', miRoute.includes('loadOwnedManualInvoice') && miRoute.includes('signManualInvoiceUrl'));
+  const planRoute2 = read('app/api/admin/entitlements/user/plan/route.ts');
+  check('admin manual-assign issues a receipt when amount present', planRoute2.includes('issueManualInvoice'));
+  const convert2 = read('app/api/admin/subscription/convert-to-manual/route.ts');
+  check('convert-to-manual (immediate) issues a receipt', convert2.includes('issueManualInvoice'));
+  check('mig 182 manual_invoices exists (private, RLS)', /create table if not exists manual_invoices/i.test(read('supabase/migrations/182_manual_invoices.sql')));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('FAILED:', fails.join(', ')); process.exit(1); }

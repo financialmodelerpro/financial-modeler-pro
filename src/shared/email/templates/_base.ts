@@ -44,8 +44,24 @@ export async function getEmailBranding(): Promise<EmailBranding> {
 
 // ── Base layout (with dynamic branding) ────────────────────────────────────
 
-export async function baseLayoutBranded(content: string): Promise<string> {
-  const b = await getEmailBranding();
+/**
+ * Wrap content in the branded email shell. `overrides` lets a specific email
+ * family force its own signature/footer (e.g. the subscription/billing emails
+ * carry the FMP + PaceMakers company line, not the Training Hub tagline that the
+ * shared email_branding row/default uses). Overrides win over the DB + default;
+ * omitted fields fall back to the branding as before, so existing callers are
+ * unaffected.
+ */
+export async function baseLayoutBranded(
+  content: string,
+  overrides?: { signature_html?: string; footer_text?: string },
+): Promise<string> {
+  const base = await getEmailBranding();
+  const b: EmailBranding = {
+    ...base,
+    ...(overrides?.signature_html != null ? { signature_html: overrides.signature_html } : {}),
+    ...(overrides?.footer_text != null ? { footer_text: overrides.footer_text } : {}),
+  };
   const logoBlock = b.logo_url
     ? `<img src="${b.logo_url}" alt="${b.logo_alt}" width="${b.logo_width}" style="display:block;margin:0 auto;max-width:100%;height:auto;" />`
     : `<span style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Financial Modeler Pro</span>

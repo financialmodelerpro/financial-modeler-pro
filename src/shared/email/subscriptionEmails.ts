@@ -21,8 +21,9 @@ import { sendEmail, FROM, type EmailAttachment } from './sendEmail';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, fmtAmount,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, fmtAmount,
 } from './templates/subscription';
+import { createAndStoreManualInvoice } from '@/src/shared/payments/manualInvoice';
 import {
   loadPaymentSettings, providerConfigFrom,
 } from '@/src/shared/payments/config';
@@ -211,6 +212,44 @@ export async function sendTrialStartedEmail(
     });
     await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
   });
+}
+
+/**
+ * Issue a manual (offline/bank) receipt: generate + store the branded PDF, record
+ * the manual_invoices row, and email the receipt with the PDF attached. Called by
+ * the admin manual-assign + convert-to-manual-immediate routes when an amount is
+ * present. Self-contained + never throws (a receipt failure must not break the
+ * plan assignment). Skips none/trial and zero/absent amounts.
+ */
+export async function issueManualInvoice(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string | null; amountMinor: number | null; currency: string | null; issuedAt: string },
+): Promise<void> {
+  try {
+    const platform = args.platform ?? PLATFORM_DEFAULT;
+    if (!args.amountMinor || args.amountMinor <= 0) return;
+    const planKey = (args.planKey ?? '').toLowerCase();
+    if (planKey === 'none' || planKey === 'trial') return;
+    const c = await getContact(sb, args.userId);
+    if (!c) return;
+
+    const issued = await createAndStoreManualInvoice(sb, {
+      userId: args.userId, platform, planKey: args.planKey, amountMinor: args.amountMinor,
+      currency: args.currency ?? null, issuedAt: args.issuedAt, customerName: c.name, customerEmail: c.email,
+    });
+
+    const { subject, html } = await manualInvoiceEmail({
+      name: c.name, planKey: args.planKey ?? '', amount: fmtAmount(args.amountMinor, args.currency),
+      receiptNumber: issued.receiptNumber, issuedAt: args.issuedAt, billingUrl: billingUrl(),
+    });
+    await sendEmail({
+      to: c.email, subject, html, from: FROM.noreply,
+      attachments: [{ name: `${issued.receiptNumber}.pdf`, content: Buffer.from(issued.pdfBytes).toString('base64') }],
+    });
+    try { await sb.from('manual_invoices').update({ email_sent_at: new Date().toISOString() }).eq('id', issued.id); } catch { /* best effort */ }
+  } catch (e) {
+    console.warn('[sub-email] issueManualInvoice failed:', e instanceof Error ? e.message : String(e));
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────

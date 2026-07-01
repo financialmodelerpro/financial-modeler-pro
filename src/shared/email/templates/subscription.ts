@@ -10,6 +10,22 @@
  */
 import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
+// ── FMP company footer (billing emails) ─────────────────────────────────────
+// Subscription / billing emails carry the consistent FMP company line ("A
+// PaceMakers Business Consultants Platform", matching the pricing credibility
+// line), NOT the Training Hub tagline the shared email_branding default uses.
+const FMP_SIGNATURE = `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;">
+  <p style="margin:0;font-size:14px;color:#374151;font-weight:600;">Financial Modeler Pro</p>
+  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">A PaceMakers Business Consultants Platform</p>
+  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2E75B6;">financialmodelerpro.com</a></p>
+</div>`;
+const FMP_FOOTER = '© Financial Modeler Pro. A PaceMakers Business Consultants Platform. You are receiving this because you have an account with Financial Modeler Pro.';
+
+/** Branded shell for every subscription/billing email, forcing the FMP footer. */
+function subLayout(content: string): Promise<string> {
+  return baseLayoutBranded(content, { signature_html: FMP_SIGNATURE, footer_text: FMP_FOOTER });
+}
+
 // ── Shared formatting helpers ───────────────────────────────────────────────
 
 /** Format an ISO date as e.g. "12 August 2026" in UTC (locale-stable). */
@@ -45,7 +61,7 @@ export async function subscriptionActivePaddleEmail(data: {
   name: string | null; planKey: string; billingUrl: string; invoiceAttached: boolean;
 }): Promise<Built> {
   const plan = planLabel(data.planKey);
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Your ${plan} subscription is active`)}
     ${p(greeting(data.name))}
     ${p(`Thank you for subscribing. Your <strong>${plan}</strong> plan is now active and every feature it includes is unlocked on your account.`)}
@@ -67,7 +83,7 @@ export async function planActiveManualEmail(data: {
   const plan = planLabel(data.planKey);
   const start = fmtDate(data.startedAt);
   const expiry = fmtDate(data.expiresAt);
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Your ${plan} plan is active`)}
     ${p(greeting(data.name))}
     ${p(`Your <strong>${plan}</strong> plan has been set up on your account and every feature it includes is unlocked.`)}
@@ -86,7 +102,7 @@ export async function subscriptionCanceledEmail(data: {
 }): Promise<Built> {
   const plan = planLabel(data.planKey);
   const until = fmtDate(data.accessUntil);
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1('Your subscription is canceled')}
     ${p(greeting(data.name))}
     ${p(`We have canceled your <strong>${plan}</strong> subscription. You will not be charged again.`)}
@@ -106,7 +122,7 @@ export async function trialStartedEmail(data: {
   name: string | null; trialEndsAt: string | null; dashboardUrl: string; pricingUrl: string;
 }): Promise<Built> {
   const ends = fmtDate(data.trialEndsAt);
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1('Your free trial has started')}
     ${p(greeting(data.name))}
     ${p('Your free trial is now active. You have full access to the platform so you can build and explore your models.')}
@@ -125,7 +141,7 @@ export async function trialEndingEmail(data: {
 }): Promise<Built> {
   const ends = fmtDate(data.trialEndsAt);
   const when = data.daysLeft <= 1 ? 'tomorrow' : `in ${data.daysLeft} days`;
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Your trial ends ${when}`)}
     ${p(greeting(data.name))}
     ${p(`Your free trial ends ${ends ? `on <strong>${ends}</strong> (${when})` : when}. To keep full access to your projects and continue working without interruption, choose a plan before it ends.`)}
@@ -144,7 +160,7 @@ export async function renewalReminderEmail(data: {
   const plan = planLabel(data.planKey);
   const when = data.daysLeft <= 1 ? 'tomorrow' : `in ${data.daysLeft} days`;
   const amountPhrase = data.amount ? `<strong>${data.amount}</strong>` : 'your plan amount';
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Your ${plan} plan renews ${when}`)}
     ${p(greeting(data.name))}
     ${p(`This is a reminder that your <strong>${plan}</strong> subscription renews ${data.renewsOn ? `on <strong>${fmtDate(data.renewsOn)}</strong> (${when})` : when}, and you will be charged ${amountPhrase} to the payment method on file.`)}
@@ -163,7 +179,7 @@ export async function expiryReminderEmail(data: {
 }): Promise<Built> {
   const plan = planLabel(data.planKey);
   const when = data.daysLeft <= 1 ? 'tomorrow' : `in ${data.daysLeft} days`;
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Your access ends ${when}`)}
     ${p(greeting(data.name))}
     ${p(`Your <strong>${plan}</strong> access ends ${data.endsOn ? `on <strong>${fmtDate(data.endsOn)}</strong> (${when})` : when}. Renew to keep full access to your projects without interruption.`)}
@@ -180,7 +196,7 @@ export async function graceStartedEmail(data: {
   name: string | null; graceEndsAt: string | null; renewUrl: string;
 }): Promise<Built> {
   const until = fmtDate(data.graceEndsAt);
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1('Your plan has expired: read-only access')}
     ${p(greeting(data.name))}
     ${p(`Your plan has expired, so your account is now <strong>read-only</strong>. You can still log in and view your projects, but editing, exporting, and creating are paused.`)}
@@ -199,7 +215,7 @@ export async function graceEndingEmail(data: {
 }): Promise<Built> {
   const ends = fmtDate(data.graceEndsAt);
   const when = data.daysLeft <= 1 ? 'tomorrow' : `in ${data.daysLeft} days`;
-  const html = await baseLayoutBranded(`
+  const html = await subLayout(`
     ${h1(`Access to your account ends ${when}`)}
     ${p(greeting(data.name))}
     ${p(`Your read-only grace period ends ${ends ? `on <strong>${ends}</strong> (${when})` : when}. After that you will no longer be able to access the platform until you renew.`)}
@@ -209,4 +225,25 @@ export async function graceEndingEmail(data: {
     ${p('Even after access ends, your data is never deleted. You can renew at any time to get everything back.', 'font-size:13px;color:#6b7280;')}
   `);
   return { subject: `Access to your account ends ${when}: renew now`, html };
+}
+
+// ── 10. Manual invoice / receipt (offline payment) ──────────────────────────
+
+export async function manualInvoiceEmail(data: {
+  name: string | null; planKey: string; amount: string; receiptNumber: string; issuedAt: string | null; billingUrl: string;
+}): Promise<Built> {
+  const plan = planLabel(data.planKey);
+  const date = fmtDate(data.issuedAt);
+  const html = await subLayout(`
+    ${h1('Your receipt')}
+    ${p(greeting(data.name))}
+    ${p(`Thank you for your payment. Your receipt for the <strong>${plan}</strong> plan is attached to this email as a PDF.`)}
+    ${p(`<strong>Receipt no.:</strong> ${data.receiptNumber}`)}
+    ${date ? p(`<strong>Date:</strong> ${date}`) : ''}
+    ${data.amount ? p(`<strong>Amount:</strong> ${data.amount}`) : ''}
+    <div style="text-align:center;">${button('View in billing', data.billingUrl)}</div>
+    ${divider()}
+    ${p('You can view or download this receipt any time from the billing area of your dashboard.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: `Receipt ${data.receiptNumber} for your ${plan} plan`, html };
 }

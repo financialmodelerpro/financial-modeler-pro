@@ -665,9 +665,15 @@ export async function storeUserPlatformSubscription(
 ): Promise<void> {
   if (!userId || !platform) return;
   try {
+    // source: 'paddle' is CRITICAL: this row may already exist with
+    // source='manual' (an admin-assigned plan the user then subscribed over). The
+    // upsert only writes the fields it names, so without this the row keeps
+    // source='manual' and the billing tab + context wrongly render "Managed by
+    // your team". Mirror of upsertManualSubscription (which clears the Paddle ids).
     await sb.from('user_platform_subscriptions').upsert({
       user_id: userId,
       platform_slug: platform,
+      source: 'paddle',
       paddle_subscription_id: data.subscriptionId,
       paddle_customer_id: data.customerId,
       plan_key: data.planKey,
@@ -675,6 +681,16 @@ export async function storeUserPlatformSubscription(
     }, { onConflict: 'user_id,platform_slug' });
   } catch {
     // table absent pre-migration, or transient error: ignore (plan apply stands).
+  }
+  // Best-effort, separate from the critical write above: clear stale manual-only
+  // columns so a prior manual record's expiry/amount/note does not linger on a
+  // now-Paddle row (mig 179 columns; swallow if absent).
+  try {
+    await sb.from('user_platform_subscriptions')
+      .update({ expires_at: null, amount_minor: null, note: null })
+      .eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // mig-179 columns absent: nothing to clear.
   }
 }
 

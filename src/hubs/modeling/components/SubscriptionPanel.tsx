@@ -45,10 +45,10 @@ interface SubscriptionSummary {
   note?: string | null;
 }
 interface InvoiceSummary {
-  transactionId: string;
-  status: string;
+  id: string;
+  source: 'paddle' | 'manual';
   billedAt: string | null;
-  invoiceNumber: string | null;
+  number: string | null;
   amountMinor: number | null;
   currency: string | null;
 }
@@ -140,7 +140,7 @@ export default function SubscriptionPanel({
   const [scheduledChange, setScheduledChange] = useState<ScheduledChange | null>(null);
   const [cancelingSchedule, setCancelingSchedule] = useState(false);
   // In-dashboard invoice viewer (transaction id being viewed).
-  const [viewInvoice, setViewInvoice] = useState<string | null>(null);
+  const [viewInvoice, setViewInvoice] = useState<{ id: string; source: 'paddle' | 'manual' } | null>(null);
 
   const q = `platform=${encodeURIComponent(platform)}`;
 
@@ -298,6 +298,88 @@ export default function SubscriptionPanel({
   // Switchable plans = every active plan for this platform except the current one.
   const otherPlans = planOptions.filter((p) => p.plan_key !== currentPlanKey);
 
+  // Invoice PDF endpoint per source (Paddle-hosted redirect vs signed manual URL).
+  const invoiceHref = (inv: { id: string; source: 'paddle' | 'manual' }) =>
+    inv.source === 'manual'
+      ? `/api/payments/manual-invoice/${encodeURIComponent(inv.id)}?${q}`
+      : `/api/payments/invoice/${encodeURIComponent(inv.id)}?${q}`;
+
+  // The combined invoice list (Paddle + manual) + the in-dashboard viewer, shared
+  // by BOTH the manual and the Paddle panel so any user with billing history sees
+  // their receipts regardless of the current subscription source.
+  const invoicesBlock = invoices.length > 0 ? (
+    <div style={{ marginTop: 22 }}>
+      <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Invoices &amp; receipts</div>
+      <div data-testid="invoices-list" style={{ border: `1px solid ${border}`, borderRadius: 10, overflow: 'hidden' }}>
+        {invoices.map((inv, i) => (
+          <div
+            key={inv.id}
+            data-testid="invoice-row"
+            data-source={inv.source}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 16px', borderTop: i === 0 ? 'none' : `1px solid ${border}`, background: i % 2 ? (dark ? '#1F2937' : '#F9FAFB') : surface }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: heading }}>{fmtDate(inv.billedAt)}</div>
+              <div style={{ fontSize: 11, color: muted }}>
+                {inv.number ?? inv.id}{inv.source === 'manual' ? ' · Receipt' : ''}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: body }}>{fmtAmount(inv.amountMinor, inv.currency)}</span>
+              <button
+                type="button"
+                data-testid="invoice-view-btn"
+                onClick={() => setViewInvoice({ id: inv.id, source: inv.source })}
+                style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                View PDF
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  const viewerBlock = viewInvoice ? (
+    <div
+      data-testid="invoice-viewer"
+      onClick={() => setViewInvoice(null)}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={{ background: surface, borderRadius: 14, width: 'min(900px, 100%)', height: 'min(85vh, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${border}` }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: heading }}>{viewInvoice.source === 'manual' ? 'Receipt' : 'Invoice'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <a
+              data-testid="invoice-download-btn"
+              href={invoiceHref(viewInvoice)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 12.5, fontWeight: 700, color: '#fff', background: NAVY, padding: '7px 14px', borderRadius: 8, textDecoration: 'none' }}
+            >
+              Download
+            </a>
+            <button
+              type="button"
+              onClick={() => setViewInvoice(null)}
+              style={{ fontSize: 18, lineHeight: 1, color: muted, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+              aria-label="Close"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+        <iframe
+          data-testid="invoice-viewer-frame"
+          title="Invoice PDF"
+          src={invoiceHref(viewInvoice)}
+          style={{ border: 'none', width: '100%', flex: 1, background: '#fff' }}
+        />
+      </div>
+    </div>
+  ) : null;
+
   // Manual (admin-assigned, offline-paid) plan: show plan + status + start +
   // expiry from the local row. NO Paddle-only actions (no cancel / upgrade /
   // update-card / invoices), since this plan is not billed through Paddle.
@@ -331,6 +413,8 @@ export default function SubscriptionPanel({
         <p style={{ fontSize: 12.5, color: muted, margin: '16px 0 0', lineHeight: 1.6 }}>
           This plan was set up by the team (offline / bank payment). To change or renew it, contact the team.
         </p>
+        {invoicesBlock}
+        {viewerBlock}
       </div>
     );
   }
@@ -597,77 +681,9 @@ export default function SubscriptionPanel({
         </p>
       )}
 
-      {/* Invoices */}
-      {invoices.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, color: muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Invoices & receipts</div>
-          <div data-testid="invoices-list" style={{ border: `1px solid ${border}`, borderRadius: 10, overflow: 'hidden' }}>
-            {invoices.map((inv, i) => (
-              <div
-                key={inv.transactionId}
-                data-testid="invoice-row"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 16px', borderTop: i === 0 ? 'none' : `1px solid ${border}`, background: i % 2 ? (dark ? '#1F2937' : '#F9FAFB') : surface }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: heading }}>{fmtDate(inv.billedAt)}</div>
-                  <div style={{ fontSize: 11, color: muted }}>{inv.invoiceNumber ?? inv.transactionId}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: body }}>{fmtAmount(inv.amountMinor, inv.currency)}</span>
-                  <button
-                    type="button"
-                    data-testid="invoice-view-btn"
-                    onClick={() => setViewInvoice(inv.transactionId)}
-                    style={{ fontSize: 12.5, fontWeight: 700, color: NAVY, background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    View PDF
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* In-dashboard invoice viewer (no forced download; optional Download). */}
-      {viewInvoice && (
-        <div
-          data-testid="invoice-viewer"
-          onClick={() => setViewInvoice(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-        >
-          <div onClick={(e) => e.stopPropagation()} style={{ background: surface, borderRadius: 14, width: 'min(900px, 100%)', height: 'min(85vh, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${border}` }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: heading }}>Invoice</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <a
-                  data-testid="invoice-download-btn"
-                  href={`/api/payments/invoice/${encodeURIComponent(viewInvoice)}?${q}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12.5, fontWeight: 700, color: '#fff', background: NAVY, padding: '7px 14px', borderRadius: 8, textDecoration: 'none' }}
-                >
-                  Download
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setViewInvoice(null)}
-                  style={{ fontSize: 18, lineHeight: 1, color: muted, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
-                  aria-label="Close"
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
-            <iframe
-              data-testid="invoice-viewer-frame"
-              title="Invoice PDF"
-              src={`/api/payments/invoice/${encodeURIComponent(viewInvoice)}?${q}`}
-              style={{ border: 'none', width: '100%', flex: 1, background: '#fff' }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Combined invoices (Paddle + manual) + viewer, shared with the manual panel. */}
+      {invoicesBlock}
+      {viewerBlock}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
-import { sendManualPlanWelcomeEmail } from '@/src/shared/email/subscriptionEmails';
+import { sendManualPlanWelcomeEmail, issueManualInvoice } from '@/src/shared/email/subscriptionEmails';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -58,12 +58,18 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
-    // Log the manual payment to the revenue ledger (counts toward admin revenue).
+    // Log the manual payment to the revenue ledger (counts toward admin revenue)
+    // and issue an FMP-branded receipt (PDF stored + emailed + listed in billing).
     if (body.amount_minor && body.amount_minor > 0) {
+      const billedAt = body.started_at ?? new Date().toISOString();
       await recordPaymentTransaction(sb, {
         source: 'manual', externalId: null, userId: user_id, platform, planKey: res.planKey ?? plan_key,
         amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual',
-        billedAt: body.started_at ?? new Date().toISOString(),
+        billedAt,
+      });
+      await issueManualInvoice(sb, {
+        userId: user_id, platform, planKey: res.planKey ?? plan_key,
+        amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: billedAt,
       });
     }
     // Welcome / plan-active email for a manual (offline) paid plan (self-contained;

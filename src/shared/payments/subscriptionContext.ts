@@ -121,8 +121,11 @@ export async function loadUserPaddleContext(
   }
 
   let state: UserPaddleContext['state'];
-  if (source === 'manual' && planKey) {
-    // Manual (offline) plan: rendered from the local row, no Paddle needed.
+  if (source === 'manual' && planKey && !subscriptionId) {
+    // Manual (offline) plan: rendered from the local row, no Paddle needed. An
+    // ACTIVE Paddle subscription takes precedence: if a Paddle subscription id is
+    // present, resolve the live Paddle state even on a row still tagged manual
+    // (self-heals a stale manual-over-Paddle row without a data migration).
     state = 'manual';
   } else if (settings.active_provider !== 'paddle') {
     state = 'not_paddle';
