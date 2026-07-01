@@ -21,7 +21,7 @@ import { sendEmail, FROM, type EmailAttachment } from './sendEmail';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, fmtAmount,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, fmtAmount,
 } from './templates/subscription';
 import { createAndStoreManualInvoice } from '@/src/shared/payments/manualInvoice';
 import {
@@ -217,6 +217,36 @@ export async function sendTrialStartedEmail(
     if (!c) throw new Error('no contact');
     const { subject, html } = await trialStartedEmail({
       name: c.name, trialEndsAt: args.trialEndsAt ?? null, dashboardUrl: dashboardUrl(), pricingUrl: pricingUrl(platform),
+    });
+    await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
+  });
+}
+
+/**
+ * Plan-change confirmation (upgrade / downgrade / interval switch). Self-contained
+ * + never throws. Deduped so one change sends one email: the marker encodes the
+ * target plan + interval (so a different later change still sends), keyed on the
+ * effective day. `timing` is 'immediate' (upgrade / interval, effective now) or
+ * 'scheduled' (downgrade, effective next cycle). Renew/plans link is per-platform.
+ */
+export async function sendPlanChangedEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null },
+): Promise<void> {
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const planKey = (args.planKey ?? '').toLowerCase();
+  if (!planKey || planKey === 'none') return;
+  const anchorMs = parseMs(args.effectiveAt ?? null) ?? Date.now();
+  const key: MarkerKey = {
+    user_id: args.userId, platform_slug: platform,
+    email_type: `plan_changed:${planKey}:${args.interval}`, threshold: args.timing, anchor_day: dayStr(anchorMs),
+  };
+  await dispatch(sb, key, async () => {
+    const c = await getContact(sb, args.userId);
+    if (!c) throw new Error('no contact');
+    const { subject, html } = await planChangedEmail({
+      name: c.name, planKey: args.planKey, interval: args.interval, timing: args.timing,
+      effectiveAt: args.effectiveAt ?? null, manageUrl: billingUrl(), pricingUrl: pricingUrl(platform),
     });
     await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
   });

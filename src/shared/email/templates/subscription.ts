@@ -247,3 +247,30 @@ export async function manualInvoiceEmail(data: {
   `);
   return { subject: `Receipt ${data.receiptNumber} for your ${plan} plan`, html };
 }
+
+// ── 11. Plan changed (upgrade / downgrade / interval switch) ────────────────
+
+export async function planChangedEmail(data: {
+  name: string | null; planKey: string; interval: 'monthly' | 'annual';
+  timing: 'immediate' | 'scheduled'; effectiveAt: string | null; manageUrl: string; pricingUrl: string;
+}): Promise<Built> {
+  const plan = planLabel(data.planKey);
+  const billed = data.interval === 'annual' ? 'billed annually' : 'billed monthly';
+  const when = fmtDate(data.effectiveAt);
+  const scheduled = data.timing === 'scheduled';
+  const heading = scheduled ? 'Your plan change is scheduled' : `You're now on the ${plan} plan`;
+  const html = await subLayout(`
+    ${h1(heading)}
+    ${p(greeting(data.name))}
+    ${scheduled
+      ? p(`Your subscription will change to the <strong>${plan}</strong> plan (${billed})${when ? ` on <strong>${when}</strong>` : ' at the start of your next billing cycle'}. You keep your current plan until then, and there is no charge today.`)
+      : p(`Your subscription is now on the <strong>${plan}</strong> plan (${billed}), effective immediately. Any prorated difference for the change was applied to your payment method today.`)}
+    <div style="text-align:center;">${button('Manage your subscription', data.manageUrl)}</div>
+    ${divider()}
+    ${p(`You can review or change your plan any time from the billing area, or <a href="${data.pricingUrl}" style="color:#2E75B6;">see all plans</a>.`, 'font-size:13px;color:#6b7280;')}
+  `);
+  const subject = scheduled
+    ? `Your plan change to ${plan} is scheduled${when ? ` for ${when}` : ''}`
+    : `Your plan is now ${plan} (${data.interval})`;
+  return { subject, html };
+}

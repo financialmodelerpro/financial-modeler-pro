@@ -8,6 +8,7 @@ import {
   loadPlatformPlanOptions, planProviderPriceId, classifyPlanOrIntervalChange,
   storeScheduledChange, clearScheduledChange,
 } from '@/src/shared/payments/config';
+import { sendPlanChangedEmail } from '@/src/shared/email/subscriptionEmails';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
 // POST /api/payments/subscription/change-plan
@@ -76,6 +77,8 @@ export async function POST(req: NextRequest) {
   if (changeType === 'downgrade') {
     const effectiveAt = current.data.currentPeriodEndsAt ?? current.data.nextBilledAt ?? null;
     await storeScheduledChange(sb, userId, platform, { planKey, interval: targetInterval, priceId: targetPriceId, effectiveAt });
+    // Confirmation email: scheduled for next cycle (self-contained, never throws).
+    await sendPlanChangedEmail(sb, { userId, platform, planKey, interval: targetInterval, timing: 'scheduled', effectiveAt });
     return NextResponse.json({
       ok: true, applied: 'scheduled', planKey,
       scheduledChange: { planKey, interval: targetInterval, effectiveAt },
@@ -89,6 +92,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
   }
   await clearScheduledChange(sb, userId, platform);
+  // Confirmation email: upgrade / interval switch, effective immediately
+  // (self-contained, never throws; deduped so a single change sends one email).
+  await sendPlanChangedEmail(sb, { userId, platform, planKey, interval: targetInterval, timing: 'immediate', effectiveAt: res.data.nextBilledAt ?? null });
   // Return the refreshed summary; the webhook keeps the app plan in sync.
   return NextResponse.json({ ok: true, applied: 'immediate', subscription: res.data, planKey });
 }

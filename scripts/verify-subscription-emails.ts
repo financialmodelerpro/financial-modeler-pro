@@ -24,7 +24,7 @@ import path from 'path';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, fmtAmount, fmtDate, planLabel,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, fmtAmount, fmtDate, planLabel,
 } from '../src/shared/email/templates/subscription';
 import { generateManualReceiptPdf, makeReceiptNumber } from '../src/shared/payments/manualInvoice';
 import { getPlatform, platformPricingSegment } from '../src/hubs/modeling/config/platforms';
@@ -204,12 +204,30 @@ const lc = (s: string) => s.toLowerCase();
   check('real-estate derives the refm segment', !!refmPlat && platformPricingSegment(refmPlat) === 'refm', refmPlat ? platformPricingSegment(refmPlat) : 'no platform');
   const emailsSrc = read('src/shared/email/subscriptionEmails.ts');
   check('email pricingUrl takes a platform + builds /pricing/<segment>', /function pricingUrl\(platform: string\)/.test(emailsSrc) && /\/pricing\/\$\{segment\}/.test(emailsSrc));
-  check('no bare pricingUrl() left in emails (all 6 pass platform)', !/pricingUrl\(\)/.test(emailsSrc) && (emailsSrc.match(/pricingUrl\(platform\)/g) ?? []).length === 6);
+  check('no bare pricingUrl() left in emails (every call passes platform)', !/pricingUrl\(\)/.test(emailsSrc) && (emailsSrc.match(/pricingUrl\(platform\)/g) ?? []).length >= 6);
   const refmComp = read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx');
   check('REFM grace banner links to the per-platform pricing page', /REFM_PRICING_HREF = `\/pricing\/\$\{platformPricingSegment/.test(refmComp) && /href=\{REFM_PRICING_HREF\}/.test(refmComp) && !/href="\/pricing"/.test(refmComp));
   const dash = read('app/modeling/dashboard/page.tsx');
   check('dashboard grace banner links per-platform (default refm)', /graceRenewHref = `\/pricing\/\$\{platformPricingSegment/.test(dash) && /href=\{graceRenewHref\}/.test(dash));
   check('dashboard grace banner no longer bare /pricing', !/data-testid="dashboard-grace-renew-link"[^>]*href="\/pricing"/.test(dash));
+
+  // ── A: plan-change confirmation email ───────────────────────────────────────
+  console.log('=== Plan-change confirmation email (A) ===');
+  const up = await planChangedEmail({ name: 'Sam', planKey: 'firm', interval: 'annual', timing: 'immediate', effectiveAt: '2027-01-01T00:00:00Z', manageUrl: 'https://x/dashboard#billing', pricingUrl: 'https://x/pricing/refm' });
+  check('immediate: names new plan + interval + effective-now framing', up.html.includes('Firm') && lc(up.html).includes('annually') && lc(up.html).includes('effective immediately'));
+  check('immediate: subject names plan + interval', lc(up.subject).includes('firm') && lc(up.subject).includes('annual'));
+  check('immediate: does NOT say scheduled / next cycle', !lc(up.html).includes('next billing cycle') && !lc(up.html).includes('scheduled'));
+  const down = await planChangedEmail({ name: 'Sam', planKey: 'pro', interval: 'monthly', timing: 'scheduled', effectiveAt: '2026-08-01T00:00:00Z', manageUrl: 'https://x/dashboard#billing', pricingUrl: 'https://x/pricing/refm' });
+  check('scheduled: next-cycle framing + effective date + no charge today', lc(down.html).includes('keep your current plan until then') && down.html.includes('1 August 2026') && lc(down.html).includes('no charge today'));
+  check('scheduled: subject says scheduled', lc(down.subject).includes('scheduled'));
+  check('plan-change email carries the per-platform pricing link + FMP footer', up.html.includes('/pricing/refm') && up.html.includes('A PaceMakers Business Consultants Platform'));
+  const em2 = read('src/shared/email/subscriptionEmails.ts');
+  check('sendPlanChangedEmail deduped (marker encodes plan+interval, keyed by timing)', /email_type: `plan_changed:\$\{planKey\}:\$\{args\.interval\}`/.test(em2) && /threshold: args\.timing/.test(em2));
+  const cp = read('app/api/payments/subscription/change-plan/route.ts');
+  check('change-plan sends immediate email on upgrade/interval', /timing: 'immediate'/.test(cp));
+  check('change-plan sends scheduled email on downgrade', /timing: 'scheduled'/.test(cp));
+  const wh2 = read('app/api/payments/webhook/[provider]/route.ts');
+  check('no plan-change email from the updated webhook (single trigger, no dupes)', !/sendPlanChangedEmail/.test(wh2));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('FAILED:', fails.join(', ')); process.exit(1); }
