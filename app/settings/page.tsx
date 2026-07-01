@@ -4,12 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/src/shared/hooks/useRequireAuth';
-import { PLAN_META, STATUS_META, CONTACT_SALES_EMAIL } from '@/src/constants/app';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ProfileData {
   name:          string | null;
   email:         string;
+  company:       string | null;
+  job_title:     string | null;
+  phone:         string | null;
+  city:          string | null;
+  avatar_url:    string | null;
   projectsCount: number;
 }
 
@@ -83,6 +87,11 @@ export default function SettingsPage() {
   const [nameVal,          setNameVal]          = useState('');
   const [emailVal,         setEmailVal]          = useState('');
   const [emailPassword,    setEmailPassword]    = useState('');
+  const [companyVal,       setCompanyVal]       = useState('');
+  const [jobTitleVal,      setJobTitleVal]      = useState('');
+  const [phoneVal,         setPhoneVal]         = useState('');
+  const [cityVal,          setCityVal]          = useState('');
+  const [avatarUrl,        setAvatarUrl]        = useState<string | null>(null);
   const [curPassword,      setCurPassword]      = useState('');
   const [newPassword,      setNewPassword]      = useState('');
   const [confirmPassword,  setConfirmPassword]  = useState('');
@@ -91,9 +100,12 @@ export default function SettingsPage() {
   // ── Loading / feedback per section ──────────────────────────────────────────
   const [savingName,     setSavingName]     = useState(false);
   const [savingEmail,    setSavingEmail]    = useState(false);
+  const [savingCompany,  setSavingCompany]  = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [deleting,       setDeleting]       = useState(false);
   const [signingOut,     setSigningOut]     = useState(false);
+  const avatarInputRef = React.useRef<HTMLInputElement>(null);
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -111,6 +123,11 @@ export default function SettingsPage() {
         setProfile(d);
         setNameVal(d.name ?? '');
         setEmailVal(d.email);
+        setCompanyVal(d.company ?? '');
+        setJobTitleVal(d.job_title ?? '');
+        setPhoneVal(d.phone ?? '');
+        setCityVal(d.city ?? '');
+        setAvatarUrl(d.avatar_url ?? null);
       })
       .catch(() => {})
       .finally(() => setProfileLoading(false));
@@ -119,10 +136,6 @@ export default function SettingsPage() {
   if (authLoading) return null;
 
   const user = session!.user;
-  const plan = PLAN_META[(user.subscription_plan as keyof typeof PLAN_META)] ?? PLAN_META.free;
-  const stat = STATUS_META[(user.subscription_status as keyof typeof STATUS_META)] ?? STATUS_META.trial;
-  const projectsCount = profile?.projectsCount ?? 0;
-  const projectsLimit = plan.limit;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   async function saveName(e: React.FormEvent) {
@@ -155,6 +168,46 @@ export default function SettingsPage() {
       setEmailPassword('');
       showToast('Email updated - please sign in again to see it reflected', 'success');
     } finally { setSavingEmail(false); }
+  }
+
+  async function saveCompany(e: React.FormEvent) {
+    e.preventDefault();
+    if (!companyVal.trim())  { showToast('Company is required', 'error'); return; }
+    if (!jobTitleVal.trim()) { showToast('Job title is required', 'error'); return; }
+    setSavingCompany(true);
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'profile',
+          company: companyVal, job_title: jobTitleVal, phone: phoneVal, city: cityVal,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) { showToast(j.error ?? 'Failed to save', 'error'); return; }
+      setProfile(p => p ? { ...p, company: companyVal, job_title: jobTitleVal, phone: phoneVal, city: cityVal } : p);
+      showToast('Company details updated', 'success');
+    } finally { setSavingCompany(false); }
+  }
+
+  async function uploadAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { showToast('Image too large. Maximum size is 2 MB.', 'error'); return; }
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/user/avatar', { method: 'POST', body: fd });
+      const j = await res.json();
+      if (!res.ok) { showToast(j.error ?? 'Upload failed', 'error'); return; }
+      setAvatarUrl(j.url);
+      setProfile(p => p ? { ...p, avatar_url: j.url } : p);
+      showToast('Profile image updated', 'success');
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
   }
 
   async function savePassword(e: React.FormEvent) {
@@ -232,15 +285,36 @@ export default function SettingsPage() {
               background: 'var(--color-primary)', display: 'flex',
               alignItems: 'center', justifyContent: 'center',
               fontSize: 22, color: '#fff', fontWeight: 700, flexShrink: 0,
+              overflow: 'hidden',
             }}>
-              {profileLoading ? '…' : (nameVal?.[0] ?? user.email[0]).toUpperCase()}
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                profileLoading ? '…' : (nameVal?.[0] ?? user.email[0]).toUpperCase()
+              )}
             </div>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-heading)' }}>
                 {profileLoading ? '…' : (profile?.name ?? 'No name set')}
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>{user.email}</div>
             </div>
+            <input
+              ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+              onChange={uploadAvatar} style={{ display: 'none' }}
+            />
+            <button
+              type="button" onClick={() => avatarInputRef.current?.click()} disabled={uploadingAvatar}
+              style={{
+                padding: '7px 14px', background: 'var(--color-surface)', color: 'var(--color-heading)',
+                border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+                fontSize: 12, fontWeight: 700, cursor: uploadingAvatar ? 'default' : 'pointer',
+                fontFamily: 'Inter, sans-serif', flexShrink: 0, whiteSpace: 'nowrap',
+              }}
+            >
+              {uploadingAvatar ? 'Uploading…' : avatarUrl ? 'Replace photo' : 'Upload photo'}
+            </button>
           </div>
 
           {/* ── Name form ── */}
@@ -257,6 +331,48 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+          </form>
+
+          {/* ── Company details form ── */}
+          <form onSubmit={saveCompany} style={{ marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-heading)', marginBottom: 12 }}>
+              Company details
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ ...S.fieldGroup, flex: 1, minWidth: 200 }}>
+                <label style={S.label}>Company / Organization <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text" value={companyVal} onChange={e => setCompanyVal(e.target.value)}
+                  required placeholder="Your company" style={S.input}
+                />
+              </div>
+              <div style={{ ...S.fieldGroup, flex: 1, minWidth: 200 }}>
+                <label style={S.label}>Job title <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text" value={jobTitleVal} onChange={e => setJobTitleVal(e.target.value)}
+                  required placeholder="Your role" style={S.input}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ ...S.fieldGroup, flex: 1, minWidth: 200 }}>
+                <label style={S.label}>Phone <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                <input
+                  type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
+                  placeholder="+1 555 000 0000" style={S.input}
+                />
+              </div>
+              <div style={{ ...S.fieldGroup, flex: 1, minWidth: 200 }}>
+                <label style={S.label}>City <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                <input
+                  type="text" value={cityVal} onChange={e => setCityVal(e.target.value)}
+                  placeholder="Your city" style={S.input}
+                />
+              </div>
+            </div>
+            <button type="submit" disabled={savingCompany} style={S.btnSave}>
+              {savingCompany ? 'Saving…' : 'Save details'}
+            </button>
           </form>
 
           {/* ── Email form ── */}
@@ -319,70 +435,9 @@ export default function SettingsPage() {
           </form>
         </div>
 
-        {/* ── SECTION B: Subscription ── */}
-        <div style={S.card}>
-          <SectionHeader>💳 Subscription</SectionHeader>
-
-          {/* Plan + Status badges */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-            <div style={{
-              flex: 1, minWidth: 160, padding: '12px 18px',
-              background: plan.bg, borderRadius: 8, border: `1px solid ${plan.color}30`,
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: plan.color, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Plan</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: plan.color }}>{plan.label}</div>
-            </div>
-            <div style={{
-              flex: 1, minWidth: 160, padding: '12px 18px',
-              background: stat.bg, borderRadius: 8, border: `1px solid ${stat.color}30`,
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: stat.color, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Status</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: stat.color }}>{stat.label}</div>
-            </div>
-          </div>
-
-          {/* Projects used */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-body)' }}>Projects used</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>
-                {profileLoading ? '…' : projectsCount} / {projectsLimit === -1 ? '∞' : projectsLimit}
-              </span>
-            </div>
-            {projectsLimit !== -1 && (
-              <div style={{ height: 8, background: 'var(--color-border)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', borderRadius: 4,
-                  background: projectsCount >= projectsLimit ? '#dc2626' : 'var(--color-primary)',
-                  width: `${Math.min(100, (projectsCount / projectsLimit) * 100)}%`,
-                  transition: 'width 0.3s',
-                }} />
-              </div>
-            )}
-          </div>
-
-          {user.subscription_plan !== 'enterprise' ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-              padding: '12px 16px', background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
-              <span style={{ fontSize: 12, color: '#0369a1' }}>
-                Unlock more projects, modules, and AI features.
-              </span>
-              <a href="/settings/billing" style={{
-                padding: '7px 16px', background: '#1B4F8A', color: '#fff',
-                borderRadius: 6, fontSize: 12, fontWeight: 700, textDecoration: 'none',
-              }}>
-                Upgrade Plan →
-              </a>
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>
-              You&apos;re on the Enterprise plan. Contact{' '}
-              <a href={`mailto:${CONTACT_SALES_EMAIL}`} style={{ color: 'var(--color-primary)' }}>
-                {CONTACT_SALES_EMAIL}
-              </a>{' '}for billing questions.
-            </div>
-          )}
-        </div>
+        {/* Subscription details live solely in the dashboard Billing tab (the
+            single source of truth over the entitlement system); no plan display
+            is duplicated here. */}
 
         {/* ── SECTION C: Danger Zone ── */}
         <div style={{ ...S.card, border: '1px solid #fecaca' }}>

@@ -23,16 +23,29 @@ export async function GET() {
   const db = getServerClient();
   const userId = session.user.id;
 
-  const [userResult, countResult] = await Promise.all([
-    db.from('users').select('id, name, email').eq('id', userId).single(),
-    db.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('is_archived', false),
-  ]);
+  // Schema-tolerant select: company/job_title (mig 172) may not exist on every
+  // deployment yet. Attempt the full column set, and if the column is unknown,
+  // fall back to the always-present core columns.
+  const FULL_COLS = 'id, name, email, company, job_title, phone, city, avatar_url';
+  let userResult = await db.from('users').select(FULL_COLS).eq('id', userId).single();
+  if (userResult.error && /column|does not exist|company|job_title|phone|city|avatar_url/i.test(userResult.error.message)) {
+    userResult = await db.from('users').select('id, name, email').eq('id', userId).single();
+  }
+  const countResult = await db
+    .from('projects').select('id', { count: 'exact', head: true })
+    .eq('user_id', userId).eq('is_archived', false);
 
   if (userResult.error) return NextResponse.json({ error: userResult.error.message }, { status: 500 });
 
+  const u = userResult.data as Record<string, unknown>;
   return NextResponse.json({
-    name:          userResult.data.name,
-    email:         userResult.data.email,
+    name:          u.name ?? null,
+    email:         u.email,
+    company:       u.company ?? null,
+    job_title:     u.job_title ?? null,
+    phone:         u.phone ?? null,
+    city:          u.city ?? null,
+    avatar_url:    u.avatar_url ?? null,
     projectsCount: countResult.count ?? 0,
   });
 }
@@ -43,9 +56,13 @@ export async function PATCH(req: NextRequest) {
   if (error || !session) return NextResponse.json({ error }, { status });
 
   const body = await req.json() as {
-    action: 'name' | 'email';
+    action: 'name' | 'email' | 'profile';
     name?: string;
     email?: string;
+    company?: string;
+    job_title?: string;
+    phone?: string;
+    city?: string;
     currentPassword?: string;
   };
 
@@ -58,6 +75,36 @@ export async function PATCH(req: NextRequest) {
     if (!name) return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 });
 
     const { error: dbErr } = await db.from('users').update({ name }).eq('id', userId);
+    if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Update company details (company + title required; phone + city optional) ─
+  if (body.action === 'profile') {
+    const company   = (body.company ?? '').trim();
+    const jobTitle  = (body.job_title ?? '').trim();
+    if (!company)  return NextResponse.json({ error: 'Company is required' }, { status: 400 });
+    if (!jobTitle) return NextResponse.json({ error: 'Job title is required' }, { status: 400 });
+
+    const updates: Record<string, string | null> = {
+      company,
+      job_title: jobTitle,
+      phone: (body.phone ?? '').trim() || null,
+      city:  (body.city ?? '').trim() || null,
+    };
+
+    // Schema-tolerant: drop any column the deployment does not have yet and retry.
+    let dbErr = (await db.from('users').update(updates).eq('id', userId)).error;
+    if (dbErr && /column|does not exist|company|job_title|phone|city/i.test(dbErr.message)) {
+      for (const col of ['phone', 'city', 'company', 'job_title']) {
+        if (dbErr && dbErr.message.toLowerCase().includes(col)) delete updates[col];
+      }
+      if (Object.keys(updates).length > 0) {
+        dbErr = (await db.from('users').update(updates).eq('id', userId)).error;
+      } else {
+        dbErr = null;
+      }
+    }
     if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }

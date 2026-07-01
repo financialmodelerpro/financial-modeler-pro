@@ -236,7 +236,15 @@ export default function ModelingDashboardPage() {
   // get-access, exactly like the deliberate 'none' state. A GRACE user (read-only)
   // is NOT treated as no-plan: they keep entering the workspace to view.
   const noPlan = ent.loaded && !ent.isAdmin && (ent.planKey === NONE_PLAN_KEY || ent.lapseState === 'lapsed');
+  // Grace: the plan expired but is inside the 1-month read-only window. The user
+  // keeps view access (not treated as no-plan), so show the same read-only renew
+  // banner the platform shows, right here on the dashboard on login.
+  const graceReadOnly = ent.loaded && !ent.isAdmin && ent.lapseState === 'grace';
+  const graceEndLabel = ent.graceEndsAt
+    ? new Date(ent.graceEndsAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
 
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<DashView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -262,6 +270,16 @@ export default function ModelingDashboardPage() {
       setActiveView('billing');
     }
   }, []);
+
+  // Profile image: the session/JWT does not carry avatar_url, so fetch it for the
+  // header + sidebar avatars. Falls back to initials when unset.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    fetch('/api/user/profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.avatar_url) setAvatarUrl(d.avatar_url); })
+      .catch(() => {});
+  }, [status]);
 
   // Restore sidebar state
   useEffect(() => {
@@ -443,8 +461,11 @@ export default function ModelingDashboardPage() {
             onClick={() => setProfileDropdown(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
           >
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-              {initials}
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
+              {avatarUrl
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : initials}
             </div>
             <span style={{ fontSize: 12, fontWeight: 700, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {userName}
@@ -497,8 +518,11 @@ export default function ModelingDashboardPage() {
 
           <div style={{ padding: collapsed ? '18px 8px' : '18px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                {initials}
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
+                {avatarUrl
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : initials}
               </div>
               {!collapsed && (
                 <div style={{ minWidth: 0 }}>
@@ -648,6 +672,23 @@ export default function ModelingDashboardPage() {
               </span>
               <a href="/choose-plan" data-testid="dashboard-get-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Get access →
+              </a>
+            </div>
+          )}
+
+          {/* Grace banner: the plan expired but is inside the 1-month read-only
+              window. Same message + renew link the platform shows, surfaced on
+              the dashboard so a grace user sees it on login. */}
+          {graceReadOnly && (
+            <div data-testid="dashboard-grace-banner" role="alert" style={{ marginBottom: 28, padding: '14px 18px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 18 }} aria-hidden>⏳</span>
+              <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
+                Your subscription has expired. You have <strong>read-only</strong> access
+                {graceEndLabel ? <> until <strong>{graceEndLabel}</strong></> : null}, you can view your
+                projects but cannot edit, export, or create. Renew to restore full access.
+              </span>
+              <a href="/pricing" data-testid="dashboard-grace-renew-link" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                Renew plan →
               </a>
             </div>
           )}
