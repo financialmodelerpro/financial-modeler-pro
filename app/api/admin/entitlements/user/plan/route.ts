@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
+import { sendManualPlanWelcomeEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -65,6 +66,12 @@ export async function POST(req: NextRequest) {
         billedAt: body.started_at ?? new Date().toISOString(),
       });
     }
+    // Welcome / plan-active email for a manual (offline) paid plan (self-contained;
+    // skips 'none' and 'trial' internally). Team-managed, so no invoice.
+    await sendManualPlanWelcomeEmail(sb, {
+      userId: user_id, platform, planKey: res.planKey ?? plan_key,
+      startedAt: body.started_at ?? null, expiresAt: body.expires_at ?? null,
+    });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, trialEndsAt: res.trialEndsAt, source: 'manual' });
   } catch {
     return NextResponse.json({ error: 'Failed to set plan' }, { status: 500 });

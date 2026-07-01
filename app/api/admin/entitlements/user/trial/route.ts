@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { isUserLivePaddle, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
+import { sendTrialStartedEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Trial approval shortcut: place a user on the Trial plan with an expiry. This
 // is just setUserPlan(..., 'trial') -- the SAME shared plan-setting path the
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
     const adminId = (session.user as { id?: string }).id ?? null;
     const res = await setUserPlan(sb, user_id, 'trial', { platform, adminId });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
+    await sendTrialStartedEmail(sb, { userId: user_id, platform, trialEndsAt: res.trialEndsAt ?? null });
     return NextResponse.json({ ok: true, trial_ends_at: res.trialEndsAt });
   } catch {
     return NextResponse.json({ error: 'Failed to approve trial' }, { status: 500 });

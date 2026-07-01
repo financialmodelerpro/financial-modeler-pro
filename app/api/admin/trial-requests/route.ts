@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { isUserLivePaddle, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
+import { sendTrialStartedEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Admin trial-request queue (used when "Trial requires approval" is on).
 //   GET  -> pending requests joined with the requester's email/name/company/title.
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
       // SAME shared plan-setting path as admin plan changes.
       const res = await setUserPlan(sb, targetUserId, 'trial', { platform: PLATFORM, adminId });
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
+      await sendTrialStartedEmail(sb, { userId: targetUserId, platform: PLATFORM, trialEndsAt: res.trialEndsAt ?? null });
     }
 
     await sb.from('trial_requests').update({

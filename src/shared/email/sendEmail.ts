@@ -9,6 +9,7 @@ function getBrevo(): BrevoClient {
 export const FROM = {
   training: `Financial Modeler Pro Training <${process.env.EMAIL_FROM_TRAINING ?? 'training@financialmodelerpro.com'}>`,
   noreply:  `Financial Modeler Pro <${process.env.EMAIL_FROM_NOREPLY ?? 'no-reply@financialmodelerpro.com'}>`,
+  support:  `Financial Modeler Pro <${process.env.EMAIL_FROM_SUPPORT ?? 'support@financialmodelerpro.com'}>`,
 };
 
 interface Sender { name: string; email: string }
@@ -22,27 +23,43 @@ function parseSender(s: string): Sender {
   return { name: 'Financial Modeler Pro', email: s.trim() };
 }
 
+/** A single email attachment. Provide EITHER `content` (base64-encoded bytes) or
+ *  `url` (a URL Brevo fetches at send time). Used for the invoice PDF on the
+ *  Paddle welcome email; the PDF bytes are fetched server-side so the Paddle key
+ *  never reaches the client. */
+export interface EmailAttachment {
+  name: string;
+  content?: string; // base64
+  url?: string;
+}
+
 interface SendEmailOptions {
   to: string | string[];
   subject: string;
   html: string;
   text?: string;
   from?: string;
+  attachments?: EmailAttachment[];
 }
 
 interface SendEmailResult {
   id: string;
 }
 
-export async function sendEmail({ to, subject, html, text, from }: SendEmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, from, attachments }: SendEmailOptions): Promise<SendEmailResult> {
   const sender = parseSender(from ?? FROM.training);
   const recipients = (Array.isArray(to) ? to : [to]).map(email => ({ email }));
+  // Brevo's field is singular `attachment`; each entry carries name + (content | url).
+  const attachment = attachments && attachments.length > 0
+    ? attachments.map(a => (a.content != null ? { name: a.name, content: a.content } : { name: a.name, url: a.url ?? '' }))
+    : undefined;
   const result = await getBrevo().transactionalEmails.sendTransacEmail({
     sender,
     to:          recipients,
     subject,
     htmlContent: html,
     textContent: text ?? stripHtml(html),
+    ...(attachment ? { attachment } : {}),
   });
   return { id: result.messageId ?? '' };
 }

@@ -371,7 +371,8 @@ app/api/platforms/
 app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
-├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ cron/newsletter-scheduled/ email/send/
+├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ cron/newsletter-scheduled/ cron/subscription-reminders/ email/send/
+# cron/subscription-reminders, NEW 2026-07-01. CRON_SECRET bearer, daily 10:00 UTC (vercel.json). Runs runSubscriptionReminderScan (src/shared/email/subscriptionEmails.ts): Pass A trials (users.trial_ends_at) + Pass B subscriptions (manual expires_at + Paddle current_period_end). Sends trial-ending / auto-renewal charge-notice / ending-plan expiry / grace-started / grace-ending at 1 week + 1 day. Classifies auto-renew ("you'll be charged") vs ending ("access ends") via a server-side getSubscription() call (canceled/scheduledCancelAt -> ending; else charged), suppressing the charge notice on uncertainty. IDEMPOTENT via subscription_email_log (mig 181) claim-then-send. Reuses gate lapse helpers (computeLapseState); no gate change.
 # cron/certificates, REMOVED. Certificate issuance is now inline (fire-and-forget from /api/training/submit-assessment when a final-exam submission passes). Admin safety-net at /admin/training-hub/certificates covers any gaps.
 # cron/session-reminders, per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
 # cron/auto-launch-check, (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.

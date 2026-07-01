@@ -9,6 +9,7 @@ import {
 import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
+import { sendSubscriptionActivePaddleEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Provider webhook endpoint: /api/payments/webhook/paddle | /api/payments/webhook/paypro
 //
@@ -196,6 +197,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
       });
     }
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
+    // Welcome / subscription-active email on a genuine ACTIVATION only (not every
+    // plan 'updated' event). Self-contained + never throws; attaches the invoice.
+    if (event.type === 'activated') {
+      await sendSubscriptionActivePaddleEmail(sb, {
+        userId, platform: eventPlatform, planKey: res.planKey ?? planKey,
+        transactionId: event.transactionId, subscriptionId: event.subscriptionId,
+      });
+    }
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
   }
 

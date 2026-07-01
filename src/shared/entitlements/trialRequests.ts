@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { setUserPlan } from './setUserPlan';
 import { isUserLivePaddle, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
+import { sendTrialStartedEmail } from '@/src/shared/email/subscriptionEmails';
 
 export const TRIAL_APPROVAL_SECTION = 'entitlements';
 export const TRIAL_APPROVAL_KEY = 'trial_requires_approval';
@@ -64,6 +65,7 @@ export async function startTrialForUser(
   if (!requiresApproval) {
     const res = await setUserPlan(sb, userId, 'trial', { platform });
     if (!res.ok) return { ok: false, status: 'error', error: res.error ?? 'grant_failed' };
+    await sendTrialStartedEmail(sb, { userId, platform, trialEndsAt: res.trialEndsAt ?? null });
     return { ok: true, status: 'granted', trialEndsAt: res.trialEndsAt ?? null };
   }
 
