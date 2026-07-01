@@ -52,16 +52,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Paddle is not configured (no API key). Cannot cancel the Paddle subscription.', code: 'not_configured' }, { status: 400 });
     }
 
-    // The paid-through date (Paddle current period end), shown in the flow + used
-    // as the scheduled conversion date.
+    // The LIVE Paddle state (source of truth). A subscription that is already
+    // canceled / has no active billing period reports canceled=true and no
+    // current period (paid-through reads as "n/a"). Canceling it AGAIN returns
+    // Paddle's subscription_update_when_canceled, so we must NOT try: we assign
+    // the manual plan directly instead.
     const det = await getSubscription(cfg, row.paddle_subscription_id);
     const paidThrough = det.ok ? det.data.currentPeriodEndsAt : null;
+    const alreadyInactive = !det.ok
+      || det.data.canceled
+      || (det.data.currentPeriodEndsAt == null && det.data.nextBilledAt == null);
     const adminId = (session.user as { id?: string }).id ?? null;
+    const startedAt = new Date().toISOString();
+
+    // Shared "assign the manual plan now" path: setUserPlan(source 'manual') is the
+    // single write path, so it converges store A (users) + store B (source='manual',
+    // plan_key set, Paddle ids CLEARED via upsertManualSubscription) with no stale
+    // Paddle row. Also logs revenue + issues the branded receipt + welcome email.
+    async function assignManualNow(): Promise<NextResponse> {
+      const res = await setUserPlan(sb, user_id, plan_key, {
+        platform, adminId,
+        subscription: { source: 'manual', startedAt, expiresAt: body.expires_at ?? null, amountMinor: body.amount_minor ?? null, currency: body.currency ?? null, note: body.note ?? null },
+      });
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
+      if (body.amount_minor && body.amount_minor > 0) {
+        await recordPaymentTransaction(sb, { source: 'manual', externalId: null, userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual', billedAt: startedAt });
+        await issueManualInvoice(sb, { userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt, periodEnd: body.expires_at ?? null });
+      }
+      await sendManualPlanWelcomeEmail(sb, {
+        userId: user_id, platform, planKey: res.planKey ?? plan_key,
+        startedAt, expiresAt: body.expires_at ?? null,
+      });
+      return NextResponse.json({ ok: true, when: 'immediate', converted: 'already_canceled', paidThrough: null, planKey: res.planKey });
+    }
+
+    // A cancel error that means "already canceled" (Paddle's
+    // subscription_update_when_canceled): recover by assigning directly rather than
+    // surfacing a 502 (handles a race between the read and the cancel). Deliberately
+    // narrow so a genuine cancel failure (auth / network) still 502s.
+    const isAlreadyCanceledError = (e: string | undefined): boolean =>
+      !!e && /when[_ ]?canceled|already[_ ]?canceled/i.test(e);
+
+    // Already canceled / no active period: skip Paddle entirely, assign directly.
+    if (alreadyInactive) {
+      return await assignManualNow();
+    }
 
     if (when === 'period_end') {
-      // Stop Paddle billing at period end; schedule the manual plan to begin then.
+      // Live sub: stop Paddle billing at period end; schedule the manual plan then.
       const cancel = await cancelSubscriptionAtPeriodEnd(cfg, row.paddle_subscription_id);
-      if (!cancel.ok) return NextResponse.json({ error: cancel.error, code: 'cancel_failed' }, { status: 502 });
+      if (!cancel.ok) {
+        if (isAlreadyCanceledError(cancel.error)) return await assignManualNow();
+        return NextResponse.json({ error: cancel.error, code: 'cancel_failed' }, { status: 502 });
+      }
       await storeScheduledManualConversion(sb, user_id, platform, {
         planKey: plan_key,
         expiresAt: body.expires_at ?? null,
@@ -73,25 +116,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, when: 'period_end', paidThrough: paidThrough ?? cancel.data.scheduledCancelAt ?? null });
     }
 
-    // Immediate: cancel Paddle now and start the manual plan now.
+    // Immediate on a live sub: cancel Paddle now, then start the manual plan now.
     const cancel = await cancelSubscriptionNow(cfg, row.paddle_subscription_id);
-    if (!cancel.ok) return NextResponse.json({ error: cancel.error, code: 'cancel_failed' }, { status: 502 });
-    const startedAt = new Date().toISOString();
-    const res = await setUserPlan(sb, user_id, plan_key, {
-      platform, adminId,
-      subscription: { source: 'manual', startedAt, expiresAt: body.expires_at ?? null, amountMinor: body.amount_minor ?? null, currency: body.currency ?? null, note: body.note ?? null },
-    });
-    if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
-    if (body.amount_minor && body.amount_minor > 0) {
-      await recordPaymentTransaction(sb, { source: 'manual', externalId: null, userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual', billedAt: startedAt });
-      await issueManualInvoice(sb, { userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt, periodEnd: body.expires_at ?? null });
+    if (!cancel.ok) {
+      if (isAlreadyCanceledError(cancel.error)) return await assignManualNow();
+      return NextResponse.json({ error: cancel.error, code: 'cancel_failed' }, { status: 502 });
     }
-    // Manual plan-active welcome (self-contained; skips 'none'/'trial').
-    await sendManualPlanWelcomeEmail(sb, {
-      userId: user_id, platform, planKey: res.planKey ?? plan_key,
-      startedAt, expiresAt: body.expires_at ?? null,
-    });
-    return NextResponse.json({ ok: true, when: 'immediate', paidThrough, planKey: res.planKey });
+    return await assignManualNow();
   } catch {
     return NextResponse.json({ error: 'Failed to convert subscription' }, { status: 500 });
   }

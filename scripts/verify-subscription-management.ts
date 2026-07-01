@@ -266,6 +266,15 @@ check('convert route requires a live Paddle sub', /isLivePaddleSubscription\(/.t
 check('convert period-end: cancel at period end + schedule manual', /cancelSubscriptionAtPeriodEnd\(/.test(conv) && /storeScheduledManualConversion\(/.test(conv));
 check('convert immediate: cancel now + setUserPlan manual', /cancelSubscriptionNow\(/.test(conv) && /source: 'manual'/.test(conv));
 check('convert route shows the paid-through date', /paidThrough/.test(conv) && /currentPeriodEndsAt/.test(conv));
+// B fix: an already-canceled / no-active-period sub must NOT be canceled again.
+check('convert detects already-canceled / no active period', /alreadyInactive/.test(conv) && /det\.data\.canceled/.test(conv));
+check('convert assigns manual directly when already canceled (no Paddle cancel)', /if \(alreadyInactive\) \{\s*\n\s*return await assignManualNow\(\)/.test(conv));
+check('convert tolerates a when_canceled race (recovers, no 502)', /isAlreadyCanceledError/.test(conv) && /when\[_ \]\?canceled/.test(conv));
+check('convert manual path is the single source (setUserPlan source manual)', /assignManualNow\(\)/.test(conv) && /source: 'manual'/.test(conv));
+// B fix: the webhook baseline drop must not leave a live-looking Paddle row.
+const whB = read('app/api/payments/webhook/[provider]/route.ts');
+check('baseline drop clears the dead Paddle ids (no masquerade)', /clearPaddleSubscriptionIds\(sb, userId, eventPlatform\)/.test(whB));
+check('clearPaddleSubscriptionIds nulls only the id columns', /export async function clearPaddleSubscriptionIds\(/.test(read('src/shared/payments/config.ts')) && /paddle_subscription_id: null, paddle_customer_id: null/.test(read('src/shared/payments/config.ts')));
 check('paddleApi adds cancelSubscriptionNow (effective_from immediately)', /export async function cancelSubscriptionNow\(/.test(api2) && /effective_from: 'immediately'/.test(api2));
 // Cron backstop for conversions.
 check('cron applies due conversions as a backstop', /scheduled_to_manual/.test(cronR) && /applyScheduledManualConversion\(/.test(cronR));

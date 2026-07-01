@@ -4,7 +4,7 @@ import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
   wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds, storeUserPlatformSubscription,
-  recordPaymentTransaction, loadScheduledManualConversion,
+  recordPaymentTransaction, loadScheduledManualConversion, clearPaddleSubscriptionIds,
 } from '@/src/shared/payments/config';
 import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 import { getAdapter } from '@/src/shared/payments/registry';
@@ -222,9 +222,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     // Drop to the baseline plan; re-resolution is automatic (same function).
     const res = await setUserPlan(sb, userId, BASELINE_PLAN_KEY, { platform: eventPlatform });
     if (!res.ok) return NextResponse.json({ ok: false, reason: res.error }, { status: res.status ?? 500 });
-    // Reflect the baseline drop in the per-platform store too (keeps the id so a
-    // later resubscribe upserts cleanly; the plan key now reads as baseline).
-    await storeUserPlatformSubscription(sb, userId, eventPlatform, { subscriptionId: event.subscriptionId, customerId: event.customerId, planKey: res.planKey ?? BASELINE_PLAN_KEY });
+    // The Paddle subscription is gone, so CLEAR the stored Paddle ids. Keeping them
+    // would leave the row looking like a live Paddle subscription (isLivePaddleSubscription
+    // true), which mis-renders the billing tab AND wrongly blocks a later manual
+    // assignment. A resubscribe creates a NEW subscription that the activated webhook
+    // upserts fresh, so nothing is lost. plan_key/status/source were converged by
+    // setUserPlan above; this only nulls the dead ids (gate inputs untouched).
+    await clearPaddleSubscriptionIds(sb, userId, eventPlatform);
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
   }

@@ -694,6 +694,26 @@ export async function storeUserPlatformSubscription(
   }
 }
 
+/** Null out the stored Paddle subscription/customer ids on the per-platform row.
+ *  Used on the baseline drop after a Paddle cancellation so the row does not keep
+ *  masquerading as a LIVE Paddle subscription (isLivePaddleSubscription needs a
+ *  paddle_subscription_id): a dead id there mis-renders the billing tab and wrongly
+ *  blocks a later manual assignment. Touches ONLY the id columns (never plan /
+ *  status / source, which setUserPlan converges), so gate inputs are unaffected.
+ *  Best effort + schema-tolerant. */
+export async function clearPaddleSubscriptionIds(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<void> {
+  if (!userId || !platform) return;
+  try {
+    await sb.from('user_platform_subscriptions')
+      .update({ paddle_subscription_id: null, paddle_customer_id: null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // table/columns absent pre-migration: nothing to clear.
+  }
+}
+
 /**
  * Map a provider price/product id from a webhook event back to the internal
  * plan_key (+ the interval it represents for Paddle). Returns null when no plan
