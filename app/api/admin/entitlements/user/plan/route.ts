@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
       await issueManualInvoice(sb, {
         userId: user_id, platform, planKey: res.planKey ?? plan_key,
         amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: billedAt,
+        periodEnd: body.expires_at ?? null,
       });
     }
     // Welcome / plan-active email for a manual (offline) paid plan (self-contained;

@@ -53,6 +53,27 @@ function planLabel(planKey: string | null): string {
   return k ? k.charAt(0).toUpperCase() + k.slice(1) : 'Plan';
 }
 
+/** The plan coverage period line for the receipt line item, or '' when unknown. */
+function fmtPeriod(start: string | null | undefined, end: string | null | undefined): string {
+  const s = fmtDate(start ?? null);
+  const e = fmtDate(end ?? null);
+  if (s && e) return `Period: ${s} to ${e}`;
+  if (s) return `Period from ${s}`;
+  return '';
+}
+
+/**
+ * PaceMakers' legal seller details, shown on the receipt for identification. The
+ * FBR NTN is IDENTIFICATION ONLY: no tax is charged and no tax line is rendered.
+ */
+const SELLER_LINES: Array<{ s: string; bold?: boolean; size?: number }> = [
+  { s: 'PaceMakers Business Consultants LLP', bold: true, size: 10.5 },
+  { s: 'LLP Registration No: 0200688', size: 9 },
+  { s: '71-C-3, Gulberg III, Lahore, 54660,', size: 9 },
+  { s: 'Punjab, Pakistan', size: 9 },
+  { s: 'FBR NTN: 6899301', size: 9 },
+];
+
 /** A stable, human-facing receipt number: FMP-YYYYMMDD-XXXXXX. */
 export function makeReceiptNumber(issuedAtIso: string): string {
   const d = new Date(issuedAtIso);
@@ -69,6 +90,10 @@ export interface ReceiptData {
   currency: string | null;
   customerName: string | null;
   customerEmail: string;
+  customerCompany?: string | null;
+  /** Plan coverage window (manual plan started_at / expires_at), for the line item. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }
 
 /** Build the branded receipt PDF (A4 portrait). Text-only branding (FMP +
@@ -97,32 +122,48 @@ export async function generateManualReceiptPdf(data: ReceiptData): Promise<Uint8
   text('financialmodelerpro.com', MARGIN, H - 78, 9, { color: rgb(0.80, 0.85, 0.92) });
   text('RECEIPT', W - MARGIN, H - 50, 22, { font: bold, color: WHITE, align: 'right' });
 
-  let y = H - bandH - 44;
+  const topY = H - bandH - 40;
+  const colR = W - MARGIN - 190;
+  const label = (s: string, x: number, yy: number) => text(s.toUpperCase(), x, yy, 8, { font: bold, color: MUTED });
 
-  // Meta block.
-  const label = (s: string, x: number) => text(s.toUpperCase(), x, y, 8, { font: bold, color: MUTED });
-  const value = (s: string, x: number, dy = 14) => text(s, x, y - dy, 11, { font, color: TEXT });
-  const colR = W - MARGIN - 180;
+  // Seller (legal details, left) + receipt meta (right), same top line.
+  label('Seller', MARGIN, topY);
+  let ly = topY - 15;
+  for (const ln of SELLER_LINES) {
+    text(ln.s, MARGIN, ly, ln.size ?? 9, { font: ln.bold ? bold : font, color: TEXT });
+    ly -= 14;
+  }
 
-  label('Receipt number', MARGIN); label('Date issued', colR);
-  value(data.receiptNumber, MARGIN); value(fmtDate(data.issuedAt) || '-', colR);
-  y -= 44;
+  label('Receipt number', colR, topY);
+  text(data.receiptNumber, colR, topY - 15, 11, { font, color: TEXT });
+  label('Date issued', colR, topY - 40);
+  text(fmtDate(data.issuedAt) || '-', colR, topY - 55, 11, { font, color: TEXT });
 
-  label('Billed to', MARGIN);
-  value(data.customerName || data.customerEmail, MARGIN);
-  value(data.customerEmail, MARGIN, 28);
-  y -= 58;
+  // Continue below the taller (seller) column.
+  let y = ly - 12;
 
-  // Line items table.
+  // Bill-to.
+  label('Billed to', MARGIN, y);
+  text(data.customerName || data.customerEmail, MARGIN, y - 15, 11, { font, color: TEXT });
+  let by = y - 29;
+  text(data.customerEmail, MARGIN, by, 10, { color: MUTED });
+  if (data.customerCompany) { by -= 14; text(data.customerCompany, MARGIN, by, 10, { color: MUTED }); }
+  y = by - 30;
+
+  // Line item (plan + period + amount).
   const tableY = y;
   page.drawRectangle({ x: MARGIN, y: tableY - 4, width: W - 2 * MARGIN, height: 26, color: rgb(0.94, 0.96, 0.98) });
   text('DESCRIPTION', MARGIN + 10, tableY + 5, 8, { font: bold, color: MUTED });
   text('AMOUNT', W - MARGIN - 10, tableY + 5, 8, { font: bold, color: MUTED, align: 'right' });
-  y = tableY - 26;
+  y = tableY - 24;
   text(`${planLabel(data.planKey)} plan (offline / bank payment)`, MARGIN + 10, y, 11, { font });
   text(money(data.amountMinor, data.currency), W - MARGIN - 10, y, 11, { font: bold, align: 'right' });
-  y -= 18;
+  const period = fmtPeriod(data.periodStart, data.periodEnd);
+  if (period) { y -= 14; text(period, MARGIN + 10, y, 9, { color: MUTED }); }
+  y -= 16;
   page.drawLine({ start: { x: MARGIN, y }, end: { x: W - MARGIN, y }, thickness: 1, color: rgb(0.88, 0.90, 0.93) });
+  // No tax is charged on this receipt; the space below the line item is left
+  // clean so a tax line could be added later, but none is rendered now.
   y -= 24;
   text('Total paid', W - MARGIN - 140, y, 11, { font: bold, color: MUTED });
   text(money(data.amountMinor, data.currency), W - MARGIN - 10, y, 13, { font: bold, color: NAVY, align: 'right' });
@@ -165,13 +206,15 @@ export interface IssuedManualInvoice {
  */
 export async function createAndStoreManualInvoice(
   sb: SupabaseClient,
-  args: { userId: string; platform: string; planKey: string | null; amountMinor: number; currency: string | null; issuedAt: string; customerName: string | null; customerEmail: string },
+  args: { userId: string; platform: string; planKey: string | null; amountMinor: number; currency: string | null; issuedAt: string; customerName: string | null; customerEmail: string; customerCompany?: string | null; periodStart?: string | null; periodEnd?: string | null },
 ): Promise<IssuedManualInvoice> {
   const receiptNumber = makeReceiptNumber(args.issuedAt);
   const pdfBytes = await generateManualReceiptPdf({
     receiptNumber, issuedAt: args.issuedAt, planKey: args.planKey,
     amountMinor: args.amountMinor, currency: args.currency,
     customerName: args.customerName, customerEmail: args.customerEmail,
+    customerCompany: args.customerCompany ?? null,
+    periodStart: args.periodStart ?? null, periodEnd: args.periodEnd ?? null,
   });
   const storagePath = `${args.userId}/${receiptNumber}.pdf`;
   await uploadReceipt(sb, storagePath, pdfBytes);

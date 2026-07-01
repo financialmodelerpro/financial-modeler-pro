@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
     if (body.amount_minor && body.amount_minor > 0) {
       await recordPaymentTransaction(sb, { source: 'manual', externalId: null, userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual', billedAt: startedAt });
-      await issueManualInvoice(sb, { userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt });
+      await issueManualInvoice(sb, { userId: user_id, platform, planKey: plan_key, amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt, periodEnd: body.expires_at ?? null });
     }
     // Manual plan-active welcome (self-contained; skips 'none'/'trial').
     await sendManualPlanWelcomeEmail(sb, {

@@ -168,9 +168,22 @@ const lc = (s: string) => s.toLowerCase();
   console.log('=== Manual receipt (generate + store + ownership) ===');
   const rn = makeReceiptNumber('2026-07-02T00:00:00Z');
   check('receipt number format FMP-YYYYMMDD-XXXXXX', /^FMP-20260702-[0-9A-F]{6}$/.test(rn), rn);
-  const pdf = await generateManualReceiptPdf({ receiptNumber: rn, issuedAt: '2026-07-02T00:00:00Z', planKey: 'pro', amountMinor: 14900, currency: 'usd', customerName: 'Sam Doe', customerEmail: 's@x.com' });
+  const pdf = await generateManualReceiptPdf({ receiptNumber: rn, issuedAt: '2026-07-02T00:00:00Z', planKey: 'pro', amountMinor: 14900, currency: 'usd', customerName: 'Sam Doe', customerEmail: 's@x.com', customerCompany: 'Acme Ltd', periodStart: '2026-07-02T00:00:00Z', periodEnd: '2027-07-02T00:00:00Z' });
   const head = Buffer.from(pdf.slice(0, 5)).toString('latin1');
   check('receipt is a real PDF (%PDF header) with content', head === '%PDF-' && pdf.length > 800, `${head} len=${pdf.length}`);
+
+  console.log('=== Seller legal block + no tax line ===');
+  const mi = read('src/shared/payments/manualInvoice.ts');
+  check('seller name PaceMakers Business Consultants LLP', mi.includes('PaceMakers Business Consultants LLP'));
+  check('LLP Registration No 0200688', mi.includes('LLP Registration No: 0200688'));
+  check('Gulberg III address', mi.includes('71-C-3, Gulberg III, Lahore, 54660,') && mi.includes('Punjab, Pakistan'));
+  check('FBR NTN 6899301', mi.includes('FBR NTN: 6899301'));
+  check('receipt keeps FMP + PaceMakers branding', mi.includes('Financial Modeler Pro') && mi.includes('A PaceMakers Business Consultants Platform'));
+  check('line item carries the plan period', mi.includes('fmtPeriod(') && mi.includes('periodStart'));
+  check('bill-to carries company', mi.includes('customerCompany'));
+  // No tax is charged: no drawn Tax/VAT/GST label and no percentage in the PDF.
+  check('NO tax line drawn (no Tax/VAT/GST label)', !/\bVAT\b/.test(mi) && !/\bGST\b/.test(mi) && !/\bTax\b/.test(mi));
+  check('company + period threaded to createAndStoreManualInvoice', mi.includes('customerCompany: args.customerCompany') && mi.includes('periodStart: args.periodStart'));
   const manualInv = await manualInvoiceEmail({ name: 'Sam', planKey: 'pro', amount: 'USD 149.00', receiptNumber: rn, issuedAt: '2026-07-02T00:00:00Z', billingUrl: 'https://x/dashboard#billing' });
   check('receipt email names receipt no + amount + PaceMakers footer', manualInv.html.includes(rn) && manualInv.html.includes('USD 149.00') && manualInv.html.includes('A PaceMakers Business Consultants Platform'));
   const miSrc = read('src/shared/payments/manualInvoice.ts');

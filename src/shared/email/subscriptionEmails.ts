@@ -223,7 +223,7 @@ export async function sendTrialStartedEmail(
  */
 export async function issueManualInvoice(
   sb: SupabaseClient,
-  args: { userId: string; platform?: string; planKey: string | null; amountMinor: number | null; currency: string | null; issuedAt: string },
+  args: { userId: string; platform?: string; planKey: string | null; amountMinor: number | null; currency: string | null; issuedAt: string; periodEnd?: string | null },
 ): Promise<void> {
   try {
     const platform = args.platform ?? PLATFORM_DEFAULT;
@@ -233,9 +233,18 @@ export async function issueManualInvoice(
     const c = await getContact(sb, args.userId);
     if (!c) return;
 
+    // Company for the bill-to block. Fetched separately + schema-tolerant so a
+    // pre-mig-172 schema (no company column) never breaks the receipt.
+    let company: string | null = null;
+    try {
+      const { data } = await sb.from('users').select('company').eq('id', args.userId).maybeSingle();
+      company = (data as { company?: string | null } | null)?.company ?? null;
+    } catch { /* company column absent: omit from the receipt */ }
+
     const issued = await createAndStoreManualInvoice(sb, {
       userId: args.userId, platform, planKey: args.planKey, amountMinor: args.amountMinor,
       currency: args.currency ?? null, issuedAt: args.issuedAt, customerName: c.name, customerEmail: c.email,
+      customerCompany: company, periodStart: args.issuedAt, periodEnd: args.periodEnd ?? null,
     });
 
     const { subject, html } = await manualInvoiceEmail({
