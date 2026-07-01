@@ -21,7 +21,7 @@ import { sendEmail, FROM, type EmailAttachment } from './sendEmail';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, fmtAmount,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail, fmtAmount,
 } from './templates/subscription';
 import { createAndStoreManualInvoice } from '@/src/shared/payments/manualInvoice';
 import {
@@ -29,6 +29,10 @@ import {
 } from '@/src/shared/payments/config';
 import { getSubscription, listSubscriptionInvoices, getInvoicePdfUrl } from '@/src/shared/payments/paddleApi';
 import { computeLapseState } from '@/src/shared/entitlements/gate';
+// Pure presentation config (platform -> pricing URL segment) read to build the
+// per-platform /pricing links in emails; a read-only import of static config, no
+// runtime coupling to the modeling hub.
+// eslint-disable-next-line boundaries/dependencies
 import { getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 
 const PLATFORM_DEFAULT = 'real-estate';
@@ -87,19 +91,27 @@ async function release(sb: SupabaseClient, key: MarkerKey): Promise<void> {
   try { await sb.from('subscription_email_log').delete().match(key); } catch { /* best effort */ }
 }
 
-/** Run a claim -> send -> (release on throw) cycle. Never throws. */
+/** Run a claim -> send -> (release on throw) cycle. Never throws. The send callback
+ *  returns the Brevo message id (or void); dispatch logs the OUTCOME of every send
+ *  (sent + id, skipped-duplicate, or FAILED + reason) so a real Brevo/contact
+ *  failure is visible in the logs (greppable prefix "[sub-email]") and never a
+ *  silent no-op. Returns true only when an email was actually sent. */
 async function dispatch(
-  sb: SupabaseClient, key: MarkerKey, send: () => Promise<void>,
+  sb: SupabaseClient, key: MarkerKey, send: () => Promise<string | void>,
 ): Promise<boolean> {
   try {
     const go = await claim(sb, key);
-    if (!go) return false;
+    if (!go) {
+      console.log(`[sub-email] skipped duplicate ${key.email_type} (${key.threshold})`);
+      return false;
+    }
     try {
-      await send();
+      const id = await send();
+      console.log(`[sub-email] sent ${key.email_type} (${key.threshold})${id ? ` id=${id}` : ''}`);
       return true;
     } catch (e) {
       await release(sb, key);
-      console.warn(`[sub-email] send failed (${key.email_type}/${key.threshold}):`, e instanceof Error ? e.message : String(e));
+      console.error(`[sub-email] FAILED ${key.email_type} (${key.threshold}):`, e instanceof Error ? e.message : String(e));
       return false;
     }
   } catch (e) {
@@ -118,6 +130,37 @@ async function getContact(sb: SupabaseClient, userId: string): Promise<Contact |
     return { email: r.email, name: r.name ?? null, role: r.role ?? null };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch a Paddle invoice PDF as an email attachment (base64), SERVER-SIDE (the
+ * key never leaves the server). Given a transaction id, or a subscription id whose
+ * newest transaction is used (e.g. the immediate proration charge from a plan
+ * change). Best effort: returns undefined on any failure so the email still sends
+ * without the attachment. Shared by the welcome + plan-change emails.
+ */
+async function fetchPaddleInvoiceAttachment(
+  sb: SupabaseClient, platform: string, ref: { transactionId?: string | null; subscriptionId?: string | null },
+): Promise<EmailAttachment[] | undefined> {
+  try {
+    const settings = await loadPaymentSettings(sb, platform);
+    const cfg = providerConfigFrom(settings, 'paddle');
+    if (!cfg.apiKey) return undefined;
+    let txId = ref.transactionId ?? null;
+    if (!txId && ref.subscriptionId) {
+      const inv = await listSubscriptionInvoices(cfg, ref.subscriptionId);
+      if (inv.ok && inv.data.length > 0) txId = inv.data[0].transactionId; // newest (billed_at DESC)
+    }
+    if (!txId) return undefined;
+    const urlRes = await getInvoicePdfUrl(cfg, txId);
+    if (!urlRes.ok) return undefined;
+    const pdf = await fetch(urlRes.data, { cache: 'no-store' });
+    if (!pdf.ok) return undefined;
+    const buf = Buffer.from(await pdf.arrayBuffer());
+    return [{ name: 'invoice.pdf', content: buf.toString('base64') }];
+  } catch {
+    return undefined;
   }
 }
 
@@ -165,7 +208,7 @@ export async function sendSubscriptionActivePaddleEmail(
     const { subject, html } = await subscriptionActivePaddleEmail({
       name: c.name, planKey: args.planKey, billingUrl: billingUrl(), invoiceAttached: !!attachments,
     });
-    await sendEmail({ to: c.email, subject, html, from: FROM.noreply, attachments });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply, attachments })).id;
   });
 }
 
@@ -177,14 +220,39 @@ export async function sendManualPlanWelcomeEmail(
   const planKey = (args.planKey || '').toLowerCase();
   if (planKey === 'none' || planKey === 'trial' || !planKey) return;
   const platform = args.platform ?? PLATFORM_DEFAULT;
-  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'welcome_manual', threshold: 'once', anchor_day: dayStr(Date.now()) };
+  // Per-EVENT dedupe: key on the started_at of THIS assignment (mirrors how
+  // plan_changed varies its key). A genuine second manual assignment (a new
+  // started_at) sends; a true duplicate (same started_at, e.g. a double-click)
+  // is skipped. The route passes a concrete started_at so the token is stable.
+  const anchorMs = parseMs(args.startedAt ?? null) ?? Date.now();
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'welcome_manual', threshold: `evt:${args.startedAt ?? dayStr(anchorMs)}`, anchor_day: dayStr(anchorMs) };
   await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
     const { subject, html } = await planActiveManualEmail({
       name: c.name, planKey, startedAt: args.startedAt ?? null, expiresAt: args.expiresAt ?? null, billingUrl: dashboardUrl(),
     });
-    await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
+  });
+}
+
+/** Plan ended confirmation: a manual (offline) plan was removed by the team (set to
+ *  'none'). The Paddle-only cancel route never fires for a manual user, so this is
+ *  their cancellation confirmation. Skips none/trial as the ENDED plan. */
+export async function sendPlanEndedEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string },
+): Promise<void> {
+  const planKey = (args.planKey || '').toLowerCase();
+  if (!planKey || planKey === 'none' || planKey === 'trial') return;
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const nowMs = Date.now();
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'plan_ended', threshold: `evt:${planKey}`, anchor_day: dayStr(nowMs) };
+  await dispatch(sb, key, async () => {
+    const c = await getContact(sb, args.userId);
+    if (!c) throw new Error('no contact');
+    const { subject, html } = await planEndedEmail({ name: c.name, planKey, pricingUrl: pricingUrl(platform) });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -194,14 +262,18 @@ export async function sendSubscriptionCanceledEmail(
   args: { userId: string; platform?: string; planKey: string; accessUntil?: string | null },
 ): Promise<void> {
   const platform = args.platform ?? PLATFORM_DEFAULT;
-  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'canceled', threshold: 'once', anchor_day: dayStr(Date.now()) };
+  // Per-EVENT dedupe: key on the access-until date (the specific cancellation of
+  // THIS subscription/period). Canceling a new subscription later (a new period
+  // end) sends; a duplicate cancel of the same period is skipped.
+  const anchorMs = parseMs(args.accessUntil ?? null) ?? Date.now();
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'canceled', threshold: `evt:${args.accessUntil ?? dayStr(anchorMs)}`, anchor_day: dayStr(anchorMs) };
   await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
     const { subject, html } = await subscriptionCanceledEmail({
       name: c.name, planKey: args.planKey, accessUntil: args.accessUntil ?? null, renewUrl: pricingUrl(platform),
     });
-    await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -218,7 +290,7 @@ export async function sendTrialStartedEmail(
     const { subject, html } = await trialStartedEmail({
       name: c.name, trialEndsAt: args.trialEndsAt ?? null, dashboardUrl: dashboardUrl(), pricingUrl: pricingUrl(platform),
     });
-    await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -231,7 +303,7 @@ export async function sendTrialStartedEmail(
  */
 export async function sendPlanChangedEmail(
   sb: SupabaseClient,
-  args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null },
+  args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null; subscriptionId?: string | null },
 ): Promise<void> {
   const platform = args.platform ?? PLATFORM_DEFAULT;
   const planKey = (args.planKey ?? '').toLowerCase();
@@ -244,12 +316,27 @@ export async function sendPlanChangedEmail(
   await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
+    // An IMMEDIATE change (upgrade / interval) creates a Paddle proration charge:
+    // attach that invoice (newest transaction on the subscription). A scheduled
+    // downgrade has no charge today, so no invoice. Best effort.
+    const attachments = args.timing === 'immediate' && args.subscriptionId
+      ? await fetchPaddleInvoiceAttachment(sb, platform, { subscriptionId: args.subscriptionId })
+      : undefined;
     const { subject, html } = await planChangedEmail({
       name: c.name, planKey: args.planKey, interval: args.interval, timing: args.timing,
       effectiveAt: args.effectiveAt ?? null, manageUrl: billingUrl(), pricingUrl: pricingUrl(platform),
+      invoiceAttached: !!attachments,
     });
-    await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply, attachments })).id;
   });
+}
+
+/** The outcome of a manual-receipt attempt (visible to the caller, not swallowed). */
+export interface IssueManualInvoiceResult {
+  ok: boolean;
+  skipped?: 'no_amount' | 'plan' | 'no_contact' | 'duplicate';
+  receiptNumber?: string;
+  error?: string;
 }
 
 /**
@@ -257,19 +344,35 @@ export async function sendPlanChangedEmail(
  * the manual_invoices row, and email the receipt with the PDF attached. Called by
  * the admin manual-assign + convert-to-manual-immediate routes when an amount is
  * present. Self-contained + never throws (a receipt failure must not break the
- * plan assignment). Skips none/trial and zero/absent amounts.
+ * plan assignment), but RETURNS a result and LOGS the outcome so a failure is
+ * visible, not a silent no-op.
+ *
+ * Deduped PER-EVENT: the marker is claimed BEFORE the receipt is created, keyed on
+ * (started_at + amount), so a true duplicate (a double-click on the same
+ * assignment) creates no second receipt and sends no second email, while a genuine
+ * later assignment (a new started_at) issues a fresh receipt + email. Skips
+ * none/trial and zero/absent amounts (the "no amount -> no receipt" rule).
  */
 export async function issueManualInvoice(
   sb: SupabaseClient,
   args: { userId: string; platform?: string; planKey: string | null; amountMinor: number | null; currency: string | null; issuedAt: string; periodEnd?: string | null },
-): Promise<void> {
-  try {
-    const platform = args.platform ?? PLATFORM_DEFAULT;
-    if (!args.amountMinor || args.amountMinor <= 0) return;
-    const planKey = (args.planKey ?? '').toLowerCase();
-    if (planKey === 'none' || planKey === 'trial') return;
+): Promise<IssueManualInvoiceResult> {
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  if (!args.amountMinor || args.amountMinor <= 0) return { ok: false, skipped: 'no_amount' };
+  const planKey = (args.planKey ?? '').toLowerCase();
+  if (planKey === 'none' || planKey === 'trial') return { ok: false, skipped: 'plan' };
+
+  const anchorMs = parseMs(args.issuedAt) ?? Date.now();
+  const key: MarkerKey = {
+    user_id: args.userId, platform_slug: platform, email_type: 'manual_invoice',
+    threshold: `evt:${args.issuedAt}:${args.amountMinor}`, anchor_day: dayStr(anchorMs),
+  };
+
+  let receiptNumber: string | undefined;
+  let sendError: string | undefined;
+  const sent = await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
-    if (!c) return;
+    if (!c) throw new Error('no contact');
 
     // Company for the bill-to block. Fetched separately + schema-tolerant so a
     // pre-mig-172 schema (no company column) never breaks the receipt.
@@ -280,23 +383,28 @@ export async function issueManualInvoice(
     } catch { /* company column absent: omit from the receipt */ }
 
     const issued = await createAndStoreManualInvoice(sb, {
-      userId: args.userId, platform, planKey: args.planKey, amountMinor: args.amountMinor,
+      userId: args.userId, platform, planKey: args.planKey, amountMinor: args.amountMinor!,
       currency: args.currency ?? null, issuedAt: args.issuedAt, customerName: c.name, customerEmail: c.email,
       customerCompany: company, periodStart: args.issuedAt, periodEnd: args.periodEnd ?? null,
     });
+    receiptNumber = issued.receiptNumber;
 
     const { subject, html } = await manualInvoiceEmail({
       name: c.name, planKey: args.planKey ?? '', amount: fmtAmount(args.amountMinor, args.currency),
       receiptNumber: issued.receiptNumber, issuedAt: args.issuedAt, billingUrl: billingUrl(),
     });
-    await sendEmail({
+    const res = await sendEmail({
       to: c.email, subject, html, from: FROM.noreply,
       attachments: [{ name: `${issued.receiptNumber}.pdf`, content: Buffer.from(issued.pdfBytes).toString('base64') }],
     });
     try { await sb.from('manual_invoices').update({ email_sent_at: new Date().toISOString() }).eq('id', issued.id); } catch { /* best effort */ }
-  } catch (e) {
-    console.warn('[sub-email] issueManualInvoice failed:', e instanceof Error ? e.message : String(e));
-  }
+    return res.id;
+  }).catch((e) => { sendError = e instanceof Error ? e.message : String(e); return false; });
+
+  if (sent) return { ok: true, receiptNumber };
+  if (receiptNumber) return { ok: false, error: sendError, receiptNumber }; // created but send/log failed
+  if (sendError) return { ok: false, error: sendError };
+  return { ok: false, skipped: 'duplicate' }; // claim lost (dispatch returned false, no throw)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -315,7 +423,7 @@ async function sendTrialEnding(sb: SupabaseClient, platform: string, userId: str
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'trial_ending', threshold: th, anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
     const { subject, html } = await trialEndingEmail({ name: contact.name, trialEndsAt: trialEndsAtIso, daysLeft: days, pricingUrl: pricingUrl(platform) });
-    await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: contact.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -325,7 +433,7 @@ async function sendRenewalReminder(sb: SupabaseClient, platform: string, userId:
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'renewal_reminder', threshold: th, anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
     const { subject, html } = await renewalReminderEmail({ name: contact.name, planKey, renewsOn: renewsOnIso, amount, daysLeft: days, manageUrl: billingUrl() });
-    await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: contact.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -335,7 +443,7 @@ async function sendExpiryReminder(sb: SupabaseClient, platform: string, userId: 
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'expiry_reminder', threshold: th, anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
     const { subject, html } = await expiryReminderEmail({ name: contact.name, planKey, endsOn: endsOnIso, daysLeft: days, renewUrl: pricingUrl(platform) });
-    await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: contact.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -344,7 +452,7 @@ async function sendGraceStarted(sb: SupabaseClient, platform: string, userId: st
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'grace_started', threshold: 'once', anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
     const { subject, html } = await graceStartedEmail({ name: contact.name, graceEndsAt: graceEndsAtMs ? new Date(graceEndsAtMs).toISOString() : null, renewUrl: pricingUrl(platform) });
-    await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: contact.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -354,7 +462,7 @@ async function sendGraceEnding(sb: SupabaseClient, platform: string, userId: str
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'grace_ending', threshold: th, anchor_day: dayStr(graceEndsAtMs) };
   return dispatch(sb, key, async () => {
     const { subject, html } = await graceEndingEmail({ name: contact.name, graceEndsAt: new Date(graceEndsAtMs).toISOString(), daysLeft: days, renewUrl: pricingUrl(platform) });
-    await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
+    return (await sendEmail({ to: contact.email, subject, html, from: FROM.noreply })).id;
   });
 }
 

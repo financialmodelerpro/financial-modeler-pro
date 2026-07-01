@@ -24,7 +24,7 @@ import path from 'path';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, fmtAmount, fmtDate, planLabel,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail, fmtAmount, fmtDate, planLabel,
 } from '../src/shared/email/templates/subscription';
 import { generateManualReceiptPdf, makeReceiptNumber } from '../src/shared/payments/manualInvoice';
 import { getPlatform, platformPricingSegment } from '../src/hubs/modeling/config/platforms';
@@ -161,7 +161,7 @@ const lc = (s: string) => s.toLowerCase();
   console.log('=== Combined invoice list (Paddle + manual) ===');
   const invRoute = read('app/api/payments/invoices/route.ts');
   check('invoices route merges Paddle + manual', invRoute.includes('listManualInvoices') && invRoute.includes('listSubscriptionInvoices'));
-  check('invoices route normalizes with a source field', invRoute.includes("source: 'paddle'") && /\.\.\.paddle,\s*\.\.\.manual/.test(invRoute));
+  check('invoices route normalizes with a source field + newest-first merge', invRoute.includes("source: 'paddle'") && /\.\.\.byId\.values\(\),\s*\.\.\.manual/.test(invRoute));
   const panel = read('src/hubs/modeling/components/SubscriptionPanel.tsx');
   check('panel routes View by source (manual -> manual-invoice route)', panel.includes('/api/payments/manual-invoice/') && panel.includes('/api/payments/invoice/'));
   check('panel shows invoices in BOTH manual + Paddle panels', (panel.match(/\{invoicesBlock\}/g) ?? []).length >= 2);
@@ -228,6 +228,47 @@ const lc = (s: string) => s.toLowerCase();
   check('change-plan sends scheduled email on downgrade', /timing: 'scheduled'/.test(cp));
   const wh2 = read('app/api/payments/webhook/[provider]/route.ts');
   check('no plan-change email from the updated webhook (single trigger, no dupes)', !/sendPlanChangedEmail/.test(wh2));
+
+  // ── Per-event dedupe + visibility + manual cancel (Fix 1) ───────────────────
+  console.log('=== Per-event dedupe + visibility + manual-ended email ===');
+  const em3 = read('src/shared/email/subscriptionEmails.ts');
+  check('welcome_manual keyed per-event (started_at token, not per-day)', /email_type: 'welcome_manual', threshold: `evt:\$\{args\.startedAt/.test(em3) && !/email_type: 'welcome_manual', threshold: 'once'/.test(em3));
+  check('canceled keyed per-event (accessUntil token)', /email_type: 'canceled', threshold: `evt:\$\{args\.accessUntil/.test(em3));
+  check('manual_invoice deduped via dispatch, keyed per-event (started_at:amount)', /email_type: 'manual_invoice',\s*\n\s*threshold: `evt:\$\{args\.issuedAt\}:\$\{args\.amountMinor\}`/.test(em3));
+  check('issueManualInvoice returns a result (not silent void)', /Promise<IssueManualInvoiceResult>/.test(em3) && /skipped\?: 'no_amount'/.test(em3));
+  check('manual_invoice still gated on amount > 0', /if \(!args\.amountMinor \|\| args\.amountMinor <= 0\) return \{ ok: false, skipped: 'no_amount' \}/.test(em3));
+  check('dispatch logs outcome (sent id / skipped / FAILED) - visible, not swallowed', /\[sub-email\] sent \$\{key\.email_type\}/.test(em3) && /\[sub-email\] FAILED/.test(em3) && /console\.error/.test(em3));
+  check('callbacks return the Brevo message id', (em3.match(/return \(await sendEmail\(/g) ?? []).length >= 8);
+  check('sendPlanEndedEmail exists (manual plan removed -> confirmation)', /export async function sendPlanEndedEmail\(/.test(em3) && /email_type: 'plan_ended'/.test(em3));
+  const planRoute3 = read('app/api/admin/entitlements/user/plan/route.ts');
+  check('admin plan route sends plan-ended email on removal (none, had a real plan)', /newPlan === 'none'/.test(planRoute3) && /sendPlanEndedEmail\(/.test(planRoute3) && /prevPlan !== 'none' && prevPlan !== 'trial'/.test(planRoute3));
+  const uap = read('src/components/admin/UserAccessPanel.tsx');
+  check('admin UI notes amount-gate (no amount -> no receipt)', /No amount: no receipt is generated/.test(uap) && /manual-amount-note/.test(uap));
+  // Manual plan-ended email renders
+  const ended = await planEndedEmail({ name: 'Sam', planKey: 'firm', pricingUrl: 'https://x/pricing/refm' });
+  check('plan-ended email: names plan, ended wording, per-platform link + FMP footer', ended.html.includes('Firm') && lc(ended.html).includes('has been ended') && ended.html.includes('/pricing/refm') && ended.html.includes('A PaceMakers Business Consultants Platform'));
+
+  // ── Full invoice history (Fix 2) ────────────────────────────────────────────
+  console.log('=== Full invoice history (durable ledger) ===');
+  const miHist = read('src/shared/payments/manualInvoice.ts');
+  check('ledger reader listPaddleLedgerInvoices (payment_transactions, source paddle)', /export async function listPaddleLedgerInvoices\(/.test(miHist) && /from\('payment_transactions'\)[\s\S]*?\.eq\('source', 'paddle'\)/.test(miHist));
+  check('ledger ownership helper userOwnsPaddleTransaction', /export async function userOwnsPaddleTransaction\(/.test(miHist) && /\.eq\('external_id', txnId\)/.test(miHist));
+  check('invoices route uses the DURABLE ledger (survives source flip)', invRoute.includes('listPaddleLedgerInvoices') && invRoute.includes('byId.set'));
+  check('invoices route still enriches from live API when active (deduped by id)', invRoute.includes("ctx.state === 'ok'") && invRoute.includes('listSubscriptionInvoices'));
+  const invIdRoute = read('app/api/payments/invoice/[id]/route.ts');
+  check('Paddle PDF route authorizes from the ledger (not a live sub only)', invIdRoute.includes('userOwnsPaddleTransaction'));
+  check('Paddle PDF route builds cfg without needing a live subscription', /loadPaymentSettings\(sb, platform\)/.test(invIdRoute) && /providerConfigFrom\(settings, 'paddle'\)/.test(invIdRoute));
+  check('Paddle PDF route 404s gracefully when PDF unavailable (no crash)', /error: res\.error \}, \{ status: res\.status >= 500 \? 502 : 404/.test(invIdRoute));
+
+  // ── Plan-change proration invoice attachment (Fix 3) ────────────────────────
+  console.log('=== Plan-change proration invoice attachment ===');
+  check('shared Paddle attachment helper (newest txn from subscription)', /async function fetchPaddleInvoiceAttachment\(/.test(em3) && /inv\.data\[0\]\.transactionId/.test(em3));
+  check('plan-change attaches invoice for IMMEDIATE only (not scheduled)', /args\.timing === 'immediate' && args\.subscriptionId\s*\n?\s*\? await fetchPaddleInvoiceAttachment/.test(em3));
+  check('change-plan route passes subscriptionId to the email', read('app/api/payments/subscription/change-plan/route.ts').includes('subscriptionId: ctx.subscriptionId'));
+  const upA = await planChangedEmail({ name: 'Sam', planKey: 'firm', interval: 'annual', timing: 'immediate', effectiveAt: null, manageUrl: 'https://x/dashboard#billing', pricingUrl: 'https://x/pricing/refm', invoiceAttached: true });
+  check('immediate plan-change email notes the attached invoice', lc(upA.html).includes('invoice for that charge is attached'));
+  const upNo = await planChangedEmail({ name: 'Sam', planKey: 'firm', interval: 'annual', timing: 'scheduled', effectiveAt: '2026-08-01T00:00:00Z', manageUrl: 'https://x/dashboard#billing', pricingUrl: 'https://x/pricing/refm' });
+  check('scheduled downgrade email has NO invoice note', !lc(upNo.html).includes('invoice'));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('FAILED:', fails.join(', ')); process.exit(1); }

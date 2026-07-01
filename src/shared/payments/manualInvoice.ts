@@ -253,6 +253,49 @@ export async function listManualInvoices(
   }
 }
 
+/**
+ * The user's DURABLE Paddle invoice history from the payment_transactions ledger
+ * (mig 180), normalized for the combined list. Unlike the live Paddle API (which
+ * only returns the CURRENT subscription's transactions), the ledger persists every
+ * completed Paddle transaction permanently, so history SURVIVES a cancel / convert
+ * / source flip. Best effort: a missing table (pre mig 180) yields [].
+ */
+export async function listPaddleLedgerInvoices(
+  sb: SupabaseClient, userId: string, platform: string,
+): Promise<NormalizedInvoice[]> {
+  try {
+    const { data, error } = await sb
+      .from('payment_transactions')
+      .select('external_id, amount_minor, currency, billed_at')
+      .eq('user_id', userId).eq('platform_slug', platform).eq('source', 'paddle')
+      .order('billed_at', { ascending: false });
+    if (error || !data) return [];
+    return (data as Array<{ external_id: string | null; amount_minor: number | null; currency: string | null; billed_at: string | null }>)
+      .filter((r) => !!r.external_id)
+      .map((r) => ({ id: r.external_id as string, source: 'paddle' as const, billedAt: r.billed_at, number: r.external_id, amountMinor: r.amount_minor, currency: r.currency }));
+  } catch {
+    return [];
+  }
+}
+
+/** Whether a Paddle transaction id belongs to the user (ownership from the durable
+ *  ledger, so historical Paddle invoices stay authorizable after a source flip,
+ *  when no live subscription exists to list against). Best effort -> false. */
+export async function userOwnsPaddleTransaction(
+  sb: SupabaseClient, userId: string, platform: string, txnId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await sb
+      .from('payment_transactions')
+      .select('id')
+      .eq('user_id', userId).eq('platform_slug', platform).eq('source', 'paddle').eq('external_id', txnId)
+      .maybeSingle();
+    return !error && !!data;
+  } catch {
+    return false;
+  }
+}
+
 /** Load a manual invoice row IF it belongs to the user (ownership check). */
 export async function loadOwnedManualInvoice(
   sb: SupabaseClient, id: string, userId: string,

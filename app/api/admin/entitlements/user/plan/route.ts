@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
-import { sendManualPlanWelcomeEmail, issueManualInvoice } from '@/src/shared/email/subscriptionEmails';
+import { sendManualPlanWelcomeEmail, issueManualInvoice, sendPlanEndedEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -58,27 +58,42 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status ?? 500 });
-    // Log the manual payment to the revenue ledger (counts toward admin revenue)
-    // and issue an FMP-branded receipt (PDF stored + emailed + listed in billing).
-    if (body.amount_minor && body.amount_minor > 0) {
-      const billedAt = body.started_at ?? new Date().toISOString();
-      await recordPaymentTransaction(sb, {
-        source: 'manual', externalId: null, userId: user_id, platform, planKey: res.planKey ?? plan_key,
-        amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual',
-        billedAt,
-      });
-      await issueManualInvoice(sb, {
+    // One concrete started_at for this assignment: it is the per-EVENT dedupe token
+    // shared by the welcome + receipt emails (so a genuine repeat with a new
+    // started_at emails, while a double-click on the same assignment does not).
+    const startedAt = body.started_at ?? new Date().toISOString();
+    const newPlan = (res.planKey ?? plan_key ?? '').toLowerCase();
+    const prevPlan = (row?.plan_key ?? '').toLowerCase();
+
+    if (newPlan === 'none') {
+      // Plan removed: send the manual user a cancellation confirmation (the
+      // Paddle-only cancel route never fires for them). Only when they HAD a real
+      // plan (not none/trial), so a no-op none->none does not email.
+      if (prevPlan && prevPlan !== 'none' && prevPlan !== 'trial') {
+        await sendPlanEndedEmail(sb, { userId: user_id, platform, planKey: prevPlan });
+      }
+    } else {
+      // Log the manual payment to the revenue ledger (counts toward admin revenue)
+      // and issue an FMP-branded receipt (PDF stored + emailed + listed in billing).
+      if (body.amount_minor && body.amount_minor > 0) {
+        await recordPaymentTransaction(sb, {
+          source: 'manual', externalId: null, userId: user_id, platform, planKey: res.planKey ?? plan_key,
+          amountMinor: body.amount_minor, currency: body.currency ?? null, status: 'manual',
+          billedAt: startedAt,
+        });
+        await issueManualInvoice(sb, {
+          userId: user_id, platform, planKey: res.planKey ?? plan_key,
+          amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: startedAt,
+          periodEnd: body.expires_at ?? null,
+        });
+      }
+      // Welcome / plan-active email for a manual (offline) paid plan (self-contained;
+      // skips 'none' and 'trial' internally). Team-managed, so no invoice.
+      await sendManualPlanWelcomeEmail(sb, {
         userId: user_id, platform, planKey: res.planKey ?? plan_key,
-        amountMinor: body.amount_minor, currency: body.currency ?? null, issuedAt: billedAt,
-        periodEnd: body.expires_at ?? null,
+        startedAt, expiresAt: body.expires_at ?? null,
       });
     }
-    // Welcome / plan-active email for a manual (offline) paid plan (self-contained;
-    // skips 'none' and 'trial' internally). Team-managed, so no invoice.
-    await sendManualPlanWelcomeEmail(sb, {
-      userId: user_id, platform, planKey: res.planKey ?? plan_key,
-      startedAt: body.started_at ?? null, expiresAt: body.expires_at ?? null,
-    });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, trialEndsAt: res.trialEndsAt, source: 'manual' });
   } catch {
     return NextResponse.json({ error: 'Failed to set plan' }, { status: 500 });

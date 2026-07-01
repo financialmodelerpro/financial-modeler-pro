@@ -253,6 +253,7 @@ export async function manualInvoiceEmail(data: {
 export async function planChangedEmail(data: {
   name: string | null; planKey: string; interval: 'monthly' | 'annual';
   timing: 'immediate' | 'scheduled'; effectiveAt: string | null; manageUrl: string; pricingUrl: string;
+  invoiceAttached?: boolean;
 }): Promise<Built> {
   const plan = planLabel(data.planKey);
   const billed = data.interval === 'annual' ? 'billed annually' : 'billed monthly';
@@ -264,7 +265,7 @@ export async function planChangedEmail(data: {
     ${p(greeting(data.name))}
     ${scheduled
       ? p(`Your subscription will change to the <strong>${plan}</strong> plan (${billed})${when ? ` on <strong>${when}</strong>` : ' at the start of your next billing cycle'}. You keep your current plan until then, and there is no charge today.`)
-      : p(`Your subscription is now on the <strong>${plan}</strong> plan (${billed}), effective immediately. Any prorated difference for the change was applied to your payment method today.`)}
+      : p(`Your subscription is now on the <strong>${plan}</strong> plan (${billed}), effective immediately. Any prorated difference for the change was applied to your payment method today.${data.invoiceAttached ? ' Your invoice for that charge is attached.' : ''}`)}
     <div style="text-align:center;">${button('Manage your subscription', data.manageUrl)}</div>
     ${divider()}
     ${p(`You can review or change your plan any time from the billing area, or <a href="${data.pricingUrl}" style="color:#2E75B6;">see all plans</a>.`, 'font-size:13px;color:#6b7280;')}
@@ -273,4 +274,22 @@ export async function planChangedEmail(data: {
     ? `Your plan change to ${plan} is scheduled${when ? ` for ${when}` : ''}`
     : `Your plan is now ${plan} (${data.interval})`;
   return { subject, html };
+}
+
+// ── 12. Plan ended (manual plan removed by the team) ────────────────────────
+
+export async function planEndedEmail(data: {
+  name: string | null; planKey: string; pricingUrl: string;
+}): Promise<Built> {
+  const plan = planLabel(data.planKey);
+  const html = await subLayout(`
+    ${h1('Your plan has ended')}
+    ${p(greeting(data.name))}
+    ${p(`Your <strong>${plan}</strong> plan has been ended and your access has been closed. You will not be billed for it again.`)}
+    ${p('If this is unexpected, or you would like to continue, you can choose a plan any time.')}
+    <div style="text-align:center;">${button('Choose a plan', data.pricingUrl)}</div>
+    ${divider()}
+    ${p('Your data is never deleted. If you start a new plan, everything picks up where you left off.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: `Your ${plan} plan has ended`, html };
 }

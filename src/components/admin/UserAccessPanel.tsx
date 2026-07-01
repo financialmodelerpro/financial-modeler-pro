@@ -565,6 +565,11 @@ export function UserAccessPanel({ userId }: { userId: string }) {
                       <label style={{ fontSize: 10, color: '#64748b', flex: 2 }}>Amount paid<input type="number" data-testid="manual-amount" value={mAmount} placeholder="0.00" onChange={(e) => setMAmount(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
                       <label style={{ fontSize: 10, color: '#64748b', flex: 1 }}>Currency<input type="text" value={mCurrency} onChange={(e) => setMCurrency(e.target.value)} style={{ width: '100%', padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} /></label>
                     </div>
+                    <div data-testid="manual-amount-note" style={{ fontSize: 10, color: mAmount.trim() && parseFloat(mAmount) > 0 ? '#1A7A30' : '#94a3b8', marginTop: -2 }}>
+                      {mAmount.trim() && parseFloat(mAmount) > 0
+                        ? 'A branded receipt PDF will be generated and emailed to the user.'
+                        : 'No amount: no receipt is generated or emailed (the plan is still assigned).'}
+                    </div>
                     <input type="text" data-testid="manual-note" value={mNote} placeholder="Note (e.g. bank transfer ref)" onChange={(e) => setMNote(e.target.value)} style={{ padding: '5px 6px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 5 }} />
                     <button
                       data-testid="assign-manual-plan"

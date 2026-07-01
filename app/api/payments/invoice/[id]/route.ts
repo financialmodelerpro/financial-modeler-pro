@@ -4,6 +4,8 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getInvoicePdfUrl, listSubscriptionInvoices } from '@/src/shared/payments/paddleApi';
+import { loadPaymentSettings, providerConfigFrom } from '@/src/shared/payments/config';
+import { userOwnsPaddleTransaction } from '@/src/shared/payments/manualInvoice';
 
 // GET /api/payments/invoice/[id]?platform=<slug>
 // Redirects to the Paddle-hosted, signed invoice/receipt PDF for one of the
@@ -12,9 +14,13 @@ import { getInvoicePdfUrl, listSubscriptionInvoices } from '@/src/shared/payment
 // EMBEDS this route in an in-dashboard iframe (PDF renders inline, no forced
 // download); a Download button opens the same route in a new tab.
 //
-// OWNERSHIP: the transaction id is verified to belong to THIS user's
-// subscription (it must appear in their transaction list) before any URL is
-// issued, so a user cannot fetch another customer's invoice by id.
+// OWNERSHIP: the transaction id must belong to THIS user. It is verified from the
+// DURABLE payment_transactions ledger (so a HISTORICAL Paddle invoice stays
+// viewable AFTER a cancel / convert / source flip, when there is no live
+// subscription to list against), with a live-subscription list as a fallback for
+// a very recent transaction not yet in the ledger. If Paddle cannot produce the
+// PDF, a 404 is returned so the billing tab simply shows the row without a working
+// link (no crash).
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const session = await getServerSession(authOptions);
@@ -24,19 +30,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const platform = req.nextUrl.searchParams.get('platform') || DEFAULT_PAYMENTS_PLATFORM;
   const sb = getServerClient();
+
+  // Primary ownership: the durable ledger (survives source flips).
+  let owns = await userOwnsPaddleTransaction(sb, userId, platform, id);
+  // Fallback: a live subscription's current transactions (recent, pre-ledger).
   const pctx = await loadUserPaddleContext(sb, userId, platform);
-  if (pctx.state !== 'ok' || !pctx.subscriptionId) {
-    return NextResponse.json({ error: 'no_subscription' }, { status: 404 });
+  if (!owns && pctx.state === 'ok' && pctx.subscriptionId) {
+    const list = await listSubscriptionInvoices(pctx.cfg, pctx.subscriptionId);
+    owns = list.ok && list.data.some((inv) => inv.transactionId === id);
   }
+  if (!owns) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // Ownership check: the requested transaction must be one of this user's.
-  const list = await listSubscriptionInvoices(pctx.cfg, pctx.subscriptionId);
-  if (!list.ok || !list.data.some((inv) => inv.transactionId === id)) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  }
+  // Build the Paddle config independently of a live subscription so historical
+  // invoices remain fetchable by transaction id after the sub is gone.
+  const settings = await loadPaymentSettings(sb, platform);
+  const cfg = providerConfigFrom(settings, 'paddle');
+  if (!cfg.apiKey) return NextResponse.json({ error: 'not_configured' }, { status: 404 });
 
-  const res = await getInvoicePdfUrl(pctx.cfg, id);
+  const res = await getInvoicePdfUrl(cfg, id);
   if (!res.ok) {
+    // Paddle cannot produce the PDF (e.g. old/unavailable): 404, no crash; the
+    // list still shows the row (from the ledger) without a working link.
     return NextResponse.json({ error: res.error }, { status: res.status >= 500 ? 502 : 404 });
   }
   return NextResponse.redirect(res.data, 302);
