@@ -31,7 +31,7 @@ app/
 ├── pricing/PricingPageBody.tsx  # SHARED pricing body (2026-06-25): server-loads plans (loadPricingCatalog) + renders PricingExplorer (picker -> per-platform plans). Session-aware island: logged-out = register handoff, logged-in = in-app Paddle checkout/trial + resume. Optional initialPlatform pre-selects a platform. Rendered by app/pricing/page.tsx, app/modeling/pricing/page.tsx, AND app/pricing/[platform]/page.tsx.
 ├── pricing/[platform]/page.tsx  # Per-platform pricing on a clean path /pricing/<segment> (2026-06-25). Segment is SOURCE-DERIVED via platformPricingSegment (shortName lowercased: REFM->refm, FP&A->fpa; slug fallback) + platformSlugForSegment reverse-map in src/hubs/modeling/config/platforms.ts. Renders PricingPageBody with that platform pre-selected (skips picker); unknown segment -> picker fallback (200). Canonical URL used by dashboard "Get access" + the live platform marketing CTA. Old /pricing?platform=<slug> 307s to the path (next.config).
 ├── reset-password/page.tsx
-├── settings/page.tsx
+├── settings/page.tsx             # Account settings. Profile card edits name / email / password PLUS Company + Job Title (required) + Phone + City (optional, via PATCH action=profile) + profile-image upload/replace (initials fallback). NO subscription block: the old Plan/Status/Projects card read the legacy users.subscription_plan off the session (default 'free', a dead source separate from the entitlement gate) and was removed 2026-07-01; the dashboard Billing tab is the single subscription source.
 ├── t/[token]/page.tsx
 ├── testimonials/submit/page.tsx
 ├── verify/layout.tsx            # Pins metadataBase + canonical + og:url to LEARN_URL so share previews always show learn.* in the card footer (no main-domain inheritance from root layout)
@@ -395,7 +395,8 @@ app/api/
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
 ├── og/certificate/[id]/route.tsx  # GET: Dynamic cert OG image (satori ImageResponse), student name + course + grade + date + ID + gold seal; used by /verify/[uuid] share previews
 ├── share-templates/[key]/route.ts # GET: Public template fetch, merges training_settings mention strings + prefix_at toggles into response so client hook renders immediately
-└── user/account/ + password/ + profile/
+└── user/account/ + password/ + profile/ + avatar/
+#   profile/route.ts GET returns name/email/company/job_title/phone/city/avatar_url (+ projectsCount), schema-tolerant select. PATCH actions: name / email / profile (company+job_title required, phone+city optional, schema-tolerant column-drop retry). avatar/route.ts POST (authenticated): uploads to the 'avatars' storage bucket (2 MB, jpg/png/webp, bucket auto-created public) + writes users.avatar_url; shown in /settings + dashboard header/sidebar.
 ```
 
 ---
