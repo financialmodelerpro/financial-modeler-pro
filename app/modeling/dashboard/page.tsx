@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { Platform, PlatformStatus } from '@/src/hubs/modeling/config/platforms';
-import { platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
+import { platformPricingSegment, getPlatform } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
@@ -243,6 +243,9 @@ export default function ModelingDashboardPage() {
   const graceEndLabel = ent.graceEndsAt
     ? new Date(ent.graceEndsAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
     : null;
+  // Renew link -> the per-platform pricing page (source-driven segment). REFM is
+  // the sole live platform, so the grace here is REFM; default to its segment.
+  const graceRenewHref = `/pricing/${platformPricingSegment(getPlatform('real-estate') ?? { slug: 'real-estate', shortName: 'REFM' })}`;
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<DashView>('dashboard');
@@ -687,7 +690,7 @@ export default function ModelingDashboardPage() {
                 {graceEndLabel ? <> until <strong>{graceEndLabel}</strong></> : null}, you can view your
                 projects but cannot edit, export, or create. Renew to restore full access.
               </span>
-              <a href="/pricing" data-testid="dashboard-grace-renew-link" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              <a href={graceRenewHref} data-testid="dashboard-grace-renew-link" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Renew plan →
               </a>
             </div>

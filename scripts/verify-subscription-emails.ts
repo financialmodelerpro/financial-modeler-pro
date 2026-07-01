@@ -27,6 +27,7 @@ import {
   graceStartedEmail, graceEndingEmail, manualInvoiceEmail, fmtAmount, fmtDate, planLabel,
 } from '../src/shared/email/templates/subscription';
 import { generateManualReceiptPdf, makeReceiptNumber } from '../src/shared/payments/manualInvoice';
+import { getPlatform, platformPricingSegment } from '../src/hubs/modeling/config/platforms';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -196,6 +197,19 @@ const lc = (s: string) => s.toLowerCase();
   const convert2 = read('app/api/admin/subscription/convert-to-manual/route.ts');
   check('convert-to-manual (immediate) issues a receipt', convert2.includes('issueManualInvoice'));
   check('mig 182 manual_invoices exists (private, RLS)', /create table if not exists manual_invoices/i.test(read('supabase/migrations/182_manual_invoices.sql')));
+
+  // ── C: per-platform pricing links (not bare /pricing) ───────────────────────
+  console.log('=== Per-platform pricing links (C) ===');
+  const refmPlat = getPlatform('real-estate');
+  check('real-estate derives the refm segment', !!refmPlat && platformPricingSegment(refmPlat) === 'refm', refmPlat ? platformPricingSegment(refmPlat) : 'no platform');
+  const emailsSrc = read('src/shared/email/subscriptionEmails.ts');
+  check('email pricingUrl takes a platform + builds /pricing/<segment>', /function pricingUrl\(platform: string\)/.test(emailsSrc) && /\/pricing\/\$\{segment\}/.test(emailsSrc));
+  check('no bare pricingUrl() left in emails (all 6 pass platform)', !/pricingUrl\(\)/.test(emailsSrc) && (emailsSrc.match(/pricingUrl\(platform\)/g) ?? []).length === 6);
+  const refmComp = read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx');
+  check('REFM grace banner links to the per-platform pricing page', /REFM_PRICING_HREF = `\/pricing\/\$\{platformPricingSegment/.test(refmComp) && /href=\{REFM_PRICING_HREF\}/.test(refmComp) && !/href="\/pricing"/.test(refmComp));
+  const dash = read('app/modeling/dashboard/page.tsx');
+  check('dashboard grace banner links per-platform (default refm)', /graceRenewHref = `\/pricing\/\$\{platformPricingSegment/.test(dash) && /href=\{graceRenewHref\}/.test(dash));
+  check('dashboard grace banner no longer bare /pricing', !/data-testid="dashboard-grace-renew-link"[^>]*href="\/pricing"/.test(dash));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('FAILED:', fails.join(', ')); process.exit(1); }

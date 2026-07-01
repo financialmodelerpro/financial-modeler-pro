@@ -29,6 +29,7 @@ import {
 } from '@/src/shared/payments/config';
 import { getSubscription, listSubscriptionInvoices, getInvoicePdfUrl } from '@/src/shared/payments/paddleApi';
 import { computeLapseState } from '@/src/shared/entitlements/gate';
+import { getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 
 const PLATFORM_DEFAULT = 'real-estate';
 const NON_RENEWING = ['canceled', 'cancelled', 'expired', 'paused', 'past_due'];
@@ -39,7 +40,14 @@ function appUrl(): string {
 }
 const billingUrl = () => `${appUrl()}/dashboard#billing`;
 const dashboardUrl = () => `${appUrl()}/dashboard`;
-const pricingUrl = () => `${appUrl()}/pricing`;
+/** The PER-PLATFORM pricing page (source-driven segment, e.g. real-estate -> refm),
+ *  falling back to the raw slug when the platform is not in the config. Renew /
+ *  choose-plan links in emails point here, not the bare picker. */
+function pricingUrl(platform: string): string {
+  const p = getPlatform(platform);
+  const segment = p ? platformPricingSegment(p) : platform.toLowerCase();
+  return `${appUrl()}/pricing/${segment}`;
+}
 
 // ── Date helpers (UTC date-only, locale-stable) ─────────────────────────────
 function utcDayMs(ms: number): number {
@@ -191,7 +199,7 @@ export async function sendSubscriptionCanceledEmail(
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
     const { subject, html } = await subscriptionCanceledEmail({
-      name: c.name, planKey: args.planKey, accessUntil: args.accessUntil ?? null, renewUrl: pricingUrl(),
+      name: c.name, planKey: args.planKey, accessUntil: args.accessUntil ?? null, renewUrl: pricingUrl(platform),
     });
     await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
   });
@@ -208,7 +216,7 @@ export async function sendTrialStartedEmail(
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
     const { subject, html } = await trialStartedEmail({
-      name: c.name, trialEndsAt: args.trialEndsAt ?? null, dashboardUrl: dashboardUrl(), pricingUrl: pricingUrl(),
+      name: c.name, trialEndsAt: args.trialEndsAt ?? null, dashboardUrl: dashboardUrl(), pricingUrl: pricingUrl(platform),
     });
     await sendEmail({ to: c.email, subject, html, from: FROM.noreply });
   });
@@ -276,7 +284,7 @@ async function sendTrialEnding(sb: SupabaseClient, platform: string, userId: str
   if (!th) return false;
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'trial_ending', threshold: th, anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
-    const { subject, html } = await trialEndingEmail({ name: contact.name, trialEndsAt: trialEndsAtIso, daysLeft: days, pricingUrl: pricingUrl() });
+    const { subject, html } = await trialEndingEmail({ name: contact.name, trialEndsAt: trialEndsAtIso, daysLeft: days, pricingUrl: pricingUrl(platform) });
     await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
   });
 }
@@ -296,7 +304,7 @@ async function sendExpiryReminder(sb: SupabaseClient, platform: string, userId: 
   if (!th) return false;
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'expiry_reminder', threshold: th, anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
-    const { subject, html } = await expiryReminderEmail({ name: contact.name, planKey, endsOn: endsOnIso, daysLeft: days, renewUrl: pricingUrl() });
+    const { subject, html } = await expiryReminderEmail({ name: contact.name, planKey, endsOn: endsOnIso, daysLeft: days, renewUrl: pricingUrl(platform) });
     await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
   });
 }
@@ -305,7 +313,7 @@ async function sendGraceStarted(sb: SupabaseClient, platform: string, userId: st
   // 'once' per anchor: fires on the first cron run after grace begins.
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'grace_started', threshold: 'once', anchor_day: dayStr(anchorMs) };
   return dispatch(sb, key, async () => {
-    const { subject, html } = await graceStartedEmail({ name: contact.name, graceEndsAt: graceEndsAtMs ? new Date(graceEndsAtMs).toISOString() : null, renewUrl: pricingUrl() });
+    const { subject, html } = await graceStartedEmail({ name: contact.name, graceEndsAt: graceEndsAtMs ? new Date(graceEndsAtMs).toISOString() : null, renewUrl: pricingUrl(platform) });
     await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
   });
 }
@@ -315,7 +323,7 @@ async function sendGraceEnding(sb: SupabaseClient, platform: string, userId: str
   if (!th) return false;
   const key: MarkerKey = { user_id: userId, platform_slug: platform, email_type: 'grace_ending', threshold: th, anchor_day: dayStr(graceEndsAtMs) };
   return dispatch(sb, key, async () => {
-    const { subject, html } = await graceEndingEmail({ name: contact.name, graceEndsAt: new Date(graceEndsAtMs).toISOString(), daysLeft: days, renewUrl: pricingUrl() });
+    const { subject, html } = await graceEndingEmail({ name: contact.name, graceEndsAt: new Date(graceEndsAtMs).toISOString(), daysLeft: days, renewUrl: pricingUrl(platform) });
     await sendEmail({ to: contact.email, subject, html, from: FROM.noreply });
   });
 }

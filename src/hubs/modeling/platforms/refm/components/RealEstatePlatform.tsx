@@ -83,6 +83,11 @@ import { FEATURE_DISPLAY_LABELS } from '../lib/featureLabels';
 import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import { MODULES } from '../lib/modules-config';
 import { usePlatformModules, REFM_PLATFORM_SLUG } from '../lib/usePlatformModules';
+import { getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
+
+// The per-platform pricing page for the renew banner (source-driven segment from
+// the platform shortName, e.g. real-estate -> refm), not the bare picker.
+const REFM_PRICING_HREF = `/pricing/${platformPricingSegment(getPlatform(REFM_PLATFORM_SLUG) ?? { slug: REFM_PLATFORM_SLUG })}`;
 
 // ── StorageShape (consumer contract for ProjectsScreen / Dashboard / Overview) ──
 export interface StorageProject {
@@ -1375,7 +1380,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 projects but cannot edit, export, or create. Renew to restore full access.
               </span>
               <a
-                href="/pricing"
+                href={REFM_PRICING_HREF}
                 data-testid="grace-renew-link"
                 style={{
                   background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13,
