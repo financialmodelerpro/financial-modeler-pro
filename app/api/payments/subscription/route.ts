@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription } from '@/src/shared/payments/paddleApi';
-import { loadPlatformPlanOptions } from '@/src/shared/payments/config';
+import { loadPlatformPlanOptions, markSubscriptionCanceling } from '@/src/shared/payments/config';
 
 // GET /api/payments/subscription?platform=<slug>
 // Returns the signed-in user's subscription summary FOR ONE PLATFORM, read from
@@ -63,5 +63,10 @@ export async function GET(req: NextRequest) {
   if (!res.ok) {
     return NextResponse.json({ subscription: null, reason: res.error, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange }, { status: res.status >= 500 ? 502 : 200 });
   }
+  // Self-heal the durable cancel marker (mig 183) from the authoritative live
+  // state, so the admin list (which reads the durable marker, not a per-user live
+  // call) agrees with this live view. null clears it when a cancel was un-scheduled
+  // (resume). Best effort; display only, gate inputs untouched.
+  await markSubscriptionCanceling(sb, userId, platform, { scheduledCancelAt: res.data.scheduledCancelAt ?? null });
   return NextResponse.json({ subscription: { source: 'paddle' as const, ...res.data }, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
 }

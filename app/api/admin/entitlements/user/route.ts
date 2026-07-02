@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadMergedFeatures } from '@/src/shared/entitlements/serverCatalog';
 import { resolveTrialDays } from '@/src/shared/entitlements/trialConfig';
-import { loadPlatformSubscriptionRow, loadPaymentSettings, providerConfigFrom } from '@/src/shared/payments/config';
+import { loadPlatformSubscriptionRow, loadPaymentSettings, providerConfigFrom, markSubscriptionCanceling } from '@/src/shared/payments/config';
 import { listSubscriptionInvoices, getSubscription } from '@/src/shared/payments/paddleApi';
 
 // Per-user entitlement override data source (Phase C). Reads the LIVE
@@ -83,6 +83,11 @@ export async function GET(req: NextRequest) {
             // + the date access ends instead of a bare "active".
             canceled: det.data.canceled, scheduledCancelAt: det.data.scheduledCancelAt,
           };
+          // Self-heal the durable cancel marker (mig 183) from this authoritative
+          // live read so the user LIST (which reads the durable marker) shows the
+          // same Canceling / Canceled state as this detail panel. null clears it on
+          // a resume. Best effort; display only, gate inputs untouched.
+          await markSubscriptionCanceling(sb, userId, platform, { scheduledCancelAt: det.data.scheduledCancelAt ?? null });
         }
         const inv = await listSubscriptionInvoices(cfg, subRow.paddle_subscription_id);
         if (inv.ok) {
