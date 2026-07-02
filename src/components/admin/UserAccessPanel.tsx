@@ -40,6 +40,10 @@ interface SubscriptionInfo {
   currency: string | null;
   interval: string | null;
   note?: string | null;
+  // Cancel-at-period-end state (Paddle). canceled true + a scheduledCancelAt means
+  // the subscription is Canceling (access ends on that date).
+  canceled?: boolean;
+  scheduledCancelAt?: string | null;
 }
 interface RevenueInfo { paddleMinor: number; manualMinor: number; currency: string | null; totalMinor: number; paddleTxnCount: number; reconcilable: boolean }
 
@@ -461,6 +465,15 @@ export function UserAccessPanel({ userId }: { userId: string }) {
                   <div style={{ fontSize: 12, color: '#475569', marginBottom: 2 }}>Source: <b style={{ color: subscription.source === 'paddle' ? '#1d4ed8' : '#92400e' }} data-testid="subscription-source">{subscription.source === 'paddle' ? 'Paddle' : 'Manual (offline)'}</b></div>
                   <div style={{ fontSize: 12, color: '#475569' }}>Plan: <b style={{ color: '#0f172a' }}>{subscription.planKey ?? user.subscription_plan}</b>{subscription.interval ? ` (${subscription.interval})` : ''}</div>
                   <div style={{ fontSize: 12, color: '#475569' }}>Status: <b style={{ color: '#0f172a' }}>{subscription.status ?? 'n/a'}</b></div>
+                  {/* Canceling / Canceled: a cancel scheduled at period end must not
+                      read as a plain "active" status. */}
+                  {(subscription.canceled || subscription.scheduledCancelAt) && (
+                    <div data-testid="subscription-cancel-state" style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginTop: 2 }}>
+                      {subscription.scheduledCancelAt && new Date(subscription.scheduledCancelAt).getTime() > Date.now()
+                        ? `Canceling: access ends ${fmtDay(subscription.scheduledCancelAt)}`
+                        : `Canceled${subscription.scheduledCancelAt ? ` (ended ${fmtDay(subscription.scheduledCancelAt)})` : ''}`}
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: '#475569' }}>Started: <b style={{ color: '#0f172a' }} data-testid="subscription-started">{fmtDay(subscription.startedAt)}</b></div>
                   {subscription.source === 'paddle' ? (
                     <>

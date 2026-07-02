@@ -133,33 +133,68 @@ async function getContact(sb: SupabaseClient, userId: string): Promise<Contact |
   }
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 /**
  * Fetch a Paddle invoice PDF as an email attachment (base64), SERVER-SIDE (the
- * key never leaves the server). Given a transaction id, or a subscription id whose
- * newest transaction is used (e.g. the immediate proration charge from a plan
- * change). Best effort: returns undefined on any failure so the email still sends
- * without the attachment. Shared by the welcome + plan-change emails.
+ * key never leaves the server). Given a transaction id (preferred: the exact
+ * proration transaction), or a subscription id whose newest transaction is used
+ * (e.g. the immediate proration charge from a plan change).
+ *
+ * A just-created transaction's invoice PDF is generated ASYNCHRONOUSLY by Paddle,
+ * so right after a plan change getInvoicePdfUrl returns 'invoice_not_available'
+ * for a few seconds. We therefore RETRY the PDF resolution with a short backoff
+ * (opts.attempts), and, when no explicit txn id was given, re-list the
+ * subscription's transactions on each attempt so a proration txn that had not yet
+ * appeared is picked up.
+ *
+ * Still best effort (returns undefined so the email always sends), but NO LONGER
+ * SILENT: every reason it could not attach is logged with the greppable
+ * "[sub-email] invoice-attach" prefix, so a genuine failure is visible instead of
+ * a mystery empty email. Shared by the welcome + plan-change emails.
  */
 async function fetchPaddleInvoiceAttachment(
-  sb: SupabaseClient, platform: string, ref: { transactionId?: string | null; subscriptionId?: string | null },
+  sb: SupabaseClient, platform: string,
+  ref: { transactionId?: string | null; subscriptionId?: string | null },
+  opts?: { attempts?: number; delayMs?: number; label?: string },
 ): Promise<EmailAttachment[] | undefined> {
+  const attempts = Math.max(1, opts?.attempts ?? 1);
+  const delayMs = opts?.delayMs ?? 1500;
+  const label = opts?.label ?? 'invoice';
   try {
     const settings = await loadPaymentSettings(sb, platform);
     const cfg = providerConfigFrom(settings, 'paddle');
-    if (!cfg.apiKey) return undefined;
-    let txId = ref.transactionId ?? null;
-    if (!txId && ref.subscriptionId) {
-      const inv = await listSubscriptionInvoices(cfg, ref.subscriptionId);
-      if (inv.ok && inv.data.length > 0) txId = inv.data[0].transactionId; // newest (billed_at DESC)
+    if (!cfg.apiKey) return undefined; // Paddle not configured: nothing to attach.
+    let lastReason = 'no_transaction';
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      // Resolve the transaction id: explicit id first, else the newest transaction
+      // on the subscription (re-listed each attempt so a late-appearing proration
+      // txn is caught).
+      let txId = ref.transactionId ?? null;
+      if (!txId && ref.subscriptionId) {
+        const inv = await listSubscriptionInvoices(cfg, ref.subscriptionId);
+        if (inv.ok && inv.data.length > 0) txId = inv.data[0].transactionId; // newest (billed_at DESC)
+      }
+      if (txId) {
+        const urlRes = await getInvoicePdfUrl(cfg, txId);
+        if (urlRes.ok) {
+          const pdf = await fetch(urlRes.data, { cache: 'no-store' });
+          if (pdf.ok) {
+            const buf = Buffer.from(await pdf.arrayBuffer());
+            return [{ name: 'invoice.pdf', content: buf.toString('base64') }];
+          }
+          lastReason = `pdf_http_${pdf.status}`;
+        } else {
+          lastReason = urlRes.error; // e.g. 'invoice_not_available' while Paddle generates it
+        }
+      }
+      // Not ready yet: wait and retry (unless this was the last attempt).
+      if (attempt < attempts) await sleep(delayMs);
+      else console.warn(`[sub-email] invoice-attach ${label} unavailable after ${attempts} attempt(s): ${lastReason}`);
     }
-    if (!txId) return undefined;
-    const urlRes = await getInvoicePdfUrl(cfg, txId);
-    if (!urlRes.ok) return undefined;
-    const pdf = await fetch(urlRes.data, { cache: 'no-store' });
-    if (!pdf.ok) return undefined;
-    const buf = Buffer.from(await pdf.arrayBuffer());
-    return [{ name: 'invoice.pdf', content: buf.toString('base64') }];
-  } catch {
+    return undefined;
+  } catch (e) {
+    console.warn(`[sub-email] invoice-attach ${label} error:`, e instanceof Error ? e.message : String(e));
     return undefined;
   }
 }
@@ -181,29 +216,14 @@ export async function sendSubscriptionActivePaddleEmail(
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
 
-    // Fetch the invoice PDF server-side (key stays server-side). Best effort.
-    let attachments: EmailAttachment[] | undefined;
-    try {
-      const settings = await loadPaymentSettings(sb, platform);
-      const cfg = providerConfigFrom(settings, 'paddle');
-      if (cfg.apiKey) {
-        let txId = args.transactionId ?? null;
-        if (!txId && args.subscriptionId) {
-          const inv = await listSubscriptionInvoices(cfg, args.subscriptionId);
-          if (inv.ok && inv.data.length > 0) txId = inv.data[0].transactionId;
-        }
-        if (txId) {
-          const urlRes = await getInvoicePdfUrl(cfg, txId);
-          if (urlRes.ok) {
-            const pdf = await fetch(urlRes.data, { cache: 'no-store' });
-            if (pdf.ok) {
-              const buf = Buffer.from(await pdf.arrayBuffer());
-              attachments = [{ name: 'invoice.pdf', content: buf.toString('base64') }];
-            }
-          }
-        }
-      }
-    } catch { /* attachment is best effort; send without it */ }
+    // Fetch the invoice PDF server-side (key stays server-side) via the shared
+    // helper: retries while Paddle finishes generating the just-billed invoice and
+    // logs visibly if it never becomes available. Best effort (sends without it).
+    const attachments = await fetchPaddleInvoiceAttachment(
+      sb, platform,
+      { transactionId: args.transactionId, subscriptionId: args.subscriptionId },
+      { attempts: 3, label: 'welcome_paddle' },
+    );
 
     const { subject, html } = await subscriptionActivePaddleEmail({
       name: c.name, planKey: args.planKey, billingUrl: billingUrl(), invoiceAttached: !!attachments,
@@ -303,7 +323,7 @@ export async function sendTrialStartedEmail(
  */
 export async function sendPlanChangedEmail(
   sb: SupabaseClient,
-  args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null; subscriptionId?: string | null },
+  args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null; subscriptionId?: string | null; transactionId?: string | null },
 ): Promise<void> {
   const platform = args.platform ?? PLATFORM_DEFAULT;
   const planKey = (args.planKey ?? '').toLowerCase();
@@ -317,11 +337,17 @@ export async function sendPlanChangedEmail(
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
     // An IMMEDIATE change (upgrade / interval) creates a Paddle proration charge:
-    // attach that invoice (newest transaction on the subscription). A scheduled
-    // downgrade has no charge today, so no invoice. Best effort.
+    // attach that invoice. Prefer the exact proration transaction id (from the
+    // change response) and fall back to the subscription's newest transaction.
+    // Paddle generates the invoice PDF asynchronously, so retry a few times; if it
+    // still is not ready the email sends without it AND logs why (visible, not a
+    // silent drop). A scheduled downgrade has no charge today, so no invoice.
     const attachments = args.timing === 'immediate' && args.subscriptionId
-      ? await fetchPaddleInvoiceAttachment(sb, platform, { subscriptionId: args.subscriptionId })
+      ? await fetchPaddleInvoiceAttachment(sb, platform, { transactionId: args.transactionId, subscriptionId: args.subscriptionId }, { attempts: 4, label: 'plan_changed' })
       : undefined;
+    if (args.timing === 'immediate' && args.subscriptionId && !attachments) {
+      console.warn(`[sub-email] plan_changed invoice NOT attached (user=${args.userId} plan=${planKey}); sent without it`);
+    }
     const { subject, html } = await planChangedEmail({
       name: c.name, planKey: args.planKey, interval: args.interval, timing: args.timing,
       effectiveAt: args.effectiveAt ?? null, manageUrl: billingUrl(), pricingUrl: pricingUrl(platform),

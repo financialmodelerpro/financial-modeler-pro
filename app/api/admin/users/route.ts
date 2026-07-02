@@ -27,8 +27,38 @@ export async function GET(req: NextRequest) {
     const size   = parseInt(searchParams.get('size') ?? '20');
     const search = searchParams.get('search') ?? '';
     const role   = searchParams.get('role')   ?? '';
+    // Cancellation filter (retention outreach): 'canceling' = a cancel is scheduled
+    // and access has not ended yet; 'canceled' = a scheduled cancel whose date has
+    // passed. Both read the durable scheduled_cancel_at marker (mig 183).
+    const cancel = searchParams.get('cancel') ?? '';
 
     const sb = getServerClient();
+    const nowMs = Date.now();
+
+    // When filtering by cancel state, resolve the matching user ids from the
+    // durable marker FIRST, then constrain the paginated users query to them. Own
+    // try/catch so a pre-mig-183 DB simply yields no matches (feature dark until
+    // applied) without breaking the list. An empty match set short-circuits below.
+    let restrictIds: string[] | null = null;
+    if (cancel === 'canceling' || cancel === 'canceled') {
+      restrictIds = [];
+      try {
+        const { data: cRows } = await sb
+          .from('user_platform_subscriptions')
+          .select('user_id, scheduled_cancel_at')
+          .eq('platform_slug', 'real-estate')
+          .not('scheduled_cancel_at', 'is', null);
+        for (const r of (cRows ?? []) as Array<{ user_id: string; scheduled_cancel_at: string | null }>) {
+          const endMs = r.scheduled_cancel_at ? Date.parse(r.scheduled_cancel_at) : NaN;
+          if (Number.isNaN(endMs)) continue;
+          const isCanceled = nowMs >= endMs;
+          if ((cancel === 'canceled') === isCanceled) restrictIds.push(r.user_id);
+        }
+      } catch {
+        // column absent pre mig 183: no matches.
+      }
+    }
+
     // company / job_title are mig 172, trial_ends_at gives the trial expiry anchor.
     // Select them when present; fall back to the base columns if a migration is
     // not applied yet (never break the list).
@@ -37,6 +67,7 @@ export async function GET(req: NextRequest) {
       let q = sb.from('users').select(cols, { count: 'exact' });
       if (search) q = q.ilike('email', `%${search}%`);
       if (role && role !== 'all') q = q.eq('role', role);
+      if (restrictIds !== null) q = q.in('id', restrictIds.length ? restrictIds : ['00000000-0000-0000-0000-000000000000']);
       q = q.order('created_at', { ascending: false }).range(page * size, (page + 1) * size - 1);
       return q;
     };
@@ -54,10 +85,9 @@ export async function GET(req: NextRequest) {
     // column and the user's actual access never diverge. Schema-tolerant: a
     // pre-migration DB (no subscription rows) simply shows no expiry.
     const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
-    const nowMs = Date.now();
+    const ids = rows.map((r) => r.id as string).filter(Boolean);
     let subsByUser = new Map<string, { expires_at?: string | null; current_period_end?: string | null; status?: string | null }>();
     try {
-      const ids = rows.map((r) => r.id as string).filter(Boolean);
       if (ids.length) {
         const { data: subs } = await sb
           .from('user_platform_subscriptions')
@@ -71,6 +101,25 @@ export async function GET(req: NextRequest) {
       }
     } catch {
       // table absent pre-migration: leave subsByUser empty (no expiry shown).
+    }
+
+    // The cancel-at-period-end marker (mig 183), read in its OWN query so a
+    // pre-mig-183 DB does not break the subs read above (all-or-nothing select).
+    const cancelByUser = new Map<string, string>(); // user_id -> scheduled_cancel_at ISO
+    try {
+      if (ids.length) {
+        const { data: cRows } = await sb
+          .from('user_platform_subscriptions')
+          .select('user_id, scheduled_cancel_at')
+          .eq('platform_slug', 'real-estate')
+          .in('user_id', ids)
+          .not('scheduled_cancel_at', 'is', null);
+        for (const c of (cRows ?? []) as Array<{ user_id: string; scheduled_cancel_at: string | null }>) {
+          if (c.scheduled_cancel_at) cancelByUser.set(c.user_id, c.scheduled_cancel_at);
+        }
+      }
+    } catch {
+      // column absent pre mig 183: no cancel markers shown.
     }
 
     const users = rows.map((u) => {
@@ -89,7 +138,15 @@ export async function GET(req: NextRequest) {
       // The admin display status: the date-driven lapse state when the plan has an
       // expiry, otherwise the stored subscription_status.
       const accessStatus: LapseState | string = anchorMs != null ? state : (u.subscription_status as string) ?? 'active';
-      return { ...u, accessExpiresAt, lapseState: anchorMs != null ? state : 'active', accessStatus };
+      // Cancellation state from the durable marker: 'canceling' while access has
+      // not ended, 'canceled' once the scheduled date has passed, else null. Shown
+      // as its own badge + end date so a canceled user is never plain "active".
+      const cancelAt = cancelByUser.get(u.id as string) ?? null;
+      const cancelAtMs = cancelAt ? Date.parse(cancelAt) : NaN;
+      const cancelState: 'canceling' | 'canceled' | null = Number.isNaN(cancelAtMs)
+        ? null
+        : (nowMs >= cancelAtMs ? 'canceled' : 'canceling');
+      return { ...u, accessExpiresAt, lapseState: anchorMs != null ? state : 'active', accessStatus, cancelState, cancelAt };
     });
 
     return NextResponse.json({ users, total: count ?? 0 });

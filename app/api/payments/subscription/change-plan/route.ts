@@ -94,8 +94,10 @@ export async function POST(req: NextRequest) {
   await clearScheduledChange(sb, userId, platform);
   // Confirmation email: upgrade / interval switch, effective immediately
   // (self-contained, never throws; deduped so a single change sends one email).
-  // Passing the subscription id lets the email attach the proration invoice PDF.
-  await sendPlanChangedEmail(sb, { userId, platform, planKey, interval: targetInterval, timing: 'immediate', effectiveAt: res.data.nextBilledAt ?? null, subscriptionId: ctx.subscriptionId });
+  // Passing the proration transaction id (when the change response carries one)
+  // lets the email attach the EXACT proration invoice PDF; the subscription id is
+  // the fallback (newest transaction). Both are resolved server-side.
+  await sendPlanChangedEmail(sb, { userId, platform, planKey, interval: targetInterval, timing: 'immediate', effectiveAt: res.data.nextBilledAt ?? null, subscriptionId: ctx.subscriptionId, transactionId: res.data.immediateTransactionId });
   // Return the refreshed summary; the webhook keeps the app plan in sync.
   return NextResponse.json({ ok: true, applied: 'immediate', subscription: res.data, planKey });
 }

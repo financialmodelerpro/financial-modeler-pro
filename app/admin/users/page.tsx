@@ -23,6 +23,30 @@ interface User {
   accessExpiresAt?: string | null;
   accessStatus?: string;
   lapseState?: 'active' | 'grace' | 'lapsed';
+  // Cancellation state from the durable scheduled_cancel_at marker (mig 183):
+  // 'canceling' = cancel scheduled, access not yet ended; 'canceled' = the
+  // scheduled date has passed. cancelAt is the date access ends.
+  cancelState?: 'canceling' | 'canceled' | null;
+  cancelAt?: string | null;
+}
+
+// Cancellation badge meta: canceling (still has access) vs canceled (ended).
+const CANCEL_STATUS_META: Record<string, { color: string; label: string }> = {
+  canceling: { color: '#B45309', label: 'canceling' },
+  canceled:  { color: '#B91C1C', label: 'canceled' },
+};
+
+function CancelBadge({ state }: { state: 'canceling' | 'canceled' }) {
+  const meta = CANCEL_STATUS_META[state];
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: 12,
+      fontSize: 11, fontWeight: 700, color: '#fff', background: meta.color,
+      letterSpacing: '0.03em', textTransform: 'capitalize', whiteSpace: 'nowrap',
+    }}>
+      {meta.label}
+    </span>
+  );
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -112,6 +136,7 @@ export default function AdminUsersPage() {
   const [search, setSearch]                 = useState('');
   const [planFilter, setPlanFilter]         = useState('all');
   const [roleFilter, setRoleFilter]         = useState('all');
+  const [cancelFilter, setCancelFilter]     = useState('all');
   const [page, setPage]             = useState(0);
   const [total, setTotal]           = useState(0);
   const [updating, setUpdating]     = useState<string | null>(null);
@@ -159,14 +184,15 @@ export default function AdminUsersPage() {
   const fetchUsers = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
-    if (search)                params.set('search', search);
-    if (roleFilter !== 'all')  params.set('role', roleFilter);
-    if (planFilter !== 'all')  params.set('plan', planFilter);
+    if (search)                 params.set('search', search);
+    if (roleFilter !== 'all')   params.set('role', roleFilter);
+    if (planFilter !== 'all')   params.set('plan', planFilter);
+    if (cancelFilter !== 'all') params.set('cancel', cancelFilter);
     fetch(`/api/admin/users?${params}`)
       .then(r => r.json())
       .then(j => { setUsers(j.users ?? []); setTotal(j.total ?? 0); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [page, search, roleFilter, planFilter]);
+  }, [page, search, roleFilter, planFilter, cancelFilter]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -265,6 +291,15 @@ export default function AdminUsersPage() {
             <option value="all">All Roles</option>
             <option value="user">User</option>
             <option value="admin">Admin</option>
+          </select>
+          {/* Cancellation filter (retention outreach): find users who are canceling
+              or have canceled, read from the durable scheduled_cancel_at marker. */}
+          <select value={cancelFilter} onChange={e => { setCancelFilter(e.target.value); setPage(0); }}
+            data-testid="cancel-filter"
+            style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+            <option value="all">All subscriptions</option>
+            <option value="canceling">Canceling (access not ended)</option>
+            <option value="canceled">Canceled</option>
           </select>
         </div>
 
@@ -366,14 +401,22 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
-                    {/* Access status (auto-computed by date: active / grace / lapsed) */}
+                    {/* Access status (auto-computed by date: active / grace / lapsed)
+                        plus a Canceling / Canceled badge from the durable marker, so
+                        a canceled user is never shown as plain active. */}
                     <td style={{ padding: '12px 16px' }} data-testid={`user-access-${u.id}`}>
-                      <AccessStatusBadge status={u.accessStatus ?? u.subscription_status ?? 'active'} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                        <AccessStatusBadge status={u.accessStatus ?? u.subscription_status ?? 'active'} />
+                        {u.cancelState && <span data-testid={`user-cancel-${u.id}`}><CancelBadge state={u.cancelState} /></span>}
+                      </div>
                     </td>
 
-                    {/* Expires (the plan's access-expiry anchor; blank when it does not expire) */}
+                    {/* Expires: the cancel-ends date when canceling/canceled, else the
+                        plan's access-expiry anchor (blank when it does not expire). */}
                     <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280', whiteSpace: 'nowrap' }} data-testid={`user-expiry-${u.id}`}>
-                      {u.accessExpiresAt ? new Date(u.accessExpiresAt).toLocaleDateString() : 'n/a'}
+                      {u.cancelAt
+                        ? new Date(u.cancelAt).toLocaleDateString()
+                        : (u.accessExpiresAt ? new Date(u.accessExpiresAt).toLocaleDateString() : 'n/a')}
                     </td>
 
                     {/* Projects */}

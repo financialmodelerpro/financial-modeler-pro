@@ -5,6 +5,7 @@ import {
   loadPaymentSettings, providerConfigFrom, mapProviderPriceIdToPlan, BASELINE_PLAN_KEY,
   wasWebhookEventProcessed, recordWebhookEvent, storeUserSubscriptionIds, storeUserPlatformSubscription,
   recordPaymentTransaction, loadScheduledManualConversion, clearPaddleSubscriptionIds,
+  markSubscriptionCanceling,
 } from '@/src/shared/payments/config';
 import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 import { getAdapter } from '@/src/shared/payments/registry';
@@ -195,6 +196,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
         planKey: res.planKey ?? planKey, amountMinor: event.transactionAmountMinor,
         currency: event.transactionCurrency, status: 'completed', billedAt: new Date().toISOString(),
       });
+    }
+    // Durable Canceling marker (mig 183): a subscription.updated carrying a
+    // scheduled cancel-at-period-end (or its removal via a resume) is the only
+    // signal a cancel scheduled directly in Paddle produces. Persist it so the
+    // admin views reflect Canceling without a per-user live call; pass null to
+    // CLEAR it when no cancel is pending (an un-cancel). Only meaningful on an
+    // 'updated' event (an 'activated' already clears it via storeUserPlatformSubscription).
+    if (event.type === 'updated') {
+      await markSubscriptionCanceling(sb, userId, eventPlatform, { scheduledCancelAt: event.scheduledCancelAt });
     }
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     // Welcome / subscription-active email on a genuine ACTIVATION only (not every

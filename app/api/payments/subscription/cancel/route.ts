@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { cancelSubscriptionAtPeriodEnd } from '@/src/shared/payments/paddleApi';
-import { loadPlatformSubscriptionRow } from '@/src/shared/payments/config';
+import { loadPlatformSubscriptionRow, markSubscriptionCanceling } from '@/src/shared/payments/config';
 import { sendSubscriptionCanceledEmail } from '@/src/shared/email/subscriptionEmails';
 
 // POST /api/payments/subscription/cancel
@@ -31,6 +31,11 @@ export async function POST(req: NextRequest) {
   if (!res.ok) {
     return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
   }
+  // Persist the cancel-at-period-end marker to the durable store (mig 183) so the
+  // admin views show Canceling + the date access ends, read from the converged
+  // source (not a per-user live Paddle call). Display only; the gate is unchanged.
+  const accessEnds = res.data.scheduledCancelAt ?? res.data.currentPeriodEndsAt ?? null;
+  await markSubscriptionCanceling(sb, userId, platform, { scheduledCancelAt: accessEnds, currentPeriodEnd: res.data.currentPeriodEndsAt ?? null });
   // Confirmation email: cancellation acknowledged + the date access continues
   // until (self-contained, never throws). Uses the period-end from the refreshed
   // Paddle summary; plan label from the stored per-platform row.

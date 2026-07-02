@@ -121,6 +121,7 @@ export const paddleAdapter: PaymentAdapter = {
       userRef: null, customDataPlanKey: null, customerEmail: null,
       subscriptionId: null, customerId: null, customDataPlatform: null,
       transactionId: null, transactionAmountMinor: null, transactionCurrency: null,
+      scheduledCancelAt: null,
     };
     try {
       const body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -145,6 +146,12 @@ export const paddleAdapter: PaymentAdapter = {
       const isTxn = eventType === 'transaction.completed';
       const totals = (((data?.details as Record<string, unknown> | undefined)?.totals) as Record<string, unknown> | undefined) ?? {};
       const grand = Number(totals.grand_total);
+      // A pending cancel-at-period-end lives in data.scheduled_change on a
+      // subscription.updated event; the effective_at is the date access ends.
+      const scheduled = (data?.scheduled_change as Record<string, unknown> | undefined) ?? {};
+      const scheduledCancelAt = scheduled.action === 'cancel'
+        ? ((scheduled.effective_at as string | undefined) ?? null)
+        : null;
       return {
         type: mapEventType(eventType),
         eventId,
@@ -158,6 +165,7 @@ export const paddleAdapter: PaymentAdapter = {
         transactionId: isTxn ? ((data?.id as string | undefined) ?? null) : null,
         transactionAmountMinor: isTxn && Number.isFinite(grand) ? grand : null,
         transactionCurrency: isTxn ? ((totals.currency_code as string | undefined) ?? (data?.currency_code as string | undefined) ?? null) : null,
+        scheduledCancelAt,
       };
     } catch {
       // Malformed body: never throw, the route stops on type 'unknown'.

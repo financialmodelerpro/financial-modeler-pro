@@ -254,7 +254,10 @@ export interface PlatformSubscriptionRow {
 }
 
 /** Load the per-platform subscription row, tolerant of pre-mig-179 schema (the
- *  manual columns absent) by falling back to the mig-177 columns. */
+ *  manual columns absent) by falling back to the mig-177 columns. Note:
+ *  scheduled_cancel_at (mig 183) is intentionally NOT selected here so a DB
+ *  without that migration does not fail this all-or-nothing select; the admin
+ *  list reads that column via its own schema-tolerant query. */
 export async function loadPlatformSubscriptionRow(
   sb: SupabaseClient, userId: string, platform: string,
 ): Promise<PlatformSubscriptionRow | null> {
@@ -334,6 +337,36 @@ export async function syncPlatformSubscriptionFields(
   } catch {
     // table/columns absent pre-migration, or transient error: ignore (store A,
     // the gate input, was already written by the caller).
+  }
+}
+
+/**
+ * Persist a cancel-AT-PERIOD-END marker on the per-platform row (mig 183). Written
+ * by the cancel paths (self-service cancel, convert-at-period-end) and the webhook
+ * when a scheduled cancel is detected, so the admin views can show a
+ * Canceling / Canceled status + the date access ends WITHOUT a live Paddle call.
+ *
+ * UPDATE-only (never inserts) + best effort + schema-tolerant, exactly like
+ * syncPlatformSubscriptionFields. Deliberately does NOT touch `status` or `source`
+ * (the row stays a LIVE Paddle sub until the period actually ends, and the
+ * subscription.updated webhook re-converges status), so isLivePaddleSubscription
+ * and the gate inputs are unaffected. Cleared on (re)activation by
+ * storeUserPlatformSubscription. Pass scheduledCancelAt=null to CLEAR the marker
+ * (e.g. a cancel was un-scheduled).
+ */
+export async function markSubscriptionCanceling(
+  sb: SupabaseClient, userId: string, platform: string,
+  fields: { scheduledCancelAt: string | null; currentPeriodEnd?: string | null },
+): Promise<void> {
+  if (!userId || !platform) return;
+  const patch: Record<string, unknown> = { scheduled_cancel_at: fields.scheduledCancelAt, updated_at: new Date().toISOString() };
+  if (fields.currentPeriodEnd !== undefined) patch.current_period_end = fields.currentPeriodEnd;
+  try {
+    await sb.from('user_platform_subscriptions').update(patch)
+      .eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // column absent pre mig 183, or transient error: ignore (display only, the
+    // gate's inputs were untouched).
   }
 }
 
@@ -684,13 +717,22 @@ export async function storeUserPlatformSubscription(
   }
   // Best-effort, separate from the critical write above: clear stale manual-only
   // columns so a prior manual record's expiry/amount/note does not linger on a
-  // now-Paddle row (mig 179 columns; swallow if absent).
+  // now-Paddle row (mig 179 columns; swallow if absent). Also clear any prior
+  // cancel marker (mig 183): an activation means the subscription is live again,
+  // so a resubscribe must not still read as Canceled in the admin views.
   try {
     await sb.from('user_platform_subscriptions')
       .update({ expires_at: null, amount_minor: null, note: null })
       .eq('user_id', userId).eq('platform_slug', platform);
   } catch {
     // mig-179 columns absent: nothing to clear.
+  }
+  try {
+    await sb.from('user_platform_subscriptions')
+      .update({ scheduled_cancel_at: null })
+      .eq('user_id', userId).eq('platform_slug', platform);
+  } catch {
+    // mig-183 column absent: nothing to clear.
   }
 }
 

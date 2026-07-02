@@ -110,6 +110,11 @@ export interface ParsedSubscriptionEvent {
   transactionAmountMinor: number | null;
   /** The transaction currency code (revenue ledger). Null when absent. */
   transactionCurrency: string | null;
+  /** On a subscription.updated event, the scheduled-cancel date when a
+   *  cancel-at-period-end is pending (data.scheduled_change.action === 'cancel'),
+   *  else null. Lets the webhook persist the durable Canceling marker (mig 183)
+   *  so the admin views reflect a cancel scheduled directly in Paddle. */
+  scheduledCancelAt: string | null;
 }
 
 export interface PaymentAdapter {

@@ -49,6 +49,11 @@ export interface SubscriptionSummary {
   /** The billing interval of the current item ('monthly' | 'annual' | null),
    *  used to pick the matching target price id on an upgrade / downgrade. */
   billingInterval: 'monthly' | 'annual' | null;
+  /** The proration transaction id created by an immediate plan change, when the
+   *  change response carries one (data.immediate_transaction.id). Lets the
+   *  plan-change email attach the exact proration invoice rather than guessing the
+   *  newest transaction. Null on a plain get / cancel. */
+  immediateTransactionId: string | null;
 }
 
 export interface InvoiceSummary {
@@ -164,6 +169,7 @@ function shapeSummary(subscriptionId: string, data: unknown, forceCanceled = fal
     updatePaymentMethodUrl: str(mgmt.update_payment_method),
     currentPriceId: priceId,
     billingInterval: interval,
+    immediateTransactionId: str(asRecord(d.immediate_transaction).id),
   };
 }
 

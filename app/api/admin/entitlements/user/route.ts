@@ -79,6 +79,9 @@ export async function GET(req: NextRequest) {
             startedAt: subRow.started_at, currentPeriodEnd: det.data.currentPeriodEndsAt,
             nextBilledAt: det.data.nextBilledAt, expiresAt: null,
             amountMinor: det.data.amountMinor, currency: det.data.currency, interval: det.data.billingInterval,
+            // Cancel-at-period-end state (live Paddle), so the panel shows Canceling
+            // + the date access ends instead of a bare "active".
+            canceled: det.data.canceled, scheduledCancelAt: det.data.scheduledCancelAt,
           };
         }
         const inv = await listSubscriptionInvoices(cfg, subRow.paddle_subscription_id);
