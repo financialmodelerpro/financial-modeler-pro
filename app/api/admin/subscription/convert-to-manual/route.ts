@@ -7,7 +7,7 @@ import {
   loadPaymentSettings, providerConfigFrom, loadPlatformSubscriptionRow, isLivePaddleSubscription,
   storeScheduledManualConversion, recordPaymentTransaction,
 } from '@/src/shared/payments/config';
-import { getSubscription, cancelSubscriptionAtPeriodEnd, cancelSubscriptionNow } from '@/src/shared/payments/paddleApi';
+import { getSubscription, cancelSubscriptionAtPeriodEnd, cancelSubscriptionNow, listSubscriptionInvoices } from '@/src/shared/payments/paddleApi';
 import { sendManualPlanWelcomeEmail, issueManualInvoice } from '@/src/shared/email/subscriptionEmails';
 
 // POST /api/admin/subscription/convert-to-manual
@@ -57,6 +57,26 @@ export async function POST(req: NextRequest) {
     // current period (paid-through reads as "n/a"). Canceling it AGAIN returns
     // Paddle's subscription_update_when_canceled, so we must NOT try: we assign
     // the manual plan directly instead.
+    // Capture the Paddle invoice history into the DURABLE ledger BEFORE the Paddle
+    // subscription goes away, so the user's Paddle receipts remain in their billing
+    // history after the convert (the live Paddle API loses them once the sub is
+    // gone, and the webhook's transaction.completed may not have recorded them).
+    // Idempotent on the transaction id; settled transactions only.
+    try {
+      const inv = await listSubscriptionInvoices(cfg, row.paddle_subscription_id);
+      if (inv.ok) {
+        for (const t of inv.data) {
+          if ((t.status === 'completed' || t.status === 'paid') && t.amountMinor !== null) {
+            await recordPaymentTransaction(sb, {
+              source: 'paddle', externalId: t.transactionId, userId: user_id, platform,
+              planKey: row.plan_key ?? null, amountMinor: t.amountMinor, currency: t.currency,
+              status: 'completed', billedAt: t.billedAt,
+            });
+          }
+        }
+      }
+    } catch { /* best effort: history capture must not block the conversion */ }
+
     const det = await getSubscription(cfg, row.paddle_subscription_id);
     const paidThrough = det.ok ? det.data.currentPeriodEndsAt : null;
     const alreadyInactive = !det.ok

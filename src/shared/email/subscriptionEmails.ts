@@ -211,18 +211,26 @@ export async function sendSubscriptionActivePaddleEmail(
 ): Promise<void> {
   const platform = args.platform ?? PLATFORM_DEFAULT;
   const nowMs = Date.now();
-  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'welcome_paddle', threshold: 'once', anchor_day: dayStr(nowMs) };
+  // Per-EVENT dedupe (matches welcome_manual/canceled): key on the Paddle
+  // subscription (or transaction) id, NOT the calendar day, so a genuine NEW
+  // purchase always sends while a webhook redelivery for the SAME activation does
+  // not. The old 'once'/day key swallowed a second same-day purchase (the "was
+  // receiving, now not" report on repeated testing).
+  const evtToken = args.subscriptionId ?? args.transactionId ?? dayStr(nowMs);
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'welcome_paddle', threshold: `evt:${evtToken}`, anchor_day: dayStr(nowMs) };
   await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
 
     // Fetch the invoice PDF server-side (key stays server-side) via the shared
-    // helper: retries while Paddle finishes generating the just-billed invoice and
-    // logs visibly if it never becomes available. Best effort (sends without it).
+    // helper. ONE fast attempt (no sleeps) so the webhook responds quickly and is
+    // never timed out by Paddle mid-send (a stalled send would leave the dedupe
+    // marker claimed and drop the email). On activation the invoice is normally
+    // ready; if not, the email still sends with the billing link (best effort).
     const attachments = await fetchPaddleInvoiceAttachment(
       sb, platform,
       { transactionId: args.transactionId, subscriptionId: args.subscriptionId },
-      { attempts: 3, label: 'welcome_paddle' },
+      { attempts: 1, label: 'welcome_paddle' },
     );
 
     const { subject, html } = await subscriptionActivePaddleEmail({
@@ -303,7 +311,11 @@ export async function sendTrialStartedEmail(
   args: { userId: string; platform?: string; trialEndsAt?: string | null },
 ): Promise<void> {
   const platform = args.platform ?? PLATFORM_DEFAULT;
-  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'trial_started', threshold: 'once', anchor_day: dayStr(Date.now()) };
+  // Per-EVENT dedupe: key on the trial end date, so each genuine trial GRANT (a
+  // fresh trial_ends_at) sends while a re-approval of the same trial does not.
+  // The old 'once'/day key swallowed a second trial grant on the same day.
+  const token = args.trialEndsAt ?? dayStr(Date.now());
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'trial_started', threshold: `evt:${token}`, anchor_day: dayStr(Date.now()) };
   await dispatch(sb, key, async () => {
     const c = await getContact(sb, args.userId);
     if (!c) throw new Error('no contact');
@@ -343,7 +355,7 @@ export async function sendPlanChangedEmail(
     // still is not ready the email sends without it AND logs why (visible, not a
     // silent drop). A scheduled downgrade has no charge today, so no invoice.
     const attachments = args.timing === 'immediate' && args.subscriptionId
-      ? await fetchPaddleInvoiceAttachment(sb, platform, { transactionId: args.transactionId, subscriptionId: args.subscriptionId }, { attempts: 4, label: 'plan_changed' })
+      ? await fetchPaddleInvoiceAttachment(sb, platform, { transactionId: args.transactionId, subscriptionId: args.subscriptionId }, { attempts: 2, delayMs: 800, label: 'plan_changed' })
       : undefined;
     if (args.timing === 'immediate' && args.subscriptionId && !attachments) {
       console.warn(`[sub-email] plan_changed invoice NOT attached (user=${args.userId} plan=${planKey}); sent without it`);

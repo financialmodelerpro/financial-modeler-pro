@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { loadPlatformSubscriptionRow, isLivePaddleSubscription, recordPaymentTransaction, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
-import { sendManualPlanWelcomeEmail, issueManualInvoice, sendPlanEndedEmail } from '@/src/shared/email/subscriptionEmails';
+import { sendManualPlanWelcomeEmail, issueManualInvoice, sendPlanEndedEmail, sendTrialStartedEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Assign a user to any entitlement plan (Trial / Solo / Pro / Firm), or a MANUAL
 // (bank / offline) plan with a start + expiry. THE single shared plan-setting
@@ -72,6 +72,12 @@ export async function POST(req: NextRequest) {
       if (prevPlan && prevPlan !== 'none' && prevPlan !== 'trial') {
         await sendPlanEndedEmail(sb, { userId: user_id, platform, planKey: prevPlan });
       }
+    } else if (newPlan === 'trial') {
+      // Trial assignment: sendManualPlanWelcomeEmail intentionally skips trial, so
+      // send the dedicated trial-started email here (the same one the trial approval
+      // + self-serve paths send). Deduped per-event on the trial end date, so a
+      // genuine new grant sends and a re-assignment of the same trial does not.
+      await sendTrialStartedEmail(sb, { userId: user_id, platform, trialEndsAt: res.trialEndsAt ?? null });
     } else {
       // Log the manual payment to the revenue ledger (counts toward admin revenue)
       // and issue an FMP-branded receipt (PDF stored + emailed + listed in billing).

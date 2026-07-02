@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { listSubscriptionInvoices } from '@/src/shared/payments/paddleApi';
+import { recordPaymentTransaction } from '@/src/shared/payments/config';
 import { listManualInvoices, listPaddleLedgerInvoices, type NormalizedInvoice } from '@/src/shared/payments/manualInvoice';
 
 // GET /api/payments/invoices
@@ -45,6 +46,18 @@ export async function GET(req: NextRequest) {
           id: inv.transactionId, source: 'paddle', billedAt: inv.billedAt,
           number: inv.invoiceNumber ?? inv.transactionId, amountMinor: inv.amountMinor, currency: inv.currency,
         });
+        // Self-heal the DURABLE ledger from this live read so the Paddle history
+        // SURVIVES a later cancel / convert-to-manual (the webhook's
+        // transaction.completed may not have fired in sandbox, which is why the
+        // history vanished once the live sub was gone). Idempotent on the
+        // transaction id; only settled transactions so revenue is not inflated.
+        if ((inv.status === 'completed' || inv.status === 'paid') && inv.amountMinor !== null) {
+          await recordPaymentTransaction(sb, {
+            source: 'paddle', externalId: inv.transactionId, userId, platform,
+            planKey: ctx.planKey ?? null, amountMinor: inv.amountMinor, currency: inv.currency,
+            status: 'completed', billedAt: inv.billedAt,
+          });
+        }
       }
     }
   }
