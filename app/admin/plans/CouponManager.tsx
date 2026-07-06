@@ -103,6 +103,17 @@ export function CouponManager() {
           {/* Featured public promo summary + label + clear */}
           <div style={{ background: '#F9FAFB', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Public auto-apply promo</div>
+            {featured && (() => {
+              const fd = discounts.find((d) => d.id === featured.discountId);
+              if (fd && !fd.enabledForCheckout) {
+                return (
+                  <div data-testid="featured-disabled-warn" style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: 10, marginBottom: 8, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
+                    This featured discount is NOT enabled for checkout in Paddle, so it will not auto-apply or show on the site. Enable it for checkout in Paddle (the discount&apos;s settings), then reload.
+                  </div>
+                );
+              }
+              return null;
+            })()}
             {featured ? (
               <div data-testid="featured-promo" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, color: '#374151' }}>Featured discount: <strong style={{ fontFamily: 'monospace' }}>{featured.discountId}</strong></span>
