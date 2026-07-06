@@ -240,6 +240,7 @@ app/api/training/
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
 ├── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed, one-shot dashboard walkthrough (migration 120)
+├── model-submission/[id]/reviewed-file/ # GET (mig 185, 2026-07-07): student download for the admin-RETURNED reviewed model. training_session auth + OWNERSHIP-checked (submission email == student), streams bytes from the private model-submissions bucket (mirrors the admin proxy; no signed-URL leak). 404 when no reviewed file. Linked from the approved email + the student dashboard card.
 └── model-submission/              # GET ?courseCode=3SFM|BVM → ModelSubmissionStatusResult for the dashboard card. POST FormData (file, courseCode, studentNotes?) uploads a model to the private model-submissions bucket and inserts a model_submissions row with status='pending_review'. Validates: auth via training_session cookie, courseCode normalization, gate-on check, one-pending guard (409), attempts cap (403), file extension allow-list, MIME detection, file size cap (clamped 1-50 MB via training_settings). On success: fires fire-and-forget admin alert email via next/server `after()` (Phase F.1, gated by model_submission_admin_notify_enabled + model_submission_admin_notify_email). Migration 148.
 ```
 
@@ -260,7 +261,7 @@ app/api/admin/
 ├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? }, bypasses watch threshold; records issued_via='forced' + issued_by_admin
 ├── certificates/resend-email/   # POST { certificateId }, rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
 ├── model-submissions/                # GET: list + filter (status / course / search) + paginated; admin queue at /admin/training-hub/model-submissions (migration 148)
-├── model-submissions/[id]/review/    # POST { decision: 'approve' | 'reject', reviewNote }: writes review + audit log + fires modelSubmissionApproved/Rejected email
+├── model-submissions/[id]/review/    # POST: approve/reject. Accepts JSON { decision, note } OR multipart (decision, note, optional reviewed-model `file`). Writes review + audit log + fires modelSubmissionApproved/Rejected email. **Reviewed-model return (mig 185, 2026-07-07):** on approve the admin may attach a marked-up model; it uploads to the private model-submissions bucket (`reviewed/` prefix), stores reviewed_file_* columns, and the approved email carries a download LINK. Reject + file-less approve unchanged.
 ├── model-submissions/[id]/file/      # GET: admin-only proxy that streams the upload from the private model-submissions bucket so the bucket can stay private
 ├── training-settings/model-submission-gate/ # POST { key, value }: audit-logged write for the 3 gate flags. Admin-only. Writes admin_audit_log action='model_submission_gate_change' with before/after values. Other gate-related K/V pairs (notify settings, guidance, sample URL) go through the generic /api/admin/training-settings endpoint.
 ├── share-templates/             # GET: list all templates + merged ShareSettings (admin editor)
