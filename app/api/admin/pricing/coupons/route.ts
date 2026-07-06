@@ -29,6 +29,13 @@ export async function POST(req: NextRequest) {
       max_uses: body.max_uses ?? null,
       expires_at: body.expires_at ?? null,
       is_active: body.is_active ?? true,
+      // Model 1 reference fields (mig 184): the Paddle discount id this code
+      // references (required to actually reduce the charge), its kind
+      // (public auto-apply / private), an optional label, and a start date.
+      paddle_discount_id: (body.paddle_discount_id as string | undefined)?.trim() || null,
+      kind: body.kind === 'public' ? 'public' : 'private',
+      display_label: (body.display_label as string | undefined)?.trim() || null,
+      starts_at: body.starts_at ?? null,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });

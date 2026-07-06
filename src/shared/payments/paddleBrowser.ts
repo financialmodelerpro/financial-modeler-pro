@@ -19,6 +19,9 @@ interface PaddleCheckoutOpen {
   items: { priceId: string; quantity: number }[];
   customer?: { email: string };
   customData?: Record<string, string>;
+  /** Paddle discount id (dsc_...) to pre-apply. Paddle validates it against the
+   *  price/currency and rejects via checkout.error if it does not apply. */
+  discountId?: string;
   settings?: { displayMode?: 'overlay' | 'inline' };
 }
 /** Shape of the events Paddle.js delivers to Initialize's eventCallback. The
@@ -95,6 +98,8 @@ export interface OpenPaddleArgs {
   sandbox: boolean;
   email?: string | null;
   customData?: Record<string, string>;
+  /** Paddle discount id to pre-apply in the overlay (from a coupon / public promo). */
+  discountId?: string | null;
   /** Called once when the payment actually completes (checkout.completed), so
    *  the caller can redirect into the app. Not called on a mere overlay open or
    *  on close without payment. */
@@ -158,6 +163,7 @@ export async function openPaddleCheckout(args: OpenPaddleArgs): Promise<void> {
         items: [{ priceId: args.priceId, quantity: 1 }],
         customer: args.email ? { email: args.email } : undefined,
         customData: args.customData,
+        discountId: args.discountId ?? undefined,
         settings: { displayMode: 'overlay' },
       });
     } catch (err) {

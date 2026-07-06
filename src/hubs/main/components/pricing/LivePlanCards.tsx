@@ -88,10 +88,32 @@ const CATEGORY_LABELS: Record<string, string> = {
   module: 'Modules', export: 'Exports', analysis: 'Analysis', platform: 'Platform', limits: 'Limits', admin: 'Admin', branding: 'Branding', ai: 'AI', general: 'General',
 };
 
+/** Active public promo for display (Model 1: references a real Paddle discount,
+ *  which is applied at checkout server-side; the discount id is NOT needed here). */
+export interface PromoInfo {
+  code: string;
+  label: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+}
+
 export default function LivePlanCards({
-  plans, features, coverage, trialDays = 0, credibilityLine = '', actions,
-}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number; credibilityLine?: string; actions?: PricingActions }) {
+  plans, features, coverage, trialDays = 0, credibilityLine = '', actions, promo = null,
+}: { plans: LivePlan[]; features: LiveFeature[]; coverage: LiveCoverage[]; trialDays?: number; credibilityLine?: string; actions?: PricingActions; promo?: PromoInfo | null }) {
   const [interval, setInterval] = useState<BillingInterval>('monthly');
+
+  // Discounted headline for a priced plan when a PERCENTAGE public promo is active
+  // (the common launch promo). Mirrors formatPlanPrice's currency formatting.
+  // Fixed-amount promos show the label chip only (their currency/scope can differ),
+  // so we never display a mis-computed number. Returns null when nothing applies.
+  const discountedBig = (p: LivePlan): string | null => {
+    if (!promo || promo.discountType !== 'percentage' || promo.discountValue <= 0) return null;
+    const v = interval === 'monthly' ? p.price_monthly : p.price_annual;
+    if (v == null || v <= 0) return null;
+    const cur = p.currency || 'SAR';
+    const off = Math.round(v * (1 - promo.discountValue / 100));
+    return `${cur} ${off.toLocaleString()}`;
+  };
 
   const cov = new Map<string, LiveCoverage>();
   for (const c of coverage) cov.set(`${c.plan_key}::${c.feature_key}`, c);
@@ -123,6 +145,19 @@ export default function LivePlanCards({
 
   return (
     <div data-testid="live-plan-cards">
+      {/* Active public promo banner (auto-applied at checkout). Only shows when a
+          promo referencing a real Paddle discount is active, so the "X% off" here
+          always matches what applies at checkout. */}
+      {promo && (
+        <div data-testid="promo-banner"
+          style={{ maxWidth: 640, margin: '0 auto 24px', textAlign: 'center', background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 12, padding: '12px 20px', color: GOLD_DARK, fontSize: 14, fontWeight: 800 }}>
+          {promo.label}
+          <span style={{ fontWeight: 600, color: MUTED, marginLeft: 8 }}>
+            applied automatically at checkout{promo.code ? ` (code ${promo.code})` : ''}
+          </span>
+        </div>
+      )}
+
       {/* Billing toggle (active state = navy) */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 36 }}>
         <div role="group" aria-label="Billing interval" data-testid="billing-toggle"
@@ -214,10 +249,28 @@ export default function LivePlanCards({
                     </>
                   ) : (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                        <span data-testid={`pricing-amount-${p.plan_key}`} style={{ fontSize: 34, fontWeight: 900, color: INK, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{pt.big}</span>
-                        {pt.sub && <span style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>{pt.sub}</span>}
-                      </div>
+                      {(() => {
+                        // Discounted headline when a percentage promo applies to
+                        // this priced, self-checkout/dual plan; original struck out.
+                        const disc = mode !== 'contact_only' ? discountedBig(p) : null;
+                        return disc ? (
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                              <span data-testid={`pricing-amount-${p.plan_key}`} style={{ fontSize: 34, fontWeight: 900, color: INK, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{disc}</span>
+                              {pt.sub && <span style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>{pt.sub}</span>}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, color: MUTED, fontWeight: 600 }}>
+                              <span style={{ textDecoration: 'line-through' }} data-testid={`pricing-was-${p.plan_key}`}>{pt.big}</span>
+                              {promo && <span style={{ marginLeft: 8, color: GOLD_DARK, fontWeight: 800 }}>{promo.discountValue}% off</span>}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                            <span data-testid={`pricing-amount-${p.plan_key}`} style={{ fontSize: 34, fontWeight: 900, color: INK, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{pt.big}</span>
+                            {pt.sub && <span style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>{pt.sub}</span>}
+                          </div>
+                        );
+                      })()}
                       <div style={{ height: 1, background: LINE, margin: '20px 0' }} />
                       <div style={{ marginTop: 'auto' }}>
                         {mode === 'contact_only' ? (

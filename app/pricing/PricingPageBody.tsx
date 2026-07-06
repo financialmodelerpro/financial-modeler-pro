@@ -72,6 +72,11 @@ export default async function PricingPageBody({ initialPlatform }: { initialPlat
       coverage: cat.coverage,
       trialDays: cat.trialDays,
       credibilityLine: cat.credibilityLine,
+      // Active public promo (display only). The Paddle discount id stays
+      // server-side; the checkout route re-resolves + auto-applies it.
+      promo: cat.promo
+        ? { code: cat.promo.code, label: cat.promo.label, discountType: cat.promo.discountType, discountValue: cat.promo.discountValue }
+        : null,
     };
   }
   // The single-source trial length for the bottom CTA copy (the live REFM

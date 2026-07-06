@@ -42,6 +42,10 @@ export interface CheckoutRequest {
   /** The platform this checkout is for. Passed through to the provider as custom
    *  data so the webhook can key the subscription PER platform. */
   platform: string;
+  /** Optional Paddle discount id (dsc_...) to pre-apply at checkout (Model 1: the
+   *  discount is owned by Paddle; we only reference it). Resolved server-side from
+   *  a coupon code or the active public promo. Null when no discount applies. */
+  discountId?: string | null;
 }
 
 /** A checkout outcome.
@@ -70,6 +74,11 @@ export interface CheckoutResult {
   email?: string | null;
   /** Passthrough mapped back by the webhook (user_id + plan_key). */
   customData?: Record<string, string>;
+  /** Paddle discount id to pre-apply in the overlay (client-safe; Paddle
+   *  validates + applies it). Present when a coupon or public promo resolved. */
+  discountId?: string | null;
+  /** Human label for the applied discount (e.g. "Launch offer"), for UI feedback. */
+  discountLabel?: string | null;
 }
 
 export interface WebhookVerifyResult {

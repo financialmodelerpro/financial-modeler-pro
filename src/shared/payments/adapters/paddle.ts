@@ -111,6 +111,10 @@ export const paddleAdapter: PaymentAdapter = {
       sandbox: cfg.sandbox,
       email: req.userEmail,
       customData: { user_id: req.userId, plan_key: req.planKey, platform: req.platform },
+      // Model 1 discount: a Paddle discount id resolved server-side (from a coupon
+      // code or the active public promo). Paddle validates + applies it in the
+      // overlay; a discount id is client-safe (not a secret).
+      discountId: req.discountId ?? null,
       message: 'Opening Paddle checkout.',
     };
   },

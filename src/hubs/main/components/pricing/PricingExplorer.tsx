@@ -23,7 +23,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import LivePlanCards, { type LivePlan, type LiveFeature, type LiveCoverage, type PricingActions } from './LivePlanCards';
+import LivePlanCards, { type LivePlan, type LiveFeature, type LiveCoverage, type PricingActions, type PromoInfo } from './LivePlanCards';
 import { CouponInput } from '@/app/pricing/CouponInput';
 import type { BillingInterval } from '@/src/shared/entitlements/pricingDisplay';
 import { parsePlanIntent, readPlanIntent, clearPlanIntent } from '@/src/hubs/modeling/lib/planIntent';
@@ -51,6 +51,9 @@ export interface PlatformPricing {
   coverage: LiveCoverage[];
   trialDays: number;
   credibilityLine: string;
+  /** Active public auto-apply promo for this platform (display only; the Paddle
+   *  discount id stays server-side and is applied by the checkout route). */
+  promo?: PromoInfo | null;
 }
 
 export default function PricingExplorer({
@@ -66,6 +69,14 @@ export default function PricingExplorer({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const resumedRef = useRef(false);
+
+  // Coupon code the user entered at checkout. Held in a ref too so startCheckout
+  // reads the latest value without being re-created on every keystroke (its deps
+  // stay minimal). Passed to /api/payments/checkout, which resolves it to a Paddle
+  // discount id server-side (Model 1); Paddle applies + validates it.
+  const [couponCode, setCouponCode] = useState('');
+  const couponRef = useRef('');
+  const setCoupon = useCallback((v: string) => { couponRef.current = v; setCouponCode(v); }, []);
 
   // The first live platform whose catalog carries a given plan_key (used to
   // resume a remembered plan choice onto the right platform). Falls back to the
@@ -84,9 +95,13 @@ export default function PricingExplorer({
     // whose catalog carries this plan). Sent so the webhook keys the
     // subscription PER platform.
     const platform = selected ?? platformForPlan(planKey) ?? undefined;
+    // The coupon code the user typed (if any). Server resolves it to a Paddle
+    // discount id; if none is typed, the checkout route auto-applies the active
+    // public promo. An invalid entered code comes back as a clear rejection.
+    const coupon_code = couponRef.current.trim() || undefined;
     fetch('/api/payments/checkout', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ plan_key: planKey, interval, platform }),
+      body: JSON.stringify({ plan_key: planKey, interval, platform, coupon_code }),
     })
       .then((r) => r.json())
       .then(async (res) => {
@@ -102,6 +117,10 @@ export default function PricingExplorer({
               sandbox: res.sandbox !== false,
               email: res.email ?? null,
               customData: res.customData,
+              // Model 1: the Paddle discount id resolved server-side (from the
+              // coupon code or the active public promo). Paddle validates + applies
+              // it; an invalid discount surfaces via checkout.error.
+              discountId: res.discountId ?? null,
               // Post-payment: route the user back into the app instead of
               // leaving them on the pricing page. The webhook provisions the
               // plan; the dashboard then shows their subscription panel.
@@ -112,7 +131,7 @@ export default function PricingExplorer({
                 window.location.href = '/dashboard#billing';
               },
             });
-            setMessage(null);
+            setMessage(res.discountLabel ? `Discount applied: ${res.discountLabel}.` : null);
           } catch (err) {
             // Surface the specific failure (price not found, env mismatch, etc.).
             const msg = err instanceof Error && err.message ? err.message : null;
@@ -212,8 +231,12 @@ export default function PricingExplorer({
               trialDays={selectedPricing.trialDays}
               credibilityLine={selectedPricing.credibilityLine}
               actions={actions}
+              promo={selectedPricing.promo ?? null}
             />
-            <CouponInput />
+            {/* Coupon entry only for logged-in in-app checkout (logged-out hands
+                off to /register, where checkout happens after sign-up). The code
+                flows into startCheckout -> Paddle (Model 1). */}
+            {authed && <CouponInput value={couponCode} onChange={setCoupon} platform={selected ?? undefined} />}
           </>
         ) : (
           <div style={{ textAlign: 'center', padding: '60px 24px', color: MUTED }}>

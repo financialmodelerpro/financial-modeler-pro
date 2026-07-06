@@ -16,6 +16,9 @@ import { loadMergedFeatures, type MergedFeatureRow } from './serverCatalog';
 import { visibleForCustomers, trialDaysFromPlans, comparisonCellText } from './pricingDisplay';
 import { DEFAULT_TRIAL_DAYS } from './trialConfig';
 import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from './pricingPageSettings';
+import { loadActivePublicPromo, type PublicPromo } from '@/src/shared/payments/coupons';
+
+export type { PublicPromo };
 
 // Re-export so existing server callers (marketing page, refm/pricing) keep
 // importing it from pricingCatalog. Pure impl lives in pricingDisplay.
@@ -78,15 +81,20 @@ export interface PricingCatalog {
   trialDays: number;
   /** Pricing-page credibility band text (cms_content; blank = render nothing). */
   credibilityLine: string;
+  /** Active PUBLIC auto-apply promo for this platform (Model 1: references a real
+   *  Paddle discount), or null. Only a promo with a Paddle discount id appears, so
+   *  the displayed "X% off" always matches what actually applies at checkout. */
+  promo: PublicPromo | null;
 }
 
 export async function loadPricingCatalog(sb: SupabaseClient, platform: string): Promise<PricingCatalog> {
-  const [catalog, credibilityLine] = await Promise.all([
+  const [catalog, credibilityLine, promo] = await Promise.all([
     loadMergedFeatures(sb, platform),
     loadCredibilityLine(sb),
+    loadActivePublicPromo(sb, platform),
   ]);
   if (!catalog.migrationApplied) {
-    return { migrationApplied: false, plans: [], features: [], coverage: [], trialDays: DEFAULT_TRIAL_DAYS, credibilityLine };
+    return { migrationApplied: false, plans: [], features: [], coverage: [], trialDays: DEFAULT_TRIAL_DAYS, credibilityLine, promo };
   }
 
   // Active plans with prices + popular/badge + trial_days (mig 162/163/165
@@ -123,6 +131,7 @@ export async function loadPricingCatalog(sb: SupabaseClient, platform: string): 
     coverage: (coverage ?? []) as PricingCoverage[],
     trialDays,
     credibilityLine,
+    promo,
   };
 }
 
