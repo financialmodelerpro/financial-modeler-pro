@@ -8,8 +8,6 @@
  * calls. The Financing engine never imports from those engines
  * directly.
  *
- * Contract reference: docs/financing-hooks.md.
- *
  * PeriodArray semantics:
  *  - length = project total periods (annual today), aligned to
  *    project period 0 = Y0 = project.startDate.
@@ -71,8 +69,7 @@ export interface FinancingDataHooks {
   // bases because revenue commission is sometimes paid on cash
   // collections, sometimes on sale (recognition) timing. Cost engine
   // multiplies the cost line's value% against the corresponding
-  // PeriodArray. Today: zero-stub until M2.1 Revenue ships. Contract
-  // in docs/cost-revenue-hooks.md.
+  // PeriodArray. Today: zero-stub until M2.1 Revenue ships.
   getTotalRevenueCashBasis(assetId?: string): PeriodArray;
   getTotalRevenueSaleBasis(assetId?: string): PeriodArray;
 }

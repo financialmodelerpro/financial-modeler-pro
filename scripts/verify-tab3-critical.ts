@@ -215,7 +215,6 @@ console.log('\n[7/7] Em-dash sweep on touched files');
     'src/hubs/modeling/platforms/refm/lib/state/module1-types.ts',
     'src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts',
     'scripts/verify-tab3-critical.ts',
-    'docs/tab3-render-diagnostic.md',
   ];
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');

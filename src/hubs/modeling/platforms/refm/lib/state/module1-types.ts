@@ -2148,7 +2148,7 @@ export interface EquityContribution {
 // Hook discipline: the funding-gap math reads everything through
 // `FinancingDataHooks` (capex / pre-sales / OCF / closing cash). When
 // upstream engines aren't ready yet, hooks return zeros, so the four
-// methods behave as documented in docs/m20M-financing-architecture.md.
+// methods behave as their per-method documentation describes.
 // Method 2 (Line-Item Based Financing) removed 2026-05-13. Old snapshots
 // migrate fundingMethod 2 -> 1 via migrateM20pass5DropMethod2.
 // M2.0 Pass 17 (2026-05-13): methods renumbered 1 | 3 | 4 -> 1 | 2 | 3.

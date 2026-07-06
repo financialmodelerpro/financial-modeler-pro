@@ -16,7 +16,7 @@
  * Usage: npx tsx scripts/verify-tab2-pass3.ts
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
@@ -176,14 +176,9 @@ console.log('\n[3/4] Fix 3: Operating End Date helper + UI');
     pass('UsefulLifeForm retired (no render call)');
   } else fail('UsefulLifeForm retired', 'still rendered somewhere');
 
-  // M5 doc.
-  const docPath = resolve(REPO_ROOT, 'docs/operating-end-date-hook.md');
-  if (existsSync(docPath)) pass('M5 hook doc present');
-  else fail('M5 hook doc', 'missing');
-  const doc = existsSync(docPath) ? readFileSync(docPath, 'utf8') : '';
-  if (doc.includes('computeOperatingEndDate') && doc.includes('getOperatingEndDate') && doc.includes('terminal')) {
-    pass('M5 hook doc references helper + contract + terminal value');
-  } else fail('M5 hook doc content', 'missing references');
+  // M5 doc (docs/operating-end-date-hook.md) was retired 2026-07-07 (a historical
+  // hook note); the helper/contract it described is exercised by the assertions
+  // above, so its doc-existence + content checks were removed with it.
 }
 
 // ── Section 4: em-dash sweep on touched files ─────────────────────────────
@@ -196,7 +191,6 @@ console.log('\n[4/4] Em-dash sweep on touched files');
     'src/hubs/modeling/platforms/refm/lib/state/module1-store.ts',
     'src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts',
     'scripts/verify-tab2-pass3.ts',
-    'docs/operating-end-date-hook.md',
   ];
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');

@@ -19,7 +19,7 @@
  * Usage: npx tsx scripts/verify-tab2-pass2.ts
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
@@ -45,16 +45,9 @@ const ASSETS_SRC = readFileSync(resolve(REPO_ROOT, 'src/hubs/modeling/platforms/
 const CALC_SRC = readFileSync(resolve(REPO_ROOT, 'src/core/calculations/index.ts'), 'utf8');
 
 // ── Section 1: audit doc ─────────────────────────────────────────────────
-console.log('\n[1/5] Audit doc');
-{
-  const auditPath = resolve(REPO_ROOT, 'docs/tab2-pass2-audit.md');
-  if (existsSync(auditPath)) pass('docs/tab2-pass2-audit.md present');
-  else fail('audit doc', 'missing');
-  const audit = existsSync(auditPath) ? readFileSync(auditPath, 'utf8') : '';
-  if (audit.includes('Rule 1') && audit.includes('Rule 2') && audit.includes('Rule 3') && audit.includes('Rule 4')) {
-    pass('audit references all 4 rules');
-  } else fail('audit rules coverage', 'missing rule references');
-}
+// [1/5] Audit doc (docs/tab2-pass2-audit.md) was retired 2026-07-07 (a historical
+// pass note); the behavior it described is asserted by the calc checks below, so
+// the doc-existence + rule-reference assertions were removed with it.
 
 // ── Section 2: Fix 1 calc end-to-end on reference multi-phase shape ───────────
 console.log('\n[2/5] Fix 1: computeAssetLandSqm per-phase data ownership (reference multi-phase)');
@@ -192,7 +185,6 @@ console.log('\n[5/5] Em-dash sweep on touched files');
     'src/core/calculations/index.ts',
     'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx',
     'scripts/verify-tab2-pass2.ts',
-    'docs/tab2-pass2-audit.md',
   ];
   for (const rel of files) {
     const txt = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
