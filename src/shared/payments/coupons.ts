@@ -90,12 +90,15 @@ function discountText(d: PaddleDiscount): string {
     : `${d.currencyCode ? d.currencyCode.toUpperCase() + ' ' : ''}${discountValue} off`;
 }
 
-/** A discount is usable at checkout when Paddle marks it active, enabled for
- *  checkout, and it has not hit its own expiry / redemption limit. Paddle is the
- *  authority (it re-checks at checkout); we mirror the obvious cases for a clearer
- *  message and to never feature a spent/expired promo. */
+/** A discount is usable when Paddle marks it active and it has not hit its own
+ *  expiry / redemption limit. We do NOT require enabled_for_checkout: that flag
+ *  only governs whether a customer can TYPE the code in Paddle's own overlay
+ *  field, but we always apply by discountId (both the public promo and a typed
+ *  code resolve to an id passed to Paddle.Checkout.open), which works regardless.
+ *  So a code-less "Checkout: Disabled" discount is still a valid auto-apply promo.
+ *  Paddle is the final authority (it re-checks at checkout). */
 function isLiveDiscount(d: PaddleDiscount): boolean {
-  if (d.status !== 'active' || !d.enabledForCheckout) return false;
+  if (d.status !== 'active') return false;
   if (d.expiresAt && Date.parse(d.expiresAt) <= Date.now()) return false;
   if (d.usageLimit != null && d.timesUsed != null && d.timesUsed >= d.usageLimit) return false;
   return true;

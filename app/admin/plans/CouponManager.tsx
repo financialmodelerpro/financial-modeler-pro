@@ -103,17 +103,6 @@ export function CouponManager() {
           {/* Featured public promo summary + label + clear */}
           <div style={{ background: '#F9FAFB', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Public auto-apply promo</div>
-            {featured && (() => {
-              const fd = discounts.find((d) => d.id === featured.discountId);
-              if (fd && !fd.enabledForCheckout) {
-                return (
-                  <div data-testid="featured-disabled-warn" style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: 10, marginBottom: 8, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
-                    This featured discount is NOT enabled for checkout in Paddle, so it will not auto-apply or show on the site. Enable it for checkout in Paddle (the discount&apos;s settings), then reload.
-                  </div>
-                );
-              }
-              return null;
-            })()}
             {featured ? (
               <div data-testid="featured-promo" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, color: '#374151' }}>Featured discount: <strong style={{ fontFamily: 'monospace' }}>{featured.discountId}</strong></span>
@@ -133,7 +122,7 @@ export function CouponManager() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#0D2E5A' }}>
-                  {['Code', 'Amount', 'Checkout', 'Expiry', 'Uses', 'Status', 'Public promo'].map((h) => (
+                  {['Code', 'Amount', 'Code entry', 'Expiry', 'Uses', 'Status', 'Public promo'].map((h) => (
                     <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                   ))}
                 </tr>
@@ -152,7 +141,7 @@ export function CouponManager() {
                         {d.description ? <div style={{ fontSize: 10, color: '#94a3b8' }}>{d.description}</div> : null}
                       </td>
                       <td style={{ padding: '9px 12px', fontSize: 13, fontWeight: 600, color: '#374151' }}>{amountText(d)}{d.recur ? <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>recurring</span> : null}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 11 }}>{d.enabledForCheckout ? <span style={{ color: '#1A7A30', fontWeight: 700 }}>Enabled</span> : <span style={{ color: '#DC2626', fontWeight: 700 }}>Disabled</span>}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 11 }} title="Whether a customer can TYPE this code in Paddle's field. Auto-apply by the platform works either way.">{d.enabledForCheckout ? <span style={{ color: '#1A7A30', fontWeight: 700 }}>Code</span> : <span style={{ color: '#94a3b8', fontWeight: 600 }}>No code</span>}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{d.expiresAt ? new Date(d.expiresAt).toLocaleDateString() : 'Never'}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{d.timesUsed ?? 0}{d.usageLimit ? `/${d.usageLimit}` : ''}</td>
                       <td style={{ padding: '9px 12px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10, background: d.status === 'active' ? '#E8F7EC' : '#F3F4F6', color: d.status === 'active' ? '#1A7A30' : '#6B7280' }}>{d.status}</span></td>
