@@ -46,6 +46,7 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 > - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure
 > - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference
 > - [ARCHITECTURE.md](ARCHITECTURE.md), Three-tier folder rationale, alias guide, boundary rules
+> - [HANDOFF.md](HANDOFF.md), AUTO-GENERATED live status snapshot (commit, stack, latest migration, templates, verifiers, routes, env). Never hand-edit; regenerate with `npm run handoff` (`scripts/generate-handoff.ts` derives it from git + the repo, so it cannot go stale like the old PROJECT_HANDOFF.md did).
 
 ---
 
