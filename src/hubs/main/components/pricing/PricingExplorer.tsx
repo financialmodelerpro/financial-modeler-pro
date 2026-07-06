@@ -43,6 +43,9 @@ export interface PickerPlatform {
   icon: string;
   status: 'live' | 'coming_soon';
   tagline: string;
+  /** The clean URL segment for this platform (e.g. real-estate -> refm), so
+   *  selecting it can reflect /pricing/<segment> in the address bar. */
+  segment: string;
 }
 
 export interface PlatformPricing {
@@ -204,6 +207,38 @@ export default function PricingExplorer({
     [authed, busyKey, message, startCheckout, startTrial],
   );
 
+  // Selecting a platform reveals its plans IN PLACE (no navigation) but also
+  // reflects the clean per-platform URL /pricing/<segment> in the address bar via
+  // the native History API (shallow; no server round-trip), so the URL is
+  // shareable and the back button returns to the picker. popstate syncs the view
+  // when the user navigates back/forward.
+  const selectPlatform = useCallback((slug: string) => {
+    setSelected(slug);
+    const seg = platforms.find((p) => p.slug === slug)?.segment;
+    if (seg && typeof window !== 'undefined') window.history.pushState({}, '', `/pricing/${seg}`);
+  }, [platforms]);
+
+  const backToPicker = useCallback(() => {
+    setSelected(null);
+    if (typeof window !== 'undefined') window.history.pushState({}, '', '/pricing');
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => {
+      if (typeof window === 'undefined') return;
+      const m = window.location.pathname.match(/^\/pricing\/([^/]+)/);
+      if (m) {
+        const seg = m[1].toLowerCase();
+        const plat = platforms.find((p) => p.segment === seg || p.slug === seg);
+        setSelected(plat ? plat.slug : null);
+      } else {
+        setSelected(null);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [platforms]);
+
   const selectedPlatform = selected ? platforms.find((p) => p.slug === selected) ?? null : null;
   const selectedPricing = selected ? pricingByPlatform[selected] : undefined;
 
@@ -211,7 +246,7 @@ export default function PricingExplorer({
   if (selectedPlatform) {
     return (
       <div data-testid="pricing-plans-view">
-        <button type="button" data-testid="back-to-platforms" onClick={() => setSelected(null)}
+        <button type="button" data-testid="back-to-platforms" onClick={backToPicker}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', border: `1px solid ${LINE}`, borderRadius: 999, padding: '8px 16px', fontSize: 13, fontWeight: 700, color: NAVY, cursor: 'pointer', marginBottom: 24 }}>
           <span aria-hidden>&larr;</span> All platforms
         </button>
@@ -284,7 +319,7 @@ export default function PricingExplorer({
           );
 
           return isLive ? (
-            <button key={p.slug} type="button" data-testid={`platform-card-${p.slug}`} onClick={() => setSelected(p.slug)}
+            <button key={p.slug} type="button" data-testid={`platform-card-${p.slug}`} onClick={() => selectPlatform(p.slug)}
               aria-label={`View plans for ${p.name}`} style={{ ...common, cursor: 'pointer' }}>
               {inner}
             </button>

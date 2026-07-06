@@ -23,7 +23,7 @@ import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { PricingAccordion } from '@/src/hubs/main/components/pricing/PricingAccordion';
 import PricingExplorer, { type PickerPlatform, type PlatformPricing } from '@/src/hubs/main/components/pricing/PricingExplorer';
 import { loadPricingCatalog, visibleForCustomers } from '@/src/shared/entitlements/pricingCatalog';
-import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
+import { PLATFORMS, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 
 export default async function PricingPageBody({ initialPlatform }: { initialPlatform?: string } = {}) {
   const [content, pricingSections] = await Promise.all([
@@ -51,6 +51,9 @@ export default async function PricingPageBody({ initialPlatform }: { initialPlat
       // getModules() already excludes 'hidden'; only live / coming_soon remain.
       status: p.status === 'live' ? 'live' : 'coming_soon',
       tagline: meta?.tagline ?? p.description ?? '',
+      // Clean URL segment (source-derived, e.g. real-estate -> refm), so selecting
+      // a platform can reflect /pricing/<segment> in the address bar.
+      segment: platformPricingSegment({ shortName: meta?.shortName ?? p.name, slug: p.slug }),
     };
   });
 
