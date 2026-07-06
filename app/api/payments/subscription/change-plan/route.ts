@@ -9,6 +9,7 @@ import {
   storeScheduledChange, clearScheduledChange,
 } from '@/src/shared/payments/config';
 import { sendPlanChangedEmail } from '@/src/shared/email/subscriptionEmails';
+import { resolveDiscountForChange } from '@/src/shared/payments/coupons';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
 // POST /api/payments/subscription/change-plan
@@ -30,11 +31,13 @@ export async function POST(req: NextRequest) {
   let platform = DEFAULT_PAYMENTS_PLATFORM;
   let planKey = '';
   let interval: BillingInterval | null = null;
+  let couponCode = '';
   try {
-    const body = await req.json() as { platform?: string; plan_key?: string; interval?: string };
+    const body = await req.json() as { platform?: string; plan_key?: string; interval?: string; coupon_code?: string };
     platform = (body.platform ?? '').trim().toLowerCase() || DEFAULT_PAYMENTS_PLATFORM;
     planKey = String(body.plan_key ?? '').trim().toLowerCase();
     if (body.interval === 'annual' || body.interval === 'monthly') interval = body.interval;
+    couponCode = String(body.coupon_code ?? '').trim();
   } catch {
     return NextResponse.json({ ok: false, reason: 'invalid_body' }, { status: 400 });
   }
@@ -85,9 +88,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // UPGRADE / LATERAL: apply immediately with proration. Clear any pending
-  // downgrade it supersedes.
-  const res = await changeSubscriptionPlan(ctx.cfg, ctx.subscriptionId, targetPriceId);
+  // Resolve the discount to apply to an IMMEDIATE change (typed coupon wins, else
+  // the active public promo auto-applies), so an existing user changing plans
+  // during a live promo gets the same deal as a new checkout. A typed code that is
+  // invalid is a clear rejection (do not silently charge full price). Paddle
+  // honors the discount's own recur + expiry, so the discount stops for everyone
+  // when it expires. Downgrades are deferred (handled above) and take no discount
+  // here (the discount, if still active, applies when they next check out/upgrade).
+  const discount = await resolveDiscountForChange(sb, { code: couponCode, platform });
+  if (couponCode && discount.error) {
+    return NextResponse.json({ ok: false, reason: 'coupon_invalid', message: discount.error }, { status: 400 });
+  }
+
+  // UPGRADE / LATERAL / INTERVAL: apply immediately with proration + the discount.
+  // Clear any pending downgrade it supersedes.
+  const res = await changeSubscriptionPlan(ctx.cfg, ctx.subscriptionId, targetPriceId, 'prorated_immediately', discount.discountId);
   if (!res.ok) {
     return NextResponse.json({ ok: false, reason: res.error }, { status: res.status >= 500 ? 502 : 400 });
   }
@@ -99,5 +114,5 @@ export async function POST(req: NextRequest) {
   // the fallback (newest transaction). Both are resolved server-side.
   await sendPlanChangedEmail(sb, { userId, platform, planKey, interval: targetInterval, timing: 'immediate', effectiveAt: res.data.nextBilledAt ?? null, subscriptionId: ctx.subscriptionId, transactionId: res.data.immediateTransactionId });
   // Return the refreshed summary; the webhook keeps the app plan in sync.
-  return NextResponse.json({ ok: true, applied: 'immediate', subscription: res.data, planKey });
+  return NextResponse.json({ ok: true, applied: 'immediate', subscription: res.data, planKey, discountLabel: discount.label });
 }

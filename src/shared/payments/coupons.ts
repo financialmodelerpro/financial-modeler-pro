@@ -177,6 +177,27 @@ export async function loadActivePublicPromo(
   };
 }
 
+/**
+ * Resolve the discount to apply to a CHANGE (upgrade / interval switch): a typed
+ * coupon code wins; otherwise the active public promo auto-applies. So an existing
+ * user changing plans during a live promo gets the same deal as a new checkout.
+ * Returns the discount id + label to apply, an error (a typed code that is
+ * invalid), or nothing (no code + no active promo).
+ */
+export async function resolveDiscountForChange(
+  sb: SupabaseClient, args: { code?: string | null; platform: string },
+): Promise<{ discountId: string | null; label: string | null; error?: string }> {
+  const code = (args.code ?? '').trim();
+  if (code) {
+    const r = await resolveCouponForCheckout(sb, { code, platform: args.platform });
+    if (r.ok) return { discountId: r.paddleDiscountId, label: r.label };
+    return { discountId: null, label: null, error: r.reason };
+  }
+  const promo = await loadActivePublicPromo(sb, args.platform);
+  if (promo) return { discountId: promo.paddleDiscountId, label: promo.label };
+  return { discountId: null, label: null };
+}
+
 // ── Admin view: live Paddle discount list + the current featured choice ──────
 export interface AdminDiscountView {
   paddleReady: boolean;

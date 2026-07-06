@@ -6,6 +6,7 @@ import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/p
 import { getSubscription, previewSubscriptionChange } from '@/src/shared/payments/paddleApi';
 import { loadPlatformPlanOptions, planProviderPriceId, classifyPlanOrIntervalChange } from '@/src/shared/payments/config';
 import { loadPlanFeatureList } from '@/src/shared/entitlements/pricingCatalog';
+import { resolveDiscountForChange } from '@/src/shared/payments/coupons';
 import type { BillingInterval } from '@/src/shared/payments/types';
 
 // POST /api/payments/subscription/preview-change
@@ -24,11 +25,13 @@ export async function POST(req: NextRequest) {
   let platform = DEFAULT_PAYMENTS_PLATFORM;
   let planKey = '';
   let interval: BillingInterval | null = null;
+  let couponCode = '';
   try {
-    const body = await req.json() as { platform?: string; plan_key?: string; interval?: string };
+    const body = await req.json() as { platform?: string; plan_key?: string; interval?: string; coupon_code?: string };
     platform = (body.platform ?? '').trim().toLowerCase() || DEFAULT_PAYMENTS_PLATFORM;
     planKey = String(body.plan_key ?? '').trim().toLowerCase();
     if (body.interval === 'annual' || body.interval === 'monthly') interval = body.interval;
+    couponCode = String(body.coupon_code ?? '').trim();
   } catch {
     return NextResponse.json({ ok: false, reason: 'invalid_body' }, { status: 400 });
   }
@@ -90,14 +93,23 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // UPGRADE / LATERAL: immediate, prorated. Preview the proration (no charge yet).
-  // On a preview error still return the feature list so confirm works.
-  const preview = await previewSubscriptionChange(ctx.cfg, ctx.subscriptionId, targetPriceId);
+  // Resolve the discount the change would apply (typed coupon wins, else active
+  // public promo), so the previewed proration matches what will be charged. An
+  // invalid typed code is surfaced (couponError) and the preview runs WITHOUT a
+  // discount so the user still sees the (undiscounted) amount.
+  const discount = await resolveDiscountForChange(sb, { code: couponCode, platform });
+  const couponError = couponCode && discount.error ? discount.error : null;
+
+  // UPGRADE / LATERAL / INTERVAL: immediate, prorated. Preview the proration with
+  // the discount applied (no charge yet). On a preview error still return the
+  // feature list so confirm works.
+  const preview = await previewSubscriptionChange(ctx.cfg, ctx.subscriptionId, targetPriceId, 'prorated_immediately', discount.discountId);
   return NextResponse.json({
     ok: true, sameAsCurrent: false, changeType, interval: targetInterval,
     targetLabel: featureList.label, targetFeatures: featureList.features,
     differential: preview.ok ? preview.data : null,
     previewError: preview.ok ? null : preview.error,
     currentLabel, newPrice,
+    discountLabel: discount.label, couponError,
   });
 }

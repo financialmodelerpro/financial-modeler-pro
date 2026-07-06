@@ -179,7 +179,10 @@ check('panel is platform-scoped (platform prop + query)', /platform:\s*string/.t
 check('panel reads from our server routes', /\/api\/payments\/subscription/.test(panel) && /\/api\/payments\/invoices/.test(panel));
 check('panel makes NO direct Paddle API call', !/paddle\.com/i.test(panel) && !/paddleApi/.test(panel));
 check('panel never references an api key / secret', !/apiKey/i.test(panel) && !/api_secret/i.test(panel));
-check('panel update-payment uses the hosted url (no card form)', /updatePaymentMethodUrl/.test(panel) && !/card number/i.test(panel) && !/<input/i.test(panel));
+// Card updates go to Paddle's hosted URL; the panel must never COLLECT CARD DATA
+// client-side. Checks for card-specific fields (not any input: a coupon-code input
+// is legitimate and unrelated to card data).
+check('panel update-payment uses the hosted url (no card form)', /updatePaymentMethodUrl/.test(panel) && !/card.?number|cardholder|\bcvc\b|\bcvv\b/i.test(panel));
 check('panel has a confirm step before cancel', /subscription-cancel-confirm/.test(panel) && /subscription-cancel-btn/.test(panel));
 check('panel has upgrade/downgrade with a confirm step', /change-plan-confirm/.test(panel) && /switch-to-/.test(panel) && /\/api\/payments\/subscription\/change-plan/.test(panel));
 check('panel shows invoices list', /invoices-list/.test(panel) && /invoice-row/.test(panel));

@@ -220,13 +220,20 @@ export async function cancelSubscriptionNow(
 export async function changeSubscriptionPlan(
   cfg: ProviderConfig, subscriptionId: string, newPriceId: string,
   prorationMode: 'prorated_immediately' | 'full_next_billing_period' = 'prorated_immediately',
+  discountId?: string | null,
 ): Promise<PaddleApiResult<SubscriptionSummary>> {
+  const body: Record<string, unknown> = {
+    items: [{ price_id: newPriceId, quantity: 1 }],
+    proration_billing_mode: prorationMode,
+  };
+  // Apply a discount to the change (Model 1: a Paddle discount id). effective_from
+  // 'immediately' discounts the proration + current period; whether it CONTINUES
+  // on future renewals is governed by the discount's own `recur` flag in Paddle,
+  // and it stops at the discount's expiry, so Paddle honors the admin's settings.
+  if (discountId) body.discount = { id: discountId, effective_from: 'immediately' };
   const res = await paddleFetch(cfg, `/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      items: [{ price_id: newPriceId, quantity: 1 }],
-      proration_billing_mode: prorationMode,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) return res;
   return { ok: true, data: shapeSummary(subscriptionId, res.data) };
@@ -252,13 +259,18 @@ export interface ChangePreview {
 export async function previewSubscriptionChange(
   cfg: ProviderConfig, subscriptionId: string, newPriceId: string,
   prorationMode: 'prorated_immediately' | 'full_next_billing_period' = 'prorated_immediately',
+  discountId?: string | null,
 ): Promise<PaddleApiResult<ChangePreview>> {
+  const body: Record<string, unknown> = {
+    items: [{ price_id: newPriceId, quantity: 1 }],
+    proration_billing_mode: prorationMode,
+  };
+  // Same discount the real change will apply, so the previewed proration reflects
+  // the discounted amount the user will actually be charged.
+  if (discountId) body.discount = { id: discountId, effective_from: 'immediately' };
   const res = await paddleFetch(cfg, `/subscriptions/${encodeURIComponent(subscriptionId)}/preview`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      items: [{ price_id: newPriceId, quantity: 1 }],
-      proration_billing_mode: prorationMode,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) return res;
   const d = asRecord(res.data);

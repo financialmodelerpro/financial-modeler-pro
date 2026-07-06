@@ -68,6 +68,10 @@ interface ChangePreviewResult {
   effectiveAt?: string | null;
   currentLabel?: string;
   newPrice?: NewPrice | null;
+  /** Label of the discount applied to this change (public promo or typed code). */
+  discountLabel?: string | null;
+  /** Message when a typed coupon code was invalid (previewed without a discount). */
+  couponError?: string | null;
 }
 interface ScheduledChange { planKey: string; label: string; interval: 'monthly' | 'annual' | null; effectiveAt: string | null }
 
@@ -135,6 +139,11 @@ export default function SubscriptionPanel({
   const [preview, setPreview] = useState<ChangePreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // Coupon in the change flow. `couponInput` is the field; `appliedCoupon` is what
+  // is sent to preview/confirm (set on Apply), so the preview does not re-fetch on
+  // every keystroke. An active PUBLIC promo auto-applies with no input.
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState('');
   // A pending deferred downgrade (mig 178): current plan stays active, switches
   // to this plan on the renewal date. Cancelable before it applies.
   const [scheduledChange, setScheduledChange] = useState<ScheduledChange | null>(null);
@@ -185,6 +194,8 @@ export default function SubscriptionPanel({
   // (full feature list + prorated differential). Nothing is charged here.
   const openChange = useCallback((planKey: string, label: string, interval: 'monthly' | 'annual') => {
     setPendingChange({ planKey, label, interval });
+    setCouponInput('');
+    setAppliedCoupon('');
     setError(null);
   }, []);
 
@@ -196,7 +207,7 @@ export default function SubscriptionPanel({
     setPreview(null);
     fetch('/api/payments/subscription/preview-change', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval }),
+      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval, coupon_code: appliedCoupon || undefined }),
     })
       .then((r) => r.json())
       .then((res: ChangePreviewResult & { ok?: boolean; reason?: string }) => {
@@ -207,7 +218,7 @@ export default function SubscriptionPanel({
       .catch(() => { if (!cancelled) setError('Could not preview the change. Please try again.'); })
       .finally(() => { if (!cancelled) setPreviewLoading(false); });
     return () => { cancelled = true; };
-  }, [pendingChange, platform]);
+  }, [pendingChange, platform, appliedCoupon]);
 
   const doSwitch = useCallback(() => {
     if (!pendingChange) return;
@@ -215,7 +226,7 @@ export default function SubscriptionPanel({
     setError(null);
     fetch('/api/payments/subscription/change-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval }),
+      body: JSON.stringify({ platform, plan_key: pendingChange.planKey, interval: pendingChange.interval, coupon_code: appliedCoupon || undefined }),
     })
       .then((r) => r.json())
       .then((res) => {
@@ -241,7 +252,7 @@ export default function SubscriptionPanel({
       })
       .catch(() => setError('Could not change the plan. Please try again.'))
       .finally(() => setSwitching(false));
-  }, [platform, pendingChange]);
+  }, [platform, pendingChange, appliedCoupon]);
 
   const doCancelSchedule = useCallback(() => {
     setCancelingSchedule(true);
@@ -588,6 +599,41 @@ export default function SubscriptionPanel({
                     <span style={{ fontSize: 13, color: muted }}>Takes effect immediately. {preview?.previewError ? 'The exact prorated amount could not be previewed; Paddle will prorate when you confirm.' : 'No charge is due now for this change.'}</span>
                   )}
                 </div>
+
+                {/* Coupon for this change. An active public promo auto-applies
+                    with no input (shown as "Discount applied"); a customer can also
+                    type a code. Hidden for a deferred downgrade (no charge now) and
+                    when the target equals the current plan. */}
+                {!preview?.sameAsCurrent && preview?.changeType !== 'downgrade' && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: muted, marginBottom: 6 }}>Have a coupon code?</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <input
+                        data-testid="change-coupon-input"
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                        placeholder="ENTER CODE"
+                        disabled={switching}
+                        style={{ flex: 1, minWidth: 160, padding: '8px 12px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: dark ? '#1a2230' : '#fff', color: body, fontFamily: 'monospace', letterSpacing: '0.05em', textTransform: 'uppercase' }}
+                      />
+                      <button
+                        type="button"
+                        data-testid="change-coupon-apply"
+                        onClick={() => setAppliedCoupon(couponInput.trim())}
+                        disabled={switching || previewLoading || (!couponInput.trim() && !appliedCoupon)}
+                        style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', opacity: (switching || previewLoading) ? 0.6 : 1 }}
+                      >
+                        {appliedCoupon && appliedCoupon === couponInput.trim() ? 'Applied' : 'Apply'}
+                      </button>
+                    </div>
+                    {preview?.couponError && (
+                      <div data-testid="change-coupon-error" style={{ marginTop: 8, fontSize: 12.5, color: '#DC2626', fontWeight: 600 }}>{preview.couponError}</div>
+                    )}
+                    {preview?.discountLabel && !preview?.couponError && (
+                      <div data-testid="change-discount-applied" style={{ marginTop: 8, fontSize: 12.5, color: '#15803D', fontWeight: 700 }}>Discount applied: {preview.discountLabel} (already reflected in the amount above).</div>
+                    )}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button
