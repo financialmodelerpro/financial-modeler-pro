@@ -34,6 +34,8 @@ export function CouponManager() {
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [featured, setFeatured] = useState<Featured | null>(null);
   const [paddleReady, setPaddleReady] = useState(true);
+  const [sandbox, setSandbox] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [labelInput, setLabelInput] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -49,6 +51,8 @@ export function CouponManager() {
       setDiscounts(j.discounts ?? []);
       setFeatured(j.featured ?? null);
       setPaddleReady(j.paddleReady !== false);
+      setSandbox(j.sandbox !== false);
+      setError(j.error ?? null);
       setLabelInput((j.featured?.label as string | undefined) ?? '');
     } catch { showToast('Failed to load discounts', 'error'); }
   }, [showToast]);
@@ -75,11 +79,22 @@ export function CouponManager() {
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
           Created and managed in Paddle (single source of truth). This list reads live from Paddle: create a discount once in Paddle and it appears here with its real percentage, code, expiry, and limits. Pick one as the <strong>public auto-apply promo</strong> (applied automatically at checkout, no code). Discounts that have a code are private codes customers type at checkout.
         </div>
+        {paddleReady && (
+          <div style={{ fontSize: 11, color: sandbox ? '#B45309' : '#6B7280', marginTop: 4, fontWeight: 700 }} data-testid="discounts-env">
+            Reading from Paddle {sandbox ? 'SANDBOX' : 'LIVE'}. A discount created in the OTHER environment will not appear here.
+          </div>
+        )}
       </div>
 
       {!paddleReady && (
         <div data-testid="discounts-not-ready" style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: 12, fontSize: 12.5, color: '#92400E' }}>
           Paddle is not configured (no server API key, or Paddle is not the active provider). Set the Paddle API key in Admin &gt; Payments to load discounts.
+        </div>
+      )}
+
+      {paddleReady && error && (
+        <div data-testid="discounts-error" style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: 12, fontSize: 12.5, color: '#B91C1C', marginBottom: 12 }}>
+          {error}
         </div>
       )}
 

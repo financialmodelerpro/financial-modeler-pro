@@ -65,7 +65,9 @@ async function loadDiscounts(sb: SupabaseClient, platform: string): Promise<Padd
   const now = Date.now();
   const hit = discountCache.get(key);
   if (hit && now - hit.at < CACHE_TTL_MS) return hit.discounts;
-  const res = await listDiscounts(cfg, { status: 'active' });
+  // Fetch ALL and filter in code (isLiveDiscount), so a status-filter param
+  // mismatch can never hide a usable discount.
+  const res = await listDiscounts(cfg, { status: 'all' });
   if (!res.ok) return hit?.discounts ?? []; // transient error: serve stale, else empty
   discountCache.set(key, { at: now, discounts: res.data });
   return res.data;
@@ -175,19 +177,50 @@ export async function loadActivePublicPromo(
 // ── Admin view: live Paddle discount list + the current featured choice ──────
 export interface AdminDiscountView {
   paddleReady: boolean;
+  /** Which Paddle environment the list was queried from. A discount created in
+   *  sandbox will NOT appear when this is live, and vice versa (a common cause of
+   *  "I created it but see nothing"). */
+  sandbox: boolean;
   discounts: PaddleDiscount[];
   featured: FeaturedPromo | null;
+  /** A human error when the live Paddle list call FAILED (rather than genuinely
+   *  returning zero discounts), so the admin sees the real cause instead of a
+   *  silent empty list. null on success. */
+  error: string | null;
+}
+
+/** Map a raw Paddle list error to an actionable admin message. The most common
+ *  causes for an empty discount screen are a missing API-key scope (the key needs
+ *  discount.read) and a sandbox/live mismatch. */
+function discountErrorMessage(code: string, sandbox: boolean): string {
+  const env = sandbox ? 'sandbox' : 'live';
+  if (code === 'forbidden' || code.includes('403')) {
+    return `Paddle refused the discounts request (forbidden). The server API key likely lacks the "discount.read" permission. Add discount.read (and discount.write is not needed) to the key in Paddle, then reload.`;
+  }
+  if (code === 'paddle_api_key_missing') return 'No Paddle server API key is set. Add it in Admin > Payments.';
+  if (code === 'paddle_unreachable') return 'Could not reach Paddle. Try again shortly.';
+  if (code.includes('401') || code === 'unauthorized' || code === 'authentication_missing') {
+    return `Paddle rejected the API key (unauthorized) for the ${env} environment. Check the key in Admin > Payments matches the ${env} environment.`;
+  }
+  return `Paddle returned an error (${code}) for the ${env} environment.`;
 }
 
 /** Everything the admin discount screen needs: the live Paddle discount list and
  *  which one is currently the featured public promo. paddleReady is false when
- *  Paddle is not the active provider or has no API key (the UI then explains it). */
+ *  Paddle is not the active provider or has no API key (the UI then explains it).
+ *  On a list-call FAILURE, `error` carries the actionable cause (scope / env /
+ *  auth) rather than a silent empty list. */
 export async function loadAdminDiscountView(sb: SupabaseClient, platform = PLATFORM_DEFAULT): Promise<AdminDiscountView> {
   const settings = await loadPaymentSettings(sb, platform).catch(() => null);
   const cfg = settings ? providerConfigFrom(settings, 'paddle') : null;
   const paddleReady = !!cfg?.apiKey && settings?.active_provider === 'paddle';
+  const sandbox = !!cfg?.sandbox;
   const featured = await getFeaturedPromo(sb, platform);
-  if (!paddleReady || !cfg) return { paddleReady, discounts: [], featured };
-  const res = await listDiscounts(cfg, { status: 'active' });
-  return { paddleReady, discounts: res.ok ? res.data : [], featured };
+  if (!paddleReady || !cfg) return { paddleReady, sandbox, discounts: [], featured, error: null };
+  const res = await listDiscounts(cfg, { status: 'all' });
+  if (!res.ok) {
+    console.warn(`[discounts] Paddle list failed (${res.error}) env=${sandbox ? 'sandbox' : 'live'}`);
+    return { paddleReady, sandbox, discounts: [], featured, error: discountErrorMessage(res.error, sandbox) };
+  }
+  return { paddleReady, sandbox, discounts: res.data, featured, error: null };
 }
