@@ -518,7 +518,7 @@ All under `app/api/admin/*` (45+ routes). Notable groups:
 - `training-hub/marketing-studio/render/`, `brand/`, `live-sessions/`, `articles/`, `instructors/`, `uploads/` (and `[id]/`)
 - `training-hub/communications/`, `assessments/`, `student-journey/`, `student-progress/`, `students/`, `analytics/`, `cohorts/`, `cohorts/[id]/`, `certificates/`
 - `instructors/`, `modules/`, `modeling-coming-soon/`, `modeling-signin-coming-soon/`, `modeling-register-coming-soon/`, `modeling-access/`, `modeling-access/[id]/`
-- `pricing/features/`, `pricing/coupons/`, `pricing/platform/`
+- `pricing/features/`, `pricing/platform/` (the dead `pricing/coupons/` route was removed 2026-07-07)
 - `reset-attempts/`, `sessions/[tabKey]/reset-watch-progress/`, `training/` (and `[courseId]/lessons/`), `training-actions/` (and `[id]/`), `training-coming-soon/`, `training-register-coming-soon/`, `training-settings/`, `watch-enforcement-stats/`
 - `teams/test-connection/`
 - `generate-images/`, `site-settings/`, `share-templates/`, `page-sections/`
