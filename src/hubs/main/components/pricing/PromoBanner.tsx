@@ -1,22 +1,18 @@
 /**
  * PromoBanner.tsx (server component)
  *
- * A thin site-wide banner for the active PUBLIC auto-apply promo, read LIVE from
- * Paddle (loadActivePublicPromo, server-side). Used on the main marketing site so
- * the promo shows there too, not only on the pricing page (where LivePlanCards
- * already renders it). Renders nothing when no public promo is active, so it is
- * safe to drop in unconditionally. Only the label / percent reach the client; the
- * Paddle discount id stays server-side.
+ * Loads the active PUBLIC auto-apply promo LIVE from Paddle (server-side) and, when
+ * one is active, renders it as a FLOATING, dismissible popup (PromoPopup). The
+ * popup is position:fixed, so it overlays the page WITHOUT taking layout space,
+ * i.e. it never cuts / whitens the hero the way an in-flow banner did. Renders
+ * nothing when no promo is active, so it is safe to drop in unconditionally. Only
+ * the label / percent reach the client; the Paddle discount id stays server-side.
  *
  * No em dashes in this file.
  */
-import Link from 'next/link';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadActivePublicPromo } from '@/src/shared/payments/coupons';
-
-const GOLD = '#C9A84C';
-const GOLD_DARK = '#92400E';
-const GOLD_LIGHT = '#FDF6E3';
+import PromoPopup from './PromoPopup';
 
 export default async function PromoBanner({ platform = 'real-estate', pricingHref = '/pricing' }: { platform?: string; pricingHref?: string }) {
   let promo: Awaited<ReturnType<typeof loadActivePublicPromo>> = null;
@@ -29,19 +25,5 @@ export default async function PromoBanner({ platform = 'real-estate', pricingHre
 
   const offText = promo.discountType === 'percentage' && promo.discountValue > 0 ? `${promo.discountValue}% off` : promo.label;
 
-  return (
-    <div data-testid="site-promo-banner"
-      // In normal flow BELOW the fixed header (no z-index overlap, so it never
-      // covers the header). marginTop gives clear separation (~0.5in) so the thin
-      // banner is fully below the header regardless of the configured header
-      // height / admin edit-bar stack, rather than tucked against / under it.
-      style={{ marginTop: 48, background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 8, maxWidth: 1120, marginLeft: 'auto', marginRight: 'auto', color: GOLD_DARK, textAlign: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>
-      {promo.label}
-      <span style={{ fontWeight: 800, marginLeft: 8 }}>{offText}</span>
-      <span style={{ fontWeight: 600, marginLeft: 8 }}>applied automatically at checkout.</span>
-      <Link href={pricingHref} style={{ marginLeft: 12, color: GOLD_DARK, fontWeight: 800, textDecoration: 'underline' }}>
-        See plans
-      </Link>
-    </div>
-  );
+  return <PromoPopup code={promo.code} label={promo.label} offText={offText} href={pricingHref} />;
 }
