@@ -1767,8 +1767,7 @@ top of Pass 10. Schema stays v8 additive.
   `perPeriod`. Module1Costs Table 1 per-line rows consume it
   directly; the prior "smear line total proportional to asset curve"
   approximation is gone (was destroying manual % + single-period
-  line phasing for multi-line assets). Diagnostic:
-  `docs/m20-t3-perline-divergence-diag.md`.
+  line phasing for multi-line assets).
 - **Universal editability (Fix 8, 12).** `isStartEndLocked` dropped
   to constant `false`; Start/End is editable on Land, Auto-IDC, and
   every other line on every phase. `effStartPeriod` / `effEndPeriod`
