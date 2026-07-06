@@ -12,7 +12,7 @@ import { loadOwnedManualInvoice, signManualInvoiceUrl } from '@/src/shared/payme
 //
 // OWNERSHIP: the manual_invoices row is verified to belong to THIS user before
 // any signed URL is issued, so a user can only ever fetch their own receipts.
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -25,5 +25,20 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const url = await signManualInvoiceUrl(sb, owned.storagePath);
   if (!url) return NextResponse.json({ error: 'unavailable' }, { status: 502 });
-  return NextResponse.redirect(url, 302);
+  // PROXY the PDF bytes with Content-Disposition inline so the in-dashboard iframe
+  // PREVIEWS it (a 302 to the signed URL serves it as an attachment, which makes
+  // the iframe download + render blank). ?download=1 (the Download button) forces
+  // the save. The signed URL is fetched server-side.
+  const download = req.nextUrl.searchParams.get('download') === '1';
+  const pdf = await fetch(url, { cache: 'no-store' });
+  if (!pdf.ok) return NextResponse.json({ error: 'unavailable' }, { status: 502 });
+  const buf = Buffer.from(await pdf.arrayBuffer());
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="receipt-${id}.pdf"`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
 }

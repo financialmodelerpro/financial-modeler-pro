@@ -53,5 +53,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // list still shows the row (from the ledger) without a working link.
     return NextResponse.json({ error: res.error }, { status: res.status >= 500 ? 502 : 404 });
   }
-  return NextResponse.redirect(res.data, 302);
+  // PROXY the PDF bytes so we control the disposition. A 302 to Paddle's hosted URL
+  // serves the PDF as an ATTACHMENT, which makes the in-dashboard iframe trigger a
+  // download and render blank. Fetching + re-serving with Content-Disposition
+  // inline lets the iframe PREVIEW it; ?download=1 (the Download button) forces the
+  // save. The Paddle URL is fetched server-side, so the API key never leaks.
+  const download = req.nextUrl.searchParams.get('download') === '1';
+  const pdf = await fetch(res.data, { cache: 'no-store' });
+  if (!pdf.ok) return NextResponse.json({ error: 'pdf_unavailable' }, { status: 502 });
+  const buf = Buffer.from(await pdf.arrayBuffer());
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="invoice-${id}.pdf"`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
 }

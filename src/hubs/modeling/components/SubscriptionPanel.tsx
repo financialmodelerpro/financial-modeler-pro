@@ -309,11 +309,13 @@ export default function SubscriptionPanel({
   // Switchable plans = every active plan for this platform except the current one.
   const otherPlans = planOptions.filter((p) => p.plan_key !== currentPlanKey);
 
-  // Invoice PDF endpoint per source (Paddle-hosted redirect vs signed manual URL).
-  const invoiceHref = (inv: { id: string; source: 'paddle' | 'manual' }) =>
-    inv.source === 'manual'
+  // Invoice PDF endpoint per source. The route proxies the PDF: default = inline
+  // (the iframe previews it), download=1 = attachment (the Download button saves).
+  const invoiceHref = (inv: { id: string; source: 'paddle' | 'manual' }, download = false) =>
+    (inv.source === 'manual'
       ? `/api/payments/manual-invoice/${encodeURIComponent(inv.id)}?${q}`
-      : `/api/payments/invoice/${encodeURIComponent(inv.id)}?${q}`;
+      : `/api/payments/invoice/${encodeURIComponent(inv.id)}?${q}`)
+    + (download ? '&download=1' : '');
 
   // The combined invoice list (Paddle + manual) + the in-dashboard viewer, shared
   // by BOTH the manual and the Paddle panel so any user with billing history sees
@@ -364,7 +366,7 @@ export default function SubscriptionPanel({
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <a
               data-testid="invoice-download-btn"
-              href={invoiceHref(viewInvoice)}
+              href={invoiceHref(viewInvoice, true)}
               target="_blank"
               rel="noopener noreferrer"
               style={{ fontSize: 12.5, fontWeight: 700, color: '#fff', background: NAVY, padding: '7px 14px', borderRadius: 8, textDecoration: 'none' }}
