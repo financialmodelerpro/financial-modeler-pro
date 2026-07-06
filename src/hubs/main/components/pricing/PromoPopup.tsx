@@ -12,6 +12,7 @@
  * No em dashes in this file.
  */
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 const GOLD = '#C9A84C';
@@ -19,21 +20,38 @@ const GOLD_DARK = '#92400E';
 const GOLD_LIGHT = '#FDF6E3';
 const NAVY = '#0D2E5A';
 
+// Show the promo popup on PUBLIC MARKETING pages only. Hidden on:
+//  - /pricing (the pricing page already shows the offer in the plan cards), and
+//  - app / admin / training / auth surfaces (a marketing promo does not belong on
+//    the workspace, admin panel, dashboard, sign-in, etc.).
+// Marketing pages (home, about, articles, contact, ...) are NOT in this list, so
+// the popup shows there.
+const HIDE_ON_PREFIXES = [
+  '/pricing', '/admin', '/dashboard', '/refm', '/modeling', '/modeling-hub',
+  '/training', '/settings', '/account', '/choose-plan',
+  '/signin', '/register', '/login', '/forgot', '/set-password', '/confirm-email', '/verify',
+];
+
 export default function PromoPopup({
   code, label, offText, href,
 }: { code: string; label: string; offText: string; href: string }) {
   const [visible, setVisible] = useState(false);
+  const pathname = usePathname();
   const storageKey = `fmp_promo_dismissed:${code || 'promo'}`;
 
-  // Show only after mount (avoids SSR flash) and only if not previously dismissed
-  // for THIS promo code.
+  // Show only after mount (avoids SSR flash), only on a public marketing page, and
+  // only if not previously dismissed for THIS promo code. Re-evaluates on client
+  // navigation (pathname dep), so it hides when moving into an excluded surface.
   useEffect(() => {
+    const path = pathname || '/';
+    const hidden = HIDE_ON_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+    if (hidden) { setVisible(false); return; }
     try {
       if (localStorage.getItem(storageKey) !== '1') setVisible(true);
     } catch {
       setVisible(true);
     }
-  }, [storageKey]);
+  }, [storageKey, pathname]);
 
   if (!visible) return null;
 
