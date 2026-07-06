@@ -61,7 +61,11 @@ export async function POST(req: NextRequest) {
     // One concrete started_at for this assignment: it is the per-EVENT dedupe token
     // shared by the welcome + receipt emails (so a genuine repeat with a new
     // started_at emails, while a double-click on the same assignment does not).
-    const startedAt = body.started_at ?? new Date().toISOString();
+    // When the admin UI does not send an explicit start date, fall back to a
+    // DATE-ONLY stamp (not a per-millisecond timestamp): a rapid double-submit then
+    // resolves to the SAME token and dedupes to one welcome + one receipt, instead
+    // of two distinct timestamps that would each send.
+    const startedAt = body.started_at ?? new Date().toISOString().slice(0, 10);
     const newPlan = (res.planKey ?? plan_key ?? '').toLowerCase();
     const prevPlan = (row?.plan_key ?? '').toLowerCase();
 

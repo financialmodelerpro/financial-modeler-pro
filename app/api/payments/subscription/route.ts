@@ -5,6 +5,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { loadUserPaddleContext, DEFAULT_PAYMENTS_PLATFORM } from '@/src/shared/payments/subscriptionContext';
 import { getSubscription } from '@/src/shared/payments/paddleApi';
 import { loadPlatformPlanOptions, markSubscriptionCanceling } from '@/src/shared/payments/config';
+import { selfHealWelcomePaddleEmail } from '@/src/shared/email/subscriptionEmails';
 
 // GET /api/payments/subscription?platform=<slug>
 // Returns the signed-in user's subscription summary FOR ONE PLATFORM, read from
@@ -68,5 +69,13 @@ export async function GET(req: NextRequest) {
   // call) agrees with this live view. null clears it when a cancel was un-scheduled
   // (resume). Best effort; display only, gate inputs untouched.
   await markSubscriptionCanceling(sb, userId, platform, { scheduledCancelAt: res.data.scheduledCancelAt ?? null });
+  // Self-heal the welcome/invoice email: if this is a live paid subscription whose
+  // `activated` webhook never delivered (no welcome_paddle marker), send it once
+  // now. No-op when already welcomed. Skip canceled subs (no welcome for those).
+  if (!res.data.canceled && res.data.status !== 'canceled') {
+    await selfHealWelcomePaddleEmail(sb, {
+      userId, platform, planKey: ctx.planKey ?? '', subscriptionId: ctx.subscriptionId,
+    });
+  }
   return NextResponse.json({ subscription: { source: 'paddle' as const, ...res.data }, platform, planOptions, currentPlanKey: ctx.planKey, scheduledChange });
 }

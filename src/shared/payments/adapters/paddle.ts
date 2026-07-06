@@ -35,10 +35,15 @@ import type {
 import { verifyPaddleSignature } from '../signature';
 import { paddleEnvMismatch } from '../paddleEnv';
 
-// Paddle Billing event_type -> neutral subscription event type.
-function mapEventType(eventType: string): SubscriptionEventType {
+// Paddle Billing event_type -> neutral subscription event type. `origin` is the
+// transaction origin (only meaningful for transaction.completed): a recurring
+// charge is a RENEWAL, any other origin (web / subscription_charge on the first
+// invoice) is the initial ACTIVATION. Splitting them lets a renewal send a proper
+// receipt instead of the welcome copy.
+function mapEventType(eventType: string, origin: string | null): SubscriptionEventType {
   switch (eventType) {
     case 'transaction.completed':
+      return origin === 'subscription_recurring' ? 'renewed' : 'activated';
     case 'subscription.created':
     case 'subscription.activated':
       return 'activated';
@@ -46,6 +51,9 @@ function mapEventType(eventType: string): SubscriptionEventType {
       return 'updated';
     case 'subscription.canceled':
       return 'cancelled';
+    case 'subscription.past_due':
+    case 'transaction.payment_failed':
+      return 'payment_failed';
     default:
       return 'unknown';
   }
@@ -121,7 +129,7 @@ export const paddleAdapter: PaymentAdapter = {
       userRef: null, customDataPlanKey: null, customerEmail: null,
       subscriptionId: null, customerId: null, customDataPlatform: null,
       transactionId: null, transactionAmountMinor: null, transactionCurrency: null,
-      scheduledCancelAt: null,
+      scheduledCancelAt: null, billingPeriodEnd: null,
     };
     try {
       const body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -152,8 +160,21 @@ export const paddleAdapter: PaymentAdapter = {
       const scheduledCancelAt = scheduled.action === 'cancel'
         ? ((scheduled.effective_at as string | undefined) ?? null)
         : null;
+      // Transaction origin distinguishes a renewal (subscription_recurring) from
+      // the first activation on a transaction.completed.
+      const origin = (data?.origin as string | undefined) ?? null;
+      // Current billing period end: on subscription.* events it is
+      // data.current_billing_period.ends_at; on transaction.* events it is
+      // data.billing_period.ends_at. Used for the renewal "next renewal" line and
+      // the per-period dunning dedupe.
+      const subPeriod = (data?.current_billing_period as Record<string, unknown> | undefined) ?? {};
+      const txnPeriod = (data?.billing_period as Record<string, unknown> | undefined) ?? {};
+      const billingPeriodEnd = (subPeriod.ends_at as string | undefined)
+        ?? (txnPeriod.ends_at as string | undefined)
+        ?? (data?.next_billed_at as string | undefined)
+        ?? null;
       return {
-        type: mapEventType(eventType),
+        type: mapEventType(eventType, origin),
         eventId,
         providerPriceOrProductId: firstPriceId(data),
         userRef: (custom.user_id as string | undefined) ?? null,
@@ -166,6 +187,7 @@ export const paddleAdapter: PaymentAdapter = {
         transactionAmountMinor: isTxn && Number.isFinite(grand) ? grand : null,
         transactionCurrency: isTxn ? ((totals.currency_code as string | undefined) ?? (data?.currency_code as string | undefined) ?? null) : null,
         scheduledCancelAt,
+        billingPeriodEnd,
       };
     } catch {
       // Malformed body: never throw, the route stops on type 'unknown'.

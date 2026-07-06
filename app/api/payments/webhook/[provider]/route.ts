@@ -10,7 +10,10 @@ import {
 import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
 import { getAdapter } from '@/src/shared/payments/registry';
 import type { PaymentProvider } from '@/src/shared/payments/types';
-import { sendSubscriptionActivePaddleEmail } from '@/src/shared/email/subscriptionEmails';
+import {
+  sendSubscriptionActivePaddleEmail, sendRenewalReceiptEmail,
+  sendPaymentFailedEmail, sendSubscriptionCanceledEmail,
+} from '@/src/shared/email/subscriptionEmails';
 
 // Provider webhook endpoint: /api/payments/webhook/paddle | /api/payments/webhook/paypro
 //
@@ -169,6 +172,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
       .from('users').select('id').eq('email', event.customerEmail.toLowerCase()).maybeSingle();
     userId = (byEmail as { id?: string } | null)?.id ?? null;
   }
+  // Fallback: match by the stored Paddle subscription id. Renewal / past_due
+  // events may carry thinner custom_data than checkout, so this recovers the user
+  // from the per-platform subscription row keyed on the subscription id.
+  if (!userId && event.subscriptionId) {
+    const { data: bySub } = await sb
+      .from('user_platform_subscriptions').select('user_id')
+      .eq('paddle_subscription_id', event.subscriptionId).maybeSingle();
+    userId = (bySub as { user_id?: string } | null)?.user_id ?? null;
+  }
   if (!userId) {
     // Not recorded: a later redelivery (after the user exists) can still apply.
     return NextResponse.json({ ok: false, reason: 'user_not_found' });
@@ -205,6 +217,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     // 'updated' event (an 'activated' already clears it via storeUserPlatformSubscription).
     if (event.type === 'updated') {
       await markSubscriptionCanceling(sb, userId, eventPlatform, { scheduledCancelAt: event.scheduledCancelAt });
+      // A cancel initiated DIRECTLY in the Paddle dashboard surfaces only as an
+      // 'updated' carrying a scheduled cancel-at-period-end (the in-app cancel
+      // route never ran for it). Send the cancellation confirmation so those users
+      // still get one. Deduped on evt:{accessUntil} (the SAME key the in-app cancel
+      // route uses), so an in-app cancel that already emailed is a no-op here.
+      if (event.scheduledCancelAt) {
+        await sendSubscriptionCanceledEmail(sb, {
+          userId, platform: eventPlatform, planKey: res.planKey ?? planKey ?? '',
+          accessUntil: event.scheduledCancelAt,
+        });
+      }
     }
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     // Welcome / subscription-active email on a genuine ACTIVATION only (not every
@@ -241,6 +264,46 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
     await clearPaddleSubscriptionIds(sb, userId, eventPlatform);
     await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey: res.planKey, userId, status: res.subscriptionStatus });
     return NextResponse.json({ ok: true, planKey: res.planKey, subscriptionStatus: res.subscriptionStatus, platform: eventPlatform });
+  }
+
+  if (event.type === 'renewed') {
+    // A recurring charge succeeded. The plan is unchanged (no setUserPlan, so
+    // enforcement/convergence is untouched); record the transaction to the
+    // revenue ledger (idempotent on the txn id) and send a RENEWAL RECEIPT (not
+    // the welcome copy). The invoice PDF is attached best-effort by the sender.
+    if (event.transactionId && event.transactionAmountMinor !== null) {
+      await recordPaymentTransaction(sb, {
+        source: 'paddle', externalId: event.transactionId, userId, platform: eventPlatform,
+        planKey, amountMinor: event.transactionAmountMinor,
+        currency: event.transactionCurrency, status: 'completed', billedAt: new Date().toISOString(),
+      });
+    }
+    await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey, userId, status: 'renewed' });
+    if (planKey) {
+      await sendRenewalReceiptEmail(sb, {
+        userId, platform: eventPlatform, planKey,
+        amountMinor: event.transactionAmountMinor, currency: event.transactionCurrency,
+        renewedOn: new Date().toISOString(), nextRenewalOn: event.billingPeriodEnd,
+        transactionId: event.transactionId, subscriptionId: event.subscriptionId,
+      });
+    }
+    return NextResponse.json({ ok: true, renewed: true, planKey, platform: eventPlatform });
+  }
+
+  if (event.type === 'payment_failed') {
+    // A recurring charge failed (past_due). Make NO plan change: Paddle keeps
+    // retrying and access continues, so enforcement is unchanged. Send the dunning
+    // email (deduped per billing period so the several retry events collapse to
+    // one). Record the event id for idempotency.
+    await recordWebhookEvent(sb, provider, event.eventId, { eventType: event.type, planKey, userId, status: 'past_due' });
+    if (planKey) {
+      await sendPaymentFailedEmail(sb, {
+        userId, platform: eventPlatform, planKey,
+        amountMinor: event.transactionAmountMinor, currency: event.transactionCurrency,
+        subscriptionId: event.subscriptionId, billingPeriodEnd: event.billingPeriodEnd,
+      });
+    }
+    return NextResponse.json({ ok: true, paymentFailed: true, planKey, platform: eventPlatform });
   }
 
   return NextResponse.json({ ok: false, reason: 'unhandled_event_type' });

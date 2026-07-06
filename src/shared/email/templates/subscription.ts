@@ -276,6 +276,50 @@ export async function planChangedEmail(data: {
   return { subject, html };
 }
 
+// ── 13. Renewal receipt (Paddle recurring charge succeeded) ─────────────────
+
+export async function renewalReceiptEmail(data: {
+  name: string | null; planKey: string; amount: string; renewedOn: string | null;
+  nextRenewalOn: string | null; invoiceAttached: boolean; billingUrl: string;
+}): Promise<Built> {
+  const plan = planLabel(data.planKey);
+  const on = fmtDate(data.renewedOn);
+  const next = fmtDate(data.nextRenewalOn);
+  const html = await subLayout(`
+    ${h1(`Your ${plan} plan has renewed`)}
+    ${p(greeting(data.name))}
+    ${p(`Thank you. Your <strong>${plan}</strong> subscription has renewed${on ? ` on <strong>${on}</strong>` : ''} and your access continues without interruption.`)}
+    ${data.amount ? p(`<strong>Amount charged:</strong> ${data.amount}`) : ''}
+    ${next ? p(`<strong>Next renewal:</strong> ${next}`) : ''}
+    ${p(data.invoiceAttached
+      ? 'Your invoice for this renewal is attached to this email for your records.'
+      : 'You can download your invoice any time from the billing area of your dashboard.')}
+    <div style="text-align:center;">${button('View in billing', data.billingUrl)}</div>
+    ${divider()}
+    ${p('You can view invoices, update your payment method, or cancel any time from the billing area.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: `Your ${plan} plan has renewed${data.amount ? `: ${data.amount}` : ''}`, html };
+}
+
+// ── 14. Payment failed / dunning (Paddle past_due) ──────────────────────────
+
+export async function paymentFailedEmail(data: {
+  name: string | null; planKey: string; amount: string; manageUrl: string;
+}): Promise<Built> {
+  const plan = planLabel(data.planKey);
+  const amountPhrase = data.amount ? `of <strong>${data.amount}</strong> ` : '';
+  const html = await subLayout(`
+    ${h1('We could not process your payment')}
+    ${p(greeting(data.name))}
+    ${p(`We tried to charge the payment method on file for your <strong>${plan}</strong> subscription ${amountPhrase}but the payment did not go through.`)}
+    ${p('Your access continues for now while we retry the charge automatically. To avoid any interruption, please update your payment method so the next attempt succeeds.')}
+    <div style="text-align:center;">${button('Update payment method', data.manageUrl)}</div>
+    ${divider()}
+    ${p('If you have already updated your card or believe this is a mistake, you can ignore this email: the next automatic retry will settle it.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: `Action needed: your ${plan} payment did not go through`, html };
+}
+
 // ── 12. Plan ended (manual plan removed by the team) ────────────────────────
 
 export async function planEndedEmail(data: {

@@ -77,7 +77,13 @@ export interface WebhookVerifyResult {
   reason?: string;
 }
 
-export type SubscriptionEventType = 'activated' | 'updated' | 'cancelled' | 'unknown';
+export type SubscriptionEventType =
+  | 'activated'      // first purchase / subscription created + activated
+  | 'renewed'        // recurring charge succeeded (transaction.completed, origin recurring)
+  | 'updated'        // plan / schedule change on an existing subscription
+  | 'cancelled'      // subscription canceled (at period end or immediately)
+  | 'payment_failed' // a recurring charge failed (past_due) -> dunning, no plan change
+  | 'unknown';
 
 /** Provider-neutral subscription event after an adapter parses a raw webhook. */
 export interface ParsedSubscriptionEvent {
@@ -115,6 +121,10 @@ export interface ParsedSubscriptionEvent {
    *  else null. Lets the webhook persist the durable Canceling marker (mig 183)
    *  so the admin views reflect a cancel scheduled directly in Paddle. */
   scheduledCancelAt: string | null;
+  /** The current billing period end for the event's subscription, when the
+   *  provider supplies it (renewal receipt "next renewal" + per-period dunning
+   *  dedupe). Null when absent. */
+  billingPeriodEnd: string | null;
 }
 
 export interface PaymentAdapter {

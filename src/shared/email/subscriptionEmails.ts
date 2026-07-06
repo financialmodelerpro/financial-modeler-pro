@@ -21,7 +21,8 @@ import { sendEmail, FROM, type EmailAttachment } from './sendEmail';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
-  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail, fmtAmount,
+  graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail,
+  renewalReceiptEmail, paymentFailedEmail, fmtAmount,
 } from './templates/subscription';
 import { createAndStoreManualInvoice } from '@/src/shared/payments/manualInvoice';
 import {
@@ -240,6 +241,48 @@ export async function sendSubscriptionActivePaddleEmail(
   });
 }
 
+/**
+ * Self-heal the welcome/subscription-active email for a paying Paddle sub whose
+ * `activated` webhook was never delivered (sandbox delivery is unreliable), so a
+ * paying customer is never left without a welcome + invoice. Mirrors the
+ * billing-history self-heal: called on the next LIVE read of an active paid
+ * subscription (billing panel) and by the daily reminder cron.
+ *
+ * IDEMPOTENT + safe for existing subscribers: it first checks whether ANY
+ * welcome_paddle marker already exists for this subscription (keyed on the stable
+ * `evt:{subId}` threshold, IGNORING anchor_day), so a customer already welcomed by
+ * the webhook (or a prior self-heal) is detected and skipped. Only a genuinely
+ * un-welcomed sub sends, exactly once. Never throws.
+ */
+export async function selfHealWelcomePaddleEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string; subscriptionId: string | null; transactionId?: string | null },
+): Promise<void> {
+  if (!args.subscriptionId) return;
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const planKey = (args.planKey || '').toLowerCase();
+  if (!planKey || planKey === 'none' || planKey === 'trial') return;
+  try {
+    // Existence check on the STABLE identity (email_type + threshold), not the
+    // dated anchor: an already-welcomed sub (webhook or prior heal) has this row.
+    const { data } = await sb
+      .from('subscription_email_log')
+      .select('id')
+      .eq('user_id', args.userId).eq('platform_slug', platform)
+      .eq('email_type', 'welcome_paddle').eq('threshold', `evt:${args.subscriptionId}`)
+      .limit(1).maybeSingle();
+    if (data) return; // already welcomed: nothing to heal
+  } catch {
+    // Log table unreachable: fall through so the dispatch claim fails OPEN rather
+    // than silently dropping a transactional email (claim() handles the dedupe).
+  }
+  console.log(`[sub-email] self-heal welcome_paddle (user=${args.userId} sub=${args.subscriptionId})`);
+  await sendSubscriptionActivePaddleEmail(sb, {
+    userId: args.userId, platform, planKey: args.planKey,
+    subscriptionId: args.subscriptionId, transactionId: args.transactionId ?? null,
+  });
+}
+
 /** Welcome / plan active (manual). Skips 'none' and 'trial' (trial has its own). */
 export async function sendManualPlanWelcomeEmail(
   sb: SupabaseClient,
@@ -366,6 +409,71 @@ export async function sendPlanChangedEmail(
       invoiceAttached: !!attachments,
     });
     return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply, attachments })).id;
+  });
+}
+
+/**
+ * Renewal receipt: a Paddle recurring charge succeeded (a `renewed` event, i.e. a
+ * `transaction.completed` with origin subscription_recurring, NOT the first
+ * activation). Distinct from the welcome copy so a renewal reads as a receipt.
+ * Deduped per renewal on the transaction id (a genuine new renewal has a new txn
+ * id; a redelivery of the same event is already blocked by the webhook's event-id
+ * idempotency upstream). Attaches the renewal invoice PDF (best effort). Never throws.
+ */
+export async function sendRenewalReceiptEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string; amountMinor: number | null; currency: string | null; renewedOn?: string | null; nextRenewalOn?: string | null; transactionId?: string | null; subscriptionId?: string | null },
+): Promise<void> {
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const planKey = (args.planKey || '').toLowerCase();
+  if (!planKey || planKey === 'none' || planKey === 'trial') return;
+  const token = args.transactionId ?? args.subscriptionId ?? dayStr(Date.now());
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'renewal_receipt', threshold: `evt:${token}`, anchor_day: dayStr(Date.now()) };
+  await dispatch(sb, key, async () => {
+    const c = await getContact(sb, args.userId);
+    if (!c) throw new Error('no contact');
+    const attachments = await fetchPaddleInvoiceAttachment(
+      sb, platform, { transactionId: args.transactionId, subscriptionId: args.subscriptionId }, { attempts: 2, delayMs: 800, label: 'renewal_receipt' },
+    );
+    const { subject, html } = await renewalReceiptEmail({
+      name: c.name, planKey: args.planKey, amount: fmtAmount(args.amountMinor, args.currency),
+      renewedOn: args.renewedOn ?? null, nextRenewalOn: args.nextRenewalOn ?? null,
+      invoiceAttached: !!attachments, billingUrl: billingUrl(),
+    });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply, attachments })).id;
+  });
+}
+
+/**
+ * Dunning / payment-failed: a Paddle recurring charge failed (past_due). Prompts
+ * the customer to update their payment method. Makes NO plan change (Paddle keeps
+ * retrying and access continues; enforcement is unchanged). Deduped PER BILLING
+ * PERIOD: keyed on the subscription id + the period-end anchor, so the several
+ * retry events Paddle fires for the SAME failed period collapse to one email,
+ * while a failure in a later period sends again. Never throws.
+ *
+ * Retain note: if Paddle Retain is enabled at go-live it ALSO sends dunning mail.
+ * This send is safe to coexist (both link to the same billing/manage flow); to
+ * hand dunning entirely to Retain, remove the sendPaymentFailedEmail call in the
+ * webhook (the template + dispatcher can stay unused).
+ */
+export async function sendPaymentFailedEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; planKey: string; amountMinor: number | null; currency: string | null; subscriptionId: string | null; billingPeriodEnd?: string | null },
+): Promise<void> {
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const planKey = (args.planKey || '').toLowerCase();
+  if (!planKey || planKey === 'none' || planKey === 'trial') return;
+  const periodMs = parseMs(args.billingPeriodEnd ?? null) ?? Date.now();
+  const token = args.subscriptionId ?? args.userId;
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'payment_failed', threshold: `evt:${token}`, anchor_day: dayStr(periodMs) };
+  await dispatch(sb, key, async () => {
+    const c = await getContact(sb, args.userId);
+    if (!c) throw new Error('no contact');
+    const { subject, html } = await paymentFailedEmail({
+      name: c.name, planKey: args.planKey, amount: fmtAmount(args.amountMinor, args.currency), manageUrl: billingUrl(),
+    });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
   });
 }
 
@@ -598,6 +706,16 @@ export async function runSubscriptionReminderScan(sb: SupabaseClient, platform =
         if (await sendExpiryReminder(sb, platform, row.user_id, contact, planKey, row.expires_at, anchor, dEnd)) counters.expiry++;
         await handleGrace(sb, platform, row.user_id, contact, anchor, nowMs, counters);
         continue;
+      }
+
+      // Welcome self-heal (webhook-miss safety net), daily and idempotent: a live
+      // paid Paddle sub with no welcome_paddle marker gets its welcome + invoice
+      // sent once. Uses the stored row (no extra live call); the existence check
+      // inside makes it a no-op for already-welcomed subs. Skip canceled rows.
+      if (row.paddle_subscription_id && !NON_RENEWING.includes((row.status ?? '').toLowerCase())) {
+        await selfHealWelcomePaddleEmail(sb, {
+          userId: row.user_id, platform, planKey, subscriptionId: row.paddle_subscription_id,
+        });
       }
 
       // Paddle sub: only act when the period end is at a reminder threshold.
