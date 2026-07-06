@@ -375,6 +375,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // version churn). The user clicks Edit -> names a version (save-as) -> this
   // flips true and editing unlocks. Reset to false on open / load / close.
   const [editMode, setEditMode] = useState(false);
+  // Sync the model store's view-mode lock with the edit state. When NOT actively
+  // editing (view mode) or in grace read-only, every model-mutating setter no-ops
+  // (see module1-store MODEL_MUTATORS), so view mode allows ALL view/navigation
+  // (collapsibles, phase/asset selectors, view toggles, case switch) while no
+  // model number can change. This replaces the old panel-level pointer-events lock.
+  useEffect(() => {
+    useModule1Store.getState().setViewLocked(!editMode || graceReadOnly);
+  }, [editMode, graceReadOnly]);
   // 2026-05-31 BUG-B FIX: gates the UI during a project switch so no
   // stale snapshot is rendered between detach + hydrate.
   const [isSwitchingProject, setIsSwitchingProject] = useState(false);
@@ -1418,7 +1426,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {/* pointer-events lock blocks input/control interaction in view mode;
               the scroll container (main) still scrolls, the sidebar + this
               banner stay interactive. */}
-          <div data-testid="module-content" style={{ pointerEvents: viewLocked ? 'none' : 'auto' }}>
+          {/* View mode no longer blocks the whole panel (that killed collapsibles,
+              phase/asset selectors, and view toggles). The lock now lives at the
+              model-mutating store setters (see the setViewLocked effect above), so
+              ALL view/navigation stays interactive while no model number can
+              change. The view-lock banner above communicates the mode. */}
+          <div data-testid="module-content">
             {renderModule()}
           </div>
         </main>

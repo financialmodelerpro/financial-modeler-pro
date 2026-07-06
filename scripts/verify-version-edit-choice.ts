@@ -201,7 +201,11 @@ async function main(): Promise<void> {
   const topbar = readFileSync(join(REFM, 'Topbar.tsx'), 'utf8');
 
   // Clicking Edit opens the CHOICE step (not the create modal directly).
-  check('handleEnableEditing opens the Edit choice step', /handleEnableEditing\s*=\s*useCallback\(\(\)\s*=>\s*\{\s*setEditChoiceOpen\(true\)/.test(platform));
+  // Tolerate intervening statements (e.g. the read-only grace guard
+  // `if (graceReadOnly) return;`) between the callback body open and the
+  // setEditChoiceOpen call. The assertion is that handleEnableEditing opens the
+  // choice step, not that it is the very first statement.
+  check('handleEnableEditing opens the Edit choice step', /handleEnableEditing\s*=\s*useCallback\(\(\)\s*=>\s*\{[\s\S]*?setEditChoiceOpen\(true\)/.test(platform));
   check('EditChoiceModal is rendered with the open flag', /<EditChoiceModal[\s\S]*?open=\{editChoiceOpen\}/.test(platform));
   // The choice step shows the current version name.
   check('choice step is passed the current version name', /<EditChoiceModal[\s\S]*?currentVersionName=\{activeVersionData\?\.name/.test(platform));

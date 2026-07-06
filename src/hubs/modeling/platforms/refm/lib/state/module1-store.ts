@@ -106,6 +106,13 @@ export interface Module1Store {
   activePhaseId: string;
   activeAssetId: string | null;
 
+  // View-mode lock (UI-only, not persisted). When true, the project is being
+  // VIEWED (not edited): all model-mutating setters no-op, so view mode allows
+  // every view/navigation interaction while no model number can change. The
+  // navigation setters (setActivePhaseId / setActiveAssetId / setActiveCase) and
+  // load (hydrate) are never gated. Set by RealEstatePlatform from the edit state.
+  viewLocked: boolean;
+
   // ── Setters ──
   setProject: (patch: Partial<Project>) => void;
   /** Module 6 "Use scenarios?" toggle, shared by the Module 6 tab + the topbar
@@ -154,6 +161,9 @@ export interface Module1Store {
 
   setActivePhaseId: (id: string) => void;
   setActiveAssetId: (id: string | null) => void;
+  /** Set the view-mode lock. When true, every model-mutating setter no-ops (view
+   *  mode); navigation setters + hydrate are unaffected. Not persisted. */
+  setViewLocked: (locked: boolean) => void;
 
   // ── Case management ──
   /** Switch the active case: flushes the current case's edits into the
@@ -380,7 +390,8 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
 
 // ── Store factory ──────────────────────────────────────────────────────────
 export function createModule1Store() {
-  return create<Module1Store>((set, get) => ({
+  return create<Module1Store>((set, get) => {
+    const api: Module1Store = {
     ...DEFAULT_MODULE1_STATE,
 
     // Case state: a fresh project seeds Management (base) + Downside + Upside,
@@ -391,6 +402,8 @@ export function createModule1Store() {
 
     activePhaseId: DEFAULT_PHASE_ID,
     activeAssetId: null,
+    viewLocked: false,
+    setViewLocked: (locked) => set({ viewLocked: locked }),
 
     setProject: (patch) => set((s) => ({ project: { ...s.project, ...patch } })),
 
@@ -877,7 +890,39 @@ export function createModule1Store() {
         activeAssetId: null,
       };
     }),
-  }));
+    };
+
+    // ── View-mode lock ────────────────────────────────────────────────────────
+    // Wrap ONLY the model-mutating setters so they no-op when viewLocked (view
+    // mode). The navigation setters (setActivePhaseId / setActiveAssetId /
+    // setActiveCase), setViewLocked, hydrate, and extractPersistSnapshot are
+    // intentionally NOT listed, so view mode allows every view/navigation
+    // interaction + load while blocking every model-number change. One explicit
+    // allowlist keeps the two groups auditable. Internal load/switch flows use
+    // set(...)/hydrate directly (not these setters), so they are never affected.
+    const MODEL_MUTATORS: (keyof Module1Store)[] = [
+      'setProject', 'setUseScenarios', 'setLandAllocationMode',
+      'setPhases', 'addPhase', 'updatePhase', 'removePhase',
+      'setParcels', 'addParcel', 'updateParcel', 'removeParcel',
+      'setAssets', 'addAsset', 'updateAsset', 'removeAsset',
+      'setSubUnits', 'addSubUnit', 'updateSubUnit', 'removeSubUnit',
+      'setCostLines', 'addCostLine', 'updateCostLine', 'removeCostLine',
+      'setCostOverride', 'removeCostOverride',
+      'setFinancingTranches', 'addFinancingTranche', 'updateFinancingTranche', 'removeFinancingTranche',
+      'setEquityContributions', 'addEquityContribution', 'updateEquityContribution', 'removeEquityContribution',
+      'addCase', 'renameCase', 'removeCase', 'clearCaseOverrides',
+      'resetOverridePath', 'setOverridePath', 'setCaseFieldValue', 'resetCaseFieldValue',
+    ];
+    for (const key of MODEL_MUTATORS) {
+      const orig = api[key] as (...args: unknown[]) => unknown;
+      (api as unknown as Record<string, (...a: unknown[]) => unknown>)[key] = (...args: unknown[]) => {
+        if (get().viewLocked) return undefined;
+        return orig(...args);
+      };
+    }
+
+    return api;
+  });
 }
 
 export const useModule1Store = createModule1Store();
