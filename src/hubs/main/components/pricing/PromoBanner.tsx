@@ -31,10 +31,11 @@ export default async function PromoBanner({ platform = 'real-estate', pricingHre
 
   return (
     <div data-testid="site-promo-banner"
-      // position + zIndex 501 so the banner always paints ABOVE the fixed navbar
-      // (zIndex 100) and is never clipped under it, regardless of the configured
-      // header height / admin edit-bar stack. Stays below the admin bar (9999).
-      style={{ position: 'relative', zIndex: 501, background: GOLD_LIGHT, borderBottom: `1px solid ${GOLD}`, color: GOLD_DARK, textAlign: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>
+      // In normal flow BELOW the fixed header (no z-index overlap, so it never
+      // covers the header). marginTop gives clear separation (~0.5in) so the thin
+      // banner is fully below the header regardless of the configured header
+      // height / admin edit-bar stack, rather than tucked against / under it.
+      style={{ marginTop: 48, background: GOLD_LIGHT, border: `1px solid ${GOLD}`, borderRadius: 8, maxWidth: 1120, marginLeft: 'auto', marginRight: 'auto', color: GOLD_DARK, textAlign: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>
       {promo.label}
       <span style={{ fontWeight: 800, marginLeft: 8 }}>{offText}</span>
       <span style={{ fontWeight: 600, marginLeft: 8 }}>applied automatically at checkout.</span>

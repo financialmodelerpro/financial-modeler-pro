@@ -267,12 +267,22 @@ export async function previewSubscriptionChange(
   let action = str(result.action);              // 'charge' | 'credit'
   let amount = Number(result.amount);
   let currency = str(result.currency_code);
-  // Fallback when result is absent: derive from the charge / credit blocks.
+  // Fallback when Paddle's netted `result` is absent: compute the NET from the
+  // charge and credit blocks (charge for the new item, MINUS credit for unused
+  // time on the old item). The old code took the gross charge and IGNORED the
+  // credit whenever both were present, which overstated the amount, e.g. after a
+  // recent plan change it would show the full new-plan charge instead of the small
+  // net after crediting the just-paid time.
   if (action !== 'charge' && action !== 'credit') {
-    const charge = asRecord(summary.charge);
-    const credit = asRecord(summary.credit);
-    if (Number(charge.amount) > 0) { action = 'charge'; amount = Number(charge.amount); currency = str(charge.currency_code); }
-    else if (Number(credit.amount) > 0) { action = 'credit'; amount = Number(credit.amount); currency = str(credit.currency_code); }
+    const chargeR = asRecord(summary.charge);
+    const creditR = asRecord(summary.credit);
+    const charge = Number(chargeR.amount) || 0;
+    const credit = Number(creditR.amount) || 0;
+    const cur = str(chargeR.currency_code) ?? str(creditR.currency_code);
+    const net = charge - credit;
+    if (net > 0) { action = 'charge'; amount = net; currency = cur; }
+    else if (net < 0) { action = 'credit'; amount = -net; currency = cur; }
+    else { action = 'none'; amount = 0; currency = cur; }
   }
   const immediate = asRecord(d.immediate_transaction);
   const billedAt = str(immediate.billed_at) ?? str(d.next_billed_at);
