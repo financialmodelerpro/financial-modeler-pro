@@ -9,8 +9,12 @@ import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
 import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { COURSES } from '@/src/hubs/training/config/courses';
 import type { ModelSubmissionRow } from '@/src/hubs/training/lib/modelSubmission/types';
+import { ALLOWED_MODEL_EXT_TO_MIME, MAX_REVIEWED_MODEL_BYTES, safeModelFileName, fileExt } from '@/src/hubs/training/lib/modelSubmission/fileTypes';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 /**
  * POST /api/admin/model-submissions/[id]/review
@@ -50,12 +54,25 @@ export async function POST(
   const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Submission id required' }, { status: 400 });
 
-  const body = await req.json().catch(() => ({})) as {
-    decision?: 'approve' | 'reject';
-    note?: string;
-  };
-  const decision = body.decision;
-  const note = (body.note ?? '').trim();
+  // Accept BOTH multipart/form-data (approve with an optional reviewed-model
+  // file + comment) and JSON (backward compatible; reject and file-less approve).
+  const contentType = req.headers.get('content-type') ?? '';
+  let decision: 'approve' | 'reject' | undefined;
+  let note = '';
+  let reviewedFile: File | null = null;
+  if (contentType.includes('multipart/form-data')) {
+    const form = await req.formData().catch(() => null);
+    if (!form) return NextResponse.json({ error: 'Invalid form data' }, { status: 400 });
+    const d = String(form.get('decision') ?? '');
+    decision = d === 'approve' || d === 'reject' ? d : undefined;
+    note = String(form.get('note') ?? '').trim();
+    const f = form.get('file');
+    reviewedFile = f instanceof File && f.size > 0 ? f : null;
+  } else {
+    const body = await req.json().catch(() => ({})) as { decision?: 'approve' | 'reject'; note?: string };
+    decision = body.decision;
+    note = (body.note ?? '').trim();
+  }
 
   if (decision !== 'approve' && decision !== 'reject') {
     return NextResponse.json({ error: 'decision must be "approve" or "reject"' }, { status: 400 });
@@ -90,6 +107,37 @@ export async function POST(
   const reviewNoteToStore = decision === 'reject' ? note : (note || null);
   const nowIso = new Date().toISOString();
 
+  // Reviewed-model return (mig 185): on approve, the admin may attach a reviewed
+  // model. Upload it to the SAME private bucket BEFORE the DB update so the row
+  // carries the reference atomically; a validation failure rejects the request
+  // and a DB-write failure rolls the uploaded object back (no orphaned bytes).
+  let reviewedMeta: { path: string; name: string; size: number; mime: string } | null = null;
+  if (decision === 'approve' && reviewedFile) {
+    const ext = fileExt(reviewedFile.name);
+    if (!ext || !(ext in ALLOWED_MODEL_EXT_TO_MIME)) {
+      return NextResponse.json({ error: 'invalid_file_type', message: 'Allowed reviewed-model types: .xlsx, .xls, .xlsm, .pdf' }, { status: 400 });
+    }
+    if (reviewedFile.size > MAX_REVIEWED_MODEL_BYTES) {
+      return NextResponse.json({ error: 'file_too_large', message: 'The reviewed model exceeds the 25 MB limit.' }, { status: 400 });
+    }
+    const mime = reviewedFile.type || ALLOWED_MODEL_EXT_TO_MIME[ext];
+    const safeName = safeModelFileName(reviewedFile.name);
+    const path = `reviewed/${submission.email.toLowerCase()}/${submission.course_code.toLowerCase()}/${submission.id}_${Date.now()}_${safeName}`;
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(await reviewedFile.arrayBuffer());
+    } catch (readErr) {
+      console.error('[model-submissions review] reviewed file read failed:', readErr);
+      return NextResponse.json({ error: 'Failed to read the reviewed model upload' }, { status: 500 });
+    }
+    const { error: upErr } = await sb.storage.from('model-submissions').upload(path, bytes, { contentType: mime, upsert: false });
+    if (upErr) {
+      console.error('[model-submissions review] reviewed file upload failed:', upErr);
+      return NextResponse.json({ error: 'reviewed_upload_failed', message: upErr.message }, { status: 500 });
+    }
+    reviewedMeta = { path, name: reviewedFile.name, size: reviewedFile.size, mime };
+  }
+
   const { error: updateErr } = await sb
     .from('model_submissions')
     .update({
@@ -97,11 +145,23 @@ export async function POST(
       reviewed_at: nowIso,
       reviewed_by_admin: adminEmail,
       review_note: reviewNoteToStore,
+      ...(reviewedMeta ? {
+        reviewed_file_path: reviewedMeta.path,
+        reviewed_file_name: reviewedMeta.name,
+        reviewed_file_size: reviewedMeta.size,
+        reviewed_file_mime: reviewedMeta.mime,
+      } : {}),
     })
     .eq('id', submission.id);
 
   if (updateErr) {
     console.error('[model-submissions review] update failed:', updateErr);
+    // Roll back the reviewed-file object so we do not leak bytes on a row that
+    // did not record them.
+    if (reviewedMeta) {
+      try { await sb.storage.from('model-submissions').remove([reviewedMeta.path]); }
+      catch (rb) { console.error('[model-submissions review] reviewed rollback failed:', rb); }
+    }
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }
 
@@ -185,6 +245,10 @@ export async function POST(
         fileName: submission.file_name,
         attemptNumber: submission.attempt_number,
         reviewerNote: reviewNoteToStore,
+        // Reviewed-model return: a download link (never an attachment) to the
+        // ownership-checked student proxy, only when a reviewed file was attached.
+        reviewedFileUrl: reviewedMeta ? `${LEARN_URL}/api/training/model-submission/${submission.id}/reviewed-file` : null,
+        reviewedFileName: reviewedMeta?.name ?? null,
       });
       await sendEmail({ to: submission.email, subject, html, text, from: FROM.training });
     } else {

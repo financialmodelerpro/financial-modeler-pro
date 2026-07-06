@@ -8,6 +8,10 @@ interface ModelSubmissionApprovedData {
   fileName: string;
   attemptNumber: number;
   reviewerNote?: string | null;
+  /** Absolute link to download the admin-returned reviewed model (mig 185). A
+   *  LINK, never an attachment. Null when the admin approved without a file. */
+  reviewedFileUrl?: string | null;
+  reviewedFileName?: string | null;
 }
 
 /**
@@ -16,7 +20,7 @@ interface ModelSubmissionApprovedData {
  * POST /api/admin/model-submissions/[id]/review.
  */
 export async function modelSubmissionApprovedTemplate({
-  name, courseLabel, fileName, attemptNumber, reviewerNote,
+  name, courseLabel, fileName, attemptNumber, reviewerNote, reviewedFileUrl, reviewedFileName,
 }: ModelSubmissionApprovedData) {
   const subject = `✓ Model approved, Final exam unlocked: ${courseLabel}`;
 
@@ -40,6 +44,14 @@ export async function modelSubmissionApprovedTemplate({
          </div>`
       : ''}
 
+    ${reviewedFileUrl
+      ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:16px 18px;margin:16px 0;">
+           <div style="font-size:11px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Your reviewed model</div>
+           <div style="font-size:13px;color:#374151;line-height:1.55;margin-bottom:12px;">Your reviewer returned a marked-up copy of your model${reviewedFileName ? ` (<strong>${reviewedFileName}</strong>)` : ''}. Download it to see their feedback in context. It is also available in your dashboard.</div>
+           <div>${button('Download reviewed model', reviewedFileUrl)}</div>
+         </div>`
+      : ''}
+
     ${p('The Final Exam for this course is now unlocked on your dashboard. Pass it and your certificate is issued automatically.')}
 
     <div style="text-align:center;margin:24px 0;">
@@ -55,6 +67,7 @@ export async function modelSubmissionApprovedTemplate({
     + `Your financial model for ${courseLabel} has been APPROVED.\n`
     + `Submission: ${fileName} (attempt ${attemptNumber})\n`
     + `${reviewerNote ? `\nReviewer note: ${reviewerNote}\n` : ''}`
+    + `${reviewedFileUrl ? `\nYour reviewer returned a marked-up model${reviewedFileName ? ` (${reviewedFileName})` : ''}.\nDownload: ${reviewedFileUrl}\n` : ''}`
     + `\nThe Final Exam is now unlocked on your dashboard.\n`
     + `\nDashboard: ${LEARN_URL}/training/dashboard`;
 

@@ -302,6 +302,28 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
         <div style={{ fontSize: 12.5, color: '#14532D', lineHeight: 1.55, marginLeft: 28 }}>
           Your model has been approved. The Final Exam for <strong>{courseLabel}</strong> is unlocked.
         </div>
+
+        {/* Reviewer comment (review_note) shown verbatim to the student. */}
+        {status.latest?.review_note ? (
+          <div style={{ marginLeft: 28, marginTop: 10, background: '#fff', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Reviewer comment</div>
+            <div style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{status.latest.review_note}</div>
+          </div>
+        ) : null}
+
+        {/* Reviewed-model return (mig 185): download link when the admin attached
+            a marked-up model on approve. Absent for file-less approvals. */}
+        {status.latest?.reviewed_file_path && status.latest?.id ? (
+          <div style={{ marginLeft: 28, marginTop: 10 }}>
+            <a
+              href={`/api/training/model-submission/${status.latest.id}/reviewed-file`}
+              data-testid="reviewed-model-download"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#166534', color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '8px 14px', borderRadius: 8, textDecoration: 'none' }}
+            >
+              ⬇ Download reviewed model{status.latest.reviewed_file_name ? ` (${status.latest.reviewed_file_name})` : ''}
+            </a>
+          </div>
+        ) : null}
       </div>
     );
   }

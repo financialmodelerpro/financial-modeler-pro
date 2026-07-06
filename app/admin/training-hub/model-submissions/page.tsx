@@ -67,6 +67,8 @@ export default function AdminModelSubmissionsPage() {
   const [search, setSearch] = useState('');
   const [reviewing, setReviewing] = useState<RowDecorated | null>(null);
   const [reviewNote, setReviewNote] = useState('');
+  // Optional reviewed-model file returned to the student on approve (mig 185).
+  const [reviewedFile, setReviewedFile] = useState<File | null>(null);
   const [busyDecision, setBusyDecision] = useState<'approve' | 'reject' | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
@@ -107,11 +109,13 @@ export default function AdminModelSubmissionsPage() {
   function openReview(row: RowDecorated) {
     setReviewing(row);
     setReviewNote('');
+    setReviewedFile(null);
   }
   function closeReview() {
     if (busyDecision) return;
     setReviewing(null);
     setReviewNote('');
+    setReviewedFile(null);
   }
 
   async function decide(decision: 'approve' | 'reject') {
@@ -122,11 +126,22 @@ export default function AdminModelSubmissionsPage() {
     }
     setBusyDecision(decision);
     try {
-      const res = await fetch(`/api/admin/model-submissions/${reviewing.id}/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, note: reviewNote.trim() }),
-      });
+      // Approve WITH a reviewed file -> multipart; otherwise JSON (reject +
+      // file-less approve are unchanged, so the route stays backward compatible).
+      const url = `/api/admin/model-submissions/${reviewing.id}/review`;
+      const res = decision === 'approve' && reviewedFile
+        ? await (() => {
+            const fd = new FormData();
+            fd.append('decision', decision);
+            fd.append('note', reviewNote.trim());
+            fd.append('file', reviewedFile);
+            return fetch(url, { method: 'POST', body: fd });
+          })()
+        : await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision, note: reviewNote.trim() }),
+          });
       const json = await res.json() as {
         ok?: boolean;
         error?: string;
@@ -137,12 +152,13 @@ export default function AdminModelSubmissionsPage() {
       if (!res.ok || !json.ok) throw new Error(json.message ?? json.error ?? 'Review failed');
       showToast(
         decision === 'approve'
-          ? `Approved. ${json.emailSent ? 'Student emailed.' : 'Email failed - check Resend logs.'}`
-          : `Rejected. ${json.attemptsRemaining ?? 0} attempt${(json.attemptsRemaining ?? 0) === 1 ? '' : 's'} remaining for student. ${json.emailSent ? 'Student emailed.' : 'Email failed - check Resend logs.'}`,
+          ? `Approved.${reviewedFile ? ' Reviewed model returned.' : ''} ${json.emailSent ? 'Student emailed.' : 'Email failed - check email logs.'}`
+          : `Rejected. ${json.attemptsRemaining ?? 0} attempt${(json.attemptsRemaining ?? 0) === 1 ? '' : 's'} remaining for student. ${json.emailSent ? 'Student emailed.' : 'Email failed - check email logs.'}`,
         'ok',
       );
       setReviewing(null);
       setReviewNote('');
+      setReviewedFile(null);
       await load();
     } catch (e) {
       showToast((e as Error).message, 'err');
@@ -431,6 +447,28 @@ export default function AdminModelSubmissionsPage() {
                     disabled={!!busyDecision}
                     style={{ width: '100%', padding: '10px 12px', border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
                   />
+
+                  {/* Reviewed-model return (mig 185): optional file attached on
+                      APPROVE. The student receives it via email + in their
+                      dashboard. Approve without a file behaves exactly as before. */}
+                  <div style={{ marginTop: 14 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                      Reviewed model to return (optional, on approve)
+                    </label>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.xlsm,.pdf"
+                      disabled={!!busyDecision}
+                      onChange={e => setReviewedFile(e.target.files?.[0] ?? null)}
+                      data-testid="reviewed-file-input"
+                      style={{ fontSize: 12.5, color: '#374151' }}
+                    />
+                    <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
+                      {reviewedFile
+                        ? `Attached: ${reviewedFile.name} (returned to the student on approve).`
+                        : '.xlsx, .xls, .xlsm, .pdf up to 25 MB. Leave empty to approve without returning a file.'}
+                    </div>
+                  </div>
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                     <button

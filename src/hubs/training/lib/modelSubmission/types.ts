@@ -22,7 +22,14 @@ export interface ModelSubmissionRow {
   submitted_at: string;
   reviewed_at: string | null;
   reviewed_by_admin: string | null;
+  /** Approval / rejection comment (required on reject, optional on approve). */
   review_note: string | null;
+  // ── Reviewed-model return (mig 185): the admin-returned marked-up model that
+  // the student downloads. All NULL when the admin approved without a file. ──
+  reviewed_file_path: string | null;
+  reviewed_file_name: string | null;
+  reviewed_file_size: number | null;
+  reviewed_file_mime: string | null;
 }
 
 /**
