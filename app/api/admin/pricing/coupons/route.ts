@@ -1,3 +1,8 @@
+// DEPRECATED (2026-07-06): discounts are now AUTO-LINKED to Paddle (the single
+// source of truth). The admin discount screen uses /api/admin/payments/discounts
+// (live Paddle list + featured public promo) instead of this local coupon_codes
+// CRUD. This route + the coupon_codes table are kept for backward compatibility
+// and are no longer read by checkout / pricing. Do not build new features on it.
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';

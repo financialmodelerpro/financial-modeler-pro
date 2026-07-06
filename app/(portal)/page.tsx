@@ -24,6 +24,7 @@ import { InlineEdit } from '@/src/hubs/main/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/hubs/main/components/landing/AdminEditBar';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
+import PromoBanner from '@/src/hubs/main/components/pricing/PromoBanner';
 
 export const revalidate = 0;
 
@@ -225,6 +226,10 @@ export default async function LandingPage() {
 
       {/* ── Spacer for fixed navbar ────────────────────────────────────────── */}
       <div style={{ height: isAdmin ? 108 : 64 }} />
+
+      {/* ── Active public promo banner (live from Paddle; renders nothing when
+             no promo is active) ─────────────────────────────────────────────── */}
+      <PromoBanner />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
       {!heroHidden && <section style={{ padding:'clamp(56px,8vw,96px) 40px clamp(64px,9vw,104px)', textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>

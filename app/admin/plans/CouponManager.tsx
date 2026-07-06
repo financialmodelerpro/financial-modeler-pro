@@ -1,33 +1,41 @@
 'use client';
 
 /**
- * CouponManager
+ * CouponManager (Discounts, auto-linked to Paddle)
  *
- * Discount management in the Plan Builder. Model 1: each entry REFERENCES a real
- * Paddle discount (created in Paddle) by its discount id; the platform stores the
- * code, a display label/percentage for marketing text, a kind (public auto-apply
- * promo / private code), an active toggle, and validity dates. It does NOT create
- * the Paddle discount. A code reduces the actual charge ONLY when its Paddle
- * discount id is set (the checkout passes it to Paddle, which validates + applies).
- * Talks to /api/admin/pricing/coupons.
+ * Discounts are created and managed in PADDLE (the single source of truth). This
+ * screen reads the live Paddle discount list (via /api/admin/payments/discounts,
+ * server-side) and does NOT re-enter discount data. The admin's only action here
+ * is choosing which Paddle discount is the PUBLIC auto-apply promo (applied
+ * automatically at checkout by id, no code, and shown on the marketing + pricing
+ * pages). Discounts that carry a checkout code are private codes customers type.
  *
  * No em dashes in this file.
  */
 import { useState, useEffect, useCallback } from 'react';
 
-interface Coupon {
-  id: string; code: string; discount_type: string; discount_value: number;
-  max_uses: number | null; used_count: number; expires_at: string | null; is_active: boolean;
-  paddle_discount_id: string | null; kind: string | null; display_label: string | null; starts_at: string | null;
+interface Discount {
+  id: string; status: string; description: string | null; type: string;
+  amount: string | null; currencyCode: string | null; code: string | null;
+  enabledForCheckout: boolean; recur: boolean; usageLimit: number | null;
+  timesUsed: number | null; expiresAt: string | null; restrictToPriceIds: string[];
+}
+interface Featured { discountId: string; label: string | null }
+
+const PLATFORM = 'real-estate';
+
+function amountText(d: Discount): string {
+  const v = Number(d.amount);
+  if (!Number.isFinite(v)) return '-';
+  return d.type === 'percentage' ? `${v}%` : `${d.currencyCode ? d.currencyCode.toUpperCase() + ' ' : ''}${(v / 100).toLocaleString()}`;
 }
 
-const EMPTY_FORM = { code: '', discount_type: 'percentage', discount_value: '20', max_uses: '100', expires_at: '', paddle_discount_id: '', kind: 'private', display_label: '', starts_at: '' };
-
 export function CouponManager() {
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [discounts, setDiscounts] = useState<Discount[]>([]);
+  const [featured, setFeatured] = useState<Featured | null>(null);
+  const [paddleReady, setPaddleReady] = useState(true);
+  const [labelInput, setLabelInput] = useState('');
+  const [saving, setSaving] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
@@ -37,115 +45,107 @@ export function CouponManager() {
 
   const load = useCallback(async () => {
     try {
-      const j = await fetch('/api/admin/pricing/coupons').then((r) => r.json());
-      setCoupons(j.coupons ?? []);
-    } catch { showToast('Failed to load coupons', 'error'); }
+      const j = await fetch(`/api/admin/payments/discounts?platform=${PLATFORM}`).then((r) => r.json());
+      setDiscounts(j.discounts ?? []);
+      setFeatured(j.featured ?? null);
+      setPaddleReady(j.paddleReady !== false);
+      setLabelInput((j.featured?.label as string | undefined) ?? '');
+    } catch { showToast('Failed to load discounts', 'error'); }
   }, [showToast]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const createCoupon = useCallback(async () => {
-    setSaving(true);
+  const feature = useCallback(async (discountId: string | null, label: string | null) => {
+    setSaving(discountId ?? 'clear');
     try {
-      const res = await fetch('/api/admin/pricing/coupons', {
+      const res = await fetch('/api/admin/payments/discounts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: form.code.toUpperCase(), discount_type: form.discount_type,
-          discount_value: parseFloat(form.discount_value),
-          max_uses: form.max_uses ? parseInt(form.max_uses) : null,
-          expires_at: form.expires_at || null,
-          paddle_discount_id: form.paddle_discount_id.trim() || null,
-          kind: form.kind === 'public' ? 'public' : 'private',
-          display_label: form.display_label.trim() || null,
-          starts_at: form.starts_at || null,
-        }),
+        body: JSON.stringify({ platform: PLATFORM, discountId, label }),
       });
-      if (res.ok) { showToast('Coupon created', 'success'); setShowForm(false); setForm(EMPTY_FORM); await load(); }
-      else { showToast('Failed to create coupon', 'error'); }
+      if (res.ok) { showToast(discountId ? 'Public promo updated' : 'Public promo cleared', 'success'); await load(); }
+      else { showToast('Failed to update promo', 'error'); }
     } catch { showToast('Failed', 'error'); }
-    finally { setSaving(false); }
-  }, [form, load, showToast]);
-
-  const toggleCoupon = useCallback(async (id: string, active: boolean) => {
-    await fetch('/api/admin/pricing/coupons', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, is_active: !active }) });
-    await load();
-  }, [load]);
-
-  const deleteCoupon = useCallback(async (id: string) => {
-    if (!confirm('Delete this coupon?')) return;
-    await fetch(`/api/admin/pricing/coupons?id=${id}`, { method: 'DELETE' });
-    await load();
-  }, [load]);
+    finally { setSaving(null); }
+  }, [load, showToast]);
 
   return (
     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginTop: 24 }} data-testid="coupon-manager">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Discount codes</div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Each code REFERENCES a Paddle discount. Create the discount in Paddle first, then paste its discount id here to make the code actually reduce the charge.</div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Discounts</div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+          Created and managed in Paddle (single source of truth). This list reads live from Paddle: create a discount once in Paddle and it appears here with its real percentage, code, expiry, and limits. Pick one as the <strong>public auto-apply promo</strong> (applied automatically at checkout, no code). Discounts that have a code are private codes customers type at checkout.
         </div>
-        <button onClick={() => setShowForm(!showForm)} data-testid="coupon-toggle-form"
-          style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #1B4F8A', background: showForm ? '#1B4F8A' : '#fff', color: showForm ? '#fff' : '#1B4F8A', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-          {showForm ? 'Cancel' : '+ Create coupon'}
-        </button>
       </div>
 
-      {showForm && (
-        <div style={{ background: '#F9FAFB', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16, marginBottom: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
-            <div><label style={LBL}>Code</label><input data-testid="coupon-code" style={{ ...INP, textTransform: 'uppercase', fontFamily: 'monospace' }} value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="LAUNCH20" /></div>
-            <div><label style={LBL}>Kind</label><select data-testid="coupon-kind" style={INP} value={form.kind} onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value }))}><option value="private">Private (customer enters it)</option><option value="public">Public (auto-apply + shown)</option></select></div>
-            <div><label style={LBL}>Type</label><select style={INP} value={form.discount_type} onChange={(e) => setForm((f) => ({ ...f, discount_type: e.target.value }))}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></div>
-            <div><label style={LBL}>Value (for display)</label><input type="number" style={INP} value={form.discount_value} onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))} /></div>
-            <div><label style={LBL}>Display label</label><input style={INP} value={form.display_label} onChange={(e) => setForm((f) => ({ ...f, display_label: e.target.value }))} placeholder="Launch offer" /></div>
-            <div><label style={LBL}>Max uses</label><input type="number" style={INP} value={form.max_uses} onChange={(e) => setForm((f) => ({ ...f, max_uses: e.target.value }))} placeholder="blank = unlimited" /></div>
-            <div><label style={LBL}>Starts</label><input type="date" style={INP} value={form.starts_at} onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))} /></div>
-            <div><label style={LBL}>Expires</label><input type="date" style={INP} value={form.expires_at} onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))} /></div>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={LBL}>Paddle discount id</label>
-            <input data-testid="coupon-paddle-id" style={{ ...INP, fontFamily: 'monospace' }} value={form.paddle_discount_id} onChange={(e) => setForm((f) => ({ ...f, paddle_discount_id: e.target.value }))} placeholder="dsc_..." />
-            <div style={{ fontSize: 11, color: '#B45309', marginTop: 4 }}>The discount MUST already exist in Paddle (Paddle owns the discount). Without a Paddle discount id this code will NOT reduce the charge, it will only display.</div>
-          </div>
-          <button onClick={createCoupon} disabled={saving || !form.code.trim()} data-testid="coupon-create"
-            style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: '#2EAA4A', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Create discount</button>
+      {!paddleReady && (
+        <div data-testid="discounts-not-ready" style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: 12, fontSize: 12.5, color: '#92400E' }}>
+          Paddle is not configured (no server API key, or Paddle is not the active provider). Set the Paddle API key in Admin &gt; Payments to load discounts.
         </div>
       )}
 
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#0D2E5A' }}>
-              {['Code', 'Kind', 'Value', 'Paddle', 'Used', 'Expires', 'Active', 'Actions'].map((h) => (
-                <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {coupons.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }} data-testid="coupon-empty">No discounts yet</td></tr>
-            ) : coupons.map((c, i) => (
-              <tr key={c.id} data-testid={`coupon-row-${c.code}`} style={{ borderTop: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
-                <td style={{ padding: '9px 12px', fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: '#0D2E5A' }}>{c.code}{c.display_label ? <div style={{ fontSize: 10, fontWeight: 600, fontFamily: 'inherit', color: '#94a3b8' }}>{c.display_label}</div> : null}</td>
-                <td style={{ padding: '9px 12px', fontSize: 11, fontWeight: 700 }}><span style={{ padding: '3px 8px', borderRadius: 10, background: c.kind === 'public' ? '#EAF2FB' : '#F3F4F6', color: c.kind === 'public' ? '#1B4F8A' : '#6B7280' }}>{c.kind === 'public' ? 'Public' : 'Private'}</span></td>
-                <td style={{ padding: '9px 12px', fontSize: 13, fontWeight: 600, color: '#374151' }}>{c.discount_type === 'percentage' ? `${c.discount_value}%` : c.discount_value}</td>
-                <td style={{ padding: '9px 12px', fontSize: 11 }} data-testid={`coupon-paddle-${c.code}`}>{c.paddle_discount_id
-                  ? <span style={{ fontFamily: 'monospace', color: '#1A7A30' }} title={c.paddle_discount_id}>Linked</span>
-                  : <span style={{ fontWeight: 700, color: '#DC2626' }} title="No Paddle discount id: this code will not reduce the charge">Not wired</span>}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{c.used_count}{c.max_uses ? `/${c.max_uses}` : ''}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
-                <td style={{ padding: '9px 12px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10, background: c.is_active ? '#E8F7EC' : '#F3F4F6', color: c.is_active ? '#1A7A30' : '#6B7280' }}>{c.is_active ? 'Active' : 'Inactive'}</span></td>
-                <td style={{ padding: '9px 12px' }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => toggleCoupon(c.id, c.is_active)} data-testid={`coupon-toggle-${c.code}`} style={{ fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 5, border: '1px solid #D1D5DB', background: '#fff', color: '#374151', cursor: 'pointer' }}>{c.is_active ? 'Deactivate' : 'Activate'}</button>
-                    <button onClick={() => deleteCoupon(c.id)} data-testid={`coupon-delete-${c.code}`} style={{ fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 5, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer' }}>Delete</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {paddleReady && (
+        <>
+          {/* Featured public promo summary + label + clear */}
+          <div style={{ background: '#F9FAFB', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>Public auto-apply promo</div>
+            {featured ? (
+              <div data-testid="featured-promo" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#374151' }}>Featured discount: <strong style={{ fontFamily: 'monospace' }}>{featured.discountId}</strong></span>
+                <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} placeholder="Display label (e.g. Launch offer)"
+                  data-testid="featured-label" style={{ ...INP, maxWidth: 240 }} />
+                <button onClick={() => feature(featured.discountId, labelInput.trim() || null)} disabled={saving !== null} data-testid="featured-save-label"
+                  style={{ ...BTN, background: '#1B4F8A', color: '#fff' }}>Save label</button>
+                <button onClick={() => feature(null, null)} disabled={saving !== null} data-testid="featured-clear"
+                  style={{ ...BTN, background: '#fff', color: '#DC2626', border: '1px solid #FECACA' }}>Clear promo</button>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#6B7280' }} data-testid="featured-none">No public promo is active. Choose one below to auto-apply it at checkout and show it on the site.</div>
+            )}
+          </div>
+
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#0D2E5A' }}>
+                  {['Code', 'Amount', 'Checkout', 'Expiry', 'Uses', 'Status', 'Public promo'].map((h) => (
+                    <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {discounts.length === 0 ? (
+                  <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }} data-testid="discounts-empty">No active discounts in Paddle yet. Create one in Paddle and it will appear here.</td></tr>
+                ) : discounts.map((d, i) => {
+                  const isFeatured = featured?.discountId === d.id;
+                  return (
+                    <tr key={d.id} data-testid={`discount-row-${d.id}`} style={{ borderTop: '1px solid #f1f5f9', background: isFeatured ? '#EAF2FB' : (i % 2 === 0 ? '#fff' : '#F9FAFB') }}>
+                      <td style={{ padding: '9px 12px', fontSize: 13 }}>
+                        {d.code
+                          ? <span style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0D2E5A' }}>{d.code}</span>
+                          : <span style={{ fontSize: 11, color: '#94a3b8' }}>no code (auto-apply only)</span>}
+                        {d.description ? <div style={{ fontSize: 10, color: '#94a3b8' }}>{d.description}</div> : null}
+                      </td>
+                      <td style={{ padding: '9px 12px', fontSize: 13, fontWeight: 600, color: '#374151' }}>{amountText(d)}{d.recur ? <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>recurring</span> : null}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 11 }}>{d.enabledForCheckout ? <span style={{ color: '#1A7A30', fontWeight: 700 }}>Enabled</span> : <span style={{ color: '#DC2626', fontWeight: 700 }}>Disabled</span>}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{d.expiresAt ? new Date(d.expiresAt).toLocaleDateString() : 'Never'}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 12, color: '#6B7280' }}>{d.timesUsed ?? 0}{d.usageLimit ? `/${d.usageLimit}` : ''}</td>
+                      <td style={{ padding: '9px 12px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10, background: d.status === 'active' ? '#E8F7EC' : '#F3F4F6', color: d.status === 'active' ? '#1A7A30' : '#6B7280' }}>{d.status}</span></td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {isFeatured ? (
+                          <span data-testid={`discount-featured-${d.id}`} style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 10, background: '#1B4F8A', color: '#fff' }}>Public promo</span>
+                        ) : (
+                          <button onClick={() => feature(d.id, labelInput.trim() || d.description || null)} disabled={saving !== null} data-testid={`discount-feature-${d.id}`}
+                            style={{ ...BTN, background: '#fff', color: '#1B4F8A', border: '1px solid #1B4F8A' }}>Feature</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 20, right: 20, padding: '10px 18px', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 13, background: toast.type === 'success' ? '#2EAA4A' : '#DC2626', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 2000 }}>
@@ -156,5 +156,5 @@ export function CouponManager() {
   );
 }
 
-const LBL: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', display: 'block', marginBottom: 3 };
-const INP: React.CSSProperties = { width: '100%', padding: '7px 10px', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' };
+const INP: React.CSSProperties = { padding: '7px 10px', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' };
+const BTN: React.CSSProperties = { fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer' };

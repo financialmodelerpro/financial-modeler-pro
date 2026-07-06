@@ -316,3 +316,64 @@ export async function getInvoicePdfUrl(
   if (!url) return { ok: false, status: 404, error: 'invoice_not_available' };
   return { ok: true, data: url };
 }
+
+/** A Paddle discount, normalized (client-safe: no secrets). Paddle OWNS the
+ *  discount and all its rules; the platform only reads + references it. `amount`
+ *  is a percentage string (e.g. "20") for a percentage discount, or minor-unit
+ *  string for a flat discount (with `currencyCode`). */
+export interface PaddleDiscount {
+  id: string;                       // dsc_...
+  status: string;                   // active | archived | expired
+  description: string | null;
+  type: string;                     // percentage | flat | flat_per_seat
+  amount: string | null;            // "20" for 20%, or minor units for flat
+  currencyCode: string | null;      // for flat discounts
+  code: string | null;              // the optional checkout code (null = code-less)
+  enabledForCheckout: boolean;      // can be applied at checkout
+  recur: boolean;
+  usageLimit: number | null;
+  timesUsed: number | null;
+  expiresAt: string | null;
+  restrictToPriceIds: string[];     // empty = applies to all prices
+}
+
+function shapeDiscount(raw: unknown): PaddleDiscount | null {
+  const d = asRecord(raw);
+  const id = str(d.id);
+  if (!id) return null;
+  const restrict = Array.isArray(d.restrict_to) ? (d.restrict_to as unknown[]).map((x) => str(x)).filter((x): x is string => !!x) : [];
+  const usage = Number(d.usage_limit);
+  const used = Number(d.times_used);
+  return {
+    id,
+    status: str(d.status) ?? 'unknown',
+    description: str(d.description),
+    type: str(d.type) ?? 'percentage',
+    amount: str(d.amount),
+    currencyCode: str(d.currency_code),
+    code: str(d.code),
+    enabledForCheckout: d.enabled_for_checkout !== false,
+    recur: d.recur === true,
+    usageLimit: Number.isFinite(usage) ? usage : null,
+    timesUsed: Number.isFinite(used) ? used : null,
+    expiresAt: str(d.expires_at),
+    restrictToPriceIds: restrict,
+  };
+}
+
+/** GET /discounts -> the account's discounts, normalized. Paddle is the single
+ *  source of truth; the platform reads this list live (server-side). Defaults to
+ *  active discounts (the ones relevant to checkout + the public promo). */
+export async function listDiscounts(
+  cfg: ProviderConfig, opts?: { status?: 'active' | 'archived' | 'all' },
+): Promise<PaddleApiResult<PaddleDiscount[]>> {
+  const status = opts?.status ?? 'active';
+  const q = status === 'all'
+    ? '/discounts?per_page=200'
+    : `/discounts?status=${status}&per_page=200`;
+  const res = await paddleFetch(cfg, q);
+  if (!res.ok) return res;
+  const rows = Array.isArray(res.data) ? res.data : [];
+  const discounts = rows.map(shapeDiscount).filter((d): d is PaddleDiscount => d !== null);
+  return { ok: true, data: discounts };
+}
