@@ -15,7 +15,7 @@
  *         have the response ids back. So we keep the placeholder, and
  *         the click endpoint also accepts ?campaign=X to fall back when
  *         msg= is missing.
- *      c. Fire resend.batch.send([100]).
+ *      c. Fire sendEmailBatch([100]) (Brevo Promise.allSettled loop since 2026-05-11).
  *      d. Update recipient_log with the returned message_ids and status=sent
  *         (or status=failed with error_message on batch error).
  *   5. Update campaign aggregate counts.

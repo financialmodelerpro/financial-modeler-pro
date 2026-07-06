@@ -43,7 +43,6 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 > - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure
 > - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference
 > - [ARCHITECTURE.md](ARCHITECTURE.md), Three-tier folder rationale, alias guide, boundary rules
-> - [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md), Frozen 2026-05-02 snapshot for resuming a cold session (M1.7-era detail)
 
 ---
 

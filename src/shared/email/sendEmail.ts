@@ -73,7 +73,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // ────────────────────────────────────────────────────────────────────────────
 // Batch send
 //
-// Resend's previous batch endpoint accepted up to 100 per-recipient
+// The former email provider's batch endpoint accepted up to 100 per-recipient
 // personalized emails in one HTTP request and was all-or-nothing. Brevo
 // has no equivalent: `sendTransacEmail` either targets one personalized
 // message OR broadcasts the same message to many `to[]` entries. Since
@@ -83,7 +83,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 //
 // Throttling: the first Brevo shim fired every item in the batch at once
 // (one big Promise.allSettled). That reintroduced exactly the concurrent
-// burst the Resend rewrite had removed: a 78-recipient announce became 78
+// burst the earlier bounded-concurrency rewrite had removed: a 78-recipient announce became 78
 // simultaneous API calls, which both risks Brevo's per-second rate limit
 // and reads to mailbox providers (Gmail) like a spammy blast. We now send
 // in WAVES of `BATCH_WAVE_SIZE` with a small `INTER_WAVE_DELAY_MS` pause
@@ -109,7 +109,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // well under Brevo's transactional rate ceiling while staying fast enough
 // that a full 100-item batch clears in a couple of seconds.
 const BATCH_WAVE_SIZE = 10;
-// Pause between waves. Mirrors the 200ms inter-batch delay the Resend
+// Pause between waves. Mirrors the 200ms inter-batch delay the former
 // implementation used to dodge rate-limit-induced silent drops.
 const INTER_WAVE_DELAY_MS = 200;
 

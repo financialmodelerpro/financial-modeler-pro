@@ -32,15 +32,13 @@ Needs a SEPARATE engine-level investigation (not a Module 6 change). Do NOT alte
 
 ## ACTIVE FOLLOW-UP, Rename RESEND_WEBHOOK_SECRET to EMAIL_BRIDGE_BEARER_SECRET (2026-05-11)
 
-After the Brevo re-migration, the env var name `RESEND_WEBHOOK_SECRET` is misleading: it doubles as the bearer token for `POST /api/email/send` (used by the Google Apps Script bridge) and has nothing to do with Resend anymore. Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. Steps:
+The provider is Brevo. The dormant Resend webhook route (`/api/webhooks/resend`) has now been REMOVED, so the env var `RESEND_WEBHOOK_SECRET` has ONE remaining live use: the bearer token for `POST /api/email/send` (the Google Apps Script email bridge). The name is misleading (nothing to do with Resend). Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. This is a coordinated env change (must add the new Vercel env var first), so it stays a bookmarked follow-up, not a silent code edit. Steps:
 
 1. Add `EMAIL_BRIDGE_BEARER_SECRET` to Vercel env vars with the same value as `RESEND_WEBHOOK_SECRET`.
 2. Update `app/api/email/send/route.ts` to read `EMAIL_BRIDGE_BEARER_SECRET` (fallback to legacy `RESEND_WEBHOOK_SECRET` for one deploy cycle).
 3. Update Apps Script to send the new header name.
 4. Remove the legacy `RESEND_WEBHOOK_SECRET` env var + the legacy fallback after one deploy cycle.
 5. Update `.env.example` + `app/api/admin/env-check/route.ts` to reflect the new name.
-
-Out of scope for the email vendor migration; bookmark it here so it doesn't get forgotten.
 
 ---
 
@@ -49,7 +47,7 @@ Out of scope for the email vendor migration; bookmark it here so it doesn't get 
 | Feature | Current State | What Remains |
 |---------|--------------|--------------|
 | **AI Agents** | Market rates + research agents wired | Contextual help agent (stub only) |
-| **Pricing / Subscriptions** | `/admin/pricing` is now a single Platform Pricing surface (no tab bar). Plans + Page Content + Pricing Features + Module Access tabs all removed across 2026-04-27 / 2026-04-28. Migration 145 dropped `pricing_plans`. Page Builder → Pricing owns hero + FAQ for the public page. Plan-based feature gating ripped out (commit `d8405e5`); REFM stubs `canAccess()` → `false`. | Reintroduce plan-based gating as a focused new feature spec when paid tiers go live (server-enforced from day one, built on the surviving `platform_pricing` + `platform_features` + `plan_feature_access` tables). |
+| **Pricing / Subscriptions** | **LIVE (paid tiers shipped).** The plan/entitlement + payment system is built and enforced: admin Plan Builder (`entitlement_plans` + `plan_permissions` + `features_registry` + `user_permissions`, migs 158-168), the live REFM gate (`resolveUserGate` + `gate.ts`) enforcing modules/exports/scenarios/versioning/branding/project cap/trial + grace-lapse, unified pricing pages (`/pricing/<segment>`), and the Paddle billing system (adapter + webhook + in-dashboard billing tab + upgrade/downgrade + cancel + convert-to-manual + manual invoices + revenue ledger + subscription lifecycle emails, migs 170-183). See CLAUDE.md (Entitlements / Subscription-management / Post-expiry-grace / Subscription-email sections) + CLAUDE-DB.md for detail. | Backlog: Brevo engagement webhook (open/click/bounce) to replace the removed Resend webhook; wire the server Paddle API key in Admin>Payments to light up live Paddle-side flows (founder task). |
 | **Branding** | Brand Colors section moved into `/admin/header-settings` (2026-04-28, commit `ab5db30`). `/admin/branding` is a 5-line redirect. Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. | None, Header Settings owns brand colors + logos + favicon + header text + header layout in one place; Page Builder owns page copy. |
 
 ---

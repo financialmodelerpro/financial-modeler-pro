@@ -322,7 +322,7 @@ All template functions are async; callers must `await`.
 | `linkWrap.ts` | Rewrites every `<a href>` to `/api/newsletter/click?msg={msg}&campaign=X&url=encoded` |
 | `autoNotify.ts` | Article-publish, live-session-publish, recording-available triggers; calls `renderForEvent` then hands off to `sendCampaign` |
 
-Triggers consumed: `/api/admin/newsletter/send`, `/api/admin/newsletter/test-send`, `/api/cron/newsletter-scheduled` (daily 07:00 UTC), `/api/webhooks/resend` (Svix HMAC-SHA256 manual verification; **dormant after Brevo migration 2026-05-11 — no events arrive; replacement Brevo webhook is a pending follow-up**), `/api/newsletter/click` (302 redirector), `/api/newsletter/subscribe` (signup opt-in fire-and-forget), `/api/newsletter/unsubscribe`.
+Triggers consumed: `/api/admin/newsletter/send`, `/api/admin/newsletter/test-send`, `/api/cron/newsletter-scheduled` (daily 07:00 UTC), `/api/newsletter/click` (302 redirector, the live engagement signal), `/api/newsletter/subscribe` (signup opt-in fire-and-forget), `/api/newsletter/unsubscribe`. (The Resend webhook `/api/webhooks/resend` was removed 2026-07-02; a Brevo engagement webhook is a pending follow-up.)
 
 Auto-notify is consumed by both Training Hub events (article publish, live-session publish/recording) and is also forward-compatible for Modeling Hub. The pipeline itself is hub-neutral.
 
@@ -631,7 +631,7 @@ D:\FMP\financial-modeler-pro\
 +-- package.json
 +-- tsconfig.json
 +-- eslint.config.mjs            (referenced _legacy_backup)
-+-- CLAUDE.md, CLAUDE-DB.md, CLAUDE-FEATURES.md, CLAUDE-ROUTES.md, CLAUDE-TODO.md, PROJECT_HANDOFF.md
++-- CLAUDE.md, CLAUDE-DB.md, CLAUDE-FEATURES.md, CLAUDE-ROUTES.md, CLAUDE-TODO.md, CLAUDE-REFM.md, CLAUDE-MODELING-HUB.md
 ```
 
 Pattern observation:
@@ -746,7 +746,7 @@ This is the only true shared-code violation. Everything else is either hub-inter
 
 Auth + DB: `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 URLs: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_MAIN_URL`, `NEXT_PUBLIC_LEARN_URL`.
-Email: `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`. `RESEND_WEBHOOK_SECRET` is retained but vestigial after Brevo migration (2026-05-11, commit `166a8ec`): `/api/webhooks/resend` no longer receives events, `/api/email/send` still uses it as a bearer-token check.
+Email (Brevo): `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`, `EMAIL_FROM_SUPPORT`. `RESEND_WEBHOOK_SECRET` is retained ONLY as the bearer-token check on `/api/email/send` (the Apps Script email bridge); the Resend webhook it was named for was removed 2026-07-02. Rename to `EMAIL_BRIDGE_BEARER_SECRET` is a bookmarked follow-up (see CLAUDE-TODO.md).
 Captcha: `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY`.
 AI: `ANTHROPIC_API_KEY`.
 YouTube: `YOUTUBE_API_KEY`, `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID`.
@@ -809,7 +809,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
 ### Security considerations
 
 - `/api/cms`, `/api/branding` GET endpoints are public. CLAUDE.md flags both. `cms_content` row that contains `header_settings.logo_url` etc. is intentionally public; nothing sensitive should ever live there.
-- Resend webhook (`/api/webhooks/resend`) is dormant after the Brevo migration on 2026-05-11 (commit `166a8ec`); it still verifies Svix HMAC manually using `crypto.createHmac('sha256', ...)` with a 5-minute replay window in case it ever fires again. Brevo-webhook integration is a pending follow-up. Rotate `RESEND_WEBHOOK_SECRET` if the secret leaks (also used as a bearer-token check on `/api/email/send`).
+- The email provider is Brevo (migrated 2026-05-11, commit `166a8ec`). The old Resend webhook (`/api/webhooks/resend`) was removed 2026-07-02; engagement tracking (open/click/bounce/complaint) via a Brevo webhook is a pending follow-up. Rotate `RESEND_WEBHOOK_SECRET` if the secret leaks (its only remaining use is the bearer-token check on `/api/email/send`).
 - Admin protection lives in two places: middleware (`src/middleware.ts`) and individual route handlers (manual `getServerSession` checks). Centralize in middleware longer-term to reduce drift risk.
 
 ---

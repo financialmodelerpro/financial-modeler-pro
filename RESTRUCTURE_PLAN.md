@@ -1010,6 +1010,6 @@ To make the safety promise concrete:
 - The Apps Script URL stored in `training_settings.apps_script_url` is unchanged.
 - The certificate inline-trigger in `app/api/training/submit-assessment/route.ts` is unchanged at the route level (only its imports update).
 - The watch-tracking POST endpoints (`/api/training/certification-watch`, `/api/training/live-sessions/[id]/watched`) are unchanged at the route level.
-- The newsletter cron, the session-reminder cron, and the Resend webhook are unchanged at the route level.
+- The newsletter cron and the session-reminder cron are unchanged at the route level. (The Resend webhook `/api/webhooks/resend` was removed 2026-07-02; the provider is Brevo.)
 
 End of plan.
