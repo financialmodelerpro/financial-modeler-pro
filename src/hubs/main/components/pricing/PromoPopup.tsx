@@ -33,11 +33,18 @@ const HIDE_ON_PREFIXES = [
 ];
 
 export default function PromoPopup({
-  code, label, offText, href,
-}: { code: string; label: string; offText: string; href: string }) {
+  code, label, offText, href, dismissKey,
+}: { code: string; label: string; offText: string; href: string; dismissKey?: string }) {
   const [visible, setVisible] = useState(false);
   const pathname = usePathname();
-  const storageKey = `fmp_promo_dismissed:${code || 'promo'}`;
+  // Key the "dismissed" memory on a STABLE, UNIQUE promo id (the Paddle discount
+  // id), falling back to the checkout code, then a generic literal. Auto-apply
+  // promos are code-less (code === ""), so keying on `code` alone collapses EVERY
+  // code-less promo to one shared "fmp_promo_dismissed:promo" key: dismissing one
+  // once then permanently suppresses all future code-less promos. The discount id
+  // gives each promo its own memory (and is client-safe, it is already passed to
+  // Paddle.Checkout.open in the browser).
+  const storageKey = `fmp_promo_dismissed:${dismissKey || code || 'promo'}`;
 
   // Show only after mount (avoids SSR flash), only on a public marketing page, and
   // only if not previously dismissed for THIS promo code. Re-evaluates on client

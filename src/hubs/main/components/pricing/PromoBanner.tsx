@@ -25,5 +25,8 @@ export default async function PromoBanner({ platform = 'real-estate', pricingHre
 
   const offText = promo.discountType === 'percentage' && promo.discountValue > 0 ? `${promo.discountValue}% off` : promo.label;
 
-  return <PromoPopup code={promo.code} label={promo.label} offText={offText} href={pricingHref} />;
+  // Pass the Paddle discount id as the dismissal key so a code-less auto-apply
+  // promo has its OWN dismissal memory (not the shared code-less "promo" key). The
+  // discount id is client-safe (it already flows to Paddle.Checkout.open).
+  return <PromoPopup code={promo.code} label={promo.label} offText={offText} href={pricingHref} dismissKey={promo.paddleDiscountId} />;
 }
