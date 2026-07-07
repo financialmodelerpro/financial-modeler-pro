@@ -22,7 +22,7 @@
  * by default, user-selectable in the Export modal) so large figures stay
  * readable. The renderer is pure (state in, bytes out).
  */
-import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea } from '@/src/core/calculations';
@@ -152,6 +152,23 @@ const PERIODS_PER_PAGE = Math.max(1, Math.floor((CONTENT_W - LABEL_COL_W - TOTAL
 
 const PART_LABEL: Record<PartKind, string> = { inputs: 'Inputs', outputs: 'Outputs', schedules: 'Schedules' };
 
+// ── Navigation model (ToC / section breaks / outline; full report only) ────────
+// A GoTo target: the destination page ref + a top-of-page y. Refs are position
+// independent, so anchors survive the ToC pages being inserted at the front.
+interface NavTarget { ref: PDFRef; y: number }
+interface TabNav { tab: string; target: NavTarget }
+interface ModuleNav { key: string; num: number; label: string; target: NavTarget | null; tabs: TabNav[]; breakPage: PDFPage | null }
+interface NavState {
+  enabled: boolean;
+  modules: ModuleNav[];      // rendered modules, in report order
+  current: ModuleNav | null; // module whose content is being rendered (for tab anchors)
+  anchors: Map<string, NavTarget>; // 'exec' | 'mod:<key>' | 'tab:<key>::<tab>'
+  execTarget: NavTarget | null;
+}
+function disabledNav(): NavState {
+  return { enabled: false, modules: [], current: null, anchors: new Map(), execTarget: null };
+}
+
 // ── Render context ────────────────────────────────────────────────────────────
 interface Ctx {
   doc: PDFDocument;
@@ -163,6 +180,7 @@ interface Ctx {
   projectName: string;
   unitLabel: string;
   currentHeader?: string;
+  nav: NavState;
 }
 
 function newPage(ctx: Ctx, headerTitle?: string): void {
@@ -423,10 +441,14 @@ function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: s
 }
 
 function drawFooters(ctx: Ctx): void {
-  const total = ctx.pages.length;
+  // Iterate the document's TRUE page order (not ctx.pages) so numbering stays
+  // sequential after ToC pages are inserted at the front. Identical to ctx.pages
+  // order when no insertion happened (nav off / empty selection).
+  const pages = ctx.doc.getPages();
+  const total = pages.length;
   const barH = 18;
   const barY = 12;
-  ctx.pages.forEach((page, i) => {
+  pages.forEach((page, i) => {
     // Navy footer bar matching the header band; text sits inside it.
     page.drawRectangle({ x: 0, y: barY, width: PAGE_W, height: barH, color: NAVY });
     const left = `Page ${i + 1} of ${total}   ·   ${ctx.projectName}   ·   ${ctx.unitLabel}`;
@@ -1470,6 +1492,9 @@ function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: 
     const header = `${moduleLabel}  ·  ${tab}`;
     newPage(ctx, header);
     ctx.currentHeader = header;
+    // Record the FIRST page of this tab as its nav anchor (overflow pages created
+    // later by ensureSpace are not re-recorded).
+    recordTabAnchor(ctx, tab);
     let curPart: PartKind | null = null;
     for (const part of ['inputs', 'outputs', 'schedules'] as PartKind[]) {
       const partItems = tabItems.filter((i) => i.part === part);
@@ -1479,6 +1504,225 @@ function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: 
       }
     }
   }
+}
+
+// ── Navigation aids: ToC + section breaks + PDF outline (full report only) ─────
+// pdf-lib has no high-level ToC/outline/link API, so these are built from the
+// low-level object model: link annotations (GoTo actions with explicit page
+// refs) + a hand-built /Outlines tree. Invisible custom page-dict markers
+// (REFMNav / REFMTab) make the structure verifiable without decoding page text
+// (the embedded font is drawn as glyph ids, not ASCII). Purely ADDITIVE: content,
+// figures, and module/tab numbering are untouched; only nav pages + annotations
+// are added (physical footer page numbers renumber sequentially to absorb them).
+const REFM_NAV_KEY = PDFName.of('REFMNav');
+const REFM_TAB_KEY = PDFName.of('REFMTab');
+const NAV_LINK = rgb(0.11, 0.31, 0.54); // navy link text
+const NAV_MUTED = rgb(0.42, 0.46, 0.52);
+
+function markPage(page: PDFPage, key: PDFName, value: string): void {
+  page.node.set(key, PDFHexString.fromText(value));
+}
+
+/** Record the current page as a tab's nav anchor (called by renderModule at each
+ *  tab's first page). No-op when nav is disabled. */
+function recordTabAnchor(ctx: Ctx, tab: string): void {
+  const nav = ctx.nav;
+  if (!nav.enabled || !nav.current) return;
+  const target: NavTarget = { ref: ctx.page.ref, y: PAGE_H - HEADER_BAND_H };
+  nav.current.tabs.push({ tab, target });
+  nav.anchors.set(`tab:${nav.current.key}::${tab}`, target);
+  markPage(ctx.page, REFM_TAB_KEY, `${nav.current.key}::${tab}`);
+}
+
+/** Register a GoTo link annotation over a rect on a page (destination = a page
+ *  ref + top y). Called from the paint pass, when every anchor is known. */
+function addGoToLink(ctx: Ctx, page: PDFPage, rect: [number, number, number, number], target: NavTarget): void {
+  const dict = ctx.doc.context.obj({
+    Type: 'Annot', Subtype: 'Link', Rect: rect, Border: [0, 0, 0],
+    A: { Type: 'Action', S: 'GoTo', D: [target.ref, 'XYZ', null, target.y, null] },
+  } as unknown as Parameters<typeof ctx.doc.context.obj>[0]);
+  page.node.addAnnot(ctx.doc.context.register(dict as PDFObject));
+}
+
+/** Map every page ref -> its 1-based physical position (for ToC page numbers). */
+function pageNumberIndex(ctx: Ctx): Map<string, number> {
+  const m = new Map<string, number>();
+  ctx.doc.getPages().forEach((p, i) => m.set(p.ref.toString(), i + 1));
+  return m;
+}
+
+/** Draw a clickable nav row (label + right-aligned target page number) and
+ *  register its GoTo link. Returns the y for the next row. */
+function drawNavRow(
+  ctx: Ctx, page: PDFPage, label: string, x: number, y: number, size: number,
+  bold: boolean, target: NavTarget, pageNo: number | undefined, color = NAV_LINK,
+): void {
+  const font = bold ? ctx.bold : ctx.font;
+  const numStr = pageNo ? String(pageNo) : '';
+  const numW = numStr ? ctx.font.widthOfTextAtSize(numStr, size) : 0;
+  const maxLabelW = CONTENT_W - (x - MARGIN) - numW - 14;
+  const text = fitText(label, font, size, maxLabelW);
+  page.drawText(text, { x, y, size, font, color });
+  const tw = font.widthOfTextAtSize(text, size);
+  if (numStr) page.drawText(numStr, { x: PAGE_W - MARGIN - numW, y, size, font: ctx.font, color: NAV_MUTED });
+  // Link rect spans the label (and the page number) so the whole row is clickable.
+  addGoToLink(ctx, page, [x - 2, y - 3, PAGE_W - MARGIN, y + size + 2], target);
+}
+
+/** Number of ToC pages needed (computed from the final nav model, so exact). */
+function tocPageCount(modules: ModuleNav[], hasExec: boolean): number {
+  const rows = (hasExec ? 1 : 0) + modules.reduce((s, m) => s + 1 + m.tabs.length, 0);
+  const usable = (PAGE_H - HEADER_BAND_H - 44) - (CONTENT_BOTTOM + 10);
+  const rowsPerPage = Math.max(1, Math.floor(usable / 16));
+  return Math.max(1, Math.ceil(rows / rowsPerPage));
+}
+
+/** Insert `k` blank A4-landscape ToC pages right after the cover (physical index
+ *  1..k), marked so the verifier can find them. Anchors already exist, so their
+ *  links resolve; footers are drawn last from the true page order. */
+function insertTocPages(ctx: Ctx, k: number): PDFPage[] {
+  const pages: PDFPage[] = [];
+  for (let i = 0; i < k; i++) {
+    const p = ctx.doc.insertPage(1 + i, [PAGE_W, PAGE_H]);
+    markPage(p, REFM_NAV_KEY, 'toc');
+    pages.push(p);
+  }
+  return pages;
+}
+
+/** Paint the reserved ToC pages: title, then Executive Summary + each module
+ *  (bold) with its sub-tabs indented, every row a GoTo link with a page number. */
+function paintToc(ctx: Ctx, tocPages: PDFPage[], modules: ModuleNav[], execTarget: NavTarget | null): void {
+  const nums = pageNumberIndex(ctx);
+  const bottom = CONTENT_BOTTOM + 10;
+  let pi = 0;
+  let page = tocPages[0];
+  const startPage = (cont: boolean): void => {
+    ctx.page = page;
+    drawHeaderBand(ctx, cont ? 'Table of Contents (continued)' : 'Table of Contents');
+  };
+  startPage(false);
+  let y = PAGE_H - HEADER_BAND_H - 34;
+  const advance = (rowH: number): void => {
+    if (y - rowH < bottom && pi < tocPages.length - 1) {
+      pi += 1; page = tocPages[pi]; startPage(true); y = PAGE_H - HEADER_BAND_H - 30;
+    }
+  };
+  const rowFor = (key: string): NavTarget | undefined => ctx.nav.anchors.get(key);
+  if (execTarget) {
+    advance(20);
+    drawNavRow(ctx, page, 'Executive Summary', MARGIN, y, 12, true, execTarget, nums.get(execTarget.ref.toString()), NAVY_DARK);
+    y -= 22;
+  }
+  for (const m of modules) {
+    const mt = m.target ?? rowFor(`mod:${m.key}`);
+    if (mt) { advance(20); drawNavRow(ctx, page, `Module ${m.num}: ${m.label}`, MARGIN, y, 12, true, mt, nums.get(mt.ref.toString()), NAVY_DARK); y -= 20; }
+    for (const t of m.tabs) {
+      advance(15);
+      drawNavRow(ctx, page, t.tab, MARGIN + 22, y, 10, false, t.target, nums.get(t.target.ref.toString()));
+      y -= 15;
+    }
+    y -= 4;
+  }
+}
+
+/** Paint each module's section-break page: the module title (already drawn as the
+ *  skeleton), a "Sections in this module" list (links to its tabs), and an "All
+ *  modules" cross-navigation list (links to every module's break page). */
+function paintBreakPages(ctx: Ctx, modules: ModuleNav[], execTarget: NavTarget | null): void {
+  const nums = pageNumberIndex(ctx);
+  for (const m of modules) {
+    if (!m.breakPage || !m.target) continue;
+    const page = m.breakPage;
+    let y = PAGE_H - HEADER_BAND_H - 120;
+    page.drawText('Sections in this module', { x: MARGIN, y, size: 12, font: ctx.bold, color: NAVY_DARK });
+    y -= 20;
+    if (m.tabs.length === 0) {
+      page.drawText('This module has no sub-sections in the current selection.', { x: MARGIN + 4, y, size: 9, font: ctx.font, color: NAV_MUTED });
+      y -= 16;
+    }
+    for (const t of m.tabs) {
+      drawNavRow(ctx, page, t.tab, MARGIN + 4, y, 10, false, t.target, nums.get(t.target.ref.toString()));
+      y -= 15;
+    }
+    // Cross-module navigation.
+    y -= 18;
+    page.drawText('All modules', { x: MARGIN, y, size: 12, font: ctx.bold, color: NAVY_DARK });
+    y -= 20;
+    if (execTarget) {
+      drawNavRow(ctx, page, 'Executive Summary', MARGIN + 4, y, 10, false, execTarget, nums.get(execTarget.ref.toString()), NAV_MUTED);
+      y -= 15;
+    }
+    for (const other of modules) {
+      if (!other.target) continue;
+      const current = other.key === m.key;
+      drawNavRow(ctx, page, `Module ${other.num}: ${other.label}${current ? '  (this module)' : ''}`, MARGIN + 4, y, 10, current, other.target, nums.get(other.target.ref.toString()), current ? NAVY_DARK : NAV_LINK);
+      y -= 15;
+    }
+  }
+}
+
+/** Build the /Outlines tree (Executive Summary + modules -> sub-tabs) and attach
+ *  it to the catalog, opening the bookmark panel. Dests use explicit page refs. */
+function buildOutline(ctx: Ctx, modules: ModuleNav[], execTarget: NavTarget | null): void {
+  const context = ctx.doc.context;
+  const mods = modules.filter((m) => m.target);
+  const topCount = (execTarget ? 1 : 0) + mods.length;
+  if (topCount === 0) return;
+  const outlinesRef = context.nextRef();
+  const dest = (t: NavTarget): unknown[] => [t.ref, 'XYZ', null, t.y, null];
+  const obj = (literal: Record<string, unknown>): PDFObject =>
+    context.obj(literal as unknown as Parameters<typeof context.obj>[0]) as PDFObject;
+
+  // Top-level item refs, in order: [exec?, module1, module2, ...].
+  const topRefs: PDFRef[] = [];
+  if (execTarget) topRefs.push(context.nextRef());
+  const moduleRefs = mods.map(() => context.nextRef());
+  topRefs.push(...moduleRefs);
+
+  let descendants = topRefs.length;
+
+  if (execTarget) {
+    const d: Record<string, unknown> = { Title: PDFHexString.fromText('Executive Summary'), Parent: outlinesRef, Dest: dest(execTarget), Next: topRefs[1] };
+    context.assign(topRefs[0], obj(d));
+  }
+  mods.forEach((m, i) => {
+    const selfRef = moduleRefs[i];
+    const tabRefs = m.tabs.map(() => context.nextRef());
+    descendants += tabRefs.length;
+    const d: Record<string, unknown> = { Title: PDFHexString.fromText(`Module ${m.num}: ${m.label}`), Parent: outlinesRef, Dest: dest(m.target as NavTarget) };
+    const topIdx = (execTarget ? 1 : 0) + i;
+    if (topIdx > 0) d.Prev = topRefs[topIdx - 1];
+    if (topIdx < topRefs.length - 1) d.Next = topRefs[topIdx + 1];
+    if (tabRefs.length) { d.First = tabRefs[0]; d.Last = tabRefs[tabRefs.length - 1]; d.Count = tabRefs.length; }
+    context.assign(selfRef, obj(d));
+    m.tabs.forEach((t, j) => {
+      const td: Record<string, unknown> = { Title: PDFHexString.fromText(t.tab), Parent: selfRef, Dest: dest(t.target) };
+      if (j > 0) td.Prev = tabRefs[j - 1];
+      if (j < tabRefs.length - 1) td.Next = tabRefs[j + 1];
+      context.assign(tabRefs[j], obj(td));
+    });
+  });
+
+  context.assign(outlinesRef, obj({ Type: 'Outlines', First: topRefs[0], Last: topRefs[topRefs.length - 1], Count: descendants }));
+  ctx.doc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+  ctx.doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+}
+
+/** Create + mark a module's section-break page and draw its title. The nav lists
+ *  are painted later (paintBreakPages), once every module + tab anchor is known. */
+function renderSectionBreak(ctx: Ctx, mod: ModuleNav): void {
+  newPage(ctx, `Module ${mod.num}: ${mod.label}`);
+  const page = ctx.page;
+  markPage(page, REFM_NAV_KEY, `break:${mod.key}`);
+  const target: NavTarget = { ref: page.ref, y: PAGE_H - HEADER_BAND_H };
+  mod.target = target;
+  mod.breakPage = page;
+  ctx.nav.anchors.set(`mod:${mod.key}`, target);
+  let y = PAGE_H - HEADER_BAND_H - 56;
+  drawCell(ctx, `Module ${mod.num}`, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 22, color: NAVY_DARK });
+  y -= 30;
+  drawCell(ctx, mod.label, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 15, color: NAVY });
 }
 
 // ── Public entry ─────────────────────────────────────────────────────────────
@@ -1495,10 +1739,15 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   const p = opts.state.project;
   const scale: DisplayScale = opts.displayScale ?? 'millions';
   const fmt = makeFmt(scale, opts.displayDecimals);
+  const selectedKeys = new Set(opts.selectedModuleKeys);
   const ctx: Ctx = {
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     projectName: opts.projectName || 'Untitled Project',
     unitLabel: unitLabel(p.currency ?? 'SAR', scale),
+    // Navigation aids (ToC + section breaks + outline) are additive to the full
+    // report; enabled only when at least one module is selected, so the
+    // cover-plus-executive-summary (empty selection) output is unchanged.
+    nav: { ...disabledNav(), enabled: selectedKeys.size > 0 },
   };
 
   // Case comparison + year-on-year impact (Modules 5 & 6) are computed once from
@@ -1513,21 +1762,34 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   // Page 1: clean cover.
   drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Feasibility Study', opts.dateLabel);
 
-  // Page 2: executive summary.
+  // Page 2: executive summary (its first page is a nav anchor).
   newPage(ctx, 'Executive Summary');
   ctx.currentHeader = 'Executive Summary';
+  if (ctx.nav.enabled) {
+    const execTarget: NavTarget = { ref: ctx.page.ref, y: PAGE_H - HEADER_BAND_H };
+    ctx.nav.execTarget = execTarget;
+    ctx.nav.anchors.set('exec', execTarget);
+  }
   buildExecSummary(ctx, snap, returns, opts.state, fmt, caseReport);
 
-  // Modules. Built modules (1-5) render real content; selected modules that are
+  // Modules. Built modules (1-6) render real content; selected modules that are
   // not built yet render a roadmap placeholder page so the report covers the
-  // whole platform.
+  // whole platform. Each rendered module is preceded by a section-break page and
+  // registered in the nav model (skipped entirely when it renders no content).
   const py = snap.projectStartYear - 1;
   const sel = opts.moduleSections ?? {};
-  const selectedKeys = new Set(opts.selectedModuleKeys);
   const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5', 'module6']);
+  const beginModule = (m: ModuleConfig): ModuleNav | null => {
+    if (!ctx.nav.enabled) return null;
+    const mod: ModuleNav = { key: m.key, num: m.num, label: m.longLabel, target: null, tabs: [], breakPage: null };
+    ctx.nav.modules.push(mod);
+    ctx.nav.current = mod;
+    renderSectionBreak(ctx, mod);
+    return mod;
+  };
   for (const m of MODULES) {
     if (!selectedKeys.has(m.key)) continue;
-    if (!BUILT.has(m.key)) { renderPlaceholderModule(ctx, m); continue; }
+    if (!BUILT.has(m.key)) { beginModule(m); renderPlaceholderModule(ctx, m); ctx.nav.current = null; continue; }
     let content: ModuleContent | null = null;
     if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py);
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
@@ -1537,7 +1799,20 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
     else continue;
     if (!content || !content.length) continue;
+    beginModule(m);
     renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
+    ctx.nav.current = null;
+  }
+
+  // Navigation paint pass: insert the ToC pages at the front, then paint the ToC
+  // and each section-break page, and build the outline. Done here (not during
+  // render) so every module + tab anchor is already known.
+  if (ctx.nav.enabled && ctx.nav.modules.length > 0) {
+    const k = tocPageCount(ctx.nav.modules, !!ctx.nav.execTarget);
+    const tocPages = insertTocPages(ctx, k);
+    paintToc(ctx, tocPages, ctx.nav.modules, ctx.nav.execTarget);
+    paintBreakPages(ctx, ctx.nav.modules, ctx.nav.execTarget);
+    buildOutline(ctx, ctx.nav.modules, ctx.nav.execTarget);
   }
 
   drawFooters(ctx);
@@ -1605,6 +1880,9 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     doc, font, bold, pages: [], page: null as unknown as PDFPage, y: 0,
     projectName: opts.projectName || 'Untitled Project',
     unitLabel: unitLabel(p.currency ?? 'SAR', scale),
+    // The concise summary PDF carries no ToC / section breaks / outline (nav
+    // aids are scoped to the full report), so nav stays disabled here.
+    nav: disabledNav(),
   };
 
   // Scenario summary is shown in the exec summary when the caller supplies the

@@ -20,7 +20,7 @@
 import { readFileSync } from 'fs';
 import zlib from 'zlib';
 import path from 'path';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFHexString, PDFString } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { generateProjectPdf, generateSummaryPdf, collectModuleTabs } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
@@ -88,6 +88,93 @@ function buildState(): any {
 
 async function pageCount(bytes: Uint8Array): Promise<number> {
   return (await PDFDocument.load(bytes)).getPageCount();
+}
+
+// ── Navigation-aid introspection (object-model based, font-encoding-proof) ─────
+function decodeStr(o: unknown): string {
+  if (o instanceof PDFHexString || o instanceof PDFString) return o.decodeText();
+  return '';
+}
+interface OutlineItem { title: string; destIdx: number | null; children: OutlineItem[] }
+interface NavModel {
+  pageCount: number;
+  tocPages: number[];                    // 1-based indices of ToC pages
+  breakPages: Map<string, number>;       // moduleKey -> 1-based break page index
+  tabPages: Map<string, number>;         // 'moduleKey::tab' -> 1-based tab page index
+  linkTargetsByPage: Map<number, number[]>; // page (1-based) -> resolved target page indices
+  danglingLinks: number;                 // links whose dest ref maps to no page
+  execIdx: number | null;                // executive summary page (from outline)
+  outline: OutlineItem[] | null;         // top-level outline items
+  hasOutline: boolean;
+  pageMode: string;
+}
+async function parseNav(bytes: Uint8Array): Promise<NavModel> {
+  const doc = await PDFDocument.load(bytes);
+  const pages = doc.getPages();
+  const refToIdx = new Map<string, number>();
+  pages.forEach((p, i) => refToIdx.set(p.ref.toString(), i + 1));
+  const nav: NavModel = {
+    pageCount: pages.length, tocPages: [], breakPages: new Map(), tabPages: new Map(),
+    linkTargetsByPage: new Map(), danglingLinks: 0, execIdx: null, outline: null, hasOutline: false,
+    pageMode: decodeName(doc.catalog.get(PDFName.of('PageMode'))),
+  };
+  pages.forEach((p, i) => {
+    const idx = i + 1;
+    const navMark = decodeStr(p.node.get(PDFName.of('REFMNav')));
+    const tabMark = decodeStr(p.node.get(PDFName.of('REFMTab')));
+    if (navMark === 'toc') nav.tocPages.push(idx);
+    else if (navMark.startsWith('break:')) nav.breakPages.set(navMark.slice('break:'.length), idx);
+    if (tabMark) nav.tabPages.set(tabMark, idx);
+    // Link annotations -> resolved target page indices.
+    const annots = p.node.Annots();
+    if (!annots) return;
+    const targets: number[] = [];
+    for (let a = 0; a < annots.size(); a++) {
+      const annot = annots.lookup(a, PDFDict);
+      if (!annot) continue;
+      const sub = annot.get(PDFName.of('Subtype'));
+      if (!(sub instanceof PDFName) || sub.asString() !== '/Link') continue;
+      const A = annot.lookup(PDFName.of('A'), PDFDict);
+      const S = A?.get(PDFName.of('S'));
+      const isGoTo = S instanceof PDFName && S.asString() === '/GoTo';
+      const D = A?.lookup(PDFName.of('D'), PDFArray);
+      const destRef = D?.get(0);
+      const tIdx = destRef instanceof PDFRef ? refToIdx.get(destRef.toString()) : undefined;
+      if (!isGoTo || !tIdx) nav.danglingLinks += 1;
+      else targets.push(tIdx);
+    }
+    if (targets.length) nav.linkTargetsByPage.set(idx, targets);
+  });
+  // Outline.
+  const outlinesRef = doc.catalog.get(PDFName.of('Outlines'));
+  const outlines = outlinesRef instanceof PDFRef ? doc.context.lookup(outlinesRef, PDFDict) : undefined;
+  nav.hasOutline = !!outlines;
+  if (outlines) {
+    const read = (ref: PDFRef | undefined): OutlineItem[] => {
+      const out: OutlineItem[] = [];
+      let cur = ref;
+      while (cur) {
+        const item = doc.context.lookup(cur, PDFDict);
+        if (!item) break;
+        const dest = item.lookup(PDFName.of('Dest'), PDFArray);
+        const destRef = dest?.get(0);
+        const destIdx = destRef instanceof PDFRef ? (refToIdx.get(destRef.toString()) ?? null) : null;
+        const first = item.get(PDFName.of('First'));
+        out.push({ title: decodeStr(item.get(PDFName.of('Title'))), destIdx, children: first instanceof PDFRef ? read(first) : [] });
+        const next = item.get(PDFName.of('Next'));
+        cur = next instanceof PDFRef ? next : undefined;
+      }
+      return out;
+    };
+    const first = outlines.get(PDFName.of('First'));
+    nav.outline = read(first instanceof PDFRef ? first : undefined);
+    const execItem = nav.outline.find((o) => o.title === 'Executive Summary');
+    nav.execIdx = execItem?.destIdx ?? null;
+  }
+  return nav;
+}
+function decodeName(o: unknown): string {
+  return o instanceof PDFName ? o.asString() : '';
 }
 
 async function main(): Promise<void> {
@@ -285,6 +372,72 @@ async function main(): Promise<void> {
   const summaryPages = await pageCount(summary);
   check('summary is concise (cover + exec + financials + returns, <= 8 pages)', summaryPages >= 3 && summaryPages <= 8, `pages=${summaryPages}`);
   check('summary is shorter than the full report', summaryPages < fullPages, `summary=${summaryPages} full=${fullPages}`);
+
+  // ── Navigation aids: ToC + section-break pages + internal links + outline ──
+  // Full report with all six modules + a case bundle (so every module renders),
+  // introspected via the PDF object model (marker keys, link dests, /Outlines).
+  const navKeys = ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'];
+  const navBytes = await generateProjectPdf({ state: buildState(), projectName: 'Nav', versionLabel: null, dateLabel: 'd', selectedModuleKeys: navKeys, caseComparison: caseBundle });
+  const nav = await parseNav(navBytes);
+  const moduleItems = (nav.outline ?? []).filter((o) => o.title.startsWith('Module '));
+  const bpByIdx = new Map<number, string>(); nav.breakPages.forEach((idx, key) => bpByIdx.set(idx, key));
+  const tabByIdx = new Map<number, string>(); nav.tabPages.forEach((idx, key) => tabByIdx.set(idx, key));
+  const allBreak = [...nav.breakPages.values()];
+  const allTab = [...nav.tabPages.values()];
+
+  // ToC present + positioned at the front (after the cover, before the content).
+  check('ToC page(s) present', nav.tocPages.length >= 1, `tocPages=${nav.tocPages.join(',')}`);
+  check('ToC sits at the front (after cover, before exec + content)',
+    nav.tocPages.length > 0 && nav.tocPages.every((i) => i >= 2) && nav.execIdx != null && Math.max(...nav.tocPages) < nav.execIdx,
+    `toc=${nav.tocPages.join(',')} exec=${nav.execIdx}`);
+
+  // Exactly one section-break page per rendered module (>= all 6).
+  check('one section-break page per rendered module (>= 6)',
+    nav.breakPages.size >= 6 && nav.breakPages.size === moduleItems.length,
+    `breaks=${nav.breakPages.size} modules=${moduleItems.length}`);
+
+  // Outline: present, opens the bookmark panel, leads with Executive Summary, and
+  // has module -> sub-tab hierarchy with every dest resolving to the correct page.
+  check('PDF outline present + bookmark panel opens', nav.hasOutline && nav.pageMode === '/UseOutlines', `outline=${nav.hasOutline} mode=${nav.pageMode}`);
+  check('outline leads with Executive Summary -> a real page', nav.outline?.[0]?.title === 'Executive Summary' && nav.execIdx != null, `first=${nav.outline?.[0]?.title} execIdx=${nav.execIdx}`);
+  check('outline has >= 6 modules', moduleItems.length >= 6, `count=${moduleItems.length}`);
+  let outlineOk = true; const od: string[] = [];
+  for (const mi of moduleItems) {
+    const key = mi.destIdx != null ? bpByIdx.get(mi.destIdx) : undefined;
+    if (!key) { outlineOk = false; od.push(`${mi.title} dest not a break page`); continue; }
+    if (mi.children.length === 0) { outlineOk = false; od.push(`${mi.title} has no sub-tabs`); }
+    for (const ci of mi.children) {
+      const tk = ci.destIdx != null ? tabByIdx.get(ci.destIdx) : undefined;
+      if (!tk || !tk.startsWith(`${key}::`) || !tk.endsWith(`::${ci.title}`)) { outlineOk = false; od.push(`${mi.title}/${ci.title} -> ${tk ?? 'unmarked'}`); }
+    }
+  }
+  check('outline modules -> break pages, sub-tabs -> correct tab pages', outlineOk, od.slice(0, 3).join(' | '));
+
+  // ToC internal links reach every module break page, every sub-tab, and the exec.
+  const tocTargets = new Set<number>();
+  for (const tp of nav.tocPages) for (const t of (nav.linkTargetsByPage.get(tp) ?? [])) tocTargets.add(t);
+  const missingToc = [...allBreak, ...allTab, ...(nav.execIdx ? [nav.execIdx] : [])].filter((i) => !tocTargets.has(i));
+  check('ToC links reach every module, sub-tab, and the exec summary', missingToc.length === 0, `missing target pages: ${missingToc.join(',')}`);
+
+  // Section-break pages: each links to ALL module break pages (cross-module nav)
+  // and to its own sub-tabs.
+  let breakNavOk = true; const bd: string[] = [];
+  for (const [key, bpIdx] of nav.breakPages) {
+    const targets = new Set(nav.linkTargetsByPage.get(bpIdx) ?? []);
+    for (const other of allBreak) if (!targets.has(other)) { breakNavOk = false; bd.push(`${key}: no link to break p${other}`); }
+    for (const [tk, ti] of nav.tabPages) if (tk.startsWith(`${key}::`) && !targets.has(ti)) { breakNavOk = false; bd.push(`${key}: no link to tab ${tk}`); }
+  }
+  check('each section-break page links to all modules + its own sub-tabs', breakNavOk, bd.slice(0, 3).join(' | '));
+
+  // Every navigation link resolves to a real page (no dangling GoTo dests).
+  check('all navigation links resolve to real pages (no dangling)', nav.danglingLinks === 0, `dangling=${nav.danglingLinks}`);
+
+  // Additive-only guard: nav is scoped to the full report; the empty-selection
+  // full report and the summary PDF carry NO ToC / breaks / outline.
+  const emptyNav = await parseNav(await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] }));
+  check('empty selection adds no navigation (cover + exec only)', emptyNav.pageCount === 2 && emptyNav.tocPages.length === 0 && emptyNav.breakPages.size === 0 && !emptyNav.hasOutline, `pages=${emptyNav.pageCount} toc=${emptyNav.tocPages.length} breaks=${emptyNav.breakPages.size} outline=${emptyNav.hasOutline}`);
+  const summaryNav = await parseNav(await generateSummaryPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] }));
+  check('summary PDF is unchanged (no ToC / breaks / outline)', summaryNav.tocPages.length === 0 && summaryNav.breakPages.size === 0 && !summaryNav.hasOutline, `toc=${summaryNav.tocPages.length} breaks=${summaryNav.breakPages.size} outline=${summaryNav.hasOutline}`);
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }
