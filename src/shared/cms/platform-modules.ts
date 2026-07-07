@@ -44,6 +44,10 @@ export interface PlatformModule {
   screenshots: string[];
   demo_video_url: string | null;
   launch_date: string | null;
+  /** Whether this module is offered as an option in the PDF Full Financial Model
+   *  export (mig 186). Display / export-scope only, never gating. Undefined when
+   *  the column is not present yet (pre-migration): consumers treat that as true. */
+  include_in_pdf?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -81,6 +85,7 @@ export interface PlatformModuleInput {
   screenshots?: string[];
   demo_video_url?: string | null;
   launch_date?: string | null;
+  include_in_pdf?: boolean;
 }
 
 export interface PlatformModulePageInput {
@@ -228,7 +233,19 @@ export async function adminUpsertPlatformModule(
       : await sb.from('platform_modules').insert(payload).select().single();
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, module: data as PlatformModule };
+    const saved = data as PlatformModule;
+
+    // include_in_pdf (mig 186) is written in a SEPARATE best-effort update, kept
+    // out of the core payload so a pre-migration save (column absent) still
+    // succeeds with the DB default. A missing-column error is swallowed.
+    if (input.include_in_pdf !== undefined && saved?.id) {
+      const { error: pdfErr } = await sb
+        .from('platform_modules')
+        .update({ include_in_pdf: input.include_in_pdf })
+        .eq('id', saved.id);
+      if (!pdfErr) saved.include_in_pdf = input.include_in_pdf;
+    }
+    return { ok: true, module: saved };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'unknown error' };
   }

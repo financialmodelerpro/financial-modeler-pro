@@ -51,6 +51,10 @@ export interface FetchedModule {
   status: 'live' | 'coming_soon' | 'hidden' | 'pro' | 'enterprise';
   gating_tier: 'free' | 'pro' | 'enterprise';
   display_order: number;
+  /** mig 186: whether this module is offered in the PDF export. Optional (absent
+   *  pre-migration); consumers default to true. Used by the Export modal, not the
+   *  sidebar. */
+  include_in_pdf?: boolean;
 }
 
 const STATIC_NAV: readonly SidebarNavItem[] = [

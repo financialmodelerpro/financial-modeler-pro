@@ -46,4 +46,9 @@ export const PDF_MODULE_TABS: Record<string, string[]> = {
     'Tab 3: Case Comparison',
     'Tab 4: Cash Flow Streams',
   ],
+  module6: [
+    'Tab 1: Cases & Assumptions',
+    'Tab 2: Scenario Comparison',
+    'Tab 3: Year-on-Year Impact',
+  ],
 };

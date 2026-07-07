@@ -103,6 +103,7 @@ interface PlatformModule {
   gating_tier: GatingTier;
   display_order: number;
   features: string[];
+  include_in_pdf?: boolean;
   updated_at: string;
 }
 
@@ -139,6 +140,7 @@ const emptyDraft = (platformSlug: string, nextNumber: number): Partial<PlatformM
   gating_tier: 'free',
   display_order: nextNumber,
   features: [],
+  include_in_pdf: true,
 });
 
 export default function AdminPlatformModulesPage() {
@@ -675,6 +677,22 @@ export default function AdminPlatformModulesPage() {
             style={{ ...inputStyle, minHeight: 80, fontFamily: 'inherit' }}
             placeholder={'Feature 1\nFeature 2\n...'}
           />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={draft.include_in_pdf !== false}
+              onChange={(e) => setDraft({ ...draft, include_in_pdf: e.target.checked })}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>Include in PDF export</span>
+              <span style={{ display: 'block', fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                When on, this module is offered as an option in the user&apos;s PDF Full Financial Model export (a live module is selectable; a not-yet-live one shows greyed). Turn off for modules that are not part of the financial model report (e.g. Reports, Collaborate, API Access).
+              </span>
+            </span>
+          </label>
         </div>
       </td>
     </tr>

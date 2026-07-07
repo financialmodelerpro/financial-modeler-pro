@@ -43,6 +43,8 @@ import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
+import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
+import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 
@@ -524,8 +526,43 @@ const tItem = (tab: string, part: PartKind, item: PdfItem): TaggedItem => ({ tab
 const tTable = (tab: string, part: PartKind, table: PdfTable): TaggedItem => tItem(tab, part, { type: 'table', table });
 const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): TaggedItem => tItem(tab, part, { type: 'cards', title, cards });
 
+/** Shared case-comparison matrix: headline KPIs across every case, each scenario
+ *  showing its delta vs the base in-cell. Feeds BOTH Module 5 (Tab 3) and Module
+ *  6 (Scenario Comparison) from the same shared builder. Null when there are fewer
+ *  than two cases to compare. */
+function buildCaseComparisonMatrix(caseReport: CaseComparisonReport, fmt: Fmt): PdfTable | null {
+  if (caseReport.columns.length <= 1) return null;
+  const baseCol = caseReport.columns.find((c) => c.id === caseReport.baseId) ?? caseReport.columns[0];
+  const fmtVal = (v: number | null, kind: 'pct' | 'money' | 'mult'): string => {
+    if (v === null || !Number.isFinite(v)) return 'n/a';
+    return kind === 'pct' ? fmt.pct(v, 1) : kind === 'mult' ? fmt.mult(v) : fmt.money(v);
+  };
+  const fmtDelta = (v: number | null, base: number | null, kind: 'pct' | 'money' | 'mult'): string => {
+    if (v === null || base === null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
+    const d = v - base;
+    if (Math.abs(d) < 1e-9) return '0';
+    const sign = d > 0 ? '+' : '';
+    return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${fmt.money(d)}`;
+  };
+  const header = ['Metric', ...caseReport.columns.map((c) => `${c.role === 'base' ? '★ ' : ''}${c.name}`)];
+  const rows: PdfTableRow[] = caseReport.kpis.map((k) => {
+    const cells: Array<string | number | null> = [k.sub ? `${k.label} (${k.sub})` : k.label];
+    for (const col of caseReport.columns) {
+      const v = col.values[k.label] ?? null;
+      let s = fmtVal(v, k.kind);
+      if (col.id !== caseReport.baseId) {
+        const d = fmtDelta(v, baseCol.values[k.label] ?? null, k.kind);
+        if (d) s += ` (${d})`;
+      }
+      cells.push(s);
+    }
+    return row(cells);
+  });
+  return { title: 'Case Comparison, headline KPIs (delta vs Management Case)', kind: 'grid', align: 'data', columns: header, rows };
+}
+
 // ── Executive summary ─────────────────────────────────────────────────────────
-function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: ReturnsSnapshot | null, state: FinancialsResolverState, fmt: Fmt): void {
+function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: ReturnsSnapshot | null, state: FinancialsResolverState, fmt: Fmt, caseReport: CaseComparisonReport | null): void {
   const p = state.project;
   const startYear = snap.projectStartYear;
   const endYear = startYear + snap.axisLength - 1;
@@ -597,6 +634,28 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     ['Total equity (cash + in-kind + existing)', fmt.money(fin.equity.grandTotal)],
     ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
   ]), fmt);
+
+  // Scenario summary (high level): headline outcomes per case, so the executive
+  // reader sees the range across scenarios at a glance. Only when scenario cases
+  // exist beyond the Management base (extends the summary past one page then). The
+  // detailed scenario matrix + year-on-year impact live in Module 6.
+  if (caseReport && caseReport.columns.length > 1) {
+    const scenarioCount = caseReport.columns.filter((c) => c.role !== 'base').length;
+    const pick = ['Equity IRR (FCFE)', 'Project IRR (FCFF)', 'NPV (FCFF)', 'Development Margin'];
+    const kpis = caseReport.kpis.filter((k) => pick.includes(k.label));
+    const fmtVal = (v: number | null, kind: 'pct' | 'money' | 'mult'): string =>
+      v === null || !Number.isFinite(v) ? 'n/a' : kind === 'pct' ? fmt.pct(v, 1) : kind === 'mult' ? fmt.mult(v) : fmt.money(v);
+    ctx.y -= 4;
+    drawParagraph(ctx, `${scenarioCount} scenario ${scenarioCount === 1 ? 'case is' : 'cases are'} modeled alongside the Management Case. Headline outcomes by case:`, 9);
+    drawGridTable(ctx, {
+      title: 'Scenario Summary', kind: 'grid', align: 'data',
+      columns: ['Case', ...kpis.map((k) => k.label)],
+      rows: caseReport.columns.map((c) => row(
+        [`${c.role === 'base' ? '★ ' : ''}${c.name}`, ...kpis.map((k) => fmtVal(c.values[k.label] ?? null, k.kind))],
+        c.role === 'base' ? 'subtotal' : undefined,
+      )),
+    }, fmt);
+  }
 }
 
 // ── Module 1: Setup & Financial Structure ───────────────────────────────────
@@ -1260,37 +1319,8 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
   // the SHARED builder (lib/reports/caseComparisonReport.ts) that also feeds the
   // on-screen Case Comparison tab. Only rendered when there is more than one
   // case to compare.
-  if (caseReport && caseReport.columns.length > 1) {
-    const baseCol = caseReport.columns.find((c) => c.id === caseReport.baseId) ?? caseReport.columns[0];
-    const fmtCaseVal = (v: number | null, kind: 'pct' | 'money' | 'mult'): string => {
-      if (v === null || !Number.isFinite(v)) return 'n/a';
-      return kind === 'pct' ? fmt.pct(v, 1) : kind === 'mult' ? fmt.mult(v) : fmt.money(v);
-    };
-    const fmtCaseDelta = (v: number | null, base: number | null, kind: 'pct' | 'money' | 'mult'): string => {
-      if (v === null || base === null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
-      const d = v - base;
-      if (Math.abs(d) < 1e-9) return '0';
-      const sign = d > 0 ? '+' : '';
-      return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${fmt.money(d)}`;
-    };
-    const header = ['Metric', ...caseReport.columns.map((c) => `${c.role === 'base' ? '★ ' : ''}${c.name}`)];
-    const rows: PdfTableRow[] = caseReport.kpis.map((k) => {
-      const cells: Array<string | number | null> = [k.sub ? `${k.label} (${k.sub})` : k.label];
-      for (const col of caseReport.columns) {
-        const v = col.values[k.label] ?? null;
-        let s = fmtCaseVal(v, k.kind);
-        if (col.id !== caseReport.baseId) {
-          const d = fmtCaseDelta(v, baseCol.values[k.label] ?? null, k.kind);
-          if (d) s += ` (${d})`;
-        }
-        cells.push(s);
-      }
-      return row(cells);
-    });
-    items.push(tTable('Tab 3: Case Comparison', 'outputs', {
-      title: 'Case Comparison, headline KPIs (delta vs Management Case)', kind: 'grid', align: 'data', columns: header, rows,
-    }));
-  }
+  const m5Matrix = caseReport ? buildCaseComparisonMatrix(caseReport, fmt) : null;
+  if (m5Matrix) items.push(tTable('Tab 3: Case Comparison', 'outputs', m5Matrix));
 
   // Tab 4: Cash Flow Streams.
   const bu = returns.buildup;
@@ -1317,6 +1347,78 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
     periodRow('= FCFE', returns.fcfePerPeriod.slice(1), 'sum', 'total', returns.fcfePerPeriod[0] ?? 0),
   ])));
 
+  return items;
+}
+
+// ── Module 6: Scenario Analysis ─────────────────────────────────────────────
+/** Module 6 (Scenarios) PDF content, built from the SAME shared case report
+ *  builders that feed the on-screen Module 6 (comparison matrix + year-on-year
+ *  impact). Renders three tabs: Cases & Assumptions (inputs), Scenario Comparison
+ *  (outputs), Year-on-Year Impact (schedules). Degrades to a short note when the
+ *  project has no scenario cases, so a selected Module 6 page is never blank. */
+function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYReport | null, fmt: Fmt): ModuleContent {
+  const items: ModuleContent = [];
+  const cols = caseReport?.columns ?? [];
+  const hasScenarios = cols.length > 1;
+
+  // Tab 1: Cases & Assumptions.
+  if (cols.length) {
+    items.push(tTable('Tab 1: Cases & Assumptions', 'inputs', {
+      title: 'Cases', kind: 'grid', align: 'data',
+      columns: ['Case', 'Type', 'Active', 'Overrides'],
+      rows: cols.map((c) => row(
+        [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : fmt.int(c.overrideCount)],
+        c.role === 'base' ? 'subtotal' : undefined,
+      )),
+    }));
+  }
+  // Assumptions that differ across cases, one row per diverging lever (drawn from
+  // the shared year-on-year report's input blocks, so it matches Module 6).
+  if (caseYoY && caseYoY.blocks.length) {
+    const order = caseYoY.blocks[0].inputs[0]?.byCase.map((v) => ({ id: v.id, name: v.name })) ?? [];
+    if (order.length) {
+      const rows: PdfTableRow[] = [];
+      for (const b of caseYoY.blocks) {
+        for (const line of b.inputs) {
+          const byId = new Map(line.byCase.map((v) => [v.id, v.value] as const));
+          rows.push(row([line.label, ...order.map((o) => formatAssumptionValue(byId.get(o.id) ?? null, line.format))]));
+        }
+      }
+      if (rows.length) {
+        items.push(tTable('Tab 1: Cases & Assumptions', 'inputs', {
+          title: 'Assumptions that differ across scenarios', kind: 'grid', align: 'data',
+          columns: ['Assumption', ...order.map((o) => o.name)], rows,
+        }));
+      }
+    }
+  }
+
+  // Tab 2: Scenario Comparison (headline KPI matrix, delta vs base).
+  const matrix = caseReport ? buildCaseComparisonMatrix(caseReport, fmt) : null;
+  if (matrix) items.push(tTable('Tab 2: Scenario Comparison', 'outputs', matrix));
+
+  // Tab 3: Year-on-Year Impact: for each driven output, the base series and each
+  // scenario's per-period delta vs base.
+  if (caseYoY && caseYoY.blocks.length && hasScenarios) {
+    const yPrior = caseYoY.priorYearLabel;
+    const yl = caseYoY.yearLabels;
+    for (const b of caseYoY.blocks) {
+      for (const o of b.outputs) {
+        const total = o.kind === 'flow' ? 'sum' : 'last';
+        const rows: PdfTableRow[] = [periodRow(`${o.base.name} (base)`, o.base.values, total, 'subtotal', o.base.prior)];
+        for (const d of o.deltas) rows.push(periodRow(`change, ${d.name}`, d.values, total, undefined, d.prior));
+        items.push(tTable('Tab 3: Year-on-Year Impact', 'schedules', periodTable(`${b.inputLabel}, ${o.label}`, yPrior, yl, rows)));
+      }
+    }
+  }
+
+  // No scenarios defined: a short note so the page is never blank when selected.
+  if (!items.length) {
+    items.push(tTable('Tab 1: Cases & Assumptions', 'inputs', kvTable('Scenario Analysis', [
+      ['Scenarios defined', 'None'],
+      ['Note', 'Add scenario cases in Module 6 to compare assumptions and outcomes here.'],
+    ])));
+  }
   return items;
 }
 
@@ -1399,10 +1501,13 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     unitLabel: unitLabel(p.currency ?? 'SAR', scale),
   };
 
-  // Case comparison (Module 5) is computed once from the caller-supplied bundle.
+  // Case comparison + year-on-year impact (Modules 5 & 6) are computed once from
+  // the caller-supplied bundle and shared across the exec summary + both modules.
   let caseReport: CaseComparisonReport | null = null;
+  let caseYoY: CaseYoYReport | null = null;
   if (opts.caseComparison) {
     try { caseReport = buildCaseComparisonReport(opts.caseComparison); } catch { caseReport = null; }
+    try { caseYoY = buildCaseYoYReport(opts.caseComparison); } catch { caseYoY = null; }
   }
 
   // Page 1: clean cover.
@@ -1411,7 +1516,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   // Page 2: executive summary.
   newPage(ctx, 'Executive Summary');
   ctx.currentHeader = 'Executive Summary';
-  buildExecSummary(ctx, snap, returns, opts.state, fmt);
+  buildExecSummary(ctx, snap, returns, opts.state, fmt, caseReport);
 
   // Modules. Built modules (1-5) render real content; selected modules that are
   // not built yet render a roadmap placeholder page so the report covers the
@@ -1419,7 +1524,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   const py = snap.projectStartYear - 1;
   const sel = opts.moduleSections ?? {};
   const selectedKeys = new Set(opts.selectedModuleKeys);
-  const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
+  const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5', 'module6']);
   for (const m of MODULES) {
     if (!selectedKeys.has(m.key)) continue;
     if (!BUILT.has(m.key)) { renderPlaceholderModule(ctx, m); continue; }
@@ -1429,6 +1534,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
     else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py, caseReport) : null;
+    else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
     else continue;
     if (!content || !content.length) continue;
     renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
@@ -1451,7 +1557,11 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
   let returns: ReturnsSnapshot | null = null;
   try { returns = computeReturnsSnapshot(snap, state.project); } catch { returns = null; }
   let caseReport: CaseComparisonReport | null = null;
-  if (caseComparison) { try { caseReport = buildCaseComparisonReport(caseComparison); } catch { caseReport = null; } }
+  let caseYoY: CaseYoYReport | null = null;
+  if (caseComparison) {
+    try { caseReport = buildCaseComparisonReport(caseComparison); } catch { caseReport = null; }
+    try { caseYoY = buildCaseYoYReport(caseComparison); } catch { caseYoY = null; }
+  }
   const fmt = makeFmt('millions');
   const py = snap.projectStartYear - 1;
   const distinct = (content: ModuleContent): string[] => {
@@ -1464,6 +1574,7 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
     module2: distinct(buildModule2(snap, state, fmt, py)),
     module3: distinct(buildModule3(snap, state, fmt, py)),
     module4: distinct(buildModule4(snap, state, fmt, py)),
+    module6: distinct(buildModule6(caseReport, caseYoY, fmt)),
   };
   if (returns) out.module5 = distinct(buildModule5(returns, state, fmt, py, caseReport));
   return out;
@@ -1496,11 +1607,18 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     unitLabel: unitLabel(p.currency ?? 'SAR', scale),
   };
 
+  // Scenario summary is shown in the exec summary when the caller supplies the
+  // case bundle (so the standalone Executive Summary PDF also covers scenarios).
+  let caseReport: CaseComparisonReport | null = null;
+  if (opts.caseComparison) {
+    try { caseReport = buildCaseComparisonReport(opts.caseComparison); } catch { caseReport = null; }
+  }
+
   // Cover + executive summary (narrative + KPI cards + composition + structure).
   drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Executive Summary', opts.dateLabel);
   newPage(ctx, 'Executive Summary');
   ctx.currentHeader = 'Executive Summary';
-  buildExecSummary(ctx, snap, returns, opts.state, fmt);
+  buildExecSummary(ctx, snap, returns, opts.state, fmt, caseReport);
 
   const py = snap.projectStartYear - 1;
   const yl = snap.yearLabels;

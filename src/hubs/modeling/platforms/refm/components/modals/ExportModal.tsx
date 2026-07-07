@@ -21,6 +21,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
+import { REFM_PLATFORM_SLUG } from '../../lib/usePlatformModules';
+import { moduleComponentNumber } from '@/src/shared/entitlements/moduleCatalog';
 import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
 import { hydrationFromAnySnapshot } from '../../lib/state/module1-migrate';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
@@ -31,8 +33,63 @@ import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import type { ProjectCase } from '../../lib/state/module1-types';
 import type { CaseComparisonInput } from '../../lib/reports/caseComparisonReport';
 
-// Built modules (full content). Others render a roadmap placeholder page.
-const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5']);
+// Modules with a real PDF builder (full content). A selected module NOT in this
+// set still exports, as a roadmap placeholder page. Kept as a code fact (does a
+// builder exist) separate from the DB `status` (which drives active vs coming).
+const BUILT = new Set(['module1', 'module2', 'module3', 'module4', 'module5', 'module6']);
+
+// One export row, derived from the live platform_modules registry (same source as
+// the sidebar) so the export list auto-links to what is active / coming and to
+// the admin's per-module "Include in PDF" choice. `key` is the moduleN routing
+// key the PDF builders + PDF_MODULE_TABS use; `live` (status === 'live') decides
+// whether the row is selectable, mirroring the sidebar.
+interface ExportModuleRow {
+  key: string;
+  displayNum: number;
+  icon: string;
+  shortLabel: string;
+  longLabel: string;
+  live: boolean;
+}
+
+// Raw platform_modules row shape from GET /api/platforms/[slug]/modules.
+interface FetchedExportModule {
+  slug: string;
+  number: number;
+  name: string;
+  short_name: string;
+  icon_emoji: string | null;
+  status: string;
+  include_in_pdf?: boolean;
+}
+
+/** Offline / pre-fetch fallback: the built modules, all treated as live, so the
+ *  modal still works if the registry fetch fails. */
+function fallbackExportModules(): ExportModuleRow[] {
+  return MODULES.filter((m) => BUILT.has(m.key)).map((m, i) => ({
+    key: m.key, displayNum: i + 1, icon: m.icon, shortLabel: m.shortLabel, longLabel: m.longLabel, live: true,
+  }));
+}
+
+/** Map live registry rows -> export rows: drop hidden + admin-excluded (include_in_pdf
+ *  false), key by the moduleN routing key, and carry status -> live. Order follows
+ *  the registry (display_order). */
+function toExportRows(mods: FetchedExportModule[]): ExportModuleRow[] {
+  return mods
+    .filter((m) => m.include_in_pdf !== false && m.status !== 'hidden')
+    .map((m, i) => {
+      const key = `module${moduleComponentNumber(m.slug, m.number)}`;
+      const stat = MODULES.find((x) => x.key === key);
+      return {
+        key,
+        displayNum: i + 1,
+        icon: m.icon_emoji || stat?.icon || '·',
+        shortLabel: m.short_name || stat?.shortLabel || m.name,
+        longLabel: m.name || stat?.longLabel || '',
+        live: m.status === 'live',
+      };
+    });
+}
 
 interface ExportModalProps {
   open: boolean;
@@ -133,18 +190,43 @@ export default function ExportModal({
     setSelectedVersionId(CURRENT);
   }, [open]);
 
-  // Only built (live) modules are selectable / exported. Future modules still
-  // appear in the list but their checkbox is unchecked and disabled until the
-  // module ships (add its key to BUILT when it goes live). Default: built on.
-  const [selected, setSelected] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(MODULES.map((m) => [m.key, BUILT.has(m.key)])),
-  );
+  // The export module list, auto-linked to the live platform_modules registry
+  // (same source as the sidebar) so active / coming status and the admin's
+  // per-module "Include in PDF" choice stay in sync. Starts from the built-module
+  // fallback so the list never blanks, then the registry fetch replaces it.
+  const [exportModules, setExportModules] = useState<ExportModuleRow[]>(fallbackExportModules);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch(`/api/platforms/${REFM_PLATFORM_SLUG}/modules`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j || !Array.isArray(j.modules)) return;
+        const rows = toExportRows(j.modules as FetchedExportModule[]);
+        if (rows.length) setExportModules(rows);
+      })
+      .catch(() => { /* keep fallback */ });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Only LIVE modules are selectable / exported; coming-soon rows appear greyed
+  // (mirroring the sidebar). Default: every live module on, with all its tabs.
+  // Re-derived whenever the module list changes (registry fetch resolves).
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
   // Per-module tab selection. A module key maps to the set of tabs to include;
   // default = all of that module's tabs (from the static manifest). Drilling
   // below part level lets the user export only specific statements / tabs.
-  const [selectedTabs, setSelectedTabs] = useState<Record<string, string[]>>(() =>
-    Object.fromEntries(MODULES.filter((m) => BUILT.has(m.key)).map((m) => [m.key, [...(PDF_MODULE_TABS[m.key] ?? [])]])),
-  );
+  const [selectedTabs, setSelectedTabs] = useState<Record<string, string[]>>({});
+  // GROUP-level filter (top of the hierarchy): Inputs / Schedules / Output. These
+  // apply across every selected module (via moduleSections) BEFORE the per-module
+  // and per-tab checks, so the user can, e.g., export inputs-only across the whole
+  // model. Default: all three on.
+  const [groupSel, setGroupSel] = useState<{ inputs: boolean; outputs: boolean; schedules: boolean }>({ inputs: true, outputs: true, schedules: true });
+  useEffect(() => {
+    setSelected(Object.fromEntries(exportModules.map((m) => [m.key, m.live])));
+    setSelectedTabs(Object.fromEntries(exportModules.filter((m) => m.live).map((m) => [m.key, [...(PDF_MODULE_TABS[m.key] ?? [])]])));
+  }, [exportModules]);
+  useEffect(() => { if (open) setGroupSel({ inputs: true, outputs: true, schedules: true }); }, [open]);
   // Which tabs are expanded for editing in the UI (collapsed by default to keep
   // the list compact).
   const [tabsOpen, setTabsOpen] = useState<Record<string, boolean>>({});
@@ -166,14 +248,14 @@ export default function ExportModal({
 
   const close = (): void => { setStep('options'); setError(null); onClose(); };
 
-  // Registry-driven module rows: EVERY module appears. Built modules render full
-  // content; future modules render a roadmap placeholder page.
-  const moduleRows = MODULES;
+  // Registry-driven module rows (live + admin-included). Live modules are
+  // selectable; coming-soon rows appear greyed.
+  const moduleRows = exportModules;
 
-  // Only live (built) modules can be toggled; future modules stay unchecked.
-  const toggle = (key: string): void => {
-    if (!BUILT.has(key)) return;
-    setSelected((s) => ({ ...s, [key]: !s[key] }));
+  // Only live modules can be toggled; coming-soon rows stay unchecked.
+  const toggle = (m: ExportModuleRow): void => {
+    if (!m.live) return;
+    setSelected((s) => ({ ...s, [m.key]: !s[m.key] }));
   };
   const toggleTab = (key: string, tab: string): void =>
     setSelectedTabs((s) => {
@@ -259,16 +341,21 @@ export default function ExportModal({
       }
 
       const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals };
-      // Per-tab selection: only pass for built + selected modules (placeholders
-      // have no tabs). renderModule filters emitted tabs to the listed set.
+      // Per-tab selection: renderModule filters emitted tabs to the listed set.
       const moduleTabs: Record<string, string[]> = {};
-      for (const k of selectedKeys) if (BUILT.has(k) && selectedTabs[k]) moduleTabs[k] = selectedTabs[k];
+      for (const k of selectedKeys) if (selectedTabs[k]) moduleTabs[k] = selectedTabs[k];
+      // GROUP-level filter: apply the Inputs / Schedules / Output choice to every
+      // selected module (the top of the filter hierarchy). renderModule ANDs this
+      // part filter with the per-tab selection.
+      const moduleSections: Record<string, { inputs: boolean; outputs: boolean; schedules: boolean }> = {};
+      for (const k of selectedKeys) moduleSections[k] = { ...groupSel };
       const bytes = reportKind === 'summary'
-        ? await generateSummaryPdf({ ...common, selectedModuleKeys: [] })
+        ? await generateSummaryPdf({ ...common, selectedModuleKeys: [], caseComparison })
         : await generateProjectPdf({
             ...common,
             selectedModuleKeys: selectedKeys,
             moduleTabs,
+            moduleSections,
             caseComparison,
           });
       triggerDownload(`${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`, bytes as BlobPart, 'application/pdf');
@@ -336,7 +423,7 @@ export default function ExportModal({
             >
               <span style={{ fontSize: 22 }}>📋</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Full Report</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Full Financial Model</div>
                 <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>All inputs &amp; outputs, module by module, platform-styled</div>
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6 }}>{allows('pdf_export') ? 'Continue' : '🔒 Upgrade'}</span>
@@ -385,7 +472,7 @@ export default function ExportModal({
                 ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Checks). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
                 : reportKind === 'summary'
                   ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
-                  : 'The Cover and Executive Summary pages are always included. Pick the live modules to include, and use Tabs to include to choose specific tabs per module. Modules still in development are listed but cannot be selected until they go live.'}
+                  : 'The Cover and Executive Summary pages are always included. First choose the sections (Inputs / Schedules / Output) to include across the whole model, then pick the live modules, and use Tabs to include for specific tabs per module. The module list mirrors the platform; modules still in development show greyed until they go live.'}
             </div>
             {projectId && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
@@ -458,11 +545,25 @@ export default function ExportModal({
                     <option key={c.id} value={c.id}>{c.role === 'base' ? `${c.name} (base)` : c.name}</option>
                   ))}
                 </select>
-                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>The report renders this case; Module 5 compares all cases.</span>
+                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>The report renders this case; Modules 5 &amp; 6 compare all cases.</span>
+              </div>
+            )}
+            {reportKind === 'full' && (
+              <div data-testid="export-groups" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Sections to include (applies to every module)</div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {([['inputs', 'Inputs'], ['schedules', 'Schedules'], ['outputs', 'Output']] as const).map(([k, label]) => (
+                    <label key={k} data-testid={`export-group-${k}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: groupSel[k] ? 'var(--color-heading)' : 'var(--color-muted)' }}>
+                      <input type="checkbox" checked={groupSel[k]} onChange={() => setGroupSel((g) => ({ ...g, [k]: !g[k] }))} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>Filters what renders in every module first; the per-module and per-tab choices below still apply.</div>
               </div>
             )}
             {reportKind === 'full' && moduleRows.map((m) => {
-              const built = BUILT.has(m.key);
+              const live = m.live;
               const checked = !!selected[m.key];
               const tabs = PDF_MODULE_TABS[m.key] ?? [];
               const tabSel = selectedTabs[m.key] ?? tabs;
@@ -475,27 +576,27 @@ export default function ExportModal({
                     display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 12px', borderRadius: 8,
                     border: '1px solid var(--color-border)',
                     background: checked ? 'var(--color-navy-pale, #F4F7FC)' : 'var(--color-surface)',
-                    opacity: built ? 1 : 0.55,
+                    opacity: live ? 1 : 0.55,
                   }}
                 >
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: built ? 'pointer' : 'not-allowed' }}>
-                    <input type="checkbox" checked={built && checked} disabled={!built} onChange={() => toggle(m.key)} style={{ cursor: built ? 'pointer' : 'not-allowed' }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: live ? 'pointer' : 'not-allowed' }}>
+                    <input type="checkbox" checked={live && checked} disabled={!live} onChange={() => toggle(m)} style={{ cursor: live ? 'pointer' : 'not-allowed' }} />
                     <span style={{ fontSize: 18 }}>{m.icon}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        Module {m.num}, {m.shortLabel}
-                        {!built && (
+                        Module {m.displayNum}, {m.shortLabel}
+                        {!live && (
                           <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '1px 8px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                             Coming soon
                           </span>
                         )}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-                        {built ? m.longLabel : `${m.longLabel} · available to export once live`}
+                        {live ? m.longLabel : `${m.longLabel} · available to export once live`}
                       </div>
                     </div>
                   </label>
-                  {built && checked && tabs.length > 0 && (
+                  {live && checked && tabs.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 30 }}>
                       <button
                         type="button"

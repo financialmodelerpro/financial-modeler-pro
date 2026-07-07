@@ -204,11 +204,11 @@ async function main(): Promise<void> {
   const dec2 = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions', displayDecimals: 2 });
   check('decimals option produces valid PDFs (0 + 2)', (await pageCount(dec0)) >= 15 && (await pageCount(dec2)) >= 15, '');
 
-  // Future-module placeholder: selecting a not-yet-built module (module6) yields
-  // a roadmap page even though it has no builder.
-  const withFuture = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4', 'module6'] });
+  // Future-module placeholder: selecting a not-yet-built module (module7 Reports)
+  // yields a roadmap page even though it has no builder.
+  const withFuture = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4', 'module7'] });
   const withoutFuture = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'] });
-  check('future module renders a placeholder page', (await pageCount(withFuture)) > (await pageCount(withoutFuture)), `with=${await pageCount(withFuture)} without=${await pageCount(withoutFuture)}`);
+  check('future (unbuilt) module renders a placeholder page', (await pageCount(withFuture)) > (await pageCount(withoutFuture)), `with=${await pageCount(withFuture)} without=${await pageCount(withoutFuture)}`);
 
   // Per-tab selection: restricting module4 to a single tab drops content vs all
   // tabs of module4.
@@ -239,6 +239,35 @@ async function main(): Promise<void> {
   const m5NoCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5'] });
   const m5WithCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5'], caseComparison: caseBundle });
   check('Module 5 renders Case Comparison with >1 case', (await pageCount(m5WithCases)) > (await pageCount(m5NoCases)), `with=${await pageCount(m5WithCases)} no=${await pageCount(m5NoCases)}`);
+
+  // Module 6 (Scenarios) is now BUILT (not a placeholder): with a >1 case bundle
+  // it renders scenario comparison + year-on-year impact content; with a single
+  // case it still renders a short "no scenarios" note page (never blank).
+  const m6NoCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module6'] });
+  const m6WithCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module6'], caseComparison: caseBundle });
+  check('Module 6 renders a page even with no scenarios', (await pageCount(m6NoCases)) >= 3, `pages=${await pageCount(m6NoCases)}`);
+  check('Module 6 renders scenario content with >1 case', (await pageCount(m6WithCases)) > (await pageCount(m6NoCases)), `with=${await pageCount(m6WithCases)} no=${await pageCount(m6NoCases)}`);
+
+  // Manifest sync with a case bundle: Module 6's scenario tabs (Comparison /
+  // Year-on-Year) + Module 5's Case Comparison must all appear in the manifest.
+  const emittedWithCases = collectModuleTabs(buildState(), caseBundle);
+  const orphanWithCases: string[] = [];
+  for (const [key, tabs] of Object.entries(emittedWithCases)) {
+    const manifest = PDF_MODULE_TABS[key] ?? [];
+    for (const t of tabs) if (!manifest.includes(t)) orphanWithCases.push(`${key}:${t}`);
+  }
+  check('PDF tab manifest covers every emitted tab (with cases)', orphanWithCases.length === 0, orphanWithCases.join(', '));
+
+  // Executive summary gains the Scenario Summary block (+ Module 5 case matrix)
+  // when a >1 case bundle is supplied, so the case-aware full report is larger.
+  const fullWithCases = await generateProjectPdf({ state: buildState(), projectName: 'Riverside Mixed-Use', versionLabel: 'v1.0', dateLabel: '3 June 2026', selectedModuleKeys: allKeys, caseComparison: caseBundle });
+  check('case bundle enriches full report (exec scenario summary + M5 matrix)', fullWithCases.length > bytes.length, `withCases=${fullWithCases.length} base=${bytes.length}`);
+
+  // The standalone Executive Summary PDF also reflects scenarios: a case bundle
+  // adds the Scenario Summary table, so it is larger than without.
+  const summaryNoCases = await generateSummaryPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] });
+  const summaryWithCases = await generateSummaryPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [], caseComparison: caseBundle });
+  check('summary PDF adds Scenario Summary with cases', summaryWithCases.length > summaryNoCases.length, `withCases=${summaryWithCases.length} no=${summaryNoCases.length}`);
 
   // Data-layer reconciliation: the PDF renders this exact snapshot, so if it
   // balances + the two CF methods tie, the printed numbers match the UI.
