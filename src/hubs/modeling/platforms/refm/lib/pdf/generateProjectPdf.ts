@@ -1469,6 +1469,14 @@ function hasItemData(item: PdfItem): boolean {
 /** Drop genuinely-empty items from a module's content (see hasItemData). */
 function dropEmptyItems(content: ModuleContent): ModuleContent { return content.filter((ti) => hasItemData(ti.item)); }
 
+/** The subset of a module's content that will actually render given the part
+ *  selection (Inputs/Schedules/Outputs) + the per-tab selection. Mirrors the
+ *  filters in renderModule, so the caller can tell whether a module renders
+ *  anything at all (and therefore whether to give it a nav entry). */
+function renderableContent(content: ModuleContent, sel: ModuleSectionSelection, selectedTabs?: string[]): ModuleContent {
+  return content.filter((it) => includePart(sel[it.part]) && (!selectedTabs || selectedTabs.includes(it.tab)));
+}
+
 /** Placeholder page for a module that is on the roadmap but not built yet, so
  *  the exported report covers the whole platform. Lists the planned content from
  *  the registry; fills in with real content automatically once the module ships. */
@@ -1822,7 +1830,10 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else continue;
     if (!content) continue;
     content = dropEmptyItems(content); // suppress genuinely-empty items (header, no body)
-    if (!content.length) continue;
+    // Skip a module ENTIRELY (no section-break / ToC / outline node) when the
+    // Inputs/Schedules/Outputs filter + per-tab selection leave it with nothing to
+    // render, so nav lists only included content with no dangling links.
+    if (!renderableContent(content, sel[m.key] ?? {}, opts.moduleTabs?.[m.key]).length) continue;
     beginModule(m);
     renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
     ctx.nav.current = null;

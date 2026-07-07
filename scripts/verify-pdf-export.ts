@@ -482,6 +482,33 @@ async function main(): Promise<void> {
   const minTabs = collectModuleTabs(minimal);
   check('a tab whose only items are empty is not listed after suppression', Array.isArray(minTabs.module5 ?? []), '');
 
+  // ── Commit 2: filter prunes nav so fully-excluded modules are omitted ──
+  // The expected surviving modules for a given part filter = the modules that
+  // still have at least one included item (computed from collectModuleItems).
+  const expectedModules = (part: 'inputs' | 'outputs' | 'schedules'): Set<string> => {
+    const all = collectModuleItems(buildState(), caseBundle);
+    const survive = new Set<string>();
+    for (const it of all) if (it.part === part && it.hasData) survive.add(it.module);
+    return survive;
+  };
+  const navBreakModules = async (sections: any): Promise<Set<string>> => {
+    const b = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: navKeys, caseComparison: caseBundle, moduleSections: Object.fromEntries(navKeys.map((k) => [k, sections])) });
+    const n = await parseNav(b);
+    return new Set(n.breakPages.keys());
+  };
+  for (const part of ['inputs', 'outputs', 'schedules'] as const) {
+    const sections = { inputs: part === 'inputs', outputs: part === 'outputs', schedules: part === 'schedules' };
+    const brk = await navBreakModules(sections);
+    const exp = expectedModules(part);
+    const same = brk.size === exp.size && [...exp].every((m) => brk.has(m));
+    check(`filter ${part}-only: nav lists exactly the modules with ${part} content`, same, `nav=${[...brk].sort().join(',')} expected=${[...exp].sort().join(',')}`);
+  }
+  // A filtered report has NO dangling nav links and every outline module resolves.
+  const filteredNav = await parseNav(await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: navKeys, caseComparison: caseBundle, moduleSections: Object.fromEntries(navKeys.map((k) => [k, { inputs: true, outputs: false, schedules: false }])) }));
+  check('filter: filtered report has no dangling nav links', filteredNav.danglingLinks === 0, `dangling=${filteredNav.danglingLinks}`);
+  const filteredOutlineMods = (filteredNav.outline ?? []).filter((o) => o.title.startsWith('Module '));
+  check('filter: every outline module in a filtered report resolves to a break page', filteredOutlineMods.length === filteredNav.breakPages.size && filteredOutlineMods.every((o) => o.destIdx != null), `outline=${filteredOutlineMods.length} breaks=${filteredNav.breakPages.size}`);
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }
 }

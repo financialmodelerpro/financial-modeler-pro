@@ -260,6 +260,31 @@ async function main(): Promise<void> {
   let fm = 0; for (const ws of wbM.worksheets) ws.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) fm++; }));
   check('millions-scale workbook is also fully hardcoded', fm === 0, `formulaCells=${fm}`);
 
+  // ── Inputs / Schedules / Outputs filter (mirrors the PDF; hides sheets) ──
+  const hiddenSet = (parts: { inputs?: boolean; outputs?: boolean; schedules?: boolean }): Set<string> => {
+    const wbf = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', parts });
+    const hidden = new Set<string>();
+    wbf.eachSheet((ws) => { if (ws.state === 'hidden') hidden.add(ws.name); });
+    return hidden;
+  };
+  const INPUT_SHEETS = ['Inputs', 'Timeline', 'Land & Area'];
+  const SCHED_SHEETS = ['Capex', 'Financing', 'Revenue', 'Opex', 'Schedules'];
+  const OUTPUT_SHEETS = ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
+  const ALWAYS = ['Cover', 'Checks'];
+  const allOn = hiddenSet({ inputs: true, outputs: true, schedules: true });
+  check('filter: all categories ticked hides nothing', allOn.size === 0, `hidden=${[...allOn].join(',')}`);
+  const outOnly = hiddenSet({ inputs: false, outputs: true, schedules: false });
+  check('filter: outputs-only hides all input + schedule sheets', [...INPUT_SHEETS, ...SCHED_SHEETS].every((s) => outOnly.has(s)), `hidden=${[...outOnly].join(',')}`);
+  check('filter: outputs-only keeps the statement + always sheets visible', [...OUTPUT_SHEETS, ...ALWAYS].every((s) => !outOnly.has(s)), `hidden=${[...outOnly].join(',')}`);
+  const inOnly = hiddenSet({ inputs: true, outputs: false, schedules: false });
+  check('filter: inputs-only hides all schedule + output sheets', [...SCHED_SHEETS, ...OUTPUT_SHEETS].every((s) => inOnly.has(s)), `hidden=${[...inOnly].join(',')}`);
+  check('filter: inputs-only keeps input + always sheets visible', [...INPUT_SHEETS, ...ALWAYS].every((s) => !inOnly.has(s)), `hidden=${[...inOnly].join(',')}`);
+  const noneOn = hiddenSet({ inputs: false, outputs: false, schedules: false });
+  check('filter: Cover + Checks always visible (even with nothing ticked)', ALWAYS.every((s) => !noneOn.has(s)), `hidden=${[...noneOn].join(',')}`);
+  const noFilter = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd' });
+  let anyHidden = false; noFilter.eachSheet((ws) => { if (ws.state === 'hidden') anyHidden = true; });
+  check('filter: omitting parts leaves every sheet visible (backward compatible)', !anyHidden, '');
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
 }

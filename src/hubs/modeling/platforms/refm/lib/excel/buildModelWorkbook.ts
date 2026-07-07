@@ -45,9 +45,55 @@ export interface BuildModelOptions {
   /** Money decimal places (display only). Defaults per scale: 0 for full /
    *  thousands, 1 for millions. Percentages are always 2dp regardless. */
   displayDecimals?: DisplayDecimals;
+  /** Content-type filter, mirroring the PDF export's Inputs / Schedules / Outputs
+   *  checkboxes. A false flag HIDES that category's sheets (the model is
+   *  formula-linked across sheets, so hiding keeps every formula intact while
+   *  showing only the selected categories; omitting sheets would break refs).
+   *  Undefined / omitted = every sheet visible (backward compatible). */
+  parts?: ExcelPartSelection;
 }
 
+export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
+
+// Which content category each sheet belongs to. Cover + Checks are ALWAYS shown
+// (title + validation). Inputs = pure assumptions; Schedules = the domain
+// build-ups + BS feeders; Outputs = the statements + returns. Mirrors the PDF's
+// Inputs / Schedules / Outputs parts.
+type SheetPart = 'inputs' | 'schedules' | 'outputs' | 'always';
+
 const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', checks: 'Checks' };
+
+const SHEET_PART: Record<string, SheetPart> = {
+  [SHEETS.cover]: 'always',
+  [SHEETS.assumptions]: 'inputs',
+  [SHEETS.timeline]: 'inputs',
+  [SHEETS.landArea]: 'inputs',
+  [SHEETS.capex]: 'schedules',
+  [SHEETS.financing]: 'schedules',
+  [SHEETS.revenue]: 'schedules',
+  [SHEETS.opex]: 'schedules',
+  [SHEETS.schedules]: 'schedules',
+  [SHEETS.pl]: 'outputs',
+  [SHEETS.cashflow]: 'outputs',
+  [SHEETS.balsheet]: 'outputs',
+  [SHEETS.returns]: 'outputs',
+  [SHEETS.checks]: 'always',
+};
+
+/** Honor the Inputs / Schedules / Outputs filter by HIDING the sheets of any
+ *  unticked category (formulas stay intact; only visibility changes). No-op when
+ *  parts is undefined. Cover + Checks always stay visible, so Excel always has at
+ *  least one visible sheet. */
+function applyPartVisibility(wb: ExcelJS.Workbook, parts?: ExcelPartSelection): void {
+  if (!parts) return;
+  const on = (p: SheetPart): boolean =>
+    p === 'always' ? true : p === 'inputs' ? parts.inputs !== false : p === 'schedules' ? parts.schedules !== false : parts.outputs !== false;
+  for (const [name, part] of Object.entries(SHEET_PART)) {
+    if (on(part)) continue;
+    const ws = wb.getWorksheet(name);
+    if (ws) ws.state = 'hidden';
+  }
+}
 
 export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // HARDCODED platform mirror: every computed cell is written as the platform
@@ -123,6 +169,8 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
       setLabel(a2, cur ? `${cur}  (${note})` : note);
     }
   }
+  // Apply the Inputs / Schedules / Outputs filter LAST (hide unticked categories).
+  applyPartVisibility(wb, opts.parts);
   return wb;
 }
 

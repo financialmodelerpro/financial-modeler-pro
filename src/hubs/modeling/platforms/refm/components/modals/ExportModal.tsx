@@ -334,7 +334,10 @@ export default function ExportModal({
 
       if (reportKind === 'excel') {
         const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals });
+        // Same Inputs / Schedules / Outputs filter as the PDF: unticked categories
+        // are hidden in the workbook (the model is formula-linked, so hiding keeps
+        // every formula intact while showing only the selected categories).
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel } });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
@@ -548,9 +551,9 @@ export default function ExportModal({
                 <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>The report renders this case; Modules 5 &amp; 6 compare all cases.</span>
               </div>
             )}
-            {reportKind === 'full' && (
+            {(reportKind === 'full' || reportKind === 'excel') && (
               <div data-testid="export-groups" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Sections to include (applies to every module)</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Sections to include</div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   {([['inputs', 'Inputs'], ['schedules', 'Schedules'], ['outputs', 'Output']] as const).map(([k, label]) => (
                     <label key={k} data-testid={`export-group-${k}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: groupSel[k] ? 'var(--color-heading)' : 'var(--color-muted)' }}>
@@ -559,7 +562,11 @@ export default function ExportModal({
                     </label>
                   ))}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>Filters what renders in every module first; the per-module and per-tab choices below still apply.</div>
+                <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>
+                  {reportKind === 'excel'
+                    ? 'Unticked categories are hidden in the workbook (the model stays formula-linked; hidden sheets still feed the calculations).'
+                    : 'Filters what renders in every module first; the per-module and per-tab choices below still apply.'}
+                </div>
               </div>
             )}
             {reportKind === 'full' && moduleRows.map((m) => {
