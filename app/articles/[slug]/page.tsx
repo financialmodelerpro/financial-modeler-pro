@@ -78,63 +78,65 @@ export default async function ArticleDetailPage({ params }: Props) {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* Article Header */}
-      <section style={{ padding: '64px 40px 48px', borderBottom: '1px solid rgba(255,255,255,0.07)', maxWidth: 820, margin: '0 auto' }}>
-        {/* Category */}
-        <div style={{ marginBottom: 20 }}>
-          <span style={{
-            background: 'rgba(27,79,138,0.3)', color: '#4A90D9',
-            fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
-            letterSpacing: '0.05em', textTransform: 'uppercase',
-            border: '1px solid rgba(27,79,138,0.4)',
-          }}>
-            {article.category}
-          </span>
-        </div>
+      {/* Light reading card. The page background + navbar + footer stay as the
+          site chrome; only the article content sits on a light surface so pasted
+          HTML authored for a light page reads with correct contrast. Max-width
+          preserved at 820. */}
+      <div style={{ maxWidth: 820, margin: '0 auto', padding: '40px 20px 8px' }}>
+        <article style={{ background: '#fff', borderRadius: 16, boxShadow: '0 24px 70px -24px rgba(0,0,0,0.55)', overflow: 'hidden' }}>
+          {/* Header */}
+          <div style={{ padding: '44px 48px 28px' }}>
+            <div style={{ marginBottom: 18 }}>
+              <span style={{
+                background: 'rgba(27,79,138,0.08)', color: '#1B4F8A',
+                fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
+                letterSpacing: '0.05em', textTransform: 'uppercase',
+                border: '1px solid rgba(27,79,138,0.18)',
+              }}>
+                {article.category}
+              </span>
+            </div>
 
-        <h1 style={{ fontSize: 'clamp(26px, 4vw, 42px)', fontWeight: 800, color: '#fff', lineHeight: 1.2, marginBottom: 20 }}>
-          {article.title}
-        </h1>
+            <h1 style={{ fontSize: 'clamp(26px, 4vw, 42px)', fontWeight: 800, color: '#0D2E5A', lineHeight: 1.2, marginBottom: 18 }}>
+              {article.title}
+            </h1>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>
-          {date && <span>{date}</span>}
-          <span>·</span>
-          <span>{readTime}</span>
-        </div>
-      </section>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, color: '#64748B', fontSize: 13 }}>
+              {date && <span>{date}</span>}
+              <span>·</span>
+              <span>{readTime}</span>
+            </div>
+          </div>
 
-      {/* Cover Image */}
-      {article.cover_url && (
-        <div style={{ maxWidth: 820, margin: '0 auto', padding: '0 40px' }}>
-          <div style={{ borderRadius: 12, overflow: 'hidden', marginTop: 32, height: 360, background: '#1B3A6B' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* Cover Image */}
+          {article.cover_url && (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={article.cover_url}
               alt={article.title}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              style={{ width: '100%', maxHeight: 440, objectFit: 'cover', display: 'block' }}
             />
-          </div>
+          )}
+
+          {/* Body (dark text on the light card; .article-body defaults + pasted inline styles) */}
+          <div
+            className="article-body"
+            style={{
+              padding: '40px 48px 52px',
+              fontSize: 17,
+              lineHeight: 1.8,
+              color: '#334155',
+            }}
+            dangerouslySetInnerHTML={{ __html: safeBody }}
+          />
+        </article>
+
+        {/* Back link (on the navy chrome, below the card) */}
+        <div style={{ padding: '28px 4px 8px' }}>
+          <Link href="/articles" style={{ fontSize: 13, color: '#9EC3E8', fontWeight: 700, textDecoration: 'none' }}>
+            ← Back to Articles
+          </Link>
         </div>
-      )}
-
-      {/* Body */}
-      <article style={{ maxWidth: 820, margin: '0 auto', padding: '48px 40px 80px' }}>
-        <div
-          className="article-body"
-          style={{
-            fontSize: 16,
-            lineHeight: 1.8,
-            color: 'rgba(255,255,255,0.7)',
-          }}
-          dangerouslySetInnerHTML={{ __html: safeBody }}
-        />
-      </article>
-
-      {/* Back link */}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '32px 40px', maxWidth: 820, margin: '0 auto' }}>
-        <Link href="/articles" style={{ fontSize: 13, color: '#4A90D9', fontWeight: 700, textDecoration: 'none' }}>
-          ← Back to Articles
-        </Link>
       </div>
 
       <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>

@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 
 const CATEGORIES = ['Real Estate', 'Business Valuation', 'FP&A', 'Market Insights', 'Career', 'Case Studies', 'Platform Tutorials'];
 
@@ -26,18 +25,24 @@ export default function AdminArticleNewPage() {
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
+  const [body, setBody] = useState('');
+  const [coverUploading, setCoverUploading] = useState(false);
+  const coverFileRef = useRef<HTMLInputElement>(null);
 
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: '<p>Start writing your article here…</p>',
-    onUpdate: ({ editor }) => {
-      const text = editor.getText();
-      setWordCount(text.split(/\s+/).filter(Boolean).length);
-    },
-  });
+  const notify = useCallback((msg: string, type: 'success' | 'error') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const uploadCover = useCallback(async (file: File) => {
+    setCoverUploading(true);
+    try { setCoverUrl(await uploadMediaImage(file)); notify('Cover image uploaded.', 'success'); }
+    catch (e) { notify(e instanceof Error ? e.message : 'Upload failed', 'error'); }
+    finally { setCoverUploading(false); }
+  }, [notify]);
 
   const handleSave = useCallback(async () => {
-    if (!editor || !title.trim()) {
+    if (!title.trim()) {
       setToast({ msg: 'Title is required', type: 'error' });
       setTimeout(() => setToast(null), 2500);
       return;
@@ -48,7 +53,7 @@ export default function AdminArticleNewPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category, cover_url: coverUrl, body: editor.getHTML(), status, featured, seo_title: seoTitle, seo_description: seoDesc }),
+        body: JSON.stringify({ title, slug: finalSlug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -57,7 +62,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [editor, title, slug, category, coverUrl, status, featured, seoTitle, seoDesc, router]);
+  }, [title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -79,28 +84,19 @@ export default function AdminArticleNewPage() {
                 <input value={slug} onChange={e => setSlug(e.target.value)} style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 5, fontFamily: 'monospace', color: '#374151', background: '#FFFBEB' }} />
               </div>
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Cover Image URL</label>
-                <input value={coverUrl} onChange={e => setCoverUrl(e.target.value)} placeholder="https://…" style={inputStyle} />
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Cover Image (hero)</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={coverUrl} onChange={e => setCoverUrl(e.target.value)} placeholder="https://… or upload" style={inputStyle} />
+                  <button type="button" onClick={() => coverFileRef.current?.click()} disabled={coverUploading} style={{ whiteSpace: 'nowrap', padding: '8px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #D1D5DB', borderRadius: 7, cursor: 'pointer', background: '#fff', color: '#374151', opacity: coverUploading ? 0.6 : 1 }}>
+                    {coverUploading ? 'Uploading…' : '📷 Upload'}
+                  </button>
+                  <input ref={coverFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCover(f); e.target.value = ''; }} />
+                </div>
                 {coverUrl && <img src={coverUrl} alt="Cover preview" style={{ marginTop: 8, maxHeight: 120, borderRadius: 6, objectFit: 'cover', width: '100%' }} />}
               </div>
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 28 }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, borderBottom: '1px solid #E8F0FB', paddingBottom: 10 }}>
-                {[
-                  { label: 'B', cmd: () => editor?.chain().focus().toggleBold().run(), active: () => editor?.isActive('bold') },
-                  { label: 'I', cmd: () => editor?.chain().focus().toggleItalic().run(), active: () => editor?.isActive('italic') },
-                  { label: 'H2', cmd: () => editor?.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor?.isActive('heading', { level: 2 }) },
-                  { label: 'H3', cmd: () => editor?.chain().focus().toggleHeading({ level: 3 }).run(), active: () => editor?.isActive('heading', { level: 3 }) },
-                  { label: '• List', cmd: () => editor?.chain().focus().toggleBulletList().run(), active: () => editor?.isActive('bulletList') },
-                  { label: '1. List', cmd: () => editor?.chain().focus().toggleOrderedList().run(), active: () => editor?.isActive('orderedList') },
-                  { label: 'Quote', cmd: () => editor?.chain().focus().toggleBlockquote().run(), active: () => editor?.isActive('blockquote') },
-                ].map((btn) => (
-                  <button key={btn.label} onClick={btn.cmd} style={{ padding: '4px 10px', fontSize: 12, fontWeight: btn.active?.() ? 700 : 500, border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', background: btn.active?.() ? '#1B4F8A' : '#fff', color: btn.active?.() ? '#fff' : '#374151' }}>{btn.label}</button>
-                ))}
-              </div>
-              <EditorContent editor={editor} style={{ minHeight: 300, fontSize: 14, lineHeight: 1.7, color: '#374151', outline: 'none' }} />
-            </div>
+            <ArticleBodyEditor initialHtml="" onChange={setBody} onWordCount={setWordCount} notify={notify} />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

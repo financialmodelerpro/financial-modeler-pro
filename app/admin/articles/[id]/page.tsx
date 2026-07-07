@@ -3,9 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 
 const CATEGORIES = ['Real Estate', 'Business Valuation', 'FP&A', 'Market Insights', 'Career', 'Case Studies', 'Platform Tutorials'];
 
@@ -29,24 +28,24 @@ export default function AdminArticleEditPage() {
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
+  const [body, setBody] = useState('');
+  const [loadedHtml, setLoadedHtml] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const coverFileRef = useRef<HTMLInputElement>(null);
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [lastAutoSaved, setLastAutoSaved] = useState<string | null>(null);
 
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: '',
-    onUpdate: ({ editor }) => {
-      const text = editor.getText();
-      setWordCount(text.split(/\s+/).filter(Boolean).length);
-    },
-  });
+  const notify = useCallback((msg: string, type: 'success' | 'error') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   useEffect(() => {
     fetch(`/api/admin/articles?id=${id}`)
       .then(r => r.json())
       .then(j => {
         const a = j.article;
-        if (!a) return;
+        if (!a) { setLoading(false); return; }
         setTitle(a.title ?? '');
         setSlug(a.slug ?? '');
         setCategory(a.category ?? 'Real Estate');
@@ -55,24 +54,29 @@ export default function AdminArticleEditPage() {
         setFeatured(a.featured ?? false);
         setSeoTitle(a.seo_title ?? '');
         setSeoDesc(a.seo_description ?? '');
-        if (a.body && editor) {
-          editor.commands.setContent(a.body);
-          const text = editor.getText();
-          setWordCount(text.split(/\s+/).filter(Boolean).length);
-        }
+        const loadedBody = a.body ?? '';
+        setBody(loadedBody);
+        setLoadedHtml(loadedBody);
+        setWordCount(loadedBody.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [id, editor]);
+  }, [id]);
+
+  const uploadCover = useCallback(async (file: File) => {
+    setCoverUploading(true);
+    try { setCoverUrl(await uploadMediaImage(file)); notify('Cover image uploaded.', 'success'); }
+    catch (e) { notify(e instanceof Error ? e.message : 'Upload failed', 'error'); }
+    finally { setCoverUploading(false); }
+  }, [notify]);
 
   const doSave = useCallback(async (showToast = true) => {
-    if (!editor) return;
     setSaving(true);
     try {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category, cover_url: coverUrl, body: editor.getHTML(), status, featured, seo_title: seoTitle, seo_description: seoDesc }),
+        body: JSON.stringify({ id, title, slug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -80,7 +84,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [editor, id, title, slug, category, coverUrl, status, featured, seoTitle, seoDesc]);
+  }, [id, title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -127,28 +131,19 @@ export default function AdminArticleEditPage() {
                 <button onClick={() => setSlug(slugify(title))} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', background: '#fff', color: '#374151' }}>Generate</button>
               </div>
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Cover Image URL</label>
-                <input value={coverUrl} onChange={e => setCoverUrl(e.target.value)} placeholder="https://…" style={inputStyle} />
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Cover Image (hero)</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={coverUrl} onChange={e => setCoverUrl(e.target.value)} placeholder="https://… or upload" style={inputStyle} />
+                  <button type="button" onClick={() => coverFileRef.current?.click()} disabled={coverUploading} style={{ whiteSpace: 'nowrap', padding: '8px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #D1D5DB', borderRadius: 7, cursor: 'pointer', background: '#fff', color: '#374151', opacity: coverUploading ? 0.6 : 1 }}>
+                    {coverUploading ? 'Uploading…' : '📷 Upload'}
+                  </button>
+                  <input ref={coverFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCover(f); e.target.value = ''; }} />
+                </div>
                 {coverUrl && <img src={coverUrl} alt="Cover preview" style={{ marginTop: 8, maxHeight: 120, borderRadius: 6, objectFit: 'cover', width: '100%' }} />}
               </div>
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 28 }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, borderBottom: '1px solid #E8F0FB', paddingBottom: 10 }}>
-                {[
-                  { label: 'B', cmd: () => editor?.chain().focus().toggleBold().run(), active: () => editor?.isActive('bold') },
-                  { label: 'I', cmd: () => editor?.chain().focus().toggleItalic().run(), active: () => editor?.isActive('italic') },
-                  { label: 'H2', cmd: () => editor?.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor?.isActive('heading', { level: 2 }) },
-                  { label: 'H3', cmd: () => editor?.chain().focus().toggleHeading({ level: 3 }).run(), active: () => editor?.isActive('heading', { level: 3 }) },
-                  { label: '• List', cmd: () => editor?.chain().focus().toggleBulletList().run(), active: () => editor?.isActive('bulletList') },
-                  { label: '1. List', cmd: () => editor?.chain().focus().toggleOrderedList().run(), active: () => editor?.isActive('orderedList') },
-                  { label: 'Quote', cmd: () => editor?.chain().focus().toggleBlockquote().run(), active: () => editor?.isActive('blockquote') },
-                ].map((btn) => (
-                  <button key={btn.label} onClick={btn.cmd} style={{ padding: '4px 10px', fontSize: 12, fontWeight: btn.active?.() ? 700 : 500, border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', background: btn.active?.() ? '#1B4F8A' : '#fff', color: btn.active?.() ? '#fff' : '#374151' }}>{btn.label}</button>
-                ))}
-              </div>
-              <EditorContent editor={editor} style={{ minHeight: 300, fontSize: 14, lineHeight: 1.7, color: '#374151', outline: 'none' }} />
-            </div>
+            <ArticleBodyEditor initialHtml={loadedHtml ?? ''} onChange={setBody} onWordCount={setWordCount} notify={notify} />
           </div>
 
           {/* Sidebar */}
