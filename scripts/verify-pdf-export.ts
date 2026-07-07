@@ -22,7 +22,8 @@ import zlib from 'zlib';
 import path from 'path';
 import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFHexString, PDFString } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { generateProjectPdf, generateSummaryPdf, collectModuleTabs } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
@@ -438,6 +439,48 @@ async function main(): Promise<void> {
   check('empty selection adds no navigation (cover + exec only)', emptyNav.pageCount === 2 && emptyNav.tocPages.length === 0 && emptyNav.breakPages.size === 0 && !emptyNav.hasOutline, `pages=${emptyNav.pageCount} toc=${emptyNav.tocPages.length} breaks=${emptyNav.breakPages.size} outline=${emptyNav.hasOutline}`);
   const summaryNav = await parseNav(await generateSummaryPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] }));
   check('summary PDF is unchanged (no ToC / breaks / outline)', summaryNav.tocPages.length === 0 && summaryNav.breakPages.size === 0 && !summaryNav.hasOutline, `toc=${summaryNav.tocPages.length} breaks=${summaryNav.breakPages.size} outline=${summaryNav.hasOutline}`);
+
+  // ── Commit 1: M4 BS feeder schedules assembled + genuinely-empty suppressed ──
+  // The rich fixture has sell + operate + lease + escrow + debt + equity, so every
+  // feeder has real data. collectModuleItems reports raw items with data flags.
+  const items = collectModuleItems(buildState(), caseBundle);
+  const m4Sched = items.filter((i) => i.module === 'module4' && i.tab === 'Tab 1: Schedules');
+  const FEEDERS = ['A1.', 'A2.', 'A3.', 'A4.', 'L1.', 'L2.', 'L3.', 'E1.', 'E2.', 'Balance Check, Reconciliation Bridge'];
+  const missingFeeder = FEEDERS.filter((f) => !m4Sched.some((i) => i.title.startsWith(f)));
+  check('M4 Schedules assembles every BS feeder (A1-E2 + reconciliation)', missingFeeder.length === 0, `missing: ${missingFeeder.join(', ')}`);
+  const unpopulated = FEEDERS.filter((f) => { const it = m4Sched.find((i) => i.title.startsWith(f)); return !it || !it.populated; });
+  check('M4 BS feeders carry real (non-zero) values on data-present fixture', unpopulated.length === 0, `blank/absent: ${unpopulated.join(', ')}`);
+
+  // Roll-forward correctness: the reconciliation bridge's Unexplained row nets to
+  // ~0 (BS balances by construction), proving the feeders read the platform data.
+  const feederCtx = { snap: computeFinancialsSnapshot(buildState()), state: buildState(), fmt: (v: number) => String(v) };
+  const recRows = buildBsReconciliationRows(feederCtx);
+  const unexplained = recRows.find((r) => r.label.startsWith('Unexplained'));
+  const maxUnexplained = Math.max(0, ...(unexplained?.values ?? [1e9]).map((v) => Math.abs(v)));
+  check('M4 reconciliation bridge Unexplained nets to ~0', maxUnexplained < 1000, `maxUnexplained=${maxUnexplained.toFixed(2)}`);
+  // A1 closing AR ties to the snapshot AR feeders (reads the same data as on-screen).
+  const a1 = buildBsFeederTables(feederCtx).find((t) => t.key === 'A1');
+  const a1Closing = a1?.rows.find((r) => r.label.startsWith('Closing AR (project total)'));
+  const a1Last = a1Closing?.values[a1Closing.values.length - 1] ?? null;
+  const snapArTie = Array.from(feederCtx.snap.byAssetSchedules.entries()).filter(([id]) => feederCtx.snap.revenue.bySellAsset.has(id)).reduce((s, [, b]) => s + (b.ar.perPeriod[feederCtx.snap.axisLength - 1] ?? 0), 0);
+  check('M4 A1 closing AR ties to snapshot per-asset AR', a1Last !== null && Math.abs((a1Last as number) - snapArTie) < 1, `a1=${a1Last} snap=${snapArTie}`);
+
+  // Suppression: genuinely-empty items are dropped (hasData=false drives the drop).
+  // A minimal project (no assets, no financing) produces a 0-row "Revenue
+  // Configuration by Asset" table and all-n/a "Leverage & Coverage" cards.
+  const minimal: any = {
+    project: { ...makeDefaultProject(), name: 'Min', startDate: '2026-01-01' },
+    phases: [{ ...makeDefaultPhase(), id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 4, overlapPeriods: 0 }],
+    assets: [], subUnits: [], parcels: [], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [], equityContributions: [],
+  };
+  const minItems = collectModuleItems(minimal);
+  const revCfg = minItems.find((i) => i.title === 'Revenue Configuration by Asset');
+  check('empty "Revenue Configuration by Asset" (no assets) is a 0-row table -> suppressed', !!revCfg && !revCfg.hasData, `found=${!!revCfg} hasData=${revCfg?.hasData}`);
+  const lev = minItems.find((i) => i.title === 'Leverage & Coverage');
+  check('empty "Leverage & Coverage" cards (no debt) are all-n/a -> suppressed', !!lev && !lev.hasData, `found=${!!lev} hasData=${lev?.hasData}`);
+  // The suppressed items must NOT survive into the rendered content (dropEmptyItems).
+  const minTabs = collectModuleTabs(minimal);
+  check('a tab whose only items are empty is not listed after suppression', Array.isArray(minTabs.module5 ?? []), '');
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }

@@ -632,3 +632,281 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
 
   return { rows, balances, maxAbsDiff, priorYear, bsDiffPerPeriod: bsDiff };
 }
+
+// ── Balance-Sheet feeder schedules (shared: on-screen Module4BSFeeders +
+//    Module4BalanceSheet reconciliation + the PDF export all render from here,
+//    so the PDF matches the platform and cannot drift). Pure: no new math, each
+//    builder reads the SAME snapshot feeders the on-screen tab used inline. ──
+
+export interface M4FeederCtx {
+  snap: ProjectFinancialsSnapshot;
+  state: FinancialsResolverState;
+  /** Pre-formats Total / override cells (display formatter). */
+  fmt: (v: number) => string;
+}
+
+export type M4FeederSection = 'ASSETS' | 'LIABILITIES' | 'EQUITY' | 'MEMO';
+export interface M4FeederTable {
+  key: string;
+  section: M4FeederSection;
+  title: string;
+  caption: string;
+  rows: M4Row[];
+}
+
+/** A1. Residential Sales Receivables roll-forward (mirror of M2 Output Block 5). */
+export function buildResidentialReceivablesRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, state, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const opening = zeros(), saleValue = zeros(), cashCollected = zeros(), closing = zeros();
+  const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
+  for (const [assetId, bundle] of sellEntries) {
+    const sell = snap.revenue.bySellAsset.get(assetId)!;
+    for (let t = 0; t < N; t++) {
+      opening[t] += bundle.ar.openingPerPeriod[t] ?? 0;
+      saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+      cashCollected[t] += sell.presalesCashPerPeriod[t] ?? 0;
+      closing[t] += bundle.ar.perPeriod[t] ?? 0;
+    }
+  }
+  const rows: M4Row[] = [];
+  rows.push({ label: 'Opening AR (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+  rows.push({ label: '(+) Pre-Sales Sale Value', values: saleValue, indent: 1 });
+  rows.push({ label: '(−) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 });
+  rows.push({ label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  if (sellEntries.length > 0) {
+    rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
+    for (const [assetId, bundle] of sellEntries) {
+      const asset = state.assets.find((a) => a.id === assetId);
+      rows.push({ label: asset?.name ?? assetId, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
+    }
+    rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  }
+  return rows;
+}
+
+/** A2. Operating Receivables (DSO) roll-forward. */
+export function buildOperatingReceivablesRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const operatingRev = snap.pl.hospitalityRevenuePerPeriod.map((v, i) => v + (snap.pl.retailRevenuePerPeriod[i] ?? 0));
+  const closing = snap.bs.arPerPeriod;
+  const opening = zeros();
+  for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+  const change = closing.map((v, i) => v - (opening[i] ?? 0));
+  const cash = operatingRev.map((v, i) => v - (change[i] ?? 0));
+  return [
+    { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: '(+) Operating revenue billed', values: operatingRev, indent: 1 },
+    { label: '(−) Cash collected', values: cash.map((v) => -v), indent: 1 },
+    { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+  ];
+}
+
+/** A3. Inventory (Residential WIP) roll-forward. */
+export function buildInventoryRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const closing = zeros();
+  for (const cf of snap.perAssetCF.values()) for (let t = 0; t < N; t++) closing[t] += cf.inventoryPerPeriod[t] ?? 0;
+  const opening = zeros();
+  for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+  const cosTotal = snap.pl.cosPerPeriod;
+  const capexCapitalized = zeros();
+  for (let t = 0; t < N; t++) capexCapitalized[t] = (closing[t] - opening[t]) + (cosTotal[t] ?? 0);
+  return [
+    { label: 'Opening inventory', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: '(+) Capex capitalized', values: capexCapitalized, indent: 1 },
+    { label: '(−) Released to Cost of Sales', values: cosTotal.map((v) => -v), indent: 1 },
+    { label: 'Closing inventory', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+  ];
+}
+
+/** A4. Restricted Cash (Escrow) roll-forward. */
+export function buildEscrowFeederRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
+  const opening = zeros();
+  for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
+  return [
+    { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
+    { label: '(−) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
+    { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+  ];
+}
+
+/** L1. Accounts Payable (DPO) roll-forward. */
+export function buildApFeederRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const t = snap.ap.projectTotals;
+  return [
+    { label: 'Opening AP', values: t.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(t.openingApPerPeriod[0] ?? 0), priorValue: 0 },
+    { label: '(+) Opex incurred', values: t.opexIncurredPerPeriod, indent: 1, priorValue: 0 },
+    { label: '(−) Cash paid', values: t.cashPaidPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
+    { label: 'Closing AP', values: t.closingApPerPeriod, isTotal: true, totalOverride: fmt(t.closingApPerPeriod[N - 1] ?? 0), priorValue: 0 },
+  ];
+}
+
+/** L2. Unearned Revenue (off-plan advances) roll-forward. */
+export function buildUnearnedRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, state, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
+  const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
+  for (const [assetId, bundle] of sellEntries) {
+    const sell = snap.revenue.bySellAsset.get(assetId)!;
+    for (let t = 0; t < N; t++) {
+      opening[t] += bundle.unearned.openingPerPeriod[t] ?? 0;
+      saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
+      recognized[t] += sell.presalesRecognitionPerPeriod[t] ?? 0;
+      closing[t] += bundle.unearned.perPeriod[t] ?? 0;
+    }
+  }
+  const rows: M4Row[] = [];
+  rows.push({ label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+  rows.push({ label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 });
+  rows.push({ label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 });
+  rows.push({ label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  if (sellEntries.length > 0) {
+    rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
+    for (const [assetId, bundle] of sellEntries) {
+      const asset = state.assets.find((a) => a.id === assetId);
+      rows.push({ label: asset?.name ?? assetId, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
+    }
+    rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  }
+  return rows;
+}
+
+/** L3. Debt Outstanding by tranche. */
+export function buildDebtOutstandingRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, state, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const rows: M4Row[] = [];
+  const totalOut = zeros();
+  let totalPrior = 0;
+  for (const t of state.financingTranches) {
+    const f = snap.financing.facilities.get(t.id);
+    if (!f) continue;
+    const outRow = f.outstanding.slice(0, N);
+    while (outRow.length < N) outRow.push(0);
+    const facPrior = f.openingBalance ?? 0;
+    rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
+    for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
+    totalPrior += facPrior;
+  }
+  rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
+  return rows;
+}
+
+/** E1. Equity cumulative roll-forward (split by type). */
+export function buildEquityRollForwardRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const cashDraws = snap.financing.equity.cashPerPeriod.slice(0, N);
+  const inKindDraws = snap.financing.equity.inKindPerPeriod.slice(0, N);
+  const existingDrawsRaw = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
+  while (cashDraws.length < N) cashDraws.push(0);
+  while (inKindDraws.length < N) inKindDraws.push(0);
+  while (existingDrawsRaw.length < N) existingDrawsRaw.push(0);
+  const priorExisting = existingDrawsRaw.reduce((s, v) => s + v, 0);
+  const existingAxisZeros = zeros();
+  const priorClosing = priorExisting;
+  const opening = zeros();
+  const closing = zeros();
+  let running = priorClosing;
+  for (let t = 0; t < N; t++) {
+    opening[t] = running;
+    running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0);
+    closing[t] = running;
+  }
+  const rows: M4Row[] = [
+    { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: 0 },
+    { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1, priorValue: 0 },
+    { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1, priorValue: 0 },
+  ];
+  if (Math.abs(priorExisting) > 0.5) {
+    rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: existingAxisZeros, indent: 1, priorValue: priorExisting });
+  }
+  rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorClosing });
+  return rows;
+}
+
+/** E2. Retained Earnings roll-forward. */
+export function buildRetainedEarningsRows(ctx: M4FeederCtx): M4Row[] {
+  const { snap, fmt } = ctx;
+  const N = snap.axisLength;
+  const zeros = (): number[] => new Array<number>(N).fill(0);
+  const pat = snap.pl.patPerPeriod.slice(0, N);
+  const reserveTransfer = snap.bs.statutoryReserveTransferPerPeriod.slice(0, N);
+  const dividends = snap.bs.dividendsPerPeriod.slice(0, N);
+  const closing = snap.bs.retainedEarningsPerPeriod.slice(0, N);
+  while (pat.length < N) pat.push(0);
+  while (reserveTransfer.length < N) reserveTransfer.push(0);
+  while (dividends.length < N) dividends.push(0);
+  while (closing.length < N) closing.push(0);
+  const opening = zeros();
+  for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (closing[t - 1] ?? 0);
+  return [
+    { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: '(+) PAT for the period', values: pat, indent: 1 },
+    { label: '(−) Transfer to statutory reserve', values: reserveTransfer.map((v) => -v), indent: 1 },
+    { label: '(−) Dividends declared', values: dividends.map((v) => -v), indent: 1 },
+    { label: 'Closing retained earnings', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+  ];
+}
+
+/** Balance-check reconciliation bridge (per period). */
+export function buildBsReconciliationRows(ctx: M4FeederCtx): M4Row[] {
+  const r = ctx.snap.bsReconciliation;
+  const neg = (a: number[]): number[] => a.map((v) => -v);
+  return [
+    { label: 'Net cash flow (Direct = Indirect)', values: r.netCashFlowPerPeriod },
+    { label: '(−) Δ Liabilities + Equity', values: [], isSection: true },
+    { label: 'Δ Debt outstanding', values: neg(r.deltaDebtPerPeriod), indent: 1 },
+    { label: 'Δ Share capital', values: neg(r.deltaShareCapitalPerPeriod), indent: 1 },
+    { label: 'Δ Reserve + Retained earnings', values: neg(r.deltaReserveRetainedPerPeriod), indent: 1 },
+    { label: 'Δ Accounts payable', values: neg(r.deltaApPerPeriod), indent: 1 },
+    { label: 'Δ Unearned revenue', values: neg(r.deltaUnearnedPerPeriod), indent: 1 },
+    { label: '(+) Δ Non-cash assets', values: [], isSection: true },
+    { label: 'Δ Restricted cash (escrow)', values: r.deltaEscrowPerPeriod, indent: 1 },
+    { label: 'Δ AR (operating)', values: r.deltaArPerPeriod, indent: 1 },
+    { label: 'Δ Receivables (residential)', values: r.deltaResidentialReceivablesPerPeriod, indent: 1 },
+    { label: 'Δ Inventory', values: r.deltaInventoryPerPeriod, indent: 1 },
+    { label: 'Δ Fixed assets NBV', values: r.deltaNbvPerPeriod, indent: 1 },
+    { label: 'Δ Land', values: r.deltaLandPerPeriod, indent: 1 },
+    { label: 'Δ Capitalised IDC NBV', values: r.deltaIdcNbvPerPeriod, indent: 1 },
+    { label: '= Δ BS difference (this period)', values: r.bsDifferenceChangePerPeriod, isTotal: true },
+    { label: 'Unexplained (must be 0)', values: r.unexplainedPerPeriod, isSubtotal: true },
+    { label: 'BS difference (cumulative)', values: r.bsDifferencePerPeriod, isSubtotal: true },
+  ];
+}
+
+/** All BS feeder schedules in on-screen order (ASSETS -> LIABILITIES -> EQUITY),
+ *  each with its title + caption + rows, so the component and the PDF render the
+ *  exact same set. The reconciliation bridge is returned separately by
+ *  buildBsReconciliationRows (it lives on the Balance Sheet tab, not the feeder
+ *  list). */
+export function buildBsFeederTables(ctx: M4FeederCtx): M4FeederTable[] {
+  return [
+    { key: 'A1', section: 'ASSETS', title: 'A1. Residential Sales Receivables: Roll-Forward (project)', caption: 'Per-asset closing AR (mirror of M2 Revenue Output Block 5) + project total. AR forms ONLY on pre-sales. Opening + Pre-Sales Sale Value − Pre-Sales Cash Collected = Closing AR.', rows: buildResidentialReceivablesRows(ctx) },
+    { key: 'A2', section: 'ASSETS', title: 'A2. Operating Receivables: Roll-Forward (project)', caption: 'DSO-driven for hospitality + lease revenue. Closing AR = Operating revenue × DSO / 365.', rows: buildOperatingReceivablesRows(ctx) },
+    { key: 'A3', section: 'ASSETS', title: 'A3. Inventory (Residential WIP): Roll-Forward (project)', caption: 'Opening + Capex capitalized − Released to CoS = Closing. Floored at 0 once CoS has fully unwound the capex.', rows: buildInventoryRows(ctx) },
+    { key: 'A4', section: 'ASSETS', title: 'A4. Restricted Cash (Escrow): Roll-Forward (project)', caption: 'Opening + Held − Release = Closing. Pre-sales cash held in escrow during construction, released back on each asset\'s Release Year. Restricted CASH (asset).', rows: buildEscrowFeederRows(ctx) },
+    { key: 'L1', section: 'LIABILITIES', title: 'L1. Accounts Payable: Roll-Forward (project)', caption: 'DPO-driven AP. Opening + Opex Incurred − Cash Paid = Closing.', rows: buildApFeederRows(ctx) },
+    { key: 'L2', section: 'LIABILITIES', title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', caption: 'Opening + Pre-sales contracts signed (sale value) − Revenue recognized at handover = Closing.', rows: buildUnearnedRows(ctx) },
+    { key: 'L3', section: 'LIABILITIES', title: 'L3. Debt Outstanding by Tranche (project)', caption: 'Per-tranche outstanding balance. Drawdowns add; principal repayments subtract.', rows: buildDebtOutstandingRows(ctx) },
+    { key: 'E1', section: 'EQUITY', title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', caption: 'Opening + Cash + In-Kind + Existing = Closing. Cash flows through Cash Flow (financing); In-Kind is non-cash; Existing carries pre-axis equity forward at axis start.', rows: buildEquityRollForwardRows(ctx) },
+    { key: 'E2', section: 'EQUITY', title: 'E2. Retained Earnings Roll-Forward (project)', caption: 'Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE.', rows: buildRetainedEarningsRows(ctx) },
+  ];
+}

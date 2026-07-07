@@ -36,7 +36,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FAST_INPUT } from './_shared/inputStyles';
-import { buildBSRows } from '../../lib/reports/m4Reports';
+import { buildBSRows, buildBsReconciliationRows } from '../../lib/reports/m4Reports';
 import { OverrideBadge } from './_shared/OverrideBadge';
 
 export default function Module4BalanceSheet(): React.JSX.Element {
@@ -268,28 +268,8 @@ export default function Module4BalanceSheet(): React.JSX.Element {
        *  Δ(BS diff) = Net CF − Δ(Liab+Equity) + Δ(non-cash Assets). Localizes
        *  which line drives any imbalance (whole-project identity). */}
       {(() => {
-        const r = snap.bsReconciliation;
-        const neg = (a: number[]): number[] => a.map((v) => -v);
-        const recRows: M4Row[] = [
-          { label: 'Net cash flow (Direct = Indirect)', values: r.netCashFlowPerPeriod },
-          { label: '(−) Δ Liabilities + Equity', values: [], isSection: true },
-          { label: 'Δ Debt outstanding', values: neg(r.deltaDebtPerPeriod), indent: 1 },
-          { label: 'Δ Share capital', values: neg(r.deltaShareCapitalPerPeriod), indent: 1 },
-          { label: 'Δ Reserve + Retained earnings', values: neg(r.deltaReserveRetainedPerPeriod), indent: 1 },
-          { label: 'Δ Accounts payable', values: neg(r.deltaApPerPeriod), indent: 1 },
-          { label: 'Δ Unearned revenue', values: neg(r.deltaUnearnedPerPeriod), indent: 1 },
-          { label: '(+) Δ Non-cash assets', values: [], isSection: true },
-          { label: 'Δ Restricted cash (escrow)', values: r.deltaEscrowPerPeriod, indent: 1 },
-          { label: 'Δ AR (operating)', values: r.deltaArPerPeriod, indent: 1 },
-          { label: 'Δ Receivables (residential)', values: r.deltaResidentialReceivablesPerPeriod, indent: 1 },
-          { label: 'Δ Inventory', values: r.deltaInventoryPerPeriod, indent: 1 },
-          { label: 'Δ Fixed assets NBV', values: r.deltaNbvPerPeriod, indent: 1 },
-          { label: 'Δ Land', values: r.deltaLandPerPeriod, indent: 1 },
-          { label: 'Δ Capitalised IDC NBV', values: r.deltaIdcNbvPerPeriod, indent: 1 },
-          { label: '= Δ BS difference (this period)', values: r.bsDifferenceChangePerPeriod, isTotal: true },
-          { label: 'Unexplained (must be 0)', values: r.unexplainedPerPeriod, isSubtotal: true },
-          { label: 'BS difference (cumulative)', values: r.bsDifferencePerPeriod, isSubtotal: true },
-        ];
+        // Rows from the SHARED builder (same source as the PDF export).
+        const recRows: M4Row[] = buildBsReconciliationRows({ snap, state, fmt });
         return (
           <div style={{ marginTop: 'var(--sp-3)' }}>
             <M4PeriodTable

@@ -37,7 +37,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -1164,6 +1164,14 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Accounts payable (closing)', apt.closingApPerPeriod.slice(0, yl.length), 'last'),
     periodRow('Unearned revenue (closing)', bs.unearnedRevenuePerPeriod.slice(0, yl.length), 'last'),
   ])));
+  // Full BS feeder schedules (A1-E2) + the reconciliation bridge, from the SAME
+  // shared builders the on-screen Module 4 Schedules / Balance Sheet tabs use, so
+  // the PDF mirrors the platform (previously these were missing from the PDF).
+  const feederCtx: M4FeederCtx = { snap, state, fmt: fmtFn };
+  for (const f of buildBsFeederTables(feederCtx)) {
+    items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable(f.title, py, yl, f.rows)));
+  }
+  items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows(feederCtx))));
 
   // Tab 2: Fixed Assets.
   for (const [id, r] of fa.byAsset) {
@@ -1446,6 +1454,20 @@ function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYR
 
 // ── Assembly ──────────────────────────────────────────────────────────────────
 function includePart(flag: boolean | undefined): boolean { return flag !== false; }
+
+/** Whether an item has renderable data, so genuinely-empty items (a header with
+ *  no body) are suppressed. Deliberately MINIMAL so it can never mask a mis-wired
+ *  data source: a table is dropped ONLY when it has zero rows, and cards only when
+ *  every value is blank / n/a. A table that has rows but blank cells still renders
+ *  (a mis-wired feeder that returns rows-of-blanks stays VISIBLE, so the bug is
+ *  surfaced, not hidden). Paragraphs always render. */
+function hasItemData(item: PdfItem): boolean {
+  if (item.type === 'table') return item.table.rows.length > 0;
+  if (item.type === 'cards') return item.cards.some((c) => !!c.value && c.value.trim() !== '' && c.value.trim().toLowerCase() !== 'n/a');
+  return true;
+}
+/** Drop genuinely-empty items from a module's content (see hasItemData). */
+function dropEmptyItems(content: ModuleContent): ModuleContent { return content.filter((ti) => hasItemData(ti.item)); }
 
 /** Placeholder page for a module that is on the roadmap but not built yet, so
  *  the exported report covers the whole platform. Lists the planned content from
@@ -1798,7 +1820,9 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py, caseReport) : null;
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
     else continue;
-    if (!content || !content.length) continue;
+    if (!content) continue;
+    content = dropEmptyItems(content); // suppress genuinely-empty items (header, no body)
+    if (!content.length) continue;
     beginModule(m);
     renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
     ctx.nav.current = null;
@@ -1841,7 +1865,9 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
   const py = snap.projectStartYear - 1;
   const distinct = (content: ModuleContent): string[] => {
     const seen: string[] = [];
-    for (const it of content) if (!seen.includes(it.tab)) seen.push(it.tab);
+    // Mirror the report: genuinely-empty items are suppressed, so a tab that has
+    // only empty items is not listed in the picker.
+    for (const it of dropEmptyItems(content)) if (!seen.includes(it.tab)) seen.push(it.tab);
     return seen;
   };
   const out: Record<string, string[]> = {
@@ -1852,6 +1878,49 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
     module6: distinct(buildModule6(caseReport, caseYoY, fmt)),
   };
   if (returns) out.module5 = distinct(buildModule5(returns, state, fmt, py, caseReport));
+  return out;
+}
+
+/** Item-level introspection: every item each module emits with data flags. Pure
+ *  (no document). Used by the verifier to assert that (a) previously-blank items
+ *  now carry data (e.g. the M4 BS feeders populate), and (b) genuinely-empty
+ *  items are suppressed. Returns the RAW items (before suppression) so the caller
+ *  can see which items hasData=false (would be dropped). */
+export interface ModuleItemInfo { module: string; tab: string; part: PartKind; kind: 'table' | 'cards' | 'paragraph'; title: string; hasData: boolean; populated: boolean }
+export function collectModuleItems(state: FinancialsResolverState, caseComparison?: CaseComparisonInput): ModuleItemInfo[] {
+  const snap = computeFinancialsSnapshot(state);
+  let returns: ReturnsSnapshot | null = null;
+  try { returns = computeReturnsSnapshot(snap, state.project); } catch { returns = null; }
+  let caseReport: CaseComparisonReport | null = null;
+  let caseYoY: CaseYoYReport | null = null;
+  if (caseComparison) {
+    try { caseReport = buildCaseComparisonReport(caseComparison); } catch { caseReport = null; }
+    try { caseYoY = buildCaseYoYReport(caseComparison); } catch { caseYoY = null; }
+  }
+  const fmt = makeFmt('millions');
+  const py = snap.projectStartYear - 1;
+  const mods: Record<string, ModuleContent> = {
+    module1: buildModule1(snap, state, fmt, py),
+    module2: buildModule2(snap, state, fmt, py),
+    module3: buildModule3(snap, state, fmt, py),
+    module4: buildModule4(snap, state, fmt, py),
+    module5: returns ? buildModule5(returns, state, fmt, py, caseReport) : [],
+    module6: buildModule6(caseReport, caseYoY, fmt),
+  };
+  // "populated" = a non-zero value exists (a numeric string with a non-zero digit
+  // or a finite non-zero number), so an all-zero table reads as present-but-empty
+  // and a mis-wired feeder (all blank/zero) is caught rather than passing.
+  const numStrHasNonZero = (s: string): boolean => /[1-9]/.test(s);
+  const populatedOf = (item: PdfItem): boolean => {
+    if (item.type === 'table') return item.table.rows.some((r) => r.cells.slice(1).some((c) => (typeof c === 'number' && Number.isFinite(c) && c !== 0) || (typeof c === 'string' && numStrHasNonZero(c))));
+    if (item.type === 'cards') return item.cards.some((c) => !!c.value && c.value.trim().toLowerCase() !== 'n/a' && numStrHasNonZero(c.value));
+    return !!item.text;
+  };
+  const titleOf = (item: PdfItem): string => item.type === 'table' ? item.table.title : item.type === 'cards' ? item.title : (item.title ?? '');
+  const out: ModuleItemInfo[] = [];
+  for (const [module, items] of Object.entries(mods)) {
+    for (const it of items) out.push({ module, tab: it.tab, part: it.part, kind: it.item.type, title: titleOf(it.item), hasData: hasItemData(it.item), populated: populatedOf(it.item) });
+  }
   return out;
 }
 
