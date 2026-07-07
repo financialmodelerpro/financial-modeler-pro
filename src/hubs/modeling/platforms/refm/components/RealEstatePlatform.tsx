@@ -176,7 +176,7 @@ interface SidebarNavItem {
 // ('overview') calls keep working.
 const STATIC_NAV: readonly SidebarNavItem[] = [
   // Projects tab removed (2026-06-16): the Dashboard hub replaces it.
-  { key: 'dashboard', icon: '📊', label: 'Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
+  { key: 'dashboard', icon: '📊', label: 'Portfolio Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
 ];
 
 export const sidebarModules: readonly SidebarNavItem[] = [

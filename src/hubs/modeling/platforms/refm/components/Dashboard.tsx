@@ -115,7 +115,7 @@ export default function Dashboard({
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 'var(--sp-3)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--font-h1)', fontWeight: 700, color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em' }}>Dashboard</h1>
+          <h1 style={{ fontSize: 'var(--font-h1)', fontWeight: 700, color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em' }}>Portfolio Dashboard</h1>
           <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', marginTop: 6, marginBottom: 0 }}>
             Your project portfolio. Open a project to unlock its modules and Overview.
           </p>
