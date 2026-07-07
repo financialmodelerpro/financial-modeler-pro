@@ -21,6 +21,7 @@ import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/mod
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import { buildExcelSampleState } from './excelSampleState';
+import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -284,6 +285,10 @@ async function main(): Promise<void> {
   const noFilter = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd' });
   let anyHidden = false; noFilter.eachSheet((ws) => { if (ws.state === 'hidden') anyHidden = true; });
   check('filter: omitting parts leaves every sheet visible (backward compatible)', !anyHidden, '');
+
+  // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
+  check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
+  check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }

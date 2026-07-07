@@ -267,6 +267,13 @@ export default function ExportModal({
 
   const handleGenerate = async (): Promise<void> => {
     setError(null);
+    // No active project: block export (a fresh export would render the empty /
+    // default store state into a numberless file). The Export control is also
+    // disabled upstream; this is the defense-in-depth check.
+    if (!projectId && !useModule1Store.getState().project?.name) {
+      setError('Open a project to export.');
+      return;
+    }
     // Read-only grace: export is denied entirely (the file is built client-side,
     // so this is the genuine enforcement point; the export API routes also guard).
     if (readOnly) {

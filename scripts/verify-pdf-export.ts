@@ -24,6 +24,7 @@ import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFHexString, PDFStrin
 import fontkit from '@pdf-lib/fontkit';
 import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
+import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
@@ -508,6 +509,10 @@ async function main(): Promise<void> {
   check('filter: filtered report has no dangling nav links', filteredNav.danglingLinks === 0, `dangling=${filteredNav.danglingLinks}`);
   const filteredOutlineMods = (filteredNav.outline ?? []).filter((o) => o.title.startsWith('Module '));
   check('filter: every outline module in a filtered report resolves to a break page', filteredOutlineMods.length === filteredNav.breakPages.size && filteredOutlineMods.every((o) => o.destIdx != null), `outline=${filteredOutlineMods.length} breaks=${filteredNav.breakPages.size}`);
+
+  // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
+  check('no-project guard: empty / missing project blocks export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({ projectName: '   ' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
+  check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }

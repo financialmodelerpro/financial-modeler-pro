@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildWorkbook, type ExportPayload } from '@modeling/lib/exporters/excel';
-import { assertExportAllowed } from '@/src/shared/entitlements/exportGuard';
+import { assertExportAllowed, payloadHasActiveProject } from '@/src/shared/entitlements/exportGuard';
 
 /**
  * REFM Module 1 Excel export.
@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
   const denied = await assertExportAllowed();
   if (denied) return denied;
   const payload: ExportPayload = await req.json();
+  // No active project: never emit an empty, numberless file.
+  if (!payloadHasActiveProject(payload)) {
+    return NextResponse.json({ error: 'No active project. Open a project before exporting.' }, { status: 400 });
+  }
   const wb = buildWorkbook(payload);
   const buf = await wb.xlsx.writeBuffer();
   return new NextResponse(buf, {

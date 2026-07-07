@@ -1234,7 +1234,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
         onOpenProjects={() => setProjectModalOpen(true)}
         onOpenVersions={() => setVersionModalOpen(true)}
         onOpenRbac={() => setRbacModalOpen(true)}
-        onExportClick={() => { if (graceReadOnly) return; setExportModalOpen(true); }}
+        onExportClick={() => { if (graceReadOnly || !activeProjectId) return; setExportModalOpen(true); }}
+        exportDisabled={!activeProjectId}
         onGuideClick={() => setGuideOpen(true)}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode((v) => !v)}

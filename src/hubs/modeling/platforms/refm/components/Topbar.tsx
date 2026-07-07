@@ -50,6 +50,9 @@ interface TopbarProps {
   onOpenVersions: () => void;
   onOpenRbac: () => void;
   onExportClick?: () => void;
+  /** Disable the Export control when no project / active model is open (a fresh
+   *  export would produce an empty, numberless file). Shows a tooltip instead. */
+  exportDisabled?: boolean;
   onGuideClick?: () => void;
   darkMode: boolean;
   onToggleDark: () => void;
@@ -162,6 +165,7 @@ export default function Topbar({
   onOpenVersions,
   onOpenRbac,
   onExportClick,
+  exportDisabled = false,
   onGuideClick,
   darkMode,
   onToggleDark,
@@ -381,8 +385,13 @@ export default function Topbar({
       {can('canExport') && (
         <button
           className="pm-btn export-excel"
-          title={'EXPORT\n\nDownload the current model as Excel or PDF. Uses the active version data; save first if you want the export to match a specific snapshot.'}
-          onClick={onExportClick}
+          title={exportDisabled
+            ? 'Open a project to export'
+            : 'EXPORT\n\nDownload the current model as Excel or PDF. Uses the active version data; save first if you want the export to match a specific snapshot.'}
+          onClick={exportDisabled ? undefined : onExportClick}
+          disabled={exportDisabled}
+          aria-disabled={exportDisabled}
+          style={exportDisabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
           data-testid="topbar-open-export"
         >
           Export

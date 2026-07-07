@@ -56,3 +56,14 @@ export async function assertExportAllowed(): Promise<NextResponse | null> {
     return null;
   }
 }
+
+/**
+ * Whether an export payload carries an active project. A "no project open" export
+ * would render the empty / default state into a numberless file, so the routes
+ * reject when this is false. Pure + defensive: any payload without a non-blank
+ * projectName is treated as having no active project.
+ */
+export function payloadHasActiveProject(payload: unknown): boolean {
+  const p = payload as { projectName?: unknown } | null;
+  return !!p && typeof p.projectName === 'string' && p.projectName.trim() !== '';
+}
