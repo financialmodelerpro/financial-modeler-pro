@@ -22,6 +22,24 @@ function stripAdditive(obj: Record<string, unknown>): Record<string, unknown> {
   return clone;
 }
 
+/** Names for the given category ids, in the given order (for the deprecated primary text column). */
+async function resolveCategoryNames(sb: ReturnType<typeof getServerClient>, ids: string[]): Promise<string[]> {
+  if (!ids.length) return [];
+  const { data } = await sb.from('categories').select('id,name').in('id', ids);
+  const byId = new Map((data ?? []).map((c: { id: string; name: string }) => [c.id, c.name]));
+  return ids.map((id) => byId.get(id)).filter((n): n is string => !!n);
+}
+
+/** Replace an article's junction rows with the given category ids. Best-effort (never breaks the save). */
+async function syncArticleCategories(sb: ReturnType<typeof getServerClient>, articleId: string, ids: string[]): Promise<void> {
+  try {
+    await sb.from('article_categories').delete().eq('article_id', articleId);
+    if (ids.length) {
+      await sb.from('article_categories').insert(ids.map((cid) => ({ article_id: articleId, category_id: cid })));
+    }
+  } catch { /* junction is additive; a failure must not break the article save */ }
+}
+
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as any).role !== 'admin') return false;
@@ -33,8 +51,14 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id');
   const sb = getServerClient();
   if (id) {
-    const { data } = await sb.from('articles').select('*').eq('id', id).single();
-    return NextResponse.json({ article: data });
+    let { data, error } = await sb.from('articles').select('*, article_categories(category_id)').eq('id', id).single();
+    if (error) ({ data } = await sb.from('articles').select('*').eq('id', id).single()); // fallback pre-junction
+    let article = data as (Record<string, unknown> & { article_categories?: Array<{ category_id: string }> }) | null;
+    if (article) {
+      const { article_categories, ...rest } = article;
+      article = { ...rest, category_ids: Array.isArray(article_categories) ? article_categories.map((r) => r.category_id) : [] } as any;
+    }
+    return NextResponse.json({ article });
   }
   const { data } = await sb.from('articles').select('*').order('created_at', { ascending: false });
   return NextResponse.json({ articles: data ?? [] });
@@ -44,11 +68,14 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     const sb = getServerClient();
     const session = await getServerSession(authOptions);
-    const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: category ?? 'General', status: status ?? 'draft', featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
+    // Dual-write: keep the deprecated primary `category` text = first selected category.
+    const ids: string[] = Array.isArray(category_ids) ? category_ids : [];
+    const primaryName = ids.length ? (await resolveCategoryNames(sb, ids))[0] : undefined;
+    const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: primaryName ?? category ?? 'General', status: status ?? 'draft', featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
     if (cover_url) insert.cover_url = cover_url;
     if (mid_image_url !== undefined) insert.mid_image_url = mid_image_url || null;
     if (mid_image_caption !== undefined) insert.mid_image_caption = mid_image_caption || null;
@@ -60,6 +87,7 @@ export async function POST(req: NextRequest) {
       ({ data, error } = await sb.from('articles').insert(stripAdditive(insert)).select().single());
     }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (data && category_ids !== undefined) await syncArticleCategories(sb, data.id, ids);
     if (data && status === 'published') {
       void sendAutoNewsletter('article_published', data.id, {
         title: data.title, description: data.seo_description ?? '', url: `${MAIN_URL}/articles/${data.slug}`,
@@ -80,13 +108,18 @@ export async function PATCH(req: NextRequest) {
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
-    if (fields.status === 'published' && !fields.published_at) update.published_at = new Date().toISOString();
     const sb = getServerClient();
+    // Dual-write: junction is the source of truth; keep primary `category` text in sync.
+    const hasCategoryIds = Array.isArray(fields.category_ids);
+    const ids: string[] = hasCategoryIds ? fields.category_ids : [];
+    if (hasCategoryIds && ids.length) update.category = (await resolveCategoryNames(sb, ids))[0] ?? update.category;
+    if (fields.status === 'published' && !fields.published_at) update.published_at = new Date().toISOString();
     let { error } = await sb.from('articles').update(update).eq('id', id);
     if (error && isMissingColumnError(error)) {
       ({ error } = await sb.from('articles').update(stripAdditive(update)).eq('id', id));
     }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (hasCategoryIds) await syncArticleCategories(sb, id, ids);
     if (fields.status === 'published') {
       const { data: art } = await sb.from('articles').select('id, title, slug, seo_description').eq('id', id).single();
       if (art) {

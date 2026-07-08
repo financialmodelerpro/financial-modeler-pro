@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt } from '@/src/shared/cms';
+import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt, articleCategoryNames } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { AuthorByline } from '@/src/hubs/main/components/landing/AuthorByline';
@@ -38,7 +38,7 @@ export default async function ArticlesPage() {
   // Featured article
   const featured = articles.find(a => a.featured);
   const nonFeatured = featured ? articles.filter(a => a.id !== featured.id) : articles;
-  const categories = [...new Set(articles.map(a => a.category).filter(Boolean))];
+  const categories = [...new Set(articles.flatMap(articleCategoryNames).filter(Boolean))];
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>

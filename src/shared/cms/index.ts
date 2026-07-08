@@ -12,7 +12,9 @@ export interface Module    { id: string; name: string; slug: string; description
 export interface AssetType { id: string; module_id: string; name: string; description: string; icon: string; visible: boolean; display_order: number }
 export interface Article   { id: string; title: string; slug: string; body: string; cover_url: string | null; category: string; status: string; featured: boolean; published_at: string | null; seo_title: string | null; seo_description: string | null; author_id: string | null; created_at: string; updated_at: string;
   // Additive (migration 187, schema-tolerant): present only after the migration is applied.
-  mid_image_url?: string | null; mid_image_caption?: string | null; og_image_url?: string | null; tags?: string[] | null }
+  mid_image_url?: string | null; mid_image_caption?: string | null; og_image_url?: string | null; tags?: string[] | null;
+  // Junction-backed categories (Phase 2), flattened from article_categories. Empty when none assigned.
+  categories?: { id: string; name: string; slug: string }[] }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
 // ── CMS Content helpers ────────────────────────────────────────────────────────
@@ -77,17 +79,39 @@ export async function getAssetTypes(moduleId?: string): Promise<AssetType[]> {
 
 // ── Articles ──────────────────────────────────────────────────────────────────
 
+// Junction-embed select (migration 187). Flattened by normalizeArticleCategories.
+const ARTICLE_WITH_CATEGORIES = '*, article_categories(categories(id,name,slug))';
+
+/** Flatten the embedded article_categories -> categories into Article.categories. */
+function normalizeArticleCategories<T extends Record<string, unknown>>(row: T): Article {
+  const raw = (row as { article_categories?: Array<{ categories?: { id: string; name: string; slug: string } | null }> }).article_categories;
+  const categories = Array.isArray(raw)
+    ? raw.map((r) => r.categories).filter((c): c is { id: string; name: string; slug: string } => !!c)
+    : [];
+  const { article_categories, ...rest } = row as Record<string, unknown>;
+  return { ...(rest as unknown as Article), categories };
+}
+
+/**
+ * Dual-read: an article's category names come from the junction when present,
+ * otherwise from the deprecated single `category` text column (kept for back-compat).
+ */
+export function articleCategoryNames(a: Article): string[] {
+  if (a.categories && a.categories.length) return a.categories.map((c) => c.name);
+  return a.category ? [a.category] : [];
+}
+
 export async function getPublishedArticles(limit?: number): Promise<Article[]> {
   try {
     const sb = getServerClient();
-    let q = sb
-      .from('articles')
-      .select('*')
-      .eq('status', 'published')
-      .order('published_at', { ascending: false });
-    if (limit) q = q.limit(limit);
-    const { data } = await q;
-    return (data as Article[]) ?? [];
+    const build = (sel: string) => {
+      let q = sb.from('articles').select(sel).eq('status', 'published').order('published_at', { ascending: false });
+      if (limit) q = q.limit(limit);
+      return q;
+    };
+    let { data, error } = await build(ARTICLE_WITH_CATEGORIES);
+    if (error) ({ data } = await build('*')); // fallback if junction not yet present
+    return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => normalizeArticleCategories(r));
   } catch {
     return [];
   }
@@ -96,13 +120,10 @@ export async function getPublishedArticles(limit?: number): Promise<Article[]> {
 export async function getArticleBySlug(slug: string): Promise<Article | null> {
   try {
     const sb = getServerClient();
-    const { data } = await sb
-      .from('articles')
-      .select('*')
-      .eq('slug', slug)
-      .eq('status', 'published')
-      .single();
-    return data as Article | null;
+    const build = (sel: string) => sb.from('articles').select(sel).eq('slug', slug).eq('status', 'published').single();
+    let { data, error } = await build(ARTICLE_WITH_CATEGORIES);
+    if (error) ({ data } = await build('*')); // fallback if junction not yet present
+    return data ? normalizeArticleCategories(data as unknown as Record<string, unknown>) : null;
   } catch {
     return null;
   }

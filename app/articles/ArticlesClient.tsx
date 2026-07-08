@@ -9,9 +9,15 @@ interface Props {
   categories: string[];
 }
 
+/** Dual-read category names: junction when present, else the deprecated text column. */
+function catNames(a: Article): string[] {
+  if (a.categories && a.categories.length) return a.categories.map(c => c.name);
+  return a.category ? [a.category] : [];
+}
+
 export function ArticlesGrid({ articles, categories }: Props) {
   const [active, setActive] = useState('All');
-  const filtered = active === 'All' ? articles : articles.filter(a => a.category === active);
+  const filtered = active === 'All' ? articles : articles.filter(a => catNames(a).includes(active));
 
   return (
     <>

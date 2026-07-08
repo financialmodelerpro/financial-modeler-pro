@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getArticleBySlug, estimateReadTime, renderBodyWithMidImage } from '@/src/shared/cms';
+import { getArticleBySlug, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
@@ -91,15 +91,17 @@ export default async function ArticleDetailPage({ params }: Props) {
         <article style={{ background: '#fff', borderRadius: 16, boxShadow: '0 24px 70px -24px rgba(0,0,0,0.55)', overflow: 'hidden' }}>
           {/* Header */}
           <div style={{ padding: '44px 48px 28px' }}>
-            <div style={{ marginBottom: 18 }}>
-              <span style={{
-                background: 'rgba(27,79,138,0.08)', color: '#1B4F8A',
-                fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
-                letterSpacing: '0.05em', textTransform: 'uppercase',
-                border: '1px solid rgba(27,79,138,0.18)',
-              }}>
-                {article.category}
-              </span>
+            <div style={{ marginBottom: 18, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {articleCategoryNames(article).map((name) => (
+                <span key={name} style={{
+                  background: 'rgba(27,79,138,0.08)', color: '#1B4F8A',
+                  fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
+                  letterSpacing: '0.05em', textTransform: 'uppercase',
+                  border: '1px solid rgba(27,79,138,0.18)',
+                }}>
+                  {name}
+                </span>
+              ))}
             </div>
 
             <h1 style={{ fontSize: 'clamp(26px, 4vw, 42px)', fontWeight: 800, color: '#0D2E5A', lineHeight: 1.2, marginBottom: 18 }}>

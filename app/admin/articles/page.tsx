@@ -29,9 +29,14 @@ export default async function AdminArticlesPage() {
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Articles</h1>
             <p style={{ fontSize: 13, color: '#6B7280' }}>{articles.length} articles total</p>
           </div>
-          <Link href="/admin/articles/new" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
-            + New Article
-          </Link>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <Link href="/admin/articles/categories" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: '#1B4F8A', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none', border: '1px solid #C9DAF0' }}>
+              Manage Categories
+            </Link>
+            <Link href="/admin/articles/new" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
+              + New Article
+            </Link>
+          </div>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden' }}>

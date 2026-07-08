@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
-import { CategoryCombobox } from '@/src/components/admin/CategoryCombobox';
+import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 
 function slugify(str: string) {
@@ -21,7 +21,8 @@ export default function AdminArticleEditPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
-  const [category, setCategory] = useState('Real Estate');
+  const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
   const [featured, setFeatured] = useState(false);
@@ -41,6 +42,17 @@ export default function AdminArticleEditPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  // Slug-uniqueness pre-check (debounced; ignores this article's own slug).
+  useEffect(() => {
+    const s = slug.trim();
+    if (!s) { setSlugAvailable(null); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/admin/articles/slug-check?slug=${encodeURIComponent(s)}&excludeId=${encodeURIComponent(id)}`)
+        .then(r => r.json()).then(j => setSlugAvailable(!!j.available)).catch(() => setSlugAvailable(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [slug, id]);
+
   useEffect(() => {
     fetch(`/api/admin/articles?id=${id}`)
       .then(r => r.json())
@@ -49,7 +61,7 @@ export default function AdminArticleEditPage() {
         if (!a) { setLoading(false); return; }
         setTitle(a.title ?? '');
         setSlug(a.slug ?? '');
-        setCategory(a.category ?? 'Real Estate');
+        setCategoryIds(Array.isArray(a.category_ids) ? a.category_ids : []);
         setCoverUrl(a.cover_url ?? '');
         setStatus(a.status ?? 'draft');
         setFeatured(a.featured ?? false);
@@ -83,7 +95,7 @@ export default function AdminArticleEditPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -91,7 +103,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, extra]);
+  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -134,7 +146,10 @@ export default function AdminArticleEditPage() {
               <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Article title…" style={{ width: '100%', fontSize: 24, fontWeight: 800, color: '#1B3A6B', border: 'none', outline: 'none', marginBottom: 12, fontFamily: 'Inter, sans-serif', boxSizing: 'border-box', background: 'transparent' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                 <span style={{ fontSize: 12, color: '#6B7280' }}>Slug:</span>
-                <input value={slug} onChange={e => setSlug(e.target.value)} style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 5, fontFamily: 'monospace', color: '#374151', background: '#FFFBEB' }} />
+                <input value={slug} onChange={e => setSlug(e.target.value)} style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: `1px solid ${slugAvailable === false ? '#DC2626' : '#E5E7EB'}`, borderRadius: 5, fontFamily: 'monospace', color: '#374151', background: '#FFFBEB' }} />
+                {slug.trim() && slugAvailable !== null && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: slugAvailable ? '#1A7A30' : '#DC2626', whiteSpace: 'nowrap' }}>{slugAvailable ? '✓' : '✗ taken'}</span>
+                )}
                 <button onClick={() => setSlug(slugify(title))} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', background: '#fff', color: '#374151' }}>Generate</button>
               </div>
               <div style={{ marginBottom: 20 }}>
@@ -166,8 +181,11 @@ export default function AdminArticleEditPage() {
                 </select>
               </div>
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Category</label>
-                <CategoryCombobox value={category} onChange={setCategory} inputStyle={inputStyle} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Categories</label>
+                  <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
+                </div>
+                <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />

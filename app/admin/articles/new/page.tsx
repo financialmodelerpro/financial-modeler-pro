@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
-import { CategoryCombobox } from '@/src/components/admin/CategoryCombobox';
+import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 
 function slugify(str: string) {
@@ -18,7 +18,8 @@ export default function AdminArticleNewPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
-  const [category, setCategory] = useState('Real Estate');
+  const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [featured, setFeatured] = useState(false);
@@ -34,6 +35,17 @@ export default function AdminArticleNewPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // Slug-uniqueness pre-check (debounced).
+  useEffect(() => {
+    const s = slug.trim();
+    if (!s) { setSlugAvailable(null); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/admin/articles/slug-check?slug=${encodeURIComponent(s)}`)
+        .then(r => r.json()).then(j => setSlugAvailable(!!j.available)).catch(() => setSlugAvailable(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [slug]);
 
   const uploadCover = useCallback(async (file: File) => {
     setCoverUploading(true);
@@ -54,7 +66,7 @@ export default function AdminArticleNewPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
+        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -63,7 +75,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, extra, router]);
+  }, [title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -82,7 +94,12 @@ export default function AdminArticleNewPage() {
               <input value={title} onChange={e => { setTitle(e.target.value); if (!slug) setSlug(slugify(e.target.value)); }} placeholder="Article title…" style={{ width: '100%', fontSize: 24, fontWeight: 800, color: '#1B3A6B', border: 'none', outline: 'none', marginBottom: 12, fontFamily: 'Inter, sans-serif', boxSizing: 'border-box', background: 'transparent' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                 <span style={{ fontSize: 12, color: '#6B7280' }}>Slug:</span>
-                <input value={slug} onChange={e => setSlug(e.target.value)} style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 5, fontFamily: 'monospace', color: '#374151', background: '#FFFBEB' }} />
+                <input value={slug} onChange={e => setSlug(e.target.value)} style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: `1px solid ${slugAvailable === false ? '#DC2626' : '#E5E7EB'}`, borderRadius: 5, fontFamily: 'monospace', color: '#374151', background: '#FFFBEB' }} />
+                {slug.trim() && slugAvailable !== null && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: slugAvailable ? '#1A7A30' : '#DC2626', whiteSpace: 'nowrap' }}>
+                    {slugAvailable ? '✓ available' : '✗ taken'}
+                  </span>
+                )}
               </div>
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Cover Image (hero)</label>
@@ -111,8 +128,11 @@ export default function AdminArticleNewPage() {
                 </select>
               </div>
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Category</label>
-                <CategoryCombobox value={category} onChange={setCategory} inputStyle={inputStyle} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase' }}>Categories</label>
+                  <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
+                </div>
+                <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
