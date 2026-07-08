@@ -277,7 +277,8 @@ export function articleExcerpt(body: string | null | undefined, maxLen = 180): s
     if (next === s) break;
     s = next;
   }
-  s = s.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  // Drop template markers like {{MID_IMAGE}} so they never leak into a preview.
+  s = s.replace(/\{\{[^}]*\}\}/g, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   if (s.length <= maxLen) return s;
   const cut = s.slice(0, maxLen);
   const lastSpace = cut.lastIndexOf(' ');
