@@ -1296,7 +1296,8 @@ body[data-refm-theme="dark"] .app-shell {
 .article-body th { background: #F4F7FC; font-weight: 700; }
 .article-body hr { border: none; border-top: 1px solid #E2E8F0; margin: 2em 0; }
 .article-body figure { margin: 1.6em 0; }
-.article-body figcaption { font-size: 0.85em; color: #64748B; text-align: center; margin-top: 0.5em; }
+.article-body figure img { margin: 0 auto; }
+.article-body figcaption { font-size: 0.85em; color: #64748B; text-align: center; margin-top: 0.6em; font-style: italic; }
 .article-body code { background: #F1F5F9; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
 .article-body pre { background: #0D2E5A; color: #E2E8F0; padding: 16px; border-radius: 8px; overflow-x: auto; }
 .article-body pre code { background: transparent; padding: 0; color: inherit; }

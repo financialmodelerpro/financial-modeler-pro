@@ -108,14 +108,18 @@ export default async function ArticleDetailPage({ params }: Props) {
             </div>
           </div>
 
-          {/* Cover Image */}
+          {/* Cover Image (the hero, rendered exactly once; body images are separate).
+              Inset + rounded to match the article design; full width of the content
+              column, responsive (never overflows on mobile via box-sizing). */}
           {article.cover_url && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={article.cover_url}
-              alt={article.title}
-              style={{ width: '100%', maxHeight: 440, objectFit: 'cover', display: 'block' }}
-            />
+            <div style={{ padding: '0 48px', boxSizing: 'border-box', maxWidth: '100%' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={article.cover_url}
+                alt={article.title}
+                style={{ width: '100%', maxHeight: 440, objectFit: 'cover', display: 'block', borderRadius: 14 }}
+              />
+            </div>
           )}
 
           {/* Body (dark text on the light card; .article-body defaults + pasted inline styles) */}

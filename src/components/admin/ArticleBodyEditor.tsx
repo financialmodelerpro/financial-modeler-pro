@@ -14,9 +14,10 @@
  *
  * The parent owns the `body` string (via onChange) and saves it; this component
  * never talks to the save API. An "Upload image" control reuses the existing
- * admin media endpoint (/api/admin/media -> cms-assets bucket) and, in HTML mode,
- * inserts an <img> tag at the cursor; in rich mode it copies the URL (StarterKit
- * has no image node). Admin-gated by the media route itself.
+ * admin media endpoint (/api/admin/media -> cms-assets bucket) and returns a
+ * stored public URL (never base64, never a placeholder). In HTML mode it inserts
+ * a clean <figure> with an editable <figcaption> at the cursor; in rich mode it
+ * inserts a real image node (the Image extension). Admin-gated by the media route.
  *
  * No em dashes in this file.
  */
@@ -24,6 +25,7 @@
 import { useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Image from '@tiptap/extension-image';
 
 /** Upload an image to the shared admin media endpoint; returns its public URL. */
 export async function uploadMediaImage(file: File): Promise<string> {
@@ -57,7 +59,7 @@ export function ArticleBodyEditor({ initialHtml, onChange, onWordCount, notify }
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit, Image],
     content: initialHtml || '<p></p>',
     onUpdate: ({ editor }) => {
       // Fires only on rich-text edits; emit the rich HTML as the body.
@@ -102,13 +104,19 @@ export function ArticleBodyEditor({ initialHtml, onChange, onWordCount, notify }
     setUploading(true);
     try {
       const url = await uploadMediaImage(file);
-      const tag = `<img src="${url}" alt="" style="max-width:100%;height:auto;" />`;
       if (mode === 'html') {
-        insertAtCursor(tag);
-        notify?.('Image uploaded and inserted into the HTML.', 'success');
+        // Insert a clean, captionable figure. No inline styles: the public page's
+        // .article-body figure/img/figcaption rules center it, size it responsively
+        // (max-width:100%), round it, and italicize the caption. The author edits
+        // the caption text (or deletes the figcaption line to drop the caption).
+        const figure = `\n<figure>\n  <img src="${url}" alt="" />\n  <figcaption>Add a caption…</figcaption>\n</figure>\n`;
+        insertAtCursor(figure);
+        notify?.('Image inserted as a figure. Edit the caption text (or remove the figcaption line).', 'success');
       } else {
-        try { await navigator.clipboard.writeText(url); } catch { /* clipboard may be unavailable */ }
-        notify?.('Image uploaded, URL copied. Switch to HTML source to place it, or paste it as the cover.', 'success');
+        // Rich mode: insert a real image node at the cursor. Captions are authored
+        // in HTML source (StarterKit has no figure/caption node).
+        editor?.chain().focus().setImage({ src: url, alt: '' }).run();
+        notify?.('Image inserted. Switch to HTML source to add a caption.', 'success');
       }
     } catch (e) {
       notify?.(e instanceof Error ? e.message : 'Upload failed', 'error');
