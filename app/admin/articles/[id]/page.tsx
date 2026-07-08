@@ -31,6 +31,7 @@ export default function AdminArticleEditPage() {
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
   const [featured, setFeatured] = useState(false);
+  const [heroBeforeContent, setHeroBeforeContent] = useState(false);
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
@@ -73,6 +74,7 @@ export default function AdminArticleEditPage() {
         setCoverUrl(a.cover_url ?? '');
         setStatus(a.status ?? 'draft');
         setFeatured(a.featured ?? false);
+        setHeroBeforeContent(a.hero_before_content === true);
         setSeoTitle(a.seo_title ?? '');
         setSeoDesc(a.seo_description ?? '');
         setExtra({
@@ -115,7 +117,7 @@ export default function AdminArticleEditPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -123,7 +125,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, writerId, writerName, writerTitle]);
+  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -211,9 +213,13 @@ export default function AdminArticleEditPage() {
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Writer</label>
                 <ArticleWriterField value={{ writerId, writerName, writerTitle }} onChange={onWriterChange} inputStyle={inputStyle} notify={notify} error={writerError} />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 10 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
                 Featured ⭐
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+                <input type="checkbox" checked={heroBeforeContent} onChange={e => setHeroBeforeContent(e.target.checked)} data-testid="hero-before-toggle" />
+                Show hero above title
               </label>
               <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
                 {wordCount} words · {readTime} min read

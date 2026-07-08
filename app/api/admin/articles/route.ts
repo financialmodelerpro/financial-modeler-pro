@@ -8,7 +8,7 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpr
 
 // Additive columns from migration 187. Writes stay schema-tolerant: if the column
 // does not exist yet (migration not applied), we retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title'] as const;
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content'] as const;
 
 /** Publish-ish statuses that require a writer (draft stays free). */
 function requiresWriter(status: unknown): boolean {
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     if (requiresWriter(status) && !writer_id) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
     const sb = getServerClient();
@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
     if (writer_id !== undefined) insert.writer_id = writer_id || null;
     if (writer_name !== undefined) insert.writer_name = writer_name || null;
     if (writer_title !== undefined) insert.writer_title = writer_title || null;
+    if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
     if (status === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
     if (error && isMissingColumnError(error)) {

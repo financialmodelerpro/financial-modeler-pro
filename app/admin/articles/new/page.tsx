@@ -28,6 +28,7 @@ export default function AdminArticleNewPage() {
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [featured, setFeatured] = useState(false);
+  const [heroBeforeContent, setHeroBeforeContent] = useState(false);
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
@@ -83,7 +84,7 @@ export default function AdminArticleNewPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null }),
+        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -92,7 +93,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, router]);
+  }, [title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -155,9 +156,13 @@ export default function AdminArticleNewPage() {
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Writer</label>
                 <ArticleWriterField value={{ writerId, writerName, writerTitle }} onChange={onWriterChange} inputStyle={inputStyle} notify={notify} error={writerError} />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 10 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
                 Featured ⭐
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+                <input type="checkbox" checked={heroBeforeContent} onChange={e => setHeroBeforeContent(e.target.checked)} data-testid="hero-before-toggle" />
+                Show hero above title
               </label>
               <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>{wordCount} words · {readTime} min read</div>
               <button onClick={handleSave} disabled={saving} style={{ background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', width: '100%' }}>

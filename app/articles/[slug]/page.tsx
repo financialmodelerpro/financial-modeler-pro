@@ -64,6 +64,20 @@ export default async function ArticleDetailPage({ params }: Props) {
   const ogImage = article.og_image_url || article.cover_url;
   const tags = Array.isArray(article.tags) ? article.tags : [];
 
+  // Hero placement (migration 189, schema-tolerant): true = above the header, else
+  // after it (current default). Extra top padding when it leads so it clears the card.
+  const heroBefore = article.hero_before_content === true;
+  const heroBlock = article.cover_url ? (
+    <div style={{ padding: heroBefore ? '32px 48px 0' : '0 48px', boxSizing: 'border-box', maxWidth: '100%' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={article.cover_url}
+        alt={article.title}
+        style={{ width: '100%', maxHeight: 440, objectFit: 'cover', display: 'block', borderRadius: 14 }}
+      />
+    </div>
+  ) : null;
+
   const articleUrl = canonicalUrl(`/articles/${article.slug}`, 'main');
 
   return (
@@ -92,6 +106,9 @@ export default async function ArticleDetailPage({ params }: Props) {
           preserved at 820. */}
       <div style={{ maxWidth: 820, margin: '0 auto', padding: '40px 20px 8px' }}>
         <article style={{ background: '#fff', borderRadius: 16, boxShadow: '0 24px 70px -24px rgba(0,0,0,0.55)', overflow: 'hidden' }}>
+          {/* Hero above the header when hero_before_content is set. */}
+          {heroBefore && heroBlock}
+
           {/* Header */}
           <div style={{ padding: '44px 48px 28px' }}>
             <div style={{ marginBottom: 18, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -122,19 +139,9 @@ export default async function ArticleDetailPage({ params }: Props) {
             </div>
           </div>
 
-          {/* Cover Image (the hero, rendered exactly once; body images are separate).
-              Inset + rounded to match the article design; full width of the content
-              column, responsive (never overflows on mobile via box-sizing). */}
-          {article.cover_url && (
-            <div style={{ padding: '0 48px', boxSizing: 'border-box', maxWidth: '100%' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={article.cover_url}
-                alt={article.title}
-                style={{ width: '100%', maxHeight: 440, objectFit: 'cover', display: 'block', borderRadius: 14 }}
-              />
-            </div>
-          )}
+          {/* Hero after the header (default). Rendered exactly once; body images are
+              separate. Inset + rounded, full content width, responsive. */}
+          {!heroBefore && heroBlock}
 
           {/* Body (dark text on the light card; .article-body defaults + pasted inline styles) */}
           <div
