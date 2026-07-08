@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
-
-const CATEGORIES = ['Real Estate', 'Business Valuation', 'FP&A', 'Market Insights', 'Career', 'Case Studies', 'Platform Tutorials'];
+import { CategoryCombobox } from '@/src/components/admin/CategoryCombobox';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -111,9 +110,7 @@ export default function AdminArticleNewPage() {
               </div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Category</label>
-                <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <CategoryCombobox value={category} onChange={setCategory} inputStyle={inputStyle} />
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
