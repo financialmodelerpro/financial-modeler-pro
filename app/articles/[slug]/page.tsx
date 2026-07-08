@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getArticleBySlug, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
+import { sanitizeArticleHtml } from '@/src/shared/cms/sanitizeArticle';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
@@ -55,9 +56,11 @@ export default async function ArticleDetailPage({ params }: Props) {
     ? new Date(article.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : '';
 
-  // Body is trusted admin HTML from our own Supabase (rendered verbatim). Resolve the
-  // {{MID_IMAGE}} marker to the captioned mid-image figure (or remove it if none set).
-  const safeBody = renderBodyWithMidImage(article.body, article.mid_image_url, article.mid_image_caption);
+  // Resolve the {{MID_IMAGE}} marker to the captioned figure, then sanitize the result
+  // through the strict allow-list (so the injected figure passes the same gate) before
+  // it reaches dangerouslySetInnerHTML.
+  const resolvedBody = renderBodyWithMidImage(article.body, article.mid_image_url, article.mid_image_caption);
+  const safeBody = sanitizeArticleHtml(resolvedBody);
   const ogImage = article.og_image_url || article.cover_url;
   const tags = Array.isArray(article.tags) ? article.tags : [];
 
