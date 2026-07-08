@@ -20,6 +20,7 @@ import type {
   RefmProjectVersionListItem,
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
+import type { Party } from '../parties';
 
 // Project metadata returned by the API. Same as RefmProjectListItem
 // but kept as its own alias so consumers don't need to know the
@@ -199,5 +200,40 @@ export function loadVersion(
   return callJson(
     `/api/refm/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}`,
     { method: 'GET' },
+  );
+}
+
+// ── Parties (Module 1, migration 190) ────────────────────────────────────────
+// Identity-only per-project parties. Independent of the version snapshot, so
+// these do not touch the model engine or the save/version flow.
+
+export function listParties(projectId: string): Promise<FetchResult<{ parties: Party[] }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/parties`, { method: 'GET' });
+}
+
+export function createParty(
+  projectId: string,
+  input: { name: string; identifier?: string | null; roles: string[] },
+): Promise<FetchResult<{ party: Party }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/parties`, {
+    method: 'POST',
+    body:   JSON.stringify(input),
+  });
+}
+
+export function updateParty(
+  projectId: string,
+  input: { partyId: string; name?: string; identifier?: string | null; roles?: string[] },
+): Promise<FetchResult<{ party: Party }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/parties`, {
+    method: 'PATCH',
+    body:   JSON.stringify(input),
+  });
+}
+
+export function deleteParty(projectId: string, partyId: string): Promise<FetchResult<{ ok: true }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/parties?partyId=${encodeURIComponent(partyId)}`,
+    { method: 'DELETE' },
   );
 }

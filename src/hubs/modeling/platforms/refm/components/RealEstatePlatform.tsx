@@ -48,6 +48,7 @@ import Dashboard from './Dashboard';
 import Overview from './Overview';
 import ProjectsScreen from './ProjectsScreen';
 import Module1ProjectPhases from './modules/Module1ProjectPhases';
+import Module1Parties from './modules/Module1Parties';
 import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
@@ -197,9 +198,10 @@ export const sidebarModules: readonly SidebarNavItem[] = [
 // ── Module 1 tabs (M2.0: 4 tabs) ──────────────────────────────────────────
 export const m1Tabs = [
   { key: 'project-phases', icon: '📅', label: '1. Project & Phases', step: 1 },
-  { key: 'assets', icon: '🏗️', label: '2. Assets & Sub-units', step: 2 },
-  { key: 'costs', icon: '💸', label: '3. Capex', step: 3 },
-  { key: 'financing', icon: '🏦', label: '4. Financing', step: 4 },
+  { key: 'parties', icon: '🤝', label: '2. Parties', step: 2 },
+  { key: 'assets', icon: '🏗️', label: '3. Assets & Sub-units', step: 3 },
+  { key: 'costs', icon: '💸', label: '4. Capex', step: 4 },
+  { key: 'financing', icon: '🏦', label: '5. Financing', step: 5 },
 ];
 
 // ── Module 2 tabs (M2 Pass 9h: 5 tabs - Inputs / Revenue / CoS / Schedules / Escrow) ──
@@ -951,6 +953,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
             ))}
           </div>
           {activeTab === 'project-phases' && <Module1ProjectPhases />}
+          {activeTab === 'parties' && <Module1Parties projectId={activeProjectId} />}
           {activeTab === 'assets' && <Module1Assets />}
           {activeTab === 'costs' && <Module1Costs />}
           {activeTab === 'financing' && <Module1Financing />}
