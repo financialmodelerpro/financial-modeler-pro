@@ -6,6 +6,22 @@ import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
+// Additive columns from migration 187. Writes stay schema-tolerant: if the column
+// does not exist yet (migration not applied), we retry without these keys.
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags'] as const;
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  const m = (error.message ?? '').toLowerCase();
+  return error.code === 'PGRST204' || m.includes('column') || m.includes('schema cache');
+}
+
+function stripAdditive(obj: Record<string, unknown>): Record<string, unknown> {
+  const clone = { ...obj };
+  for (const k of ADDITIVE_KEYS) delete clone[k];
+  return clone;
+}
+
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as any).role !== 'admin') return false;
@@ -28,14 +44,21 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     const sb = getServerClient();
     const session = await getServerSession(authOptions);
     const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: category ?? 'General', status: status ?? 'draft', featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
     if (cover_url) insert.cover_url = cover_url;
+    if (mid_image_url !== undefined) insert.mid_image_url = mid_image_url || null;
+    if (mid_image_caption !== undefined) insert.mid_image_caption = mid_image_caption || null;
+    if (og_image_url !== undefined) insert.og_image_url = og_image_url || null;
+    if (tags !== undefined) insert.tags = Array.isArray(tags) ? tags : [];
     if (status === 'published') insert.published_at = new Date().toISOString();
-    const { data, error } = await sb.from('articles').insert(insert).select().single();
+    let { data, error } = await sb.from('articles').insert(insert).select().single();
+    if (error && isMissingColumnError(error)) {
+      ({ data, error } = await sb.from('articles').insert(stripAdditive(insert)).select().single());
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (data && status === 'published') {
       void sendAutoNewsletter('article_published', data.id, {
@@ -55,11 +78,14 @@ export async function PATCH(req: NextRequest) {
     const { id, ...fields } = body;
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description'];
+    const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
     if (fields.status === 'published' && !fields.published_at) update.published_at = new Date().toISOString();
     const sb = getServerClient();
-    const { error } = await sb.from('articles').update(update).eq('id', id);
+    let { error } = await sb.from('articles').update(update).eq('id', id);
+    if (error && isMissingColumnError(error)) {
+      ({ error } = await sb.from('articles').update(stripAdditive(update)).eq('id', id));
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (fields.status === 'published') {
       const { data: art } = await sb.from('articles').select('id, title, slug, seo_description').eq('id', id).single();

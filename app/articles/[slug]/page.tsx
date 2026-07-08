@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getArticleBySlug, estimateReadTime } from '@/src/shared/cms';
+import { getArticleBySlug, estimateReadTime, renderBodyWithMidImage } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
@@ -22,6 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article  = await getArticleBySlug(slug);
   if (!article) return { title: 'Article Not Found' };
   const url = canonicalUrl(`/articles/${article.slug}`, 'main');
+  const ogImage = article.og_image_url || article.cover_url; // OG falls back to the hero
   return {
     title:       article.seo_title       ?? article.title,
     description: article.seo_description ?? `${article.title}, practitioner insights on financial modeling, valuation, and corporate finance from Financial Modeler Pro.`,
@@ -33,13 +34,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       publishedTime: article.published_at ?? undefined,
       modifiedTime:  article.updated_at ?? article.published_at ?? undefined,
-      images:      article.cover_url ? [{ url: article.cover_url, width: 1200, height: 630, alt: article.title }] : [],
+      images:      ogImage ? [{ url: ogImage, width: 1200, height: 630, alt: article.title }] : [],
     },
     twitter: {
       card: 'summary_large_image',
       title: article.seo_title ?? article.title,
       description: article.seo_description ?? '',
-      images: article.cover_url ? [article.cover_url] : undefined,
+      images: ogImage ? [ogImage] : undefined,
     },
   };
 }
@@ -54,9 +55,11 @@ export default async function ArticleDetailPage({ params }: Props) {
     ? new Date(article.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : '';
 
-  // Sanitize HTML - inline, since DOMPurify may not be available server-side without setup
-  // We trust admin-entered content; body comes from our own Supabase
-  const safeBody = article.body;
+  // Body is trusted admin HTML from our own Supabase (rendered verbatim). Resolve the
+  // {{MID_IMAGE}} marker to the captioned mid-image figure (or remove it if none set).
+  const safeBody = renderBodyWithMidImage(article.body, article.mid_image_url, article.mid_image_caption);
+  const ogImage = article.og_image_url || article.cover_url;
+  const tags = Array.isArray(article.tags) ? article.tags : [];
 
   const articleUrl = canonicalUrl(`/articles/${article.slug}`, 'main');
 
@@ -65,7 +68,7 @@ export default async function ArticleDetailPage({ params }: Props) {
       <ArticleJsonLd
         title={article.seo_title ?? article.title}
         description={article.seo_description ?? ''}
-        image={article.cover_url ?? undefined}
+        image={ogImage ?? undefined}
         publishedTime={article.published_at}
         modifiedTime={article.updated_at}
         author={ARTICLE_AUTHOR.name}
@@ -139,6 +142,17 @@ export default async function ArticleDetailPage({ params }: Props) {
             }}
             dangerouslySetInnerHTML={{ __html: safeBody }}
           />
+
+          {/* Tags */}
+          {tags.length > 0 && (
+            <div style={{ padding: '0 48px 44px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {tags.map((t) => (
+                <span key={t} style={{ fontSize: 12, fontWeight: 600, color: '#1B4F8A', background: 'rgba(27,79,138,0.08)', border: '1px solid rgba(27,79,138,0.15)', padding: '4px 12px', borderRadius: 20 }}>
+                  #{t}
+                </span>
+              ))}
+            </div>
+          )}
         </article>
 
         {/* Back link (on the navy chrome, below the card) */}

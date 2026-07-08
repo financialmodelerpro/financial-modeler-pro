@@ -52,7 +52,9 @@ interface Props {
 const TB_BTN: React.CSSProperties = { padding: '4px 10px', fontSize: 12, border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', background: '#fff', color: '#374151' };
 
 export function ArticleBodyEditor({ initialHtml, onChange, onWordCount, notify }: Props): React.JSX.Element {
-  const [mode, setMode] = useState<'rich' | 'html'>('rich');
+  // Default to HTML source: the paste-and-go flow stores raw HTML verbatim, so
+  // pasted markup is never escaped (rich mode remains available but is opt-in).
+  const [mode, setMode] = useState<'rich' | 'html'>('html');
   const [htmlSource, setHtmlSource] = useState<string>(initialHtml);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -154,6 +156,11 @@ export function ArticleBodyEditor({ initialHtml, onChange, onWordCount, notify }
           : <span style={{ fontSize: 11, color: '#6B7280' }}>Paste pre-formatted HTML, inline styles and custom tags are preserved verbatim.</span>}
 
         <div style={{ flex: 1 }} />
+        {mode === 'html' && (
+          <button type="button" onClick={() => insertAtCursor('{{MID_IMAGE}}')} style={{ ...TB_BTN }} data-testid="article-insert-mid-marker" title="Insert the mid-image marker; the uploaded mid image renders here on the article page.">
+            + Mid-image marker
+          </button>
+        )}
         <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...TB_BTN, opacity: uploading ? 0.6 : 1 }} data-testid="article-upload-image">
           {uploading ? 'Uploading…' : '📷 Upload image'}
         </button>

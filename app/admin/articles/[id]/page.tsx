@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryCombobox } from '@/src/components/admin/CategoryCombobox';
+import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -28,6 +29,7 @@ export default function AdminArticleEditPage() {
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [body, setBody] = useState('');
+  const [extra, setExtra] = useState<ExtraFieldsValue>({ midImageUrl: '', midImageCaption: '', ogImageUrl: '', tags: [] });
   const [loadedHtml, setLoadedHtml] = useState<string | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const coverFileRef = useRef<HTMLInputElement>(null);
@@ -53,6 +55,12 @@ export default function AdminArticleEditPage() {
         setFeatured(a.featured ?? false);
         setSeoTitle(a.seo_title ?? '');
         setSeoDesc(a.seo_description ?? '');
+        setExtra({
+          midImageUrl: a.mid_image_url ?? '',
+          midImageCaption: a.mid_image_caption ?? '',
+          ogImageUrl: a.og_image_url ?? '',
+          tags: Array.isArray(a.tags) ? a.tags : [],
+        });
         const loadedBody = a.body ?? '';
         setBody(loadedBody);
         setLoadedHtml(loadedBody);
@@ -75,7 +83,7 @@ export default function AdminArticleEditPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc }),
+        body: JSON.stringify({ id, title, slug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -83,7 +91,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc]);
+  }, [id, title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, extra]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -189,6 +197,8 @@ export default function AdminArticleEditPage() {
                 <textarea value={seoDesc} onChange={e => setSeoDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} maxLength={180} />
               </div>
             </div>
+
+            <ArticleExtraFields value={extra} onChange={(p) => setExtra(v => ({ ...v, ...p }))} inputStyle={inputStyle} notify={notify} />
           </div>
         </div>
       </main>

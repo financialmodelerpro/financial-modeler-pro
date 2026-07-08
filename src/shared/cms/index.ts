@@ -10,7 +10,9 @@ import { getServerClient } from '@/src/core/db/supabase';
 export interface CmsRow    { section: string; key: string; value: string }
 export interface Module    { id: string; name: string; slug: string; description: string; icon: string; status: 'live' | 'coming_soon' | 'hidden'; display_order: number; launch_date: string | null }
 export interface AssetType { id: string; module_id: string; name: string; description: string; icon: string; visible: boolean; display_order: number }
-export interface Article   { id: string; title: string; slug: string; body: string; cover_url: string | null; category: string; status: string; featured: boolean; published_at: string | null; seo_title: string | null; seo_description: string | null; author_id: string | null; created_at: string; updated_at: string }
+export interface Article   { id: string; title: string; slug: string; body: string; cover_url: string | null; category: string; status: string; featured: boolean; published_at: string | null; seo_title: string | null; seo_description: string | null; author_id: string | null; created_at: string; updated_at: string;
+  // Additive (migration 187, schema-tolerant): present only after the migration is applied.
+  mid_image_url?: string | null; mid_image_caption?: string | null; og_image_url?: string | null; tags?: string[] | null }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
 // ── CMS Content helpers ────────────────────────────────────────────────────────
@@ -215,6 +217,35 @@ export function estimateReadTime(body: string): string {
   const words = body.replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length;
   const mins = Math.max(1, Math.round(words / 200));
   return `${mins} min read`;
+}
+
+// ── Mid-image marker injection ────────────────────────────────────────────────
+
+function escapeHtmlAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Build the captioned <figure> for a mid-article image, or '' when no URL. */
+export function midImageFigureHtml(url?: string | null, caption?: string | null): string {
+  if (!url || !url.trim()) return '';
+  const cap = caption && caption.trim()
+    ? `\n  <figcaption>${escapeHtmlText(caption.trim())}</figcaption>`
+    : '';
+  return `<figure>\n  <img src="${escapeHtmlAttr(url.trim())}" alt="${caption ? escapeHtmlAttr(caption.trim()) : ''}" />${cap}\n</figure>`;
+}
+
+/**
+ * Replace the {{MID_IMAGE}} marker in a body with the mid-image figure. When no
+ * mid image is set, the marker is removed cleanly. Bodies without the marker are
+ * returned unchanged (the mid image is simply not injected).
+ */
+export function renderBodyWithMidImage(body: string, url?: string | null, caption?: string | null): string {
+  const MARKER = '{{MID_IMAGE}}';
+  if (!body.includes(MARKER)) return body;
+  return body.split(MARKER).join(midImageFigureHtml(url, caption));
 }
 
 // ── Plain-text excerpt ────────────────────────────────────────────────────────

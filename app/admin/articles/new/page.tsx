@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryCombobox } from '@/src/components/admin/CategoryCombobox';
+import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -25,6 +26,7 @@ export default function AdminArticleNewPage() {
   const [seoDesc, setSeoDesc] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [body, setBody] = useState('');
+  const [extra, setExtra] = useState<ExtraFieldsValue>({ midImageUrl: '', midImageCaption: '', ogImageUrl: '', tags: [] });
   const [coverUploading, setCoverUploading] = useState(false);
   const coverFileRef = useRef<HTMLInputElement>(null);
 
@@ -52,7 +54,7 @@ export default function AdminArticleNewPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc }),
+        body: JSON.stringify({ title, slug: finalSlug, category, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -61,7 +63,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, router]);
+  }, [title, slug, category, coverUrl, body, status, featured, seoTitle, seoDesc, extra, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -133,6 +135,8 @@ export default function AdminArticleNewPage() {
                 <textarea value={seoDesc} onChange={e => setSeoDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} maxLength={180} />
               </div>
             </div>
+
+            <ArticleExtraFields value={extra} onChange={(p) => setExtra(v => ({ ...v, ...p }))} inputStyle={inputStyle} notify={notify} />
           </div>
         </div>
       </main>
