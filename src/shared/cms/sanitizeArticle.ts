@@ -9,7 +9,9 @@ import DOMPurify from 'isomorphic-dompurify';
  * the wrapper div, not in the body), so no class hooks are allowed here.
  *
  * Allowed tags:  p h2 h3 blockquote figure figcaption img ul ol li a strong em br
- * Allowed attrs: href (links), src / alt (images)
+ *                plus structural: hr code pre table thead tbody tr th td
+ * Allowed attrs: href (links), src / alt (images). No colspan/rowspan: neither the
+ *                .article-body CSS nor the live content uses them, so they stay out.
  * Stripped:      script, style, iframe, event handlers (on*), inline style, and any
  *                tag not on the list (DOMPurify drops the tag; safe text is kept,
  *                script/style content is removed).
@@ -17,7 +19,11 @@ import DOMPurify from 'isomorphic-dompurify';
  * No em dashes in this file.
  */
 
-const ALLOWED_TAGS = ['p', 'h2', 'h3', 'blockquote', 'figure', 'figcaption', 'img', 'ul', 'ol', 'li', 'a', 'strong', 'em', 'br'];
+const ALLOWED_TAGS = [
+  'p', 'h2', 'h3', 'blockquote', 'figure', 'figcaption', 'img', 'ul', 'ol', 'li', 'a', 'strong', 'em', 'br',
+  // Structural/formatting elements, all non-scripting, all with existing .article-body CSS.
+  'hr', 'code', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+];
 const ALLOWED_ATTR = ['href', 'src', 'alt'];
 
 export function sanitizeArticleHtml(html: string): string {
