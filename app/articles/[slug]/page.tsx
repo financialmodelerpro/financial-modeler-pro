@@ -5,6 +5,7 @@ import { getArticleBySlug, estimateReadTime } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
+import { AuthorByline, ARTICLE_AUTHOR } from '@/src/hubs/main/components/landing/AuthorByline';
 
 export const revalidate = 60;
 
@@ -67,6 +68,7 @@ export default async function ArticleDetailPage({ params }: Props) {
         image={article.cover_url ?? undefined}
         publishedTime={article.published_at}
         modifiedTime={article.updated_at}
+        author={ARTICLE_AUTHOR.name}
         url={articleUrl}
       />
       <BreadcrumbJsonLd items={[
@@ -105,6 +107,10 @@ export default async function ArticleDetailPage({ params }: Props) {
               {date && <span>{date}</span>}
               <span>·</span>
               <span>{readTime}</span>
+            </div>
+
+            <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid #EEF2F7' }}>
+              <AuthorByline variant="page" />
             </div>
           </div>
 

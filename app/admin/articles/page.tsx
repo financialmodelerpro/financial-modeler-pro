@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { DeleteArticleButton } from '@/src/components/admin/DeleteArticleButton';
 
 async function getAllArticles() {
   try {
@@ -65,10 +66,12 @@ export default async function AdminArticlesPage() {
                       {a.published_at ? new Date(a.published_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <Link href={`/admin/articles/${a.id}`} style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Edit</Link>
                         <span style={{ color: '#E5E7EB' }}>|</span>
                         <Link href={`/articles/${a.slug}`} target="_blank" style={{ fontSize: 12, color: '#6B7280', textDecoration: 'none' }}>View ↗</Link>
+                        <span style={{ color: '#E5E7EB' }}>|</span>
+                        <DeleteArticleButton id={a.id} title={a.title} />
                       </div>
                     </td>
                   </tr>

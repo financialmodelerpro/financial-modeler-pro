@@ -217,6 +217,42 @@ export function estimateReadTime(body: string): string {
   return `${mins} min read`;
 }
 
+// ── Plain-text excerpt ────────────────────────────────────────────────────────
+
+/** Decode the handful of HTML entities that show up in article bodies. */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&amp;/g, '&'); // last, so &amp;lt; unwinds one layer per pass
+}
+
+/**
+ * Build a clean plain-text excerpt from an article body for cards/listings.
+ * Strips tags and decodes entities iteratively so even bodies that were stored
+ * entity-encoded (e.g. a literal "&lt;p&gt;...") render as clean text, never raw
+ * markup or entities. Truncates on a word boundary with an ellipsis.
+ */
+export function articleExcerpt(body: string | null | undefined, maxLen = 180): string {
+  let s = body ?? '';
+  // Alternate strip + decode until stable (survives a stored double-encoded layer).
+  for (let i = 0; i < 4; i++) {
+    const next = decodeEntities(s.replace(/<[^>]*>/g, ' '));
+    if (next === s) break;
+    s = next;
+  }
+  s = s.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length <= maxLen) return s;
+  const cut = s.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + '…';
+}
+
 // ── Testimonials ──────────────────────────────────────────────────────────────
 
 export interface Testimonial {

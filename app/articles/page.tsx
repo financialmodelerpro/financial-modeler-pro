@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getPublishedArticles, getCmsContent, cms, estimateReadTime } from '@/src/shared/cms';
+import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { AuthorByline } from '@/src/hubs/main/components/landing/AuthorByline';
 import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 
 export const revalidate = 0;
@@ -72,8 +73,11 @@ export default async function ArticlesPage() {
                 )}
                 <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0D2E5A', marginBottom: 12, lineHeight: 1.3 }}>{featured.title}</h2>
                 <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.65, marginBottom: 16 }}>
-                  {featured.body?.replace(/<[^>]*>/g, '').substring(0, 200)}...
+                  {articleExcerpt(featured.body, 220)}
                 </p>
+                <div style={{ marginBottom: 12 }}>
+                  <AuthorByline variant="card" />
+                </div>
                 <div style={{ fontSize: 12, color: '#9CA3AF' }}>
                   {featured.published_at ? new Date(featured.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''} · {estimateReadTime(featured.body)}
                 </div>

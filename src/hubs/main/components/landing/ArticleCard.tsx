@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import type { Article } from '@/src/shared/cms';
-import { estimateReadTime } from '@/src/shared/cms';
+import { estimateReadTime, articleExcerpt } from '@/src/shared/cms';
+import { AuthorByline } from './AuthorByline';
 
 export function ArticleCard({ article }: { article: Article }) {
   const readTime = estimateReadTime(article.body);
@@ -26,10 +27,19 @@ export function ArticleCard({ article }: { article: Article }) {
             {article.category}
           </span>
         </div>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 8, lineHeight: 1.4, flex: 1 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 8, lineHeight: 1.4 }}>
           {article.title}
         </h3>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+        <p style={{
+          fontSize: 13, color: '#6B7280', lineHeight: 1.55, margin: '0 0 12px', flex: 1,
+          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+        }}>
+          {articleExcerpt(article.body, 160)}
+        </p>
+        <div style={{ marginBottom: 8 }}>
+          <AuthorByline variant="card" />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
           <span style={{ fontSize: 11, color: '#6B7280' }}>{date} · {readTime}</span>
           <Link href={`/articles/${article.slug}`} style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 700, textDecoration: 'none' }}>
             Read More →
