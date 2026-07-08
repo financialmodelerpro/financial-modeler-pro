@@ -24,11 +24,23 @@ interface Props {
   role?: string | null;
 }
 
+/**
+ * Normalize a title for display: pipe-separated segments (e.g. instructor titles
+ * like "A | B") render as a clean middot-joined line "A · B", matching the site's
+ * "date · read-time" separator. Non-destructive: only the rendered string changes,
+ * the stored writer_title keeps its original form.
+ */
+export function normalizeBylineTitle(role?: string | null): string | undefined {
+  const t = role?.trim();
+  if (!t) return undefined;
+  return t.replace(/\s*\|\s*/g, ' · ').replace(/\s{2,}/g, ' ').trim() || undefined;
+}
+
 /** Resolve the byline to the per-article writer, else the single-author fallback. */
 export function resolveByline(name?: string | null, role?: string | null): { name: string; role?: string } {
   const w = name?.trim();
-  if (w) return { name: w, role: role?.trim() || undefined };
-  return { name: ARTICLE_AUTHOR.name, role: ARTICLE_AUTHOR.role };
+  if (w) return { name: w, role: normalizeBylineTitle(role) };
+  return { name: ARTICLE_AUTHOR.name, role: normalizeBylineTitle(ARTICLE_AUTHOR.role) };
 }
 
 export function AuthorByline({ variant = 'page', name, role }: Props): React.JSX.Element {

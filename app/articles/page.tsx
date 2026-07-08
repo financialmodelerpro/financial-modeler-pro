@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt, articleCategoryNames } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
-import { AuthorByline } from '@/src/hubs/main/components/landing/AuthorByline';
+import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 
 export const revalidate = 0;
@@ -39,6 +39,7 @@ export default async function ArticlesPage() {
   const featured = articles.find(a => a.featured);
   const nonFeatured = featured ? articles.filter(a => a.id !== featured.id) : articles;
   const categories = [...new Set(articles.flatMap(articleCategoryNames).filter(Boolean))];
+  const writers = [...new Set(articles.map(a => resolveByline(a.writer_name, a.writer_title).name).filter(Boolean))];
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
@@ -100,7 +101,7 @@ export default async function ArticlesPage() {
         ) : (
           <>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>Latest Articles</h2>
-            <ArticlesGrid articles={nonFeatured} categories={categories} />
+            <ArticlesGrid articles={nonFeatured} categories={categories} writers={writers} />
           </>
         )}
       </section>

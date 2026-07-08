@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import type { Article } from '@/src/shared/cms';
 import { ArticleCard } from '@/src/hubs/main/components/landing/ArticleCard';
+import { resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 
 interface Props {
   articles: Article[];
   categories: string[];
+  writers: string[];
 }
 
 /** Dual-read category names: junction when present, else the deprecated text column. */
@@ -14,26 +16,49 @@ function catNames(a: Article): string[] {
   if (a.categories && a.categories.length) return a.categories.map(c => c.name);
   return a.category ? [a.category] : [];
 }
+/** Displayed byline name (writer snapshot, else the single-author fallback). */
+function bylineName(a: Article): string {
+  return resolveByline(a.writer_name, a.writer_title).name;
+}
 
-export function ArticlesGrid({ articles, categories }: Props) {
+const rowLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 };
+
+export function ArticlesGrid({ articles, categories, writers }: Props) {
   const [active, setActive] = useState('All');
-  const filtered = active === 'All' ? articles : articles.filter(a => catNames(a).includes(active));
+  const [activeWriter, setActiveWriter] = useState('All');
+  const filtered = articles.filter(a =>
+    (active === 'All' || catNames(a).includes(active)) &&
+    (activeWriter === 'All' || bylineName(a) === activeWriter),
+  );
+
+  const pill = (label: string, on: boolean, onClick: () => void) => (
+    <button key={label} onClick={onClick} style={{
+      padding: '8px 18px', borderRadius: 20, border: 'none', cursor: 'pointer',
+      fontSize: 13, fontWeight: on ? 700 : 500,
+      background: on ? '#1B4F8A' : 'rgba(255,255,255,0.1)',
+      color: on ? '#fff' : 'rgba(255,255,255,0.6)',
+    }}>{label}</button>
+  );
 
   return (
     <>
       {/* Category tabs */}
       {categories.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 40, flexWrap: 'wrap' }}>
-          {['All', ...categories].map(cat => (
-            <button key={cat} onClick={() => setActive(cat)} style={{
-              padding: '8px 18px', borderRadius: 20, border: 'none', cursor: 'pointer',
-              fontSize: 13, fontWeight: active === cat ? 700 : 500,
-              background: active === cat ? '#1B4F8A' : 'rgba(255,255,255,0.1)',
-              color: active === cat ? '#fff' : 'rgba(255,255,255,0.6)',
-            }}>
-              {cat}
-            </button>
-          ))}
+        <div style={{ marginBottom: 24 }}>
+          <div style={rowLabel}>Category</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['All', ...categories].map(cat => pill(cat, active === cat, () => setActive(cat)))}
+          </div>
+        </div>
+      )}
+
+      {/* Writer tabs (same pattern as category) */}
+      {writers.length > 1 && (
+        <div style={{ marginBottom: 40 }}>
+          <div style={rowLabel}>Writer</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['All', ...writers].map(w => pill(w, activeWriter === w, () => setActiveWriter(w)))}
+          </div>
         </div>
       )}
 
@@ -49,7 +74,7 @@ export function ArticlesGrid({ articles, categories }: Props) {
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '40px 24px' }}>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>No articles found in this category.</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>No articles match these filters.</div>
         </div>
       )}
     </>

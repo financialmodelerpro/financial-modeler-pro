@@ -7,7 +7,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
-import { InstructorPicker, type PickerInstructor } from '@/src/components/admin/InstructorPicker';
+import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -59,11 +59,10 @@ export default function AdminArticleNewPage() {
     finally { setCoverUploading(false); }
   }, [notify]);
 
-  const onWriterChange = useCallback((id: string, ins: PickerInstructor | null) => {
-    setWriterId(id);
-    setWriterName(ins?.name ?? '');
-    setWriterTitle(ins?.title ?? '');
-    if (id) setWriterError('');
+  const onWriterChange = useCallback((patch: Partial<{ writerId: string; writerName: string; writerTitle: string }>) => {
+    if (patch.writerId !== undefined) { setWriterId(patch.writerId); if (patch.writerId) setWriterError(''); }
+    if (patch.writerName !== undefined) setWriterName(patch.writerName);
+    if (patch.writerTitle !== undefined) setWriterTitle(patch.writerTitle);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -154,8 +153,7 @@ export default function AdminArticleNewPage() {
               </div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Writer</label>
-                <InstructorPicker value={writerId} onChange={onWriterChange} onMessage={notify} />
-                {writerError && <div style={{ fontSize: 12, color: '#DC2626', fontWeight: 600, marginTop: 6 }} data-testid="writer-error">{writerError}</div>}
+                <ArticleWriterField value={{ writerId, writerName, writerTitle }} onChange={onWriterChange} inputStyle={inputStyle} notify={notify} error={writerError} />
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
