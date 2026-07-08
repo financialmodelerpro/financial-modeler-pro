@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import Image from 'next/image';
 import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt, articleCategoryNames } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
@@ -62,7 +61,8 @@ export default async function ArticlesPage() {
             <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
               <div style={{ position: 'relative', minHeight: 280, background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)' }}>
                 {featured.cover_url ? (
-                  <Image src={featured.cover_url} alt={featured.title} fill style={{ objectFit: 'cover' }} />
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={featured.cover_url} alt={featured.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 48 }}>📊</div>
                 )}

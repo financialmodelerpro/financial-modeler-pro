@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import Image from 'next/image';
 import type { Article } from '@/src/shared/cms';
 import { estimateReadTime, articleExcerpt } from '@/src/shared/cms';
 import { AuthorByline } from './AuthorByline';
@@ -14,7 +13,8 @@ export function ArticleCard({ article }: { article: Article }) {
     <div style={{ background: '#fff', borderRadius: 10, overflow: 'hidden', border: '1px solid #E8F0FB', boxShadow: '0 2px 8px rgba(27,79,138,0.07)', display: 'flex', flexDirection: 'column', height: '100%' }}>
       {article.cover_url ? (
         <div style={{ position: 'relative', width: '100%', height: 180, background: '#F4F7FC' }}>
-          <Image src={article.cover_url} alt={article.title} fill style={{ objectFit: 'cover' }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={article.cover_url} alt={article.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </div>
       ) : (
         <div style={{ width: '100%', height: 180, background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
