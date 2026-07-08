@@ -6,7 +6,7 @@ import { sanitizeArticleHtml } from '@/src/shared/cms/sanitizeArticle';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
-import { AuthorByline, ARTICLE_AUTHOR } from '@/src/hubs/main/components/landing/AuthorByline';
+import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 
 export const revalidate = 60;
 
@@ -74,7 +74,7 @@ export default async function ArticleDetailPage({ params }: Props) {
         image={ogImage ?? undefined}
         publishedTime={article.published_at}
         modifiedTime={article.updated_at}
-        author={ARTICLE_AUTHOR.name}
+        author={resolveByline(article.writer_name, article.writer_title).name}
         url={articleUrl}
       />
       <BreadcrumbJsonLd items={[
@@ -118,7 +118,7 @@ export default async function ArticleDetailPage({ params }: Props) {
             </div>
 
             <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid #EEF2F7' }}>
-              <AuthorByline variant="page" />
+              <AuthorByline variant="page" name={article.writer_name} role={article.writer_title} />
             </div>
           </div>
 

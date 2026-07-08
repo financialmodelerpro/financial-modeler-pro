@@ -7,6 +7,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
+import { InstructorPicker, type PickerInstructor } from '@/src/components/admin/InstructorPicker';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -23,6 +24,10 @@ export default function AdminArticleEditPage() {
   const [slug, setSlug] = useState('');
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [writerId, setWriterId] = useState('');
+  const [writerName, setWriterName] = useState('');
+  const [writerTitle, setWriterTitle] = useState('');
+  const [writerError, setWriterError] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
   const [featured, setFeatured] = useState(false);
@@ -62,6 +67,9 @@ export default function AdminArticleEditPage() {
         setTitle(a.title ?? '');
         setSlug(a.slug ?? '');
         setCategoryIds(Array.isArray(a.category_ids) ? a.category_ids : []);
+        setWriterId(a.writer_id ?? '');
+        setWriterName(a.writer_name ?? '');
+        setWriterTitle(a.writer_title ?? '');
         setCoverUrl(a.cover_url ?? '');
         setStatus(a.status ?? 'draft');
         setFeatured(a.featured ?? false);
@@ -89,13 +97,26 @@ export default function AdminArticleEditPage() {
     finally { setCoverUploading(false); }
   }, [notify]);
 
+  const onWriterChange = useCallback((wid: string, ins: PickerInstructor | null) => {
+    setWriterId(wid);
+    setWriterName(ins?.name ?? '');
+    setWriterTitle(ins?.title ?? '');
+    if (wid) setWriterError('');
+  }, []);
+
   const doSave = useCallback(async (showToast = true) => {
+    // Publish gate: a writer is required to publish or schedule; drafts save freely.
+    if ((status === 'published' || status === 'scheduled') && !writerId) {
+      if (showToast) setWriterError('A writer is required to publish');
+      return;
+    }
+    setWriterError('');
     setSaving(true);
     try {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -103,7 +124,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra]);
+  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, writerId, writerName, writerTitle]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -186,6 +207,11 @@ export default function AdminArticleEditPage() {
                   <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
                 </div>
                 <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Writer</label>
+                <InstructorPicker value={writerId} onChange={onWriterChange} onMessage={notify} />
+                {writerError && <div style={{ fontSize: 12, color: '#DC2626', fontWeight: 600, marginTop: 6 }} data-testid="writer-error">{writerError}</div>}
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />

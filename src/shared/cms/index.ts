@@ -14,7 +14,10 @@ export interface Article   { id: string; title: string; slug: string; body: stri
   // Additive (migration 187, schema-tolerant): present only after the migration is applied.
   mid_image_url?: string | null; mid_image_caption?: string | null; og_image_url?: string | null; tags?: string[] | null;
   // Junction-backed categories (Phase 2), flattened from article_categories. Empty when none assigned.
-  categories?: { id: string; name: string; slug: string }[] }
+  categories?: { id: string; name: string; slug: string }[];
+  // Writer/instructor association (migration 188): writer_id links the instructor row;
+  // writer_name/writer_title are the snapshot taken at save time (stable byline).
+  writer_id?: string | null; writer_name?: string | null; writer_title?: string | null }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
 // ── CMS Content helpers ────────────────────────────────────────────────────────

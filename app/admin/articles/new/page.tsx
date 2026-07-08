@@ -7,6 +7,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
+import { InstructorPicker, type PickerInstructor } from '@/src/components/admin/InstructorPicker';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -20,6 +21,10 @@ export default function AdminArticleNewPage() {
   const [slug, setSlug] = useState('');
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [writerId, setWriterId] = useState('');
+  const [writerName, setWriterName] = useState('');
+  const [writerTitle, setWriterTitle] = useState('');
+  const [writerError, setWriterError] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [featured, setFeatured] = useState(false);
@@ -54,19 +59,32 @@ export default function AdminArticleNewPage() {
     finally { setCoverUploading(false); }
   }, [notify]);
 
+  const onWriterChange = useCallback((id: string, ins: PickerInstructor | null) => {
+    setWriterId(id);
+    setWriterName(ins?.name ?? '');
+    setWriterTitle(ins?.title ?? '');
+    if (id) setWriterError('');
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (!title.trim()) {
       setToast({ msg: 'Title is required', type: 'error' });
       setTimeout(() => setToast(null), 2500);
       return;
     }
+    // Publish gate: a writer is required to publish; drafts may save without one.
+    if (status === 'published' && !writerId) {
+      setWriterError('A writer is required to publish');
+      return;
+    }
+    setWriterError('');
     setSaving(true);
     try {
       const finalSlug = slug || slugify(title);
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags }),
+        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -75,7 +93,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, router]);
+  }, [title, slug, categoryIds, coverUrl, body, status, featured, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -133,6 +151,11 @@ export default function AdminArticleNewPage() {
                   <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
                 </div>
                 <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Writer</label>
+                <InstructorPicker value={writerId} onChange={onWriterChange} onMessage={notify} />
+                {writerError && <div style={{ fontSize: 12, color: '#DC2626', fontWeight: 600, marginTop: 6 }} data-testid="writer-error">{writerError}</div>}
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
                 <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />

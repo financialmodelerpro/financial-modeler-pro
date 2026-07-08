@@ -8,7 +8,13 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpr
 
 // Additive columns from migration 187. Writes stay schema-tolerant: if the column
 // does not exist yet (migration not applied), we retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags'] as const;
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title'] as const;
+
+/** Publish-ish statuses that require a writer (draft stays free). */
+function requiresWriter(status: unknown): boolean {
+  return status === 'published' || status === 'scheduled';
+}
+const WRITER_REQUIRED_MSG = 'A writer is required to publish';
 
 function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
   if (!error) return false;
@@ -68,8 +74,9 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
+    if (requiresWriter(status) && !writer_id) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
     const sb = getServerClient();
     const session = await getServerSession(authOptions);
     // Dual-write: keep the deprecated primary `category` text = first selected category.
@@ -81,6 +88,9 @@ export async function POST(req: NextRequest) {
     if (mid_image_caption !== undefined) insert.mid_image_caption = mid_image_caption || null;
     if (og_image_url !== undefined) insert.og_image_url = og_image_url || null;
     if (tags !== undefined) insert.tags = Array.isArray(tags) ? tags : [];
+    if (writer_id !== undefined) insert.writer_id = writer_id || null;
+    if (writer_name !== undefined) insert.writer_name = writer_name || null;
+    if (writer_title !== undefined) insert.writer_title = writer_title || null;
     if (status === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
     if (error && isMissingColumnError(error)) {
@@ -109,6 +119,16 @@ export async function PATCH(req: NextRequest) {
     const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
     const sb = getServerClient();
+    // Publish gate: a writer is required to publish/schedule. Resolve from the payload
+    // when provided, otherwise from the existing row (a status-only PATCH).
+    if (requiresWriter(fields.status)) {
+      let writerId = fields.writer_id;
+      if (writerId === undefined) {
+        const { data: cur } = await sb.from('articles').select('writer_id').eq('id', id).single();
+        writerId = (cur as { writer_id?: string | null } | null)?.writer_id ?? null;
+      }
+      if (!writerId) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
+    }
     // Dual-write: junction is the source of truth; keep primary `category` text in sync.
     const hasCategoryIds = Array.isArray(fields.category_ids);
     const ids: string[] = hasCategoryIds ? fields.category_ids : [];

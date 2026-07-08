@@ -1,10 +1,12 @@
 /**
  * AuthorByline.tsx (public, server-safe presentational)
  *
- * Financial Modeler Pro is a single-author publication, so the author identity
- * lives in ONE place here (ARTICLE_AUTHOR) rather than joined per-row from the
- * users table. JSON-LD on the article page uses the same name, so the displayed
- * byline and the structured-data author stay consistent. No schema, no join.
+ * Renders the article byline. An article can carry a per-article writer snapshot
+ * (writer_name / writer_title from the instructors association, migration 188);
+ * when present those are shown. When an article has no writer snapshot (older
+ * content), it falls back to the single-author constant ARTICLE_AUTHOR, so every
+ * article keeps a byline and JSON-LD stays consistent. No hooks: usable in both
+ * server and client components.
  *
  * No em dashes in this file.
  */
@@ -17,13 +19,25 @@ export const ARTICLE_AUTHOR = {
 interface Props {
   /** 'page' = larger byline near the article title/meta; 'card' = compact listing line. */
   variant?: 'page' | 'card';
+  /** Per-article writer snapshot; falls back to ARTICLE_AUTHOR when absent. */
+  name?: string | null;
+  role?: string | null;
 }
 
-export function AuthorByline({ variant = 'page' }: Props): React.JSX.Element {
+/** Resolve the byline to the per-article writer, else the single-author fallback. */
+export function resolveByline(name?: string | null, role?: string | null): { name: string; role?: string } {
+  const w = name?.trim();
+  if (w) return { name: w, role: role?.trim() || undefined };
+  return { name: ARTICLE_AUTHOR.name, role: ARTICLE_AUTHOR.role };
+}
+
+export function AuthorByline({ variant = 'page', name, role }: Props): React.JSX.Element {
+  const byline = resolveByline(name, role);
+
   if (variant === 'card') {
     return (
       <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>
-        Written by {ARTICLE_AUTHOR.name}
+        Written by {byline.name}
       </span>
     );
   }
@@ -38,14 +52,14 @@ export function AuthorByline({ variant = 'page' }: Props): React.JSX.Element {
           fontSize: 13, fontWeight: 800,
         }}
       >
-        {ARTICLE_AUTHOR.name.split(' ').map((p) => p[0]).join('').slice(0, 2)}
+        {byline.name.split(' ').map((p) => p[0]).join('').slice(0, 2)}
       </div>
       <div style={{ lineHeight: 1.3 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>
-          Written by {ARTICLE_AUTHOR.name}
+          Written by {byline.name}
         </div>
-        {ARTICLE_AUTHOR.role && (
-          <div style={{ fontSize: 12, color: '#64748B' }}>{ARTICLE_AUTHOR.role}</div>
+        {byline.role && (
+          <div style={{ fontSize: 12, color: '#64748B' }}>{byline.role}</div>
         )}
       </div>
     </div>

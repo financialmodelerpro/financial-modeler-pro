@@ -76,7 +76,7 @@ export default async function ArticlesPage() {
                   {articleExcerpt(featured.body, 220)}
                 </p>
                 <div style={{ marginBottom: 12 }}>
-                  <AuthorByline variant="card" />
+                  <AuthorByline variant="card" name={featured.writer_name} role={featured.writer_title} />
                 </div>
                 <div style={{ fontSize: 12, color: '#9CA3AF' }}>
                   {featured.published_at ? new Date(featured.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''} · {estimateReadTime(featured.body)}
