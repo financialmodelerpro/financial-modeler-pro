@@ -50,7 +50,8 @@ app/admin/
 ├── analytics/page.tsx           # Platform-wide analytics dashboard (2026-04-24). 7 metrics: signup growth, active 7/30d, per-session funnel, drop-off callout, certificate rate, course comparison, live-session attendance. Uses recharts.
 ├── dashboard/page.tsx           # Protected entry point -> redirects to /admin/cms
 ├── announcements/page.tsx
-├── articles/page.tsx + [id]/ + new/
+├── articles/page.tsx + [id]/ + new/  # Article admin (paste-and-go, 2026-07-08/09). List (page.tsx) with Manage-Categories link + per-row DeleteArticleButton. new/ + [id]/ share: title, slug (+ /api/admin/articles/slug-check uniqueness), CategoryMultiSelect (junction, inline create), cover + ArticleExtraFields (mid image + {{MID_IMAGE}}, OG, tags), ArticleWriterField (InstructorPicker + editable byline snapshot + re-sync; publish/schedule requires a writer), "Show hero above title" toggle (hero_before_content, mig 189), ArticleBodyEditor (HTML-source only). Save -> /api/admin/articles (schema-tolerant ADDITIVE_KEYS + junction sync).
+├── articles/categories/page.tsx   # Categories manage view (2026-07-08): create/rename/delete + article counts, nested under the articles admin area. Backed by /api/admin/categories (CRUD, mig 187 categories + article_categories).
 ├── audit/page.tsx
 ├── badge-editor/page.tsx           # 5-line redirect -> /admin/certificate-designer?tab=badge (consolidated 2026-04-24)
 ├── branding/page.tsx              # 5-line redirect -> /admin/header-settings (2026-04-28, commit ab5db30), Brand Colors merged into Header Settings. Sidebar entry removed; Header Settings has matchPaths: ['/admin/branding'] so the rail stays highlighted on stale links.
@@ -415,9 +416,14 @@ Cross-hub admin editor primitives, used by every `app/admin/*` page. Hub-owned c
 
 ```
 src/components/admin/
+├── ArticleBodyEditor.tsx             # Article body: HTML-source-only textarea (verbatim save); Upload image inserts a <figure>, "+ Mid-image marker" inserts {{MID_IMAGE}}. Rich mode removed 2026-07-09 (flattened figures).
+├── ArticleExtraFields.tsx            # Article mid-image (+ caption) uploader, OG image, tags (shared by new + [id])
+├── ArticleWriterField.tsx            # Article writer: InstructorPicker + editable byline snapshot (writer_name/title) + "Re-sync from instructor"
+├── CategoryMultiSelect.tsx           # Article categories: junction-backed multi-select with inline create (/api/admin/categories)
+├── DeleteArticleButton.tsx           # Per-row delete on the admin articles list (confirm -> DELETE /api/admin/articles)
 ├── AuditLogViewer.tsx
 ├── CmsAdminNav.tsx
-├── InstructorPicker.tsx              # Multi-select roster picker (Marketing Studio)
+├── InstructorPicker.tsx              # Multi-select roster picker (Marketing Studio + article writer field)
 ├── LaunchStatusCard.tsx              # Hub Coming-Soon admin card (toggle + launch date)
 ├── LiveSessionAssessmentEditor.tsx
 ├── MediaPicker.tsx
@@ -515,6 +521,7 @@ src/hubs/main/
 │   │                                 # Stats, List, Testimonials, PricingTable, Video, Banner, Spacer,
 │   │                                 # Embed, Team, Timeline, LogoGrid, Countdown, CmsParagraphs
 │   ├── landing/
+│   │   ├── AuthorByline.tsx           # Article byline (page + card variants). resolveByline: writer snapshot (writer_name/title, title normalized '|'->' · ') else ARTICLE_AUTHOR fallback. Also drives the /articles writer filter.
 │   │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx  CourseCard.tsx
 │   │   ├── InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
 │   ├── newsletter/NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
@@ -832,6 +839,7 @@ Ends "a new version on every Edit" from the view/edit lock. New file + modificat
 
 - `app/admin/announcements/page.tsx` + `AnnouncementsManager.tsx` + `/api/admin/announcements/`, DELETED 2026-04-27 (commit fd0aabf), orphan stub
 - `src/components/admin/PermissionsManager.tsx` + `app/admin/{permissions,overrides,plans}/` + `useSubscription.ts` + `subscription.types.ts`, DELETED 2026-04-27 (commit d8405e5), Permissions removal (Phase 5)
+- `src/components/admin/CategoryCombobox.tsx` + `app/api/admin/articles/categories/route.ts`, DELETED 2026-07-08, superseded by CategoryMultiSelect + junction-backed `/api/admin/categories` (articles Phase 2)
 - `src/components/admin/BrandingSettingsPanel.tsx`, DELETED 2026-04-27 (commit ee959ad), orphan
 - `app/admin/whitelabel/` + `useWhiteLabel.ts`, DELETED 2026-04-27 (commit a000fbd), White-Label removal
 - `src/components/marketing/*` + `src/lib/marketing/*`, DELETED 2026-04-24, Marketing Studio rebuild
