@@ -41,6 +41,7 @@
     "next": "^16.2.1",
     "next-auth": "^4.24.13",
     "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^4.0.1",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",

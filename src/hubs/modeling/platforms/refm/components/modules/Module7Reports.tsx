@@ -94,6 +94,7 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
   const [reportType, setReportType] = useState<ReportType>('ic');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -154,6 +155,43 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [rsPair, parties, s.project, s.phases, s.assets, inputs.thesisLine]);
 
+  // Export the CURRENTLY SELECTED report type to an editable .pptx. Generated
+  // SERVER-SIDE (pptxgenjs pulls node: built-ins that cannot bundle for the
+  // browser): the client POSTs the ALREADY-ASSEMBLED model + inputs (no
+  // recompute), the route builds the deck and streams it back. Mirrors the
+  // preview: same model + inputs + ordered sections + display scale.
+  const exportPptx = useCallback(async () => {
+    if (exporting || !activeProjectId) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/refm/projects/${encodeURIComponent(activeProjectId)}/report-pptx`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reportType, projectName: s.project.name, inputs, scale, decimals, currency, asOf,
+          ic: reportType === 'ic' ? icModel : undefined,
+          lender: reportType === 'lender' ? lenderModel : undefined,
+          onePager: reportType === 'onepager' ? onePagerModel : undefined,
+          scenarios: reportType === 'ic' ? scenarios : undefined,
+        }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `Export failed (${res.status})`); }
+      const blob = await res.blob();
+      const safe = (s.project.name || 'Report').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Report';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${safe}_${reportType}.pptx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setNotice({ text: 'PowerPoint exported.', type: 'success' });
+      setTimeout(() => setNotice(null), 2600);
+    } catch (err) {
+      setNotice({ text: `Export failed: ${(err as Error).message}`, type: 'error' });
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exporting, activeProjectId, reportType, s.project.name, inputs, scale, decimals, currency, asOf, icModel, lenderModel, onePagerModel, scenarios]);
+
   if (!activeProjectId) {
     return <div style={{ padding: 40, textAlign: 'center', color: BRAND.slate }}>Open or save a project first to build its reports.</div>;
   }
@@ -183,6 +221,10 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
             {saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
           </button>
         </div>
+        <button type="button" onClick={exportPptx} disabled={exporting} data-testid="report-export-pptx"
+          style={{ background: BRAND.green, color: '#fff', border: 'none', borderRadius: 7, padding: '9px 16px', fontSize: 12, fontWeight: 700, cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.7 : 1 }}>
+          {exporting ? 'Exporting...' : `Export ${REPORT_TYPES.find((r) => r.key === reportType)?.label} to PowerPoint`}
+        </button>
         {notice && <div style={{ fontSize: 12, fontWeight: 600, color: notice.type === 'success' ? BRAND.green : '#B91C1C' }}>{notice.text}</div>}
 
         {/* Narrative fields relevant to the active report type. */}
