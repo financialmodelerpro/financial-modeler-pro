@@ -87,7 +87,7 @@ check('lender NOT surfaced as sponsor/developer/investor', !m.overview.sponsors.
 check('scenarios null with a single (base) case', m.scenarios === null);
 
 // Section config normalization.
-const def = normalizeSectionConfig(defaultReportInputs().sectionConfig);
+const def = normalizeSectionConfig(defaultReportInputs().sectionConfig.ic, 'ic');
 check('default section config = all sections, canonical order', def.length === IC_SECTIONS.length && def.every((s, i) => s.key === IC_SECTIONS[i].key && s.visible));
 const reordered = normalizeSectionConfig([{ key: 'recommendation', visible: true, order: 0 }, { key: 'cover', visible: false, order: 1 }]);
 check('reorder preserved (recommendation first)', reordered[0].key === 'recommendation');

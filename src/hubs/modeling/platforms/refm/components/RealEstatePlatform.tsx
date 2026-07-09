@@ -249,7 +249,7 @@ export const m5Tabs = [
 ];
 
 export const m7Tabs = [
-  { key: 'm7-ic', icon: '📊', label: '1. IC Report', step: 1 },
+  { key: 'm7-ic', icon: '📊', label: '1. Report Builder', step: 1 },
 ];
 
 // Universal module → sub-tabs map. Any module key that needs a sidebar

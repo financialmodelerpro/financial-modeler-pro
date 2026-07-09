@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getReportInputs, upsertReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/persistence/reportInputs-server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
-import { defaultReportInputs, normalizeSectionConfig, type ReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/reportInputs';
+import { defaultReportInputs, normalizeAllSectionConfigs, type ReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/reportInputs';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function notFound() { return NextResponse.json({ error: 'Not found' }, { status: 404 }); }
@@ -53,11 +53,14 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     keyRisks: str(body.keyRisks),
     recommendation: str(body.recommendation),
     disclaimers: str(body.disclaimers),
+    securityCollateral: str(body.securityCollateral),
+    covenantCommentary: str(body.covenantCommentary),
+    thesisLine: str(body.thesisLine),
     headerText: str(body.headerText),
     footerText: str(body.footerText),
     fontBody: str(body.fontBody) || d.fontBody,
     fontHeading: str(body.fontHeading) || d.fontHeading,
-    sectionConfig: normalizeSectionConfig(body.sectionConfig),
+    sectionConfig: normalizeAllSectionConfigs(body.sectionConfig),
   };
   const { error } = await upsertReportInputs(id, inputs);
   if (error) return serverError(error);
