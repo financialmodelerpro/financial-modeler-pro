@@ -194,6 +194,8 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         snapshot={rs.partners}
         streamPriorLabel={inceptionLabel}
         streamAxisLabels={axisLabels}
+        consolidatedFcfeIrr={r.fcfe.irr}
+        consolidatedDdmIrr={r.dividends.irr}
         fmt={fmt}
         scale={scale}
         decimals={decimals}
@@ -423,13 +425,15 @@ function PartnersSection(props: {
   snapshot: import('@/src/core/calculations/returns').PartnersSnapshot;
   streamPriorLabel: number;
   streamAxisLabels: number[];
+  consolidatedFcfeIrr: number | null;
+  consolidatedDdmIrr: number | null;
   fmt: (n: number) => string;
   scale: DisplayScale;
   decimals: DisplayDecimals;
   currency: string;
   onChange: (next: ProjectPartner[]) => void;
 }): React.JSX.Element {
-  const { partners, equityParties, snapshot, streamPriorLabel, streamAxisLabels, fmt, scale, decimals, onChange } = props;
+  const { partners, equityParties, snapshot, streamPriorLabel, streamAxisLabels, consolidatedFcfeIrr, consolidatedDdmIrr, fmt, scale, decimals, onChange } = props;
   const rows = snapshot.partners;
 
   // Equity broken out BY TYPE. Each type carries its project total (from
@@ -500,6 +504,15 @@ function PartnersSection(props: {
   // Unlink: drop the partyId, keep the current (snapshotted) name as free text.
   const unlinkParty = (id: string): void =>
     onChange(effectivePartners.map((p) => (p.id === id ? { ...p, partyId: undefined } : p)));
+  // Agreed shareholding override (the negotiated final cap-table %). Setting it
+  // stamps manualShareholdingPct (drives BOTH the FCFE and DDM splits); clearing
+  // it reverts the partner to the computed weighted-average share.
+  const setAgreedPct = (id: string, pct: number | null): void =>
+    onChange(effectivePartners.map((p) => {
+      if (p.id !== id) return p;
+      if (pct === null) { const { manualShareholdingPct: _drop, ...rest } = p; return rest; }
+      return { ...p, manualShareholdingPct: Math.max(0, Math.min(100, pct)) };
+    }));
   const addPartner = (): void => {
     // Equal-split every type across the new roster (1 -> 100%, 2 -> 50/50,
     // 3 -> 33.33% ...), per the "auto divide" requirement.
@@ -599,6 +612,59 @@ function PartnersSection(props: {
     );
   };
 
+  // Reconciliation chip on the AGREED shares (the driver): green when they sum
+  // to 100%, amber with a signed delta otherwise.
+  const agreedOk = snapshot.shareholdingReconciles;
+  const agreedDelta = snapshot.shareholdingDelta; // decimal (sum - 1)
+  const chipBg = agreedOk ? '#E7F6EC' : '#FEF3C7';
+  const chipFg = agreedOk ? '#1A7A30' : '#92400E';
+  const reconChip = <span style={{ fontWeight: 700, color: chipFg }}>{fmtPct(snapshot.shareholdingSum)}</span>;
+  const reconChipRow = (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-2)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: chipBg, color: chipFg, borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>
+        {agreedOk ? '✓' : '⚠'} Agreed shares total {fmtPct(snapshot.shareholdingSum)}
+        {!agreedOk && <span style={{ fontWeight: 600 }}>({agreedDelta >= 0 ? '+' : ''}{fmtPct(agreedDelta)} vs 100%)</span>}
+      </span>
+    </div>
+  );
+
+  // Side-by-side per-partner stream table: partners = columns, periods = rows,
+  // IRR row at the bottom, Total column reconciling to the consolidated stream.
+  const streamLabels = [streamPriorLabel, ...streamAxisLabels];
+  const sideBySide = (
+    title: string, caption: string,
+    pick: (r: import('@/src/core/calculations/returns').PartnerResult) => number[],
+    total: number[], irrOf: (r: import('@/src/core/calculations/returns').PartnerResult) => number | null, consolidatedIrr: number | null,
+  ): React.JSX.Element => (
+    <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 6 }}>{caption}</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+        <thead>
+          <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+            <th style={thL}>Period</th>
+            {rows.map((r) => <th key={r.id} style={th}>{r.name}</th>)}
+            <th style={th}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {streamLabels.map((label, idx) => (
+            <tr key={label + idx}>
+              <td style={tdL}>{idx === 0 ? `${label} (inception)` : label}</td>
+              {rows.map((r) => <td key={r.id} style={td}>{fmt(pick(r)[idx] ?? 0)}</td>)}
+              <td style={{ ...td, fontWeight: 600 }}>{fmt(total[idx] ?? 0)}</td>
+            </tr>
+          ))}
+          <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+            <td style={{ ...tdL, fontWeight: 800 }}>IRR</td>
+            {rows.map((r) => <td key={r.id} style={{ ...td, fontWeight: 700 }}>{fmtPct(irrOf(r))}</td>)}
+            <td style={{ ...td, fontWeight: 800 }}>{fmtPct(consolidatedIrr)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
@@ -643,33 +709,55 @@ function PartnersSection(props: {
                   {effectivePartners.map((p, i) => <td key={p.id} style={{ ...td, fontWeight: 700 }}>{fmt(rows[i]?.totalEquityInvested ?? 0)}</td>)}
                 </tr>
                 <tr>
-                  <td style={tdL}>Shareholding %</td>
-                  <td style={td}>{fmtPct(snapshot.shareholdingSum)}</td>
+                  <td style={tdL}>Weighted-Avg %</td>
+                  <td style={td}>{fmtPct(snapshot.weightedAvgSum)}</td>
                   {effectivePartners.map((p, i) => (
-                    <td key={p.id} style={td}>{fmtPct(rows[i]?.shareholdingPct ?? 0)}</td>
+                    <td key={p.id} style={{ ...td, color: 'var(--color-meta)' }} title="Time-weighted average capital balance (computed)">{fmtPct(rows[i]?.weightedAvgShareholdingPct ?? 0)}</td>
                   ))}
+                </tr>
+                <tr>
+                  <td style={tdL}>Agreed % <span style={{ color: 'var(--color-meta)', fontWeight: 400 }}>(override)</span></td>
+                  <td style={td}>{reconChip}</td>
+                  {effectivePartners.map((p, i) => {
+                    const wavg = round4((rows[i]?.weightedAvgShareholdingPct ?? 0) * 100);
+                    const isManual = rows[i]?.shareholdingIsManual ?? false;
+                    return (
+                      <td key={p.id} style={td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
+                          <input
+                            type="number" value={isManual ? round4((rows[i]?.shareholdingPct ?? 0) * 100) : ''}
+                            placeholder={String(wavg)}
+                            onChange={(e) => { const v = e.target.value; setAgreedPct(p.id, v === '' ? null : (parseFloat(v) || 0)); }}
+                            style={{ ...FAST_INPUT, width: 56, textAlign: 'right', fontSize: 10 }}
+                            title="Agreed cap-table share. Blank = use the computed weighted-average."
+                          />
+                          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>%</span>
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>
           </div>
+          {reconChipRow}
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <button type="button" onClick={addPartner} style={addBtnGhost}>+ Add Partner</button>
           </div>
 
-          {/* Per-partner outputs */}
+          {/* Per-partner outputs: FCFE basis (headline) + DDM IRR. */}
           <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 880 }}>
               <thead>
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                   <th style={thL}>Partner</th>
                   <th style={th}>Invested</th>
-                  <th style={th}>Share %</th>
-                  <th style={th}>Dividends</th>
-                  <th style={th}>Terminal</th>
-                  <th style={th}>Returned</th>
-                  <th style={th}>IRR</th>
-                  <th style={th}>MOIC</th>
-                  <th style={th}>Equity Mult.</th>
+                  <th style={th}>Agreed %</th>
+                  <th style={th} title="FCFE-based internal rate of return">FCFE IRR</th>
+                  <th style={th}>FCFE MOIC</th>
+                  <th style={th}>FCFE Eq. Mult.</th>
+                  <th style={th} title="Distributed-Equity (dividend) IRR">DDM IRR</th>
+                  <th style={th}>Distributions</th>
                 </tr>
               </thead>
               <tbody>
@@ -678,31 +766,29 @@ function PartnersSection(props: {
                     <td style={{ ...tdL, fontWeight: 600 }}>{r.name}</td>
                     <td style={td}>{fmt(r.totalEquityInvested)}</td>
                     <td style={td}>{fmtPct(r.shareholdingPct)}</td>
-                    <td style={td}>{fmt(r.dividendsReceived)}</td>
-                    <td style={td}>{fmt(r.terminalDistribution)}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{fmt(r.totalCashReturned)}</td>
+                    <td style={{ ...td, fontWeight: 700 }}>{fmtPct(r.fcfeIrr)}</td>
+                    <td style={td}>{fmtX(r.fcfeMoic)}</td>
+                    <td style={td}>{fmtX(r.fcfeEquityMultiple)}</td>
                     <td style={{ ...td, fontWeight: 700 }}>{fmtPct(r.irr)}</td>
-                    <td style={td}>{fmtX(r.moic)}</td>
-                    <td style={td}>{fmtX(r.equityMultiple)}</td>
+                    <td style={td}>{fmt(r.totalCashReturned)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {/* Per-partner cash-flow streams */}
-          <M4PeriodTable
-            title="Partner Cash-Flow Streams"
-            caption="Signed cash flows by shareholding: inception = −equity contributed (prior column), each period = dividend share, exit adds the terminal equity share. The Total column is each partner's lifetime net; the Total row sums all partners (ties to the project Distributed Equity stream over the hold)."
-            yearLabels={streamAxisLabels}
-            rows={[
-              ...rows.map((r) => ({ label: r.name, values: r.cashFlowStream.slice(1), priorValue: r.cashFlowStream[0] ?? 0, totalOverride: fmt(r.cashFlowStream.reduce((s, v) => s + (v ?? 0), 0)) } as M4Row)),
-              { label: 'Total (all partners)', values: snapshot.totalStream.slice(1), priorValue: snapshot.totalStream[0] ?? 0, totalOverride: fmt(snapshot.totalStream.reduce((s, v) => s + (v ?? 0), 0)), isTotal: true } as M4Row,
-            ]}
-            currency={props.currency}
-            fmt={fmt}
-            priorYearLabel={streamPriorLabel}
-          />
+          {/* Per-partner streams, both bases (partners = columns, periods = rows,
+              IRR row at bottom, Total column reconciling to the consolidated). */}
+          {sideBySide(
+            'FCFE Streams by Partner',
+            'Each partner’s agreed share of the consolidated FCFE (levered free cash flow) each period. Negative = capital in, positive = cash out. The Total column reconciles to the consolidated FCFE.',
+            (r) => r.fcfeStream, snapshot.totalFcfeStream, (r) => r.fcfeIrr, consolidatedFcfeIrr,
+          )}
+          {sideBySide(
+            'Distributed-Equity (DDM) Streams by Partner',
+            'Each partner’s agreed share of dividends distributed (plus terminal equity at exit), less equity contributed at its timing. The Total column reconciles to the consolidated Distributed-Equity stream.',
+            (r) => r.cashFlowStream, snapshot.totalStream, (r) => r.irr, consolidatedDdmIrr,
+          )}
         </>
       )}
     </section>

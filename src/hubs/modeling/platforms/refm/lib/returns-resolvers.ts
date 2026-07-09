@@ -474,6 +474,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     terminalEquityValue: tvEquity,
     exitIdx: exit,
     streamYearLabels,
+    // Consolidated FCFE stream (E+1, index 0 = inception) so each partner gets
+    // an FCFE-basis stream = agreed share x this. Identity/display only; the
+    // consolidated stream itself is unchanged, so total returns cannot move.
+    consolidatedFcfePerPeriod: fcfe,
     // No explicit partners => default a single 100% Sponsor holding the
     // project's full equity (new cash + in-kind + existing), reconciled per
     // type; the user then splits each type across partners.
