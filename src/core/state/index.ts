@@ -18,10 +18,10 @@ export const ROLE_META: Record<Role, RoleMeta> = {
 };
 
 export const MODULE_VISIBILITY: Record<Role, ModuleKey[]> = {
-  admin:    ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6'],
-  analyst:  ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module6'],
-  reviewer: ['dashboard', 'projects', 'module6'],
-  viewer:   ['dashboard', 'module6'],
+  admin:    ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6', 'module7'],
+  analyst:  ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module6', 'module7'],
+  reviewer: ['dashboard', 'projects', 'module6', 'module7'],
+  viewer:   ['dashboard', 'module6', 'module7'],
 };
 
 export const PERMISSIONS: Record<Role, PermissionMap> = {

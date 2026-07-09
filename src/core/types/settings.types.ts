@@ -20,4 +20,4 @@ export type PermissionMap = Record<Permission, boolean>;
 export type ModuleKey =
   | 'dashboard' | 'projects' | 'overview'
   | 'module1' | 'module2' | 'module3'
-  | 'module4' | 'module5' | 'module6';
+  | 'module4' | 'module5' | 'module6' | 'module7';
