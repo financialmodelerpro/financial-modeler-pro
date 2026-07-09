@@ -62,6 +62,7 @@ import Module4PL from './modules/Module4PL';
 import Module4CashFlow from './modules/Module4CashFlow';
 import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module5Returns from './modules/Module5Returns';
+import Module7Reports from './modules/Module7Reports';
 import Module5Metrics from './modules/Module5Metrics';
 import Module5CaseComparison from './modules/Module5CaseComparison';
 import Module6Scenarios from './modules/Module6Scenarios';
@@ -247,6 +248,10 @@ export const m5Tabs = [
   { key: 'm5-cases', icon: '🔀', label: '3. Case Comparison', step: 3 },
 ];
 
+export const m7Tabs = [
+  { key: 'm7-ic', icon: '📊', label: '1. IC Report', step: 1 },
+];
+
 // Universal module → sub-tabs map. Any module key that needs a sidebar
 // drop-down just registers its tabs here; Sidebar.tsx reads from this
 // map instead of hard-coding per-module branches. New modules (M4/M5/M6)
@@ -258,6 +263,7 @@ export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
   module3: m3Tabs,
   module4: m4Tabs,
   module5: m5Tabs,
+  module7: m7Tabs,
 };
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -1190,6 +1196,48 @@ export default function RealEstatePlatform(): React.JSX.Element {
         );
       }
       return <Module6Scenarios />;
+    }
+    if (activeModule === 'module7') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="m7-no-project">
+            No project selected.{' '}
+            <button type="button" onClick={() => setWizardOpen(true)} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-2)' }}>
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      const m7ActiveTab = m7Tabs.some((t) => t.key === activeTab) ? activeTab : m7Tabs[0].key;
+      return (
+        <div data-testid="module7-shell-wrap">
+          <div
+            style={{ display: 'flex', gap: 'var(--sp-1)', borderBottom: '1px solid var(--color-border)', marginBottom: 'var(--sp-3)' }}
+            data-testid="m7-tab-row"
+          >
+            {m7Tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`m7-tab-${tab.key}`}
+                style={{
+                  padding: 'var(--sp-1) var(--sp-2)',
+                  background: m7ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
+                  color: m7ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-small)',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          {m7ActiveTab === 'm7-ic' && <Module7Reports activeProjectId={activeProjectId} />}
+        </div>
+      );
     }
     return (
       <div style={{ padding: 'var(--sp-3)' }} data-testid="module-coming-soon">

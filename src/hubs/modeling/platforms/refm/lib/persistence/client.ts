@@ -21,6 +21,7 @@ import type {
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
+import type { ReportInputs } from '../reportInputs';
 
 // Project metadata returned by the API. Same as RefmProjectListItem
 // but kept as its own alias so consumers don't need to know the
@@ -236,4 +237,20 @@ export function deleteParty(projectId: string, partyId: string): Promise<FetchRe
     `/api/refm/projects/${encodeURIComponent(projectId)}/parties?partyId=${encodeURIComponent(partyId)}`,
     { method: 'DELETE' },
   );
+}
+
+// ── Report inputs (Module 7 Reports, migration 191) ──────────────────────────
+// Per-project presentation / narrative config for the report builder. The engine
+// never reads it; financials are pulled live from the snapshot at render time.
+// `inputs` is null when none are saved yet (the tab then uses defaults).
+
+export function getReportInputs(projectId: string): Promise<FetchResult<{ inputs: ReportInputs | null }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-inputs`, { method: 'GET' });
+}
+
+export function saveReportInputs(projectId: string, inputs: ReportInputs): Promise<FetchResult<{ inputs: ReportInputs }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-inputs`, {
+    method: 'PUT',
+    body:   JSON.stringify(inputs),
+  });
 }
