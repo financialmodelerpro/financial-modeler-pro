@@ -628,9 +628,12 @@ function PartnersSection(props: {
     </div>
   );
 
-  // Side-by-side per-partner stream table: partners = columns, periods = rows,
-  // IRR row at the bottom, Total column reconciling to the consolidated stream.
+  // Per-partner stream table, horizontal to match the other returns tables:
+  // partners = rows (label left), years = columns (top), a lifetime Total column
+  // then IRR as the final column on the right, and a Total row (Sigma partners,
+  // reconciling to the consolidated stream) at the bottom.
   const streamLabels = [streamPriorLabel, ...streamAxisLabels];
+  const lifetime = (arr: number[]): number => arr.reduce((s, v) => s + (v ?? 0), 0);
   const sideBySide = (
     title: string, caption: string,
     pick: (r: import('@/src/core/calculations/returns').PartnerResult) => number[],
@@ -642,22 +645,30 @@ function PartnersSection(props: {
       <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
         <thead>
           <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-            <th style={thL}>Period</th>
-            {rows.map((r) => <th key={r.id} style={th}>{r.name}</th>)}
+            <th style={thL}>Partner</th>
+            {streamLabels.map((label, idx) => (
+              <th key={String(label) + idx} style={th} title={idx === 0 ? 'Inception' : undefined}>{label}</th>
+            ))}
             <th style={th}>Total</th>
+            <th style={th}>IRR</th>
           </tr>
         </thead>
         <tbody>
-          {streamLabels.map((label, idx) => (
-            <tr key={label + idx}>
-              <td style={tdL}>{idx === 0 ? `${label} (inception)` : label}</td>
-              {rows.map((r) => <td key={r.id} style={td}>{fmt(pick(r)[idx] ?? 0)}</td>)}
-              <td style={{ ...td, fontWeight: 600 }}>{fmt(total[idx] ?? 0)}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const s = pick(r);
+            return (
+              <tr key={r.id}>
+                <td style={{ ...tdL, fontWeight: 600 }}>{r.name}</td>
+                {streamLabels.map((_, idx) => <td key={idx} style={td}>{fmt(s[idx] ?? 0)}</td>)}
+                <td style={{ ...td, fontWeight: 600 }}>{fmt(lifetime(s))}</td>
+                <td style={{ ...td, fontWeight: 700 }}>{fmtPct(irrOf(r))}</td>
+              </tr>
+            );
+          })}
           <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
-            <td style={{ ...tdL, fontWeight: 800 }}>IRR</td>
-            {rows.map((r) => <td key={r.id} style={{ ...td, fontWeight: 700 }}>{fmtPct(irrOf(r))}</td>)}
+            <td style={{ ...tdL, fontWeight: 800 }}>Total</td>
+            {streamLabels.map((_, idx) => <td key={idx} style={{ ...td, fontWeight: 700 }}>{fmt(total[idx] ?? 0)}</td>)}
+            <td style={{ ...td, fontWeight: 800 }}>{fmt(lifetime(total))}</td>
             <td style={{ ...td, fontWeight: 800 }}>{fmtPct(consolidatedIrr)}</td>
           </tr>
         </tbody>
