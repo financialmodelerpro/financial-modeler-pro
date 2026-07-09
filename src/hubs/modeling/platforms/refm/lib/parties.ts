@@ -24,6 +24,23 @@ export const PARTY_ROLES = [
 
 export type PartyRole = typeof PARTY_ROLES[number];
 
+/**
+ * Roles that make a party an equity holder, so it can be picked as an M5
+ * equity partner. Identity link only; picking a party never changes any
+ * returns math (see ProjectPartner.partyId).
+ */
+export const EQUITY_PARTY_ROLES: readonly string[] = [
+  'Sponsor',
+  'Developer',
+  'Investor/Equity Partner',
+];
+
+/** True when a party carries at least one equity role. */
+export function isEquityParty(roles: unknown): boolean {
+  const arr = Array.isArray(roles) ? roles.map(String) : [];
+  return arr.some((r) => EQUITY_PARTY_ROLES.includes(r));
+}
+
 export interface Party {
   id: string;
   name: string;

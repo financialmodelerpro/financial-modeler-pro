@@ -272,6 +272,14 @@ export const PROJECT_TYPES: readonly ProjectType[] = [
 export interface ProjectPartner {
   id: string;
   name: string;
+  // 2026-07-09 (M5 <-> M1 Parties link): when a partner is picked from the
+  // Module 1 Parties list (an equity-role party), `partyId` records the link
+  // and `name` is snapshotted at pick time. The engine NEVER reads partyId
+  // (identity only); `name` remains the single source for display, so a saved
+  // version keeps the name it was given even if the party is later renamed or
+  // deleted. Unset => a free-text / legacy partner (unlinked).
+  /** Optional link to a refm_parties row (identity only, math-inert). */
+  partyId?: string;
   // 2026-06-03 (M5 partners flexible split): partners now hold a PERCENTAGE
   // share of each equity TYPE. The project sets the per-type total (from
   // financing); each partner takes cashPct / inKindPct / existingPct of it,

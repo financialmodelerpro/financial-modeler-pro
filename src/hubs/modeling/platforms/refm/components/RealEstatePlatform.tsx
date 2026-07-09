@@ -1172,7 +1172,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
               </button>
             ))}
           </div>
-          {m5ActiveTab === 'm5-returns' && <Module5Returns />}
+          {m5ActiveTab === 'm5-returns' && <Module5Returns activeProjectId={activeProjectId} />}
           {m5ActiveTab === 'm5-metrics' && <Module5Metrics />}
           {m5ActiveTab === 'm5-cases' && <Module5CaseComparison />}
         </div>

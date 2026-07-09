@@ -9,9 +9,11 @@
  *
  * All math lives in returns-resolvers.ts -> core/calculations/returns.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { listParties } from '../../lib/persistence/client';
+import { isEquityParty, type Party } from '../../lib/parties';
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
@@ -24,7 +26,19 @@ import type { ProjectPartner } from '../../lib/state/module1-types';
 import { useEntitlements } from '../../lib/useEntitlements';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 
-export default function Module5Returns(): React.JSX.Element {
+export default function Module5Returns({ activeProjectId = null }: { activeProjectId?: string | null } = {}): React.JSX.Element {
+  // Module 1 Parties carrying an equity role, offered as the source for equity
+  // partner identity. Identity only, never feeds the returns math.
+  const [equityParties, setEquityParties] = useState<Party[]>([]);
+  useEffect(() => {
+    let alive = true;
+    if (!activeProjectId) { setEquityParties([]); return; }
+    void listParties(activeProjectId).then(({ data }) => {
+      if (alive && data) setEquityParties(data.parties.filter((p) => isEquityParty(p.roles)));
+    });
+    return () => { alive = false; };
+  }, [activeProjectId]);
+
   const state = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -176,6 +190,7 @@ export default function Module5Returns(): React.JSX.Element {
       {/* ── Equity Partners ── */}
       <PartnersSection
         partners={project.partners ?? []}
+        equityParties={equityParties}
         snapshot={rs.partners}
         streamPriorLabel={inceptionLabel}
         streamAxisLabels={axisLabels}
@@ -404,6 +419,7 @@ function SensitivitySection(props: {
 /** M5 Pass 2: equity-by-type allocation matrix + per-partner returns + streams. */
 function PartnersSection(props: {
   partners: ProjectPartner[];
+  equityParties: Party[];
   snapshot: import('@/src/core/calculations/returns').PartnersSnapshot;
   streamPriorLabel: number;
   streamAxisLabels: number[];
@@ -413,7 +429,7 @@ function PartnersSection(props: {
   currency: string;
   onChange: (next: ProjectPartner[]) => void;
 }): React.JSX.Element {
-  const { partners, snapshot, streamPriorLabel, streamAxisLabels, fmt, scale, decimals, onChange } = props;
+  const { partners, equityParties, snapshot, streamPriorLabel, streamAxisLabels, fmt, scale, decimals, onChange } = props;
   const rows = snapshot.partners;
 
   // Equity broken out BY TYPE. Each type carries its project total (from
@@ -475,6 +491,15 @@ function PartnersSection(props: {
     onChange(rebalance(effectivePartners, key, id, total > 0 ? (amount / total) * 100 : 0));
   const setName = (id: string, name: string): void =>
     onChange(effectivePartners.map((p) => (p.id === id ? { ...p, name } : p)));
+  // Link a partner to a Module 1 Party: record the partyId AND snapshot the
+  // party's current name (the name then stays stable in the saved version even
+  // if the party is later renamed or deleted). partyId is identity only; the
+  // returns engine never reads it, so no number changes.
+  const linkParty = (id: string, party: Party): void =>
+    onChange(effectivePartners.map((p) => (p.id === id ? { ...p, partyId: party.id, name: party.name } : p)));
+  // Unlink: drop the partyId, keep the current (snapshotted) name as free text.
+  const unlinkParty = (id: string): void =>
+    onChange(effectivePartners.map((p) => (p.id === id ? { ...p, partyId: undefined } : p)));
   const addPartner = (): void => {
     // Equal-split every type across the new roster (1 -> 100%, 2 -> 50/50,
     // 3 -> 33.33% ...), per the "auto divide" requirement.
@@ -531,6 +556,49 @@ function PartnersSection(props: {
     );
   };
 
+  // Partner identity control. When Module 1 Parties with an equity role exist,
+  // the name is picked from a dropdown of those parties (which stores partyId +
+  // snapshots the name). A "Custom name" option keeps the free-text input as a
+  // fallback for unlinked / legacy partners. A partner linked to a party that
+  // is no longer in the list (renamed / deleted) still shows its snapshotted
+  // name via a synthetic option, so the saved version stays stable.
+  const CUSTOM = '__custom__';
+  const selectStyle: React.CSSProperties = {
+    width: 128, fontSize: 11, padding: '3px 4px', borderRadius: 4,
+    border: '1px solid var(--color-border)', background: '#fff', color: 'var(--color-heading)',
+  };
+  const partnerNameCell = (p: ProjectPartner): React.JSX.Element => {
+    const linkedFound = p.partyId ? equityParties.find((x) => x.id === p.partyId) : undefined;
+    const linkedMissing = !!p.partyId && !linkedFound;
+    const selectValue = p.partyId ?? CUSTOM;
+    const onSelect = (v: string): void => {
+      if (v === CUSTOM) { unlinkParty(p.id); return; }
+      const party = equityParties.find((x) => x.id === v);
+      if (party) linkParty(p.id, party);
+    };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
+        {equityParties.length > 0 || p.partyId ? (
+          <>
+            <select value={selectValue} onChange={(e) => onSelect(e.target.value)} style={selectStyle} title="Link to a Module 1 Party (equity role) or keep a custom name">
+              {equityParties.map((party) => (
+                <option key={party.id} value={party.id}>{party.name}</option>
+              ))}
+              {linkedMissing && <option value={p.partyId}>{p.name} (unavailable)</option>}
+              <option value={CUSTOM}>Custom name…</option>
+            </select>
+            {!p.partyId && (
+              <input value={p.name} onChange={(e) => setName(p.id, e.target.value)} placeholder="Partner name" style={{ ...FAST_INPUT, width: 128, color: 'var(--color-heading)' }} />
+            )}
+          </>
+        ) : (
+          // No equity parties defined yet: plain free-text, same as before.
+          <input value={p.name} onChange={(e) => setName(p.id, e.target.value)} style={{ ...FAST_INPUT, width: 128, color: 'var(--color-heading)' }} />
+        )}
+      </div>
+    );
+  };
+
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-1)' }}>
@@ -551,8 +619,8 @@ function PartnersSection(props: {
                   <th style={th}>Project Total</th>
                   {effectivePartners.map((p) => (
                     <th key={p.id} style={th}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                        <input value={p.name} onChange={(e) => setName(p.id, e.target.value)} style={{ ...FAST_INPUT, width: 100, color: 'var(--color-heading)' }} />
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, justifyContent: 'flex-end' }}>
+                        {partnerNameCell(p)}
                         <button type="button" onClick={() => remove(p.id)} style={{ ...removeBtn, color: 'var(--color-on-primary-navy)' }} title="Remove partner" disabled={effectivePartners.length <= 1}>✕</button>
                       </div>
                     </th>
