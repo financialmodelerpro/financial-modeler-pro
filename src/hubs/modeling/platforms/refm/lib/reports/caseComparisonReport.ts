@@ -13,9 +13,16 @@
  */
 import { computeFinancialsSnapshot } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
-import { applyOverrides, baseCaseId, buildOverrides } from '../cases/applyOverrides';
+import { applyOverrides, baseCaseId, buildOverrides, getByPath, enumerateOverridableFields } from '../cases/applyOverrides';
+import { buildGridContext, describeAssumption, assumptionFor, formatAssumptionValue } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
+
+/** One "what drives this case" row: a real override, base value vs case value. */
+export interface CaseDriverRow { label: string; base: string; value: string }
+
+/** Max drivers surfaced per case in the IC "what drives each case" table. */
+const MAX_DRIVERS = 10;
 
 export type CaseKpiKind = 'pct' | 'money' | 'mult';
 
@@ -64,6 +71,9 @@ export interface CaseComparisonColumn {
   overrideCount: number;
   /** KPI label -> value (null when the case failed to compute or n/a). */
   values: Record<string, number | null>;
+  /** "What drives this case": the real overrides (label + base vs case value),
+   *  labelled via the assumption grid. Empty for the base case. */
+  drivers: CaseDriverRow[];
 }
 
 export interface CaseComparisonReport {
@@ -93,6 +103,27 @@ export function buildCaseComparisonReport(input: CaseComparisonInput): CaseCompa
   const { baseModel, cases, activeCaseId, liveActiveModel, activeOverrideCount } = input;
   const baseId = baseCaseId(cases);
 
+  // Shared assumption context + path->field map for labelling drivers (built
+  // once off the base model, like the Year-on-Year report does).
+  const gridCtx = buildGridContext(baseModel);
+  const fieldByPath = new Map(enumerateOverridableFields(baseModel).map((f) => [f.path, f]));
+  const driversFor = (model: HydrateSnapshot): CaseDriverRow[] => {
+    const overrides = buildOverrides(baseModel, model);
+    const rows: CaseDriverRow[] = [];
+    for (const path of Object.keys(overrides)) {
+      const f = fieldByPath.get(path);
+      const d = f ? describeAssumption(f, gridCtx) : assumptionFor(path, undefined, overrides[path], gridCtx);
+      const label = d.context ? `${d.label} (${d.context})` : d.label;
+      rows.push({
+        label,
+        base: formatAssumptionValue(getByPath(baseModel, path), d.format),
+        value: formatAssumptionValue(getByPath(model, path), d.format),
+      });
+      if (rows.length >= MAX_DRIVERS) break;
+    }
+    return rows;
+  };
+
   const columns: CaseComparisonColumn[] = cases.map((c) => {
     let model: HydrateSnapshot;
     if (c.id === activeCaseId && liveActiveModel) model = liveActiveModel;
@@ -116,7 +147,8 @@ export function buildCaseComparisonReport(input: CaseComparisonInput): CaseCompa
       : (c.id === activeCaseId && activeOverrideCount !== undefined
           ? activeOverrideCount
           : Object.keys(buildOverrides(baseModel, model)).length);
-    return { id: c.id, name: c.name, role: c.role, isActive: c.id === activeCaseId, overrideCount, values };
+    const drivers = c.role === 'base' ? [] : driversFor(model);
+    return { id: c.id, name: c.name, role: c.role, isActive: c.id === activeCaseId, overrideCount, values, drivers };
   });
 
   return { baseId, columns, kpis: CASE_KPIS };

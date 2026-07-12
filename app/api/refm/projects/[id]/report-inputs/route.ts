@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getReportInputs, upsertReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/persistence/reportInputs-server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
-import { defaultReportInputs, normalizeAllSectionConfigs, type ReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/reportInputs';
+import { defaultReportInputs, normalizeAllSectionConfigs, coerceNarrativeExtras, type ReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/reportInputs';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function notFound() { return NextResponse.json({ error: 'Not found' }, { status: 404 }); }
@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   const { id } = await ctx.params;
   const owned = await requireOwnedProject(id);
   if (owned instanceof NextResponse) return owned;
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const d = defaultReportInputs();
   const inputs: ReportInputs = {
     executiveSummary: str(body.executiveSummary),
@@ -56,6 +56,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     securityCollateral: str(body.securityCollateral),
     covenantCommentary: str(body.covenantCommentary),
     thesisLine: str(body.thesisLine),
+    ...coerceNarrativeExtras(body),
     headerText: str(body.headerText),
     footerText: str(body.footerText),
     fontBody: str(body.fontBody) || d.fontBody,

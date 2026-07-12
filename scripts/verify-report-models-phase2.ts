@@ -94,11 +94,11 @@ check('one-pager prepared-by + contact resolve by role', op.preparedBy[0]?.name 
 const all = normalizeAllSectionConfigs({});
 check('lender section config = all lender sections in order', all.lender.length === LENDER_SECTIONS.length && all.lender.every((s, i) => s.key === LENDER_SECTIONS[i].key));
 check('onepager section config = all one-pager sections in order', all.onepager.length === ONEPAGER_SECTIONS.length && all.onepager.every((s, i) => s.key === ONEPAGER_SECTIONS[i].key));
-const legacy = normalizeAllSectionConfigs([{ key: 'recommendation', visible: false, order: 0 }]);
-check('legacy bare array migrates to ic (recommendation hidden)', legacy.ic.find((s) => s.key === 'recommendation')!.visible === false && legacy.lender.length === LENDER_SECTIONS.length);
+const legacy = normalizeAllSectionConfigs([{ key: 'executive_summary', visible: false, order: 0 }]);
+check('legacy bare array migrates to ic (executive_summary hidden)', legacy.ic.find((s) => s.key === 'executive_summary')!.visible === false && legacy.lender.length === LENDER_SECTIONS.length);
 const lenderReorder = normalizeSectionConfig([{ key: 'covenant_analysis', visible: true, order: 0 }], 'lender');
 check('lender reorder honored (covenant_analysis first)', lenderReorder[0].key === 'covenant_analysis' && lenderReorder.length === LENDER_SECTIONS.length);
-check('ic section set unchanged (Phase 1 intact)', IC_SECTIONS.length === 9);
+check('ic section set is the full A+B structure (21 sections)', IC_SECTIONS.length === 21);
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

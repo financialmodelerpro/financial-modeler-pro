@@ -1,15 +1,22 @@
 /**
  * reportInputs.ts (REFM Module 7 Reports)
  *
- * Shared types + defaults for per-project Report inputs (mig 191 + 192). This is
- * PRESENTATION / NARRATIVE config only: the model engine never reads it, and every
- * financial figure is pulled live from the computed snapshot at render time.
- * Import-safe on both the client tab and the server API route (no client- or
+ * Shared types + defaults for per-project Report inputs (migs 191 + 192 + 193).
+ * This is PRESENTATION / NARRATIVE config only: the model engine never reads it,
+ * and every financial figure is pulled live from the computed snapshot at render
+ * time. Import-safe on both the client tab and the server API route (no client- or
  * server-only imports).
  *
- * Phase 2 (2026-07-09): three report types (IC / Lender / One-Pager). Narrative +
- * header/footer + fonts are SHARED across types; the section show/hide + order is
- * PER report type, held in sectionConfig as { ic, lender, onepager }.
+ * Phase 2 (2026-07-09): three report types (IC / Lender / One-Pager).
+ * A+B rebuild (2026-07-12): the IC Report is rebuilt to full IC-grade depth
+ * (21 sections). Lender + One-Pager are PARKED (hidden from the report-type
+ * selector, code + fields kept). The IC narrative gains structured fields
+ * (mig 193): development concept, market context (stats + points + sources),
+ * key gates, returns / exit / scenario commentary, a structured risk table, a
+ * regulatory & tax repeater (with an OPTIONAL loadable KSA preset, never a
+ * hardcoded jurisdiction default), conditions precedent, next steps, and
+ * optional executive-summary points. Existing free-text fields stay as
+ * fallbacks. Section show/hide + order is PER report type.
  *
  * No em dashes in this file.
  */
@@ -21,20 +28,40 @@ export const REPORT_TYPES: ReadonlyArray<{ key: ReportType; label: string }> = [
   { key: 'onepager', label: 'Investor One-Pager' },
 ];
 
-/** Canonical IC section set, in default order. */
+/**
+ * PARKED report types (A+B rebuild, 2026-07-12): hidden from the selector, code
+ * and fields fully retained. Un-park by removing a key from this list.
+ */
+export const PARKED_REPORT_TYPES: ReadonlyArray<ReportType> = ['lender', 'onepager'];
+export const ACTIVE_REPORT_TYPES: ReadonlyArray<{ key: ReportType; label: string }> =
+  REPORT_TYPES.filter((rt) => !PARKED_REPORT_TYPES.includes(rt.key));
+
+/** Canonical IC section set, in default order (A+B full model-driven structure). */
 export const IC_SECTIONS = [
   { key: 'cover', label: 'Cover' },
   { key: 'executive_summary', label: 'Executive Summary' },
+  { key: 'investment_recommendation', label: 'Investment Recommendation' },
   { key: 'project_overview', label: 'Project Overview' },
-  { key: 'headline_returns', label: 'Headline Returns' },
-  { key: 'development_economics', label: 'Development Economics' },
-  { key: 'capital_structure', label: 'Capital Structure' },
-  { key: 'scenario_comparison', label: 'Scenario Comparison' },
-  { key: 'recommendation', label: 'Recommendation' },
+  { key: 'master_plan', label: 'Master Plan & Phasing' },
+  { key: 'asset_mix', label: 'Asset Mix' },
+  { key: 'market_context', label: 'Market Context' },
+  { key: 'development_programme', label: 'Development Programme' },
+  { key: 'development_costs', label: 'Development Costs' },
+  { key: 'value_economics', label: 'Value & Development Economics' },
+  { key: 'sources_uses', label: 'Sources & Uses' },
+  { key: 'financing_structure', label: 'Financing Structure' },
+  { key: 'returns_analysis', label: 'Returns Analysis' },
+  { key: 'exit_optionality', label: 'Exit-Year Optionality' },
+  { key: 'scenario_cases', label: 'Scenario Analysis: Cases' },
+  { key: 'scenario_economics', label: 'Scenario Analysis: Economics' },
+  { key: 'sensitivity', label: 'Sensitivity' },
+  { key: 'risk_assessment', label: 'Risk Assessment' },
+  { key: 'regulatory_tax', label: 'Regulatory & Tax' },
+  { key: 'recommendation_approvals', label: 'Recommendation & Approvals' },
   { key: 'disclaimers', label: 'Disclaimers' },
 ] as const;
 
-/** Lender Package section set. */
+/** Lender Package section set (PARKED; retained). */
 export const LENDER_SECTIONS = [
   { key: 'cover', label: 'Cover' },
   { key: 'executive_summary', label: 'Executive Summary' },
@@ -49,7 +76,7 @@ export const LENDER_SECTIONS = [
   { key: 'disclaimers', label: 'Disclaimers' },
 ] as const;
 
-/** Investor One-Pager section set. */
+/** Investor One-Pager section set (PARKED; retained). */
 export const ONEPAGER_SECTIONS = [
   { key: 'deal_at_a_glance', label: 'Deal at a Glance' },
   { key: 'headline_returns', label: 'Headline Returns' },
@@ -77,11 +104,24 @@ export interface SectionSetting {
 
 export type SectionConfigMap = Record<ReportType, SectionSetting[]>;
 
+// ── Structured narrative sub-types (mig 193) ──
+/** A market-context headline stat (e.g. "~9.5m" / "Riyadh population, 2030"). */
+export interface MarketStat { label: string; value: string }
+/** A market-context narrative point (title + body). */
+export interface MarketPoint { title: string; body: string }
+export interface MarketContext { stats: MarketStat[]; points: MarketPoint[]; sourcesNote: string }
+/** One structured risk + its mitigant. */
+export interface RiskItem { risk: string; mitigant: string }
+/** One regulatory / tax line (label + body). */
+export interface RegulatoryItem { label: string; body: string }
+/** One executive-summary point (title + body). */
+export interface ExecPoint { title: string; body: string }
+
 export interface ReportInputs {
   // ── Narrative (shared across report types) ──
   /** Executive summary / investment thesis (IC + Lender exec summary). */
   executiveSummary: string;
-  /** Key risks & mitigants (IC). */
+  /** Key risks & mitigants (IC, legacy free-text fallback for `risks`). */
   keyRisks: string;
   /** Recommendation / the ask (IC). */
   recommendation: string;
@@ -93,6 +133,29 @@ export interface ReportInputs {
   covenantCommentary: string;
   /** Short thesis line (One-Pager, mig 192). */
   thesisLine: string;
+  // ── IC structured narrative (mig 193) ──
+  /** Development concept (Project Overview). */
+  developmentConcept: string;
+  /** Market context: headline stats + narrative points + a sources note. */
+  marketContext: MarketContext;
+  /** Key gates / milestones (Development Programme). */
+  keyGates: string;
+  /** "Reading the returns" commentary (Returns Analysis). */
+  returnsCommentary: string;
+  /** Exit-year optionality commentary (Exit-Year Optionality). */
+  exitCommentary: string;
+  /** Scenario takeaway (Scenario Economics). */
+  scenarioTakeaway: string;
+  /** Structured risk + mitigant rows (Risk Assessment); `keyRisks` is fallback. */
+  risks: RiskItem[];
+  /** Regulatory & tax rows (optional loadable KSA preset; never a default). */
+  regulatoryTax: RegulatoryItem[];
+  /** Conditions precedent (Recommendation & Approvals). */
+  conditionsPrecedent: string[];
+  /** Next steps (Recommendation & Approvals). */
+  nextSteps: string;
+  /** Optional executive-summary points; when empty the free-text summary shows. */
+  execPoints: ExecPoint[];
   // ── Chrome (shared) ──
   headerText: string;
   footerText: string;
@@ -108,6 +171,21 @@ export const FONT_CHOICES: readonly string[] = [
   'Calibri', 'Cambria', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Garamond', 'Verdana',
 ];
 
+/**
+ * OPTIONAL, loadable KSA regulatory & tax preset. NOT a default (the default is
+ * empty, so no jurisdiction is ever hardcoded into a project). The report form
+ * offers a one-click "Load KSA preset" that copies these rows into the editable
+ * `regulatoryTax` list; the user can then edit, remove, or replace them.
+ */
+export const KSA_REGULATORY_PRESET: readonly RegulatoryItem[] = [
+  { label: 'Wafi off-plan sales', body: 'Off-plan committee licence and a dedicated escrow account govern pre-sales receipts.' },
+  { label: 'Real Estate Transaction Tax', body: 'Transaction tax on land and property transfers, modelled on acquisitions and strata sales.' },
+  { label: 'Zakat', body: 'Zakat on Saudi / GCC ownership; foreign ownership modelled under income tax as applicable.' },
+  { label: 'IFRS 15 revenue', body: 'Over-time vs. point-in-time recognition assessed per contract for off-plan residential.' },
+  { label: 'Lease registration', body: 'Retail and residential leases registered with the regulator; income terms compliant.' },
+  { label: 'National programme alignment', body: 'National housing programmes and tourism targets support demand and financing appetite.' },
+];
+
 export function defaultSectionConfig(reportType: ReportType): SectionSetting[] {
   return SECTIONS[reportType].map((s, i) => ({ key: s.key, visible: true, order: i }));
 }
@@ -116,13 +194,70 @@ export function defaultSectionConfigMap(): SectionConfigMap {
   return { ic: defaultSectionConfig('ic'), lender: defaultSectionConfig('lender'), onepager: defaultSectionConfig('onepager') };
 }
 
+export function defaultMarketContext(): MarketContext {
+  return { stats: [], points: [], sourcesNote: '' };
+}
+
 export function defaultReportInputs(): ReportInputs {
   return {
     executiveSummary: '', keyRisks: '', recommendation: '', disclaimers: '',
     securityCollateral: '', covenantCommentary: '', thesisLine: '',
+    developmentConcept: '', marketContext: defaultMarketContext(), keyGates: '',
+    returnsCommentary: '', exitCommentary: '', scenarioTakeaway: '',
+    risks: [], regulatoryTax: [], conditionsPrecedent: [], nextSteps: '', execPoints: [],
     headerText: '', footerText: '',
     fontBody: 'Calibri', fontHeading: 'Cambria',
     sectionConfig: defaultSectionConfigMap(),
+  };
+}
+
+// ── Defensive coercion for the structured narrative fields (schema tolerant) ──
+const asStr = (v: unknown): string => (typeof v === 'string' ? v : '');
+const asArr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+
+export function coerceMarketContext(v: unknown): MarketContext {
+  const o = obj(v);
+  return {
+    stats: asArr(o.stats).map((s) => ({ label: asStr(obj(s).label), value: asStr(obj(s).value) })).filter((s) => s.label || s.value),
+    points: asArr(o.points).map((p) => ({ title: asStr(obj(p).title), body: asStr(obj(p).body) })).filter((p) => p.title || p.body),
+    sourcesNote: asStr(o.sourcesNote),
+  };
+}
+export function coerceRisks(v: unknown): RiskItem[] {
+  return asArr(v).map((r) => ({ risk: asStr(obj(r).risk), mitigant: asStr(obj(r).mitigant) })).filter((r) => r.risk || r.mitigant);
+}
+export function coerceRegulatory(v: unknown): RegulatoryItem[] {
+  return asArr(v).map((r) => ({ label: asStr(obj(r).label), body: asStr(obj(r).body) })).filter((r) => r.label || r.body);
+}
+export function coerceExecPoints(v: unknown): ExecPoint[] {
+  return asArr(v).map((p) => ({ title: asStr(obj(p).title), body: asStr(obj(p).body) })).filter((p) => p.title || p.body);
+}
+export function coerceStringList(v: unknown): string[] {
+  return asArr(v).map(asStr).filter((s) => s.trim().length > 0);
+}
+
+/**
+ * Merge an arbitrary partial (client body OR a stored row's parsed columns) with
+ * defaults, coercing the structured narrative fields. Tolerant of any shape:
+ * missing fields fall back to the default, wrong shapes are dropped. Section
+ * config is normalized separately by the caller (needs the report-type set).
+ */
+export function coerceNarrativeExtras(raw: Record<string, unknown>): Pick<ReportInputs,
+  'developmentConcept' | 'marketContext' | 'keyGates' | 'returnsCommentary' | 'exitCommentary' |
+  'scenarioTakeaway' | 'risks' | 'regulatoryTax' | 'conditionsPrecedent' | 'nextSteps' | 'execPoints'> {
+  return {
+    developmentConcept: asStr(raw.developmentConcept),
+    marketContext: coerceMarketContext(raw.marketContext),
+    keyGates: asStr(raw.keyGates),
+    returnsCommentary: asStr(raw.returnsCommentary),
+    exitCommentary: asStr(raw.exitCommentary),
+    scenarioTakeaway: asStr(raw.scenarioTakeaway),
+    risks: coerceRisks(raw.risks),
+    regulatoryTax: coerceRegulatory(raw.regulatoryTax),
+    conditionsPrecedent: coerceStringList(raw.conditionsPrecedent),
+    nextSteps: asStr(raw.nextSteps),
+    execPoints: coerceExecPoints(raw.execPoints),
   };
 }
 
@@ -162,11 +297,11 @@ export function normalizeSectionConfig(input: unknown, reportType: ReportType = 
  * a bare array); a legacy array is migrated to `ic` with lender/onepager defaulted.
  */
 export function normalizeAllSectionConfigs(input: unknown): SectionConfigMap {
-  const obj = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, unknown> : {};
+  const o = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, unknown> : {};
   const legacyArray = Array.isArray(input) ? input : undefined;
   return {
-    ic: normalizeSectionConfig(legacyArray ?? obj.ic, 'ic'),
-    lender: normalizeSectionConfig(obj.lender, 'lender'),
-    onepager: normalizeSectionConfig(obj.onepager, 'onepager'),
+    ic: normalizeSectionConfig(legacyArray ?? o.ic, 'ic'),
+    lender: normalizeSectionConfig(o.lender, 'lender'),
+    onepager: normalizeSectionConfig(o.onepager, 'onepager'),
   };
 }

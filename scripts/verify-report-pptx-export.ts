@@ -16,7 +16,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import JSZip from 'jszip';
-import { buildICReportModel } from '../src/hubs/modeling/platforms/refm/lib/reports/icReport';
+import { buildICReportModel, icVisibleSections } from '../src/hubs/modeling/platforms/refm/lib/reports/icReport';
 import { buildLenderReportModel } from '../src/hubs/modeling/platforms/refm/lib/reports/lenderReport';
 import { buildOnePagerReportModel } from '../src/hubs/modeling/platforms/refm/lib/reports/onePagerReport';
 import { buildReportPptx } from '../src/hubs/modeling/platforms/refm/lib/pptx/buildReportPptx';
@@ -31,16 +31,22 @@ const fmt = (n: number): string => Math.round(n).toLocaleString('en-US');
 const rs: any = {
   result: {
     fcff: { irr: 0.119, moic: 2.52 }, fcfe: { irr: 0.083, moic: 2.26 }, dividends: { irr: 0.081 },
-    realEstate: { equityMultiple: 2.40, dscrPerPeriod: [0, 1.5, 1.5], icrPerPeriod: [0, 3, 3], ltvAtExit: 0.1 },
+    realEstate: { equityMultiple: 2.40, yieldOnCost: 0.064, capRateAtExit: 0.0873, profitOnCost: 1.861, cashOnCashAvg: 0.104, dscrMin: 1.5, dscrPerPeriod: [0, 1.5, 1.5], icrPerPeriod: [0, 3, 3], ltvAtExit: 0.1 },
   },
   noiPerPeriod: [0, 100, 100],
   developmentEconomics: { gdv: 14055, totalDevelopmentCost: 9000, totalFinancingCost: 500, profitBeforeFinancing: 5055, profitAfterFinancing: 4555, developmentMargin: 0.324, costToValue: 0.64 },
   sourcesUses: { existingEquity: 0, newEquityCash: 300, inKindEquity: 0, existingDebt: 0, newDebt: 600, customerCollections: 100, operatingCash: 0, land: 200, construction: 700, idc: 100, reservesDistributions: 0, totalSources: 1000, totalUses: 1000 },
   fundingMix: { debtPct: 0.6, cashEquityPct: 0.3, inKindEquityPct: 0, customerFundingPct: 0.1 },
-  debtAnalytics: { peakDebt: 2834065875, remainingDebtAtExit: 0, tenorYears: 5 },
+  debtAnalytics: { peakDebt: 2834065875, remainingDebtAtExit: 0, tenorYears: 5, paydownPct: 1 },
   equityExposure: { equityAtRisk: 300 },
   totalEquityInvested: 300,
+  terminalEquityValue: 120,
   yearLabels: [2024, 2025, 2026], exitYearLabel: 2026,
+  exitYears: [
+    { exitYearLabel: 2025, equityValue: 100, fcffIrr: 0.10, fcfeIrr: 0.08, equityMoic: 1.5, isSelected: false },
+    { exitYearLabel: 2026, equityValue: 120, fcffIrr: 0.119, fcfeIrr: 0.083, equityMoic: 2.40, isSelected: true },
+  ],
+  sensitivity: { xVariable: 'exit_cap_rate', yVariable: 'sales_price_pct', xValues: [0.07, 0.08], yValues: [-0.1, 0.1], irr: [[0.10, 0.12], [0.06, 0.08]], baseEquityIrr: 0.083, impliedExitCapRate: 0.0873 },
 };
 const snap: any = {
   projectStartYear: 2024,
@@ -79,15 +85,24 @@ const occ = (hay: string, needle: string): number => hay.split(needle).length - 
 async function main() {
   const inputs = makeInputs();
 
-  // ── IC ── (9 sections, cover excluded from nav => nav 8 => 2 + 16 = 18 slides)
+  // ── IC ── (A+B structure; empty FORM + no-scenario sections auto-omit).
   {
     const pptx = buildReportPptx({ reportType: 'ic', projectName: project.name, inputs, fmt, currency: 'SAR', asOf, ic, scenarios: null });
     const { slideCount, allXml, tocRels } = await unzip(await pptx.write({ outputType: 'nodebuffer' }) as Buffer);
-    check('IC slide count = 18 (cover + ToC + 8 sections x 2)', slideCount === 18);
-    check('IC section titles present (Headline Returns, Development Economics, Capital Structure)', allXml.includes('Headline Returns') && allXml.includes('Development Economics') && allXml.includes('Capital Structure'));
+    // Deck = cover + ToC + (visible non-omitted nav sections) x 2. Computed from
+    // the SAME predicate the deck uses, so the count stays in lockstep with omit.
+    const navCount = icVisibleSections(ic, inputs).filter((k) => k !== 'cover').length;
+    check(`IC slide count = 2 + navCount*2 (${2 + navCount * 2})`, slideCount === 2 + navCount * 2);
+    check('IC new section titles present (Asset Mix, Sources & Uses, Returns Analysis, Exit-Year Optionality)',
+      allXml.includes('Asset Mix') && allXml.includes('Sources &amp; Uses') && allXml.includes('Returns Analysis') && allXml.includes('Exit-Year Optionality'));
+    check('IC value bridge + development costs present', allXml.includes('Value &amp; Development Economics') && allXml.includes('Development Costs'));
     check('IC key values present (11.9% / 8.3% / 2.40x / 14,055)', allXml.includes('11.9%') && allXml.includes('8.3%') && allXml.includes('2.40x') && allXml.includes('14,055'));
-    check('IC ToC has >= 8 internal slide links', slideRelCount(tocRels) >= 8);
-    check('IC divider "Back to contents" present for each section (>= 8)', occ(allXml, 'Back to contents') >= 8);
+    // AUTO-OMIT proof: empty-form + no-scenario sections must be ABSENT.
+    check('IC auto-omit: Market Context absent (empty form)', !allXml.includes('Market Context'));
+    check('IC auto-omit: Scenario Analysis absent (no scenarios)', !allXml.includes('Scenario Analysis'));
+    check('IC auto-omit: Regulatory &amp; Tax absent (empty form)', !allXml.includes('Regulatory'));
+    check('IC ToC internal slide links = navCount', slideRelCount(tocRels) === navCount);
+    check('IC divider "Back to contents" present for each section', occ(allXml, 'Back to contents') >= navCount);
     check('IC applied fonts present (Verdana body + Georgia heading)', allXml.includes('Verdana') && allXml.includes('Georgia'));
     check('IC header + footer text applied', allXml.includes('TEST HEADER BAND') && allXml.includes('TEST FOOTER LINE'));
     check('IC narrative from form present (recommendation text)', allXml.includes('Approve the investment.'));
@@ -119,18 +134,20 @@ async function main() {
 
   // ── show/hide + reorder respected (IC) ──
   {
+    const base = makeInputs();
+    const baseNav = icVisibleSections(ic, base).filter((k) => k !== 'cover').length;
     const inp = makeInputs();
     const icCfg = inp.sectionConfig.ic.map((x) => ({ ...x }));
-    // Hide disclaimers; move recommendation to the front.
-    for (const x of icCfg) { if (x.key === 'disclaimers') x.visible = false; if (x.key === 'recommendation') x.order = -1; }
+    // Hide disclaimers; move investment_recommendation to the front.
+    for (const x of icCfg) { if (x.key === 'disclaimers') x.visible = false; if (x.key === 'investment_recommendation') x.order = -1; }
     inp.sectionConfig = { ...inp.sectionConfig, ic: icCfg };
     const pptx = buildReportPptx({ reportType: 'ic', projectName: project.name, inputs: inp, fmt, currency: 'SAR', asOf, ic, scenarios: null });
     const { slideCount, allXml } = await unzip(await pptx.write({ outputType: 'nodebuffer' }) as Buffer);
-    check('hide: disclaimers removed drops 2 slides (18 -> 16)', slideCount === 16);
+    check('hide: disclaimers removed drops 2 slides', slideCount === 2 + (baseNav - 1) * 2);
     check('hide: "Disclaimers" title no longer in deck', !allXml.includes('Disclaimers'));
-    // ToC (slide2) lists Recommendation before Headline Returns after the reorder.
+    // ToC (slide2) lists Investment Recommendation before Project Overview after reorder.
     const toc = allXml.slice(allXml.indexOf('Contents'));
-    check('reorder: Recommendation appears before Headline Returns in ToC', toc.indexOf('Recommendation') >= 0 && toc.indexOf('Recommendation') < toc.indexOf('Headline Returns'));
+    check('reorder: Investment Recommendation before Project Overview in ToC', toc.indexOf('Investment Recommendation') >= 0 && toc.indexOf('Investment Recommendation') < toc.indexOf('Project Overview'));
   }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
