@@ -10,11 +10,11 @@ import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/Str
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 
-export const revalidate = 60;
-
-export async function generateStaticParams() {
-  return [];
-}
+// Rendered on demand (not ISR): the admin draft-preview path reads the session
+// (cookies) when the published lookup misses, which is a dynamic API and throws
+// DYNAMIC_SERVER_USAGE under `revalidate`. Dynamic rendering still returns full
+// SSR HTML (SEO unaffected); the public /articles listing is likewise dynamic.
+export const dynamic = 'force-dynamic';
 
 interface Props {
   params: Promise<{ slug: string }>;
