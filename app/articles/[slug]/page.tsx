@@ -155,7 +155,7 @@ export default async function ArticleDetailPage({ params }: Props) {
             </div>
 
             <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid #EEF2F7' }}>
-              <AuthorByline variant="page" name={article.writer_name} role={article.writer_title} />
+              <AuthorByline variant="page" name={article.writer_name} role={article.writer_title} avatarUrl={article.writer_avatar_url} />
             </div>
           </div>
 

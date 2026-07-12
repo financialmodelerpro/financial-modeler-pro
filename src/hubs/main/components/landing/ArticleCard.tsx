@@ -37,7 +37,7 @@ export function ArticleCard({ article }: { article: Article }) {
           {articleExcerpt(article.body, 160)}
         </p>
         <div style={{ marginBottom: 8 }}>
-          <AuthorByline variant="card" name={article.writer_name} role={article.writer_title} />
+          <AuthorByline variant="card" name={article.writer_name} role={article.writer_title} avatarUrl={article.writer_avatar_url} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
           <span style={{ fontSize: 11, color: '#6B7280' }}>{date} · {readTime}</span>

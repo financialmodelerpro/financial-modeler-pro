@@ -22,6 +22,9 @@ interface Props {
   /** Per-article writer snapshot; falls back to ARTICLE_AUTHOR when absent. */
   name?: string | null;
   role?: string | null;
+  /** Per-article writer photo snapshot (writer_avatar_url, migration 194). When
+   *  present the byline shows the photo; otherwise it falls back to initials. */
+  avatarUrl?: string | null;
 }
 
 /**
@@ -43,29 +46,50 @@ export function resolveByline(name?: string | null, role?: string | null): { nam
   return { name: ARTICLE_AUTHOR.name, role: normalizeBylineTitle(ARTICLE_AUTHOR.role) };
 }
 
-export function AuthorByline({ variant = 'page', name, role }: Props): React.JSX.Element {
+export function AuthorByline({ variant = 'page', name, role, avatarUrl }: Props): React.JSX.Element {
   const byline = resolveByline(name, role);
+  const initials = byline.name.split(' ').map((p) => p[0]).join('').slice(0, 2);
+  const photo = avatarUrl?.trim();
+
+  // Circular avatar: the writer photo when snapshotted, else initials. Plain <img>
+  // (not next/image) so the Supabase host does not need next.config allowlisting,
+  // matching the article hero + card images.
+  const avatar = (size: number): React.JSX.Element => (
+    photo
+      ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={photo}
+          alt={byline.name}
+          style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', display: 'block', background: '#E8F0FB' }}
+        />
+      )
+      : (
+        <div
+          aria-hidden
+          style={{
+            width: size, height: size, borderRadius: '50%', flexShrink: 0,
+            background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: Math.round(size * 0.38), fontWeight: 800,
+          }}
+        >
+          {initials}
+        </div>
+      )
+  );
 
   if (variant === 'card') {
     return (
-      <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>
-        Written by {byline.name}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        {avatar(22)}
+        <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Written by {byline.name}</span>
       </span>
     );
   }
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div
-        aria-hidden
-        style={{
-          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-          background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 13, fontWeight: 800,
-        }}
-      >
-        {byline.name.split(' ').map((p) => p[0]).join('').slice(0, 2)}
-      </div>
+      {avatar(38)}
       <div style={{ lineHeight: 1.3 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>
           Written by {byline.name}

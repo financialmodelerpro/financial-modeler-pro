@@ -17,7 +17,7 @@ export interface Article   { id: string; title: string; slug: string; body: stri
   categories?: { id: string; name: string; slug: string }[];
   // Writer/instructor association (migration 188): writer_id links the instructor row;
   // writer_name/writer_title are the snapshot taken at save time (stable byline).
-  writer_id?: string | null; writer_name?: string | null; writer_title?: string | null;
+  writer_id?: string | null; writer_name?: string | null; writer_title?: string | null; writer_avatar_url?: string | null;
   // Hero placement toggle (migration 189): true = hero above the title/byline header,
   // false/absent = current behavior (hero after the header). Schema-tolerant.
   hero_before_content?: boolean }

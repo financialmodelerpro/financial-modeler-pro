@@ -8,7 +8,18 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpr
 
 // Additive columns from migration 187. Writes stay schema-tolerant: if the column
 // does not exist yet (migration not applied), we retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content'] as const;
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url'] as const;
+
+/** The linked instructor's photo, snapshotted onto the article byline (mig 194).
+ *  Resolved server-side from writer_id so it cannot be spoofed and stays in sync
+ *  with the instructor record at save time. Returns null when unavailable. */
+async function resolveWriterAvatar(sb: ReturnType<typeof getServerClient>, writerId: unknown): Promise<string | null> {
+  if (!writerId || typeof writerId !== 'string') return null;
+  try {
+    const { data } = await sb.from('instructors').select('photo_url').eq('id', writerId).single();
+    return (data as { photo_url?: string | null } | null)?.photo_url ?? null;
+  } catch { return null; }
+}
 
 /** Publish-ish statuses that require a writer (draft stays free). */
 function requiresWriter(status: unknown): boolean {
@@ -91,6 +102,9 @@ export async function POST(req: NextRequest) {
     if (writer_id !== undefined) insert.writer_id = writer_id || null;
     if (writer_name !== undefined) insert.writer_name = writer_name || null;
     if (writer_title !== undefined) insert.writer_title = writer_title || null;
+    // Snapshot the writer photo from the linked instructor (byline avatar).
+    if (writer_id) insert.writer_avatar_url = await resolveWriterAvatar(sb, writer_id);
+    else if (writer_id !== undefined) insert.writer_avatar_url = null;
     if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
     if (status === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
@@ -120,6 +134,8 @@ export async function PATCH(req: NextRequest) {
     const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
     const sb = getServerClient();
+    // Re-snapshot the writer photo whenever the writer changes (byline avatar).
+    if (fields.writer_id !== undefined) update.writer_avatar_url = fields.writer_id ? await resolveWriterAvatar(sb, fields.writer_id) : null;
     // Publish gate: a writer is required to publish/schedule. Resolve from the payload
     // when provided, otherwise from the existing row (a status-only PATCH).
     if (requiresWriter(fields.status)) {
