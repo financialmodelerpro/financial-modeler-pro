@@ -36,7 +36,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function FounderPage() {
   const fc = await getFounderContent();
-  const bookingUrl = (fc?.booking_url as string) ?? '';
   const email          = (fc?.email as string) || '';
   const whatsappNumber = (fc?.whatsapp_number as string) || '';
   const whatsappDigits = whatsappNumber.replace(/[^0-9]/g, '');
@@ -113,12 +112,8 @@ export default async function FounderPage() {
               style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}
             />
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {cmsVisible(fc ?? {}, 'cta_secondary') && linkedin && (
-                <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>LinkedIn ↗</a>
-              )}
-              {cmsVisible(fc ?? {}, 'booking') && bookingUrl && (
-                <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>📅 Book a Meeting</Link>
-              )}
+              {/* LinkedIn contact CTA removed: booking is the single call to action. */}
+              <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>📅 Book a Meeting</Link>
             </div>
           </div>
         </div>
@@ -258,11 +253,10 @@ export default async function FounderPage() {
       )}
 
       {/* Get in Touch, readable contact details at bottom of page.
-          Each row honours the admin visibility toggle AND the field having a value. */}
+          Each row honours the admin visibility toggle AND the field having a value.
+          LinkedIn + inline booking removed: booking is the single CTA below. */}
       {((cmsVisible(fc ?? {}, 'email') && email)
-       || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)
-       || (cmsVisible(fc ?? {}, 'cta_secondary') && linkedin)
-       || (cmsVisible(fc ?? {}, 'booking') && bookingUrl)) && (
+       || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)) && (
         <section style={{ padding: '64px 40px 80px', background: 'rgba(0,0,0,0.25)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           <div style={{ maxWidth: 800, margin: '0 auto' }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 28, textAlign: 'center' }}>Get in Touch</h2>
@@ -285,30 +279,24 @@ export default async function FounderPage() {
                   </div>
                 </div>
               )}
-              {cmsVisible(fc ?? {}, 'cta_secondary') && linkedin && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
-                  <span style={{ fontSize: 24, flexShrink: 0 }}>🔗</span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>LinkedIn</div>
-                    <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ fontSize: 16, color: '#93C5FD', fontWeight: 500, textDecoration: 'none', wordBreak: 'break-all' }}>
-                      {linkedin.replace(/^https?:\/\/(?:www\.)?/, '').replace(/\/$/, '')}
-                    </a>
-                  </div>
-                </div>
-              )}
-              {cmsVisible(fc ?? {}, 'booking') && bookingUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
-                  <span style={{ fontSize: 24, flexShrink: 0 }}>📅</span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>Book a Meeting</div>
-                    <Link href="/book-a-meeting" style={{ fontSize: 16, color: '#1ABC9C', fontWeight: 500, textDecoration: 'none' }}>Schedule a consultation →</Link>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </section>
       )}
+
+      {/* Services / platform CTA. Always shown: booking is the single call to
+          action for anyone interested in the services or the platform. */}
+      <section style={{ padding: '56px 40px 80px', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ maxWidth: 620, margin: '0 auto' }}>
+          <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 10 }}>Interested in our services or platform?</h2>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.65, marginBottom: 24 }}>
+            Book a meeting to discuss your project, our advisory services, or the Financial Modeler Pro platform.
+          </p>
+          <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1ABC9C', color: '#fff', fontSize: 15, fontWeight: 700, padding: '13px 30px', borderRadius: 9, textDecoration: 'none' }}>
+            📅 Book a Meeting
+          </Link>
+        </div>
+      </section>
 
       <SharedFooter
         company="Financial Modeler Pro is a platform by PaceMakers Business Consultants"
