@@ -135,6 +135,23 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
   }
 }
 
+/**
+ * Fetch an article by slug REGARDLESS of status (draft / scheduled / published).
+ * For ADMIN PREVIEW ONLY: the public page must gate this behind an admin-session
+ * check so unpublished content never leaks to anonymous visitors.
+ */
+export async function getArticleBySlugAnyStatus(slug: string): Promise<Article | null> {
+  try {
+    const sb = getServerClient();
+    const build = (sel: string) => sb.from('articles').select(sel).eq('slug', slug).neq('status', 'hidden').single();
+    let { data, error } = await build(ARTICLE_WITH_CATEGORIES);
+    if (error) ({ data } = await build('*')); // fallback if junction not yet present
+    return data ? normalizeArticleCategories(data as unknown as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Courses & Lessons ─────────────────────────────────────────────────────────
 
 export async function getPublishedCourses(): Promise<Course[]> {
