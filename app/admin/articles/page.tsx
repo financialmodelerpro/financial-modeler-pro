@@ -3,6 +3,13 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { DeleteArticleButton } from '@/src/components/admin/DeleteArticleButton';
 
+// Always render on demand from the live DB. Without this the page prerenders
+// STATIC at build time, so getAllArticles() is frozen to a build-time snapshot:
+// deletes + new articles hit the DB (the API works) but never show here, and
+// router.refresh() after a delete returns the same cached payload. Mirrors the
+// public /articles page (revalidate = 0).
+export const dynamic = 'force-dynamic';
+
 async function getAllArticles() {
   try {
     const sb = getServerClient();
