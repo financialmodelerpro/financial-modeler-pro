@@ -14,12 +14,16 @@ const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'ta
  *  author block (migs 194 + 195). Resolved server-side from writer_id so it
  *  cannot be spoofed and stays in sync with the instructor record at save time.
  *  Returns null when unavailable. */
-async function resolveWriterInstructor(sb: ReturnType<typeof getServerClient>, writerId: unknown): Promise<{ photo_url: string | null; bio: string | null } | null> {
+async function resolveWriterInstructor(sb: ReturnType<typeof getServerClient>, writerId: unknown): Promise<{ photo_url: string | null; bio: string | null; profile_url: string | null } | null> {
   if (!writerId || typeof writerId !== 'string') return null;
+  // profile_url (mig 196) is requested but tolerated absent (pre-apply): retry
+  // without it so saves still work before the column exists.
+  const sel = async (cols: string) => sb.from('instructors').select(cols).eq('id', writerId).single();
   try {
-    const { data } = await sb.from('instructors').select('photo_url, bio').eq('id', writerId).single();
-    const row = data as { photo_url?: string | null; bio?: string | null } | null;
-    return row ? { photo_url: row.photo_url ?? null, bio: row.bio ?? null } : null;
+    let { data, error } = await sel('photo_url, bio, profile_url');
+    if (error && (error.code === '42703' || /column/i.test(error.message ?? ''))) ({ data } = await sel('photo_url, bio'));
+    const row = data as { photo_url?: string | null; bio?: string | null; profile_url?: string | null } | null;
+    return row ? { photo_url: row.photo_url ?? null, bio: row.bio ?? null, profile_url: row.profile_url ?? null } : null;
   } catch { return null; }
 }
 
@@ -113,7 +117,12 @@ export async function POST(req: NextRequest) {
       const providedBio = typeof author_bio === 'string' ? author_bio.trim() : '';
       insert.author_bio = providedBio || (writer_id ? (inst?.bio ?? null) : null);
     }
-    if (author_profile_url !== undefined) insert.author_profile_url = (typeof author_profile_url === 'string' ? author_profile_url.trim() : '') || null;
+    // Profile link auto-derives from the writer's on-site profile when the manual
+    // override is blank, so it never has to be typed for a known author.
+    if (author_profile_url !== undefined || writer_id) {
+      const providedUrl = typeof author_profile_url === 'string' ? author_profile_url.trim() : '';
+      insert.author_profile_url = providedUrl || (writer_id ? (inst?.profile_url ?? null) : null);
+    }
     if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
     if (status === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
@@ -150,7 +159,10 @@ export async function PATCH(req: NextRequest) {
       const b = typeof update.author_bio === 'string' ? update.author_bio.trim() : '';
       update.author_bio = b || (fields.writer_id ? (inst?.bio ?? null) : null);
     }
-    if (fields.author_profile_url !== undefined) update.author_profile_url = (typeof fields.author_profile_url === 'string' ? fields.author_profile_url.trim() : '') || null;
+    if ('author_profile_url' in update || fields.author_profile_url !== undefined) {
+      const u = typeof update.author_profile_url === 'string' ? update.author_profile_url.trim() : '';
+      update.author_profile_url = u || (fields.writer_id ? (inst?.profile_url ?? null) : null);
+    }
     // Publish gate: a writer is required to publish/schedule. Resolve from the payload
     // when provided, otherwise from the existing row (a status-only PATCH).
     if (requiresWriter(fields.status)) {

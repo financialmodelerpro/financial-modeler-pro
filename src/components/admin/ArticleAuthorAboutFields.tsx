@@ -24,15 +24,15 @@ export function ArticleAuthorAboutFields({ bio, profileUrl, onChange, inputStyle
   return (
     <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 20 }} data-testid="article-author-about">
       <div style={{ fontSize: 12, fontWeight: 700, color: '#1B3A6B', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>About the author</div>
-      <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14 }}>Shown at the end of the article. Leave the bio blank to use the writer&apos;s instructor bio.</div>
+      <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14 }}>Shown at the end of the article, with a Book a meeting button. Leave both blank to use the writer&apos;s instructor bio + profile link automatically.</div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Bio</label>
         <textarea value={bio} onChange={(e) => onChange({ bio: e.target.value })} rows={4} placeholder="Defaults to the writer's instructor bio" data-testid="author-bio"
           style={{ ...inputStyle, resize: 'vertical' }} />
       </div>
       <div>
-        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Profile link</label>
-        <input value={profileUrl} onChange={(e) => onChange({ profileUrl: e.target.value })} placeholder="/about/ahmad-din" data-testid="author-profile-url" style={inputStyle} />
+        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Profile link <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(optional override)</span></label>
+        <input value={profileUrl} onChange={(e) => onChange({ profileUrl: e.target.value })} placeholder="Auto: writer's profile (e.g. /about/ahmad-din)" data-testid="author-profile-url" style={inputStyle} />
       </div>
     </div>
   );

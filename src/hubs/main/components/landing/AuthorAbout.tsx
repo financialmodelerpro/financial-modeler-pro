@@ -13,11 +13,16 @@
 
 import { resolveByline } from './AuthorByline';
 
+/** Company consultation booking page (site-wide), shown as the primary CTA. */
+const BOOK_A_MEETING_URL = '/book-a-meeting';
+
 interface Props {
   name?: string | null;
   title?: string | null;
   avatarUrl?: string | null;
   bio?: string | null;
+  /** Author's on-site profile page (auto-derived from the writer's instructor
+   *  profile_url; optional). Shown as the "View full profile" button. */
   profileUrl?: string | null;
 }
 
@@ -52,11 +57,16 @@ export function AuthorAbout({ name, title, avatarUrl, bio, profileUrl }: Props):
         <div style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A' }}>{byline.name}</div>
         {byline.role && <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>{byline.role}</div>}
         <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.65, color: '#334155', whiteSpace: 'pre-wrap' }}>{text}</p>
-        {link && (
-          <a href={link} style={{ display: 'inline-block', marginTop: 10, fontSize: 13, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
-            View full profile &rarr;
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+          <a href={BOOK_A_MEETING_URL} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none' }}>
+            📅 Book a meeting
           </a>
-        )}
+          {link && (
+            <a href={link} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #1B4F8A', color: '#1B4F8A', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none' }}>
+              View full profile &rarr;
+            </a>
+          )}
+        </div>
       </div>
     </section>
   );
