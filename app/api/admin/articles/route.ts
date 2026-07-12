@@ -8,16 +8,18 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpr
 
 // Additive columns from migration 187. Writes stay schema-tolerant: if the column
 // does not exist yet (migration not applied), we retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url'] as const;
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url', 'author_bio', 'author_profile_url'] as const;
 
-/** The linked instructor's photo, snapshotted onto the article byline (mig 194).
- *  Resolved server-side from writer_id so it cannot be spoofed and stays in sync
- *  with the instructor record at save time. Returns null when unavailable. */
-async function resolveWriterAvatar(sb: ReturnType<typeof getServerClient>, writerId: unknown): Promise<string | null> {
+/** The linked instructor's photo + bio, snapshotted onto the article byline +
+ *  author block (migs 194 + 195). Resolved server-side from writer_id so it
+ *  cannot be spoofed and stays in sync with the instructor record at save time.
+ *  Returns null when unavailable. */
+async function resolveWriterInstructor(sb: ReturnType<typeof getServerClient>, writerId: unknown): Promise<{ photo_url: string | null; bio: string | null } | null> {
   if (!writerId || typeof writerId !== 'string') return null;
   try {
-    const { data } = await sb.from('instructors').select('photo_url').eq('id', writerId).single();
-    return (data as { photo_url?: string | null } | null)?.photo_url ?? null;
+    const { data } = await sb.from('instructors').select('photo_url, bio').eq('id', writerId).single();
+    const row = data as { photo_url?: string | null; bio?: string | null } | null;
+    return row ? { photo_url: row.photo_url ?? null, bio: row.bio ?? null } : null;
   } catch { return null; }
 }
 
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content, author_bio, author_profile_url } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     if (requiresWriter(status) && !writer_id) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
     const sb = getServerClient();
@@ -102,9 +104,16 @@ export async function POST(req: NextRequest) {
     if (writer_id !== undefined) insert.writer_id = writer_id || null;
     if (writer_name !== undefined) insert.writer_name = writer_name || null;
     if (writer_title !== undefined) insert.writer_title = writer_title || null;
-    // Snapshot the writer photo from the linked instructor (byline avatar).
-    if (writer_id) insert.writer_avatar_url = await resolveWriterAvatar(sb, writer_id);
+    // Snapshot the writer photo + bio from the linked instructor (byline avatar +
+    // author block). author_bio falls back to the instructor bio when left blank.
+    const inst = writer_id ? await resolveWriterInstructor(sb, writer_id) : null;
+    if (writer_id) insert.writer_avatar_url = inst?.photo_url ?? null;
     else if (writer_id !== undefined) insert.writer_avatar_url = null;
+    if (author_bio !== undefined || writer_id) {
+      const providedBio = typeof author_bio === 'string' ? author_bio.trim() : '';
+      insert.author_bio = providedBio || (writer_id ? (inst?.bio ?? null) : null);
+    }
+    if (author_profile_url !== undefined) insert.author_profile_url = (typeof author_profile_url === 'string' ? author_profile_url.trim() : '') || null;
     if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
     if (status === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
@@ -134,8 +143,14 @@ export async function PATCH(req: NextRequest) {
     const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
     const sb = getServerClient();
-    // Re-snapshot the writer photo whenever the writer changes (byline avatar).
-    if (fields.writer_id !== undefined) update.writer_avatar_url = fields.writer_id ? await resolveWriterAvatar(sb, fields.writer_id) : null;
+    // Re-snapshot writer photo + author bio whenever the writer/bio changes.
+    const inst = fields.writer_id ? await resolveWriterInstructor(sb, fields.writer_id) : null;
+    if (fields.writer_id !== undefined) update.writer_avatar_url = fields.writer_id ? (inst?.photo_url ?? null) : null;
+    if ('author_bio' in update || fields.author_bio !== undefined) {
+      const b = typeof update.author_bio === 'string' ? update.author_bio.trim() : '';
+      update.author_bio = b || (fields.writer_id ? (inst?.bio ?? null) : null);
+    }
+    if (fields.author_profile_url !== undefined) update.author_profile_url = (typeof fields.author_profile_url === 'string' ? fields.author_profile_url.trim() : '') || null;
     // Publish gate: a writer is required to publish/schedule. Resolve from the payload
     // when provided, otherwise from the existing row (a status-only PATCH).
     if (requiresWriter(fields.status)) {

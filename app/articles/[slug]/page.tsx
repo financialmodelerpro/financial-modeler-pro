@@ -9,6 +9,7 @@ import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
+import { AuthorAbout } from '@/src/hubs/main/components/landing/AuthorAbout';
 
 // Rendered on demand (not ISR): the admin draft-preview path reads the session
 // (cookies) when the published lookup misses, which is a dynamic API and throws
@@ -186,6 +187,17 @@ export default async function ArticleDetailPage({ params }: Props) {
             </div>
           )}
         </article>
+
+        {/* About the author (renders only when the article carries a bio) */}
+        <div style={{ marginTop: 16 }}>
+          <AuthorAbout
+            name={article.writer_name}
+            title={article.writer_title}
+            avatarUrl={article.writer_avatar_url}
+            bio={article.author_bio}
+            profileUrl={article.author_profile_url}
+          />
+        </div>
 
         {/* Back link (on the navy chrome, below the card) */}
         <div style={{ padding: '28px 4px 8px' }}>

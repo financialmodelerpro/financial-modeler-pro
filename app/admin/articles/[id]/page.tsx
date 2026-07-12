@@ -8,6 +8,7 @@ import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/Arti
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
+import { ArticleAuthorAboutFields } from '@/src/components/admin/ArticleAuthorAboutFields';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -28,6 +29,8 @@ export default function AdminArticleEditPage() {
   const [writerName, setWriterName] = useState('');
   const [writerTitle, setWriterTitle] = useState('');
   const [writerError, setWriterError] = useState('');
+  const [authorBio, setAuthorBio] = useState('');
+  const [authorProfileUrl, setAuthorProfileUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
   const [featured, setFeatured] = useState(false);
@@ -71,6 +74,8 @@ export default function AdminArticleEditPage() {
         setWriterId(a.writer_id ?? '');
         setWriterName(a.writer_name ?? '');
         setWriterTitle(a.writer_title ?? '');
+        setAuthorBio(a.author_bio ?? '');
+        setAuthorProfileUrl(a.author_profile_url ?? '');
         setCoverUrl(a.cover_url ?? '');
         setStatus(a.status ?? 'draft');
         setFeatured(a.featured ?? false);
@@ -117,7 +122,7 @@ export default function AdminArticleEditPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
       });
       if (!res.ok) throw new Error('Save failed');
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
@@ -125,7 +130,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle]);
+  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -245,6 +250,9 @@ export default function AdminArticleEditPage() {
                 <textarea value={seoDesc} onChange={e => setSeoDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} maxLength={180} />
               </div>
             </div>
+
+            <ArticleAuthorAboutFields bio={authorBio} profileUrl={authorProfileUrl} inputStyle={inputStyle}
+              onChange={(p) => { if (p.bio !== undefined) setAuthorBio(p.bio); if (p.profileUrl !== undefined) setAuthorProfileUrl(p.profileUrl); }} />
 
             <ArticleExtraFields value={extra} onChange={(p) => setExtra(v => ({ ...v, ...p }))} inputStyle={inputStyle} notify={notify} />
           </div>
