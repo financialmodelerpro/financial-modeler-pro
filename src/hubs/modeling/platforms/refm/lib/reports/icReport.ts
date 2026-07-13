@@ -522,6 +522,68 @@ export function icScenarioChartRows(scenarios: CaseComparisonReport | null): ICS
   }));
 }
 
+/** Formatter trio injected into the finding-line builder so each surface applies
+ *  its own money / percent / multiple formatting while sharing the copy. */
+export interface ICFindingFmt {
+  money: (v: number | null | undefined) => string;
+  pct: (v: number | null | undefined) => string;
+  mult: (v: number | null | undefined) => string;
+}
+
+/** The italic "finding" subtitle for a section (states the finding, never a unit
+ *  note). Shared by the preview and the PPT so both read identically. Returns ''
+ *  for sections that carry no subtitle. */
+export function icFindingLine(key: ICSectionKey, m: ICReportModel, inputs: ReportInputs, f: ICFindingFmt): string {
+  const o = m.overview, h = m.headline, d = m.devEconomics;
+  const { money, pct: p, mult: x } = f;
+  const num = (v: number): string => Math.round(v).toLocaleString('en-US');
+  switch (key) {
+    case 'executive_summary':
+      return inputs.execPoints[0]?.title ? `${inputs.execPoints[0].title}.`
+        : `Prime ${o.strategyMix || 'mixed-use'} development; ${p(h.equityIrr)} equity IRR and ${x(h.equityMultiple)} equity multiple over a ${o.durationYears}-year hold.`;
+    case 'investment_recommendation':
+      return `The ask: ${money(m.ask.equityCommitment)} equity${m.ask.peakDebt > 0.5 ? ` alongside ${money(m.ask.peakDebt)} peak senior debt` : ''} to target a ${p(m.ask.equityIrr)} equity IRR.`;
+    case 'project_overview':
+      return `${[o.location, o.country].filter(Boolean).join(', ') || 'Location tbc'} · ${o.totalBua > 0 ? `${num(o.totalBua)} sqm BUA` : (o.strategyMix || 'mixed-use')} across ${o.phaseCount} ${o.phaseCount === 1 ? 'phase' : 'phases'}.`;
+    case 'master_plan':
+      return `${m.phasing.length} ${m.phasing.length === 1 ? 'phase' : 'phases'} sequenced from ${o.startYear} to ${o.exitYear}${o.strategyMix ? `; ${o.strategyMix}` : ''}.`;
+    case 'asset_mix': {
+      const t = m.assetMix.byStrategy[0];
+      return t ? `${t.strategy} leads the ${num(m.assetMix.totalBua)} sqm programme at ${p(t.pct)} of built-up area.` : 'Asset mix by strategy.';
+    }
+    case 'market_context': return 'Demand drivers underpinning the business plan.';
+    case 'development_programme':
+      return `Construction and lease-up span ${o.startYear} to ${o.exitYear}${m.programme.debtRepaidYear ? `, with senior debt repaid by ${m.programme.debtRepaidYear}` : ''}.`;
+    case 'development_costs':
+      return `Total development cost of ${money(d.tdc)}: land ${money(m.charts.costStack.land)}, construction ${money(m.charts.costStack.construction)}.`;
+    case 'value_economics':
+      return `GDV ${money(d.gdv)} against ${money(d.tdc)} cost delivers a ${p(d.developmentMargin)} development margin.`;
+    case 'sources_uses':
+      return `Sources and uses balance at ${money(m.sourcesUses.totalSources)}.`;
+    case 'financing_structure':
+      return `Senior debt peaks at ${money(m.financing.peakDebt)}${m.financing.paydownPct != null ? ` and pays down ${p(m.financing.paydownPct)} by exit` : ''}.`;
+    case 'returns_analysis':
+      return `Project IRR ${p(h.projectIrr)}, equity IRR ${p(h.equityIrr)}, ${x(h.equityMultiple)} equity multiple.`;
+    case 'exit_optionality':
+      return `Returns hold across exit years; the ${o.exitYear} exit is selected.`;
+    case 'scenario_cases': {
+      const irrs = m.scenarios ? m.scenarios.columns.map((c) => c.values['Equity IRR (FCFE)']).filter((v): v is number => v != null) : [];
+      const lo = irrs.length ? Math.min(...irrs) : null;
+      return lo != null ? `Returns are resilient; even the weakest case holds a ${p(lo)} equity IRR.` : 'Headline returns by case.';
+    }
+    case 'scenario_economics': return 'Value by case: NPV and margin under each scenario.';
+    case 'sensitivity': {
+      const flat = m.sensitivity.irr.flat().filter((v): v is number => v != null && Number.isFinite(v));
+      const mn = flat.length ? Math.min(...flat) : 0, mx = flat.length ? Math.max(...flat) : 1;
+      return `Equity IRR ranges ${p(mn)} to ${p(mx)} across the sensitivity band and stays return-accretive throughout.`;
+    }
+    case 'risk_assessment': return 'Key risks and the mitigants in place.';
+    case 'regulatory_tax': return 'Regulatory and tax considerations.';
+    case 'recommendation_approvals': return 'The Committee is asked to approve the transaction as set out.';
+    default: return '';
+  }
+}
+
 /** The ordered, visible, NON-omitted IC section keys for a given model + inputs.
  *  Both surfaces use this so preview and export show the same set in the same order. */
 export function icVisibleSections(model: ICReportModel, inputs: ReportInputs): ICSectionKey[] {

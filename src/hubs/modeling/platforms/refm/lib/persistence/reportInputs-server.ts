@@ -16,11 +16,12 @@
  */
 
 import { getServerClient } from '@/src/core/db/supabase';
-import { normalizeAllSectionConfigs, coerceNarrativeExtras, type ReportInputs } from '../reportInputs';
+import { normalizeAllSectionConfigs, coerceNarrativeExtras, coerceICDeckCase, coerceICMoneyScale, type ReportInputs } from '../reportInputs';
 
 const COLS_BASE = 'project_id, executive_summary, key_risks, recommendation, disclaimers, header_text, footer_text, font_body, font_heading, section_config';
 const COLS_192 = COLS_BASE + ', security_collateral, covenant_commentary, thesis_line';
 const COLS_193 = COLS_192 + ', development_concept, key_gates, returns_commentary, exit_commentary, scenario_takeaway, next_steps, market_context, risks, regulatory_tax, conditions_precedent, exec_points';
+const COLS_197 = COLS_193 + ', ic_deck_case, ic_money_scale';
 
 function isMissingTable(err: { code?: string | null; message?: string | null } | null): boolean {
   if (!err) return false;
@@ -56,6 +57,8 @@ interface Row {
   footer_text: string | null;
   font_body: string | null;
   font_heading: string | null;
+  ic_deck_case?: string | null;
+  ic_money_scale?: string | null;
   section_config: unknown;
 }
 
@@ -86,11 +89,13 @@ function rowToInputs(row: Row): ReportInputs {
     footerText: row.footer_text ?? '',
     fontBody: row.font_body ?? 'Calibri',
     fontHeading: row.font_heading ?? 'Cambria',
+    icDeckCase: coerceICDeckCase(row.ic_deck_case),
+    icMoneyScale: coerceICMoneyScale(row.ic_money_scale),
     sectionConfig: normalizeAllSectionConfigs(row.section_config),
   };
 }
 
-type Tier = 193 | 192 | 191;
+type Tier = 197 | 193 | 192 | 191;
 
 function inputsToRow(inputs: ReportInputs, tier: Tier): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -122,6 +127,10 @@ function inputsToRow(inputs: ReportInputs, tier: Tier): Record<string, unknown> 
     base.conditions_precedent = inputs.conditionsPrecedent ?? [];
     base.exec_points = inputs.execPoints ?? [];
   }
+  if (tier >= 197) {
+    base.ic_deck_case = coerceICDeckCase(inputs.icDeckCase);
+    base.ic_money_scale = coerceICMoneyScale(inputs.icMoneyScale);
+  }
   return base;
 }
 
@@ -129,7 +138,8 @@ function inputsToRow(inputs: ReportInputs, tier: Tier): Record<string, unknown> 
 export async function getReportInputs(projectId: string): Promise<{ inputs: ReportInputs | null; error: string | null }> {
   const sb = getServerClient();
   const query = (cols: string) => sb.from('refm_report_inputs').select(cols).eq('project_id', projectId).maybeSingle();
-  let { data, error } = await query(COLS_193);
+  let { data, error } = await query(COLS_197);
+  if (error && isMissingColumn(error)) ({ data, error } = await query(COLS_193)); // pre-mig-197
   if (error && isMissingColumn(error)) ({ data, error } = await query(COLS_192)); // pre-mig-193
   if (error && isMissingColumn(error)) ({ data, error } = await query(COLS_BASE)); // pre-mig-192
   if (error) {
@@ -147,7 +157,8 @@ export async function upsertReportInputs(projectId: string, inputs: ReportInputs
     const row = { project_id: projectId, ...inputsToRow(inputs, tier), updated_at: new Date().toISOString() };
     return sb.from('refm_report_inputs').upsert(row, { onConflict: 'project_id' });
   };
-  let { error } = await write(193);
+  let { error } = await write(197);
+  if (error && isMissingColumn(error)) ({ error } = await write(193)); // pre-mig-197
   if (error && isMissingColumn(error)) ({ error } = await write(192)); // pre-mig-193
   if (error && isMissingColumn(error)) ({ error } = await write(191)); // pre-mig-192
   if (error) {

@@ -28,7 +28,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
-import { buildICReportModel, icVisibleSections, icScenarioChartRows, IC_CHART_PALETTE, type ICReportModel } from '../../lib/reports/icReport';
+import { buildICReportModel, icVisibleSections, icScenarioChartRows, icFindingLine, IC_CHART_PALETTE, type ICReportModel } from '../../lib/reports/icReport';
 import { buildLenderReportModel, type LenderReportModel, type LenderCovenantRow } from '../../lib/reports/lenderReport';
 import { buildOnePagerReportModel, type OnePagerReportModel } from '../../lib/reports/onePagerReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
@@ -37,7 +37,7 @@ import { listParties, getReportInputs, saveReportInputs } from '../../lib/persis
 import type { Party } from '../../lib/parties';
 import {
   REPORT_TYPES, ACTIVE_REPORT_TYPES, SECTIONS, FONT_CHOICES, KSA_REGULATORY_PRESET,
-  defaultReportInputs, normalizeAllSectionConfigs,
+  defaultReportInputs, normalizeAllSectionConfigs, icMoneyScaleSpec,
   type ReportType, type ReportInputs, type ICSectionKey, type SectionSetting,
   type MarketStat, type MarketPoint, type RiskItem, type RegulatoryItem, type ExecPoint,
 } from '../../lib/reportInputs';
@@ -54,7 +54,16 @@ const BRAND = {
   mid: '#7FA8D9',
   green: '#2E7D52',
   red: '#DC2626',
+  neg: '#B23A3A',
   border: '#C9D8EC',
+};
+
+// Linear blend between two '#rrggbb' colours (t: 0 -> a, 1 -> b). Sensitivity heatmap.
+const blendHex = (a: string, b: string, t: number): string => {
+  const cl = Math.max(0, Math.min(1, t));
+  const ai = parseInt(a.slice(1), 16), bi = parseInt(b.slice(1), 16);
+  const ch = (sh: number): number => { const av = (ai >> sh) & 0xff, bv = (bi >> sh) & 0xff; return Math.round(av + (bv - av) * cl); };
+  return `#${[ch(16), ch(8), ch(0)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
 export default function Module7Reports({ activeProjectId = null }: { activeProjectId?: string | null } = {}): React.JSX.Element {
@@ -73,27 +82,32 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
   const decimals: DisplayDecimals = (s.project.displayDecimals ?? 0) as DisplayDecimals;
   const fmt = makeFmt(scale, decimals);
   const currency = currencyHeaderLine(s.project.currency ?? 'SAR', scale);
+  // Live model = the ACTIVE-case model (what the rest of the platform shows).
+  // Base model = the Management (base) case model. The IC deck pins to Management
+  // by default (see inputs.icDeckCase) so the base deck is stable regardless of
+  // the active case; the scenario section still compares every case either way.
+  const liveModel = useMemo<HydrateSnapshot>(() => ({
+    project: s.project, phases: s.phases, parcels: s.parcels, landAllocationMode: s.landAllocationMode,
+    assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides,
+    financingTranches: s.financingTranches, equityContributions: s.equityContributions, migrationsApplied: s.migrationsApplied,
+  }), [s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, s.migrationsApplied]);
+  const baseModel = useMemo<HydrateSnapshot>(() => {
+    const activeIsBase = !s.cases || s.cases.length <= 1 || s.activeCaseId === baseCaseId(s.cases);
+    return activeIsBase ? liveModel : (s.baseSnapshot ?? liveModel);
+  }, [liveModel, s.cases, s.activeCaseId, s.baseSnapshot]);
 
+  // Active-case snapshot (drives Lender + One-Pager, which follow the platform).
   const rsPair = useMemo(() => {
-    const snap = computeFinancialsSnapshot(s as never);
-    return { snap, returns: computeReturnsSnapshot(snap, s.project) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, s.migrationsApplied]);
+    const snap = computeFinancialsSnapshot(liveModel as never);
+    return { snap, returns: computeReturnsSnapshot(snap, liveModel.project) };
+  }, [liveModel]);
 
   const scenarios = useMemo(() => {
     if ((s.cases?.length ?? 0) <= 1) return null;
-    const liveModel = {
-      project: s.project, phases: s.phases, parcels: s.parcels, landAllocationMode: s.landAllocationMode,
-      assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides,
-      financingTranches: s.financingTranches, equityContributions: s.equityContributions, migrationsApplied: s.migrationsApplied,
-    } as HydrateSnapshot;
-    const baseId = baseCaseId(s.cases);
-    const activeIsBase = s.activeCaseId === baseId;
-    const baseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
+    const activeIsBase = s.activeCaseId === baseCaseId(s.cases);
     const activeOverrideCount = activeIsBase ? 0 : Object.keys(buildOverrides(s.baseSnapshot, liveModel)).length;
     return buildCaseComparisonReport({ baseModel, cases: s.cases, activeCaseId: s.activeCaseId, liveActiveModel: liveModel, activeOverrideCount });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.cases, s.activeCaseId, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions, s.migrationsApplied]);
+  }, [baseModel, liveModel, s.cases, s.activeCaseId, s.baseSnapshot]);
 
   // ── Parties + report inputs (per project) ──
   const [parties, setParties] = useState<Party[]>([]);
@@ -149,10 +163,34 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
     setActiveSections(orderedSections.map((x) => (x.key === key ? { ...x, visible: !x.visible } : x)));
 
   const asOf = new Date().toISOString().slice(0, 10);
+
+  // The IC deck numbers come from the pinned case (Management by default, or the
+  // active case when icDeckCase === 'active'). Its own snapshot is computed here.
+  const icSourceModel = inputs.icDeckCase === 'active' ? liveModel : baseModel;
+  const icPair = useMemo(() => {
+    const snap = computeFinancialsSnapshot(icSourceModel as never);
+    return { snap, returns: computeReturnsSnapshot(snap, icSourceModel.project) };
+  }, [icSourceModel]);
+
+  // Scale-aware money formatter (millions default, or thousands) + unit note,
+  // shared by IC tables/tiles and chart axes so the deck is consistent.
+  const { fmtM, moneyUnit } = useMemo(() => {
+    const spec = icMoneyScaleSpec(inputs.icMoneyScale, s.project.currency ?? 'SAR');
+    const snapT = spec.decimals > 0 ? 0.05 : 0.5;
+    const f = (v: number): string => {
+      if (!Number.isFinite(v)) return 'n/a';
+      const m = v / spec.divisor;
+      if (Math.abs(m) < snapT) return (0).toFixed(spec.decimals);
+      const t = Math.abs(m).toLocaleString('en-US', { minimumFractionDigits: spec.decimals, maximumFractionDigits: spec.decimals });
+      return m < 0 ? `(${t})` : t;
+    };
+    return { fmtM: f, moneyUnit: spec.unit };
+  }, [inputs.icMoneyScale, s.project.currency]);
+
   const icModel = useMemo(() => buildICReportModel({
-    project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits, rs: rsPair.returns, snap: rsPair.snap, parties, asOf, scenarios, cases: s.cases,
+    project: icSourceModel.project, phases: icSourceModel.phases, assets: icSourceModel.assets, subUnits: icSourceModel.subUnits, rs: icPair.returns, snap: icPair.snap, parties, asOf, scenarios, cases: s.cases,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [rsPair, parties, scenarios, s.project, s.phases, s.assets, s.subUnits, s.cases]);
+  }), [icPair, icSourceModel, parties, scenarios, s.cases]);
   const lenderModel = useMemo(() => buildLenderReportModel({
     project: s.project, financingTranches: s.financingTranches, rs: rsPair.returns, snap: rsPair.snap, parties, asOf,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,7 +234,6 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
     } finally {
       setExporting(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exporting, activeProjectId, reportType, s.project.name, inputs, scale, decimals, currency, asOf, icModel, lenderModel, onePagerModel, scenarios]);
 
   if (!activeProjectId) {
@@ -240,6 +277,16 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
         {/* Narrative fields relevant to the active report type. */}
         {reportType === 'ic' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} data-testid="ic-narrative-form">
+            <FormGroup title="Deck settings">
+              <FormField label="Case for this report">
+                <SegToggle value={inputs.icDeckCase} onChange={(v) => patch({ icDeckCase: v as ReportInputs['icDeckCase'] })} testid="rp-ic-case"
+                  options={[{ value: 'management', label: 'Management (base)' }, { value: 'active', label: 'Active case' }]} />
+              </FormField>
+              <FormField label="Money scale">
+                <SegToggle value={inputs.icMoneyScale} onChange={(v) => patch({ icMoneyScale: v as ReportInputs['icMoneyScale'] })} testid="rp-ic-scale"
+                  options={[{ value: 'millions', label: `Millions (${icMoneyScaleSpec('millions', s.project.currency ?? 'SAR').unit})` }, { value: 'thousands', label: `Thousands (${icMoneyScaleSpec('thousands', s.project.currency ?? 'SAR').unit})` }]} />
+              </FormField>
+            </FormGroup>
             <FormGroup title="Executive summary">
               <FormField label="Summary / thesis (free text)"><Textarea value={inputs.executiveSummary} onChange={(v) => patch({ executiveSummary: v })} testid="rp-exec" /></FormField>
               <FormField label="Summary points (optional; replace the free text)">
@@ -347,9 +394,11 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
         <div style={{ padding: compact ? '20px 24px' : '28px 32px', display: 'flex', flexDirection: 'column', gap: compact ? 16 : 26 }}>
           {reportType === 'ic'
             // IC: auto-omit empty AUTO + FORM sections (shared predicate).
-            ? icVisibleSections(icModel, inputs).map((key) => (
-                <ICSection key={key} sectionKey={key} model={icModel} inputs={inputs} fmt={fmt} currency={currency} scenarios={scenarios} />
-              ))
+            // Numbering excludes the cover so preview chip numbers match the PPT.
+            ? (() => { const vis = icVisibleSections(icModel, inputs); const nonCover = vis.filter((k) => k !== 'cover');
+                return vis.map((key) => (
+                  <ICSection key={key} num={key === 'cover' ? '' : String(nonCover.indexOf(key) + 1).padStart(2, '0')} sectionKey={key} model={icModel} inputs={inputs} fmt={fmtM} moneyUnit={moneyUnit} scenarios={scenarios} />
+                )); })()
             : orderedSections.filter((sec) => sec.visible).map((sec) => (
                 reportType === 'lender'
                   ? <LenderSection key={sec.key} sectionKey={sec.key} model={lenderModel} inputs={inputs} fmt={fmt} currency={currency} />
@@ -367,6 +416,34 @@ export default function Module7Reports({ activeProjectId = null }: { activeProje
 
 // ── shared heading + number helpers ──
 const sectionHeading = (fontHeading: string): React.CSSProperties => ({ fontFamily: `'${fontHeading}', serif`, color: BRAND.navy, fontSize: 17, fontWeight: 800, margin: '0 0 12px', borderBottom: `2px solid ${BRAND.pale}`, paddingBottom: 6 });
+
+// Composed IC section header: navy number chip + Cambria title + italic finding
+// subtitle (the finding, never a units note) + optional right-aligned unit note.
+function SectionHead({ num, title, finding, unit, fontHeading }: { num: string; title: string; finding: string; unit?: string; fontHeading: string }): React.JSX.Element {
+  return (
+    <div style={{ margin: '0 0 12px', borderBottom: `2px solid ${BRAND.pale}`, paddingBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {num && <span style={{ background: BRAND.navy, color: '#fff', fontFamily: `'${fontHeading}', serif`, fontWeight: 800, fontSize: 13, borderRadius: 5, minWidth: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{num}</span>}
+        <h2 style={{ fontFamily: `'${fontHeading}', serif`, color: BRAND.navy, fontSize: 17, fontWeight: 800, margin: 0, flex: 1 }}>{title}</h2>
+        {unit && <span style={{ fontSize: 10, color: BRAND.slate, whiteSpace: 'nowrap' }}>All figures in {unit}</span>}
+      </div>
+      {finding && <div style={{ fontSize: 12, fontStyle: 'italic', color: BRAND.slate, marginTop: 5 }}>{finding}</div>}
+    </div>
+  );
+}
+
+// Reading / caption block that pairs with a chart or table (spec rule 5).
+function CaptionBlock({ heading, children, variant = 'pale' }: { heading: string; children: React.ReactNode; variant?: 'pale' | 'navy' | 'green' }): React.JSX.Element {
+  const bg = variant === 'navy' ? BRAND.navy : variant === 'green' ? BRAND.green : '#EEF3FA';
+  const fg = variant === 'pale' ? '#2A3444' : '#fff';
+  const hc = variant === 'pale' ? BRAND.slate : 'rgba(255,255,255,0.85)';
+  return (
+    <div style={{ background: bg, border: variant === 'pale' ? `1px solid ${BRAND.border}` : 'none', borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', color: hc, fontWeight: 700, marginBottom: 4 }}>{heading}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.45, color: fg }}>{children}</div>
+    </div>
+  );
+}
 const pctN = (v: number | null): string => (v == null || !Number.isFinite(v) ? 'n/a' : fmtPct(v));
 const covFmt = (v: number | null, unit: 'x' | 'pct'): string => (v == null || !Number.isFinite(v) ? 'n/a' : unit === 'pct' ? fmtPct(v) : fmtX(v));
 
@@ -380,17 +457,25 @@ const sensValLabel = (variable: string, v: number): string =>
     ? fmtPct(v)
     : `${v > 0 ? '+' : ''}${fmtPct(v)}`;
 
-function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
+function ICSection({ num, sectionKey, model, inputs, fmt, moneyUnit, scenarios }: {
+  num: string;
   sectionKey: ICSectionKey;
   model: ICReportModel;
   inputs: ReportInputs;
   fmt: (n: number) => string;
-  currency: string;
+  moneyUnit: string;
   scenarios: ReturnType<typeof buildCaseComparisonReport> | null;
 }): React.JSX.Element {
-  const heading = sectionHeading(inputs.fontHeading);
-  const cur = (t: string): React.JSX.Element => <span style={{ fontSize: 11, fontWeight: 400, color: BRAND.slate }}> ({t})</span>;
   const mult = (v: number): string => fmtX(v);
+  const pctF = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : fmtPct(v));
+  const multF = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : fmtX(v));
+  const moneyF = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : fmt(v));
+  const finding = icFindingLine(sectionKey, model, inputs, { money: moneyF, pct: pctF, mult: multF });
+  // Composed section header: navy number chip + Cambria title + italic finding
+  // subtitle (never a units note), optional right-aligned unit note.
+  const head = (title: string, unit?: boolean): React.JSX.Element => (
+    <SectionHead num={num} title={title} finding={finding} unit={unit ? moneyUnit : undefined} fontHeading={inputs.fontHeading} />
+  );
   // Optional narrative: renders nothing when blank (empty FORM never shows a
   // blank prompt in output; wholly-empty FORM sections are auto-omitted upstream).
   const narrOpt = (text: string): React.JSX.Element | null =>
@@ -413,7 +498,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
           </div>
           <div style={{ marginTop: 16, display: 'flex', gap: 28, flexWrap: 'wrap', fontSize: 12 }}>
             <div><div style={{ opacity: 0.7 }}>As of</div><div style={{ fontWeight: 700 }}>{model.cover.asOf}</div></div>
-            <div><div style={{ opacity: 0.7 }}>Figures in</div><div style={{ fontWeight: 700 }}>{currency}</div></div>
+            <div><div style={{ opacity: 0.7 }}>Figures in</div><div style={{ fontWeight: 700 }}>{moneyUnit}</div></div>
             {model.cover.preparedBy.length > 0 && (
               <div><div style={{ opacity: 0.7 }}>Prepared by</div><div style={{ fontWeight: 700 }}>{model.cover.preparedBy.map((p) => p.name).join(', ')}</div></div>
             )}
@@ -425,7 +510,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'executive_summary':
       return (
         <section data-testid="ic-sec-exec">
-          <h2 style={heading}>Executive Summary</h2>
+          {head('Executive Summary')}
           {inputs.execPoints.length > 0
             ? <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {inputs.execPoints.map((p, i) => (
@@ -441,7 +526,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const a = model.ask;
       return (
         <section data-testid="ic-sec-invrec">
-          <h2 style={heading}>Investment Recommendation{cur(currency)}</h2>
+          {head('Investment Recommendation', true)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: narrOpt(inputs.recommendation) ? 12 : 0 }}>
             <Kpi label="Equity Commitment" value={fmt(a.equityCommitment)} sub={`existing ${fmt(a.existingEquity)} + in-kind ${fmt(a.inKindEquity)}`} />
             {a.peakDebt > 0.5 && <Kpi label="Senior Debt (peak)" value={fmt(a.peakDebt)} sub={`existing ${fmt(a.existingDebt)} + new ${fmt(a.newDebt)}`} />}
@@ -455,7 +540,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const o = model.overview;
       return (
         <section data-testid="ic-sec-overview">
-          <h2 style={heading}>Project Overview</h2>
+          {head('Project Overview')}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: inputs.developmentConcept.trim() ? 14 : 0 }}>
             <Fact label="Location">{[o.location, o.country].filter(Boolean).join(', ') || 'n/a'}</Fact>
             {o.landAreaSqm > 0 && <Fact label="Land area">{o.landAreaSqm.toLocaleString()} sqm</Fact>}
@@ -476,7 +561,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'master_plan':
       return (
         <section data-testid="ic-sec-masterplan">
-          <h2 style={heading}>Master Plan &amp; Phasing{cur(currency)}</h2>
+          {head('Master Plan & Phasing', true)}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {model.phasing.map((ph, i) => (
               <div key={i} style={{ border: `1px solid ${BRAND.border}`, borderRadius: 9, padding: '12px 14px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -501,7 +586,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, borderBottom: `1px solid ${BRAND.pale}` };
       return (
         <section data-testid="ic-sec-assetmix">
-          <h2 style={heading}>Asset Mix</h2>
+          {head('Asset Mix')}
           <div style={{ overflowX: 'auto', marginBottom: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
               <thead><tr style={{ background: BRAND.navy, color: '#fff' }}>
@@ -531,6 +616,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
             ))}
           </div>
           {m.byStrategy.length > 0 && <AssetMixDoughnut data={m.byStrategy} />}
+          {m.byStrategy.length > 0 && <div style={{ marginTop: 8 }}><CaptionBlock heading="Reading the mix">{m.byStrategy.map((x) => `${x.strategy} ${fmtPct(x.pct)}`).join(', ')}. The blend balances near-term sales cash against recurring operating income.</CaptionBlock></div>}
         </section>
       );
     }
@@ -538,7 +624,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const mc = inputs.marketContext;
       return (
         <section data-testid="ic-sec-market">
-          <h2 style={heading}>Market Context</h2>
+          {head('Market Context')}
           {mc.points.length > 0 && (
             <ol style={{ margin: '0 0 12px', paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {mc.points.map((p, i) => <li key={i} style={{ fontSize: 13, color: '#2A3444', lineHeight: 1.5 }}>{p.title && <strong style={{ color: BRAND.navy }}>{p.title}. </strong>}{p.body}</li>)}
@@ -556,7 +642,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'development_programme':
       return (
         <section data-testid="ic-sec-programme">
-          <h2 style={heading}>Development Programme{cur(currency)}</h2>
+          {head('Development Programme', true)}
           {model.phasing.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: inputs.keyGates.trim() ? 12 : 0 }}>
               {model.phasing.map((ph, i) => (
@@ -576,16 +662,19 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'development_costs':
       return (
         <section data-testid="ic-sec-devcosts">
-          <h2 style={heading}>Development Costs{cur(currency)}</h2>
+          {head('Development Costs', true)}
           <BridgeTable rows={model.costStack} fmt={fmt} />
           <CostStackBar data={model.charts.costStack} fmt={fmt} />
+          <div style={{ marginTop: 10 }}>
+            <CaptionBlock heading="Cost efficiency" variant="navy">Profit on cost of {pctF(model.reMetrics.profitOnCost)}{model.devEconomics.costToValue != null ? ` and a cost-to-value ratio of ${pctF(model.devEconomics.costToValue)}` : ''} leaves headroom against construction inflation.</CaptionBlock>
+          </div>
         </section>
       );
     case 'value_economics': {
       const d = model.devEconomics;
       return (
         <section data-testid="ic-sec-value">
-          <h2 style={heading}>Value &amp; Development Economics{cur(currency)}</h2>
+          {head('Value & Development Economics', true)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 12 }}>
             <Kpi label="GDV" value={fmt(d.gdv)} sub="gross development value" />
             <Kpi label="Profit before Financing" value={fmt(d.profitBeforeFinancing)} good={d.profitBeforeFinancing >= 0} />
@@ -595,13 +684,14 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
           <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 4 }}>Value bridge</div>
           <BridgeTable rows={model.valueBridge} fmt={fmt} />
           {model.charts.revenueRecognition.hasData && <RevenueRecognitionBars series={model.charts.revenueRecognition} fmt={fmt} />}
+          {model.charts.revenueRecognition.hasData && <div style={{ marginTop: 10 }}><CaptionBlock heading="Revenue recognition">Sales cash front-loads the plan while hospitality and retail build a recurring income base toward exit.</CaptionBlock></div>}
         </section>
       );
     }
     case 'sources_uses':
       return (
         <section data-testid="ic-sec-sources">
-          <h2 style={heading}>Sources &amp; Uses{cur(currency)}</h2>
+          {head('Sources & Uses', true)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             <SourcesUsesList title="Sources" rows={model.sourcesUses.sources} total={model.sourcesUses.totalSources} fmt={fmt} />
             <SourcesUsesList title="Uses" rows={model.sourcesUses.uses} total={model.sourcesUses.totalUses} fmt={fmt} />
@@ -612,7 +702,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const f = model.financing;
       return (
         <section data-testid="ic-sec-financing">
-          <h2 style={heading}>Financing Structure{cur(currency)}</h2>
+          {head('Financing Structure', true)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <Fact label="Funding method">{f.fundingMethodLabel}</Fact>
             <Fact label="Existing debt">{fmt(f.existingDebt)}</Fact>
@@ -625,6 +715,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
             {f.minCashReserve > 0.5 && <Fact label="Minimum cash reserve">{fmt(f.minCashReserve)}</Fact>}
           </div>
           {model.charts.debtBalance.hasData && <DebtBalanceBars series={model.charts.debtBalance} fmt={fmt} />}
+          {model.charts.debtBalance.hasData && <div style={{ marginTop: 10 }}><CaptionBlock heading="De-levering profile" variant="navy">The facility amortises from cash sweep{model.financing.paydownPct != null ? `, retiring ${pctF(model.financing.paydownPct)} of peak debt before exit` : ' across the hold'} and lifting equity returns.</CaptionBlock></div>}
         </section>
       );
     }
@@ -633,7 +724,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const m = model.reMetrics;
       return (
         <section data-testid="ic-sec-returns">
-          <h2 style={heading}>Returns Analysis{cur(currency)}</h2>
+          {head('Returns Analysis', true)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 12 }}>
             <Kpi label="Project IRR" value={pctN(h.projectIrr)} sub="unlevered (FCFF)" good />
             <Kpi label="Equity IRR" value={pctN(h.equityIrr)} sub="levered (FCFE)" good />
@@ -658,7 +749,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, borderBottom: `1px solid ${BRAND.pale}` };
       return (
         <section data-testid="ic-sec-exit">
-          <h2 style={heading}>Exit-Year Optionality{cur(currency)}</h2>
+          {head('Exit-Year Optionality', true)}
           <div style={{ overflowX: 'auto', marginBottom: inputs.exitCommentary.trim() ? 12 : 0 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
               <thead><tr style={{ background: BRAND.navy, color: '#fff' }}>
@@ -685,7 +776,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'scenario_cases':
       return (
         <section data-testid="ic-sec-scencases">
-          <h2 style={heading}>Scenario Analysis: Cases</h2>
+          {head('Scenario Analysis: Cases')}
           <ScenarioTable scenarios={scenarios} labels={['Equity IRR (FCFE)', 'Project IRR (FCFF)', 'Equity MOIC', 'Development Margin']} fmt={fmt} title="Headline returns by case" />
           {scenarios && <ScenarioIrrBars rows={icScenarioChartRows(scenarios)} />}
           <DriverMatrix scenarios={scenarios} />
@@ -694,7 +785,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'scenario_economics':
       return (
         <section data-testid="ic-sec-scenecon">
-          <h2 style={heading}>Scenario Analysis: Economics{cur(currency)}</h2>
+          {head('Scenario Analysis: Economics', true)}
           <ScenarioTable scenarios={scenarios}
             labels={['NPV (FCFF)', 'Gross Development Value', 'Total Development Cost', 'Total Financing Cost', 'Profit after Financing', 'Development Margin', 'Peak Equity', 'Terminal Equity Value']}
             fmt={fmt} title="Economics by case" />
@@ -706,27 +797,34 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const s2 = model.sensitivity;
       const th: React.CSSProperties = { textAlign: 'center', padding: '5px 8px', fontSize: 10 };
       const td: React.CSSProperties = { textAlign: 'center', padding: '4px 8px', fontSize: 10, borderBottom: `1px solid ${BRAND.pale}` };
+      const flat = s2.irr.flat().filter((v): v is number => v != null && Number.isFinite(v));
+      const mn = flat.length ? Math.min(...flat) : 0, mx = flat.length ? Math.max(...flat) : 1;
       return (
         <section data-testid="ic-sec-sensitivity">
-          <h2 style={heading}>Sensitivity <span style={{ fontSize: 11, fontWeight: 400, color: BRAND.slate }}>Equity IRR: {sensVarLabel(s2.yVariable)} (rows) x {sensVarLabel(s2.xVariable)} (cols)</span></h2>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
-              <thead><tr style={{ background: BRAND.navy, color: '#fff' }}>
-                <th style={{ ...th, textAlign: 'left' }}>{sensVarLabel(s2.yVariable)} \ {sensVarLabel(s2.xVariable)}</th>
-                {s2.xValues.map((xv, i) => <th key={i} style={th}>{sensValLabel(s2.xVariable, xv)}</th>)}
-              </tr></thead>
-              <tbody>
-                {s2.yValues.map((yv, yi) => (
-                  <tr key={yi}>
-                    <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: BRAND.navy }}>{sensValLabel(s2.yVariable, yv)}</td>
-                    {s2.xValues.map((_, xi) => {
-                      const v = s2.irr[yi]?.[xi];
-                      return <td key={xi} style={td}>{v == null || !Number.isFinite(v) ? 'n/a' : fmtPct(v)}</td>;
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {head('Sensitivity')}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(160px, 1fr)', gap: 16, alignItems: 'start' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 380 }}>
+                <thead><tr style={{ background: BRAND.navy, color: '#fff' }}>
+                  <th style={{ ...th, textAlign: 'left' }}>{sensVarLabel(s2.yVariable)} \ {sensVarLabel(s2.xVariable)}</th>
+                  {s2.xValues.map((xv, i) => <th key={i} style={th}>{sensValLabel(s2.xVariable, xv)}</th>)}
+                </tr></thead>
+                <tbody>
+                  {s2.yValues.map((yv, yi) => (
+                    <tr key={yi}>
+                      <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: BRAND.navy, background: '#EEF3FA' }}>{sensValLabel(s2.yVariable, yv)}</td>
+                      {s2.xValues.map((_, xi) => {
+                        const v = s2.irr[yi]?.[xi];
+                        const ok = v != null && Number.isFinite(v);
+                        const t = ok && mx > mn ? (v - mn) / (mx - mn) : 0.5;
+                        return <td key={xi} style={{ ...td, color: '#fff', fontWeight: 600, background: ok ? blendHex(BRAND.neg, BRAND.green, t) : 'transparent' }}>{ok ? fmtPct(v) : 'n/a'}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <CaptionBlock heading="Reading the sensitivity">Equity IRR spans {fmtPct(mn)} to {fmtPct(mx)} across exit cap rate and sales price.{s2.baseEquityIrr != null ? ` The base case sits at ${fmtPct(s2.baseEquityIrr)}.` : ''} The plan stays return-accretive through the tested band.</CaptionBlock>
           </div>
         </section>
       );
@@ -734,7 +832,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'risk_assessment':
       return (
         <section data-testid="ic-sec-risk">
-          <h2 style={heading}>Risk Assessment</h2>
+          {head('Risk Assessment')}
           {inputs.risks.length > 0
             ? <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {inputs.risks.map((r, i) => (
@@ -750,7 +848,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'regulatory_tax':
       return (
         <section data-testid="ic-sec-regtax">
-          <h2 style={heading}>Regulatory &amp; Tax</h2>
+          {head('Regulatory & Tax')}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             {inputs.regulatoryTax.map((r, i) => (
               <div key={i} style={{ background: BRAND.pale, border: `1px solid ${BRAND.border}`, borderRadius: 8, padding: '10px 12px' }}>
@@ -765,7 +863,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
       const a = model.ask;
       return (
         <section data-testid="ic-sec-approvals">
-          <h2 style={heading}>Recommendation &amp; Approvals{cur(currency)}</h2>
+          {head('Recommendation & Approvals', true)}
           <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 4 }}>The Committee is asked to approve</div>
           <ul style={{ margin: '0 0 12px', paddingLeft: 20, fontSize: 13, color: '#2A3444', lineHeight: 1.5 }}>
             <li>Total equity commitment of {fmt(a.equityCommitment)} (existing {fmt(a.existingEquity)}; in-kind land {fmt(a.inKindEquity)})</li>
@@ -789,7 +887,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
     case 'disclaimers':
       return (
         <section data-testid="ic-sec-disc">
-          <h2 style={heading}>Disclaimers</h2>
+          {head('Disclaimers')}
           {narrOpt(inputs.disclaimers)}
           <p style={{ margin: '6px 0 0', fontSize: 10, color: BRAND.slate }}>This document is strictly private and confidential and is intended solely for the recipient. Figures are model outputs, not a guarantee of future performance.</p>
         </section>
@@ -1468,6 +1566,20 @@ function Textarea({ value, onChange, testid }: { value: string; onChange: (v: st
 }
 function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }): React.JSX.Element {
   return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />;
+}
+// Small segmented toggle for enum settings (case pin, money scale).
+function SegToggle({ value, onChange, options, testid }: { value: string; onChange: (v: string) => void; options: Array<{ value: string; label: string }>; testid?: string }): React.JSX.Element {
+  return (
+    <div style={{ display: 'inline-flex', gap: 4, background: '#EEF3FA', padding: 3, borderRadius: 8 }} data-testid={testid}>
+      {options.map((o) => (
+        <button key={o.value} type="button" onClick={() => onChange(o.value)} data-testid={testid ? `${testid}-${o.value}` : undefined}
+          style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: value === o.value ? BRAND.navy : 'transparent', color: value === o.value ? '#fff' : BRAND.slate }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 function FontPicker({ value, onChange }: { value: string; onChange: (v: string) => void }): React.JSX.Element {
   const known = FONT_CHOICES.includes(value);

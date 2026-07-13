@@ -161,9 +161,30 @@ export interface ReportInputs {
   footerText: string;
   fontBody: string;
   fontHeading: string;
+  // ── IC deck settings (mig 197) ──
+  /** Which case drives the IC deck numbers: 'management' (base case, DEFAULT) or
+   *  'active' (whatever case is selected in the topbar). The IC deck pins to
+   *  Management by default so the base deck is stable regardless of the active
+   *  case; the scenario section still compares all cases either way. */
+  icDeckCase: ICDeckCase;
+  /** IC money display scale: 'millions' (DEFAULT) or 'thousands'. Drives both the
+   *  tables/tiles and the chart axes so the whole deck is consistent. */
+  icMoneyScale: ICMoneyScale;
   // ── Per-report-type section show/hide + order ──
   sectionConfig: SectionConfigMap;
 }
+
+export type ICDeckCase = 'management' | 'active';
+export type ICMoneyScale = 'millions' | 'thousands';
+export const IC_MONEY_SCALES: ReadonlyArray<ICMoneyScale> = ['millions', 'thousands'];
+/** Millions or thousands divisor + unit suffix + decimals, from the setting. */
+export function icMoneyScaleSpec(scale: ICMoneyScale, currencyCode = 'SAR'): { divisor: number; decimals: number; unit: string } {
+  return scale === 'thousands'
+    ? { divisor: 1_000, decimals: 0, unit: `${currencyCode} '000` }
+    : { divisor: 1_000_000, decimals: 1, unit: `${currencyCode} m` };
+}
+export function coerceICDeckCase(v: unknown): ICDeckCase { return v === 'active' ? 'active' : 'management'; }
+export function coerceICMoneyScale(v: unknown): ICMoneyScale { return v === 'thousands' ? 'thousands' : 'millions'; }
 
 /** Web-safe font families offered in the picker (plus free text for a client
  *  corporate font). Defaults are Calibri body / Cambria headings. */
@@ -207,6 +228,7 @@ export function defaultReportInputs(): ReportInputs {
     risks: [], regulatoryTax: [], conditionsPrecedent: [], nextSteps: '', execPoints: [],
     headerText: '', footerText: '',
     fontBody: 'Calibri', fontHeading: 'Cambria',
+    icDeckCase: 'management', icMoneyScale: 'millions',
     sectionConfig: defaultSectionConfigMap(),
   };
 }
