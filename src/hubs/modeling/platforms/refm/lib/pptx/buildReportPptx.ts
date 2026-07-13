@@ -23,13 +23,15 @@
 
 import PptxGenJS from 'pptxgenjs';
 import { SECTIONS, type ReportType, type ReportInputs, type ICSectionKey } from '../reportInputs';
-import { icSectionOmitted, type ICReportModel } from '../reports/icReport';
+import { icSectionOmitted, icScenarioChartRows, type ICReportModel } from '../reports/icReport';
 import type { LenderReportModel, LenderCovenantRow } from '../reports/lenderReport';
 import type { OnePagerReportModel } from '../reports/onePagerReport';
 import type { CaseComparisonReport } from '../reports/caseComparisonReport';
 
 // Brand hex WITHOUT '#', as pptxgenjs expects.
-const B = { navy: '1B4F8A', white: 'FFFFFF', slate: '5A6675', pale: 'DDE7F3', mid: '7FA8D9', green: '2E7D52', red: 'DC2626', border: 'C9D8EC', ink: '1A2230', paleBg: 'EEF3FA' };
+const B = { navy: '1B4F8A', white: 'FFFFFF', slate: '5A6675', pale: 'DDE7F3', mid: '7FA8D9', green: '2E7D52', red: 'DC2626', negRed: 'B23A3A', border: 'C9D8EC', ink: '1A2230', paleBg: 'EEF3FA' };
+// Doughnut slice palette (brand-first, then neutral extenders).
+const SLICE_COLORS = [B.navy, B.mid, B.green, B.negRed, 'B9C7DD', '3E6FA8'];
 
 const REPORT_LABEL: Record<ReportType, string> = { ic: 'Investment Committee Report', lender: 'Lender Package', onepager: 'Investor One-Pager' };
 
@@ -164,6 +166,78 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
   const sensVarLabel = (v: string): string => ({ exit_cap_rate: 'Exit cap rate', discount_rate: 'Discount rate', sales_price_pct: 'Sales price', adr_pct: 'ADR', construction_cost_pct: 'Construction cost' }[v] ?? v);
   const sensVal = (variable: string, v: number): string => (variable === 'exit_cap_rate' || variable === 'discount_rate') ? pct(v) : `${v > 0 ? '+' : ''}${pct(v)}`;
 
+  // ── Native (editable) Office charts (Phase C). Same series + brand palette as
+  // the Recharts preview. Each renders only when its section data exists. ──
+  const chartAxisFont = { catAxisLabelFontFace: fontBody, catAxisLabelFontSize: 9, catAxisLabelColor: B.slate, valAxisLabelFontFace: fontBody, valAxisLabelFontSize: 9, valAxisLabelColor: B.slate };
+  // BUA-by-strategy doughnut.
+  const doughnutChart = (slide: PptxGenJS.Slide, rows: Array<{ strategy: string; bua: number; pct: number }>, x: number, y: number, w: number, h: number): void => {
+    if (rows.length === 0) return;
+    const data = [{ name: 'BUA', labels: rows.map((r) => r.strategy), values: rows.map((r) => Math.round(r.bua)) }];
+    slide.addChart(pptx.ChartType.doughnut, data, {
+      x, y, w, h, holeSize: 55, chartColors: SLICE_COLORS, showTitle: false,
+      showLegend: true, legendPos: 'r', legendFontFace: fontBody, legendFontSize: 9,
+      showValue: false, showPercent: true, dataLabelColor: B.white, dataLabelFontFace: fontBody, dataLabelFontSize: 9,
+    });
+  };
+  // Column chart. series: one bar series each (clustered) or stacked; pctAxis
+  // renders values already scaled to whole percents.
+  const columnChart = (
+    slide: PptxGenJS.Slide, labels: string[], series: Array<{ name: string; color: string; values: number[] }>,
+    x: number, y: number, w: number, h: number, o?: { stacked?: boolean; pctAxis?: boolean; showValue?: boolean; perPointColors?: string[] },
+  ): void => {
+    if (labels.length === 0 || series.length === 0) return;
+    const data = series.map((s) => ({ name: s.name, labels, values: s.values }));
+    slide.addChart(pptx.ChartType.bar, data, {
+      x, y, w, h, barDir: 'col', barGrouping: o?.stacked ? 'stacked' : 'clustered',
+      chartColors: o?.perPointColors ?? series.map((s) => s.color), showTitle: false, ...chartAxisFont,
+      showLegend: series.length > 1, legendPos: 'b', legendFontFace: fontBody, legendFontSize: 9,
+      valAxisLabelFormatCode: o?.pctAxis ? '0"%"' : '#,##0',
+      showValue: !!o?.showValue, dataLabelFontFace: fontBody, dataLabelFontSize: 8, dataLabelColor: B.ink,
+      dataLabelFormatCode: o?.pctAxis ? '0.0"%"' : '#,##0',
+    });
+  };
+  // Line chart (single series).
+  const lineChart = (slide: PptxGenJS.Slide, labels: string[], name: string, values: number[], x: number, y: number, w: number, h: number, formatCode: string): void => {
+    if (labels.length === 0) return;
+    slide.addChart(pptx.ChartType.line, [{ name, labels, values }], {
+      x, y, w, h, chartColors: [B.navy], lineSize: 2, lineSmooth: false, showTitle: false, showLegend: false, ...chartAxisFont,
+      valAxisLabelFormatCode: formatCode, showValue: true, dataLabelFontFace: fontBody, dataLabelFontSize: 8, dataLabelColor: B.navy, dataLabelFormatCode: formatCode, dataLabelPosition: 't',
+    });
+  };
+  // Development-programme Gantt via positioned rectangles (not a native chart type).
+  const programmeGantt = (slide: PptxGenJS.Slide, prog: ICReportModel['programme'], x: number, y: number, w: number, h: number): void => {
+    const { startYear, exitYear, lanes, debtRepaidYear } = prog;
+    if (lanes.length === 0 || exitYear < startYear) return;
+    const years: number[] = [];
+    for (let yr = startYear; yr <= exitYear; yr++) years.push(yr);
+    const nY = years.length;
+    const labelW = 1.6, gridX = x + labelW, gridW = w - labelW, colW = gridW / nY;
+    const headerH = 0.24, rowH = Math.min(0.3, (h - headerH) / Math.max(1, lanes.length));
+    // Year headers + markers.
+    years.forEach((yr, i) => {
+      const mk = yr === exitYear ? 'exit' : yr === debtRepaidYear ? 'debt' : null;
+      slide.addText(String(yr), { x: gridX + i * colW, y, w: colW, h: headerH, align: 'center', fontFace: fontBody, fontSize: 8, bold: !!mk, color: mk === 'exit' ? B.green : mk === 'debt' ? B.navy : B.slate });
+    });
+    lanes.forEach((lane, li) => {
+      const ry = y + headerH + li * rowH;
+      slide.addText(lane.name, { x, y: ry, w: labelW - 0.05, h: rowH, fontFace: fontBody, fontSize: 8, bold: true, color: B.navy, valign: 'middle' });
+      years.forEach((yr, i) => {
+        const inC = yr >= lane.constructionStart && yr <= lane.constructionEnd;
+        const inO = lane.operationsStart != null && yr >= lane.operationsStart && yr <= (lane.operationsEnd ?? exitYear);
+        const fill = inC ? B.navy : inO ? B.green : B.paleBg;
+        slide.addShape(pptx.ShapeType.roundRect, { x: gridX + i * colW + 0.02, y: ry + 0.03, w: colW - 0.04, h: rowH - 0.06, fill: { color: fill }, line: { color: B.white, width: 0.5 }, rectRadius: 0.02 });
+      });
+    });
+    // Legend.
+    const ly = y + headerH + lanes.length * rowH + 0.08;
+    slide.addShape(pptx.ShapeType.rect, { x, y: ly + 0.02, w: 0.16, h: 0.12, fill: { color: B.navy } });
+    slide.addText('Construction', { x: x + 0.2, y: ly, w: 1.5, h: 0.18, fontFace: fontBody, fontSize: 8, color: B.slate });
+    slide.addShape(pptx.ShapeType.rect, { x: x + 1.7, y: ly + 0.02, w: 0.16, h: 0.12, fill: { color: B.green } });
+    slide.addText('Operations', { x: x + 1.9, y: ly, w: 1.4, h: 0.18, fontFace: fontBody, fontSize: 8, color: B.slate });
+    const markerNote = [debtRepaidYear != null ? `Debt repaid ${debtRepaidYear}` : '', `Exit ${exitYear}`].filter(Boolean).join('   ');
+    slide.addText(markerNote, { x: x + 3.3, y: ly, w: w - 3.3, h: 0.18, fontFace: fontBody, fontSize: 8, bold: true, color: B.navy });
+  };
+
   // ── Cover slide (deck level; consumes the 'cover' section if present) ──
   const cover = pptx.addSlide();
   cover.background = { color: B.navy };
@@ -173,6 +247,18 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
   cover.addText(coverLoc || 'Location not set', { x: 0.7, y: 3.2, w: 11.9, h: 0.5, fontFace: fontBody, fontSize: 16, color: B.pale });
   cover.addText(`As of ${asOf}`, { x: 0.7, y: 4.0, w: 6, h: 0.4, fontFace: fontBody, fontSize: 12, color: B.pale });
   cover.addText('Strictly Private & Confidential. For the intended recipient only.', { x: 0.7, y: 6.5, w: 11.9, h: 0.4, fontFace: fontBody, fontSize: 10, color: B.mid });
+
+  // Scenario KPI matrix helper (shared by the cases + economics IC sections).
+  // Declared before the render loop so it is initialized when renderIC runs.
+  const scenarioTable = (c: PptxGenJS.Slide, labels: string[], y: number): void => {
+    const sc = input.scenarios;
+    if (!sc) return;
+    const kdef = (label: string) => sc.kpis.find((k) => k.label === label);
+    const fk = (v: number | null | undefined, kind?: string): string => (v == null || !Number.isFinite(v)) ? 'n/a' : kind === 'pct' ? pct(v) : kind === 'mult' ? mult(v) : fmt(v);
+    const headers = ['Metric', ...sc.columns.map((col) => `${col.role === 'base' ? '★ ' : ''}${col.name}`)];
+    const rows = labels.map((label) => [label, ...sc.columns.map((col) => fk(col.values[label], kdef(label)?.kind))]);
+    dataTable(c, headers, rows, y);
+  };
 
   // ── Table of Contents (clickable internal links) ──
   const toc = pptx.addSlide({ masterName: MASTER });
@@ -207,17 +293,6 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
   });
 
   // ── IC content (A+B full model-driven structure) ──
-  // Scenario KPI matrix helper (shared by cases + economics).
-  const scenarioTable = (c: PptxGenJS.Slide, labels: string[], y: number): void => {
-    const sc = input.scenarios;
-    if (!sc) return;
-    const kdef = (label: string) => sc.kpis.find((k) => k.label === label);
-    const fk = (v: number | null | undefined, kind?: string): string => (v == null || !Number.isFinite(v)) ? 'n/a' : kind === 'pct' ? pct(v) : kind === 'mult' ? mult(v) : fmt(v);
-    const headers = ['Metric', ...sc.columns.map((col) => `${col.role === 'base' ? '★ ' : ''}${col.name}`)];
-    const rows = labels.map((label) => [label, ...sc.columns.map((col) => fk(col.values[label], kdef(label)?.kind))]);
-    dataTable(c, headers, rows, y);
-  };
-
   function renderIC(c: PptxGenJS.Slide, key: string): void {
     const m = input.ic!;
     const topNote = (): void => { c.addText(`Figures in ${currency}`, { x: MX, y: CONTENT_Y + 0.05, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, color: B.slate }); };
@@ -266,8 +341,8 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
           [...m.assetMix.rows.map((r) => [r.name, r.strategy, r.phaseName || '-', r.bua > 0 ? Math.round(r.bua).toLocaleString() : '-', r.units > 0 ? String(r.units) : '-']),
             ['Total', '', '', Math.round(m.assetMix.totalBua).toLocaleString(), String(m.assetMix.totalUnits)]],
           CONTENT_Y + 0.3, new Set([m.assetMix.rows.length]));
-        c.addText(`Built-up area by strategy: ${m.assetMix.byStrategy.map((s) => `${s.strategy} ${pct(s.pct)}`).join('  ·  ')}`,
-          { x: MX, y: PH - 0.9, w: CONTENT_W, h: 0.4, fontFace: fontBody, fontSize: 10, color: B.slate });
+        c.addText('Built-up area by strategy', { x: MX, y: PH - 3.35, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+        doughnutChart(c, m.assetMix.byStrategy, MX, PH - 3.1, 6.4, 2.7);
         break;
       case 'market_context': {
         const mc = inputs.marketContext;
@@ -279,12 +354,18 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
       case 'development_programme':
         topNote();
         if (m.phasing.length) dataTable(c, ['Phase', 'From', 'Capex'], m.phasing.map((ph) => [`${ph.name}${ph.strategies ? ` (${ph.strategies})` : ''}`, ph.startYear ? String(ph.startYear) : '-', fmt(ph.capex)]), CONTENT_Y + 0.35);
-        if (inputs.keyGates.trim()) c.addText(inputs.keyGates, { x: MX, y: PH - 1.6, w: CONTENT_W, h: 1.2, fontFace: fontBody, fontSize: 11, color: B.ink, valign: 'top', lineSpacingMultiple: 1.25 });
+        programmeGantt(c, m.programme, MX, CONTENT_Y + 2.6, CONTENT_W, 2.6);
+        if (inputs.keyGates.trim()) c.addText(inputs.keyGates, { x: MX, y: PH - 1.1, w: CONTENT_W, h: 0.8, fontFace: fontBody, fontSize: 10, color: B.ink, valign: 'top', lineSpacingMultiple: 1.2 });
         break;
-      case 'development_costs':
+      case 'development_costs': {
         topNote();
         dataTable(c, ['Cost stack', currency], m.costStack.map((r) => [r.label, sbridge(r.value)]), CONTENT_Y + 0.35, new Set(m.costStack.map((r, i) => (r.emphasis ? i : -1)).filter((i) => i >= 0)));
+        const cs = m.charts.costStack;
+        columnChart(c, ['Development cost', 'Financing'],
+          [{ name: 'Land', color: B.mid, values: [cs.land, 0] }, { name: 'Construction', color: B.navy, values: [cs.construction, 0] }, { name: 'Financing', color: B.negRed, values: [0, cs.financing] }],
+          MX + 2.5, CONTENT_Y + 2.5, 7.3, 3.2, { stacked: true });
         break;
+      }
       case 'value_economics': {
         const d = m.devEconomics;
         topNote();
@@ -295,6 +376,13 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
           { label: 'Development Margin', value: pct(d.developmentMargin), sub: 'profit / GDV', good: (d.developmentMargin ?? 0) >= 0 },
         ], CONTENT_Y + 0.4, 4);
         dataTable(c, ['Value bridge', currency], m.valueBridge.map((r) => [r.label, sbridge(r.value)]), CONTENT_Y + 1.85, new Set(m.valueBridge.map((r, i) => (r.emphasis ? i : -1)).filter((i) => i >= 0)));
+        const rr = m.charts.revenueRecognition;
+        if (rr.hasData) {
+          c.addText('Revenue recognition by period', { x: MX, y: CONTENT_Y + 3.55, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+          columnChart(c, rr.yearLabels.map(String),
+            [{ name: 'Sales', color: B.navy, values: rr.sales }, { name: 'Hospitality', color: B.mid, values: rr.hospitality }, { name: 'Retail', color: B.green, values: rr.retail }],
+            MX + 1.5, CONTENT_Y + 3.8, 9, 2.5, { stacked: true });
+        }
         break;
       }
       case 'sources_uses':
@@ -317,6 +405,11 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
         ];
         topNote();
         factGrid(c, facts, CONTENT_Y + 0.4);
+        const db = m.charts.debtBalance;
+        if (db.hasData) {
+          c.addText('Senior debt outstanding', { x: MX, y: CONTENT_Y + 3.2, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+          columnChart(c, db.yearLabels.map(String), [{ name: 'Debt outstanding', color: B.navy, values: db.values }], MX + 1.5, CONTENT_Y + 3.45, 9, 2.4);
+        }
         break;
       }
       case 'returns_analysis': {
@@ -335,23 +428,39 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
         if (inputs.returnsCommentary.trim()) c.addText(inputs.returnsCommentary, { x: MX, y: PH - 1.6, w: CONTENT_W, h: 1.2, fontFace: fontBody, fontSize: 11, color: B.ink, valign: 'top', lineSpacingMultiple: 1.25 });
         break;
       }
-      case 'exit_optionality':
+      case 'exit_optionality': {
         topNote();
         dataTable(c, ['Exit year', 'Equity value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
           m.exitYears.map((r) => [`${r.year}${r.selected ? ' (selected)' : ''}`, fmt(r.equityValue), pct(r.projectIrr), pct(r.equityIrr), mult(r.equityMoic)]),
           CONTENT_Y + 0.35);
-        if (inputs.exitCommentary.trim()) c.addText(inputs.exitCommentary, { x: MX, y: PH - 1.4, w: CONTENT_W, h: 1.0, fontFace: fontBody, fontSize: 10, color: B.ink, valign: 'top', lineSpacingMultiple: 1.2 });
+        const em = m.charts.exitMoic;
+        if (em.hasData) {
+          c.addText('Equity MOIC by exit year', { x: MX, y: CONTENT_Y + 2.9, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+          lineChart(c, em.years.map(String), 'Equity MOIC', em.moic, MX + 1.5, CONTENT_Y + 3.15, 9, 2.3, '0.00"x"');
+        }
+        if (inputs.exitCommentary.trim()) c.addText(inputs.exitCommentary, { x: MX, y: PH - 0.9, w: CONTENT_W, h: 0.5, fontFace: fontBody, fontSize: 10, color: B.ink, valign: 'top', lineSpacingMultiple: 1.2 });
         break;
-      case 'scenario_cases':
+      }
+      case 'scenario_cases': {
         if (!input.scenarios) break;
         scenarioTable(c, ['Equity IRR (FCFE)', 'Project IRR (FCFF)', 'Equity MOIC', 'Development Margin'], CONTENT_Y + 0.35);
+        const scRows = icScenarioChartRows(input.scenarios);
+        c.addText('IRR by case', { x: MX, y: CONTENT_Y + 2.7, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+        columnChart(c, scRows.map((r) => r.name),
+          [{ name: 'Project IRR', color: B.navy, values: scRows.map((r) => (r.projectIrr == null ? 0 : r.projectIrr * 100)) }, { name: 'Equity IRR', color: B.mid, values: scRows.map((r) => (r.equityIrr == null ? 0 : r.equityIrr * 100)) }],
+          MX + 1.5, CONTENT_Y + 2.95, 9, 3.0, { pctAxis: true, showValue: true });
         break;
-      case 'scenario_economics':
+      }
+      case 'scenario_economics': {
         if (!input.scenarios) break;
         topNote();
         scenarioTable(c, ['NPV (FCFF)', 'Gross Development Value', 'Total Development Cost', 'Total Financing Cost', 'Profit after Financing', 'Development Margin', 'Peak Equity', 'Terminal Equity Value'], CONTENT_Y + 0.35);
-        if (inputs.scenarioTakeaway.trim()) c.addText(inputs.scenarioTakeaway, { x: MX, y: PH - 1.4, w: CONTENT_W, h: 1.0, fontFace: fontBody, fontSize: 10, color: B.ink, valign: 'top', lineSpacingMultiple: 1.2 });
+        const scRows = icScenarioChartRows(input.scenarios);
+        c.addText('NPV by case', { x: MX, y: CONTENT_Y + 3.75, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, bold: true, color: B.slate });
+        columnChart(c, scRows.map((r) => r.name), [{ name: 'NPV', color: B.navy, values: scRows.map((r) => r.npv ?? 0) }],
+          MX + 1.5, CONTENT_Y + 4.0, 9, 2.3, { showValue: true, perPointColors: scRows.map((r) => ((r.npv ?? 0) >= 0 ? B.green : B.negRed)) });
         break;
+      }
       case 'sensitivity': {
         const s = m.sensitivity;
         c.addText(`Equity IRR: ${sensVarLabel(s.yVariable)} (rows) x ${sensVarLabel(s.xVariable)} (cols)`, { x: MX, y: CONTENT_Y + 0.05, w: CONTENT_W, h: 0.25, fontFace: fontBody, fontSize: 9, color: B.slate });

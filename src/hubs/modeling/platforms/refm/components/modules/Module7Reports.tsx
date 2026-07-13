@@ -19,11 +19,16 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
+} from 'recharts';
+import type { PieLabelRenderProps } from 'recharts';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
-import { buildICReportModel, icVisibleSections, type ICReportModel } from '../../lib/reports/icReport';
+import { buildICReportModel, icVisibleSections, icScenarioChartRows, IC_CHART_PALETTE, type ICReportModel } from '../../lib/reports/icReport';
 import { buildLenderReportModel, type LenderReportModel, type LenderCovenantRow } from '../../lib/reports/lenderReport';
 import { buildOnePagerReportModel, type OnePagerReportModel } from '../../lib/reports/onePagerReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
@@ -525,6 +530,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
               <span key={i} style={{ fontSize: 11, fontWeight: 600, color: BRAND.navy, background: BRAND.pale, padding: '4px 10px', borderRadius: 20 }}>{s2.strategy} {fmtPct(s2.pct)}</span>
             ))}
           </div>
+          {m.byStrategy.length > 0 && <AssetMixDoughnut data={m.byStrategy} />}
         </section>
       );
     }
@@ -561,8 +567,9 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
               ))}
             </div>
           )}
+          <ProgrammeGantt programme={model.programme} />
           {inputs.keyGates.trim() && (
-            <div><div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 4 }}>Key gates</div>{narrOpt(inputs.keyGates)}</div>
+            <div style={{ marginTop: 12 }}><div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 4 }}>Key gates</div>{narrOpt(inputs.keyGates)}</div>
           )}
         </section>
       );
@@ -571,6 +578,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
         <section data-testid="ic-sec-devcosts">
           <h2 style={heading}>Development Costs{cur(currency)}</h2>
           <BridgeTable rows={model.costStack} fmt={fmt} />
+          <CostStackBar data={model.charts.costStack} fmt={fmt} />
         </section>
       );
     case 'value_economics': {
@@ -586,6 +594,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
           </div>
           <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 4 }}>Value bridge</div>
           <BridgeTable rows={model.valueBridge} fmt={fmt} />
+          {model.charts.revenueRecognition.hasData && <RevenueRecognitionBars series={model.charts.revenueRecognition} fmt={fmt} />}
         </section>
       );
     }
@@ -615,6 +624,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
             {f.customerCollections > 0.5 && <Fact label="Customer collections">{fmt(f.customerCollections)}</Fact>}
             {f.minCashReserve > 0.5 && <Fact label="Minimum cash reserve">{fmt(f.minCashReserve)}</Fact>}
           </div>
+          {model.charts.debtBalance.hasData && <DebtBalanceBars series={model.charts.debtBalance} fmt={fmt} />}
         </section>
       );
     }
@@ -667,6 +677,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
               </tbody>
             </table>
           </div>
+          {model.charts.exitMoic.hasData && <ExitMoicLine series={model.charts.exitMoic} />}
           {narrOpt(inputs.exitCommentary)}
         </section>
       );
@@ -676,6 +687,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
         <section data-testid="ic-sec-scencases">
           <h2 style={heading}>Scenario Analysis: Cases</h2>
           <ScenarioTable scenarios={scenarios} labels={['Equity IRR (FCFE)', 'Project IRR (FCFF)', 'Equity MOIC', 'Development Margin']} fmt={fmt} title="Headline returns by case" />
+          {scenarios && <ScenarioIrrBars rows={icScenarioChartRows(scenarios)} />}
           <DriverMatrix scenarios={scenarios} />
         </section>
       );
@@ -686,6 +698,7 @@ function ICSection({ sectionKey, model, inputs, fmt, currency, scenarios }: {
           <ScenarioTable scenarios={scenarios}
             labels={['NPV (FCFF)', 'Gross Development Value', 'Total Development Cost', 'Total Financing Cost', 'Profit after Financing', 'Development Margin', 'Peak Equity', 'Terminal Equity Value']}
             fmt={fmt} title="Economics by case" />
+          {scenarios && <ScenarioNpvBars rows={icScenarioChartRows(scenarios)} fmt={fmt} />}
           {narrOpt(inputs.scenarioTakeaway)}
         </section>
       );
@@ -885,6 +898,189 @@ function DriverMatrix({ scenarios }: { scenarios: ReturnType<typeof buildCaseCom
       </div>
     </div>
   );
+}
+
+// ── IC charts (Phase C) + development-programme Gantt (Phase D) ──
+// Recharts on-screen; the PPT export draws the SAME series as native Office
+// charts. Brand palette + data both come from the shared icReport helpers.
+const CH = IC_CHART_PALETTE;
+const DOUGHNUT_COLORS = [CH.navy, CH.mid, CH.green, CH.neg, '#B9C7DD', '#3E6FA8'];
+// Coerce a Recharts callback value (string | number | array) to a finite number.
+const chartNum = (v: unknown): number => { const n = Number(Array.isArray(v) ? v[0] : v); return Number.isFinite(n) ? n : 0; };
+
+function ChartFrame({ title, height = 220, children }: { title: string; height?: number; children: React.ReactElement }): React.JSX.Element {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 6 }}>{title}</div>
+      <div style={{ width: '100%', height }}>
+        <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function AssetMixDoughnut({ data }: { data: Array<{ strategy: string; bua: number; pct: number }> }): React.JSX.Element {
+  return (
+    <ChartFrame title="Built-up area by strategy">
+      <PieChart>
+        <Pie data={data} dataKey="bua" nameKey="strategy" innerRadius={48} outerRadius={82} paddingAngle={2} isAnimationActive={false}
+          label={(e: PieLabelRenderProps) => { const d = e as PieLabelRenderProps & { strategy?: string; pct?: number }; return `${d.strategy ?? ''} ${fmtPct(d.pct ?? 0)}`; }} labelLine={false}>
+          {data.map((_, i) => <Cell key={i} fill={DOUGHNUT_COLORS[i % DOUGHNUT_COLORS.length]} />)}
+        </Pie>
+        <Tooltip formatter={(v) => Math.round(chartNum(v)).toLocaleString()} />
+      </PieChart>
+    </ChartFrame>
+  );
+}
+
+function CostStackBar({ data, fmt }: { data: { land: number; construction: number; financing: number }; fmt: (n: number) => string }): React.JSX.Element {
+  const rows = [
+    { name: 'Development cost', Land: data.land, Construction: data.construction, Financing: 0 },
+    { name: 'Financing', Land: 0, Construction: 0, Financing: data.financing },
+  ];
+  return (
+    <ChartFrame title="Cost stack">
+      <BarChart data={rows} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="name" fontSize={11} />
+        <YAxis fontSize={10} width={64} tickFormatter={(v: number) => fmt(v)} />
+        <Tooltip formatter={(v) => fmt(chartNum(v))} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Bar dataKey="Land" stackId="a" fill={CH.mid} />
+        <Bar dataKey="Construction" stackId="a" fill={CH.navy} />
+        <Bar dataKey="Financing" stackId="a" fill={CH.neg} />
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function RevenueRecognitionBars({ series, fmt }: { series: { yearLabels: number[]; sales: number[]; hospitality: number[]; retail: number[] }; fmt: (n: number) => string }): React.JSX.Element {
+  const rows = series.yearLabels.map((y, i) => ({ year: String(y), Sales: series.sales[i] ?? 0, Hospitality: series.hospitality[i] ?? 0, Retail: series.retail[i] ?? 0 }));
+  return (
+    <ChartFrame title="Revenue recognition by period">
+      <BarChart data={rows} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="year" fontSize={10} />
+        <YAxis fontSize={10} width={64} tickFormatter={(v: number) => fmt(v)} />
+        <Tooltip formatter={(v) => fmt(chartNum(v))} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Bar dataKey="Sales" stackId="a" fill={CH.navy} />
+        <Bar dataKey="Hospitality" stackId="a" fill={CH.mid} />
+        <Bar dataKey="Retail" stackId="a" fill={CH.green} />
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function DebtBalanceBars({ series, fmt }: { series: { yearLabels: number[]; values: number[] }; fmt: (n: number) => string }): React.JSX.Element {
+  const rows = series.yearLabels.map((y, i) => ({ year: String(y), Debt: series.values[i] ?? 0 }));
+  return (
+    <ChartFrame title="Senior debt outstanding">
+      <BarChart data={rows} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="year" fontSize={10} />
+        <YAxis fontSize={10} width={64} tickFormatter={(v: number) => fmt(v)} />
+        <Tooltip formatter={(v) => fmt(chartNum(v))} />
+        <Bar dataKey="Debt" name="Debt outstanding" fill={CH.navy} />
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function ScenarioIrrBars({ rows }: { rows: ReturnType<typeof icScenarioChartRows> }): React.JSX.Element {
+  const data = rows.map((r) => ({ name: r.name, 'Project IRR': r.projectIrr == null ? null : r.projectIrr * 100, 'Equity IRR': r.equityIrr == null ? null : r.equityIrr * 100 }));
+  return (
+    <ChartFrame title="IRR by case">
+      <BarChart data={data} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="name" fontSize={11} />
+        <YAxis fontSize={10} width={44} tickFormatter={(v: number) => `${v}%`} />
+        <Tooltip formatter={(v) => `${chartNum(v).toFixed(1)}%`} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Bar dataKey="Project IRR" fill={CH.navy}><LabelList dataKey="Project IRR" position="top" fontSize={9} formatter={(v) => `${chartNum(v).toFixed(1)}%`} /></Bar>
+        <Bar dataKey="Equity IRR" fill={CH.mid}><LabelList dataKey="Equity IRR" position="top" fontSize={9} formatter={(v) => `${chartNum(v).toFixed(1)}%`} /></Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function ScenarioNpvBars({ rows, fmt }: { rows: ReturnType<typeof icScenarioChartRows>; fmt: (n: number) => string }): React.JSX.Element {
+  const data = rows.map((r) => ({ name: r.name, npv: r.npv ?? 0 }));
+  return (
+    <ChartFrame title="NPV by case">
+      <BarChart data={data} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="name" fontSize={11} />
+        <YAxis fontSize={10} width={64} tickFormatter={(v: number) => fmt(v)} />
+        <Tooltip formatter={(v) => fmt(chartNum(v))} />
+        <Bar dataKey="npv" name="NPV">
+          {data.map((d, i) => <Cell key={i} fill={d.npv >= 0 ? CH.green : CH.neg} />)}
+          <LabelList dataKey="npv" position="top" fontSize={9} formatter={(v) => fmt(chartNum(v))} />
+        </Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function ExitMoicLine({ series }: { series: { years: number[]; moic: number[] } }): React.JSX.Element {
+  const data = series.years.map((y, i) => ({ year: String(y), MOIC: series.moic[i] ?? 0 }));
+  return (
+    <ChartFrame title="Equity MOIC by exit year" height={200}>
+      <LineChart data={data} margin={{ top: 18, right: 12, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BRAND.pale} />
+        <XAxis dataKey="year" fontSize={10} />
+        <YAxis fontSize={10} width={44} tickFormatter={(v: number) => `${v.toFixed(1)}x`} />
+        <Tooltip formatter={(v) => `${chartNum(v).toFixed(2)}x`} />
+        <Line type="monotone" dataKey="MOIC" stroke={CH.navy} strokeWidth={2} dot={{ r: 3, fill: CH.navy }} isAnimationActive={false} />
+      </LineChart>
+    </ChartFrame>
+  );
+}
+
+// Development-programme Gantt (Phase D): phase swimlanes across the model years,
+// construction (navy) + operations (green), with debt-repaid + exit markers.
+function ProgrammeGantt({ programme }: { programme: ICReportModel['programme'] }): React.JSX.Element | null {
+  const { startYear, exitYear, lanes, debtRepaidYear } = programme;
+  if (lanes.length === 0 || exitYear < startYear) return null;
+  const years: number[] = [];
+  for (let y = startYear; y <= exitYear; y++) years.push(y);
+  const nY = years.length;
+  const isMarker = (y: number): 'debt' | 'exit' | null => (y === exitYear ? 'exit' : y === debtRepaidYear ? 'debt' : null);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: BRAND.slate, fontWeight: 700, marginBottom: 6 }}>Development programme</div>
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `150px repeat(${nY}, minmax(30px, 1fr))`, gap: 2, minWidth: 150 + nY * 32, alignItems: 'center' }}>
+          <div />
+          {years.map((y) => {
+            const mk = isMarker(y);
+            return <div key={`h${y}`} style={{ fontSize: 9, textAlign: 'center', fontWeight: mk ? 800 : 600, color: mk === 'exit' ? BRAND.green : mk === 'debt' ? BRAND.navy : BRAND.slate }}>{y}</div>;
+          })}
+          {lanes.map((lane) => (
+            <React.Fragment key={lane.name}>
+              <div style={{ fontSize: 11, color: BRAND.navy, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 6 }} title={lane.strategies ? `${lane.name} (${lane.strategies})` : lane.name}>{lane.name}</div>
+              {years.map((y) => {
+                const inC = y >= lane.constructionStart && y <= lane.constructionEnd;
+                const inO = lane.operationsStart != null && y >= lane.operationsStart && y <= (lane.operationsEnd ?? exitYear);
+                const bg = inC ? BRAND.navy : inO ? BRAND.green : '#EEF2F7';
+                const label = inC ? 'Construction' : inO ? 'Operations' : '';
+                return <div key={`${lane.name}-${y}`} title={label ? `${lane.name}: ${label} ${y}` : String(y)} style={{ height: 18, background: bg, borderRadius: 3 }} />;
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 10, color: BRAND.slate }}>
+        <LegendSwatch color={BRAND.navy} label="Construction" />
+        <LegendSwatch color={BRAND.green} label="Operations" />
+        {debtRepaidYear != null && <span><strong style={{ color: BRAND.navy }}>Debt repaid</strong> {debtRepaidYear}</span>}
+        <span><strong style={{ color: BRAND.green }}>Exit</strong> {exitYear}</span>
+      </div>
+    </div>
+  );
+}
+function LegendSwatch({ color, label }: { color: string; label: string }): React.JSX.Element {
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 12, height: 12, background: color, borderRadius: 3, display: 'inline-block' }} />{label}</span>;
 }
 
 // ── Lender Package section renderer (Phase 2) ──

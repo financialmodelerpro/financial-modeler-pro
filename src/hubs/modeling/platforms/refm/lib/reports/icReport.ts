@@ -32,6 +32,16 @@ export interface ICAssetRow { name: string; strategy: string; phaseName: string;
 export interface ICStrategyShare { strategy: string; bua: number; pct: number }
 export interface ICPhaseRow { name: string; startYear: number | null; strategies: string; assetNames: string[]; assetCount: number; capex: number }
 export interface ICExitRow { year: number; equityValue: number; projectIrr: number | null; equityIrr: number | null; equityMoic: number; selected: boolean }
+/** One swimlane in the development-programme Gantt: a phase's construction and
+ *  (optional) operations windows in calendar years, across the model horizon. */
+export interface ICProgrammeLane {
+  name: string;
+  strategies: string;
+  constructionStart: number;
+  constructionEnd: number;
+  operationsStart: number | null;
+  operationsEnd: number | null;
+}
 
 export interface ICReportModel {
   cover: {
@@ -146,6 +156,22 @@ export interface ICReportModel {
     irr: (number | null)[][];
     baseEquityIrr: number | null;
     hasData: boolean;
+  };
+  /** Chart-ready series (Phase C). Both the preview (Recharts) and the PPT export
+   *  (native Office charts) read these SAME numbers so the two never diverge.
+   *  Each series carries a hasData flag that mirrors the section auto-omit. */
+  charts: {
+    costStack: { land: number; construction: number; financing: number };
+    revenueRecognition: { yearLabels: number[]; sales: number[]; hospitality: number[]; retail: number[]; hasData: boolean };
+    debtBalance: { yearLabels: number[]; values: number[]; peak: number; hasData: boolean };
+    exitMoic: { years: number[]; moic: number[]; hasData: boolean };
+  };
+  /** Development-programme Gantt (Phase D): phase windows + key markers. */
+  programme: {
+    startYear: number;
+    exitYear: number;
+    debtRepaidYear: number | null;
+    lanes: ICProgrammeLane[];
   };
   /** null when there is only the base case (nothing to compare). */
   scenarios: CaseComparisonReport | null;
@@ -297,6 +323,41 @@ export function buildICReportModel(input: {
   const totalEquity = rs.totalEquityInvested;
   const equityCommitment = su.existingEquity + su.inKindEquity;
 
+  // ── Chart series (Phase C). Read straight from the snapshot; no recompute. ──
+  const yearLabels = rs.yearLabels ?? [];
+  // Revenue recognition: sales = residual (total less hospitality less retail),
+  // which equals the residential/sell component by construction but is computed
+  // as a residual to stay robust to any Sell+Manage companion double-count.
+  const pl = snap.pl;
+  const totalRev = pl?.totalRevenuePerPeriod ?? [];
+  const hospRev = pl?.hospitalityRevenuePerPeriod ?? [];
+  const retailRev = pl?.retailRevenuePerPeriod ?? [];
+  const salesRev = totalRev.map((t, i) => (t ?? 0) - (hospRev[i] ?? 0) - (retailRev[i] ?? 0));
+  const revHasData = [salesRev, hospRev, retailRev].some((arr) => arr.some((v) => (v ?? 0) > 0.5));
+
+  // Senior-debt outstanding balance per period.
+  const debtSeries = snap.bs?.debtOutstandingPerPeriod ?? [];
+  let debtRepaidYear: number | null = null;
+  let debtWasPositive = false;
+  for (let i = 0; i < debtSeries.length; i++) {
+    const v = debtSeries[i] ?? 0;
+    if (v > 0.5) debtWasPositive = true;
+    else if (debtWasPositive && v <= 0.5) { debtRepaidYear = yearLabels[i] ?? null; break; }
+  }
+
+  // Development-programme lanes: construction + operations windows per phase.
+  const lanes: ICProgrammeLane[] = phases.map((ph) => {
+    const cs = yearOf(ph.startDate, startYear + Math.max(0, (ph.constructionStart ?? 1) - 1));
+    const ce = cs + Math.max(1, ph.constructionPeriods ?? 1) - 1;
+    const opPeriods = Math.max(0, ph.operationsPeriods ?? 0);
+    const overlap = Math.max(0, ph.overlapPeriods ?? 0);
+    const opStart = opPeriods > 0 ? Math.max(cs, ce + 1 - overlap) : null;
+    const opEnd = opStart != null ? Math.min(exitYear, opStart + opPeriods - 1) : null;
+    const phaseAssets = visibleAssets.filter((a) => a.phaseId === ph.id);
+    const strategies = [...new Set(phaseAssets.map((a) => String(a.strategy)))].join(', ');
+    return { name: ph.name, strategies, constructionStart: cs, constructionEnd: ce, operationsStart: opStart, operationsEnd: opEnd };
+  });
+
   return {
     cover: {
       projectName: project.name,
@@ -389,6 +450,13 @@ export function buildICReportModel(input: {
       baseEquityIrr: sens?.baseEquityIrr ?? null,
       hasData: sensHasData,
     },
+    charts: {
+      costStack: { land: su.land, construction: su.construction, financing: de.totalFinancingCost },
+      revenueRecognition: { yearLabels, sales: salesRev, hospitality: hospRev, retail: retailRev, hasData: revHasData },
+      debtBalance: { yearLabels, values: debtSeries, peak: da.peakDebt, hasData: da.peakDebt > 0.5 },
+      exitMoic: { years: exitYears.map((r) => r.year), moic: exitYears.map((r) => r.equityMoic), hasData: exitYears.length > 1 },
+    },
+    programme: { startYear, exitYear, debtRepaidYear, lanes },
     scenarios: hasScenarios ? (input.scenarios ?? null) : null,
   };
 }
@@ -427,6 +495,31 @@ export function icSectionOmitted(key: ICSectionKey, model: ICReportModel, inputs
     case 'disclaimers': return false;
     default: return false;
   }
+}
+
+/** Brand chart palette (Phase C), shared verbatim by the preview (Recharts) and
+ *  the PPT export (native Office charts). Hex WITH '#'; the PPT side strips it. */
+export const IC_CHART_PALETTE = {
+  navy: '#1B4F8A',
+  mid: '#7FA8D9',
+  green: '#2E7D52',
+  neg: '#B23A3A',
+  pale: '#DDE7F3',
+} as const;
+
+export interface ICScenarioChartRow { name: string; role: string; projectIrr: number | null; equityIrr: number | null; npv: number | null }
+
+/** Scenario chart rows (one per case), read from the case-comparison columns so
+ *  the preview and the PPT charts plot the SAME per-case IRR / NPV values. */
+export function icScenarioChartRows(scenarios: CaseComparisonReport | null): ICScenarioChartRow[] {
+  if (!scenarios) return [];
+  return scenarios.columns.map((c) => ({
+    name: c.name,
+    role: c.role,
+    projectIrr: c.values['Project IRR (FCFF)'] ?? null,
+    equityIrr: c.values['Equity IRR (FCFE)'] ?? null,
+    npv: c.values['NPV (FCFF)'] ?? null,
+  }));
 }
 
 /** The ordered, visible, NON-omitted IC section keys for a given model + inputs.
