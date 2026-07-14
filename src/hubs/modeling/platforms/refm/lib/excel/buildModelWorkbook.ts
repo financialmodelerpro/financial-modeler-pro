@@ -72,10 +72,11 @@ export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; sched
 // Inputs / Schedules / Outputs parts.
 type SheetPart = 'inputs' | 'schedules' | 'outputs' | 'always';
 
-const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', summary: 'Summary', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
 
 const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cover]: 'always',
+  [SHEETS.summary]: 'always',
   [SHEETS.assumptions]: 'inputs',
   [SHEETS.timeline]: 'inputs',
   [SHEETS.landArea]: 'inputs',
@@ -127,7 +128,8 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   wb.created = new Date(0); // deterministic (avoid clock for reproducible output)
   wb.calcProperties.fullCalcOnLoad = true;
 
-  addCover(wb, snap, opts, lm); // first tab; index links to the sheets created below
+  addCover(wb, snap, opts); // first tab; its table of contents links to every sheet
+  addSummary(wb, snap, opts, lm); // second tab; one-page executive summary
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
   const landAddrs = addLandArea(wb, opts.state, refs);
@@ -185,9 +187,45 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
       setLabel(a2, cur ? `${cur}  (${note})` : note);
     }
   }
+  // Print setup: a professional, print-ready page layout on every sheet (fit to
+  // width, repeated header rows, centred cover / summary, page-numbered footer).
+  applyPrintSetup(wb);
   // Apply the Inputs / Schedules / Outputs filter LAST (hide unticked categories).
   applyPartVisibility(wb, opts.parts);
   return wb;
+}
+
+// Sheets that carry the shared 4-row frozen header (writeSheetHeader): repeat
+// rows 1-4 on every printed page so the period axis is never orphaned.
+const HEADER4_SHEETS = new Set<string>([
+  SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.schedules,
+  SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.returns, SHEETS.scenarios,
+]);
+
+/** Give every sheet a print-ready page layout: A4, tight margins, fit-to-width,
+ *  landscape for the wide period tables (repeating the header rows) and a centred
+ *  single portrait page for the Cover + Summary. Cosmetic only (no cell change),
+ *  so the reconciliation + palette locks are untouched. */
+function applyPrintSetup(wb: ExcelJS.Workbook): void {
+  for (const ws of wb.worksheets) {
+    const name = ws.name;
+    const portraitOnePage = name === SHEETS.cover || name === SHEETS.summary;
+    const narrow = name === SHEETS.checks;
+    ws.pageSetup = {
+      paperSize: 9, // A4
+      orientation: portraitOnePage || narrow ? 'portrait' : 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: portraitOnePage ? 1 : 0,
+      horizontalCentered: portraitOnePage,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+      printTitlesRow: HEADER4_SHEETS.has(name) ? '1:4' : name === SHEETS.assumptions ? '1:2' : undefined,
+    };
+    // Page-numbered footer with the platform brand; sheet name centred.
+    ws.headerFooter = {
+      oddFooter: '&L&"Calibri"&8&K1B3A6B Financial Modeler Pro&C&"Calibri"&8&K1B3A6B &A&R&"Calibri"&8&K1B3A6B Page &P of &N',
+    };
+  }
 }
 
 // Shared context threaded through every downstream emitter.
@@ -3011,49 +3049,154 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   setLabel(ws.getCell(`A${r}`), 'This workbook is a hardcoded mirror of the platform: every figure is the platform-computed snapshot value, written as a constant. The verification results above are the platform\'s own checks as of export, not a live Excel reconciliation. Editing any cell will NOT recalculate; to run a different scenario, change the inputs in the platform and re-export.');
 }
 
-// ── Cover / Index ─────────────────────────────────────────────────────────────
-function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, lm: LiveModel): void {
-  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
-  const p = opts.state.project;
-  const currency = p.currency ?? 'SAR';
-  const m = (v: number): string => `${currency} ${formatAccounting(v, 'millions', 1)} m`;
-  const pct = (v: number | null): string => (v === null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
-
-  // Column layout: A narrow margin, B..G content, H margin.
+// ── Shared cover / summary primitives ─────────────────────────────────────────
+// Both front-matter tabs (Cover, Summary) share the same B..G content band on a
+// white canvas, a navy banner and navy section bands, so they read as one cover
+// set. Column layout: A narrow margin, B..G content, H margin.
+function frontMatterCanvas(ws: ExcelJS.Worksheet): void {
   ws.getColumn(1).width = 3;
   for (let c = 2; c <= 7; c++) ws.getColumn(c).width = 17;
   ws.getColumn(8).width = 3;
+  fillCell(ws.getCell(1, 1), ARGB.white);
+}
 
-  // Banner.
+/** Navy banner (project name) + a navy-dark sub-band, rows 2-7. Returns the next
+ *  free row. */
+function frontMatterBanner(ws: ExcelJS.Worksheet, title: string, subtitle: string): number {
   ws.mergeCells('B2:G6');
-  const title = ws.getCell('B2');
-  title.value = opts.projectName || 'Untitled Project';
-  title.font = { name: 'Calibri', size: 28, bold: true, color: { argb: ARGB.white } };
-  title.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  const t = ws.getCell('B2');
+  t.value = title || 'Untitled Project';
+  t.font = { name: 'Calibri', size: 28, bold: true, color: { argb: ARGB.white } };
+  t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   fillRange(ws, 2, 2, 6, 7, ARGB.navy);
   for (let r = 2; r <= 6; r++) ws.getRow(r).height = 24;
   ws.mergeCells('B7:G7');
-  const sub = ws.getCell('B7');
-  sub.value = 'Real Estate Financial Model  ·  Excel  ·  Hardcoded platform snapshot';
-  sub.font = { name: 'Calibri', size: 12, color: { argb: ARGB.white } };
-  sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  const s = ws.getCell('B7');
+  s.value = subtitle;
+  s.font = { name: 'Calibri', size: 12, color: { argb: ARGB.white } };
+  s.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   fillRange(ws, 7, 2, 7, 7, ARGB.navyDark);
   ws.getRow(7).height = 22;
+  return 9;
+}
 
-  // Key facts card (left) + headline KPI tiles (right).
-  let r = 9;
-  ws.mergeCells(r, 2, r, 4);
-  const kfh = ws.getCell(r, 2);
-  kfh.value = 'Project snapshot';
-  kfh.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
-  fillRange(ws, r, 2, r, 4, ARGB.navy);
-  // KPI header (right).
-  ws.mergeCells(r, 5, r, 7);
-  const kpih = ws.getCell(r, 5);
-  kpih.value = 'Headline';
-  kpih.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
-  fillRange(ws, r, 5, r, 7, ARGB.navy);
+/** Full-width navy section band across B..G at row r. */
+function frontMatterBand(ws: ExcelJS.Worksheet, r: number, text: string): void {
+  ws.mergeCells(r, 2, r, 7);
+  const c = ws.getCell(r, 2);
+  c.value = text;
+  c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
+  c.alignment = { vertical: 'middle', indent: 1 };
+  fillRange(ws, r, 2, r, 7, ARGB.navy);
+  ws.getRow(r).height = 18;
+}
+
+// ── Cover / Table of Contents ─────────────────────────────────────────────────
+function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions): void {
+  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
+  const p = opts.state.project;
+  const currency = p.currency ?? 'SAR';
+  frontMatterCanvas(ws);
+  let r = frontMatterBanner(ws, opts.projectName, 'Real Estate Financial Model  ·  Excel  ·  Hardcoded platform snapshot');
+
+  // Slim identity strip (a single line): date · currency · location · horizon.
+  const identity = [
+    opts.dateLabel,
+    currency,
+    [p.location, p.country].filter(Boolean).join(', ') || null,
+    `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
+  ].filter(Boolean).join('   ·   ');
+  ws.mergeCells(r, 2, r, 7);
+  const idc = ws.getCell(r, 2); idc.value = identity; idc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } }; idc.alignment = { indent: 1 };
+  r += 2;
+
+  // Table of contents, grouped by module. Group rows are navy-dark bands; each
+  // sheet is a numbered, hyperlinked row with a description. Only sheet rows are
+  // numbered, so the count reads as the deliverable page list.
+  frontMatterBand(ws, r, 'Table of Contents'); r += 1;
+  type Toc = { group: string } | { sheet: string; desc: string };
+  const toc: Toc[] = [
+    { sheet: SHEETS.summary, desc: 'One-page executive summary: key facts, headline metrics and financial highlights' },
+    { group: 'Module 1  ·  Setup, Costs & Financing' },
+    { sheet: SHEETS.assumptions, desc: 'All model inputs, consolidated and grouped by type' },
+    { sheet: SHEETS.timeline, desc: 'The model year axis' },
+    { sheet: SHEETS.landArea, desc: 'Area hierarchy (NSA / BUA / GFA) and land value' },
+    { sheet: SHEETS.capex, desc: 'Development cost build-up and phased schedule' },
+    { sheet: SHEETS.financing, desc: 'Depreciation, interest, tax, debt + equity and the cash recurrence' },
+    { group: 'Module 2  ·  Revenue & Cost of Sales' },
+    { sheet: SHEETS.revenue, desc: 'Inputs, Output, Cost of Sales, Schedules and Escrow' },
+    { group: 'Module 3  ·  Operating Expenses' },
+    { sheet: SHEETS.opex, desc: 'Operating expenses by asset and category' },
+    { group: 'Module 4  ·  Financial Statements' },
+    { sheet: SHEETS.schedules, desc: 'Fixed Assets, IDC Pool and Working Capital' },
+    { sheet: SHEETS.pl, desc: 'Profit and loss (income statement)' },
+    { sheet: SHEETS.cashflow, desc: 'Cash flow statement (Direct + Indirect)' },
+    { sheet: SHEETS.balsheet, desc: 'Balance sheet (balances by construction)' },
+    { group: 'Module 5  ·  Returns' },
+    { sheet: SHEETS.returns, desc: 'IRR, NPV and equity multiple (FCFF / FCFE) + RE metrics' },
+    { group: 'Module 6  ·  Scenario Analysis' },
+    { sheet: SHEETS.scenarios, desc: 'Case comparison and year-on-year impact' },
+    { group: 'Reference' },
+    { sheet: SHEETS.checks, desc: 'Integrity checks and colour legend' },
+  ];
+  const tocTop = r;
+  let num = 0, zebra = 0;
+  for (const e of toc) {
+    if ('group' in e) {
+      ws.mergeCells(r, 2, r, 7);
+      const gc = ws.getCell(r, 2); gc.value = e.group;
+      gc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+      gc.alignment = { indent: 1 };
+      fillRange(ws, r, 2, r, 7, ARGB.navyDark);
+      zebra = 0; r += 1; continue;
+    }
+    num += 1;
+    const nc = ws.getCell(r, 2);
+    nc.value = { text: `${num}.  ${e.sheet}`, hyperlink: `#'${e.sheet}'!A1` };
+    nc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy }, underline: true };
+    nc.alignment = { indent: 1 };
+    ws.mergeCells(r, 3, r, 7);
+    const dc = ws.getCell(r, 3); dc.value = e.desc; dc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    if (zebra % 2 === 1) fillRange(ws, r, 2, r, 7, ARGB.grey);
+    zebra += 1; r += 1;
+  }
+  boxBorder(ws, tocTop, 2, r - 1, 7);
   r += 1;
+
+  // Colour legend (navy-pale input, black computed, deep-navy section, navy total).
+  setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
+  const inputSwatch = ws.getCell(r, 3); inputSwatch.value = 'Input'; markInput(inputSwatch); inputSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+  const fmSwatch = ws.getCell(r, 4); fmSwatch.value = 'Computed'; fmSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
+  const secSwatch = ws.getCell(r, 5); secSwatch.value = 'Section'; fillCell(secSwatch, ARGB.accent); secSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  const totSwatch = ws.getCell(r, 6); totSwatch.value = 'Total'; fillCell(totSwatch, ARGB.navy); totSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  r += 2;
+  const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
+}
+
+// ── Summary (one-page executive summary) ──────────────────────────────────────
+/** A single-page executive summary: key facts, a headline-metric tile wall, and
+ *  two compact financial-highlight tables (development economics + returns /
+ *  leverage). Reads the same snapshot + returns engine as the Returns tab, so it
+ *  ties exactly; degrades gracefully when the returns snapshot cannot compute. */
+function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, lm: LiveModel): void {
+  const ws = wb.addWorksheet(SHEETS.summary, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
+  const p = opts.state.project;
+  const currency = p.currency ?? 'SAR';
+  frontMatterCanvas(ws);
+  let r = frontMatterBanner(ws, opts.projectName, `Executive Summary  ·  ${opts.dateLabel}`);
+
+  let rs: ReturnsSnapshot | null = null;
+  try { rs = computeReturnsSnapshot(snap, opts.state.project); } catch { rs = null; }
+  const de = rs?.developmentEconomics;
+  const re = rs?.result.realEstate;
+  const m = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
+  const pct = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+  const mult = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${v.toFixed(2)}x`);
+  const gdv = de?.gdv ?? lm.totalRev.reduce((s, x) => s + x, 0);
+  const peakDebt = Math.max(0, ...lm.debtClose);
+
+  // ── Key facts (two facts per row: B:C label / D value, E:F label / G value) ──
+  frontMatterBand(ws, r, 'Key facts'); r += 1;
   const facts: Array<[string, string]> = [
     ['Date', opts.dateLabel],
     ['Currency', currency],
@@ -3063,78 +3206,102 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     ['Debt / Equity', `${snap.financing.funding.debtPct.toFixed(0)}% / ${snap.financing.funding.equityPct.toFixed(0)}%`],
   ];
   const factTop = r;
-  facts.forEach(([k, v], i) => {
-    const rr = r + i;
-    const kc = ws.getCell(rr, 2); kc.value = k; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-    ws.mergeCells(rr, 3, rr, 4);
-    const vc = ws.getCell(rr, 3); vc.value = v; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    if (i % 2 === 1) fillRange(ws, rr, 2, rr, 4, ARGB.grey);
-  });
-  boxBorder(ws, factTop, 2, factTop + facts.length - 1, 4);
+  for (let i = 0; i < facts.length; i += 2) {
+    const rr = factTop + i / 2;
+    const put = (labelCol: number, valLeft: number, valRight: number, pair?: [string, string]): void => {
+      if (!pair) return;
+      const kc = ws.getCell(rr, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      ws.mergeCells(rr, valLeft, rr, valRight);
+      const vc = ws.getCell(rr, valLeft); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    };
+    put(2, 3, 4, facts[i]);        // B label, C:D value
+    put(5, 6, 7, facts[i + 1]);    // E label, F:G value
+    if ((i / 2) % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
+  }
+  const factRows = Math.ceil(facts.length / 2);
+  boxBorder(ws, factTop, 2, factTop + factRows - 1, 7);
+  r = factTop + factRows + 1;
 
-  // KPI tiles (right column), value-over-label, in bordered cells.
-  const kpis: Array<[string, string]> = [
-    ['Total dev cost', m(snap.financing.capex.totals.inclAllLand)],
-    ['Gross dev value', m(lm.totalRev.reduce((s, x) => s + x, 0))],
-    ['Project IRR', pct(lm.fcffIrr)],
-    ['Equity IRR', pct(lm.fcfeIrr)],
-    ['Peak debt', m(Math.max(0, ...lm.debtClose))],
-    ['Equity multiple', `${lm.fcfeMoic.toFixed(2)}x`],
+  // ── Headline metric tiles (3 per row, each spanning 2 columns) ───────────────
+  frontMatterBand(ws, r, 'Headline metrics'); r += 1;
+  const tiles: Array<[string, string]> = [
+    ['Total development cost', m(snap.financing.capex.totals.inclAllLand)],
+    ['Gross development value', m(gdv)],
+    ['Profit after financing', m(de?.profitAfterFinancing)],
+    ['Project IRR (FCFF)', pct(lm.fcffIrr)],
+    ['Equity IRR (FCFE)', pct(lm.fcfeIrr)],
+    ['Equity multiple', mult(lm.fcfeMoic)],
+    ['Development margin', pct(de?.developmentMargin)],
+    ['Peak debt', m(peakDebt)],
+    ['Total equity required', m(rs?.equityExposure.totalEquityRequired)],
   ];
-  kpis.forEach(([label, value], i) => {
-    const rr = factTop + i;
-    const lc = ws.getCell(rr, 5); lc.value = label; lc.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark }, bold: true };
-    ws.mergeCells(rr, 6, rr, 7);
-    const vc = ws.getCell(rr, 6); vc.value = value; vc.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.navy } };
-    vc.alignment = { horizontal: 'right' };
-    if (i % 2 === 1) fillRange(ws, rr, 5, rr, 7, ARGB.grey);
+  const tileCols: Array<[number, number]> = [[2, 3], [4, 5], [6, 7]];
+  const tileTop = r;
+  tiles.forEach(([label, value], i) => {
+    const rowBlock = Math.floor(i / 3);
+    const [c1, c2] = tileCols[i % 3];
+    const lr = tileTop + rowBlock * 2, vr = lr + 1;
+    ws.mergeCells(lr, c1, lr, c2);
+    const lc = ws.getCell(lr, c1); lc.value = label; lc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
+    ws.mergeCells(vr, c1, vr, c2);
+    const vc = ws.getCell(vr, c1); vc.value = value; vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+    boxBorder(ws, lr, c1, vr, c2);
   });
-  boxBorder(ws, factTop, 5, factTop + kpis.length - 1, 7);
-  r = factTop + Math.max(facts.length, kpis.length) + 2;
+  const tileRows = Math.ceil(tiles.length / 3) * 2;
+  r = tileTop + tileRows + 1;
 
-  // Contents.
-  ws.mergeCells(r, 2, r, 7);
-  const ch = ws.getCell(r, 2); ch.value = 'Contents'; ch.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
-  fillRange(ws, r, 2, r, 7, ARGB.navy);
+  // ── Financial highlights: two compact tables side by side ────────────────────
+  frontMatterBand(ws, r, 'Financial highlights'); r += 1;
+  // Column headers.
+  const hdr = (col: number, span: number, text: string): void => {
+    ws.mergeCells(r, col, r, col + span - 1);
+    const c = ws.getCell(r, col); c.value = text; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    fillRange(ws, r, col, r, col + span - 1, ARGB.subtotal);
+  };
+  hdr(2, 3, 'Development economics'); // B:D
+  hdr(5, 3, 'Returns & leverage');    // E:G
   r += 1;
-  const index: Array<[string, string]> = [
-    [SHEETS.assumptions, 'All model inputs, consolidated and grouped by type'],
-    [SHEETS.timeline, 'The model year axis'],
-    [SHEETS.landArea, 'Area hierarchy (NSA / BUA / GFA) and land value'],
-    [SHEETS.capex, 'Development cost build-up and phased schedule'],
-    [SHEETS.financing, 'Depreciation, interest, tax, debt + equity and the cash recurrence'],
-    [SHEETS.revenue, 'Full Module 2 mirror: Inputs, Output, Cost of Sales, Schedules and Escrow'],
-    [SHEETS.opex, 'Operating expenses by asset and category'],
-    [SHEETS.schedules, 'Module 4 schedules: Fixed Assets, IDC Pool and Working Capital'],
-    [SHEETS.pl, 'Profit and loss (income statement)'],
-    [SHEETS.cashflow, 'Cash flow statement'],
-    [SHEETS.balsheet, 'Balance sheet (balances by construction)'],
-    [SHEETS.returns, 'IRR, NPV and equity multiple (FCFF / FCFE)'],
-    [SHEETS.scenarios, 'Scenario analysis: case comparison and year-on-year impact'],
-    [SHEETS.checks, 'Integrity checks and colour legend'],
+  const leftRows: Array<[string, string]> = [
+    ['Gross development value', m(gdv)],
+    ['Total development cost', m(de?.totalDevelopmentCost ?? snap.financing.capex.totals.inclAllLand)],
+    ['Total financing cost', m(de?.totalFinancingCost)],
+    ['Profit before financing', m(de?.profitBeforeFinancing)],
+    ['Profit after financing', m(de?.profitAfterFinancing)],
+    ['Development margin', pct(de?.developmentMargin)],
   ];
-  const idxTop = r;
-  index.forEach(([name, desc], i) => {
-    const rr = r + i;
-    const nc = ws.getCell(rr, 2);
-    nc.value = { text: `${i + 1}.  ${name}`, hyperlink: `#'${name}'!A1` };
-    nc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy }, underline: true };
-    ws.mergeCells(rr, 3, rr, 7);
-    const dc = ws.getCell(rr, 3); dc.value = desc; dc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+  const rightRows: Array<[string, string]> = [
+    ['Project IRR (FCFF)', pct(lm.fcffIrr)],
+    ['Equity IRR (FCFE)', pct(lm.fcfeIrr)],
+    ['Equity MOIC (FCFE)', mult(lm.fcfeMoic)],
+    ['Peak debt', m(peakDebt)],
+    ['Peak equity', m(re?.peakEquity)],
+    ['Min DSCR', mult(re?.dscrMin)],
+  ];
+  const hlTop = r;
+  const rows = Math.max(leftRows.length, rightRows.length);
+  for (let i = 0; i < rows; i++) {
+    const rr = hlTop + i;
+    const putRow = (labelCol: number, valLeft: number, valRight: number, pair?: [string, string]): void => {
+      if (!pair) return;
+      const kc = ws.getCell(rr, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      ws.mergeCells(rr, valLeft, rr, valRight);
+      const vc = ws.getCell(rr, valLeft); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'right' };
+    };
+    putRow(2, 3, 4, leftRows[i]);   // B label, C:D value
+    putRow(5, 6, 7, rightRows[i]);  // E label, F:G value
     if (i % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
-  });
-  boxBorder(ws, idxTop, 2, idxTop + index.length - 1, 7);
-  r = idxTop + index.length + 2;
+  }
+  boxBorder(ws, hlTop, 2, hlTop + rows - 1, 4);
+  boxBorder(ws, hlTop, 5, hlTop + rows - 1, 7);
+  r = hlTop + rows + 1;
 
-  // Colour legend. One standard navy palette across every tab: navy-pale input
-  // cells, black computed values, a teal section-divider band and navy total
-  // rows. Input swatch carries the navy-pale fill (matching input cells).
-  setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
-  const inputSwatch = ws.getCell(r, 3); inputSwatch.value = 'Input'; markInput(inputSwatch); inputSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-  const fmSwatch = ws.getCell(r, 4); fmSwatch.value = 'Computed'; fmSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
-  const secSwatch = ws.getCell(r, 5); secSwatch.value = 'Section'; fillCell(secSwatch, ARGB.accent); secSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
-  const totSwatch = ws.getCell(r, 6); totSwatch.value = 'Total'; fillCell(totSwatch, ARGB.navy); totSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  // Footer note (snapshot disclaimer) + brand.
+  ws.mergeCells(r, 2, r, 7);
+  const note = ws.getCell(r, 2);
+  note.value = 'Figures are platform-computed values as of export (hardcoded snapshot). Money figures shown in millions on this page; see each tab for the full-unit detail. Editing a cell does not recalculate; re-export after changing inputs.';
+  note.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
+  note.alignment = { wrapText: true, vertical: 'top' };
+  ws.getRow(r).height = 26;
   r += 2;
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
-  fillCell(ws.getCell(1, 1), ARGB.white);
 }

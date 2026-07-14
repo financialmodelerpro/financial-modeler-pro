@@ -8,7 +8,7 @@
  * lets a user read all results and run their own scenarios manually; editing a
  * cell does not recalculate, the user re-exports after changing inputs.
  *
- * Checks: structure (15 tabs incl. the consolidated Inputs tab + a Scenarios tab, gridlines hidden,
+ * Checks: structure (16 tabs incl. the consolidated Inputs tab, a one-page Summary + a Scenarios tab, gridlines hidden,
  * frozen 4-row headers), NO formula cells anywhere (it is hardcoded), every
  * figure ties to the platform snapshot (Capex grand + the 4 tables, Revenue,
  * Opex, P&L, Cash Flow, Balance Sheet, Financing), the consolidated Inputs tab
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
   // all five Module 2 sub-tabs), Module 3 (Opex), Module 4 (P&L, Cash Flow,
   // Balance Sheet), Module 5 (Returns).
-  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   const actualOrder = wb.worksheets.map((w) => w.name);
   check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
@@ -271,7 +271,7 @@ async function main(): Promise<void> {
   const INPUT_SHEETS = ['Inputs', 'Timeline', 'Land & Area'];
   const SCHED_SHEETS = ['Capex', 'Financing', 'Revenue', 'Opex', 'Schedules'];
   const OUTPUT_SHEETS = ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'];
-  const ALWAYS = ['Cover', 'Checks'];
+  const ALWAYS = ['Cover', 'Summary', 'Checks'];
   const allOn = hiddenSet({ inputs: true, outputs: true, schedules: true });
   check('filter: all categories ticked hides nothing', allOn.size === 0, `hidden=${[...allOn].join(',')}`);
   const outOnly = hiddenSet({ inputs: false, outputs: true, schedules: false });
@@ -306,6 +306,34 @@ async function main(): Promise<void> {
   // The Scenarios tab stays hardcoded (no formula cells) at both display scales.
   let scnFormulas = 0; for (const w of wbS.worksheets) w.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) scnFormulas++; }));
   check('Scenarios workbook is also fully hardcoded (zero formula cells)', scnFormulas === 0, `formulaCells=${scnFormulas}`);
+
+  // ── Cover = Table of Contents + one-page Summary (cosmetic front matter) ────
+  // Front-matter content lives in column B (merged B:G bands), so scan column 2.
+  const colB = (ws: ExcelJS.Worksheet, R: number): string => { const v = ws.getCell(R, 2).value; return typeof v === 'string' ? v : (v && typeof v === 'object' && 'text' in (v as any) ? (v as any).text : ''); };
+  const rowByColB = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (row < 0 && re.test(colB(ws, R))) row = R; }); return row; };
+  const cov = wb.getWorksheet('Cover')!;
+  check('Summary tab present, second (right after Cover)', actualOrder[0] === 'Cover' && actualOrder[1] === 'Summary');
+  check('Cover carries a grouped Table of Contents', rowByColB(cov, /^Table of Contents$/) > 0 && rowByColB(cov, /^Module 1 /) > 0 && rowByColB(cov, /^Module 6 /) > 0);
+  check('Cover ToC links the Summary + Scenarios sheets', rowByColB(cov, /Summary$/) > 0 && rowByColB(cov, /Scenarios$/) > 0);
+  // Cover ToC links are internal hyperlinks (not formulas).
+  let tocLinks = 0; cov.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && typeof v.hyperlink === 'string' && v.hyperlink.startsWith('#')) tocLinks++; }));
+  check('Cover ToC has internal sheet hyperlinks', tocLinks >= 14, `links=${tocLinks}`);
+  const sum = wb.getWorksheet('Summary')!;
+  check('Summary has the executive-summary sections (Key facts, Headline metrics, Financial highlights)', rowByColB(sum, /^Key facts$/) > 0 && rowByColB(sum, /^Headline metrics$/) > 0 && rowByColB(sum, /^Financial highlights$/) > 0);
+  // The two highlight tables sit side by side: dev economics header in col B, the
+  // returns/leverage header in col E.
+  const colE = (ws: ExcelJS.Worksheet, R: number): string => { const v = ws.getCell(R, 5).value; return typeof v === 'string' ? v : ''; };
+  const hasColE = (ws: ExcelJS.Worksheet, re: RegExp): boolean => { let hit = false; ws.eachRow((_r, R) => { if (re.test(colE(ws, R))) hit = true; }); return hit; };
+  check('Summary carries the two highlight tables (Development economics, Returns & leverage)', rowByColB(sum, /^Development economics$/) > 0 && hasColE(sum, /^Returns & leverage$/));
+  // Summary stays on the palette + hardcoded (no formulas).
+  let sumFormulas = 0; sum.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) sumFormulas++; }));
+  check('Summary is fully hardcoded (zero formula cells)', sumFormulas === 0, `formulaCells=${sumFormulas}`);
+
+  // ── Print setup: every sheet is print-ready (fit-to-width, oriented) ─────────
+  const allPrintReady = wb.worksheets.every((ws) => { const ps: any = ws.pageSetup ?? {}; return ps.fitToPage === true && ps.fitToWidth === 1 && (ps.orientation === 'portrait' || ps.orientation === 'landscape'); });
+  check('every sheet has a print-ready page layout (fit to width + orientation)', allPrintReady);
+  check('Cover + Summary print centred portrait on one page', ['Cover', 'Summary'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToHeight === 1 && ps.horizontalCentered === true; }));
+  check('wide period tabs repeat the header rows when printed', ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'landscape' && ps.printTitlesRow === '1:4'; }));
 
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
