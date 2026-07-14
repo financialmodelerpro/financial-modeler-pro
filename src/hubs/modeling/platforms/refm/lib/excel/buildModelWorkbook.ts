@@ -23,6 +23,9 @@ import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } 
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, type M4ReportCtx } from '../reports/m4Reports';
+import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
+import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
+import { formatAssumptionValue } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -51,6 +54,14 @@ export interface BuildModelOptions {
    *  showing only the selected categories; omitting sheets would break refs).
    *  Undefined / omitted = every sheet visible (backward compatible). */
   parts?: ExcelPartSelection;
+  /** Scenario cases (Module 6). When supplied, a Scenarios sheet is emitted that
+   *  compares EVERY case (Management base + each scenario) through the same
+   *  engine the platform uses: a cases + differing-assumptions grid, a headline
+   *  KPI comparison matrix (delta vs base) and the per-period year-on-year
+   *  impact. The `state` above still drives the statement tabs (the selected
+   *  case); this bundle always compares all cases. Omitted = the Scenarios sheet
+   *  shows a short "no scenarios" note. */
+  caseComparison?: CaseComparisonInput;
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -61,7 +72,7 @@ export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; sched
 // Inputs / Schedules / Outputs parts.
 type SheetPart = 'inputs' | 'schedules' | 'outputs' | 'always';
 
-const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
 
 const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cover]: 'always',
@@ -77,6 +88,7 @@ const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cashflow]: 'outputs',
   [SHEETS.balsheet]: 'outputs',
   [SHEETS.returns]: 'outputs',
+  [SHEETS.scenarios]: 'outputs',
   [SHEETS.checks]: 'always',
 };
 
@@ -144,7 +156,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // downstream Revenue / CoS / Opex link registries; P&L / Cash Flow / Balance
   // Sheet / Returns are link-and-assemble presentation tabs. Each emitter
   // returns the row registry the next links to.
-  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR' };
+  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR', caseComparison: opts.caseComparison };
   const finLinks = addFinancing(ctx);
   const { revLinks } = addRevenue(ctx);
   const opexLinks = addOpex(ctx);
@@ -153,6 +165,10 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   addCashFlow(ctx);
   addBalanceSheet(ctx);
   const retLinks = addReturns(ctx, revLinks, opexLinks, finLinks);
+  // Module 6 (Scenario Analysis): compares every case. Placed after Returns
+  // (Module 5), before Checks, so the tab sequence keeps the platform module
+  // order. Always emitted (shows a note when no scenarios are defined).
+  addScenarios(ctx);
   addChecks(ctx, capexAddrs, retLinks);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
@@ -163,7 +179,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   scaleMoneyFormats(wb, scale, decimals);
   const note = scaleNote(scale, opts.state.project.currency ?? 'SAR');
   if (note) {
-    for (const name of [SHEETS.landArea, SHEETS.capex, SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet]) {
+    for (const name of [SHEETS.landArea, SHEETS.capex, SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.scenarios]) {
       const ws = wb.getWorksheet(name); if (!ws) continue;
       const a2 = ws.getCell('A2'); const cur = typeof a2.value === 'string' ? a2.value : '';
       setLabel(a2, cur ? `${cur}  (${note})` : note);
@@ -187,6 +203,8 @@ interface EmitCtx {
   capexAddrs: CapexAddrs;
   revBaseFormula: Map<string, string>;
   currency: string;
+  /** Scenario cases (Module 6). Feeds the Scenarios sheet; undefined = no cases. */
+  caseComparison?: CaseComparisonInput;
 }
 
 // ── Pure live-model inputs (cached values + scalars) from the snapshot ─────────
@@ -2821,6 +2839,141 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   return { fcffIrrCell, fcfeIrrCell };
 }
 
+// ── Scenarios (Module 6: case comparison + year-on-year impact) ───────────────
+/** Full mirror of the platform Module 6 (Scenario Analysis), built from the SAME
+ *  shared case builders that feed the on-screen Module 6 and the PDF export:
+ *    1. Cases & Assumptions: every case + the assumptions that differ,
+ *    2. Scenario Comparison: headline KPIs per case, delta vs the Management base,
+ *    3. Year-on-Year Impact: each changed input and the per-period outputs it
+ *       drives, Management vs each scenario.
+ *  The statement tabs render the SELECTED case (`ctx.state`); this tab always
+ *  compares ALL cases. Every case is computed through the same engine the
+ *  platform uses (applyOverrides -> financials -> returns), so it ties exactly.
+ *  Degrades to a short note when the project has no scenario cases. */
+function addScenarios(ctx: EmitCtx): void {
+  const { wb, snap, currency } = ctx;
+  const N = snap.axisLength;
+  const ws = wb.addWorksheet(SHEETS.scenarios, { properties: { tabColor: { argb: ARGB.navy } } });
+  writeSheetHeader(ws, snap, N, 'Scenarios', 'Full mirror of the platform Module 6 Scenario Analysis: 1. Cases & Assumptions, 2. Scenario Comparison (headline KPIs per case, delta vs the Management base), 3. Year-on-Year Impact (each changed input and the per-period outputs it drives). The statement tabs render the selected case; this tab always compares ALL cases.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (applyOverrides -> financials -> returns). The Management base is the reference column.' });
+  let r = 5;
+
+  // Local emitters sharing one row cursor (mirroring the Returns tab).
+  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  const subTitle = (text: string): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
+    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
+    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  };
+  // Generic string grid: header[0] + rows[][0] in the label column (A), the rest
+  // across from the opening column (E).
+  const gridTable = (title: string, headers: string[], rows: string[][]): void => {
+    subTitle(title);
+    setColHeader(ws.getCell(r, LBL_COL), headers[0], 'left');
+    for (let i = 1; i < headers.length; i++) setColHeader(ws.getCell(r, OPEN_COL + i - 1), headers[i], 'right');
+    r += 1;
+    for (const cells of rows) {
+      setLabel(ws.getCell(r, LBL_COL), cells[0]);
+      for (let i = 1; i < cells.length; i++) { const c = ws.getCell(r, OPEN_COL + i - 1); c.value = cells[i] ?? ''; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+      r += 1;
+    }
+    r += 1;
+  };
+  // A per-period money row (label + opening E + F.. + Total D). kind 'stock' takes
+  // the last period as its Total (a running balance); 'flow' sums.
+  const periodRow = (label: string, values: number[], prior: number, kind: 'flow' | 'stock', style: 'plain' | 'subtotal' | 'total' = 'plain'): void => {
+    const vals = values.slice(0, N);
+    setLabel(ws.getCell(r, LBL_COL), label, { bold: style !== 'plain' });
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    put(OPEN_COL, prior);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    put(TOTAL_COL, kind === 'stock' ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0));
+    if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
+    else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
+    r += 1;
+  };
+
+  // Build the shared case reports (never throw; degrade to a note).
+  let caseReport: CaseComparisonReport | null = null;
+  let caseYoY: CaseYoYReport | null = null;
+  if (ctx.caseComparison) {
+    try { caseReport = buildCaseComparisonReport(ctx.caseComparison); } catch { caseReport = null; }
+    try { caseYoY = buildCaseYoYReport(ctx.caseComparison); } catch { caseYoY = null; }
+  }
+  const cols = caseReport?.columns ?? [];
+  const hasScenarios = cols.length > 1;
+
+  // Comparison-matrix value formatters: fixed millions strings, matching the
+  // Returns tab (the per-period YoY rows below honour the workbook display scale).
+  const cPct = (v: number | null | undefined, d = 1): string => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a');
+  const cMoney = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
+  const cMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
+  const fmtKpi = (v: number | null, kind: CaseKpiKind): string => (v == null || !Number.isFinite(v) ? 'n/a' : kind === 'pct' ? cPct(v, 1) : kind === 'mult' ? cMult(v) : cMoney(v));
+  const fmtDelta = (v: number | null, base: number | null, kind: CaseKpiKind): string => {
+    if (v == null || base == null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
+    const d = v - base; if (Math.abs(d) < 1e-9) return '0';
+    const sign = d > 0 ? '+' : '';
+    return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${cMoney(d)}`;
+  };
+
+  // ── 1. Cases & Assumptions ───────────────────────────────────────────────────
+  section('1. Cases & Assumptions (every case + the assumptions that differ across scenarios)');
+  if (cols.length) {
+    gridTable('Cases', ['Case', 'Type', 'Active', 'Overrides'],
+      cols.map((c) => [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : String(c.overrideCount)]));
+  }
+  if (caseYoY && caseYoY.blocks.length) {
+    const order = caseYoY.blocks[0].inputs[0]?.byCase.map((v) => ({ id: v.id, name: v.name })) ?? [];
+    if (order.length) {
+      const rows: string[][] = [];
+      for (const b of caseYoY.blocks) for (const line of b.inputs) {
+        const byId = new Map(line.byCase.map((v) => [v.id, v.value] as const));
+        rows.push([line.label, ...order.map((o) => formatAssumptionValue(byId.get(o.id) ?? null, line.format))]);
+      }
+      if (rows.length) gridTable('Assumptions that differ across scenarios', ['Assumption', ...order.map((o) => o.name)], rows);
+    }
+  }
+
+  // ── 2. Scenario Comparison ──────────────────────────────────────────────────
+  if (caseReport && hasScenarios) {
+    const rep = caseReport;
+    const baseCol = cols.find((c) => c.id === rep.baseId) ?? cols[0];
+    section('2. Scenario Comparison (headline KPIs per case, delta vs the Management base)');
+    const header = ['Metric', ...cols.map((c) => `${c.role === 'base' ? '* ' : ''}${c.name}`)];
+    const rows: string[][] = rep.kpis.map((k) => {
+      const cells: string[] = [k.sub ? `${k.label} (${k.sub})` : k.label];
+      for (const col of cols) {
+        const v = col.values[k.label] ?? null;
+        let s = fmtKpi(v, k.kind);
+        if (col.id !== rep.baseId) { const d = fmtDelta(v, baseCol.values[k.label] ?? null, k.kind); if (d) s += ` (${d})`; }
+        cells.push(s);
+      }
+      return cells;
+    });
+    gridTable('Case Comparison, headline KPIs (delta vs Management base)', header, rows);
+  }
+
+  // ── 3. Year-on-Year Impact ──────────────────────────────────────────────────
+  if (caseYoY && caseYoY.blocks.length && hasScenarios) {
+    section('3. Year-on-Year Impact (each changed input and the per-period outputs it drives, Management vs each scenario)');
+    for (const b of caseYoY.blocks) {
+      for (const o of b.outputs) {
+        subTitle(`${b.inputLabel}, ${o.label}`);
+        periodRow(`${o.base.name} (base)`, o.base.values, o.base.prior, o.kind, 'subtotal');
+        for (const d of o.deltas) periodRow(`change, ${d.name}`, d.values, d.prior, o.kind);
+        r += 1;
+      }
+    }
+  }
+
+  // No scenarios defined: a short note so the tab is never blank when present.
+  if (!hasScenarios) {
+    subTitle('Scenario Analysis');
+    setLabel(ws.getCell(r, LBL_COL), 'No scenario cases are defined for this project. Add scenario cases in Module 6 (Scenario Analysis) on the platform to compare assumptions and outcomes here, then re-export.');
+    r += 1;
+  }
+}
+
 // ── Checks / legend ───────────────────────────────────────────────────────────
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
   const { wb, snap, lm } = ctx;
@@ -2957,6 +3110,7 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     [SHEETS.cashflow, 'Cash flow statement'],
     [SHEETS.balsheet, 'Balance sheet (balances by construction)'],
     [SHEETS.returns, 'IRR, NPV and equity multiple (FCFF / FCFE)'],
+    [SHEETS.scenarios, 'Scenario analysis: case comparison and year-on-year impact'],
     [SHEETS.checks, 'Integrity checks and colour legend'],
   ];
   const idxTop = r;

@@ -344,7 +344,10 @@ export default function ExportModal({
         // Same Inputs / Schedules / Outputs filter as the PDF: unticked categories
         // are hidden in the workbook (the model is formula-linked, so hiding keeps
         // every formula intact while showing only the selected categories).
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel } });
+        // Pass the full case bundle so the workbook's Scenarios tab compares
+        // EVERY case (Management base + each scenario), while the statement tabs
+        // render `state` (the selected case, defaulting to Management).
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel }, caseComparison });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
@@ -458,7 +461,7 @@ export default function ExportModal({
             <button
               type="button"
               data-testid="export-option-excel"
-              onClick={() => { if (!allows('excel_formula')) { setError('Excel export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('excel'); setStep('modules'); }}
+              onClick={() => { if (!allows('excel_formula')) { setError('Excel export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('excel'); setSelectedCaseId(baseCaseId(normaliseCases(useModule1Store.getState().cases))); setStep('modules'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
                 borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
@@ -468,7 +471,7 @@ export default function ExportModal({
               <span style={{ fontSize: 22 }}>📗</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model</div>
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Hardcoded platform mirror: every figure is the platform-computed value as a constant, across all tabs (Inputs, Capex, Financing, statements, Returns)</div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Hardcoded platform mirror: every figure is the platform-computed value as a constant, across all tabs (Inputs, Capex, Financing, statements, Returns, Scenarios)</div>
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows('excel_formula') ? 'Continue' : '🔒 Upgrade'}</span>
             </button>
@@ -479,7 +482,7 @@ export default function ExportModal({
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
               {reportKind === 'excel'
-                ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Checks). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
+                ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Scenarios, Checks). The statement tabs default to the Management case; the Scenarios tab always compares every case (pick a different case below). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
                 : reportKind === 'summary'
                   ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
                   : 'The Cover and Executive Summary pages are always included. First choose the sections (Inputs / Schedules / Output) to include across the whole model, then pick the live modules, and use Tabs to include for specific tabs per module. The module list mirrors the platform; modules still in development show greyed until they go live.'}
@@ -538,7 +541,7 @@ export default function ExportModal({
                 </label>
               ))}
             </div>
-            {reportKind !== 'excel' && cases.length > 1 && (
+            {cases.length > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Case:</span>
                 <select
@@ -555,7 +558,11 @@ export default function ExportModal({
                     <option key={c.id} value={c.id}>{c.role === 'base' ? `${c.name} (base)` : c.name}</option>
                   ))}
                 </select>
-                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>The report renders this case; Modules 5 &amp; 6 compare all cases.</span>
+                <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>
+                  {reportKind === 'excel'
+                    ? 'The statement tabs render this case (defaults to Management); the Scenarios tab always compares all cases.'
+                    : 'The report renders this case; Modules 5 & 6 compare all cases.'}
+                </span>
               </div>
             )}
             {(reportKind === 'full' || reportKind === 'excel') && (

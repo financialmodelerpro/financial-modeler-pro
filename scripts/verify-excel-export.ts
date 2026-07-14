@@ -8,7 +8,7 @@
  * lets a user read all results and run their own scenarios manually; editing a
  * cell does not recalculate, the user re-exports after changing inputs.
  *
- * Checks: structure (14 tabs incl. the consolidated Inputs tab, gridlines hidden,
+ * Checks: structure (15 tabs incl. the consolidated Inputs tab + a Scenarios tab, gridlines hidden,
  * frozen 4-row headers), NO formula cells anywhere (it is hardcoded), every
  * figure ties to the platform snapshot (Capex grand + the 4 tables, Revenue,
  * Opex, P&L, Cash Flow, Balance Sheet, Financing), the consolidated Inputs tab
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
   // all five Module 2 sub-tabs), Module 3 (Opex), Module 4 (P&L, Cash Flow,
   // Balance Sheet), Module 5 (Returns).
-  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   const actualOrder = wb.worksheets.map((w) => w.name);
   check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
   };
   const INPUT_SHEETS = ['Inputs', 'Timeline', 'Land & Area'];
   const SCHED_SHEETS = ['Capex', 'Financing', 'Revenue', 'Opex', 'Schedules'];
-  const OUTPUT_SHEETS = ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns'];
+  const OUTPUT_SHEETS = ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'];
   const ALWAYS = ['Cover', 'Checks'];
   const allOn = hiddenSet({ inputs: true, outputs: true, schedules: true });
   check('filter: all categories ticked hides nothing', allOn.size === 0, `hidden=${[...allOn].join(',')}`);
@@ -285,6 +285,27 @@ async function main(): Promise<void> {
   const noFilter = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd' });
   let anyHidden = false; noFilter.eachSheet((ws) => { if (ws.state === 'hidden') anyHidden = true; });
   check('filter: omitting parts leaves every sheet visible (backward compatible)', !anyHidden, '');
+
+  // ── Module 6: Scenarios tab (case comparison + year-on-year impact) ─────────
+  // Without a caseComparison bundle the tab is present but shows a note.
+  const scnNote = wb.getWorksheet('Scenarios')!;
+  check('Scenarios tab present after Returns, before Checks', actualOrder.indexOf('Scenarios') === actualOrder.indexOf('Returns') + 1 && actualOrder.indexOf('Checks') === actualOrder.indexOf('Scenarios') + 1);
+  check('Scenarios (no cases) shows the section 1 header + a no-scenarios note', rowByLabel(scnNote, /^1\. Cases & Assumptions/) > 0 && rowByLabel(scnNote, /No scenario cases are defined/) > 0);
+  // With a base + one scenario (a tax-rate change) the full comparison renders.
+  const cmpCases = [
+    { id: 'base', name: 'Management', role: 'base', overrides: {} },
+    { id: 's1', name: 'Downside', role: 'scenario', overrides: { 'project.tax.rate': 0.25 } },
+  ];
+  const wbS = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: cmpCases as any, activeCaseId: 'base' } });
+  const scn = wbS.getWorksheet('Scenarios')!;
+  const s6 = (re: RegExp): number => rowByLabel(scn, re);
+  check('Scenarios mirrors Module 6 sections in order (Cases -> Comparison -> Year-on-Year)', s6(/^1\. Cases & Assumptions/) > 0 && s6(/^2\. Scenario Comparison/) > s6(/^1\. Cases & Assumptions/) && s6(/^3\. Year-on-Year Impact/) > s6(/^2\. Scenario Comparison/));
+  check('Scenarios lists every case + the differing assumptions', s6(/^Cases$/) > 0 && s6(/^Assumptions that differ across scenarios$/) > 0);
+  check('Scenarios comparison matrix carries headline KPIs (Equity IRR, NPV)', s6(/^Case Comparison, headline KPIs/) > 0 && s6(/^Equity IRR \(FCFE\)$/) > 0);
+  check('Scenarios Year-on-Year Impact renders a per-period driven output', s6(/Tax$/) > s6(/^3\. Year-on-Year Impact/) || s6(/base\)$/) > s6(/^3\. Year-on-Year Impact/));
+  // The Scenarios tab stays hardcoded (no formula cells) at both display scales.
+  let scnFormulas = 0; for (const w of wbS.worksheets) w.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) scnFormulas++; }));
+  check('Scenarios workbook is also fully hardcoded (zero formula cells)', scnFormulas === 0, `formulaCells=${scnFormulas}`);
 
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
