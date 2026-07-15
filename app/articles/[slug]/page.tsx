@@ -117,9 +117,8 @@ export default async function ArticleDetailPage({ params }: Props) {
 
       {/* Light reading card. The page background + navbar + footer stay as the
           site chrome; only the article content sits on a light surface so pasted
-          HTML authored for a light page reads with correct contrast. Max-width
-          preserved at 820. */}
-      <div style={{ maxWidth: 820, margin: '0 auto', padding: '40px 20px 8px' }}>
+          HTML authored for a light page reads with correct contrast. */}
+      <div style={{ maxWidth: 1025, margin: '0 auto', padding: '40px 20px 8px' }}>
         {draftPreview && (
           <div style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>👁 Draft preview</span>
