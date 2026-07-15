@@ -19,12 +19,13 @@
  *
  * GET  -> counts + history so the dialog can say who this reaches before sending.
  * POST -> sends; { sent, failed, total }.
+ * POST { preview: true } -> sends ONLY to the admin's own inbox (see below).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { sendCampaign } from '@/src/shared/newsletter/sender';
+import { sendCampaign, sendTestEmail } from '@/src/shared/newsletter/sender';
 import { resolveAnnounceAudience } from '@/src/shared/newsletter/announceAudience';
 import { renderForEvent } from '@/src/shared/newsletter/templates';
 
@@ -76,8 +77,7 @@ async function loadHistory(articleId: string) {
   return data ?? [];
 }
 
-/** The article's email content. Same template the Publish auto-send would use,
- *  so a manual announce and an auto one cannot drift apart in wording. */
+/** Local shell used only when the templates table has no article_published row. */
 function fallbackContent(a: ArticleRow): { subject: string; body: string } {
   const btn = 'display:inline-block;padding:12px 24px;background:#1B4F8A;color:#ffffff;font-weight:600;border-radius:8px;text-decoration:none;font-size:14px;';
   const desc = a.seo_description ? `<p>${a.seo_description}</p>` : '';
@@ -85,6 +85,20 @@ function fallbackContent(a: ArticleRow): { subject: string; body: string } {
     subject: `New Article: ${a.title}`,
     body: `<h2>${a.title}</h2>${desc}<p><a href="${MAIN_URL}/articles/${a.slug}" style="${btn}">Read Article &rarr;</a></p>`,
   };
+}
+
+/**
+ * The article's email content. Same template the Publish auto-send would use,
+ * so a manual announce and an auto one cannot drift apart in wording. Shared by
+ * the real send and the preview, so what the admin tests IS what recipients get.
+ */
+async function renderArticleEmail(a: ArticleRow): Promise<{ subject: string; body: string }> {
+  return await renderForEvent(AUTO_SOURCE_TYPE, {
+    title:       a.title,
+    description: a.seo_description ?? '',
+    url:         `${MAIN_URL}/articles/${a.slug}`,
+    date: '', time: '', platform: '', course: '',
+  }) ?? fallbackContent(a);
 }
 
 export async function GET(
@@ -121,7 +135,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { id } = await params;
-  let body: { includeModelingUsers?: boolean; force?: boolean } = {};
+  let body: { includeModelingUsers?: boolean; force?: boolean; preview?: boolean } = {};
   try { body = await req.json(); } catch { /* empty body is fine */ }
 
   const article = await loadArticle(id);
@@ -133,6 +147,34 @@ export async function POST(
     return NextResponse.json({
       error: `This article is ${article.status}, so the link would 404 for every recipient. Publish it first, then announce.`,
     }, { status: 400 });
+  }
+
+  // ── Preview: send this article to the admin's own inbox only ──────────────
+  // Deliberately placed BEFORE the already-sent guard and BEFORE any audience
+  // resolution, so that a preview:
+  //   - works even on an article that has already been announced (409 below),
+  //   - creates NO campaign row, so it cannot pollute the send history, count
+  //     as "announced", or block a later real send,
+  //   - resolves NO audience, so it mints no subscriber rows for anyone.
+  // sendTestEmail carries the [TEST] subject prefix and a synthetic unsubscribe
+  // token, so a test click cannot unsubscribe a real person.
+  if (body.preview) {
+    if (!user.email) {
+      return NextResponse.json({ error: 'Your admin account has no email address to send to.' }, { status: 400 });
+    }
+    const preview = await renderArticleEmail(article);
+    const sent = await sendTestEmail({
+      toEmail:          user.email,
+      subject:          preview.subject,
+      body:             preview.body,
+      hub:              'training',
+      unsubscribeToken: '00000000-0000-0000-0000-000000000000',
+    });
+    if (!sent.ok) {
+      return NextResponse.json({ error: sent.error ?? 'Test send failed' }, { status: 500 });
+    }
+    console.log(`[article-announce] preview of ${article.slug} sent to ${user.email}`);
+    return NextResponse.json({ success: true, preview: true, sentTo: user.email });
   }
 
   // Re-announcing is legitimate (a first send that partly failed), but it must
@@ -155,13 +197,7 @@ export async function POST(
     return NextResponse.json({ error: 'No recipients to send to' }, { status: 400 });
   }
 
-  const url = `${MAIN_URL}/articles/${article.slug}`;
-  const rendered = await renderForEvent(AUTO_SOURCE_TYPE, {
-    title:       article.title,
-    description: article.seo_description ?? '',
-    url,
-    date: '', time: '', platform: '', course: '',
-  }) ?? fallbackContent(article);
+  const rendered = await renderArticleEmail(article);
 
   const sb = getServerClient();
   const { data: campaign, error: campErr } = await sb

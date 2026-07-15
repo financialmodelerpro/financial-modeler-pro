@@ -173,6 +173,37 @@ check('the warning says recipients get it a second time', /second time/.test(ROU
 check('the UI surfaces the resend warning', BUTTON.includes('announce-resend-warning'));
 check('the UI requires a second click to force', BUTTON.includes('send(Boolean(confirmResend))'));
 
+console.log('\n=== 7b. Send a test to myself ===');
+{
+  // The whole point of the test button: check the mail before 175 people get it.
+  const previewIdx  = ROUTE.indexOf('if (body.preview)');
+  const historyIdx  = ROUTE.indexOf('const history = await loadHistory(id)');
+  const audienceIdx = ROUTE.indexOf('await resolveAnnounceAudience({ includeModelingUsers })');
+  const campaignIdx = ROUTE.indexOf("from('newsletter_campaigns')\n    .insert(");
+  check('the route has a preview branch', previewIdx > -1);
+  check('preview runs BEFORE the already-sent 409 (an announced article can still be tested)',
+    previewIdx > -1 && historyIdx > -1 && previewIdx < historyIdx);
+  check('preview runs BEFORE audience resolution (mints no subscriber rows for anyone)',
+    previewIdx > -1 && audienceIdx > -1 && previewIdx < audienceIdx);
+  check('preview returns before any campaign row is inserted (cannot count as announced)',
+    previewIdx > -1 && campaignIdx > -1 && previewIdx < campaignIdx);
+  check('preview goes only to the signed-in admin, not a caller-supplied address',
+    ROUTE.includes('toEmail:          user.email'));
+  check('preview uses sendTestEmail (no campaign, no recipient log, [TEST] prefix)',
+    ROUTE.includes('await sendTestEmail({'));
+  check('preview uses a synthetic unsub token, so a test click cannot unsubscribe a real person',
+    ROUTE.includes("unsubscribeToken: '00000000-0000-0000-0000-000000000000'"));
+  check('preview never calls sendCampaign', ROUTE.slice(previewIdx, historyIdx).indexOf('sendCampaign') === -1);
+  check('a preview failure is surfaced, not swallowed', ROUTE.includes("error: sent.error ?? 'Test send failed'"));
+  check('an admin with no email address gets a clear error', ROUTE.includes('no email address to send to'));
+}
+check('the test and the real send render from ONE shared function (cannot drift)',
+  (ROUTE.match(/renderArticleEmail\(article\)/g) ?? []).length === 2);
+check('the UI exposes the test button', BUTTON.includes('announce-preview"'));
+check('the UI confirms where the test landed', BUTTON.includes('announce-preview-sent'));
+check('the UI states the test contacts nobody else', BUTTON.includes('Nobody else is contacted'));
+check('the test button posts preview:true', BUTTON.includes("JSON.stringify({ preview: true })"));
+
 console.log('\n=== 8. The preview is side-effect free ===');
 check('a dry run returns before minting any row', AUDIENCE.includes('if (opts.dryRun) return { recipients: [], counts }'));
 check('the GET preview runs a dry run', ROUTE.includes('dryRun: true'));
@@ -188,7 +219,7 @@ console.log('\n=== 10. Reuse: the newsletter stack, not a second sender ===');
 check('the route hands the explicit audience to sendCampaign', ROUTE.includes('recipients, // explicit union audience'));
 check('no bespoke email loop in the route', !ROUTE.includes('sendEmailBatch'));
 check('content renders from the shared event template', ROUTE.includes("renderForEvent(AUTO_SOURCE_TYPE"));
-check('there is a fallback when no template row exists', ROUTE.includes('?? fallbackContent(article)'));
+check('there is a fallback when no template row exists', ROUTE.includes('?? fallbackContent(a)'));
 check('the campaign is logged against the article', ROUTE.includes('source_id:     article.id'));
 check("campaign_type is 'manual' so re-announce is not blocked by the auto unique index", ROUTE.includes("campaign_type: 'manual'"));
 check('history surfaces auto sends too, so nobody is double-emailed unknowingly', ROUTE.includes('AUTO_SOURCE_TYPE'));

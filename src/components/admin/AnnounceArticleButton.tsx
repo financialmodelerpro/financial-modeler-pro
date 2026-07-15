@@ -64,6 +64,8 @@ export function AnnounceArticleButton({
   const [error, setError]               = useState('');
   const [confirmResend, setConfirmResend] = useState('');
   const [result, setResult]             = useState<SendResult | null>(null);
+  const [previewing, setPreviewing]     = useState(false);
+  const [previewSentTo, setPreviewSentTo] = useState('');
 
   const loadPreview = useCallback(async (withModeling: boolean) => {
     setLoading(true);
@@ -105,12 +107,35 @@ export function AnnounceArticleButton({
     }
   }
 
+  /** Send this article to the admin's own inbox. Nothing else is touched: no
+   *  campaign is logged, so a test never counts as having announced. */
+  async function sendPreview() {
+    setPreviewing(true);
+    setError('');
+    setPreviewSentTo('');
+    try {
+      const res = await fetch(`/api/admin/articles/${id}/announce`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ preview: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Test send failed');
+      setPreviewSentTo(data.sentTo ?? 'your inbox');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Test send failed');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
   function close() {
     setOpen(false);
     setPreview(null);
     setResult(null);
     setError('');
     setConfirmResend('');
+    setPreviewSentTo('');
   }
 
   const c = preview?.counts;
@@ -235,6 +260,32 @@ export function AnnounceArticleButton({
                     {error}
                   </div>
                 )}
+
+                {/* Check the real email before 175 people get it. */}
+                <div style={{ borderTop: '1px solid #E8F0FB', paddingTop: 14, marginBottom: 16 }}>
+                  {previewSentTo ? (
+                    <div style={{ fontSize: 12, color: '#1A7A30', fontWeight: 600 }} data-testid="announce-preview-sent">
+                      Test sent to {previewSentTo}. Check your inbox, then send for real below.
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void sendPreview()}
+                      disabled={previewing || sending}
+                      style={{
+                        fontSize: 12, fontWeight: 700, color: NAVY, background: '#fff',
+                        border: '1px solid #C9DAF0', borderRadius: 7, padding: '8px 14px',
+                        cursor: previewing ? 'default' : 'pointer', fontFamily: 'Inter, sans-serif',
+                      }}
+                      data-testid="announce-preview"
+                    >
+                      {previewing ? 'Sending test...' : 'Send a test to myself first'}
+                    </button>
+                  )}
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
+                    Emails only you. Nobody else is contacted and this does not count as announcing.
+                  </div>
+                </div>
 
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button type="button" onClick={close} disabled={sending} style={btn('#fff', '#374151')}>
