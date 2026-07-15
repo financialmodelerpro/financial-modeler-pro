@@ -432,7 +432,9 @@
       "PowerShell(npx tsx scripts/verify-article-scheduling.ts 2>&1 | Select-Object -Last 3)",
       "mcp__plugin_vercel_vercel__list_teams",
       "mcp__plugin_vercel_vercel__list_projects",
-      "mcp__plugin_vercel_vercel__get_project"
+      "mcp__plugin_vercel_vercel__get_project",
+      "mcp__plugin_vercel_vercel__get_deployment_build_logs",
+      "PowerShell($p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess; if \\($p\\) { Stop-Process -Id $p -Force; \"stopped pid $p\" } else { \"nothing on 3000\" })"
     ]
   }
 }

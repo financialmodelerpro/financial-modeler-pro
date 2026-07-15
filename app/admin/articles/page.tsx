@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { DeleteArticleButton } from '@/src/components/admin/DeleteArticleButton';
+import { AnnounceArticleButton } from '@/src/components/admin/AnnounceArticleButton';
 import { LocalDateTime } from '@/src/components/admin/LocalDateTime';
 
 // Always render on demand from the live DB. Without this the page prerenders
@@ -92,6 +93,8 @@ export default async function AdminArticlesPage() {
                         <Link href={`/admin/articles/${a.id}`} style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Edit</Link>
                         <span style={{ color: '#E5E7EB' }}>|</span>
                         <Link href={`/articles/${a.slug}`} target="_blank" style={{ fontSize: 12, color: '#6B7280', textDecoration: 'none' }}>View ↗</Link>
+                        <span style={{ color: '#E5E7EB' }}>|</span>
+                        <AnnounceArticleButton id={a.id} title={a.title} status={a.status} />
                         <span style={{ color: '#E5E7EB' }}>|</span>
                         <DeleteArticleButton id={a.id} title={a.title} />
                       </div>
