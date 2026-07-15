@@ -9,6 +9,7 @@ import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect'
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
 import { ArticleAuthorAboutFields } from '@/src/components/admin/ArticleAuthorAboutFields';
+import { ArticleScheduleField, toUtcIso } from '@/src/components/admin/ArticleScheduleField';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -29,7 +30,9 @@ export default function AdminArticleNewPage() {
   const [authorBio, setAuthorBio] = useState('');
   const [authorProfileUrl, setAuthorProfileUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
-  const [status, setStatus] = useState<'draft' | 'published'>('draft');
+  const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
+  const [scheduledAt, setScheduledAt] = useState('');   // datetime-local text, browser-local
+  const [scheduleError, setScheduleError] = useState('');
   const [featured, setFeatured] = useState(false);
   const [heroBeforeContent, setHeroBeforeContent] = useState(false);
   const [seoTitle, setSeoTitle] = useState('');
@@ -75,19 +78,25 @@ export default function AdminArticleNewPage() {
       setTimeout(() => setToast(null), 2500);
       return;
     }
-    // Publish gate: a writer is required to publish; drafts may save without one.
-    if (status === 'published' && !writerId) {
+    // Publish gate: a writer is required to publish or schedule; drafts may save without one.
+    if ((status === 'published' || status === 'scheduled') && !writerId) {
       setWriterError('A writer is required to publish');
       return;
     }
+    // Scheduling gate (mig 198): "Scheduled" with no time has no meaning.
+    if (status === 'scheduled' && !scheduledAt) {
+      setScheduleError('Pick the date and time this article goes live');
+      return;
+    }
     setWriterError('');
+    setScheduleError('');
     setSaving(true);
     try {
       const finalSlug = slug || slugify(title);
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
+        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -96,7 +105,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl, router]);
+  }, [title, slug, categoryIds, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -143,11 +152,15 @@ export default function AdminArticleNewPage() {
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1B3A6B', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Publish</div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value as any)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                <select value={status} onChange={e => { setStatus(e.target.value as any); setScheduleError(''); }} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <option value="draft">Draft</option>
                   <option value="published">Published</option>
+                  <option value="scheduled">Scheduled</option>
                 </select>
               </div>
+              {status === 'scheduled' && (
+                <ArticleScheduleField value={scheduledAt} onChange={v => { setScheduledAt(v); setScheduleError(''); }} inputStyle={inputStyle} error={scheduleError} />
+              )}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase' }}>Categories</label>
@@ -168,8 +181,8 @@ export default function AdminArticleNewPage() {
                 Show hero above title
               </label>
               <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>{wordCount} words · {readTime} min read</div>
-              <button onClick={handleSave} disabled={saving} style={{ background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-                {saving ? 'Creating…' : status === 'published' ? '🚀 Publish Now' : '💾 Save Draft'}
+              <button onClick={handleSave} disabled={saving} style={{ background: status === 'scheduled' ? '#92400E' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
+                {saving ? 'Creating…' : status === 'published' ? '🚀 Publish Now' : status === 'scheduled' ? '🕒 Schedule Article' : '💾 Save Draft'}
               </button>
             </div>
 

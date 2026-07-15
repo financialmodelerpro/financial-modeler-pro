@@ -9,6 +9,7 @@ import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect'
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
 import { ArticleAuthorAboutFields } from '@/src/components/admin/ArticleAuthorAboutFields';
+import { ArticleScheduleField, toLocalInputValue, toUtcIso } from '@/src/components/admin/ArticleScheduleField';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -33,6 +34,8 @@ export default function AdminArticleEditPage() {
   const [authorProfileUrl, setAuthorProfileUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [status, setStatus] = useState<'draft' | 'published' | 'scheduled'>('draft');
+  const [scheduledAt, setScheduledAt] = useState('');   // datetime-local text, browser-local
+  const [scheduleError, setScheduleError] = useState('');
   const [featured, setFeatured] = useState(false);
   const [heroBeforeContent, setHeroBeforeContent] = useState(false);
   const [seoTitle, setSeoTitle] = useState('');
@@ -78,6 +81,7 @@ export default function AdminArticleEditPage() {
         setAuthorProfileUrl(a.author_profile_url ?? '');
         setCoverUrl(a.cover_url ?? '');
         setStatus(a.status ?? 'draft');
+        setScheduledAt(toLocalInputValue(a.scheduled_at));
         setFeatured(a.featured ?? false);
         setHeroBeforeContent(a.hero_before_content === true);
         setSeoTitle(a.seo_title ?? '');
@@ -116,21 +120,36 @@ export default function AdminArticleEditPage() {
       if (showToast) setWriterError('A writer is required to publish');
       return;
     }
+    // Scheduling gate (mig 198): "Scheduled" with no time has no meaning and the API
+    // rejects it, so stop here rather than let every auto-save tick fail server-side.
+    if (status === 'scheduled' && !scheduledAt) {
+      if (showToast) setScheduleError('Pick the date and time this article goes live');
+      return;
+    }
     setWriterError('');
+    setScheduleError('');
     setSaving(true);
     try {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
       });
       if (!res.ok) throw new Error('Save failed');
+      // Re-sync to the state the server actually stored. If the schedule fired while
+      // this tab sat open, the article is already live and the Status select has to
+      // follow, or the next auto-save keeps re-asserting a schedule that has run.
+      const saved = await res.json().catch(() => null);
+      if (saved?.status && saved.status !== status) {
+        setStatus(saved.status);
+        setScheduledAt(toLocalInputValue(saved.scheduled_at));
+      }
       if (showToast) { setToast({ msg: 'Saved', type: 'success' }); setTimeout(() => setToast(null), 2500); }
       else setLastAutoSaved(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, categoryIds, coverUrl, body, status, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl]);
+  }, [id, title, slug, categoryIds, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -201,12 +220,15 @@ export default function AdminArticleEditPage() {
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1B3A6B', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Publish</div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value as any)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                <select value={status} onChange={e => { setStatus(e.target.value as any); setScheduleError(''); }} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <option value="draft">Draft</option>
                   <option value="published">Published</option>
                   <option value="scheduled">Scheduled</option>
                 </select>
               </div>
+              {status === 'scheduled' && (
+                <ArticleScheduleField value={scheduledAt} onChange={v => { setScheduledAt(v); setScheduleError(''); }} inputStyle={inputStyle} error={scheduleError} />
+              )}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Categories</label>
@@ -230,8 +252,8 @@ export default function AdminArticleEditPage() {
                 {wordCount} words · {readTime} min read
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button onClick={() => doSave()} disabled={saving} style={{ background: status === 'published' ? '#1A7A30' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-                  {saving ? 'Saving…' : status === 'published' ? '✓ Update Article' : '💾 Save Draft'}
+                <button onClick={() => doSave()} disabled={saving} style={{ background: status === 'published' ? '#1A7A30' : status === 'scheduled' ? '#92400E' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
+                  {saving ? 'Saving…' : status === 'published' ? '✓ Update Article' : status === 'scheduled' ? '🕒 Schedule Article' : '💾 Save Draft'}
                 </button>
                 <button onClick={handleDelete} disabled={deleting} style={{ background: 'transparent', color: '#DC2626', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 7, padding: '8px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%' }}>
                   {deleting ? 'Deleting…' : '🗑 Delete Article'}

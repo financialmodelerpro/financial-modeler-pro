@@ -3,12 +3,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
+import { resolveSchedule } from '@/src/shared/cms/scheduling';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
-// Additive columns from migration 187. Writes stay schema-tolerant: if the column
-// does not exist yet (migration not applied), we retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url', 'author_bio', 'author_profile_url'] as const;
+// Additive columns from migrations 187+ (scheduled_at = 198). Writes stay
+// schema-tolerant: if the column does not exist yet (migration not applied), we
+// retry without these keys.
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url', 'author_bio', 'author_profile_url', 'scheduled_at'] as const;
 
 /** The linked instructor's photo + bio, snapshotted onto the article byline +
  *  author block (migs 194 + 195). Resolved server-side from writer_id so it
@@ -91,15 +93,20 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content, author_bio, author_profile_url } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content, author_bio, author_profile_url, scheduled_at } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     if (requiresWriter(status) && !writer_id) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
+    // Scheduling (mig 198): a due/past time resolves to a straight publish. See
+    // src/shared/cms/scheduling.ts for why that collapse is the safe rule.
+    const sched = resolveSchedule(status, scheduled_at);
+    if (sched?.error) return NextResponse.json({ error: sched.error }, { status: 400 });
+    const effectiveStatus = sched?.status ?? 'draft';
     const sb = getServerClient();
     const session = await getServerSession(authOptions);
     // Dual-write: keep the deprecated primary `category` text = first selected category.
     const ids: string[] = Array.isArray(category_ids) ? category_ids : [];
     const primaryName = ids.length ? (await resolveCategoryNames(sb, ids))[0] : undefined;
-    const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: primaryName ?? category ?? 'General', status: status ?? 'draft', featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
+    const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: primaryName ?? category ?? 'General', status: effectiveStatus, scheduled_at: sched?.scheduledAt ?? null, featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
     if (cover_url) insert.cover_url = cover_url;
     if (mid_image_url !== undefined) insert.mid_image_url = mid_image_url || null;
     if (mid_image_caption !== undefined) insert.mid_image_caption = mid_image_caption || null;
@@ -124,14 +131,14 @@ export async function POST(req: NextRequest) {
       insert.author_profile_url = providedUrl || (writer_id ? (inst?.profile_url ?? null) : null);
     }
     if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
-    if (status === 'published') insert.published_at = new Date().toISOString();
+    if (effectiveStatus === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
     if (error && isMissingColumnError(error)) {
       ({ data, error } = await sb.from('articles').insert(stripAdditive(insert)).select().single());
     }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (data && category_ids !== undefined) await syncArticleCategories(sb, data.id, ids);
-    if (data && status === 'published') {
+    if (data && effectiveStatus === 'published') {
       void sendAutoNewsletter('article_published', data.id, {
         title: data.title, description: data.seo_description ?? '', url: `${MAIN_URL}/articles/${data.slug}`,
       });
@@ -151,6 +158,15 @@ export async function PATCH(req: NextRequest) {
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     const allowed = ['title', 'slug', 'body', 'cover_url', 'category', 'status', 'featured', 'seo_title', 'seo_description', ...ADDITIVE_KEYS];
     for (const k of allowed) { if (fields[k] !== undefined) update[k] = fields[k]; }
+    // Scheduling (mig 198): run the requested status + time through the shared rule,
+    // which collapses a due/past schedule into a straight publish. That is what keeps
+    // the editor's 60s auto-save from PATCHing 'scheduled' back over an article the
+    // cron has just published, which would silently un-publish it. A PATCH carrying
+    // no status leaves both status and the timer untouched.
+    const sched = resolveSchedule(fields.status, fields.scheduled_at);
+    if (sched?.error) return NextResponse.json({ error: sched.error }, { status: 400 });
+    if (sched) { update.status = sched.status; update.scheduled_at = sched.scheduledAt; }
+    else delete update.scheduled_at;
     const sb = getServerClient();
     // Re-snapshot writer photo + author bio whenever the writer/bio changes.
     const inst = fields.writer_id ? await resolveWriterInstructor(sb, fields.writer_id) : null;
@@ -177,14 +193,25 @@ export async function PATCH(req: NextRequest) {
     const hasCategoryIds = Array.isArray(fields.category_ids);
     const ids: string[] = hasCategoryIds ? fields.category_ids : [];
     if (hasCategoryIds && ids.length) update.category = (await resolveCategoryNames(sb, ids))[0] ?? update.category;
-    if (fields.status === 'published' && !fields.published_at) update.published_at = new Date().toISOString();
+    // Stamp published_at only on the FIRST publish, so re-saving keeps the original
+    // date. Previously this re-stamped on every publish PATCH (the `fields.published_at`
+    // guard could never fire, since published_at is not allowlisted above), which the
+    // 60s auto-save turns into visible drift: an open editor would walk a published
+    // article's date forward every minute, and a scheduled article would lose the
+    // publish time the cron set for it.
+    if (sched?.status === 'published') {
+      const { data: cur } = await sb.from('articles').select('published_at').eq('id', id).single();
+      if (!(cur as { published_at?: string | null } | null)?.published_at) {
+        update.published_at = new Date().toISOString();
+      }
+    }
     let { error } = await sb.from('articles').update(update).eq('id', id);
     if (error && isMissingColumnError(error)) {
       ({ error } = await sb.from('articles').update(stripAdditive(update)).eq('id', id));
     }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (hasCategoryIds) await syncArticleCategories(sb, id, ids);
-    if (fields.status === 'published') {
+    if (sched?.status === 'published') {
       const { data: art } = await sb.from('articles').select('id, title, slug, seo_description').eq('id', id).single();
       if (art) {
         void sendAutoNewsletter('article_published', art.id, {
@@ -192,7 +219,10 @@ export async function PATCH(req: NextRequest) {
         });
       }
     }
-    return NextResponse.json({ ok: true });
+    // Echo the resolved state so the editor can re-sync: when a schedule fires while
+    // the tab is open, its Status select flips to Published on the next save instead
+    // of showing a stale "Scheduled" for an article that is already live.
+    return NextResponse.json({ ok: true, status: sched?.status, scheduled_at: sched?.scheduledAt ?? null });
   } catch (e) {
     return NextResponse.json({ error: 'Failed to update article' }, { status: 500 });
   }

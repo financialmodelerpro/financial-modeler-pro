@@ -23,7 +23,11 @@ export interface Article   { id: string; title: string; slug: string; body: stri
   author_bio?: string | null; author_profile_url?: string | null;
   // Hero placement toggle (migration 189): true = hero above the title/byline header,
   // false/absent = current behavior (hero after the header). Schema-tolerant.
-  hero_before_content?: boolean }
+  hero_before_content?: boolean;
+  // Scheduled publishing (migration 198): when status is 'scheduled', the UTC time at
+  // which /api/cron/publish-scheduled-articles flips the row to 'published'. Cleared
+  // on publish, so it is meaningful only alongside status='scheduled'. Schema-tolerant.
+  scheduled_at?: string | null }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
 // ── CMS Content helpers ────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { DeleteArticleButton } from '@/src/components/admin/DeleteArticleButton';
+import { LocalDateTime } from '@/src/components/admin/LocalDateTime';
 
 // Always render on demand from the live DB. Without this the page prerenders
 // STATIC at build time, so getAllArticles() is frozen to a build-time snapshot:
@@ -13,7 +14,12 @@ export const dynamic = 'force-dynamic';
 async function getAllArticles() {
   try {
     const sb = getServerClient();
-    const { data } = await sb.from('articles').select('id, title, slug, category, status, featured, published_at, created_at').order('created_at', { ascending: false });
+    // scheduled_at (mig 198) is requested but tolerated absent: fall back to the base
+    // column set so the list still renders before the migration is applied.
+    const sel = (cols: string) => sb.from('articles').select(cols).order('created_at', { ascending: false });
+    const BASE = 'id, title, slug, category, status, featured, published_at, created_at';
+    let { data, error } = await sel(`${BASE}, scheduled_at`);
+    if (error) ({ data } = await sel(BASE));
     return data ?? [];
   } catch { return []; }
 }
@@ -75,7 +81,11 @@ export default async function AdminArticlesPage() {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280' }}>
-                      {a.published_at ? new Date(a.published_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}
+                      {a.status === 'scheduled' && a.scheduled_at ? (
+                        <span style={{ color: '#92400E', fontWeight: 600 }} title="Publishes automatically at this time">
+                          🕒 <LocalDateTime iso={a.scheduled_at} />
+                        </span>
+                      ) : a.published_at ? new Date(a.published_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
