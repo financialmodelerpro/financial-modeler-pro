@@ -20,6 +20,41 @@
 export const SCHEDULE_TIME_REQUIRED_MSG = 'A publish date and time is required to schedule';
 export const SCHEDULE_TIME_INVALID_MSG  = 'The scheduled publish time is not a valid date';
 
+/**
+ * The UTC hour at which /api/cron/publish-scheduled-articles runs, and the ONLY
+ * moment a scheduled article can actually go live. MUST match the cron entry in
+ * vercel.json ("0 5 * * *"); verify-article-scheduling asserts the two agree.
+ *
+ * Why daily and not the per-minute schedule this feature was built for: the
+ * Vercel account is on the HOBBY plan, which rejects any cron expression that
+ * would run more than once a day. A sub-daily expression does not merely fail
+ * to run, it FAILS THE WHOLE DEPLOYMENT, so an every-minute entry silently
+ * blocks every unrelated change from reaching production too. Per-minute needs
+ * the Pro plan; until then this is the honest cadence.
+ */
+export const PUBLISH_CHECK_UTC_HOUR = 5;
+
+/**
+ * When an article scheduled for `afterMs` will REALLY be published: the first
+ * daily check at or after it.
+ *
+ * This exists because the picker must not promise a time the platform cannot
+ * keep. On a daily check, a 09:00 schedule does not publish at 09:00; the 05:00
+ * check has already passed, so it waits for TOMORROW's, nearly a day later. The
+ * admin has to see that before saving, not discover it the next morning.
+ *
+ * Hobby also only guarantees the hour, not the minute (Vercel documents a drift
+ * of up to 59 minutes), so treat the result as the earliest possible moment.
+ */
+export function nextPublishCheckAfter(afterMs: number): Date {
+  const d = new Date(afterMs);
+  const todaysCheck = Date.UTC(
+    d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), PUBLISH_CHECK_UTC_HOUR, 0, 0, 0,
+  );
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  return new Date(todaysCheck >= afterMs ? todaysCheck : todaysCheck + DAY_MS);
+}
+
 /** Statuses an article may resolve to. `scheduled` always carries a future time. */
 export type ArticleStatus = 'draft' | 'published' | 'scheduled';
 

@@ -14,6 +14,8 @@ import { join } from 'path';
 import {
   resolveSchedule,
   parseScheduledAt,
+  nextPublishCheckAfter,
+  PUBLISH_CHECK_UTC_HOUR,
   SCHEDULE_TIME_REQUIRED_MSG,
   SCHEDULE_TIME_INVALID_MSG,
 } from '../src/shared/cms/scheduling';
@@ -122,10 +124,58 @@ console.log('\n=== 10. Wiring: vercel.json cron entry ===');
 const vercel = JSON.parse(read('vercel.json')) as { crons: Array<{ path: string; schedule: string }> };
 const entry = vercel.crons.find(c => c.path === '/api/cron/publish-scheduled-articles');
 check('cron is registered in vercel.json', !!entry);
-check('cron runs every minute (so "publish at 09:00" means 09:00)', entry?.schedule === '* * * * *');
 check('the pre-existing crons are untouched', vercel.crons.length === 6
   && !!vercel.crons.find(c => c.path === '/api/cron/subscription-reminders' && c.schedule === '0 10 * * *')
   && !!vercel.crons.find(c => c.path === '/api/cron/newsletter-scheduled' && c.schedule === '0 7 * * *'));
+
+// THE OUTAGE GUARD. This file used to assert schedule === '* * * * *', which
+// locked in the exact expression that took production down: the account is on
+// Vercel HOBBY, which rejects any cron running more than once a day, and the
+// rejection fails the WHOLE DEPLOYMENT (no deployment record is even created,
+// so nothing appears in the dashboard to notice). Every push from f9f9506f
+// onward silently never reached prod. Assert the CONSTRAINT, not the value.
+const runsMoreThanOncePerDay = (schedule: string): boolean => {
+  const [minute, hour] = schedule.trim().split(/\s+/);
+  // A field that is not a single fixed value (*, */n, a,b, a-b) fires repeatedly.
+  const repeats = (f: string) => !/^\d+$/.test(f ?? '');
+  return repeats(minute) || repeats(hour);
+};
+check('publish cron runs at most once per day (Hobby rejects sub-daily, failing the whole deploy)',
+  !!entry && !runsMoreThanOncePerDay(entry.schedule), entry?.schedule);
+for (const c of vercel.crons) {
+  check(`cron "${c.path}" (${c.schedule}) is deployable on Hobby`, !runsMoreThanOncePerDay(c.schedule));
+}
+// Sanity-check the guard itself, so it cannot rot into always-passing.
+check('the guard flags every-minute', runsMoreThanOncePerDay('* * * * *'));
+check('the guard flags every-30-minutes', runsMoreThanOncePerDay('*/30 * * * *'));
+check('the guard flags hourly', runsMoreThanOncePerDay('0 * * * *'));
+check('the guard accepts a daily expression', !runsMoreThanOncePerDay('0 5 * * *'));
+
+console.log('\n=== 10b. The cron hour and the UI cannot drift apart ===');
+check('scheduling.ts publish-check hour matches the vercel.json cron hour',
+  entry?.schedule === `0 ${PUBLISH_CHECK_UTC_HOUR} * * *`, `${entry?.schedule} vs hour ${PUBLISH_CHECK_UTC_HOUR}`);
+{
+  const at = (iso: string) => nextPublishCheckAfter(Date.parse(iso)).toISOString();
+  // Before the daily check: publishes the same day.
+  check('a time before the daily check publishes at that same day check',
+    at('2026-07-20T03:00:00Z') === '2026-07-20T05:00:00.000Z', at('2026-07-20T03:00:00Z'));
+  // After it: slips to TOMORROW. This is the whole reason the UI must warn.
+  check('a time after the daily check slips to the NEXT day',
+    at('2026-07-20T09:00:00Z') === '2026-07-21T05:00:00.000Z', at('2026-07-20T09:00:00Z'));
+  check('a time exactly at the check publishes then, not a day later',
+    at('2026-07-20T05:00:00Z') === '2026-07-20T05:00:00.000Z', at('2026-07-20T05:00:00Z'));
+  check('the returned check is never before the requested time',
+    nextPublishCheckAfter(Date.parse('2026-07-20T23:59:00Z')).getTime() >= Date.parse('2026-07-20T23:59:00Z'));
+  check('month/year rollover is handled',
+    at('2026-12-31T09:00:00Z') === '2027-01-01T05:00:00.000Z', at('2026-12-31T09:00:00Z'));
+}
+{
+  const FIELD = read('src/components/admin/ArticleScheduleField.tsx');
+  check('the picker shows the REAL go-live, not the requested time', FIELD.includes('nextPublishCheckAfter'));
+  check('the picker says plainly when it is not the time typed in', FIELD.includes('not at the time above'));
+  check('the picker explains the once-a-day check', /only checks for due articles once a day/.test(FIELD));
+  check('the warning is visual (amber block), not a tooltip', FIELD.includes("data-testid=\"article-schedule-golive\""));
+}
 
 console.log('\n=== 11. Wiring: migration 198 ===');
 const mig = read('supabase/migrations/198_article_scheduled_publish.sql');

@@ -29,7 +29,7 @@
     },
     {
       "path": "/api/cron/publish-scheduled-articles",
-      "schedule": "* * * * *"
+      "schedule": "0 5 * * *"
     }
   ],
   "headers": [

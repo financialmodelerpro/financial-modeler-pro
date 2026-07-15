@@ -9,9 +9,16 @@
  * the way to the API (the DB column is timestamptz). The resolved zone is shown
  * beside the field on purpose: "09:00" is ambiguous otherwise, and the one thing a
  * scheduling feature cannot afford is the admin being unsure which 09:00 they picked.
+ *
+ * The field shows the time the article will REALLY go live, not the time typed in.
+ * The publish cron runs once a day (Hobby plan; see PUBLISH_CHECK_UTC_HOUR), so a
+ * schedule set after that hour does not publish that day at all, it waits for the
+ * next day's check. Showing only the requested time would be a promise the platform
+ * cannot keep, and the admin would find out a day late.
  */
 
 import { useMemo } from 'react';
+import { nextPublishCheckAfter } from '@/src/shared/cms/scheduling';
 
 /** UTC ISO -> the wall-clock text a datetime-local input expects (browser-local). */
 export function toLocalInputValue(iso: string | null | undefined): string {
@@ -46,9 +53,15 @@ export function ArticleScheduleField({ value, onChange, inputStyle, error }: Pro
   const valid  = !!parsed && !Number.isNaN(parsed.getTime());
   const isPast = valid && parsed!.getTime() <= Date.now();
 
-  const pretty = valid
-    ? parsed!.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : '';
+  const fmt = (d: Date) =>
+    d.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  // What the admin asked for vs when the daily check will actually publish it.
+  const goesLive = valid ? nextPublishCheckAfter(parsed!.getTime()) : null;
+  const waitMins = goesLive && valid ? Math.round((goesLive.getTime() - parsed!.getTime()) / 60000) : 0;
+  // Under an hour is the check effectively landing on the requested time; past
+  // that the gap is real and the admin needs to see it stated, not implied.
+  const materiallyLater = waitMins >= 60;
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -67,14 +80,29 @@ export function ArticleScheduleField({ value, onChange, inputStyle, error }: Pro
       ) : !valid ? (
         <div style={{ fontSize: 11, color: '#6B7280', marginTop: 5, lineHeight: 1.5 }}>
           Pick the date and time this article goes live.{tz ? ` Times are in ${tz}.` : ''}
+          {' '}The site checks for due articles once a day, so it goes live at the first
+          check after the time you pick.
         </div>
       ) : isPast ? (
         <div style={{ fontSize: 11, color: '#92400E', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 6, padding: '6px 8px', marginTop: 5, lineHeight: 1.5 }}>
           That time has already passed. Saving will publish this article right away.
         </div>
+      ) : materiallyLater ? (
+        // The requested time is NOT when it publishes. Say so plainly.
+        <div
+          style={{ fontSize: 11, color: '#92400E', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 6, padding: '6px 8px', marginTop: 5, lineHeight: 1.5 }}
+          data-testid="article-schedule-golive"
+        >
+          Goes live <strong>{fmt(goesLive!)}</strong>{tz ? ` (${tz})` : ''}, not at the time above.
+          The site only checks for due articles once a day, so an article is published at the
+          first check after its time. Pick a time just before the daily check to go live sooner.
+        </div>
       ) : (
-        <div style={{ fontSize: 11, color: '#1A7A30', fontWeight: 600, marginTop: 5, lineHeight: 1.5 }}>
-          Goes live automatically on {pretty}{tz ? ` (${tz})` : ''}.
+        <div
+          style={{ fontSize: 11, color: '#1A7A30', fontWeight: 600, marginTop: 5, lineHeight: 1.5 }}
+          data-testid="article-schedule-golive"
+        >
+          Goes live automatically on {fmt(goesLive!)}{tz ? ` (${tz})` : ''}.
         </div>
       )}
     </div>
