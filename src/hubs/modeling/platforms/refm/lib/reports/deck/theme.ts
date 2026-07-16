@@ -102,6 +102,13 @@ export const TYPE_SCALE = {
   chrome: 9,       // header / footer band text
 } as const;
 
+/** Fonts offered in the deck's brand picker + per-object font control. The
+ *  first two are the PowerPoint defaults (Calibri body / Cambria headings); the
+ *  rest are web-safe faces a machine without them still renders sensibly. */
+export const FONT_CHOICES_DECK: readonly string[] = [
+  'Calibri', 'Cambria', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Garamond', 'Verdana', 'Tahoma',
+];
+
 export const DEFAULT_BRANDING: DeckBranding = {
   logoUrl: null,
   companyName: 'Financial Modeler Pro',
