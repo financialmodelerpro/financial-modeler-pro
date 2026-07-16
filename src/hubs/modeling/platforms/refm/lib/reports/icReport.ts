@@ -166,6 +166,17 @@ export interface ICReportModel {
     debtBalance: { yearLabels: number[]; values: number[]; peak: number; hasData: boolean };
     exitMoic: { years: number[]; moic: number[]; hasData: boolean };
   };
+  /** Operating performance series (recurring assets). Read straight through
+   *  from the snapshot: NOI is the returns snapshot's own per-period NOI, EBITDA
+   *  is the P&L's. Both are empty with hasData=false on a pure-Sell project,
+   *  which auto-omits the Operating Performance slide. */
+  operating: {
+    yearLabels: number[];
+    noi: number[];
+    ebitda: number[];
+    peakNoi: number;
+    hasData: boolean;
+  };
   /** Development-programme Gantt (Phase D): phase windows + key markers. */
   programme: {
     startYear: number;
@@ -456,6 +467,12 @@ export function buildICReportModel(input: {
       debtBalance: { yearLabels, values: debtSeries, peak: da.peakDebt, hasData: da.peakDebt > 0.5 },
       exitMoic: { years: exitYears.map((r) => r.year), moic: exitYears.map((r) => r.equityMoic), hasData: exitYears.length > 1 },
     },
+    operating: (() => {
+      const noi = Array.isArray(rs.noiPerPeriod) ? rs.noiPerPeriod.slice(0, yearLabels.length) : [];
+      const ebitda = Array.isArray(snap.pl?.ebitdaPerPeriod) ? snap.pl.ebitdaPerPeriod.slice(0, yearLabels.length) : [];
+      const peakNoi = noi.length ? Math.max(...noi) : 0;
+      return { yearLabels, noi, ebitda, peakNoi, hasData: peakNoi > 0.5 };
+    })(),
     programme: { startYear, exitYear, debtRepaidYear, lanes },
     scenarios: hasScenarios ? (input.scenarios ?? null) : null,
   };

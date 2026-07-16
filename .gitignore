@@ -51,6 +51,9 @@ tests/screenshots/
 # accidental `git add -A` cannot snag them.
 *.xlsb
 *.xlsm
+# Private reference presentation slides (colour-coding / layout references kept
+# locally only, never committed), same rule as the reference workbooks.
+*.pptx
 .m20b-legacy/
 # Live project snapshot fixture for the Module 6 field-census verifier. This is
 # the user's real project data, kept locally only; the verifier skips-with-notice

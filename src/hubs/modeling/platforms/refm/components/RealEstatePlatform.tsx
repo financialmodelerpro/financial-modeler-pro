@@ -62,7 +62,7 @@ import Module4PL from './modules/Module4PL';
 import Module4CashFlow from './modules/Module4CashFlow';
 import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module5Returns from './modules/Module5Returns';
-import Module7Reports from './modules/Module7Reports';
+import Module7Deck from './modules/Module7Deck';
 import Module5Metrics from './modules/Module5Metrics';
 import Module5CaseComparison from './modules/Module5CaseComparison';
 import Module6Scenarios from './modules/Module6Scenarios';
@@ -248,8 +248,10 @@ export const m5Tabs = [
   { key: 'm5-cases', icon: '🔀', label: '3. Case Comparison', step: 3 },
 ];
 
+// Module 7 is a single full-screen surface (the IC Presentation Builder), so it
+// has one nominal tab. The tab row is not rendered; the builder has its own shell.
 export const m7Tabs = [
-  { key: 'm7-ic', icon: '📊', label: '1. Report Builder', step: 1 },
+  { key: 'm7-ic', icon: '📊', label: 'Presentation', step: 1 },
 ];
 
 // Universal module → sub-tabs map. Any module key that needs a sidebar
@@ -1208,34 +1210,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
           </div>
         );
       }
-      const m7ActiveTab = m7Tabs.some((t) => t.key === activeTab) ? activeTab : m7Tabs[0].key;
+      // Module 7 is now the full-screen IC Presentation Builder (its own
+      // navigator / canvas / properties shell), so it renders without the
+      // per-tab row the other modules use.
       return (
         <div data-testid="module7-shell-wrap">
-          <div
-            style={{ display: 'flex', gap: 'var(--sp-1)', borderBottom: '1px solid var(--color-border)', marginBottom: 'var(--sp-3)' }}
-            data-testid="m7-tab-row"
-          >
-            {m7Tabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key)}
-                data-testid={`m7-tab-${tab.key}`}
-                style={{
-                  padding: 'var(--sp-1) var(--sp-2)',
-                  background: m7ActiveTab === tab.key ? 'var(--color-navy)' : 'transparent',
-                  color: m7ActiveTab === tab.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--font-small)',
-                }}
-              >
-                {tab.icon} {tab.label}
-              </button>
-            ))}
-          </div>
-          {m7ActiveTab === 'm7-ic' && <Module7Reports activeProjectId={activeProjectId} />}
+          <Module7Deck activeProjectId={activeProjectId} />
         </div>
       );
     }

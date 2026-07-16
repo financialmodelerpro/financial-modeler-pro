@@ -22,6 +22,7 @@ import type {
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
 import type { ReportInputs } from '../reportInputs';
+import type { Deck } from '../reports/deck/types';
 
 // Project metadata returned by the API. Same as RefmProjectListItem
 // but kept as its own alias so consumers don't need to know the
@@ -253,4 +254,26 @@ export function saveReportInputs(projectId: string, inputs: ReportInputs): Promi
     method: 'PUT',
     body:   JSON.stringify(inputs),
   });
+}
+
+// ── Report deck (Module 7 IC Presentation Builder, migration 199) ────────────
+// The slide document. `deck` is null when the project has none saved yet and the
+// builder seeds one from the templates. `canSave` is false when migration 199 is
+// outstanding, so the tab can say so plainly rather than failing a save with a
+// raw Postgres error.
+
+export function getReportDeck(projectId: string): Promise<FetchResult<{ deck: Deck | null; canSave: boolean }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, { method: 'GET' });
+}
+
+export function saveReportDeck(projectId: string, deck: Deck): Promise<FetchResult<{ ok: true }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, {
+    method: 'PUT',
+    body:   JSON.stringify({ deck }),
+  });
+}
+
+/** Drop the saved deck. The next load reseeds from the templates. */
+export function resetReportDeck(projectId: string): Promise<FetchResult<{ ok: true }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, { method: 'DELETE' });
 }
