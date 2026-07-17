@@ -277,3 +277,30 @@ export function saveReportDeck(projectId: string, deck: Deck): Promise<FetchResu
 export function resetReportDeck(projectId: string): Promise<FetchResult<{ ok: true }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, { method: 'DELETE' });
 }
+
+/** Render the deck to an editable .pptx or a shareable .pdf, SERVER-SIDE. The
+ *  builders import node-only libs, so the client posts the deck + the already
+ *  resolved ICReportModel (no recompute) and gets a binary Blob back. `model` is
+ *  the ICReportModel the canvas rendered; scale/currency rebuild the formatter. */
+export async function exportReportDeck(
+  projectId: string,
+  args: { deck: Deck; model: unknown; scale: 'millions' | 'thousands'; currency: string; format: 'pptx' | 'pdf'; fileName?: string },
+): Promise<FetchResult<Blob>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/export`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+  } catch (e) {
+    return { data: null, error: e instanceof Error ? e.message : 'Network error' };
+  }
+  if (!res.ok) return { data: null, error: await readError(res) };
+  try {
+    return { data: await res.blob(), error: null };
+  } catch (e) {
+    return { data: null, error: e instanceof Error ? e.message : 'Could not read the exported file' };
+  }
+}

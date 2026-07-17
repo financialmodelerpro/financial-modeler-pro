@@ -41,7 +41,7 @@ import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
-import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties } from '../../lib/persistence/client';
+import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck } from '../../lib/persistence/client';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
 import type { Party } from '../../lib/parties';
 import { makeDeckFmt } from '../../lib/reports/deck/bindings';
@@ -68,6 +68,14 @@ const btn = (variant: 'primary' | 'ghost' | 'danger' = 'ghost', on = false): Rea
   whiteSpace: 'nowrap',
 });
 const iconBtn: React.CSSProperties = { ...btn(), padding: '6px 8px', minWidth: 30, textAlign: 'center' };
+
+function triggerDownload(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function Banner({ tone, children }: { tone: 'info' | 'warn'; children: React.ReactNode }): React.JSX.Element {
   const c = tone === 'warn' ? { bg: '#FFF8E8', bd: '#E4C271', fg: '#7A5B12' } : { bg: '#EEF3F9', bd: DECK_THEME.pale, fg: DECK_THEME.navy };
@@ -97,6 +105,8 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'pptx' | 'pdf' | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [canvasW, setCanvasW] = useState(860);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -225,6 +235,23 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     setDirty(false); setNotice('Presentation saved.');
   }, [activeProjectId, deck]);
 
+  const doExport = useCallback(async (format: 'pptx' | 'pdf') => {
+    if (!activeProjectId || !deck || !model) return;
+    setExportOpen(false); setExporting(format); setNotice(null);
+    const res = await exportReportDeck(activeProjectId, {
+      deck, model,
+      scale: deck.settings.moneyScale,
+      currency: s.project?.currency ?? 'SAR',
+      format,
+      fileName: deck.title,
+    });
+    setExporting(null);
+    if (res.error || !res.data) { setNotice(res.error ?? 'Export failed.'); return; }
+    const safe = (deck.title || 'Presentation').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Presentation';
+    triggerDownload(`${safe}.${format}`, res.data);
+    setNotice(`Exported ${format === 'pptx' ? 'PowerPoint' : 'PDF'}.`);
+  }, [activeProjectId, deck, model, s.project?.currency]);
+
   const reseed = useCallback(async () => {
     if (!activeProjectId || !model) return;
     if (!window.confirm('Rebuild every slide from the library? This replaces your current arrangement (you can still undo).')) return;
@@ -336,6 +363,18 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           <button style={iconBtn} title="Bring forward (Ctrl+])" disabled={!selectedIds.length} onClick={() => commit((d) => reorderObjects(d, sid, selectedIds, 'forward'))}>▲</button>
           <button style={iconBtn} title="Send backward (Ctrl+[)" disabled={!selectedIds.length} onClick={() => commit((d) => reorderObjects(d, sid, selectedIds, 'backward'))}>▼</button>
           <div style={{ flex: 1 }} />
+          <div style={{ position: 'relative' }}>
+            <button style={btn('ghost', exportOpen)} onClick={() => setExportOpen((v) => !v)} disabled={!!exporting} data-testid="deck-export">
+              {exporting ? (exporting === 'pptx' ? 'Building PPTX...' : 'Building PDF...') : 'Export ▾'}
+            </button>
+            {exportOpen && !exporting ? (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#FFFFFF', border: `1px solid ${DECK_THEME.rule}`, borderRadius: 6, boxShadow: '0 6px 20px rgba(13,46,90,0.16)', zIndex: 20, minWidth: 208, padding: 6 }}>
+                <ExportItem title="PowerPoint (.pptx)" desc="Fully editable, native shapes and charts" onClick={() => void doExport('pptx')} testid="deck-export-pptx" />
+                <ExportItem title="PDF (.pdf)" desc="Shareable, print-ready, same layout" onClick={() => void doExport('pdf')} testid="deck-export-pdf" />
+                <div style={{ fontSize: 10, color: DECK_THEME.slateLight, padding: '6px 8px 2px', lineHeight: 1.4 }}>Exports the live deck at the {deck.settings.moneyScale} scale. Every figure is read from your model.</div>
+              </div>
+            ) : null}
+          </div>
           <button style={btn('ghost', presentMode)} onClick={() => { setPresentMode((v) => !v); setSelectedIds([]); setEditingId(null); }} data-testid="deck-present-toggle">{presentMode ? 'Editing off' : 'Preview'}</button>
         </div>
 
@@ -390,6 +429,20 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
 function NavAction({ label, onClick, danger }: { label: string; onClick: (e: React.MouseEvent) => void; danger?: boolean }): React.JSX.Element {
   return <button onClick={onClick} style={{ fontSize: 9, color: danger ? DECK_THEME.red : DECK_THEME.slate, background: 'none', border: `1px solid ${DECK_THEME.rule}`, borderRadius: 3, padding: '1px 5px', cursor: 'pointer' }}>{label}</button>;
+}
+
+function ExportItem({ title, desc, onClick, testid }: { title: string; desc: string; onClick: () => void; testid: string }): React.JSX.Element {
+  return (
+    <button
+      onClick={onClick} data-testid={testid}
+      style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderRadius: 4, padding: '7px 8px', cursor: 'pointer' }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = '#EEF3F9')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+    >
+      <div style={{ fontSize: 12, fontWeight: 600, color: DECK_THEME.navy }}>{title}</div>
+      <div style={{ fontSize: 10, color: DECK_THEME.slate, marginTop: 1 }}>{desc}</div>
+    </button>
+  );
 }
 
 // ── Properties panel ────────────────────────────────────────────────────────
