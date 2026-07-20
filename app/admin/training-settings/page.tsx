@@ -225,30 +225,35 @@ export default function TrainingSettingsPage() {
   const saveGuidance = async (course: '3SFM' | 'BVM') => {
     const guidance = (course === '3SFM' ? msGuidance3sfm : msGuidanceBvm).trim();
     const rawUrl   = (course === '3SFM' ? msSampleUrl3sfm : msSampleUrlBvm).trim();
-    if (rawUrl && !/^https?:\/\//i.test(rawUrl)) {
-      showToast('Sample URL must start with http:// or https://');
-      return;
-    }
+    // A bad optional Sample URL must never silently discard the guidance text
+    // the admin actually cares about. Save the guidance regardless; only skip
+    // the URL when it fails validation, and say so in the toast.
+    const urlInvalid = rawUrl !== '' && !/^https?:\/\//i.test(rawUrl);
     setMsGuidanceSavingKey(course);
     try {
       const lc = course.toLowerCase();
+      const payload: Record<string, string> = {
+        [`model_submission_guidance_${lc}`]: guidance,
+      };
+      if (!urlInvalid) payload[`model_submission_sample_url_${lc}`] = rawUrl;
       const res = await fetch('/api/admin/training-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          [`model_submission_guidance_${lc}`]:   guidance,
-          [`model_submission_sample_url_${lc}`]: rawUrl,
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         if (course === '3SFM') {
           setMsGuidance3sfm(guidance);
-          setMsSampleUrl3sfm(rawUrl);
+          if (!urlInvalid) setMsSampleUrl3sfm(rawUrl);
         } else {
           setMsGuidanceBvm(guidance);
-          setMsSampleUrlBvm(rawUrl);
+          if (!urlInvalid) setMsSampleUrlBvm(rawUrl);
         }
-        showToast(`${course} guidance saved`);
+        showToast(
+          urlInvalid
+            ? `${course} guidance saved. Sample URL ignored (must start with http:// or https://).`
+            : `${course} guidance saved`,
+        );
       } else {
         showToast('Save failed');
       }

@@ -73,6 +73,48 @@ const DEFAULT_GUIDANCE: Record<'3SFM' | 'BVM', string> = {
 };
 
 /**
+ * Required file-naming convention shown to every student before they upload.
+ * Baked into the card (not admin-editable) so submissions always arrive named
+ * consistently for the reviewer. The example is course-aware.
+ *
+ *   Format:  ProjectName_CourseName_RegistrationID_Date
+ *   Example: Project Adhesive_3SFM_FMP-2026-0001_20072026
+ */
+function FileNamingRule({ courseCode }: { courseCode: '3SFM' | 'BVM' }) {
+  const example = `Project Adhesive_${courseCode}_FMP-2026-0001_20072026`;
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: '10px 12px',
+      background: '#EFF6FF',
+      border: '1px solid #BFDBFE',
+      borderRadius: 8,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#1E40AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        📄 Name your file like this
+      </div>
+      <div style={{ fontSize: 12, color: '#1E3A5F', lineHeight: 1.6 }}>
+        <div style={{ marginBottom: 4 }}>
+          <strong>Format:</strong>{' '}
+          <code style={{ background: '#DBEAFE', padding: '1px 6px', borderRadius: 4 }}>
+            ProjectName_CourseName_RegistrationID_Date
+          </code>
+        </div>
+        <div>
+          <strong>Example:</strong>{' '}
+          <code style={{ background: '#DBEAFE', padding: '1px 6px', borderRadius: 4 }}>
+            {example}
+          </code>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: '#475569' }}>
+          Date is the submission day as <strong>DDMMYYYY</strong> (e.g. 20 July 2026 = 20072026).
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Renders the per-course guidance + optional sample download link. Used in
  * every student-facing branch except Approved (no point telling a passed
  * student what to build).
@@ -98,6 +140,12 @@ function GuidancePanel({
         lineHeight: 1.6,
         whiteSpace: 'pre-wrap',
       }}>{text}</div>
+
+      {/* Required file-naming convention. Always shown (not admin-editable) so
+          every submission arrives named consistently for the reviewer, no
+          matter whether per-course guidance copy has been configured. */}
+      <FileNamingRule courseCode={courseCode} />
+
       {sampleUrl && (
         <div style={{ marginTop: 10 }}>
           <a
