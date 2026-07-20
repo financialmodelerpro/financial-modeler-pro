@@ -34,6 +34,8 @@ import {
 import { buildDeckPptx } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckPptx';
 import { buildDeckPdf } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckPdf';
 import type { Deck } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
+import { availableBlocks, type BlockSpec } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/blockLibrary';
+import { addBlock } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/mutations';
 import JSZip from 'jszip';
 
 /** Editor-only prompt markers that must NEVER reach a rendered/exported slide. */
@@ -197,6 +199,40 @@ check('visible page numbers stay gapless after a hide', (() => {
   const nums = exH.slides.filter((s) => s.chromeInfo.pageNumber !== null).map((s) => s.chromeInfo.pageNumber as number);
   return nums.every((n, i) => i === 0 || n > (nums[i - 1] as number));
 })());
+
+// ── FIX 3: block library + picker insert ─────────────────────────────────────
+console.log('\n== data-block picker ==');
+const lib = availableBlocks(model, fmtM);
+check('the block library offers blocks for the full model', lib.length > 5);
+// Every offered block must actually resolve (the picker never offers an empty block).
+const blockResolves = (b: BlockSpec, m: ICReportModel): boolean => {
+  if (b.kind === 'kpi') return resolveMetric(b.bindingKey as any, m, fmtM).available;
+  if (b.kind === 'table') return resolveTable(b.bindingKey as any, m, fmtM).available;
+  if (b.kind === 'gantt') return m.programme.lanes.length > 0;
+  if (b.kind === 'heatmap') return m.sensitivity.hasData;
+  return true; // charts checked structurally below
+};
+check('every offered block resolves against the model (no empty blocks offered)', lib.every((b) => blockResolves(b, model)));
+check('the full model offers the debt-balance chart + facility table', lib.some((b) => b.key === 'chart.debtBalance') && lib.some((b) => b.key === 'table.facilitySummary'));
+// Auto-omit at the picker level: a no-debt project must NOT be offered debt blocks.
+const libNoDebt = availableBlocks(mNoDebt, fmtM);
+check('a no-debt model omits the debt-balance chart from the library', !libNoDebt.some((b) => b.key === 'chart.debtBalance'));
+check('a no-debt model omits the facility-summary table from the library', !libNoDebt.some((b) => b.key === 'table.facilitySummary'));
+
+// Insert a picked block and confirm it renders to a real paint in the export.
+const contentSlideId = deck.slides.find((s) => s.chrome === 'content')!.id;
+const chartSpec = lib.find((b) => b.key === 'chart.assetMix')!;
+const kpiSpec = lib.find((b) => b.key === 'devEconomics.gdv')!;
+check('picker offers an asset-mix chart + a GDV KPI block', !!chartSpec && !!kpiSpec);
+const r1 = addBlock(deck, contentSlideId, chartSpec);
+const r2 = addBlock(r1.deck, contentSlideId, kpiSpec);
+check('addBlock returns collision-safe ids for inserted blocks', !!r1.newId && !!r2.newId && r1.newId !== r2.newId);
+const exIns = resolveDeckExport(r2.deck, model, fmtM);
+const insObjs = exIns.slides.flatMap((s) => s.objects);
+const insChart = insObjs.find((o) => o.id === r1.newId);
+const insKpi = insObjs.find((o) => o.id === r2.newId);
+check('an inserted chart block renders to a real chart paint (not unlinked)', !!insChart && insChart.paint.kind === 'chart');
+check('an inserted KPI block renders to its live value (14,055.0), not a fabricated number', !!insKpi && insKpi.paint.kind === 'kpi' && insKpi.paint.value === '14,055.0');
 
 // ── The exporters actually produce files ─────────────────────────────────────
 (async () => {

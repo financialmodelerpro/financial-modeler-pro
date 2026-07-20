@@ -22,6 +22,7 @@
 
 import type { Deck, DeckObject, Slide, SlideChrome } from './types';
 import { clampToCanvas, GRID } from './types';
+import { buildBlockObject, blockLandingBox, type BlockSpec } from './blockLibrary';
 
 /** A collision-safe id for a runtime-created object or slide. */
 let runtimeSeq = 0;
@@ -63,6 +64,19 @@ export function updateObjects(deck: Deck, slideId: string, patches: Record<strin
 
 export function addObject(deck: Deck, slideId: string, obj: DeckObject): Deck {
   return mapSlide(deck, slideId, (s) => ({ ...s, objects: [...s.objects, obj] }));
+}
+
+/** Insert a data block from the picker onto a slide: builds the bound object with
+ *  its default layout, gives it a collision-safe id, and appends it on top (so it
+ *  is selected and in front). Returns the new id so the caller can select it. The
+ *  object stores only a binding key, so it resolves live like every other block. */
+export function addBlock(deck: Deck, slideId: string, spec: BlockSpec): { deck: Deck; newId: string } {
+  const slide = deck.slides.find((s) => s.id === slideId);
+  if (!slide) return { deck, newId: '' };
+  const base = buildBlockObject(spec, blockLandingBox(spec.kind, slide.objects.length));
+  const id = freshId(base.type.slice(0, 3));
+  const obj = { ...base, id } as DeckObject;
+  return { deck: mapSlide(deck, slideId, (s) => ({ ...s, objects: [...s.objects, obj] })), newId: id };
 }
 
 export function removeObjects(deck: Deck, slideId: string, ids: ReadonlySet<string> | string[]): Deck {

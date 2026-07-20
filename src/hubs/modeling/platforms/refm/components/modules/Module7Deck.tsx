@@ -50,9 +50,10 @@ import type { Deck, DeckObject, Slide } from '../../lib/reports/deck/types';
 import { DECK_THEME, FONT_CHOICES_DECK } from '../../lib/reports/deck/theme';
 import {
   updateObject, updateObjects, removeObjects, duplicateObjects, reorderObjects, nudgeObjects,
-  duplicateSlide, addBlankSlide, removeSlide, moveSlide, updateSlide, updateBranding, updateSettings,
+  duplicateSlide, addBlankSlide, removeSlide, moveSlide, updateSlide, updateBranding, updateSettings, addBlock,
   type ObjectPatch, type ZDir,
 } from '../../lib/reports/deck/mutations';
+import { availableBlocks, BLOCK_SECTIONS, type BlockSpec } from '../../lib/reports/deck/blockLibrary';
 import SlideCanvas from './deck/SlideCanvas';
 import EditLayer from './deck/EditLayer';
 import type { RenderCtx } from './deck/SlideObjectView';
@@ -107,6 +108,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const [notice, setNotice] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pptx' | 'pdf' | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [canvasW, setCanvasW] = useState(860);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -148,6 +150,10 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     const scale = deck?.settings.moneyScale ?? 'millions';
     return makeDeckFmt(icMoneyScaleSpec(scale, s.project?.currency ?? 'SAR'));
   }, [deck?.settings.moneyScale, s.project?.currency]);
+
+  // Insert Data Block picker: only blocks whose model data exists are offered,
+  // so the library self-omits per project (no empty blocks).
+  const blocks = useMemo<BlockSpec[]>(() => (model ? availableBlocks(model, fmt) : []), [model, fmt]);
 
   // ── Load report inputs (seed source) + parties, then the deck.
   useEffect(() => {
@@ -312,6 +318,17 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const canvasH = SLIDE_H * scale;
   const sid = activeSlide?.id ?? '';
 
+  // Insert a picker block onto the active slide + select it (one history step).
+  const insertBlock = (spec: BlockSpec) => {
+    if (!sid) return;
+    pushHistory();
+    let nid = '';
+    setDeck((d) => { if (!d) return d; const r = addBlock(d, sid, spec); nid = r.newId; return r.deck; });
+    if (nid) setSelectedIds([nid]);
+    setDirty(true);
+    setPickerOpen(false);
+  };
+
   const applyObjectPatch = (objId: string, patch: ObjectPatch) => commit((d) => updateObject(d, sid, objId, patch));
 
   return (
@@ -362,6 +379,13 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           <button style={iconBtn} title="Delete (Del)" disabled={!selectedIds.length} onClick={() => { commit((d) => removeObjects(d, sid, selectedIds)); setSelectedIds([]); }}>🗑</button>
           <button style={iconBtn} title="Bring forward (Ctrl+])" disabled={!selectedIds.length} onClick={() => commit((d) => reorderObjects(d, sid, selectedIds, 'forward'))}>▲</button>
           <button style={iconBtn} title="Send backward (Ctrl+[)" disabled={!selectedIds.length} onClick={() => commit((d) => reorderObjects(d, sid, selectedIds, 'backward'))}>▼</button>
+          <span style={{ width: 1, height: 20, background: DECK_THEME.rule, margin: '0 2px' }} />
+          <div style={{ position: 'relative' }}>
+            <button style={btn('ghost', pickerOpen)} onClick={() => setPickerOpen((v) => !v)} disabled={presentMode || !sid} data-testid="deck-insert-block" title="Add a data block from your model onto this slide">+ Insert data ▾</button>
+            {pickerOpen && !presentMode ? (
+              <BlockPicker blocks={blocks} onPick={insertBlock} onClose={() => setPickerOpen(false)} />
+            ) : null}
+          </div>
           <div style={{ flex: 1 }} />
           <div style={{ position: 'relative' }}>
             <button style={btn('ghost', exportOpen)} onClick={() => setExportOpen((v) => !v)} disabled={!!exporting} data-testid="deck-export">
@@ -442,6 +466,53 @@ function ExportItem({ title, desc, onClick, testid }: { title: string; desc: str
       <div style={{ fontSize: 12, fontWeight: 600, color: DECK_THEME.navy }}>{title}</div>
       <div style={{ fontSize: 10, color: DECK_THEME.slate, marginTop: 1 }}>{desc}</div>
     </button>
+  );
+}
+
+// ── Insert Data Block picker ─────────────────────────────────────────────────
+// Lists only blocks whose model data exists (availableBlocks already filtered),
+// grouped by kind. Clicking one drops it onto the active slide.
+function BlockPicker({ blocks, onPick, onClose }: { blocks: BlockSpec[]; onPick: (spec: BlockSpec) => void; onClose: () => void }): React.JSX.Element {
+  return (
+    <div
+      data-testid="deck-block-picker"
+      style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#FFFFFF', border: `1px solid ${DECK_THEME.rule}`, borderRadius: 6, boxShadow: '0 6px 20px rgba(13,46,90,0.16)', zIndex: 20, width: 300, maxHeight: 440, overflowY: 'auto', padding: 6 }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px 6px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: DECK_THEME.navy }}>Insert data block</div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: DECK_THEME.slate }} title="Close">✕</button>
+      </div>
+      {blocks.length === 0 ? (
+        <div style={{ fontSize: 11, color: DECK_THEME.slate, padding: '8px 10px', lineHeight: 1.5 }}>
+          No model data blocks are available for this project yet. Complete more of Modules 1 to 6 and they will appear here.
+        </div>
+      ) : (
+        BLOCK_SECTIONS.map((sec) => {
+          const items = blocks.filter((b) => sec.kinds.includes(b.kind));
+          if (!items.length) return null;
+          return (
+            <div key={sec.id} style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: DECK_THEME.slateLight, textTransform: 'uppercase', letterSpacing: 0.5, padding: '6px 8px 3px' }}>
+                {sec.title} ({items.length})
+              </div>
+              {items.map((b) => (
+                <button
+                  key={b.key}
+                  data-testid={`deck-block-${b.key}`}
+                  onClick={() => onPick(b)}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', borderRadius: 4, padding: '6px 8px', cursor: 'pointer', alignItems: 'baseline' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#EEF3F9')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                >
+                  <span style={{ fontSize: 12, color: DECK_THEME.navy }}>{b.label}</span>
+                  <span style={{ fontSize: 9.5, color: DECK_THEME.slateLight, whiteSpace: 'nowrap' }}>{b.group}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })
+      )}
+    </div>
   );
 }
 
