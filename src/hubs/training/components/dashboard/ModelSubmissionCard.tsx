@@ -69,6 +69,38 @@ function formatDate(iso: string | null | undefined): string {
 const DEFAULT_GUIDANCE = DEFAULT_MODEL_SUBMISSION_GUIDANCE;
 
 /**
+ * Prominent, always-visible notice that a model submission is mandatory for
+ * this course before the Final Exam unlocks. Rendered at the top of every
+ * pre-approval state (upload, resubmit, pending review, attempts exhausted)
+ * so the requirement never disappears once a student has acted.
+ */
+function MandatoryBanner({ courseLabel }: { courseLabel: string }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 10,
+      marginBottom: 12,
+      padding: '12px 16px',
+      background: 'linear-gradient(135deg, #FEF2F2, #FEE2E2)',
+      border: '1px solid #FCA5A5',
+      borderRadius: 10,
+    }}>
+      <span style={{ fontSize: 18, lineHeight: 1.2 }}>⚠️</span>
+      <div>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#991B1B', marginBottom: 2 }}>
+          Model submission is mandatory
+        </div>
+        <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.5 }}>
+          You must submit a financial model for <strong>{courseLabel}</strong> and have it approved
+          by our experts team before the Final Exam unlocks. Follow the instructions below.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Required file-naming convention shown to every student before they upload.
  * Baked into the card (not admin-editable) so submissions always arrive named
  * consistently for the reviewer. The example is course-aware.
@@ -376,35 +408,38 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
   if (status.latestStatus === 'pending_review') {
     const latest = status.latest;
     return (
-      <div style={{
-        background: 'linear-gradient(135deg, #FFFBF0, #FFF3D6)',
-        border: '1px solid #FDE68A',
-        borderRadius: 12,
-        padding: '16px 20px',
-        marginBottom: 20,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 18 }}>🔍</span>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E' }}>
-            Under Review
+      <>
+        <MandatoryBanner courseLabel={courseLabel} />
+        <div style={{
+          background: 'linear-gradient(135deg, #FFFBF0, #FFF3D6)',
+          border: '1px solid #FDE68A',
+          borderRadius: 12,
+          padding: '16px 20px',
+          marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 18 }}>🔍</span>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E' }}>
+              Under Review
+            </div>
+            <StatusPill tone="amber" label="Pending Review" />
           </div>
-          <StatusPill tone="amber" label="Pending Review" />
-        </div>
-        <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginLeft: 28 }}>
-          {latest && (
-            <>
-              <div style={{ marginBottom: 4 }}>
-                <strong>{latest.file_name}</strong> ({formatBytes(latest.file_size)}) submitted
-                {latest.submitted_at ? ` on ${formatDate(latest.submitted_at)}` : ''}.
-              </div>
-            </>
-          )}
-          <div>
-            Admin review typically takes up to 5 business days. You will be emailed when a decision is
-            made. The Final Exam will unlock automatically on approval.
+          <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginLeft: 28 }}>
+            {latest && (
+              <>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>{latest.file_name}</strong> ({formatBytes(latest.file_size)}) submitted
+                  {latest.submitted_at ? ` on ${formatDate(latest.submitted_at)}` : ''}.
+                </div>
+              </>
+            )}
+            <div>
+              Admin review typically takes up to 5 business days. You will be emailed when a decision is
+              made. The Final Exam will unlock automatically on approval.
+            </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -412,30 +447,33 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
   if (status.attemptsRemaining === 0 && status.attemptsUsed >= status.maxAttempts) {
     const latest = status.latest;
     return (
-      <div style={{
-        background: '#FEF2F2',
-        border: '1px solid #FECACA',
-        borderRadius: 12,
-        padding: '16px 20px',
-        marginBottom: 20,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 18 }}>📨</span>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#991B1B' }}>
-            Contact Administrator
-          </div>
-          <StatusPill tone="red" label={`${status.attemptsUsed} of ${status.maxAttempts} attempts used`} />
-        </div>
-        <div style={{ fontSize: 12.5, color: '#7F1D1D', lineHeight: 1.55, marginLeft: 28 }}>
-          {latest?.review_note && (
-            <div style={{ marginBottom: 6, padding: '8px 10px', background: '#fff', border: '1px solid #FECACA', borderRadius: 6, fontStyle: 'italic' }}>
-              Last reviewer note: {latest.review_note}
+      <>
+        <MandatoryBanner courseLabel={courseLabel} />
+        <div style={{
+          background: '#FEF2F2',
+          border: '1px solid #FECACA',
+          borderRadius: 12,
+          padding: '16px 20px',
+          marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 18 }}>📨</span>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#991B1B' }}>
+              Contact Administrator
             </div>
-          )}
-          You have used all {status.maxAttempts} of your model submission attempts. Please email the
-          administrator to discuss next steps.
+            <StatusPill tone="red" label={`${status.attemptsUsed} of ${status.maxAttempts} attempts used`} />
+          </div>
+          <div style={{ fontSize: 12.5, color: '#7F1D1D', lineHeight: 1.55, marginLeft: 28 }}>
+            {latest?.review_note && (
+              <div style={{ marginBottom: 6, padding: '8px 10px', background: '#fff', border: '1px solid #FECACA', borderRadius: 6, fontStyle: 'italic' }}>
+                Last reviewer note: {latest.review_note}
+              </div>
+            )}
+            You have used all {status.maxAttempts} of your model submission attempts. Please email the
+            administrator to discuss next steps.
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -446,6 +484,8 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
   const remaining = status.attemptsRemaining;
 
   return (
+    <>
+    <MandatoryBanner courseLabel={courseLabel} />
     <div style={{
       background: '#fff',
       border: `1px solid ${isResubmit ? '#FECACA' : '#E5E7EB'}`,
@@ -581,6 +621,7 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
         )}
       </div>
     </div>
+    </>
   );
 }
 
