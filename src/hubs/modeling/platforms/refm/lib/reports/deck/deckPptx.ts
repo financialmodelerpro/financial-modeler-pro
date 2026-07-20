@@ -310,8 +310,8 @@ function addObject(slide: Slide, pptx: PptxGenJS, o: ExportObject, deck: ExportD
 function paintChrome(slide: Slide, pptx: PptxGenJS, deck: ExportDeck, es: ExportSlide): void {
   if (!es.chromeInfo.show) return;
   const c = es.chromeInfo;
-  slide.addText(c.headerLeft, { x: inX(48), y: inX(14), w: inX(700), h: inX(14), fontFace: deck.fontBody, fontSize: fs(9), color: noHash(DECK_THEME.slateLight), charSpacing: 0.4, valign: 'middle', margin: 0, isTextBox: true });
-  slide.addText(c.headerRight, { x: inX(532), y: inX(14), w: inX(700), h: inX(14), fontFace: deck.fontBody, fontSize: fs(9), color: noHash(DECK_THEME.slateLight), align: 'right', valign: 'middle', margin: 0, isTextBox: true });
+  if (c.headerLeft) slide.addText(c.headerLeft, { x: inX(48), y: inX(14), w: inX(700), h: inX(14), fontFace: deck.fontBody, fontSize: fs(9), color: noHash(DECK_THEME.slateLight), charSpacing: 0.4, valign: 'middle', margin: 0, isTextBox: true });
+  if (c.headerRight) slide.addText(c.headerRight, { x: inX(532), y: inX(14), w: inX(700), h: inX(14), fontFace: deck.fontBody, fontSize: fs(9), color: noHash(DECK_THEME.slateLight), align: 'right', valign: 'middle', margin: 0, isTextBox: true });
   slide.addShape(pptx.ShapeType.line, { x: inX(48), y: inX(666), w: inX(1184), h: 0, line: { color: noHash(DECK_THEME.rule), width: 0.75 } });
   slide.addText(c.footerLeft, { x: inX(48), y: inX(676), w: inX(900), h: inX(14), fontFace: deck.fontBody, fontSize: fs(9), color: noHash(DECK_THEME.slateLight), valign: 'middle', margin: 0, isTextBox: true });
   if (c.pageNumber !== null) {

@@ -305,7 +305,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   if (!deck) return <div style={{ padding: 32, color: DECK_THEME.slate, fontSize: 13 }}>Building the deck...</div>;
 
   const activeSlide: Slide | null = deck.slides.find((sl) => sl.id === activeSlideId) ?? deck.slides[0] ?? null;
-  const ctx: RenderCtx = { model, fmt, branding: deck.branding };
+  const ctx: RenderCtx = { model, fmt, branding: deck.branding, preview: presentMode };
   const visibleSlides = deck.slides.filter((sl) => !sl.hidden);
   const pageNumberOf = (sl: Slide): number => visibleSlides.findIndex((v) => v.id === sl.id) + 1;
   const scale = canvasW / SLIDE_W;

@@ -31,6 +31,7 @@ import type {
   ChartData, DeckFmt, TableData,
 } from './bindings';
 import { resolveChart, resolveMetric, resolveTable, resolveText } from './bindings';
+import { isPlaceholderText } from './placeholders';
 import type {
   BoxStyle, ChartKind, Deck, DeckObject, KpiVariant, RiskMatrixRow, ShapeKind, Slide, TextStyle,
 } from './types';
@@ -165,20 +166,30 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 /** Resolve one object's bindings into a concrete paint. Never returns a stale or
- *  invented figure: an object that cannot resolve becomes an `unlinked` paint. */
-export function resolveObjectPaint(o: DeckObject, model: ICReportModel, fmt: DeckFmt): ExportPaint {
+ *  invented figure: a DATA object that cannot resolve becomes an `unlinked` paint.
+ *  A TEXT object omits (returns null) when its binding is empty or when it still
+ *  holds an editor-only placeholder, so no bracketed prompt and no
+ *  "TEXT NOT AVAILABLE" ever reaches the export. */
+export function resolveObjectPaint(o: DeckObject, model: ICReportModel, fmt: DeckFmt): ExportPaint | null {
   switch (o.type) {
     case 'text': {
-      let text = o.text;
       if (o.binding) {
         const r = resolveText(o.binding, model, fmt);
-        if (!r.available) return { kind: 'unlinked', label: 'Text', reason: r.reason };
-        text = r.value;
+        // Empty FORM/model text field: omit the line entirely (never amber
+        // "TEXT NOT AVAILABLE"). e.g. cover "Prepared by" with no Parties set.
+        if (!r.available) return null;
+        return { kind: 'text', text: r.value, style: o.style, box: o.box };
       }
-      return { kind: 'text', text, style: o.style, box: o.box };
+      // Unbound narrative still holding an editor placeholder: editor-only, omit.
+      if (isPlaceholderText(o.text)) return null;
+      return { kind: 'text', text: o.text, style: o.style, box: o.box };
     }
-    case 'bullets':
-      return { kind: 'bullets', items: o.items, numbered: !!o.numbered, markerColor: o.markerColor ?? DECK_THEME.navy, style: o.style, box: o.box };
+    case 'bullets': {
+      // Drop any placeholder bullet lines; omit the block if none survive.
+      const items = o.items.filter((it) => !isPlaceholderText(it));
+      if (!items.length) return null;
+      return { kind: 'bullets', items, numbered: !!o.numbered, markerColor: o.markerColor ?? DECK_THEME.navy, style: o.style, box: o.box };
+    }
     case 'kpi': {
       const r = resolveMetric(o.metric, model, fmt);
       if (!r.available) return { kind: 'unlinked', label: 'Metric', reason: r.reason };
@@ -203,8 +214,11 @@ export function resolveObjectPaint(o: DeckObject, model: ICReportModel, fmt: Dec
     }
     case 'image':
       return { kind: 'image', url: o.url, fit: o.fit, alt: o.alt ?? '', box: o.box };
-    case 'shape':
-      return { kind: 'shape', shape: o.shape, box: o.box, text: o.text ?? '', style: o.style };
+    case 'shape': {
+      // Keep the shape, but never let an editor placeholder ride in as its text.
+      const text = o.text && !isPlaceholderText(o.text) ? o.text : '';
+      return { kind: 'shape', shape: o.shape, box: o.box, text, style: o.style };
+    }
     case 'divider':
       return { kind: 'divider', color: o.color, thickness: o.thickness };
     case 'gantt': {
@@ -217,8 +231,15 @@ export function resolveObjectPaint(o: DeckObject, model: ICReportModel, fmt: Dec
       if (!s.hasData) return { kind: 'unlinked', label: 'Sensitivity', reason: 'No sensitivity grid is configured for this model' };
       return heatmapPaint(o.title ?? 'Equity IRR', s, fmt);
     }
-    case 'riskMatrix':
-      return { kind: 'riskMatrix', rows: o.rows };
+    case 'riskMatrix': {
+      // Drop placeholder risk rows; blank a placeholder mitigant on a kept row.
+      // An all-placeholder matrix (empty FORM) omits entirely.
+      const rows = o.rows
+        .filter((r) => !isPlaceholderText(r.risk))
+        .map((r) => (isPlaceholderText(r.mitigation) ? { ...r, mitigation: '' } : r));
+      if (!rows.length) return null;
+      return { kind: 'riskMatrix', rows };
+    }
     default:
       return { kind: 'unlinked', label: TYPE_LABEL[(o as DeckObject).type] ?? 'Object', reason: 'Unsupported object' };
   }
@@ -266,16 +287,23 @@ export function resolveDeckExport(deck: Deck, model: ICReportModel, fmt: DeckFmt
   const visible = deck.slides.filter((sl) => !sl.hidden);
   const slides: ExportSlide[] = visible.map((sl, i) => {
     const hasChrome = sl.chrome !== 'cover' && sl.chrome !== 'blank';
+    // ONE header band: the editable header text, right-aligned. The section
+    // number chip + title live on the slide itself (titleBlock), so the band
+    // never doubles up. headerLeft is intentionally empty.
     const chromeInfo: ExportChrome = {
-      headerLeft: b.whiteLabel ? b.companyName : b.headerText,
-      headerRight: deck.title,
+      headerLeft: '',
+      headerRight: b.whiteLabel ? b.companyName : b.headerText,
       footerLeft: b.footerText,
       pageNumber: hasChrome && b.showSlideNumbers ? i + 1 : null,
       show: hasChrome,
     };
-    const objects: ExportObject[] = sl.objects
-      .filter((o) => !o.hidden)
-      .map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot, paint: resolveObjectPaint(o, model, fmt) }));
+    const objects: ExportObject[] = [];
+    for (const o of sl.objects) {
+      if (o.hidden) continue;
+      const paint = resolveObjectPaint(o, model, fmt);
+      if (paint === null) continue; // omitted (placeholder / empty text)
+      objects.push({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot, paint });
+    }
     return {
       id: sl.id, title: sl.title, chrome: sl.chrome,
       background: sl.background ?? DECK_THEME.canvas,

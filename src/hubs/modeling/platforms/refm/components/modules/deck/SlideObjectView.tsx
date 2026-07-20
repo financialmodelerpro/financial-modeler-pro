@@ -35,11 +35,16 @@ import { DECK_THEME, blend, fontFor, fontStack, TYPE_SCALE } from '../../../lib/
 import {
   resolveChart, resolveMetric, resolveTable, resolveText, type DeckFmt,
 } from '../../../lib/reports/deck/bindings';
+import { isPlaceholderText } from '../../../lib/reports/deck/placeholders';
 
 export interface RenderCtx {
   model: ICReportModel;
   fmt: DeckFmt;
   branding: DeckBranding;
+  /** True in read-only Preview mode. When set, editor-only placeholder text and
+   *  empty bound text are omitted so the canvas matches the export. In edit mode
+   *  (default) they stay visible so the author can click to edit. */
+  preview?: boolean;
 }
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
@@ -99,21 +104,28 @@ const boxCss = (o: DeckObject): React.CSSProperties => {
 
 // ── Per-type renderers ──────────────────────────────────────────────────────
 
-function TextView({ o, ctx }: { o: TextObject; ctx: RenderCtx }): React.JSX.Element {
+function TextView({ o, ctx }: { o: TextObject; ctx: RenderCtx }): React.JSX.Element | null {
   let content = o.text;
   if (o.binding) {
     const r = resolveText(o.binding, ctx.model, ctx.fmt);
-    if (!r.available) return <Unlinked reason={r.reason} label="Text" />;
+    // Preview matches export: empty bound text omits (no "TEXT NOT AVAILABLE").
+    // Edit mode keeps the amber hint so the author sees the binding is empty.
+    if (!r.available) return ctx.preview ? null : <Unlinked reason={r.reason} label="Text" />;
     content = r.value;
+  } else if (ctx.preview && isPlaceholderText(o.text)) {
+    return null; // editor-only placeholder, hidden in preview + export
   }
   return <div style={{ ...styleToCss(o.style, ctx.branding), ...boxCss(o), width: '100%', height: '100%' }}>{content}</div>;
 }
 
-function BulletsView({ o, ctx }: { o: BulletsObject; ctx: RenderCtx }): React.JSX.Element {
+function BulletsView({ o, ctx }: { o: BulletsObject; ctx: RenderCtx }): React.JSX.Element | null {
   const css = styleToCss(o.style, ctx.branding);
+  // In preview drop placeholder bullet lines; omit the block if none survive.
+  const items = ctx.preview ? o.items.filter((it) => !isPlaceholderText(it)) : o.items;
+  if (ctx.preview && !items.length) return null;
   return (
     <div style={{ ...css, ...boxCss(o), width: '100%', height: '100%', display: 'block' }}>
-      {o.items.map((it, i) => (
+      {items.map((it, i) => (
         <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
           <span style={{ color: o.markerColor ?? DECK_THEME.navy, fontWeight: 700, flexShrink: 0, minWidth: o.numbered ? 18 : 8 }}>
             {o.numbered ? `${i + 1}.` : '•'}
@@ -330,9 +342,11 @@ function ImageView({ o }: { o: ImageObject }): React.JSX.Element {
 
 function ShapeView({ o, ctx }: { o: ShapeObject; ctx: RenderCtx }): React.JSX.Element {
   const radius = o.shape === 'ellipse' ? '50%' : (o.box?.radius ?? 0);
+  // Preview matches export: keep the shape but never show placeholder text.
+  const text = o.text && !(ctx.preview && isPlaceholderText(o.text)) ? o.text : '';
   return (
     <div style={{ width: '100%', height: '100%', ...boxCss(o), borderRadius: radius, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {o.text ? <div style={{ ...styleToCss(o.style ?? ({} as TextStyle), ctx.branding), width: '100%', height: '100%', alignItems: 'center' }}>{o.text}</div> : null}
+      {text ? <div style={{ ...styleToCss(o.style ?? ({} as TextStyle), ctx.branding), width: '100%', height: '100%', alignItems: 'center' }}>{text}</div> : null}
     </div>
   );
 }
@@ -472,7 +486,13 @@ function HeatmapView({ o, ctx }: { o: HeatmapObject; ctx: RenderCtx }): React.JS
 
 const RISK_TONE: Record<string, string> = { Low: DECK_THEME.green, Medium: '#B98A2E', High: DECK_THEME.red };
 
-function RiskMatrixView({ o, ctx }: { o: RiskMatrixObject; ctx: RenderCtx }): React.JSX.Element {
+function RiskMatrixView({ o, ctx }: { o: RiskMatrixObject; ctx: RenderCtx }): React.JSX.Element | null {
+  // Preview matches export: drop placeholder risk rows, blank a placeholder
+  // mitigant, and omit an all-placeholder matrix entirely.
+  const rows = ctx.preview
+    ? o.rows.filter((r) => !isPlaceholderText(r.risk)).map((r) => (isPlaceholderText(r.mitigation) ? { ...r, mitigation: '' } : r))
+    : o.rows;
+  if (ctx.preview && !rows.length) return null;
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden', fontFamily: fontStack(fontFor(ctx.branding, 'body')) }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
@@ -490,7 +510,7 @@ function RiskMatrixView({ o, ctx }: { o: RiskMatrixObject; ctx: RenderCtx }): Re
           </tr>
         </thead>
         <tbody>
-          {o.rows.map((r, i) => (
+          {rows.map((r, i) => (
             <tr key={i} style={{ borderTop: `1px solid ${DECK_THEME.rule}`, background: i % 2 === 1 ? `${DECK_THEME.rowGrey}44` : 'transparent' }}>
               <td style={{ padding: '6px 8px', fontWeight: 600, color: DECK_THEME.ink, verticalAlign: 'top' }}>{r.risk}</td>
               {[r.likelihood, r.impact].map((v, j) => (

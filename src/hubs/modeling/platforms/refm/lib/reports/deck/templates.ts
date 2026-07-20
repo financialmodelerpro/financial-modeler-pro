@@ -33,6 +33,7 @@ import {
   text, boundText, titleBlock,
 } from './layout';
 import type { MetricBindingKey } from './bindings';
+import { PLACEHOLDER } from './placeholders';
 
 /** What a template may read besides the model: narrative the user already wrote. */
 export interface TemplateSeed {
@@ -59,8 +60,6 @@ const toPoints = (s: string | undefined | null, fallback: string[]): string[] =>
   const parts = String(s).split(/\r?\n+/).map((l) => l.replace(/^[-•*\d.)\s]+/, '').trim()).filter(Boolean);
   return parts.length ? parts : fallback;
 };
-
-const PLACEHOLDER = (what: string): string => `[Add ${what}. Click to edit, or use Generate Commentary.]`;
 
 // ── The library ─────────────────────────────────────────────────────────────
 

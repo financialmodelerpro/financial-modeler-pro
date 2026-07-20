@@ -52,11 +52,12 @@ function Chrome({ deck, slide, pageNumber }: { deck: Deck; slide: Slide; pageNum
     <>
       <div style={{
         position: 'absolute', left: MARGIN, top: 14, width: CONTENT_W, height: 14,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
         fontFamily: body, fontSize: TYPE_SCALE.chrome, color: DECK_THEME.slateLight, letterSpacing: 0.4,
       }}>
+        {/* ONE header, right-aligned. Section number + title come from the
+            slide's own titleBlock, so the band never doubles up. */}
         <span>{b.whiteLabel ? b.companyName : b.headerText}</span>
-        <span>{deck.title}</span>
       </div>
       <div style={{ position: 'absolute', left: MARGIN, top: FOOTER_Y - 10, width: CONTENT_W, height: 1, background: DECK_THEME.rule }} />
       <div style={{

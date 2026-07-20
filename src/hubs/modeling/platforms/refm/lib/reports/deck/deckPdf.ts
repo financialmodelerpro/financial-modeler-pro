@@ -500,8 +500,8 @@ function drawChrome(page: PDFPage, f: Fonts, es: ExportSlide): void {
   if (!es.chromeInfo.show) return;
   const c = es.chromeInfo;
   const grey = hex(DECK_THEME.slateLight);
-  line(page, 48, 14, c.headerLeft, { size: 6.75, font: f.sans, color: grey, maxWidth: px(680), align: 'left' });
-  line(page, 552, 14, c.headerRight, { size: 6.75, font: f.sans, color: grey, maxWidth: px(680), align: 'right' });
+  if (c.headerLeft) line(page, 48, 14, c.headerLeft, { size: 6.75, font: f.sans, color: grey, maxWidth: px(680), align: 'left' });
+  if (c.headerRight) line(page, 552, 14, c.headerRight, { size: 6.75, font: f.sans, color: grey, maxWidth: px(680), align: 'right' });
   hline(page, 48, 666, 1184, hex(DECK_THEME.rule), 0.75);
   line(page, 48, 676, c.footerLeft, { size: 6.75, font: f.sans, color: grey, maxWidth: px(900), align: 'left' });
   if (c.pageNumber !== null) line(page, 1132, 676, String(c.pageNumber), { size: 6.75, font: f.sans, color: grey, maxWidth: px(100), align: 'right' });

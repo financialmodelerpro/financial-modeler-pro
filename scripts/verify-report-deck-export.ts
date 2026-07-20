@@ -34,6 +34,23 @@ import {
 import { buildDeckPptx } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckPptx';
 import { buildDeckPdf } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckPdf';
 import type { Deck } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
+import JSZip from 'jszip';
+
+/** Editor-only prompt markers that must NEVER reach a rendered/exported slide. */
+const PLACEHOLDER_SIGNS = ['[Add ', 'Click to edit', 'Generate Commentary'];
+/** Collect every rendered string a set of resolved objects would paint. */
+const paintTexts = (objs: ExportObject[]): string[] => {
+  const out: string[] = [];
+  for (const o of objs) {
+    const p = o.paint;
+    if (p.kind === 'text') out.push(p.text);
+    else if (p.kind === 'bullets') out.push(...p.items);
+    else if (p.kind === 'shape') out.push(p.text);
+    else if (p.kind === 'riskMatrix') for (const r of p.rows) out.push(r.risk, r.mitigation);
+    else if (p.kind === 'unlinked') out.push(`${p.label.toUpperCase()} NOT AVAILABLE`, p.reason);
+  }
+  return out;
+};
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean): void => { if (cond) { pass++; console.log(`  [PASS] ${name}`); } else { fail++; console.log(`  [FAIL] ${name}`); } };
@@ -101,7 +118,10 @@ const ex = resolveDeckExport(deck, model, fmtM);
 check('resolves one export slide per visible slide', ex.slides.length === deck.slides.filter((s) => !s.hidden).length);
 check('cover slide carries no chrome (cover chrome off)', ex.slides[0].chromeInfo.show === false);
 const firstContent = ex.slides.find((s) => s.chromeInfo.show)!;
-check('first content slide has a page number and header text', firstContent.chromeInfo.pageNumber !== null && firstContent.chromeInfo.headerLeft.length > 0);
+check('first content slide has a page number and header text', firstContent.chromeInfo.pageNumber !== null && firstContent.chromeInfo.headerRight.length > 0);
+// FIX 1: exactly one header band. headerLeft is empty (the section chip + title
+// live on the slide's own titleBlock), headerRight carries the editable label.
+check('single header band: headerLeft empty, headerRight = editable report label', ex.slides.every((s) => !s.chromeInfo.show || (s.chromeInfo.headerLeft === '' && s.chromeInfo.headerRight.length > 0)));
 
 // KPI paints carry the SAME value the binding registry resolves.
 const allObjects: ExportObject[] = ex.slides.flatMap((s) => s.objects);
@@ -128,6 +148,29 @@ check('table paints resolve their registry data', tablePaints.every((o) => {
   const r = resolveTable(src.table, model, fmtM);
   return (r.available && o.paint.kind === 'table') || (!r.available && o.paint.kind === 'unlinked');
 }));
+
+// ── FIX 2: no editor-placeholder text and no "TEXT NOT AVAILABLE" leak ────────
+// The full deck is seeded with inputs:null, so every narrative block falls back
+// to an editor placeholder. None of them may survive into the resolved export.
+console.log('\n== placeholder leakage (editor-only text never exports) ==');
+const resolvedTexts = paintTexts(allObjects);
+check('no placeholder prompt text survives into the resolved export', !resolvedTexts.some((t) => PLACEHOLDER_SIGNS.some((s) => t.includes(s))));
+check('no bound text renders as "TEXT NOT AVAILABLE" (empty text omits instead)', !allObjects.some((o) => o.paint.kind === 'unlinked' && o.paint.label === 'Text'));
+
+// Cover "Prepared by" omits when no Parties prepared-by is set (rather than a
+// bracketed prompt or an amber unlinked frame).
+const partiesNoPrep: any = [
+  { id: '1', name: 'PaceMakers', identifier: null, roles: ['Sponsor', 'Developer'] },
+  { id: '2', name: 'JV Investor Co', identifier: 'reg-1', roles: ['Investor/Equity Partner'] },
+];
+const mNoPrep: ICReportModel = buildICReportModel({ project, phases, assets, subUnits, rs, snap, parties: partiesNoPrep, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const deckNoPrep = seedDeck('proj-3', mNoPrep, { inputs: null }, { asOf: '2026-07-16' });
+const exNoPrep = resolveDeckExport(deckNoPrep, mNoPrep, fmtM);
+const prepSrc = deckNoPrep.slides.flatMap((s) => s.objects).find((o) => (o as any).binding === 'cover.preparedBy');
+const prepInExport = !!prepSrc && exNoPrep.slides.flatMap((s) => s.objects).some((o) => o.id === prepSrc!.id);
+check('cover Prepared-by object exists in the seed', !!prepSrc);
+check('cover Prepared-by is omitted from export when no prepared-by party set', !!prepSrc && !prepInExport);
+check('no-prepared model exports zero placeholder / unlinked-text leaks', !paintTexts(exNoPrep.slides.flatMap((s) => s.objects)).some((t) => PLACEHOLDER_SIGNS.some((s) => t.includes(s))));
 
 // ── Unlinked: no fabricated figures on the reduced model ─────────────────────
 console.log('\n== unlinked paints (no fabricated numbers) ==');
@@ -162,6 +205,12 @@ check('visible page numbers stay gapless after a hide', (() => {
     const pptx = buildDeckPptx({ deck, model, fmt: fmtM });
     const buf = (await pptx.write({ outputType: 'nodebuffer' })) as Buffer;
     check('PPTX builds to a PK zip (Office Open XML)', buf.length > 2000 && buf[0] === 0x50 && buf[1] === 0x4b);
+    // FIX 2 end-to-end: scan the real slide XML for any leaked prompt text.
+    const zip = await JSZip.loadAsync(buf);
+    const slideKeys = Object.keys(zip.files).filter((k) => /ppt\/slides\/slide\d+\.xml$/.test(k));
+    const xml = (await Promise.all(slideKeys.map((k) => zip.files[k].async('string')))).join('\n');
+    check('PPTX slide XML contains no placeholder prompt text', !PLACEHOLDER_SIGNS.some((s) => xml.includes(s)));
+    check('PPTX slide XML contains no "TEXT NOT AVAILABLE"', !xml.includes('TEXT NOT AVAILABLE'));
   } catch (e) { check(`PPTX builds without throwing (${(e as Error).message})`, false); }
 
   try {
