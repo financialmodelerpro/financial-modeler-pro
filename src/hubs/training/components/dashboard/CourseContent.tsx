@@ -316,6 +316,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           courseLabel={course.title}
           initialStatus={modelGate ?? null}
           onSubmitted={onModelSubmitted}
+          sessionsComplete={allRegularPassed}
         />
       )}
 

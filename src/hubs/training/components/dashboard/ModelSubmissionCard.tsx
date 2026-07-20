@@ -41,6 +41,13 @@ interface Props {
   initialStatus: ModelSubmissionStatusResult | null;
   /** Optional callback fired after a successful upload so the parent can refresh. */
   onSubmitted?: () => void;
+  /**
+   * True once the student has passed every regular (non-Final-Exam) session for
+   * this course. The upload is locked until then, so a model is only submitted
+   * right before the Final Exam, not partway through the course. Defaults to
+   * true so a caller that doesn't pass it keeps the old always-open behaviour.
+   */
+  sessionsComplete?: boolean;
 }
 
 function formatBytes(n: number): string {
@@ -225,7 +232,7 @@ function StatusPill({ tone, label }: { tone: 'amber' | 'green' | 'red' | 'gray';
   );
 }
 
-export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, onSubmitted }: Props) {
+export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, onSubmitted, sessionsComplete = true }: Props) {
   const [status, setStatus] = useState<ModelSubmissionStatusResult | null>(initialStatus);
   const [file, setFile] = useState<File | null>(null);
   const [notes, setNotes] = useState('');
@@ -472,6 +479,57 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
             You have used all {status.maxAttempts} of your model submission attempts. Please email the
             administrator to discuss next steps.
           </div>
+        </div>
+      </>
+    );
+  }
+
+  // Submission window not open yet: the student has not passed every regular
+  // session for this course. Show the mandatory banner + instructions so they
+  // can prepare, but withhold the upload UI until sessions are complete. This
+  // only applies before the first submission -- pending/approved/exhausted
+  // states above already returned, so an in-flight submission is never hidden.
+  if (!sessionsComplete) {
+    return (
+      <>
+        <MandatoryBanner courseLabel={courseLabel} />
+        <div style={{
+          background: '#fff',
+          border: '1px solid #E5E7EB',
+          borderRadius: 12,
+          padding: '18px 20px',
+          marginBottom: 20,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 18 }}>🔒</span>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A' }}>
+              Model submission opens after all sessions
+            </div>
+            <StatusPill tone="gray" label="Locked" />
+          </div>
+          <div style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            background: '#F8FAFC',
+            border: '1px solid #E2E8F0',
+            borderRadius: 8,
+            fontSize: 12.5,
+            color: '#334155',
+            lineHeight: 1.55,
+          }}>
+            Finish and pass every session in <strong>{courseLabel}</strong> to unlock model submission.
+            The upload opens automatically once you reach the Final Exam stage, so you can prepare your
+            model now using the guidance below.
+          </div>
+
+          {/* Guidance + file-naming shown up front so students can build ahead. */}
+          <GuidancePanel
+            courseCode={courseCode}
+            courseLabel={courseLabel}
+            guidance={status.guidance}
+            sampleUrl={status.sampleUrl}
+          />
         </div>
       </>
     );
