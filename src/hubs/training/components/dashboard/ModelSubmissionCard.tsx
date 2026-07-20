@@ -5,6 +5,7 @@ import type {
   ModelSubmissionRow,
   ModelSubmissionStatusResult,
 } from '@/src/hubs/training/lib/modelSubmission/types';
+import { DEFAULT_MODEL_SUBMISSION_GUIDANCE } from '@/src/hubs/training/lib/modelSubmission/guidanceDefaults';
 
 /**
  * Student-facing card that drives the model-submission gate (migration 148).
@@ -60,17 +61,12 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 /**
- * Baked-in fallback guidance per course. Used when training_settings has no
- * per-course override saved. Admin override at /admin/training-settings wins
- * once populated -- the constant is a pure code-level last resort and never
- * written to the DB, so existing customizations survive deploys.
+ * Baked-in fallback guidance per course, shared with the admin Training
+ * Settings page (which pre-fills its editable textareas with the same copy).
+ * Used when training_settings has no per-course override saved. Admin override
+ * at /admin/training-settings wins once populated.
  */
-const DEFAULT_GUIDANCE: Record<'3SFM' | 'BVM', string> = {
-  '3SFM':
-    'Build your own 3-Statement Financial Model and upload it as an Excel file (.xlsx, .xls, .xlsm) or PDF. Our experts team will review it within 5 business days. Approval unlocks the Final Exam. Each rejection consumes one of your 3 attempts.',
-  'BVM':
-    'Build your own Business Valuation Model (DCF + Comps) using the case studies from the course and upload it as an Excel file (.xlsx, .xls, .xlsm) or PDF. Our experts team will review it within 5 business days. Approval unlocks the Final Exam. Each rejection consumes one of your 3 attempts.',
-};
+const DEFAULT_GUIDANCE = DEFAULT_MODEL_SUBMISSION_GUIDANCE;
 
 /**
  * Required file-naming convention shown to every student before they upload.

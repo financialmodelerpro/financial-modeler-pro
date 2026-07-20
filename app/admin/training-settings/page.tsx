@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
+import { DEFAULT_MODEL_SUBMISSION_GUIDANCE } from '@/src/hubs/training/lib/modelSubmission/guidanceDefaults';
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', fontSize: 13,
@@ -108,10 +109,14 @@ export default function TrainingSettingsPage() {
       const recip = (s.model_submission_admin_notify_email ?? '').trim();
       setMsNotifyEmail(recip);
       setMsNotifyEmailSavedAt(recip);
-      // F.2 per-course guidance + sample URL hydration. Strings stay empty
-      // when unset; the student card backs out to a baked default per course.
-      setMsGuidance3sfm(s.model_submission_guidance_3sfm ?? '');
-      setMsGuidanceBvm(s.model_submission_guidance_bvm ?? '');
+      // F.2 per-course guidance + sample URL hydration. Pre-fill the editable
+      // textareas with the shared default copy when no custom row is saved, so
+      // the admin edits real text in place instead of a blank box. A saved
+      // (non-empty) value always wins.
+      const g3sfm = (s.model_submission_guidance_3sfm ?? '').trim();
+      const gbvm  = (s.model_submission_guidance_bvm ?? '').trim();
+      setMsGuidance3sfm(g3sfm || DEFAULT_MODEL_SUBMISSION_GUIDANCE['3SFM']);
+      setMsGuidanceBvm(gbvm || DEFAULT_MODEL_SUBMISSION_GUIDANCE['BVM']);
       setMsSampleUrl3sfm(s.model_submission_sample_url_3sfm ?? '');
       setMsSampleUrlBvm(s.model_submission_sample_url_bvm ?? '');
       const wa = (s.whatsapp_group_url ?? '').trim();
