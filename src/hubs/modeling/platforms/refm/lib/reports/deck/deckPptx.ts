@@ -25,7 +25,7 @@ import type { Deck, TextStyle, ShapeKind } from './types';
 import { DECK_THEME, noHash, fontFor } from './theme';
 import {
   resolveDeckExport, pxToInch, type ExportDeck, type ExportObject, type ExportSlide,
-  type ExportPaint, type GanttPaint, type HeatmapPaint, type KpiPaint,
+  type ExportPaint, type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
 } from './exportModel';
 
 const AMBER = '#B98A2E';
@@ -42,6 +42,12 @@ type Slide = PptxGenJS.Slide;
 const alignOf = (a: TextStyle['align']): PptxGenJS.HAlign => a;
 const valignOf = (v: TextStyle['valign']): PptxGenJS.VAlign => (v === 'middle' ? 'middle' : v === 'bottom' ? 'bottom' : 'top');
 
+/** A resolved object link as a pptx hyperlink (internal slide jump or external url). */
+function pptxLink(o: ExportObject): PptxGenJS.HyperlinkProps | undefined {
+  if (!o.link) return undefined;
+  return o.link.kind === 'slide' ? { slide: o.link.page } : { url: o.link.href };
+}
+
 function textOpts(o: ExportObject, style: TextStyle, deck: ExportDeck): PptxGenJS.TextPropsOptions {
   const face = style.fontFamily ?? (style.fontRole === 'heading' ? deck.fontHeading : deck.fontBody);
   return {
@@ -53,7 +59,33 @@ function textOpts(o: ExportObject, style: TextStyle, deck: ExportDeck): PptxGenJ
     lineSpacingMultiple: style.lineHeight ?? 1.3,
     margin: 0,
     isTextBox: true,
+    hyperlink: pptxLink(o),
   };
+}
+
+// ── Table of Contents ─────────────────────────────────────────────────────────
+
+/** The live ToC: each entry is a native hyperlink to its slide, so the exported
+ *  deck is clickable. Laid out as a vertical list inside the object box. */
+function addToc(slide: Slide, o: ExportObject, deck: ExportDeck, p: TocPaint): void {
+  let y = o.y;
+  if (p.heading) {
+    slide.addText(p.heading, { x: inX(o.x), y: inX(y), w: inX(o.w), h: inX(30), fontFace: deck.fontHeading, fontSize: fs(24), bold: true, color: noHash(DECK_THEME.navy), valign: 'top', margin: 0, isTextBox: true });
+    y += 38;
+  }
+  const n = Math.max(1, p.entries.length);
+  const rowH = Math.min(30, Math.max(16, (o.y + o.h - y) / n));
+  const fsz = fs(Math.min(p.style.size, rowH * 0.62));
+  const pageW = 40;
+  p.entries.forEach((e, i) => {
+    const ry = y + i * rowH;
+    const link: PptxGenJS.HyperlinkProps = { slide: e.page };
+    const left = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
+    slide.addText(left, { x: inX(o.x), y: inX(ry), w: inX(o.w - pageW), h: inX(rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.ink), valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
+    if (p.showPageNumbers) {
+      slide.addText(String(e.page), { x: inX(o.x + o.w - pageW), y: inX(ry), w: inX(pageW), h: inX(rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.slate), align: 'right', valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
+    }
+  });
 }
 
 // ── Shapes ───────────────────────────────────────────────────────────────────
@@ -277,6 +309,7 @@ function addObject(slide: Slide, pptx: PptxGenJS, o: ExportObject, deck: ExportD
     case 'kpi':      addKpi(slide, pptx, o, deck, p); break;
     case 'chart':    addChart(slide, pptx, o, p.data, p.chartKind, p.title, p.showLegend); break;
     case 'table':    addTable(slide, o, deck, p); break;
+    case 'toc':      addToc(slide, o, deck, p); break;
     case 'gantt':    addGantt(slide, pptx, o, deck, p); break;
     case 'heatmap':  addHeatmap(slide, o, deck, p); break;
     case 'riskMatrix': addRiskMatrix(slide, o, deck, p.rows); break;

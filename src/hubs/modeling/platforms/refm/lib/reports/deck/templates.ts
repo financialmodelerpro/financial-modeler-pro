@@ -30,7 +30,7 @@ import { DECK_THEME, TYPE_SCALE, textStyles, DEFAULT_BRANDING } from './theme';
 import {
   CONTENT_Y, CONTENT_H, CONTENT_BOTTOM, GAP, bullets, captionBlock, chart, chartWithCaption,
   coverWash, gantt, heatmap, image, kpi, kpiRow, panelLabel, phaseCard, riskMatrix, shape, table,
-  text, boundText, titleBlock,
+  text, boundText, titleBlock, toc,
 } from './layout';
 import type { MetricBindingKey } from './bindings';
 import { PLACEHOLDER } from './placeholders';
@@ -89,6 +89,18 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
           { ...textStyles.kpiSub(), color: DECK_THEME.pale, align: 'right' }, 'As of'),
       ];
     },
+  }),
+
+  // Contents (live, auto-syncing agenda with clickable hyperlinks) ─────────────
+  T({
+    id: 'contents', title: 'Contents', group: 'Opening', chrome: 'content',
+    available: () => true,
+    build: (m, seed, num) => [
+      ...titleBlock(num, 'Contents'),
+      toc({ x: MARGIN, y: CONTENT_Y + 8, w: CONTENT_W, h: CONTENT_H - 8 },
+        { ...textStyles.body(), size: 15 },
+        { heading: '', name: 'Table of contents' }),
+    ],
   }),
 
   // 2 ────────────────────────────────────────────────────────────────────────

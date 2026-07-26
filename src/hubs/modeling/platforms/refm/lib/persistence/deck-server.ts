@@ -42,7 +42,7 @@ const numOr = (v: unknown, fallback: number): number => (typeof v === 'number' &
 const nullableStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 const OBJECT_TYPES: ReadonlySet<string> = new Set<DeckObjectType>([
-  'text', 'bullets', 'kpi', 'chart', 'table', 'image', 'shape', 'divider', 'gantt', 'heatmap', 'riskMatrix',
+  'text', 'bullets', 'kpi', 'chart', 'table', 'image', 'shape', 'divider', 'gantt', 'heatmap', 'riskMatrix', 'toc',
 ]);
 
 /** Rebuild one object, preserving its type-specific payload but pinning the

@@ -18,7 +18,8 @@
 import type { ICReportModel } from '../icReport';
 import type { DeckObject } from './types';
 import { MARGIN, SLIDE_W, clampToCanvas, GRID } from './types';
-import { CONTENT_Y, kpi, chart, table, gantt, heatmap, type Box } from './layout';
+import { CONTENT_Y, kpi, chart, table, gantt, heatmap, toc, type Box } from './layout';
+import { textStyles } from './theme';
 import {
   METRIC_BINDINGS, METRIC_KEYS, resolveMetric,
   CHART_BINDINGS, CHART_KEYS, resolveChart,
@@ -26,7 +27,7 @@ import {
   type DeckFmt, type MetricBindingKey, type ChartBindingKey, type TableBindingKey,
 } from './bindings';
 
-export type BlockKind = 'kpi' | 'chart' | 'table' | 'gantt' | 'heatmap';
+export type BlockKind = 'kpi' | 'chart' | 'table' | 'gantt' | 'heatmap' | 'toc';
 
 export interface BlockSpec {
   /** Unique catalogue key: the binding key, or 'gantt' / 'heatmap'. */
@@ -46,6 +47,7 @@ export const BLOCK_SECTIONS: Array<{ id: string; title: string; kinds: BlockKind
   { id: 'chart', title: 'Charts',    kinds: ['chart'] },
   { id: 'table', title: 'Tables',    kinds: ['table'] },
   { id: 'model', title: 'Programme & sensitivity', kinds: ['gantt', 'heatmap'] },
+  { id: 'nav',   title: 'Navigation', kinds: ['toc'] },
 ];
 
 /**
@@ -79,6 +81,9 @@ export function availableBlocks(model: ICReportModel, fmt: DeckFmt): BlockSpec[]
   if (model.sensitivity.hasData) {
     out.push({ key: 'heatmap', kind: 'heatmap', label: 'Sensitivity heatmap', group: 'Scenarios' });
   }
+  // The Table of Contents is always available: it is deck-driven (lists the deck's
+  // own slides), so it does not depend on any model data resolving.
+  out.push({ key: 'toc', kind: 'toc', label: 'Table of contents', group: 'Navigation' });
   return out;
 }
 
@@ -90,6 +95,7 @@ const DEFAULT_SIZE: Record<BlockKind, { w: number; h: number }> = {
   table:   { w: 560, h: 320 },
   gantt:   { w: SLIDE_W - MARGIN * 2, h: 280 },
   heatmap: { w: 560, h: 320 },
+  toc:     { w: SLIDE_W - MARGIN * 2, h: 420 },
 };
 
 /** A landing box for a freshly inserted block: default size for its kind, dropped
@@ -110,6 +116,7 @@ export function buildBlockObject(spec: BlockSpec, box: Box): DeckObject {
     case 'table':   return table(box, spec.bindingKey as TableBindingKey);
     case 'gantt':   return gantt(box);
     case 'heatmap': return heatmap(box);
+    case 'toc':     return toc(box, { ...textStyles.body(), size: 15 }, { heading: 'Agenda' });
     case 'kpi':
     default:        return kpi(box, spec.bindingKey as MetricBindingKey, 'pale');
   }

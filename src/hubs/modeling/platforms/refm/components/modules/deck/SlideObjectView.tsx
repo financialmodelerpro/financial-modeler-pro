@@ -29,12 +29,13 @@ import {
 import type { ICReportModel } from '../../../lib/reports/icReport';
 import type {
   BulletsObject, ChartObject, DeckBranding, DeckObject, DividerObject, GanttObject,
-  HeatmapObject, ImageObject, KpiObject, RiskMatrixObject, ShapeObject, TableObject, TextObject, TextStyle,
+  HeatmapObject, ImageObject, KpiObject, RiskMatrixObject, ShapeObject, TableObject, TextObject, TextStyle, TocObject,
 } from '../../../lib/reports/deck/types';
 import { DECK_THEME, blend, fontFor, fontStack, TYPE_SCALE } from '../../../lib/reports/deck/theme';
 import {
   resolveChart, resolveMetric, resolveTable, resolveText, type DeckFmt,
 } from '../../../lib/reports/deck/bindings';
+import { buildTocPaint, type SlideIndexEntry } from '../../../lib/reports/deck/exportModel';
 import { isPlaceholderText } from '../../../lib/reports/deck/placeholders';
 
 export interface RenderCtx {
@@ -45,6 +46,12 @@ export interface RenderCtx {
    *  empty bound text are omitted so the canvas matches the export. In edit mode
    *  (default) they stay visible so the author can click to edit. */
   preview?: boolean;
+  /** The live slide index (for the ToC). Injected by SlideCanvas from the deck. */
+  slideIndex?: SlideIndexEntry[];
+  /** The id of the slide being rendered, so a ToC never lists itself. */
+  currentSlideId?: string;
+  /** Preview-only: jump to a slide by id (ToC entry click). */
+  onNavigate?: (slideId: string) => void;
 }
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
@@ -532,6 +539,39 @@ function RiskMatrixView({ o, ctx }: { o: RiskMatrixObject; ctx: RenderCtx }): Re
   );
 }
 
+/** The live Table of Contents. Entries come from the deck's own slide list
+ *  (resolved by the SAME buildTocPaint the exporters use), so the agenda follows
+ *  any slide add / remove / reorder. In Preview, a row jumps to its slide. */
+function TocView({ o, ctx }: { o: TocObject; ctx: RenderCtx }): React.JSX.Element {
+  const paint = buildTocPaint(o, ctx.slideIndex ?? [], ctx.currentSlideId ?? '');
+  const clickable = !!ctx.preview && !!ctx.onNavigate;
+  return (
+    <div style={{ ...boxCss(o), width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontFamily: fontStack(fontFor(ctx.branding, o.style.fontRole)) }}>
+      {paint.heading ? (
+        <div style={{ fontFamily: fontStack(fontFor(ctx.branding, 'heading')), fontSize: Math.max(o.style.size + 4, 20), fontWeight: 800, color: DECK_THEME.navy, marginBottom: 14, letterSpacing: 0.4 }}>
+          {paint.heading}
+        </div>
+      ) : null}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0 }}>
+        {paint.entries.length === 0 ? (
+          <div style={{ fontSize: 12, color: DECK_THEME.slateLight }}>No sections yet.</div>
+        ) : paint.entries.map((e) => (
+          <div
+            key={e.id}
+            onMouseDown={clickable ? (ev) => { ev.stopPropagation(); ctx.onNavigate?.(e.id); } : undefined}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: o.style.size, color: o.style.color, cursor: clickable ? 'pointer' : 'default', padding: '2px 0' }}
+          >
+            {paint.showNumbers ? <span style={{ fontWeight: 700, color: DECK_THEME.navyLight, minWidth: 26, flexShrink: 0 }}>{e.num}</span> : null}
+            <span style={{ fontWeight: 600, color: DECK_THEME.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</span>
+            <span style={{ flex: 1, borderBottom: `1px dotted ${DECK_THEME.rule}`, transform: 'translateY(-3px)', minWidth: 12 }} />
+            {paint.showPageNumbers ? <span style={{ fontWeight: 600, color: DECK_THEME.slate, flexShrink: 0 }}>{e.page}</span> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 /** Paint one object. The caller positions it; this fills the given box. */
@@ -549,6 +589,7 @@ export function SlideObjectView({ o, ctx }: { o: DeckObject; ctx: RenderCtx }): 
     case 'gantt':      return <GanttView o={o} ctx={ctx} />;
     case 'heatmap':    return <HeatmapView o={o} ctx={ctx} />;
     case 'riskMatrix': return <RiskMatrixView o={o} ctx={ctx} />;
+    case 'toc':        return <TocView o={o} ctx={ctx} />;
     default:           return null;
   }
 }

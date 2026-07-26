@@ -78,7 +78,14 @@ export interface BoxStyle {
 
 export type DeckObjectType =
   | 'text' | 'bullets' | 'kpi' | 'chart' | 'table'
-  | 'image' | 'shape' | 'divider' | 'gantt' | 'heatmap' | 'riskMatrix';
+  | 'image' | 'shape' | 'divider' | 'gantt' | 'heatmap' | 'riskMatrix' | 'toc';
+
+/** A navigation link on an object. `slide` jumps to a slide by id (resolved to a
+ *  page number at export, so it survives reorder); `url` opens an external link.
+ *  Exported to PPTX (native hyperlink) and PDF (GoTo / URI annotation). */
+export type DeckLink =
+  | { kind: 'slide'; slideId: string }
+  | { kind: 'url'; href: string };
 
 export interface BaseObject {
   id: string;
@@ -92,6 +99,8 @@ export interface BaseObject {
   /** Group membership. Objects sharing a groupId move and resize together. */
   groupId?: string | null;
   box?: BoxStyle;
+  /** Optional hyperlink. Any object may carry one; the ToC sets one per entry. */
+  link?: DeckLink | null;
 }
 
 /** A single text run. `binding` makes it dynamic (e.g. the project name); when
@@ -203,9 +212,26 @@ export interface RiskMatrixObject extends BaseObject {
   rows: RiskMatrixRow[];
 }
 
+/** A live Table of Contents. NOT model-bound and NOT baked: its entries are
+ *  resolved at render time from the deck's own slide list (title + page), so the
+ *  agenda follows any slide add / remove / reorder with no sync step, and each
+ *  entry hyperlinks to its slide. */
+export interface TocObject extends BaseObject {
+  type: 'toc';
+  style: TextStyle;
+  /** Heading shown above the list (e.g. "Agenda"). Empty string hides it. */
+  heading?: string;
+  /** Trailing page number with dot leaders (default true). */
+  showPageNumbers?: boolean;
+  /** Leading sequence number 01.. (default true). */
+  showNumbers?: boolean;
+  /** 'sections' = content slides only (default); 'all' = every non-hidden slide. */
+  scope?: 'sections' | 'all';
+}
+
 export type DeckObject =
   | TextObject | BulletsObject | KpiObject | ChartObject | TableObject
-  | ImageObject | ShapeObject | DividerObject | GanttObject | HeatmapObject | RiskMatrixObject;
+  | ImageObject | ShapeObject | DividerObject | GanttObject | HeatmapObject | RiskMatrixObject | TocObject;
 
 // ── Slides + deck ───────────────────────────────────────────────────────────
 

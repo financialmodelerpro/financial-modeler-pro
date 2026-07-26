@@ -20,15 +20,21 @@
  * No em dashes in this file.
  */
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { PDFDocument, PDFArray, PDFName, PDFString, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
 import type { ICReportModel } from '../icReport';
 import type { DeckFmt, ChartData } from './bindings';
 import type { Deck } from './types';
 import { DECK_THEME } from './theme';
 import {
   resolveDeckExport, type ExportDeck, type ExportObject, type ExportSlide,
-  type GanttPaint, type HeatmapPaint, type KpiPaint,
+  type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
 } from './exportModel';
+
+/** A recorded hyperlink hotspot: a rect in PDF points on `from` page, targeting an
+ *  internal page (GoTo) or an external url (URI). Materialised into annotations
+ *  after all pages exist, so a forward link can reference a later page. */
+type LinkTarget = { page: number } | { url: string };
+type LinkRec = (rectPts: [number, number, number, number], target: LinkTarget) => void;
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
 
@@ -418,6 +424,31 @@ function drawRiskMatrix(page: PDFPage, f: Fonts, o: ExportObject, rows: { risk: 
   });
 }
 
+// ── Table of Contents ─────────────────────────────────────────────────────────
+
+/** The live ToC: heading + a clickable row per slide (number, title, dotted
+ *  leader, page). Each row records a GoTo link over its full width via `rec`. */
+function drawToc(page: PDFPage, f: Fonts, o: ExportObject, p: TocPaint, rec?: LinkRec): void {
+  let y = o.y;
+  if (p.heading) {
+    line(page, o.x, y, p.heading, { size: 20, font: f.serifB, color: hex(DECK_THEME.navy), maxWidth: px(o.w), align: 'left' });
+    y += 34;
+  }
+  const n = Math.max(1, p.entries.length);
+  const rowH = Math.min(26, Math.max(14, (o.y + o.h - y) / n));
+  const fsz = Math.max(8, Math.min(p.style.size * S, rowH * 0.62));
+  const pageColW = 30;
+  p.entries.forEach((e, i) => {
+    const ry = y + i * rowH;
+    const label = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
+    line(page, o.x, ry + (rowH - fsz) / 2, label, { size: fsz, font: f.sansB, color: hex(DECK_THEME.ink), maxWidth: px(o.w - pageColW - 6), align: 'left' });
+    if (p.showPageNumbers) line(page, o.x + o.w - pageColW, ry + (rowH - fsz) / 2, String(e.page), { size: fsz, font: f.sans, color: hex(DECK_THEME.slate), maxWidth: px(pageColW), align: 'right' });
+    // dotted leader
+    hline(page, o.x, ry + rowH - 4, o.w - pageColW, hex(DECK_THEME.rule), 0.3);
+    if (rec) rec([px(o.x), PAGE_H - px(ry + rowH), px(o.x + o.w), PAGE_H - px(ry)], { page: e.page });
+  });
+}
+
 // ── Unlinked ─────────────────────────────────────────────────────────────────
 
 function drawUnlinked(page: PDFPage, f: Fonts, o: ExportObject, label: string, reason: string): void {
@@ -428,8 +459,12 @@ function drawUnlinked(page: PDFPage, f: Fonts, o: ExportObject, label: string, r
 
 // ── Object dispatch ──────────────────────────────────────────────────────────
 
-function drawObject(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject): void {
+function drawObject(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, rec?: LinkRec): void {
   const p = o.paint;
+  // An object-level link covers the whole box (the ToC records per-entry links itself).
+  if (o.link && rec && p.kind !== 'toc') {
+    rec([px(o.x), PAGE_H - px(o.y + o.h), px(o.x + o.w), PAGE_H - px(o.y)], o.link.kind === 'slide' ? { page: o.link.page } : { url: o.link.href });
+  }
   switch (p.kind) {
     case 'text': {
       if (p.box?.fill || p.box?.border) rect(page, o.x, o.y, o.w, o.h, { fill: p.box.fill ? hex(p.box.fill) : undefined, border: p.box.border ? hex(p.box.border.color) : undefined, borderW: p.box.border?.width });
@@ -489,6 +524,7 @@ function drawObject(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject):
       line(page, o.x, o.y + o.h / 2 - 5, p.alt || 'Image', { size: 9, font: f.sans, color: hex(DECK_THEME.slateLight), maxWidth: px(o.w), align: 'center' });
       break;
     }
+    case 'toc': drawToc(page, f, o, p, rec); break;
     case 'unlinked': drawUnlinked(page, f, o, p.label, p.reason); break;
     default: break;
   }
@@ -529,13 +565,40 @@ export async function buildDeckPdf({ deck, model, fmt }: BuildDeckPdfArgs): Prom
   doc.setProducer('Financial Modeler Pro');
   doc.setCreator('Financial Modeler Pro');
 
-  for (const es of ex.slides) {
+  const pages: PDFPage[] = [];
+  const links: Array<{ from: number; rect: [number, number, number, number]; target: LinkTarget }> = [];
+
+  ex.slides.forEach((es, pageIndex) => {
     const page = doc.addPage([PAGE_W, PAGE_H]);
+    pages.push(page);
     if (es.background && es.background !== '#FFFFFF') page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: hex(es.background) });
     drawChrome(page, f, es);
+    const rec: LinkRec = (rect, target) => links.push({ from: pageIndex, rect, target });
     for (const o of es.objects) {
-      try { drawObject(page, f, ex, o); } catch { /* one bad object never fails the whole file */ }
+      try { drawObject(page, f, ex, o, rec); } catch { /* one bad object never fails the whole file */ }
     }
+  });
+
+  // Materialise hyperlinks now that every page (and its ref) exists, so a forward
+  // GoTo link can reference a later page. Out-of-range targets are skipped.
+  for (const lk of links) {
+    const page = pages[lk.from];
+    if (!page) continue;
+    const annot = doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: lk.rect, Border: [0, 0, 0] });
+    if ('url' in lk.target) {
+      annot.set(PDFName.of('A'), doc.context.obj({ Type: 'Action', S: 'URI', URI: PDFString.of(lk.target.url) }));
+    } else {
+      const dest = pages[lk.target.page - 1];
+      if (!dest) continue;
+      const arr = PDFArray.withContext(doc.context);
+      arr.push(dest.ref);
+      arr.push(PDFName.of('Fit'));
+      annot.set(PDFName.of('Dest'), arr);
+    }
+    const ref = doc.context.register(annot);
+    const existing = page.node.get(PDFName.of('Annots'));
+    if (existing instanceof PDFArray) existing.push(ref);
+    else page.node.set(PDFName.of('Annots'), doc.context.obj([ref]));
   }
   return doc.save();
 }

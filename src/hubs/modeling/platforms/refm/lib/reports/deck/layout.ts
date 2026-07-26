@@ -27,7 +27,7 @@ import {
   MARGIN, CONTENT_W, SLIDE_W, SLIDE_H, deckId, rowSlots,
   type BulletsObject, type ChartObject, type DeckObject, type DividerObject, type GanttObject,
   type HeatmapObject, type ImageObject, type KpiObject, type KpiVariant, type RiskMatrixObject,
-  type ShapeObject, type TableObject, type TextObject, type TextStyle, type BoxStyle,
+  type ShapeObject, type TableObject, type TextObject, type TextStyle, type BoxStyle, type TocObject,
 } from './types';
 import { DECK_THEME, TYPE_SCALE, textStyles } from './theme';
 import type { ChartBindingKey, MetricBindingKey, TableBindingKey, TextBindingKey } from './bindings';
@@ -95,6 +95,10 @@ export const heatmap = (b: Box, extra: Partial<HeatmapObject> = {}): HeatmapObje
 
 export const riskMatrix = (b: Box, rows: RiskMatrixObject['rows'] = []): RiskMatrixObject => ({
   id: deckId('rsk'), type: 'riskMatrix', rot: 0, ...b, rows,
+});
+
+export const toc = (b: Box, style: TextStyle, extra: Partial<TocObject> = {}): TocObject => ({
+  id: deckId('toc'), type: 'toc', rot: 0, ...b, style, showPageNumbers: true, showNumbers: true, scope: 'sections', ...extra,
 });
 
 // ── Composite blocks ────────────────────────────────────────────────────────

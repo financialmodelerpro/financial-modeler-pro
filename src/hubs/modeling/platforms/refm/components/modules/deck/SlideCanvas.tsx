@@ -105,6 +105,16 @@ export default function SlideCanvas({
   const scale = width / SLIDE_W;
   const interactive = !thumbnail;
 
+  // The live slide index the ToC resolves against: same page numbering as the
+  // export (1-based over non-hidden slides). Injected into the render ctx so the
+  // ToC object needs no deck reference of its own.
+  const visible = deck.slides.filter((s) => !s.hidden);
+  const ctxWithIndex: RenderCtx = {
+    ...ctx,
+    slideIndex: visible.map((s, i) => ({ id: s.id, title: s.title, page: i + 1, isContent: s.chrome === 'content' })),
+    currentSlideId: slide.id,
+  };
+
   return (
     <div
       data-testid={thumbnail ? 'deck-slide-thumb' : 'deck-slide-canvas'}
@@ -125,7 +135,7 @@ export default function SlideCanvas({
           <Positioned
             key={o.id}
             o={o}
-            ctx={ctx}
+            ctx={ctxWithIndex}
             selected={!thumbnail && o.id === selectedId}
             onSelect={onSelect}
             interactive={interactive}

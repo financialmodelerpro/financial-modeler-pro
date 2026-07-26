@@ -87,6 +87,19 @@ export interface GanttPaint {
   lanes: ICProgrammeLane[];
 }
 
+/** One resolved ToC line: a display number, the slide title, its page, and the
+ *  target slide id (used by the on-canvas ToC to navigate; exporters link by page). */
+export interface TocEntry { num: string; title: string; page: number; id: string }
+export interface TocPaint {
+  kind: 'toc';
+  heading: string;
+  entries: TocEntry[];
+  style: TextStyle;
+  showPageNumbers: boolean;
+  showNumbers: boolean;
+  box?: BoxStyle;
+}
+
 export type ExportPaint =
   | { kind: 'text'; text: string; style: TextStyle; box?: BoxStyle }
   | { kind: 'bullets'; items: string[]; numbered: boolean; markerColor: string; style: TextStyle; box?: BoxStyle }
@@ -99,7 +112,12 @@ export type ExportPaint =
   | GanttPaint
   | HeatmapPaint
   | { kind: 'riskMatrix'; rows: RiskMatrixRow[] }
+  | TocPaint
   | { kind: 'unlinked'; label: string; reason: string };
+
+/** A resolved hyperlink: a slide link is resolved to its PAGE number (survives
+ *  reorder); a url link passes through. Absent when the object carries no link. */
+export type ExportLink = { kind: 'slide'; page: number } | { kind: 'url'; href: string };
 
 export interface ExportObject {
   id: string;
@@ -107,6 +125,29 @@ export interface ExportObject {
   x: number; y: number; w: number; h: number;
   rot: number;
   paint: ExportPaint;
+  /** Resolved navigation link (slide -> page, or url), when the object carries one. */
+  link?: ExportLink;
+}
+
+/** One slide's place in the deck: id, title, 1-based page, and whether it is a
+ *  content slide (ToC "sections" scope lists only these). */
+export interface SlideIndexEntry { id: string; title: string; page: number; isContent: boolean }
+
+/** Resolve a ToC object against the live slide index. Entries are the deck's own
+ *  slides (content-only under 'sections'), excluding the slide the ToC sits on, so
+ *  the agenda never lists itself. Numbers/pages are computed live, never baked. */
+export function buildTocPaint(o: { heading?: string; style: TextStyle; showPageNumbers?: boolean; showNumbers?: boolean; scope?: 'sections' | 'all'; box?: BoxStyle }, index: SlideIndexEntry[], selfId: string): TocPaint {
+  const scoped = index.filter((s) => s.id !== selfId && (o.scope === 'all' ? true : s.isContent));
+  const entries: TocEntry[] = scoped.map((s, i) => ({ num: String(i + 1).padStart(2, '0'), title: s.title, page: s.page, id: s.id }));
+  return {
+    kind: 'toc',
+    heading: o.heading ?? 'Agenda',
+    entries,
+    style: o.style,
+    showPageNumbers: o.showPageNumbers !== false,
+    showNumbers: o.showNumbers !== false,
+    box: o.box,
+  };
 }
 
 export interface ExportChrome {
@@ -285,6 +326,16 @@ function blendHex(a: string, b: string, t: number): string {
 export function resolveDeckExport(deck: Deck, model: ICReportModel, fmt: DeckFmt): ExportDeck {
   const b = deck.branding;
   const visible = deck.slides.filter((sl) => !sl.hidden);
+  // The live slide index: every bound link and the ToC resolve slide ids to PAGE
+  // numbers here, so a hyperlink survives a reorder and the ToC is never baked.
+  const slideIndex: SlideIndexEntry[] = visible.map((sl, i) => ({ id: sl.id, title: sl.title, page: i + 1, isContent: sl.chrome === 'content' }));
+  const pageOf = new Map(slideIndex.map((s) => [s.id, s.page]));
+  const resolveLink = (link: DeckObject['link']): ExportLink | undefined => {
+    if (!link) return undefined;
+    if (link.kind === 'url') return link.href.trim() ? { kind: 'url', href: link.href.trim() } : undefined;
+    const page = pageOf.get(link.slideId);
+    return page ? { kind: 'slide', page } : undefined; // dropped if the target is hidden / gone
+  };
   const slides: ExportSlide[] = visible.map((sl, i) => {
     const hasChrome = sl.chrome !== 'cover' && sl.chrome !== 'blank';
     // ONE header band: the editable header text, right-aligned. The section
@@ -300,9 +351,11 @@ export function resolveDeckExport(deck: Deck, model: ICReportModel, fmt: DeckFmt
     const objects: ExportObject[] = [];
     for (const o of sl.objects) {
       if (o.hidden) continue;
-      const paint = resolveObjectPaint(o, model, fmt);
+      // The ToC resolves against the deck (slide index), not the model.
+      const paint = o.type === 'toc' ? buildTocPaint(o, slideIndex, sl.id) : resolveObjectPaint(o, model, fmt);
       if (paint === null) continue; // omitted (placeholder / empty text)
-      objects.push({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot, paint });
+      const link = resolveLink(o.link);
+      objects.push({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot, paint, ...(link ? { link } : {}) });
     }
     return {
       id: sl.id, title: sl.title, chrome: sl.chrome,
