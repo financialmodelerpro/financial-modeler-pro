@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
   // all five Module 2 sub-tabs), Module 3 (Opex), Module 4 (P&L, Cash Flow,
   // Balance Sheet), Module 5 (Returns).
-  const ALL_SHEETS = ['Cover', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+  const ALL_SHEETS = ['Cover', 'Guide', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
   for (const name of ALL_SHEETS) check(`worksheet present: ${name}`, !!wb.getWorksheet(name));
   const actualOrder = wb.worksheets.map((w) => w.name);
   check('worksheet sequence follows the platform module order', actualOrder.join(' > ') === ALL_SHEETS.join(' > '), actualOrder.join(' > '));
@@ -312,7 +312,7 @@ async function main(): Promise<void> {
   const colB = (ws: ExcelJS.Worksheet, R: number): string => { const v = ws.getCell(R, 2).value; return typeof v === 'string' ? v : (v && typeof v === 'object' && 'text' in (v as any) ? (v as any).text : ''); };
   const rowByColB = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (row < 0 && re.test(colB(ws, R))) row = R; }); return row; };
   const cov = wb.getWorksheet('Cover')!;
-  check('Summary tab present, second (right after Cover)', actualOrder[0] === 'Cover' && actualOrder[1] === 'Summary');
+  check('front matter is Cover, Guide, Summary in order', actualOrder[0] === 'Cover' && actualOrder[1] === 'Guide' && actualOrder[2] === 'Summary');
   check('Cover carries a grouped Table of Contents', rowByColB(cov, /^Table of Contents$/) > 0 && rowByColB(cov, /^Module 1 /) > 0 && rowByColB(cov, /^Module 6 /) > 0);
   check('Cover ToC links the Summary + Scenarios sheets', rowByColB(cov, /Summary$/) > 0 && rowByColB(cov, /Scenarios$/) > 0);
   // Cover ToC links are internal hyperlinks (not formulas).
@@ -356,6 +356,17 @@ async function main(): Promise<void> {
   const covA2 = (n: string): string => { const v = wb.getWorksheet(n)!.getCell('A2').value; return typeof v === 'string' ? v : ''; };
   check('statement tabs carry a "Covers:" subtitle listing their sections', ['P&L', 'Balance Sheet', 'Returns', 'Financing'].every((n) => /^Covers:/.test(covA2(n))), `pl="${covA2('P&L')}"`);
   check('the guideline block added NO formula cells (still fully hardcoded)', formulaCells === 0);
+
+  // ── Dedicated Guide tab (tab 2): consolidated "how the model works" reference ─
+  check('Guide is tab 2 (right after the Cover)', actualOrder[1] === 'Guide');
+  const guide = wb.getWorksheet('Guide')!;
+  const guideLinks: string[] = [];
+  guide.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && 'hyperlink' in v) guideLinks.push(String(v.hyperlink)); }));
+  check('the Guide links to every data tab', ['Summary', 'Inputs', 'Capex', 'Financing', 'Revenue', 'P&L', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'].every((n) => guideLinks.includes(`#'${n}'!A1`)), `links=${guideLinks.length}`);
+  const guideText = (() => { let s = ''; guide.eachRow((row) => row.eachCell((c) => { const v: any = c.value; s += ' ' + (typeof v === 'string' ? v : (v && v.text) ? v.text : ''); })); return s; })();
+  check('the Guide explains the model is a hardcoded snapshot', /hardcoded snapshot/i.test(guideText) && /does NOT recalculate/i.test(guideText));
+  check('the Guide carries the P&L methodology (Revenue - Cost of Sales - Opex = EBITDA)', /Revenue - Cost of Sales - Operating Expenses = EBITDA/.test(guideText));
+  check('the Cover ToC links to the Guide', coverLinks.some((l) => l.target === `#'Guide'!A1`));
 
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');

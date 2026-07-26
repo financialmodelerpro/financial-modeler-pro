@@ -72,7 +72,7 @@ export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; sched
 // Inputs / Schedules / Outputs parts.
 type SheetPart = 'inputs' | 'schedules' | 'outputs' | 'always';
 
-const SHEETS = { cover: 'Cover', summary: 'Summary', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
+const SHEETS = { cover: 'Cover', guide: 'Guide', summary: 'Summary', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
 
 const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cover]: 'always',
@@ -134,10 +134,11 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const sectionReg = new Map<string, Array<{ title: string; row: number }>>();
   setSectionSink((sheet, title, row) => { const l = sectionReg.get(sheet) ?? []; l.push({ title, row }); sectionReg.set(sheet, l); });
 
-  // The Cover is created FIRST (so it stays tab 1) but its Table of Contents is
-  // WRITTEN LAST, once every section row across the workbook is known.
+  // The Cover + Guide are created FIRST (so they stay tabs 1-2) but written LAST,
+  // once every section row across the workbook is known.
   const coverWs = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
-  addSummary(wb, snap, opts, lm); // second tab; one-page executive summary
+  const guideWs = wb.addWorksheet(SHEETS.guide, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
+  addSummary(wb, snap, opts, lm); // third tab; one-page executive summary
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
   const landAddrs = addLandArea(wb, opts.state, refs);
@@ -189,6 +190,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // reconciliation and the locked palette + tab order are untouched.
   setSectionSink(null);
   buildCoverContent(coverWs, snap, opts, sectionReg);
+  buildGuideContent(guideWs, snap, opts, sectionReg);
   applyTabGuides(wb, sectionReg);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
@@ -228,7 +230,7 @@ function applyPrintSetup(wb: ExcelJS.Workbook): void {
   for (const ws of wb.worksheets) {
     const name = ws.name;
     const portraitOnePage = name === SHEETS.cover || name === SHEETS.summary;
-    const narrow = name === SHEETS.checks;
+    const narrow = name === SHEETS.checks || name === SHEETS.guide; // portrait, but flow to multiple pages
     ws.pageSetup = {
       paperSize: 9, // A4
       orientation: portraitOnePage || narrow ? 'portrait' : 'landscape',
@@ -3119,6 +3121,34 @@ function dedupSections(secs: Array<{ title: string; row: number }>): Array<{ tit
   return out;
 }
 
+/** The module-grouped tab list, shared by the Cover ToC and the Guide tab so the
+ *  two never drift. Excludes the Cover + Guide themselves. */
+type TocEntry = { group: string } | { sheet: string; desc: string };
+const MODULE_TOC: TocEntry[] = [
+  { sheet: SHEETS.summary, desc: 'One-page executive summary: key facts, headline metrics and financial highlights' },
+  { group: 'Module 1  ·  Setup, Costs & Financing' },
+  { sheet: SHEETS.assumptions, desc: 'All model inputs, consolidated and grouped by type' },
+  { sheet: SHEETS.timeline, desc: 'The model year axis' },
+  { sheet: SHEETS.landArea, desc: 'Area hierarchy (NSA / BUA / GFA) and land value' },
+  { sheet: SHEETS.capex, desc: 'Development cost build-up and phased schedule' },
+  { sheet: SHEETS.financing, desc: 'Depreciation, interest, tax, debt + equity and the cash recurrence' },
+  { group: 'Module 2  ·  Revenue & Cost of Sales' },
+  { sheet: SHEETS.revenue, desc: 'Inputs, Output, Cost of Sales, Schedules and Escrow' },
+  { group: 'Module 3  ·  Operating Expenses' },
+  { sheet: SHEETS.opex, desc: 'Operating expenses by asset and category' },
+  { group: 'Module 4  ·  Financial Statements' },
+  { sheet: SHEETS.schedules, desc: 'Fixed Assets, IDC Pool and Working Capital' },
+  { sheet: SHEETS.pl, desc: 'Profit and loss (income statement)' },
+  { sheet: SHEETS.cashflow, desc: 'Cash flow statement (Direct + Indirect)' },
+  { sheet: SHEETS.balsheet, desc: 'Balance sheet (balances by construction)' },
+  { group: 'Module 5  ·  Returns' },
+  { sheet: SHEETS.returns, desc: 'IRR, NPV and equity multiple (FCFF / FCFE) + RE metrics' },
+  { group: 'Module 6  ·  Scenario Analysis' },
+  { sheet: SHEETS.scenarios, desc: 'Case comparison and year-on-year impact' },
+  { group: 'Reference' },
+  { sheet: SHEETS.checks, desc: 'Integrity checks and colour legend' },
+];
+
 function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
   const p = opts.state.project;
   const currency = p.currency ?? 'SAR';
@@ -3140,30 +3170,10 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   // sheet is a numbered, hyperlinked row with a description. Only sheet rows are
   // numbered, so the count reads as the deliverable page list.
   frontMatterBand(ws, r, 'Table of Contents'); r += 1;
-  type Toc = { group: string } | { sheet: string; desc: string };
-  const toc: Toc[] = [
-    { sheet: SHEETS.summary, desc: 'One-page executive summary: key facts, headline metrics and financial highlights' },
-    { group: 'Module 1  ·  Setup, Costs & Financing' },
-    { sheet: SHEETS.assumptions, desc: 'All model inputs, consolidated and grouped by type' },
-    { sheet: SHEETS.timeline, desc: 'The model year axis' },
-    { sheet: SHEETS.landArea, desc: 'Area hierarchy (NSA / BUA / GFA) and land value' },
-    { sheet: SHEETS.capex, desc: 'Development cost build-up and phased schedule' },
-    { sheet: SHEETS.financing, desc: 'Depreciation, interest, tax, debt + equity and the cash recurrence' },
-    { group: 'Module 2  ·  Revenue & Cost of Sales' },
-    { sheet: SHEETS.revenue, desc: 'Inputs, Output, Cost of Sales, Schedules and Escrow' },
-    { group: 'Module 3  ·  Operating Expenses' },
-    { sheet: SHEETS.opex, desc: 'Operating expenses by asset and category' },
-    { group: 'Module 4  ·  Financial Statements' },
-    { sheet: SHEETS.schedules, desc: 'Fixed Assets, IDC Pool and Working Capital' },
-    { sheet: SHEETS.pl, desc: 'Profit and loss (income statement)' },
-    { sheet: SHEETS.cashflow, desc: 'Cash flow statement (Direct + Indirect)' },
-    { sheet: SHEETS.balsheet, desc: 'Balance sheet (balances by construction)' },
-    { group: 'Module 5  ·  Returns' },
-    { sheet: SHEETS.returns, desc: 'IRR, NPV and equity multiple (FCFF / FCFE) + RE metrics' },
-    { group: 'Module 6  ·  Scenario Analysis' },
-    { sheet: SHEETS.scenarios, desc: 'Case comparison and year-on-year impact' },
-    { group: 'Reference' },
-    { sheet: SHEETS.checks, desc: 'Integrity checks and colour legend' },
+  // Guide leads the list, then the shared module-grouped tabs.
+  const toc: TocEntry[] = [
+    { sheet: SHEETS.guide, desc: 'How the model works: what each tab covers and how every figure is calculated' },
+    ...MODULE_TOC,
   ];
   const tocTop = r;
   let num = 0, zebra = 0;
@@ -3215,6 +3225,75 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   const secSwatch = ws.getCell(r, 5); secSwatch.value = 'Section'; fillCell(secSwatch, ARGB.accent); secSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
   const totSwatch = ws.getCell(r, 6); totSwatch.value = 'Total'; fillCell(totSwatch, ARGB.navy); totSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
   r += 2;
+  const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
+}
+
+// ── Guide tab (a dedicated, consolidated "how the model works" reference) ───────
+/** The Guide is tab 2: an at-a-glance, module-grouped reference explaining what
+ *  every tab covers and how each figure is calculated. Each tab heading links to
+ *  the tab. Content is shared with the per-tab bottom blocks (TAB_GUIDES), so the
+ *  two never drift. Built in the post-pass so the "Covers" lines can list the
+ *  sections actually captured during the build. */
+function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
+  void snap;
+  frontMatterCanvas(ws);
+  let r = frontMatterBanner(ws, 'Model Guide', 'How this model works  ·  what each tab covers  ·  how every figure is calculated');
+
+  ws.mergeCells(r, 2, r, 7);
+  const intro = ws.getCell(r, 2);
+  intro.value = 'This workbook is a hardcoded snapshot of the platform: every figure is a computed value written as a constant, so editing a cell does NOT recalculate. To run a different scenario, change the inputs in the platform and re-export. Navy-pale cells are inputs; everything else is computed. The tabs follow the platform module order, and each tab also carries this guidance at its foot.';
+  intro.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
+  intro.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+  ws.getRow(r).height = 56;
+  r += 2;
+
+  // Colour legend (matches the Cover).
+  setLabel(ws.getCell(r, 2), 'Legend:', { bold: true });
+  const inSw = ws.getCell(r, 3); inSw.value = 'Input'; markInput(inSw); inSw.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+  const fmSw = ws.getCell(r, 4); fmSw.value = 'Computed'; fmSw.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
+  const seSw = ws.getCell(r, 5); seSw.value = 'Section'; fillCell(seSw, ARGB.accent); seSw.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  const toSw = ws.getCell(r, 6); toSw.value = 'Total'; fillCell(toSw, ARGB.navy); toSw.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+  r += 2;
+
+  for (const e of MODULE_TOC) {
+    if ('group' in e) {
+      ws.mergeCells(r, 2, r, 7);
+      const gc = ws.getCell(r, 2); gc.value = e.group;
+      gc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+      gc.alignment = { indent: 1 };
+      fillRange(ws, r, 2, r, 7, ARGB.navyDark);
+      r += 1; continue;
+    }
+    // Tab heading (hyperlinked to the tab) on a pale band.
+    ws.mergeCells(r, 2, r, 7);
+    const tc = ws.getCell(r, 2);
+    tc.value = { text: e.sheet, hyperlink: `#'${e.sheet}'!A1` };
+    tc.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.navy }, underline: true };
+    tc.alignment = { indent: 1 };
+    fillRange(ws, r, 2, r, 7, ARGB.subtotal);
+    r += 1;
+    // Covers line (the tab's sections).
+    const secs = dedupSections(sectionReg.get(e.sheet) ?? []);
+    if (secs.length) {
+      ws.mergeCells(r, 2, r, 7);
+      const cc = ws.getCell(r, 2);
+      cc.value = `Covers:  ${secs.map((s) => s.title).slice(0, 12).join('  ·  ')}${secs.length > 12 ? '  ·  …' : ''}`;
+      cc.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+      cc.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+      ws.getRow(r).height = 24;
+      r += 1;
+    }
+    // Methodology bullets.
+    for (const line of (TAB_GUIDES[e.sheet] ?? [])) {
+      ws.mergeCells(r, 2, r, 7);
+      const bc = ws.getCell(r, 2); bc.value = `•  ${line}`;
+      bc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      bc.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+      ws.getRow(r).height = Math.max(16, Math.ceil(line.length / 88) * 15);
+      r += 1;
+    }
+    r += 1; // gap before the next tab
+  }
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
 }
 
