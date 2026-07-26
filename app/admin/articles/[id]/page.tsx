@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
+import { ArticleSeriesField } from '@/src/components/admin/ArticleSeriesField';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
 import { ArticleAuthorAboutFields } from '@/src/components/admin/ArticleAuthorAboutFields';
@@ -26,6 +27,7 @@ export default function AdminArticleEditPage() {
   const [slug, setSlug] = useState('');
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [seriesId, setSeriesId] = useState('');
   const [writerId, setWriterId] = useState('');
   const [writerName, setWriterName] = useState('');
   const [writerTitle, setWriterTitle] = useState('');
@@ -74,6 +76,7 @@ export default function AdminArticleEditPage() {
         setTitle(a.title ?? '');
         setSlug(a.slug ?? '');
         setCategoryIds(Array.isArray(a.category_ids) ? a.category_ids : []);
+        setSeriesId(a.series_id ?? '');
         setWriterId(a.writer_id ?? '');
         setWriterName(a.writer_name ?? '');
         setWriterTitle(a.writer_title ?? '');
@@ -133,7 +136,7 @@ export default function AdminArticleEditPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
+        body: JSON.stringify({ id, title, slug, category_ids: categoryIds, series_id: seriesId || null, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
       });
       if (!res.ok) throw new Error('Save failed');
       // Re-sync to the state the server actually stored. If the schedule fired while
@@ -149,7 +152,7 @@ export default function AdminArticleEditPage() {
     } catch {
       if (showToast) { setToast({ msg: 'Save failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
     } finally { setSaving(false); }
-  }, [id, title, slug, categoryIds, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl]);
+  }, [id, title, slug, categoryIds, seriesId, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl]);
 
   useEffect(() => {
     autoSaveRef.current = setInterval(() => { if (!loading) doSave(false); }, 60000);
@@ -235,6 +238,9 @@ export default function AdminArticleEditPage() {
                   <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
                 </div>
                 <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <ArticleSeriesField value={seriesId} onChange={setSeriesId} inputStyle={inputStyle} notify={notify} />
               </div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Writer</label>

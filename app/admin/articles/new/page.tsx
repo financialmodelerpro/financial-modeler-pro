@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { ArticleBodyEditor, uploadMediaImage } from '@/src/components/admin/ArticleBodyEditor';
 import { CategoryMultiSelect } from '@/src/components/admin/CategoryMultiSelect';
+import { ArticleSeriesField } from '@/src/components/admin/ArticleSeriesField';
 import { ArticleExtraFields, type ExtraFieldsValue } from '@/src/components/admin/ArticleExtraFields';
 import { ArticleWriterField } from '@/src/components/admin/ArticleWriterField';
 import { ArticleAuthorAboutFields } from '@/src/components/admin/ArticleAuthorAboutFields';
@@ -23,6 +24,7 @@ export default function AdminArticleNewPage() {
   const [slug, setSlug] = useState('');
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [seriesId, setSeriesId] = useState('');
   const [writerId, setWriterId] = useState('');
   const [writerName, setWriterName] = useState('');
   const [writerTitle, setWriterTitle] = useState('');
@@ -96,7 +98,7 @@ export default function AdminArticleNewPage() {
       const res = await fetch('/api/admin/articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
+        body: JSON.stringify({ title, slug: finalSlug, category_ids: categoryIds, series_id: seriesId || null, cover_url: coverUrl, body, status, scheduled_at: status === 'scheduled' ? toUtcIso(scheduledAt) : null, featured, seo_title: seoTitle, seo_description: seoDesc, mid_image_url: extra.midImageUrl, mid_image_caption: extra.midImageCaption, og_image_url: extra.ogImageUrl, tags: extra.tags, writer_id: writerId || null, writer_name: writerName || null, writer_title: writerTitle || null, hero_before_content: heroBeforeContent, author_bio: authorBio, author_profile_url: authorProfileUrl }),
       });
       if (!res.ok) throw new Error('Failed to create article');
       const j = await res.json();
@@ -105,7 +107,7 @@ export default function AdminArticleNewPage() {
       setToast({ msg: 'Failed to create article', type: 'error' });
       setTimeout(() => setToast(null), 2500);
     } finally { setSaving(false); }
-  }, [title, slug, categoryIds, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl, router]);
+  }, [title, slug, categoryIds, seriesId, coverUrl, body, status, scheduledAt, featured, heroBeforeContent, seoTitle, seoDesc, extra, writerId, writerName, writerTitle, authorBio, authorProfileUrl, router]);
 
   const readTime = Math.max(1, Math.round(wordCount / 200));
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -167,6 +169,9 @@ export default function AdminArticleNewPage() {
                   <Link href="/admin/articles/categories" style={{ fontSize: 11, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}>Manage</Link>
                 </div>
                 <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} inputStyle={inputStyle} notify={notify} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <ArticleSeriesField value={seriesId} onChange={setSeriesId} inputStyle={inputStyle} notify={notify} />
               </div>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Writer</label>

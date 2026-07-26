@@ -3,13 +3,14 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getArticleBySlug, getArticleBySlugAnyStatus, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
+import { getArticleBySlug, getArticleBySlugAnyStatus, getArticleReadingContext, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
 import { sanitizeArticleHtml } from '@/src/shared/cms/sanitizeArticle';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 import { AuthorAbout } from '@/src/hubs/main/components/landing/AuthorAbout';
+import { ArticleSeriesBanner, ArticleSeriesContents, ArticlePrevNext, MoreInCategory } from '@/src/hubs/main/components/landing/ArticleReading';
 
 // Rendered on demand (not ISR): the admin draft-preview path reads the session
 // (cookies) when the published lookup misses, which is a dynamic API and throws
@@ -65,6 +66,13 @@ export default async function ArticleDetailPage({ params }: Props) {
     }
   }
   if (!article) notFound();
+
+  // Reading context: series contents, previous/next, and more-in-category. Never
+  // throws and degrades cleanly before migration 200 is applied.
+  const reading = await getArticleReadingContext(article);
+  const inSeries = !!reading.series;
+  const navPrev  = inSeries ? reading.series!.prev : reading.categoryNav.prev;
+  const navNext  = inSeries ? reading.series!.next : reading.categoryNav.next;
 
   const readTime = estimateReadTime(article.body);
   const date     = article.published_at
@@ -126,6 +134,9 @@ export default async function ArticleDetailPage({ params }: Props) {
           </div>
         )}
         <article style={{ background: '#fff', borderRadius: 16, boxShadow: '0 24px 70px -24px rgba(0,0,0,0.55)', overflow: 'hidden' }}>
+          {/* Series ribbon (only when this article belongs to a sequence). */}
+          {reading.series && <ArticleSeriesBanner series={reading.series} />}
+
           {/* Hero above the header when hero_before_content is set. */}
           {heroBefore && heroBlock}
 
@@ -197,6 +208,16 @@ export default async function ArticleDetailPage({ params }: Props) {
             profileUrl={article.author_profile_url}
           />
         </div>
+
+        {/* Continue reading: series contents, prev/next, more in this category. */}
+        {reading.series && <ArticleSeriesContents series={reading.series} />}
+        <ArticlePrevNext
+          prev={navPrev}
+          next={navNext}
+          prevLabel={inSeries ? 'Previous part' : 'Previous'}
+          nextLabel={inSeries ? 'Next part' : 'Next'}
+        />
+        {reading.primaryCategory && <MoreInCategory category={reading.primaryCategory} articles={reading.moreInCategory} />}
 
         {/* Back link (on the navy chrome, below the card) */}
         <div style={{ padding: '28px 4px 8px' }}>

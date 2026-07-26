@@ -47,6 +47,9 @@ export default async function AdminArticlesPage() {
             <Link href="/admin/articles/categories" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: '#1B4F8A', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none', border: '1px solid #C9DAF0' }}>
               Manage Categories
             </Link>
+            <Link href="/admin/articles/series" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: '#1B4F8A', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none', border: '1px solid #C9DAF0' }}>
+              Manage Series
+            </Link>
             <Link href="/admin/articles/new" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
               + New Article
             </Link>

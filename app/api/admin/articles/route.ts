@@ -10,7 +10,16 @@ const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpr
 // Additive columns from migrations 187+ (scheduled_at = 198). Writes stay
 // schema-tolerant: if the column does not exist yet (migration not applied), we
 // retry without these keys.
-const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url', 'author_bio', 'author_profile_url', 'scheduled_at'] as const;
+const ADDITIVE_KEYS = ['mid_image_url', 'mid_image_caption', 'og_image_url', 'tags', 'writer_id', 'writer_name', 'writer_title', 'hero_before_content', 'writer_avatar_url', 'author_bio', 'author_profile_url', 'scheduled_at', 'series_id', 'series_order'] as const;
+
+/** Next append position for an article joining a series: max(series_order)+1 (0 when empty). */
+async function nextSeriesOrder(sb: ReturnType<typeof getServerClient>, seriesId: string): Promise<number> {
+  try {
+    const { data } = await sb.from('articles').select('series_order').eq('series_id', seriesId).order('series_order', { ascending: false }).limit(1);
+    const top = Array.isArray(data) && data[0] ? (data[0] as { series_order?: number | null }).series_order : null;
+    return (typeof top === 'number' ? top : -1) + 1;
+  } catch { return 0; }
+}
 
 /** The linked instructor's photo + bio, snapshotted onto the article byline +
  *  author block (migs 194 + 195). Resolved server-side from writer_id so it
@@ -93,7 +102,7 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
-    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content, author_bio, author_profile_url, scheduled_at } = body;
+    const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description, mid_image_url, mid_image_caption, og_image_url, tags, category_ids, writer_id, writer_name, writer_title, hero_before_content, author_bio, author_profile_url, scheduled_at, series_id } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     if (requiresWriter(status) && !writer_id) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
     // Scheduling (mig 198): a due/past time resolves to a straight publish. See
@@ -131,6 +140,12 @@ export async function POST(req: NextRequest) {
       insert.author_profile_url = providedUrl || (writer_id ? (inst?.profile_url ?? null) : null);
     }
     if (hero_before_content !== undefined) insert.hero_before_content = !!hero_before_content;
+    // Series membership: assigning appends to the end of the series (drag-reorder in
+    // the series manager owns the exact order); no series -> standalone at order 0.
+    if (series_id !== undefined) {
+      insert.series_id = series_id || null;
+      insert.series_order = series_id ? await nextSeriesOrder(sb, series_id) : 0;
+    }
     if (effectiveStatus === 'published') insert.published_at = new Date().toISOString();
     let { data, error } = await sb.from('articles').insert(insert).select().single();
     if (error && isMissingColumnError(error)) {
@@ -188,6 +203,22 @@ export async function PATCH(req: NextRequest) {
         writerId = (cur as { writer_id?: string | null } | null)?.writer_id ?? null;
       }
       if (!writerId) return NextResponse.json({ error: WRITER_REQUIRED_MSG }, { status: 400 });
+    }
+    // Series membership: recompute the append position ONLY when the series actually
+    // changes, so the editor's 60s auto-save (which re-sends the same series_id) never
+    // walks the article to the end of the list every minute. Drag-reorder (PUT
+    // /api/admin/series) owns the precise order and is left untouched here.
+    if (fields.series_id !== undefined) {
+      const { data: cur } = await sb.from('articles').select('series_id').eq('id', id).single();
+      const curSeries = (cur as { series_id?: string | null } | null)?.series_id ?? null;
+      const newSeries = fields.series_id || null;
+      if (newSeries !== curSeries) {
+        update.series_id = newSeries;
+        update.series_order = newSeries ? await nextSeriesOrder(sb, newSeries) : 0;
+      } else {
+        delete update.series_id;
+        delete update.series_order;
+      }
     }
     // Dual-write: junction is the source of truth; keep primary `category` text in sync.
     const hasCategoryIds = Array.isArray(fields.category_ids);

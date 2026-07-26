@@ -4,6 +4,7 @@
  */
 
 import { getServerClient } from '@/src/core/db/supabase';
+import { buildSeriesNav, buildCategoryNav, moreInCategory, type NavArticle, type SeriesNav, type CategoryNav } from './articleNav';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,7 +28,11 @@ export interface Article   { id: string; title: string; slug: string; body: stri
   // Scheduled publishing (migration 198): when status is 'scheduled', the UTC time at
   // which /api/cron/publish-scheduled-articles flips the row to 'published'. Cleared
   // on publish, so it is meaningful only alongside status='scheduled'. Schema-tolerant.
-  scheduled_at?: string | null }
+  scheduled_at?: string | null;
+  // Series / reading sequence (migration 200, schema-tolerant): series_id groups an
+  // article into an ordered set; series_order is its position (set by drag-reorder
+  // in the admin series manager). Both absent/NULL when the article is standalone.
+  series_id?: string | null; series_order?: number | null }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
 // ── CMS Content helpers ────────────────────────────────────────────────────────
@@ -156,6 +161,73 @@ export async function getArticleBySlugAnyStatus(slug: string): Promise<Article |
     return data ? normalizeArticleCategories(data as unknown as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+}
+
+// ── Article reading context (series + prev/next + more in category) ────────────
+
+export interface SeriesInfo { id: string; title: string; slug: string; description: string | null }
+
+/** A compact article row for the "more in this category" strip (avoids pulling the full Article). */
+export interface RelatedArticle {
+  id: string; title: string; slug: string; cover_url: string | null; category: string;
+  published_at: string | null; body: string;
+  writer_name?: string | null; writer_title?: string | null; writer_avatar_url?: string | null;
+}
+
+export interface ArticleReadingContext {
+  /** Present only when the article belongs to a series with 2+ published parts. */
+  series: (SeriesNav & { info: SeriesInfo }) | null;
+  /** Prev/next within the primary category by date (used when there is no series). */
+  categoryNav: CategoryNav;
+  /** Other published articles in the primary category, newest first. */
+  moreInCategory: RelatedArticle[];
+  primaryCategory: string | null;
+}
+
+const EMPTY_READING_CONTEXT: ArticleReadingContext = { series: null, categoryNav: { prev: null, next: null }, moreInCategory: [], primaryCategory: null };
+
+/**
+ * Everything the article detail page renders around the body: the series contents
+ * (when the article is part of a sequence), previous/next navigation, and a "more
+ * in this category" list. Fully schema-tolerant: if the series columns/table are
+ * absent (migration 200 not yet applied) the series block is simply omitted and
+ * the category navigation still works. Never throws.
+ */
+export async function getArticleReadingContext(article: Article): Promise<ArticleReadingContext> {
+  try {
+    const sb = getServerClient();
+    const primaryCategory = articleCategoryNames(article)[0] ?? article.category ?? null;
+
+    // Series block (only when assigned). Guarded so a pre-migration DB degrades cleanly.
+    let series: (SeriesNav & { info: SeriesInfo }) | null = null;
+    if (article.series_id) {
+      try {
+        const [{ data: info }, { data: parts }] = await Promise.all([
+          sb.from('article_series').select('id,title,slug,description').eq('id', article.series_id).single(),
+          sb.from('articles').select('id,title,slug,published_at,series_order').eq('series_id', article.series_id).eq('status', 'published'),
+        ]);
+        if (info && Array.isArray(parts)) {
+          const nav = buildSeriesNav(parts as unknown as NavArticle[], article.id);
+          if (nav) series = { ...nav, info: info as SeriesInfo };
+        }
+      } catch { /* series columns/table not present yet: omit the series block */ }
+    }
+
+    // Category neighbours + "more in category", keyed on the dual-written text column.
+    let categoryNav: CategoryNav = { prev: null, next: null };
+    let more: RelatedArticle[] = [];
+    if (primaryCategory) {
+      const { data } = await sb.from('articles')
+        .select('id,title,slug,body,cover_url,category,published_at,writer_name,writer_title,writer_avatar_url')
+        .eq('category', primaryCategory).eq('status', 'published');
+      const rows = (data ?? []) as unknown as RelatedArticle[];
+      categoryNav = buildCategoryNav(rows as unknown as NavArticle[], article.id);
+      more = moreInCategory(rows, article.id, 6);
+    }
+    return { series, categoryNav, moreInCategory: more, primaryCategory };
+  } catch {
+    return EMPTY_READING_CONTEXT;
   }
 }
 
