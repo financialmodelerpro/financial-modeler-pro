@@ -1302,3 +1302,13 @@ body[data-refm-theme="dark"] .app-shell {
 .article-body pre { background: #0D2E5A; color: #E2E8F0; padding: 16px; border-radius: 8px; overflow-x: auto; }
 .article-body pre code { background: transparent; padding: 0; color: inherit; }
 
+/* Article detail two-column shell: the article on the left, a sticky series /
+   category sidebar on the right. Collapses to one column (sidebar below the
+   article) on narrow viewports. Additive layout classes, no token changes. */
+.article-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
+.article-aside { position: sticky; top: 84px; }
+@media (max-width: 900px) {
+  .article-shell { grid-template-columns: 1fr; }
+  .article-aside { position: static; }
+}
+

@@ -4,7 +4,7 @@
  */
 
 import { getServerClient } from '@/src/core/db/supabase';
-import { buildSeriesNav, buildCategoryNav, moreInCategory, type NavArticle, type SeriesNav, type CategoryNav } from './articleNav';
+import { buildSeriesNav, buildCategoryNav, moreInCategory, orderSeriesParts, type NavArticle, type SeriesNav, type CategoryNav } from './articleNav';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -228,6 +228,71 @@ export async function getArticleReadingContext(article: Article): Promise<Articl
     return { series, categoryNav, moreInCategory: more, primaryCategory };
   } catch {
     return EMPTY_READING_CONTEXT;
+  }
+}
+
+// ── Article browse sidebar (all categories + all series with their parts) ──────
+
+export interface CategoryBrowse { name: string; slug: string; count: number }
+export interface SeriesBrowsePart { id: string; title: string; slug: string }
+export interface SeriesBrowse { id: string; title: string; slug: string; parts: SeriesBrowsePart[] }
+export interface ArticleBrowseData { categories: CategoryBrowse[]; series: SeriesBrowse[] }
+
+const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/**
+ * Data for the article-page sidebar: every category (with a published-article
+ * count) and every series (with its published parts, in reading order). Derived
+ * from the published-article set plus a small series-title lookup, so it is one
+ * list query plus one tiny lookup. Series with fewer than two published parts are
+ * omitted (a lone part is not a sequence). Never throws.
+ */
+export async function getArticleBrowseData(): Promise<ArticleBrowseData> {
+  try {
+    const arts = await getPublishedArticles();
+
+    // Categories: junction names when present, else the legacy text column.
+    const catMap = new Map<string, { slug: string; count: number }>();
+    for (const a of arts) {
+      const cats = a.categories && a.categories.length
+        ? a.categories.map((c) => ({ name: c.name, slug: c.slug }))
+        : (a.category ? [{ name: a.category, slug: slugify(a.category) }] : []);
+      for (const c of cats) {
+        const e = catMap.get(c.name) ?? { slug: c.slug || slugify(c.name), count: 0 };
+        e.count += 1;
+        catMap.set(c.name, e);
+      }
+    }
+    const categories: CategoryBrowse[] = [...catMap.entries()]
+      .map(([name, v]) => ({ name, slug: v.slug, count: v.count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Series: group published articles by series_id, order each group.
+    const bySeriesId = new Map<string, Article[]>();
+    for (const a of arts) {
+      if (!a.series_id) continue;
+      const list = bySeriesId.get(a.series_id) ?? [];
+      list.push(a);
+      bySeriesId.set(a.series_id, list);
+    }
+    let series: SeriesBrowse[] = [];
+    if (bySeriesId.size) {
+      const sb = getServerClient();
+      const ids = [...bySeriesId.keys()];
+      const { data: rows } = await sb.from('article_series').select('id,title,slug').in('id', ids);
+      const meta = new Map((rows ?? []).map((r: { id: string; title: string; slug: string }) => [r.id, r]));
+      series = [...bySeriesId.entries()]
+        .map(([id, group]) => {
+          const m = meta.get(id);
+          const parts = orderSeriesParts(group as unknown as NavArticle[]).map((p) => ({ id: p.id, title: p.title, slug: p.slug }));
+          return m ? { id, title: m.title, slug: m.slug, parts } : null;
+        })
+        .filter((s): s is SeriesBrowse => !!s && s.parts.length >= 2)
+        .sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return { categories, series };
+  } catch {
+    return { categories: [], series: [] };
   }
 }
 

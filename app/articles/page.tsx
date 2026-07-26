@@ -23,8 +23,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function ArticlesPage() {
-  const [articles, content] = await Promise.all([getPublishedArticles(), getCmsContent()]);
+export default async function ArticlesPage({ searchParams }: { searchParams: Promise<{ category?: string }> }) {
+  const [articles, content, sp] = await Promise.all([getPublishedArticles(), getCmsContent(), searchParams]);
+  const selectedCategory = typeof sp?.category === 'string' ? sp.category : '';
 
   const pageBadge    = cms(content, 'articles_page', 'badge',         'Knowledge Hub');
   const pageTitle    = cms(content, 'articles_page', 'title',         'Financial Modeling Insights');
@@ -101,7 +102,7 @@ export default async function ArticlesPage() {
         ) : (
           <>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>Latest Articles</h2>
-            <ArticlesGrid articles={nonFeatured} categories={categories} writers={writers} />
+            <ArticlesGrid articles={nonFeatured} categories={categories} writers={writers} initialCategory={selectedCategory} />
           </>
         )}
       </section>

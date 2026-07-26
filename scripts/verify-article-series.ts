@@ -186,10 +186,9 @@ console.log('\n=== 10. Editor wiring (new + edit) ===');
 console.log('\n=== 11. Public article page ===');
 {
   const page = read('app/articles/[slug]/page.tsx');
-  check('fetches the reading context', /const reading = await getArticleReadingContext\(article\)/.test(page));
+  check('fetches the reading context', /getArticleReadingContext\(article\)/.test(page));
   check('prev/next follow the series when present, else the category', /const navPrev\s+= inSeries \? reading\.series!\.prev : reading\.categoryNav\.prev/.test(page));
   check('renders the series ribbon inside the card', /reading\.series && <ArticleSeriesBanner series=\{reading\.series\}/.test(page));
-  check('renders the series contents below the card', /reading\.series && <ArticleSeriesContents series=\{reading\.series\}/.test(page));
   check('renders prev/next nav', /<ArticlePrevNext[\s\S]{0,160}prev=\{navPrev\}/.test(page));
   check('labels nav "part" inside a series', /inSeries \? 'Previous part' : 'Previous'/.test(page));
   check('renders more-in-category', /<MoreInCategory category=\{reading\.primaryCategory\} articles=\{reading\.moreInCategory\}/.test(page));
@@ -198,6 +197,37 @@ console.log('\n=== 11. Public article page ===');
   check('series is guidance not a gate (parts are plain links)', /Start with[\s\S]{0,300}Part 1/.test(comp));
   check('the current part is marked "You are here"', /You are here/.test(comp));
   check('components are server-side (no client directive)', !/^'use client'/.test(comp.trim()));
+}
+
+console.log('\n=== 12. Sidebar: series accordion + categories ===');
+{
+  const cms = read('src/shared/cms/index.ts');
+  check('exposes getArticleBrowseData', /export async function getArticleBrowseData/.test(cms));
+  check('browse data omits lone parts (series need >= 2 published parts)', /\.parts\.length >= 2/.test(cms));
+  check('browse series are ordered by the pure orderSeriesParts', /orderSeriesParts\(group as unknown as NavArticle\[\]\)/.test(cms));
+  check('browse never throws (returns empty on failure)', /catch \{\s*return \{ categories: \[\], series: \[\] \};/.test(cms));
+
+  const bar = read('src/hubs/main/components/landing/ArticleSidebar.tsx');
+  check('sidebar is a client component', /^'use client'/.test(bar.trim()));
+  check('current series is EXPANDED by default', /useState<Set<string>>\(\(\) => new Set\(currentSeriesId \? \[currentSeriesId\] : \[\]\)\)/.test(bar));
+  check('other series toggle open on click', /const toggle = \(id: string\)/.test(bar) && /onClick=\{\(\) => toggle\(s\.id\)\}/.test(bar));
+  check('the current part is marked "You are here"', /You are here/.test(bar));
+  check('every part is a link to its article', /href=\{`\/articles\/\$\{p\.slug\}`\}/.test(bar));
+  check('categories link to the filtered listing', /href=\{`\/articles\?category=\$\{encodeURIComponent\(c\.name\)\}`\}/.test(bar));
+
+  const page = read('app/articles/[slug]/page.tsx');
+  check('article page uses the two-column shell', /className="article-shell"/.test(page) && /className="article-aside"/.test(page));
+  check('page renders the sidebar with the current series + article', /<ArticleSidebar[\s\S]{0,160}currentSeriesId=\{article\.series_id \?\? null\}[\s\S]{0,60}currentArticleId=\{article\.id\}/.test(page));
+  check('page fetches the browse data alongside the reading context', /Promise\.all\(\[getArticleReadingContext\(article\), getArticleBrowseData\(\)\]\)/.test(page));
+  check('the bottom series-contents block is gone (moved to the sidebar)', !/<ArticleSeriesContents/.test(page));
+
+  const css = read('app/globals.css');
+  check('the shell collapses to one column on mobile', /@media \(max-width: 900px\)[\s\S]{0,120}\.article-shell \{ grid-template-columns: 1fr; \}/.test(css));
+
+  const listing = read('app/articles/page.tsx');
+  check('the listing reads ?category= and pre-filters', /const selectedCategory = typeof sp\?\.category === 'string'/.test(listing) && /initialCategory=\{selectedCategory\}/.test(listing));
+  const client = read('app/articles/ArticlesClient.tsx');
+  check('the grid initialises its filter from the URL category', /initialCategory && categories\.includes\(initialCategory\) \? initialCategory : 'All'/.test(client));
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

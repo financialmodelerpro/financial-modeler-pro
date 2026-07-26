@@ -9,6 +9,8 @@ interface Props {
   articles: Article[];
   categories: string[];
   writers: string[];
+  /** Pre-selected category from the URL (?category=), e.g. a sidebar link. */
+  initialCategory?: string;
 }
 
 /** Dual-read category names: junction when present, else the deprecated text column. */
@@ -23,8 +25,8 @@ function bylineName(a: Article): string {
 
 const rowLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 };
 
-export function ArticlesGrid({ articles, categories, writers }: Props) {
-  const [active, setActive] = useState('All');
+export function ArticlesGrid({ articles, categories, writers, initialCategory }: Props) {
+  const [active, setActive] = useState(initialCategory && categories.includes(initialCategory) ? initialCategory : 'All');
   const [activeWriter, setActiveWriter] = useState('All');
   const filtered = articles.filter(a =>
     (active === 'All' || catNames(a).includes(active)) &&

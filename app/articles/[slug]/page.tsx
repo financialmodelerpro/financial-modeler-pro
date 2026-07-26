@@ -3,14 +3,15 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getArticleBySlug, getArticleBySlugAnyStatus, getArticleReadingContext, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
+import { getArticleBySlug, getArticleBySlugAnyStatus, getArticleReadingContext, getArticleBrowseData, estimateReadTime, renderBodyWithMidImage, articleCategoryNames } from '@/src/shared/cms';
 import { sanitizeArticleHtml } from '@/src/shared/cms/sanitizeArticle';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
 import { AuthorAbout } from '@/src/hubs/main/components/landing/AuthorAbout';
-import { ArticleSeriesBanner, ArticleSeriesContents, ArticlePrevNext, MoreInCategory } from '@/src/hubs/main/components/landing/ArticleReading';
+import { ArticleSeriesBanner, ArticlePrevNext, MoreInCategory } from '@/src/hubs/main/components/landing/ArticleReading';
+import { ArticleSidebar } from '@/src/hubs/main/components/landing/ArticleSidebar';
 
 // Rendered on demand (not ISR): the admin draft-preview path reads the session
 // (cookies) when the published lookup misses, which is a dynamic API and throws
@@ -67,9 +68,9 @@ export default async function ArticleDetailPage({ params }: Props) {
   }
   if (!article) notFound();
 
-  // Reading context: series contents, previous/next, and more-in-category. Never
-  // throws and degrades cleanly before migration 200 is applied.
-  const reading = await getArticleReadingContext(article);
+  // Reading context (prev/next + more-in-category) and the sidebar browse data
+  // (all series + categories). Both never throw and degrade cleanly.
+  const [reading, browse] = await Promise.all([getArticleReadingContext(article), getArticleBrowseData()]);
   const inSeries = !!reading.series;
   const navPrev  = inSeries ? reading.series!.prev : reading.categoryNav.prev;
   const navNext  = inSeries ? reading.series!.next : reading.categoryNav.next;
@@ -126,7 +127,9 @@ export default async function ArticleDetailPage({ params }: Props) {
       {/* Light reading card. The page background + navbar + footer stay as the
           site chrome; only the article content sits on a light surface so pasted
           HTML authored for a light page reads with correct contrast. */}
-      <div style={{ maxWidth: 1025, margin: '0 auto', padding: '40px 20px 8px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '40px 20px 8px' }}>
+       <div className="article-shell">
+        <div className="article-main">
         {draftPreview && (
           <div style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>👁 Draft preview</span>
@@ -209,8 +212,8 @@ export default async function ArticleDetailPage({ params }: Props) {
           />
         </div>
 
-        {/* Continue reading: series contents, prev/next, more in this category. */}
-        {reading.series && <ArticleSeriesContents series={reading.series} />}
+        {/* Continue reading: prev/next + more in this category. The series contents
+            now live in the sidebar accordion. */}
         <ArticlePrevNext
           prev={navPrev}
           next={navNext}
@@ -225,6 +228,18 @@ export default async function ArticleDetailPage({ params }: Props) {
             ← Back to Articles
           </Link>
         </div>
+        </div>{/* /article-main */}
+
+        {/* Sticky sidebar: series accordion (current expanded, You are here) + categories. */}
+        <aside className="article-aside">
+          <ArticleSidebar
+            series={browse.series}
+            categories={browse.categories}
+            currentSeriesId={article.series_id ?? null}
+            currentArticleId={article.id}
+          />
+        </aside>
+       </div>{/* /article-shell */}
       </div>
 
       <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
