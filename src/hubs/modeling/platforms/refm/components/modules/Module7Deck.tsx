@@ -46,7 +46,8 @@ import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
 import type { Party } from '../../lib/parties';
 import { makeDeckFmt } from '../../lib/reports/deck/bindings';
 import { seedDeck, TEMPLATE_BY_ID } from '../../lib/reports/deck/templates';
-import type { Deck, DeckObject, Slide } from '../../lib/reports/deck/types';
+import { upgradeDeckLayout } from '../../lib/reports/deck/deckUpgrade';
+import type { Deck, DeckLink, DeckObject, Slide } from '../../lib/reports/deck/types';
 import { DECK_THEME, FONT_CHOICES_DECK } from '../../lib/reports/deck/theme';
 import {
   updateObject, updateObjects, removeObjects, duplicateObjects, reorderObjects, nudgeObjects,
@@ -57,7 +58,7 @@ import { availableBlocks, BLOCK_SECTIONS, type BlockSpec } from '../../lib/repor
 import SlideCanvas from './deck/SlideCanvas';
 import EditLayer from './deck/EditLayer';
 import type { RenderCtx } from './deck/SlideObjectView';
-import { SLIDE_W, SLIDE_H } from '../../lib/reports/deck/types';
+import { SLIDE_W, SLIDE_H, DECK_SCHEMA_VERSION } from '../../lib/reports/deck/types';
 
 // ── Small UI atoms, styled to the platform's navy system ────────────────────
 
@@ -181,6 +182,23 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     setDeck(seedDeck(activeProjectId, model, { inputs }, { asOf }));
     setDirty(true);
   }, [loading, deck, model, activeProjectId, inputs, asOf]);
+
+  // ── One-time layout upgrade: an EXISTING deck below the current schema version
+  //    auto-gains the new template slides (Contents, Returns Calculation, the
+  //    financial statements) on open, non-destructively. Runs once per session,
+  //    only when both the deck and the model are ready.
+  const upgradedRef = useRef(false);
+  useEffect(() => {
+    if (loading || !deck || !model || upgradedRef.current) return;
+    if ((deck.schemaVersion ?? 1) >= DECK_SCHEMA_VERSION) { upgradedRef.current = true; return; }
+    upgradedRef.current = true;
+    const res = upgradeDeckLayout(deck, model, { inputs });
+    setDeck(res.deck);
+    if (res.changed) {
+      setDirty(true);
+      setNotice(`Added ${res.addedTitles.length} new slide${res.addedTitles.length === 1 ? '' : 's'}: ${res.addedTitles.join(', ')}.`);
+    }
+  }, [loading, deck, model, inputs]);
 
   useEffect(() => { if (deck && !activeSlideId) setActiveSlideId(deck.slides[0]?.id ?? null); }, [deck, activeSlideId]);
 
@@ -544,7 +562,14 @@ interface PropsPanelProps {
 function PropertiesPanel({ deck, slide, selectedIds, model, onObjectPatch, onBrandingPatch, onSlidePatch }: PropsPanelProps): React.JSX.Element {
   const obj = selectedIds.length === 1 ? slide?.objects.find((o) => o.id === selectedIds[0]) ?? null : null;
 
-  if (obj) return <ObjectEditor obj={obj} onPatch={(p) => onObjectPatch(obj.id, p)} />;
+  if (obj) return (
+    <ObjectEditor
+      obj={obj}
+      onPatch={(p) => onObjectPatch(obj.id, p)}
+      slides={deck.slides.filter((s) => !s.hidden).map((s) => ({ id: s.id, title: s.title }))}
+      currentSlideId={slide?.id ?? ''}
+    />
+  );
 
   if (selectedIds.length > 1) {
     return <><SectionLabel>Selection</SectionLabel><div style={{ fontSize: 12, color: DECK_THEME.ink }}>{selectedIds.length} objects selected.</div><div style={{ fontSize: 11, color: DECK_THEME.slate, marginTop: 8, lineHeight: 1.5 }}>Drag to move them together, or use the toolbar to align z-order, duplicate or delete. Select one object to edit its properties.</div></>;
@@ -582,7 +607,49 @@ function FontSelect({ value, onChange }: { value: string; onChange: (v: string) 
 
 // ── Per-object editor ───────────────────────────────────────────────────────
 
-function ObjectEditor({ obj, onPatch }: { obj: DeckObject; onPatch: (p: ObjectPatch) => void }): React.JSX.Element {
+/** Hyperlink editor: point any object at a slide (internal jump) or a web URL.
+ *  The slide link stores an id and resolves to a page at export, so it survives
+ *  reordering. Available on every object; the ToC also sets links per entry. */
+function LinkEditor({ link, slides, currentSlideId, onChange }: {
+  link: DeckLink | null | undefined; slides: Array<{ id: string; title: string }>; currentSlideId: string; onChange: (l: DeckLink | null) => void;
+}): React.JSX.Element {
+  const kind = link?.kind ?? 'none';
+  const firstOther = slides.find((s) => s.id !== currentSlideId)?.id ?? slides[0]?.id ?? '';
+  return (
+    <>
+      <SectionLabel>Hyperlink</SectionLabel>
+      <Field label="Link to">
+        <select
+          value={kind}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === 'none') onChange(null);
+            else if (v === 'slide') onChange({ kind: 'slide', slideId: firstOther });
+            else onChange({ kind: 'url', href: '' });
+          }}
+          style={inp}
+          data-testid="deck-link-kind"
+        >
+          <option value="none">None</option>
+          <option value="slide">A slide</option>
+          <option value="url">A web URL</option>
+        </select>
+      </Field>
+      {link?.kind === 'slide' ? (
+        <Field label="Slide">
+          <select value={link.slideId} onChange={(e) => onChange({ kind: 'slide', slideId: e.target.value })} style={inp} data-testid="deck-link-slide">
+            {slides.map((s, i) => <option key={s.id} value={s.id}>{i + 1}. {s.title}</option>)}
+          </select>
+        </Field>
+      ) : null}
+      {link?.kind === 'url' ? (
+        <Field label="URL"><input placeholder="https://" value={link.href} onChange={(e) => onChange({ kind: 'url', href: e.target.value })} style={inp} /></Field>
+      ) : null}
+    </>
+  );
+}
+
+function ObjectEditor({ obj, onPatch, slides, currentSlideId }: { obj: DeckObject; onPatch: (p: ObjectPatch) => void; slides: Array<{ id: string; title: string }>; currentSlideId: string }): React.JSX.Element {
   const style = (obj as { style?: import('../../lib/reports/deck/types').TextStyle }).style;
   const patchStyle = (p: Partial<import('../../lib/reports/deck/types').TextStyle>) => onPatch({ style: { ...(style ?? {}), ...p } });
 
@@ -649,6 +716,26 @@ function ObjectEditor({ obj, onPatch }: { obj: DeckObject; onPatch: (p: ObjectPa
           <Field label="Title"><input placeholder="(none)" value={(obj as { title?: string | null }).title ?? ''} onChange={(e) => onPatch({ title: e.target.value || null })} style={inp} /></Field>
           <Field label="Striped"><input type="checkbox" checked={!!(obj as { striped?: boolean }).striped} onChange={(e) => onPatch({ striped: e.target.checked })} /></Field>
         </>
+      ) : null}
+
+      {obj.type === 'toc' ? (
+        <>
+          <SectionLabel>Contents</SectionLabel>
+          <div style={{ fontSize: 10, color: DECK_THEME.slate, marginBottom: 6, lineHeight: 1.5 }}>Lists the deck's slides live, with clickable page links. Reorder slides and this updates automatically.</div>
+          <Field label="Heading"><input placeholder="(none)" value={(obj as { heading?: string }).heading ?? ''} onChange={(e) => onPatch({ heading: e.target.value })} style={inp} /></Field>
+          <Field label="Numbers"><input type="checkbox" checked={(obj as { showNumbers?: boolean }).showNumbers !== false} onChange={(e) => onPatch({ showNumbers: e.target.checked })} /></Field>
+          <Field label="Page numbers"><input type="checkbox" checked={(obj as { showPageNumbers?: boolean }).showPageNumbers !== false} onChange={(e) => onPatch({ showPageNumbers: e.target.checked })} /></Field>
+          <Field label="Include">
+            <select value={(obj as { scope?: string }).scope ?? 'sections'} onChange={(e) => onPatch({ scope: e.target.value })} style={inp}>
+              <option value="sections">Content slides</option>
+              <option value="all">All slides</option>
+            </select>
+          </Field>
+        </>
+      ) : null}
+
+      {obj.type !== 'toc' ? (
+        <LinkEditor link={obj.link} slides={slides} currentSlideId={currentSlideId} onChange={(l) => onPatch({ link: l })} />
       ) : null}
 
       <div style={{ marginTop: 14, fontSize: 10, color: DECK_THEME.slateLight, lineHeight: 1.5 }}>Data objects stay linked to the model: editing style never changes the number.</div>

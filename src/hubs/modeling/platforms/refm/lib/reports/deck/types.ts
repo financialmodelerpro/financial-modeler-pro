@@ -286,7 +286,11 @@ export interface DeckSettings {
   asOf: string; // ISO date
 }
 
-export const DECK_SCHEMA_VERSION = 1;
+/** Bump when the seeded template set changes so existing decks pick up new slides.
+ *  v2 (2026-07-26): adds Contents (live ToC), Returns Calculation, Income
+ *  Statement, Cash Flow, Balance Sheet. A deck below this version is upgraded once
+ *  on open (deckUpgrade.upgradeDeckLayout), non-destructively. */
+export const DECK_SCHEMA_VERSION = 2;
 
 export interface Deck {
   schemaVersion: number;

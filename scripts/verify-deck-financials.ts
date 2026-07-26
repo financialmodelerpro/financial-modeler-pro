@@ -24,6 +24,8 @@ import { buildICReportModel, type ICReportModel } from '../src/hubs/modeling/pla
 import { makeDeckFmt, resolveTable } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/bindings';
 import { icMoneyScaleSpec } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
 import { seedDeck, TEMPLATE_BY_ID } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/templates';
+import { upgradeDeckLayout } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckUpgrade';
+import { DECK_SCHEMA_VERSION } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, cond: boolean, detail = ''): void => {
@@ -198,6 +200,49 @@ for (const t of ['Returns Calculation', 'Income Statement', 'Cash Flow', 'Balanc
 const returnsCalc = deck.slides.find((s) => s.title === 'Returns Calculation')!;
 const tableKeys = returnsCalc.objects.filter((o) => o.type === 'table').map((o: any) => o.table);
 check('Returns Calculation carries the basis + bridge table bindings', tableKeys.includes('table.returnsBasis') && tableKeys.includes('table.returnsBridge'));
+
+console.log('\n=== 9. Existing decks auto-gain the new slides (one-time upgrade) ===');
+{
+  const NEW_IDS = ['contents', 'income_statement', 'cash_flow', 'balance_sheet', 'returns_calculation'];
+  const full = seedDeck('proj', m, { inputs: null }, { asOf: '2026-07-26' });
+  // Simulate a pre-v2 deck: strip the new slides and drop its version.
+  const old = { ...full, schemaVersion: 1, slides: full.slides.filter((s) => !NEW_IDS.includes(s.templateId ?? '')) };
+  check('the simulated old deck is missing the new slides', !old.slides.some((s) => NEW_IDS.includes(s.templateId ?? '')));
+
+  const res = upgradeDeckLayout(old, m, { inputs: null });
+  check('upgrade reports it changed the deck', res.changed);
+  check('upgrade bumps to the current schema version', res.deck.schemaVersion === DECK_SCHEMA_VERSION);
+  const tids = res.deck.slides.map((s) => s.templateId ?? '');
+  for (const id of NEW_IDS) check(`re-adds "${id}"`, tids.includes(id));
+
+  const idxCover = res.deck.slides.findIndex((s) => s.chrome === 'cover');
+  check('Contents lands right after the cover', tids.indexOf('contents') === idxCover + 1);
+  const idxReturns = tids.indexOf('returns');
+  check('Returns Calculation lands right after Returns Analysis', tids.indexOf('returns_calculation') === idxReturns + 1);
+  check('the statements precede the case block (Returns Analysis)', tids.indexOf('income_statement') < idxReturns && tids.indexOf('income_statement') >= 0);
+  check('statements keep IS -> CF -> BS order', tids.indexOf('income_statement') < tids.indexOf('cash_flow') && tids.indexOf('cash_flow') < tids.indexOf('balance_sheet'));
+
+  const allIds = res.deck.slides.flatMap((s) => [s.id, ...s.objects.map((o) => o.id)]);
+  check('every slide + object id is unique after the upgrade (no collisions)', new Set(allIds).size === allIds.length);
+
+  const chips = res.deck.slides.filter((s) => s.chrome !== 'cover')
+    .map((s) => { const c = s.objects.find((o) => o.type === 'shape' && (o as any).name === 'Section number'); return c ? (c as any).text : null; })
+    .filter(Boolean) as string[];
+  check('section chips renumber to a gapless 01..N', chips.join(',') === chips.map((_x, i) => String(i + 1).padStart(2, '0')).join(','));
+
+  const res2 = upgradeDeckLayout(res.deck, m, { inputs: null });
+  check('a second run is a no-op (idempotent)', !res2.changed);
+  check('no duplicate Contents slide after re-run', res2.deck.slides.filter((s) => s.templateId === 'contents').length === 1);
+
+  // A slide the user deletes AFTER the upgrade must not come back (version is current).
+  const del = { ...res.deck, slides: res.deck.slides.filter((s) => s.templateId !== 'contents') };
+  const res3 = upgradeDeckLayout(del, m, { inputs: null });
+  check('a deleted slide does NOT return once the deck is at the current version', !res3.deck.slides.some((s) => s.templateId === 'contents'));
+
+  // A freshly seeded deck is already current: no upgrade, nothing added.
+  const fresh = upgradeDeckLayout(full, m, { inputs: null });
+  check('a freshly seeded (current-version) deck is left untouched', !fresh.changed);
+}
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
