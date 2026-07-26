@@ -335,6 +335,28 @@ async function main(): Promise<void> {
   check('Cover + Summary print centred portrait on one page', ['Cover', 'Summary'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToHeight === 1 && ps.horizontalCentered === true; }));
   check('wide period tabs repeat the header rows when printed', ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'landscape' && ps.printTitlesRow === '1:4'; }));
 
+  // ── Table of Contents: second-level clickable section sub-entries (2026-07-26) ─
+  const cover = wb.getWorksheet('Cover')!;
+  const coverLinks: Array<{ text: string; target: string }> = [];
+  cover.eachRow((row) => row.eachCell((c) => {
+    const v: any = c.value;
+    if (v && typeof v === 'object' && 'hyperlink' in v) coverLinks.push({ text: String(v.text ?? ''), target: String(v.hyperlink ?? '') });
+  }));
+  check('Cover ToC links every tab to its A1', ALL_SHEETS.slice(1).every((n) => coverLinks.some((l) => l.target === `#'${n}'!A1`)), `links=${coverLinks.length}`);
+  const sectionLinks = coverLinks.filter((l) => { const m = l.target.match(/^#'(.+)'!A(\d+)$/); return !!m && Number(m[2]) > 1; });
+  check('Cover ToC carries second-level section sub-entries (jump INTO a tab)', sectionLinks.length > 0, `sectionLinks=${sectionLinks.length}`);
+  check('every section sub-entry points at the row whose label is its title (a real anchor)', sectionLinks.every((l) => { const m = l.target.match(/^#'(.+)'!A(\d+)$/)!; const ws = wb.getWorksheet(m[1]); return !!ws && labelOf(ws, Number(m[2])) === l.text; }), `n=${sectionLinks.length}`);
+
+  // ── Per-tab guideline block ("How this tab is calculated") + Covers line ─────
+  const GUIDE_TABS = ['Summary', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+  for (const n of GUIDE_TABS) check(`guideline block present: ${n}`, rowByLabel(wb.getWorksheet(n)!, /^How this tab is calculated$/) > 0);
+  const plGuide = wb.getWorksheet('P&L')!;
+  const patRow = rowByLabel(plGuide, /^PAT$/);
+  check('the guideline block sits BELOW the statement data (frozen header + rows untouched)', patRow > 0 && rowByLabel(plGuide, /^How this tab is calculated$/) > patRow);
+  const covA2 = (n: string): string => { const v = wb.getWorksheet(n)!.getCell('A2').value; return typeof v === 'string' ? v : ''; };
+  check('statement tabs carry a "Covers:" subtitle listing their sections', ['P&L', 'Balance Sheet', 'Returns', 'Financing'].every((n) => /^Covers:/.test(covA2(n))), `pl="${covA2('P&L')}"`);
+  check('the guideline block added NO formula cells (still fully hardcoded)', formulaCells === 0);
+
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
   check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');

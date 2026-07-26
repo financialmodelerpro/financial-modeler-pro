@@ -218,6 +218,16 @@ export function setTitle(cell: Cell, text: string, size = 16): void {
   cell.value = text;
   cell.font = { name: 'Calibri', size, bold: true, color: { argb: ARGB.navyDark } };
 }
+/**
+ * Optional section sink. When set, every section header written via
+ * setSectionHeader registers its (sheet, title, row) so the Cover can build a
+ * live, hyperlinked second-level Table of Contents that jumps INTO each section,
+ * and each tab can list what it covers. Cleared after the build. Zero call-site
+ * changes: setSectionHeader is the single choke point for a navy section band.
+ */
+let sectionSink: ((sheet: string, title: string, row: number) => void) | null = null;
+export function setSectionSink(fn: ((sheet: string, title: string, row: number) => void) | null): void { sectionSink = fn; }
+
 export function setSectionHeader(row: ExcelJS.Row, text: string, span: number, argb: string = ARGB.navy): void {
   const c = row.getCell(1);
   c.value = text;
@@ -226,6 +236,8 @@ export function setSectionHeader(row: ExcelJS.Row, text: string, span: number, a
     const cell = row.getCell(i);
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
   }
+  const sheet = (row.worksheet as { name?: string } | undefined)?.name;
+  if (sectionSink && sheet) sectionSink(sheet, text, row.number);
 }
 export function setColHeader(cell: Cell, text: string | number, align: 'left' | 'right' | 'center' = 'right'): void {
   cell.value = text;

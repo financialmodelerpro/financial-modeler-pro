@@ -35,7 +35,7 @@ import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, type DisplayScale, type DisplayDecimals,
+  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, type DisplayScale, type DisplayDecimals,
 } from './styles';
 
 export interface BuildModelOptions {
@@ -128,7 +128,15 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   wb.created = new Date(0); // deterministic (avoid clock for reproducible output)
   wb.calcProperties.fullCalcOnLoad = true;
 
-  addCover(wb, snap, opts); // first tab; its table of contents links to every sheet
+  // Section registry: every navy section header (via setSectionHeader) records
+  // its sheet + title + row, so the Cover can build a second-level Table of
+  // Contents that jumps INTO each section, and each tab can list what it covers.
+  const sectionReg = new Map<string, Array<{ title: string; row: number }>>();
+  setSectionSink((sheet, title, row) => { const l = sectionReg.get(sheet) ?? []; l.push({ title, row }); sectionReg.set(sheet, l); });
+
+  // The Cover is created FIRST (so it stays tab 1) but its Table of Contents is
+  // WRITTEN LAST, once every section row across the workbook is known.
+  const coverWs = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   addSummary(wb, snap, opts, lm); // second tab; one-page executive summary
   const refs = addAssumptions(wb, snap, opts, capex);
   addTimeline(wb, snap, refs);
@@ -172,6 +180,16 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // order. Always emitted (shows a note when no scenarios are defined).
   addScenarios(ctx);
   addChecks(ctx, capexAddrs, retLinks);
+
+  // Stop capturing sections (the guideline blocks below must not register), then
+  // add the navigation + guidance layer: the Cover Table of Contents with
+  // clickable second-level section links, a per-tab "Covers" line, and a
+  // "How this tab is calculated" guideline block appended to every tab. All of
+  // this is additive / appended, so the frozen headers, the label-based
+  // reconciliation and the locked palette + tab order are untouched.
+  setSectionSink(null);
+  buildCoverContent(coverWs, snap, opts, sectionReg);
+  applyTabGuides(wb, sectionReg);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
   // stored values + formulas stay in full units). Applied last so every sheet's
@@ -3092,8 +3110,16 @@ function frontMatterBand(ws: ExcelJS.Worksheet, r: number, text: string): void {
 }
 
 // ── Cover / Table of Contents ─────────────────────────────────────────────────
-function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions): void {
-  const ws = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
+/** De-duplicate captured sections by title (keeping the first row), so a repeated
+ *  band label (e.g. ASSETS on two schedules) lists once in the ToC. */
+function dedupSections(secs: Array<{ title: string; row: number }>): Array<{ title: string; row: number }> {
+  const seen = new Set<string>();
+  const out: Array<{ title: string; row: number }> = [];
+  for (const s of secs) { const key = s.title.trim(); if (key && !seen.has(key)) { seen.add(key); out.push(s); } }
+  return out;
+}
+
+function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
   const p = opts.state.project;
   const currency = p.currency ?? 'SAR';
   frontMatterCanvas(ws);
@@ -3159,6 +3185,25 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const dc = ws.getCell(r, 3); dc.value = e.desc; dc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     if (zebra % 2 === 1) fillRange(ws, r, 2, r, 7, ARGB.grey);
     zebra += 1; r += 1;
+    // Second-level ToC (Option B): every section of this tab, clickable, jumping
+    // INTO the section row inside the tab. Capped so a very rich tab stays tidy.
+    const secs = dedupSections(sectionReg.get(e.sheet) ?? []);
+    const shown = secs.slice(0, 14);
+    for (const sec of shown) {
+      const bullet = ws.getCell(r, 2); bullet.value = '›'; bullet.font = { name: 'Calibri', size: 8.5, color: { argb: ARGB.greyMid } }; bullet.alignment = { horizontal: 'right' };
+      ws.mergeCells(r, 3, r, 7);
+      const sc = ws.getCell(r, 3);
+      sc.value = { text: sec.title, hyperlink: `#'${e.sheet}'!A${sec.row}` };
+      sc.font = { name: 'Calibri', size: 8.5, color: { argb: ARGB.navy }, underline: true };
+      sc.alignment = { indent: 3 };
+      r += 1;
+    }
+    if (secs.length > shown.length) {
+      ws.mergeCells(r, 3, r, 7);
+      const mc = ws.getCell(r, 3); mc.value = `… and ${secs.length - shown.length} more section${secs.length - shown.length === 1 ? '' : 's'} in this tab`;
+      mc.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } }; mc.alignment = { indent: 3 };
+      r += 1;
+    }
   }
   boxBorder(ws, tocTop, 2, r - 1, 7);
   r += 1;
@@ -3171,6 +3216,123 @@ function addCover(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const totSwatch = ws.getCell(r, 6); totSwatch.value = 'Total'; fillCell(totSwatch, ARGB.navy); totSwatch.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
   r += 2;
   const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
+}
+
+// ── Per-tab guidance: a "Covers" subtitle + a "How this tab is calculated" block ─
+
+/** Plain-language methodology per tab: what each figure is and how it is derived.
+ *  The export is a hardcoded snapshot, so this is how a reader understands the
+ *  calculation without a live formula (the per-row Basis column carries the same
+ *  intent line by line). Keyed by the SHEETS.* tab name. */
+const TAB_GUIDES: Record<string, string[]> = {
+  [SHEETS.summary]: [
+    'A one-page read-out of the whole model. Every figure is pulled from the detail tabs, not re-derived here.',
+    'Headline metrics (Project / Equity IRR, MOIC, margin) come from the Returns engine; development economics (GDV, cost, profit) from the Capex and Revenue build-ups.',
+  ],
+  [SHEETS.assumptions]: [
+    'Every model INPUT, grouped by domain (project, phases, land, assets, sub-units, returns, capex, financing, revenue, opex). Input cells carry the navy-pale shading.',
+    'Nothing on this tab is computed. Every calculated tab traces back to these inputs; change one in the platform and re-export to see the effect.',
+  ],
+  [SHEETS.timeline]: [
+    'The model year axis: one column per period from the project start year through to exit.',
+    'Every statement tab keys its period columns to this axis, so all tabs share one timeline.',
+  ],
+  [SHEETS.landArea]: [
+    'Area build-up per asset: NSA -> BUA -> GFA using each asset\'s efficiency ratios.',
+    'Land value = land area x land rate. GDV (for-sale assets) = saleable area x sale price. Unit counts come from the sub-units.',
+    'The per-column Basis / Calculation legend on the tab gives the exact derivation for each metric column.',
+  ],
+  [SHEETS.capex]: [
+    'Each cost line = Rate x Quantity, where the quantity basis is the line\'s method: per sqm (BUA / GFA / NSA), per unit, a percentage (of land / revenue / construction), or a lump sum.',
+    'Costs are phased across the construction periods by the S-curve or manual profile.',
+    'Four totals are shown: incl. all land, excl. in-kind land, and excl. all land, so each downstream tab can pick the right cost base.',
+  ],
+  [SHEETS.financing]: [
+    'The computational engine of the model. Funding requirement per period = capex + interest during construction (IDC).',
+    'Debt is drawn to the funding gap each period per the selected funding method; interest accrues on the drawn balance (capitalised into IDC during construction, expensed thereafter).',
+    'Equity funds the residual requirement. The cash sweep repays debt first, then distributes. Depreciation is straight-line over each asset\'s useful life.',
+  ],
+  [SHEETS.revenue]: [
+    'Recognised revenue per asset by strategy. For-sale (Sell) recognises GDV on handover along the sales curve; Operate / Lease recognise stabilised annual revenue (rate x quantity), ramped by occupancy.',
+    'Cost of Sales = the land + construction cost released against for-sale recognition.',
+    'Escrow withholds a percentage of collections until handover, bridging recognised revenue and cash collected.',
+  ],
+  [SHEETS.opex]: [
+    'Operating expenses per asset plus HQ, by category. Each line = rate (per sqm / per key / percentage of revenue) x quantity, inflated each year.',
+    'The project-total opex feeds EBITDA in the P&L.',
+  ],
+  [SHEETS.schedules]: [
+    'The Module 4 feeder schedules that drive the statements.',
+    'Fixed Assets & Depreciation: opening + additions - depreciation = closing net book value.',
+    'Working-capital roll-forwards (receivables, payables, inventory, unearned revenue) and the IDC pool, each opening + movement = closing, feeding the Balance Sheet.',
+  ],
+  [SHEETS.pl]: [
+    'Revenue - Cost of Sales - Operating Expenses = EBITDA.',
+    'EBITDA - Depreciation = EBIT; EBIT - Interest = Profit before Tax; PBT - Tax = PAT (net income).',
+    'Every line links to its source tab, so the statement ties to Revenue, Opex and Financing exactly.',
+  ],
+  [SHEETS.cashflow]: [
+    'Direct method: cash collected less cash paid (opex, capex, tax, debt service) = net change in cash; opening + change = closing cash.',
+    'Indirect method: PAT + non-cash items (depreciation) +/- working-capital movements.',
+    'Both methods reconcile to the same closing cash each period (see the Checks tab).',
+  ],
+  [SHEETS.balsheet]: [
+    'Assets (cash, receivables, inventory, fixed assets, land) = Liabilities (payables, unearned revenue, debt) + Equity (share capital, retained earnings).',
+    'The sheet balances by construction every period: total assets equal total liabilities plus equity.',
+  ],
+  [SHEETS.returns]: [
+    'Unlevered project return (FCFF) and levered equity return (FCFE): IRR, MOIC and NPV over each cash-flow stream.',
+    'The FCFF -> FCFE bridge shows the effect of leverage (debt drawn, less interest, less principal).',
+    'RE metrics: yield on cost, cap rate at exit, DSCR, and LTV at peak debt.',
+  ],
+  [SHEETS.scenarios]: [
+    'Every case compared against the base: the headline KPI matrix with the delta vs base, and the year-on-year impact of each changed input.',
+    'Each case is a full re-run of the engine on the platform; the figures here are those runs, hardcoded.',
+  ],
+  [SHEETS.checks]: [
+    'Integrity checks: the balance sheet balances, the direct and indirect cash flows agree, and the statements reconcile to the platform snapshot.',
+    'The colour legend explains the FAST cell conventions used throughout the workbook.',
+  ],
+};
+
+/** Add the navigation + guidance layer to every data tab: a "Covers" line on the
+ *  subtitle row (where the tab has one) and a "How this tab is calculated" block
+ *  appended at the BOTTOM (so the frozen header + every data row are untouched).
+ *  Runs after the section sink is cleared, so its own header does not register. */
+function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
+  // Tabs whose row-2 subtitle can safely become a "Covers" line.
+  const A2_COVERS = new Set<string>([SHEETS.landArea, SHEETS.capex, SHEETS.financing, SHEETS.revenue, SHEETS.opex, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.returns, SHEETS.scenarios]);
+  for (const sheet of Object.keys(TAB_GUIDES)) {
+    const ws = wb.getWorksheet(sheet); if (!ws) continue;
+    const secs = dedupSections(sectionReg.get(sheet) ?? []);
+    const shown = secs.map((s) => s.title).slice(0, 10);
+    const coversLine = shown.length ? `Covers: ${shown.join('  ·  ')}${secs.length > shown.length ? '  ·  …' : ''}` : '';
+
+    if (coversLine && A2_COVERS.has(sheet)) setLabel(ws.getCell('A2'), coversLine);
+
+    let r = (ws.rowCount || 1) + 2;
+    setSectionHeader(ws.getRow(r), 'How this tab is calculated', 10); r += 1;
+    if (coversLine) {
+      ws.mergeCells(r, 1, r, 10);
+      const cc = ws.getCell(r, 1); cc.value = coversLine;
+      cc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      cc.alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(r).height = 26; r += 1;
+    }
+    for (const line of TAB_GUIDES[sheet]) {
+      ws.mergeCells(r, 1, r, 10);
+      const c = ws.getCell(r, 1); c.value = `•  ${line}`;
+      c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
+      c.alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(r).height = Math.max(16, Math.ceil(line.length / 95) * 15);
+      r += 1;
+    }
+    ws.mergeCells(r, 1, r, 10);
+    const note = ws.getCell(r, 1);
+    note.value = 'This workbook is a hardcoded snapshot; cells do not recalculate. Change inputs in the platform and re-export to run a scenario.';
+    note.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    note.alignment = { wrapText: true, vertical: 'top' };
+  }
 }
 
 // ── Summary (one-page executive summary) ──────────────────────────────────────
