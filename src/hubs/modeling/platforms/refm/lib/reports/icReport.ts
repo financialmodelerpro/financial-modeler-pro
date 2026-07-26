@@ -32,6 +32,13 @@ export interface ICAssetRow { name: string; strategy: string; phaseName: string;
 export interface ICStrategyShare { strategy: string; bua: number; pct: number }
 export interface ICPhaseRow { name: string; startYear: number | null; strategies: string; assetNames: string[]; assetCount: number; capex: number }
 export interface ICExitRow { year: number; equityValue: number; projectIrr: number | null; equityIrr: number | null; equityMoic: number; selected: boolean }
+/** One row of the returns-by-cash-flow-basis table (FCFF / FCFE / Distributed). */
+export interface ICReturnsBasisRow { basis: string; irr: number | null; moic: number; invested: number; returned: number; netProfit: number; npv: number | null }
+/** One line of a condensed financial statement. `a`/`b` are the two chosen
+ *  columns (P&L/CF: project-life total + exit; BS: peak + exit). Raw numbers;
+ *  the deck formatter applies the money scale at render. */
+export interface ICStatementLine { label: string; a: number | null; b: number | null; emphasis?: boolean; memo?: boolean }
+export interface ICStatementBlock { colA: string; colB: string; rows: ICStatementLine[]; hasData: boolean }
 /** One swimlane in the development-programme Gantt: a phase's construction and
  *  (optional) operations windows in calendar years, across the model horizon. */
 export interface ICProgrammeLane {
@@ -148,6 +155,21 @@ export interface ICReportModel {
   };
   phasing: ICPhaseRow[];
   exitYears: ICExitRow[];
+  /** Returns by cash-flow basis (FCFF / FCFE / Distributed-DDM) + the FCFF -> FCFE
+   *  reconciliation totals. Read straight from the returns snapshot; no recompute. */
+  returnsBasis: {
+    rows: ICReturnsBasisRow[];
+    bridge: { fcff: number; debtDraw: number; interest: number; principal: number; fcfe: number; distributions: number };
+    hasData: boolean;
+  };
+  /** Condensed financial statements (aggregate emphasis). P&L and Cash Flow carry
+   *  a project-life total + exit-year column; the Balance Sheet (point-in-time)
+   *  carries peak + exit-year columns. All raw numbers (deck formats at render). */
+  statements: {
+    incomeStatement: ICStatementBlock;
+    cashFlow: ICStatementBlock;
+    balanceSheet: ICStatementBlock;
+  };
   sensitivity: {
     xVariable: string;
     yVariable: string;
@@ -369,6 +391,90 @@ export function buildICReportModel(input: {
     return { name: ph.name, strategies, constructionStart: cs, constructionEnd: ce, operationsStart: opStart, operationsEnd: opEnd };
   });
 
+  // ── Returns by cash-flow basis + FCFF -> FCFE bridge (raw; deck formats) ──
+  const sumArr = (arr: number[] | undefined | null): number => (Array.isArray(arr) ? arr.reduce((s, v) => s + (v ?? 0), 0) : 0);
+  const atIdx = (arr: number[] | undefined | null, i: number): number => (Array.isArray(arr) && i >= 0 && i < arr.length ? (arr[i] ?? 0) : 0);
+  const basisRow = (basis: string, s: { irr: number | null; moic: number; totalInflow: number; totalOutflow: number; netProfit: number; npv: number }): ICReturnsBasisRow =>
+    ({ basis, irr: s.irr, moic: s.moic, invested: s.totalOutflow, returned: s.totalInflow, netProfit: s.netProfit, npv: Number.isFinite(s.npv) ? s.npv : null });
+  const bu = rs.buildup;
+  const returnsBasis = {
+    rows: [
+      basisRow('FCFF (project, unlevered)', r.fcff),
+      basisRow('FCFE (equity, levered)', r.fcfe),
+      basisRow('Distributed equity (DDM)', r.dividends),
+    ],
+    bridge: {
+      fcff: r.fcff.netProfit,
+      debtDraw: sumArr(bu?.debtDrawPerPeriod),
+      interest: sumArr(bu?.interestPaidPerPeriod),      // already signed negative
+      principal: sumArr(bu?.principalRepayPerPeriod),   // already signed negative
+      fcfe: r.fcfe.netProfit,
+      distributions: Number.isFinite(rs.totalDividendsDistributed) ? rs.totalDividendsDistributed : sumArr(rs.dividendStreamPerPeriod),
+    },
+    hasData: true,
+  };
+
+  // ── Condensed financial statements (raw numbers; costs shown negative) ──
+  const stmtLabels = snap.yearLabels ?? [];
+  const stmtExitIdx = (() => { const i = stmtLabels.indexOf(exitYear); return i >= 0 ? i : Math.max(0, stmtLabels.length - 1); })();
+  const stmtLastIdx = Math.max(0, stmtLabels.length - 1);
+  const plS = snap.pl;
+  const line = (label: string, arr: number[] | undefined, opt: { neg?: boolean; emphasis?: boolean } = {}): ICStatementLine => {
+    const sgn = opt.neg ? -1 : 1;
+    return { label, a: sgn * sumArr(arr), b: sgn * atIdx(arr, stmtExitIdx), emphasis: opt.emphasis };
+  };
+  const incomeStatement: ICStatementBlock = {
+    colA: 'Project-life total', colB: `Exit ${exitYear}`,
+    rows: [
+      line('Total revenue', plS?.totalRevenuePerPeriod),
+      line('Cost of sales', plS?.cosPerPeriod, { neg: true }),
+      line('Operating expenses', plS?.totalOpexPerPeriod, { neg: true }),
+      line('EBITDA', plS?.ebitdaPerPeriod, { emphasis: true }),
+      line('Depreciation & amortization', plS?.daPerPeriod, { neg: true }),
+      line('EBIT', plS?.ebitPerPeriod, { emphasis: true }),
+      line('Interest & financing cost', plS?.interestExpensePerPeriod, { neg: true }),
+      line('Profit before tax', plS?.pbtPerPeriod),
+      line('Tax', plS?.taxPerPeriod, { neg: true }),
+      line('Net income', plS?.patPerPeriod, { emphasis: true }),
+    ],
+    hasData: sumArr(plS?.totalRevenuePerPeriod) > 0.5 || Math.abs(sumArr(plS?.ebitdaPerPeriod)) > 0.5,
+  };
+  const cfS = snap.directCF;
+  const cashFlow: ICStatementBlock = {
+    colA: 'Project-life total', colB: `Exit ${exitYear}`,
+    rows: [
+      line('Cash from operations', cfS?.cashFromOperationsPerPeriod),
+      line('Cash from investing', cfS?.cashFromInvestmentPerPeriod),
+      line('Cash from financing', cfS?.cashFromFinancingPerPeriod),
+      line('Net change in cash', cfS?.netCashFlowPerPeriod, { emphasis: true }),
+      { label: 'Closing cash balance', a: atIdx(cfS?.closingCashPerPeriod, stmtLastIdx), b: atIdx(cfS?.closingCashPerPeriod, stmtExitIdx), memo: true },
+    ],
+    hasData: stmtLabels.length > 0 && Array.isArray(cfS?.netCashFlowPerPeriod),
+  };
+  const bsS = snap.bs;
+  const bsTotals = bsS?.totalAssetsPerPeriod ?? [];
+  const bsPeakIdx = (() => { let mi = 0, mv = -Infinity; for (let i = 0; i < bsTotals.length; i++) { const v = bsTotals[i] ?? 0; if (v > mv) { mv = v; mi = i; } } return bsTotals.length ? mi : stmtExitIdx; })();
+  const bsPeakYear = stmtLabels[bsPeakIdx] ?? exitYear;
+  const bsLine = (label: string, arr: number[] | undefined, emphasis = false): ICStatementLine =>
+    ({ label, a: atIdx(arr, bsPeakIdx), b: atIdx(arr, stmtExitIdx), emphasis });
+  const receivables = (i: number): number => atIdx(bsS?.arPerPeriod, i) + atIdx(bsS?.residentialReceivablesPerPeriod, i);
+  const balanceSheet: ICStatementBlock = {
+    colA: bsPeakYear === exitYear ? `At ${bsPeakYear}` : `Peak (${bsPeakYear})`, colB: `Exit ${exitYear}`,
+    rows: [
+      bsLine('Cash', bsS?.cashPerPeriod),
+      { label: 'Receivables', a: receivables(bsPeakIdx), b: receivables(stmtExitIdx) },
+      bsLine('Inventory (WIP)', bsS?.inventoryPerPeriod),
+      bsLine('Fixed assets', bsS?.totalFixedAssetsPerPeriod),
+      bsLine('Total assets', bsS?.totalAssetsPerPeriod, true),
+      bsLine('Debt outstanding', bsS?.debtOutstandingPerPeriod),
+      bsLine('Payables', bsS?.apPerPeriod),
+      bsLine('Unearned revenue', bsS?.unearnedRevenuePerPeriod),
+      bsLine('Total liabilities', bsS?.totalLiabilitiesPerPeriod, true),
+      bsLine('Total equity', bsS?.totalEquityPerPeriod, true),
+    ],
+    hasData: bsTotals.length > 0,
+  };
+
   return {
     cover: {
       projectName: project.name,
@@ -452,6 +558,8 @@ export function buildICReportModel(input: {
     assetMix: { rows: assetRows, byStrategy, totalBua, totalUnits },
     phasing,
     exitYears,
+    returnsBasis,
+    statements: { incomeStatement, cashFlow, balanceSheet },
     sensitivity: {
       xVariable: sens?.xVariable ?? '',
       yVariable: sens?.yVariable ?? '',

@@ -339,6 +339,61 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
     },
   }),
 
+  // ── Financial statements (condensed, aggregate emphasis) ────────────────────
+  T({
+    id: 'income_statement', title: 'Income Statement', group: 'The numbers', chrome: 'content',
+    available: (m) => m.statements.incomeStatement.hasData,
+    build: (m, seed, num) => {
+      const leftW = Math.round(CONTENT_W * 0.58);
+      const rightX = MARGIN + leftW + GAP * 2;
+      const rightW = CONTENT_W - leftW - GAP * 2;
+      return [
+        ...titleBlock(num, 'Income Statement'),
+        table({ x: MARGIN, y: CONTENT_Y + 8, w: leftW, h: CONTENT_H - 8 }, 'table.incomeStatement', { fontSize: 12 }),
+        ...captionBlock({ x: rightX, y: CONTENT_Y + 8, w: rightW, h: CONTENT_H - 8 },
+          'Reading the statement',
+          'Figures are the project-life total and the exit-year run-rate. Revenue is recognised as handovers complete and recurring assets stabilise; EBITDA and net income build once operations mature and the development cost has been absorbed.',
+          'pale'),
+      ];
+    },
+  }),
+
+  T({
+    id: 'cash_flow', title: 'Cash Flow', group: 'The numbers', chrome: 'content',
+    available: (m) => m.statements.cashFlow.hasData,
+    build: (m, seed, num) => {
+      const leftW = Math.round(CONTENT_W * 0.58);
+      const rightX = MARGIN + leftW + GAP * 2;
+      const rightW = CONTENT_W - leftW - GAP * 2;
+      return [
+        ...titleBlock(num, 'Cash Flow'),
+        table({ x: MARGIN, y: CONTENT_Y + 8, w: leftW, h: CONTENT_H - 8 }, 'table.cashFlow', { fontSize: 12 }),
+        ...captionBlock({ x: rightX, y: CONTENT_Y + 8, w: rightW, h: CONTENT_H - 8 },
+          'Reading the cash flow',
+          'Operating cash builds as the asset base stabilises; investing is the construction draw; financing carries the debt and equity flows. The closing balance is a point-in-time position, held above the minimum cash reserve throughout.',
+          'navy'),
+      ];
+    },
+  }),
+
+  T({
+    id: 'balance_sheet', title: 'Balance Sheet', group: 'The numbers', chrome: 'content',
+    available: (m) => m.statements.balanceSheet.hasData,
+    build: (m, seed, num) => {
+      const leftW = Math.round(CONTENT_W * 0.58);
+      const rightX = MARGIN + leftW + GAP * 2;
+      const rightW = CONTENT_W - leftW - GAP * 2;
+      return [
+        ...titleBlock(num, 'Balance Sheet'),
+        table({ x: MARGIN, y: CONTENT_Y + 8, w: leftW, h: CONTENT_H - 8 }, 'table.balanceSheet', { fontSize: 12 }),
+        ...captionBlock({ x: rightX, y: CONTENT_Y + 8, w: rightW, h: CONTENT_H - 8 },
+          'Reading the balance sheet',
+          'The balance sheet is shown at the peak of the asset base and again at exit. Fixed assets and inventory fund out as the programme completes; by exit the structure is de-levered and value sits in equity.',
+          'pale'),
+      ];
+    },
+  }),
+
   // 13 ───────────────────────────────────────────────────────────────────────
   T({
     id: 'returns', title: 'Returns Analysis', group: 'The case', chrome: 'content',
@@ -355,6 +410,30 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
         ...captionBlock({ x: MARGIN, y: capY, w: Math.round((CONTENT_W - GAP) * 0.52), h: CONTENT_BOTTOM - capY },
           'Reading the returns', commentary, 'navy'),
         table({ x: MARGIN + Math.round((CONTENT_W - GAP) * 0.52) + GAP, y: capY, w: CONTENT_W - Math.round((CONTENT_W - GAP) * 0.52) - GAP, h: CONTENT_BOTTOM - capY }, 'table.reMetrics'),
+      ];
+    },
+  }),
+
+  // Returns calculation: FCFF / FCFE / DDM summary + the FCFF -> FCFE bridge ────
+  T({
+    id: 'returns_calculation', title: 'Returns Calculation', group: 'The case', chrome: 'content',
+    available: () => true,
+    build: (m, seed, num) => {
+      const leftW = Math.round(CONTENT_W * 0.62);
+      const rightX = MARGIN + leftW + GAP * 2;
+      const rightW = CONTENT_W - leftW - GAP * 2;
+      const tblY = CONTENT_Y + 26;
+      const capY = tblY + 190;
+      return [
+        ...titleBlock(num, 'Returns Calculation'),
+        panelLabel({ x: MARGIN, y: CONTENT_Y + 6, w: leftW, h: 14 }, 'Returns by cash-flow basis'),
+        table({ x: MARGIN, y: tblY, w: leftW, h: 176 }, 'table.returnsBasis', { fontSize: 11 }),
+        ...captionBlock({ x: MARGIN, y: capY, w: leftW, h: CONTENT_BOTTOM - capY },
+          'How the three measures relate',
+          'FCFF is the unlevered project return. Layering in debt (drawn, less interest and principal) converts it to the levered equity return, FCFE. Distributed equity (DDM) then reflects the timing of cash actually paid out under the sweep and dividend policy, so its IRR reads against when the money is returned, not when it is earned.',
+          'navy'),
+        panelLabel({ x: rightX, y: CONTENT_Y + 6, w: rightW, h: 14 }, 'FCFF to FCFE bridge'),
+        table({ x: rightX, y: tblY, w: rightW, h: CONTENT_BOTTOM - tblY }, 'table.returnsBridge', { fontSize: 11 }),
       ];
     },
   }),

@@ -27,7 +27,7 @@
  * No em dashes in this file.
  */
 
-import type { ICReportModel } from '../icReport';
+import type { ICReportModel, ICStatementBlock } from '../icReport';
 import type { CaseComparisonReport } from '../caseComparisonReport';
 import type { ChartKind } from './types';
 import { DECK_THEME, CHART_SERIES, signColor } from './theme';
@@ -458,7 +458,9 @@ export type TableBindingKey =
   | 'table.assetMix' | 'table.phasing' | 'table.sources' | 'table.uses'
   | 'table.valueBridge' | 'table.costStack' | 'table.exitYears'
   | 'table.scenarioReturns' | 'table.scenarioEconomics' | 'table.facilitySummary'
-  | 'table.reMetrics' | 'table.devEconomics';
+  | 'table.reMetrics' | 'table.devEconomics'
+  | 'table.returnsBasis' | 'table.returnsBridge'
+  | 'table.incomeStatement' | 'table.cashFlow' | 'table.balanceSheet';
 
 export type CellAlign = 'left' | 'right';
 export interface TableCell { text: string; align: CellAlign; bold?: boolean; color?: string }
@@ -656,7 +658,84 @@ const TABLE_DEFS: TableDef[] = [
       });
     },
   },
+  {
+    key: 'table.returnsBasis', label: 'Returns by cash-flow basis', group: 'Returns',
+    resolve: (m, f) => {
+      const rb = m.returnsBasis;
+      if (!rb?.hasData || !rb.rows.length) return missing('No returns are available in this model');
+      return ok({
+        headers: [h('Cash-flow basis'), h('IRR', 'right'), h('MOIC', 'right'), h(`Invested (${f.moneyUnit})`, 'right'), h(`Returned (${f.moneyUnit})`, 'right'), h(`Net profit (${f.moneyUnit})`, 'right'), h(`NPV (${f.moneyUnit})`, 'right')],
+        rows: rb.rows.map((row) => ({
+          cells: [
+            c(row.basis),
+            c(row.irr === null ? 'n/a' : f.pct(row.irr), 'right'),
+            c(f.mult(row.moic), 'right'),
+            money(-Math.abs(row.invested), f),
+            money(row.returned, f),
+            money(row.netProfit, f),
+            row.npv === null ? c('n/a', 'right') : money(row.npv, f),
+          ],
+        })),
+        unitNote: f.moneyUnit,
+      });
+    },
+  },
+  {
+    key: 'table.returnsBridge', label: 'FCFF to FCFE reconciliation', group: 'Returns',
+    resolve: (m, f) => {
+      const b = m.returnsBasis?.bridge;
+      if (!m.returnsBasis?.hasData || !b) return missing('No returns bridge in this model');
+      // The residual carries the remaining bridge terms (in-kind equity, terminal
+      // value adjustment) so the column sums to FCFE exactly, never a forced figure.
+      const other = b.fcfe - (b.fcff + b.debtDraw + b.interest + b.principal);
+      return ok({
+        headers: [h('Reconciliation (net)'), h(f.moneyUnit, 'right')],
+        rows: [
+          { cells: [c('FCFF, project (unlevered)', 'left', true), money(b.fcff, f, true)], emphasis: true },
+          { cells: [c('plus Debt drawn'), money(b.debtDraw, f)] },
+          { cells: [c('less Interest paid'), money(b.interest, f)] },
+          { cells: [c('less Principal repaid'), money(b.principal, f)] },
+          { cells: [c('plus Other (in-kind, terminal)'), money(other, f)] },
+          { cells: [c('FCFE, equity (levered)', 'left', true), money(b.fcfe, f, true)], emphasis: true },
+          { cells: [c('Distributed to equity (DDM)'), money(b.distributions, f)], shaded: true },
+        ],
+        unitNote: f.moneyUnit,
+      });
+    },
+  },
+  {
+    key: 'table.incomeStatement', label: 'Income statement', group: 'Returns',
+    resolve: (m, f) => statementTable(m.statements?.incomeStatement, f, 'This model has no income statement'),
+  },
+  {
+    key: 'table.cashFlow', label: 'Cash flow statement', group: 'Returns',
+    resolve: (m, f) => statementTable(m.statements?.cashFlow, f, 'This model has no cash flow statement'),
+  },
+  {
+    key: 'table.balanceSheet', label: 'Balance sheet', group: 'Returns',
+    resolve: (m, f) => statementTable(m.statements?.balanceSheet, f, 'This model has no balance sheet'),
+  },
 ];
+
+/** Shared renderer for the three condensed financial statements. A two-column
+ *  (colA / colB) table over the block's chosen columns; costs already carry their
+ *  sign so `money` reds negatives. */
+function statementTable(block: ICStatementBlock | undefined, f: DeckFmt, missingReason: string): Resolved<TableData> {
+  if (!block || !block.hasData || !block.rows.length) return missing(missingReason);
+  return ok({
+    headers: [h('Line'), h(block.colA, 'right'), h(block.colB, 'right')],
+    rows: block.rows.map((r) => ({
+      cells: [
+        c(r.label, 'left', !!r.emphasis),
+        r.a === null ? c('n/a', 'right') : money(r.a, f, !!r.emphasis),
+        r.b === null ? c('n/a', 'right') : money(r.b, f, !!r.emphasis),
+      ],
+      emphasis: r.emphasis,
+      shaded: r.memo,
+    })),
+    unitNote: f.moneyUnit,
+  });
+}
 
 export const TABLE_BINDINGS: Record<TableBindingKey, TableDef> =
   Object.fromEntries(TABLE_DEFS.map((d) => [d.key, d])) as Record<TableBindingKey, TableDef>;
