@@ -25,6 +25,13 @@ interface Props {
   categories: CategoryBrowse[];
   currentSeriesId: string | null;
   currentArticleId: string;
+  /** Listing page: render a header + a collapse toggle that hides the body so the
+   *  card grid can take the full width. Off on the article detail page. */
+  collapsible?: boolean;
+  /** Header label when collapsible (e.g. "Browse articles"). */
+  heading?: string;
+  /** Open width when collapsible (the detail page fills its grid column instead). */
+  width?: number;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -42,8 +49,9 @@ function Chevron({ open }: { open: boolean }): React.JSX.Element {
   );
 }
 
-export function ArticleSidebar({ series, categories, currentSeriesId, currentArticleId }: Props): React.JSX.Element | null {
+export function ArticleSidebar({ series, categories, currentSeriesId, currentArticleId, collapsible = false, heading = 'Browse', width = 280 }: Props): React.JSX.Element | null {
   const [open, setOpen] = useState<Set<string>>(() => new Set(currentSeriesId ? [currentSeriesId] : []));
+  const [shown, setShown] = useState(true);
   const toggle = (id: string) => setOpen((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -52,8 +60,27 @@ export function ArticleSidebar({ series, categories, currentSeriesId, currentArt
 
   if (!series.length && !categories.length) return null;
 
+  // Collapsed: a slim pill that reopens the sidebar (the grid takes the space).
+  if (collapsible && !shown) {
+    return (
+      <button type="button" onClick={() => setShown(true)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        ☰ {heading}
+      </button>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: collapsible ? width : '100%' }}>
+      {collapsible && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>{heading}</span>
+          <button type="button" onClick={() => setShown(false)} aria-label="Hide sidebar"
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.75)', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            ✕ Hide
+          </button>
+        </div>
+      )}
       {/* Series accordion */}
       {series.length > 0 && (
         <section style={cardStyle}>

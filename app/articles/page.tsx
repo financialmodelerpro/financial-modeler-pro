@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getPublishedArticles, getCmsContent, cms, estimateReadTime, articleExcerpt, articleCategoryNames } from '@/src/shared/cms';
+import { getPublishedArticles, getCmsContent, getArticleBrowseData, cms, estimateReadTime, articleExcerpt, articleCategoryNames } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { AuthorByline, resolveByline } from '@/src/hubs/main/components/landing/AuthorByline';
+import { ArticleSidebar } from '@/src/hubs/main/components/landing/ArticleSidebar';
 import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 
 export const revalidate = 0;
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ArticlesPage({ searchParams }: { searchParams: Promise<{ category?: string }> }) {
-  const [articles, content, sp] = await Promise.all([getPublishedArticles(), getCmsContent(), searchParams]);
+  const [articles, content, browse, sp] = await Promise.all([getPublishedArticles(), getCmsContent(), getArticleBrowseData(), searchParams]);
   const selectedCategory = typeof sp?.category === 'string' ? sp.category : '';
 
   const pageBadge    = cms(content, 'articles_page', 'badge',         'Knowledge Hub');
@@ -57,7 +58,7 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
 
       {/* Featured Article */}
       {featured && (
-        <section style={{ padding: '56px 40px 0', maxWidth: 1100, margin: '0 auto' }}>
+        <section style={{ padding: '56px 40px 0', maxWidth: 1280, margin: '0 auto' }}>
           <Link href={`/articles/${featured.slug}`} style={{ textDecoration: 'none', display: 'block' }}>
             <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
               <div style={{ position: 'relative', minHeight: 280, background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)' }}>
@@ -89,8 +90,8 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
         </section>
       )}
 
-      {/* Articles Grid */}
-      <section style={{ padding: '56px 40px', maxWidth: 1100, margin: '0 auto' }}>
+      {/* Articles Grid + collapsible browse sidebar */}
+      <section style={{ padding: '56px 40px', maxWidth: 1340, margin: '0 auto' }}>
         {articles.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>
@@ -100,10 +101,15 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
             </p>
           </div>
         ) : (
-          <>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>Latest Articles</h2>
-            <ArticlesGrid articles={nonFeatured} categories={categories} writers={writers} initialCategory={selectedCategory} />
-          </>
+          <div className="articles-shell">
+            <div className="articles-side">
+              <ArticleSidebar series={browse.series} categories={browse.categories} currentSeriesId={null} currentArticleId="" collapsible heading="Browse articles" />
+            </div>
+            <div className="articles-grid">
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>Latest Articles</h2>
+              <ArticlesGrid articles={nonFeatured} categories={categories} writers={writers} initialCategory={selectedCategory} />
+            </div>
+          </div>
         )}
       </section>
 

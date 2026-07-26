@@ -69,7 +69,7 @@ export function ArticlesGrid({ articles, categories, writers, initialCategory }:
         // I4: minmax(300, 1fr) forced 1 column at 320px with 20px
         // overhead, cards clipped. min(100%, 280px) drops to full-width
         // on narrow viewports and 280+ otherwise.
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: 24 }}>
           {filtered.map(article => (
             <ArticleCard key={article.id} article={article} />
           ))}

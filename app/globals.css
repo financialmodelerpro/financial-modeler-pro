@@ -1302,13 +1302,28 @@ body[data-refm-theme="dark"] .app-shell {
 .article-body pre { background: #0D2E5A; color: #E2E8F0; padding: 16px; border-radius: 8px; overflow-x: auto; }
 .article-body pre code { background: transparent; padding: 0; color: inherit; }
 
-/* Article detail two-column shell: the article on the left, a sticky series /
-   category sidebar on the right. Collapses to one column (sidebar below the
-   article) on narrow viewports. Additive layout classes, no token changes. */
-.article-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
-.article-aside { position: sticky; top: 84px; }
-@media (max-width: 900px) {
+/* Article detail two-column shell: a sticky series / category sidebar on the
+   LEFT and the article at its natural (previous) reading width on the right, so
+   adding the sidebar uses the spare page width rather than shrinking the article.
+   DOM order is article-then-sidebar (so a narrow viewport shows the article
+   first); grid placement puts the sidebar in the left column on desktop.
+   Additive layout classes, no token changes. */
+.article-shell { display: grid; grid-template-columns: 300px minmax(0, 1025px); gap: 32px; justify-content: center; align-items: start; }
+.article-main { grid-column: 2; grid-row: 1; min-width: 0; }
+.article-aside { grid-column: 1; grid-row: 1; position: sticky; top: 84px; }
+@media (max-width: 980px) {
   .article-shell { grid-template-columns: 1fr; }
-  .article-aside { position: static; }
+  .article-main { grid-column: 1; }
+  .article-aside { grid-column: 1; grid-row: auto; position: static; }
+}
+
+/* Articles listing shell: a collapsible browse sidebar (left) beside the card
+   grid (right, which takes the remaining width). Stacks on a narrow viewport. */
+.articles-shell { display: flex; gap: 28px; align-items: flex-start; }
+.articles-shell .articles-side { flex: 0 0 auto; position: sticky; top: 84px; }
+.articles-shell .articles-grid { flex: 1 1 0; min-width: 0; }
+@media (max-width: 860px) {
+  .articles-shell { flex-direction: column; }
+  .articles-shell .articles-side { position: static; width: 100%; }
 }
 

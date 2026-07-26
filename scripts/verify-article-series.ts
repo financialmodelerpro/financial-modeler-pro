@@ -222,7 +222,15 @@ console.log('\n=== 12. Sidebar: series accordion + categories ===');
   check('the bottom series-contents block is gone (moved to the sidebar)', !/<ArticleSeriesContents/.test(page));
 
   const css = read('app/globals.css');
-  check('the shell collapses to one column on mobile', /@media \(max-width: 900px\)[\s\S]{0,120}\.article-shell \{ grid-template-columns: 1fr; \}/.test(css));
+  check('the detail sidebar sits in the LEFT column with the article at its natural width', /\.article-shell \{ display: grid; grid-template-columns: 300px minmax\(0, 1025px\)/.test(css) && /\.article-aside \{ grid-column: 1/.test(css));
+  check('the detail shell collapses to one column on mobile', /@media \(max-width: 980px\)[\s\S]{0,200}\.article-shell \{ grid-template-columns: 1fr; \}/.test(css));
+  check('the listing has a collapsible browse sidebar shell', /\.articles-shell \{ display: flex;[\s\S]{0,200}\.articles-side/.test(css));
+
+  const listPage = read('app/articles/page.tsx');
+  check('the listing renders the collapsible browse sidebar', /<ArticleSidebar[\s\S]{0,160}collapsible heading="Browse articles"/.test(listPage));
+  check('the listing fetches the browse data', /getArticleBrowseData\(\)/.test(listPage));
+  const sidebar = read('src/hubs/main/components/landing/ArticleSidebar.tsx');
+  check('the sidebar can collapse to reclaim grid width', /collapsible && !shown/.test(sidebar) && /setShown\(true\)/.test(sidebar));
 
   const listing = read('app/articles/page.tsx');
   check('the listing reads ?category= and pre-filters', /const selectedCategory = typeof sp\?\.category === 'string'/.test(listing) && /initialCategory=\{selectedCategory\}/.test(listing));
