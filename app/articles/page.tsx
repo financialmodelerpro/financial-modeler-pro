@@ -58,7 +58,7 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
 
       {/* Featured Article */}
       {featured && (
-        <section style={{ padding: '56px 40px 0', maxWidth: 1280, margin: '0 auto' }}>
+        <section style={{ padding: '56px clamp(20px, 4vw, 48px) 0', maxWidth: 1440, margin: '0 auto' }}>
           <Link href={`/articles/${featured.slug}`} style={{ textDecoration: 'none', display: 'block' }}>
             <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
               <div style={{ position: 'relative', minHeight: 280, background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)' }}>
@@ -91,7 +91,7 @@ export default async function ArticlesPage({ searchParams }: { searchParams: Pro
       )}
 
       {/* Articles Grid + collapsible browse sidebar */}
-      <section style={{ padding: '56px 40px', maxWidth: 1340, margin: '0 auto' }}>
+      <section style={{ padding: '56px clamp(20px, 4vw, 48px)', maxWidth: 1560, margin: '0 auto' }}>
         {articles.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>

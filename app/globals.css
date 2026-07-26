@@ -1308,9 +1308,14 @@ body[data-refm-theme="dark"] .app-shell {
    DOM order is article-then-sidebar (so a narrow viewport shows the article
    first); grid placement puts the sidebar in the left column on desktop.
    Additive layout classes, no token changes. */
-.article-shell { display: grid; grid-template-columns: 300px minmax(0, 1025px); gap: 32px; justify-content: center; align-items: start; }
+.article-shell { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 36px; align-items: start; }
 .article-main { grid-column: 2; grid-row: 1; min-width: 0; }
 .article-aside { grid-column: 1; grid-row: 1; position: sticky; top: 84px; }
+/* Body reading measure: the card / column widens with the page, but the prose is
+   capped to a readable line length (~75 chars) and centred in the column, so a
+   wider column reads fuller without stretching text edge to edge. The 760px cap
+   spans the body's 96px horizontal padding + ~664px of text (border-box). */
+.article-main .article-body { max-width: 760px; margin-left: auto; margin-right: auto; }
 @media (max-width: 980px) {
   .article-shell { grid-template-columns: 1fr; }
   .article-main { grid-column: 1; }
