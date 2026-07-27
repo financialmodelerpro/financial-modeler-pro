@@ -155,6 +155,13 @@ export interface TableObject extends BaseObject {
   /** Zebra-stripe body rows with the theme's row grey. */
   striped?: boolean;
   fontSize?: number;
+  /** Show the binding's unit note under the table (money scale, year span and,
+   *  for a paginated schedule, which page of how many). */
+  showUnitNote?: boolean;
+  /** Which page of a paginated binding (a full year-by-year schedule) to show,
+   *  0-based. Ignored by every other binding. A page past the end of the current
+   *  model renders the unlinked state, never a blank grid. */
+  page?: number;
 }
 
 export type ImageFit = 'cover' | 'contain' | 'fill';
@@ -288,9 +295,14 @@ export interface DeckSettings {
 
 /** Bump when the seeded template set changes so existing decks pick up new slides.
  *  v2 (2026-07-26): adds Contents (live ToC), Returns Calculation, Income
- *  Statement, Cash Flow, Balance Sheet. A deck below this version is upgraded once
- *  on open (deckUpgrade.upgradeDeckLayout), non-destructively. */
-export const DECK_SCHEMA_VERSION = 2;
+ *  Statement, Cash Flow, Balance Sheet.
+ *  v3 (2026-07-27): adds the FULL year-by-year schedules (income statement, cash
+ *  flow, balance sheet, FCFF, FCFE, DDM), each paginated across as many slides as
+ *  the model's horizon needs.
+ *  A deck below this version is upgraded once on open
+ *  (deckUpgrade.upgradeDeckLayout), non-destructively, and only with the slides
+ *  introduced AFTER the version it is on. */
+export const DECK_SCHEMA_VERSION = 3;
 
 export interface Deck {
   schemaVersion: number;

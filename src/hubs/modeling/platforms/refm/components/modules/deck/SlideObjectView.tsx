@@ -35,7 +35,7 @@ import { DECK_THEME, blend, fontFor, fontStack, TYPE_SCALE } from '../../../lib/
 import {
   resolveChart, resolveMetric, resolveTable, resolveText, type DeckFmt,
 } from '../../../lib/reports/deck/bindings';
-import { buildTocPaint, type SlideIndexEntry } from '../../../lib/reports/deck/exportModel';
+import { buildTocPaint, tocLayout, type SlideIndexEntry } from '../../../lib/reports/deck/exportModel';
 import { isPlaceholderText } from '../../../lib/reports/deck/placeholders';
 
 export interface RenderCtx {
@@ -275,10 +275,15 @@ function ChartView({ o, ctx }: { o: ChartObject; ctx: RenderCtx }): React.JSX.El
 }
 
 function TableView({ o, ctx }: { o: TableObject; ctx: RenderCtx }): React.JSX.Element {
-  const r = resolveTable(o.table, ctx.model, ctx.fmt);
+  const r = resolveTable(o.table, ctx.model, ctx.fmt, { page: o.page });
   if (!r.available) return <Unlinked reason={r.reason} label="Table" />;
   const d = r.value;
   const fs = o.fontSize ?? TYPE_SCALE.table;
+  // A wide schedule needs a roomy label column, so honour the binding's own
+  // column shares; without them the fixed layout would give every column the
+  // same width and clip the labels.
+  const widths = d.colWidths && d.colWidths.length === d.headers.length ? d.colWidths : null;
+  const padX = widths ? 5 : 8;
 
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', ...boxCss(o) }}>
@@ -288,11 +293,14 @@ function TableView({ o, ctx }: { o: TableObject; ctx: RenderCtx }): React.JSX.El
         </div>
       ) : null}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: fontStack(fontFor(ctx.branding, 'body')), fontSize: fs, tableLayout: 'fixed' }}>
+        {widths ? (
+          <colgroup>{widths.map((w, i) => <col key={i} style={{ width: `${w * 100}%` }} />)}</colgroup>
+        ) : null}
         <thead>
           <tr>
             {d.headers.map((h, i) => (
               <th key={i} style={{
-                background: DECK_THEME.navy, color: DECK_THEME.white, textAlign: h.align, padding: '5px 8px',
+                background: DECK_THEME.navy, color: DECK_THEME.white, textAlign: h.align, padding: `5px ${padX}px`,
                 fontSize: TYPE_SCALE.tableHead, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
@@ -311,7 +319,7 @@ function TableView({ o, ctx }: { o: TableObject; ctx: RenderCtx }): React.JSX.El
             }}>
               {row.cells.map((c, ci) => (
                 <td key={ci} style={{
-                  textAlign: c.align, padding: '4px 8px',
+                  textAlign: c.align, padding: `4px ${padX}px`, paddingLeft: padX + (c.indent ?? 0) * 10,
                   fontWeight: c.bold || row.emphasis ? 700 : 400,
                   color: c.color ?? (row.emphasis ? DECK_THEME.green : DECK_THEME.ink),
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -323,6 +331,14 @@ function TableView({ o, ctx }: { o: TableObject; ctx: RenderCtx }): React.JSX.El
           ))}
         </tbody>
       </table>
+      {o.showUnitNote && d.unitNote ? (
+        <div style={{
+          marginTop: 'auto', paddingTop: 4, fontFamily: fontStack(fontFor(ctx.branding, 'body')),
+          fontSize: 9, color: DECK_THEME.slateLight, textAlign: 'right',
+        }}>
+          {d.unitNote}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -545,6 +561,10 @@ function RiskMatrixView({ o, ctx }: { o: RiskMatrixObject; ctx: RenderCtx }): Re
 function TocView({ o, ctx }: { o: TocObject; ctx: RenderCtx }): React.JSX.Element {
   const paint = buildTocPaint(o, ctx.slideIndex ?? [], ctx.currentSlideId ?? '');
   const clickable = !!ctx.preview && !!ctx.onNavigate;
+  const headH = paint.heading ? Math.max(o.style.size + 4, 20) + 14 : 0;
+  // Shared with both exporters, so a long deck's agenda breaks into the same
+  // columns on screen as it does in the .pptx and the .pdf.
+  const lay = tocLayout(paint, { w: o.w, h: o.h }, headH);
   return (
     <div style={{ ...boxCss(o), width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontFamily: fontStack(fontFor(ctx.branding, o.style.fontRole)) }}>
       {paint.heading ? (
@@ -552,22 +572,31 @@ function TocView({ o, ctx }: { o: TocObject; ctx: RenderCtx }): React.JSX.Elemen
           {paint.heading}
         </div>
       ) : null}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0 }}>
-        {paint.entries.length === 0 ? (
-          <div style={{ fontSize: 12, color: DECK_THEME.slateLight }}>No sections yet.</div>
-        ) : paint.entries.map((e) => (
-          <div
-            key={e.id}
-            onMouseDown={clickable ? (ev) => { ev.stopPropagation(); ctx.onNavigate?.(e.id); } : undefined}
-            style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: o.style.size, color: o.style.color, cursor: clickable ? 'pointer' : 'default', padding: '2px 0' }}
-          >
-            {paint.showNumbers ? <span style={{ fontWeight: 700, color: DECK_THEME.navyLight, minWidth: 26, flexShrink: 0 }}>{e.num}</span> : null}
-            <span style={{ fontWeight: 600, color: DECK_THEME.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</span>
-            <span style={{ flex: 1, borderBottom: `1px dotted ${DECK_THEME.rule}`, transform: 'translateY(-3px)', minWidth: 12 }} />
-            {paint.showPageNumbers ? <span style={{ fontWeight: 600, color: DECK_THEME.slate, flexShrink: 0 }}>{e.page}</span> : null}
-          </div>
-        ))}
-      </div>
+      {paint.entries.length === 0 ? (
+        <div style={{ fontSize: 12, color: DECK_THEME.slateLight }}>No sections yet.</div>
+      ) : (
+        <div style={{ display: 'flex', gap: lay.colGap, flex: 1, minHeight: 0, alignItems: 'flex-start' }}>
+          {lay.columns.map((col, ci) => (
+            <div key={ci} style={{ display: 'flex', flexDirection: 'column', width: lay.colWidth, flexShrink: 0 }}>
+              {col.map((e) => (
+                <div
+                  key={e.id}
+                  onMouseDown={clickable ? (ev) => { ev.stopPropagation(); ctx.onNavigate?.(e.id); } : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'baseline', gap: 8, height: lay.rowH,
+                    fontSize: lay.fontSize, color: o.style.color, cursor: clickable ? 'pointer' : 'default',
+                  }}
+                >
+                  {paint.showNumbers ? <span style={{ fontWeight: 700, color: DECK_THEME.navyLight, minWidth: 22, flexShrink: 0 }}>{e.num}</span> : null}
+                  <span style={{ fontWeight: 600, color: DECK_THEME.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</span>
+                  <span style={{ flex: 1, borderBottom: `1px dotted ${DECK_THEME.rule}`, transform: 'translateY(-3px)', minWidth: 10 }} />
+                  {paint.showPageNumbers ? <span style={{ fontWeight: 600, color: DECK_THEME.slate, flexShrink: 0 }}>{e.page}</span> : null}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

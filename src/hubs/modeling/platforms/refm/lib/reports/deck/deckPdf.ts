@@ -27,7 +27,7 @@ import type { Deck } from './types';
 import { DECK_THEME } from './theme';
 import {
   resolveDeckExport, type ExportDeck, type ExportObject, type ExportSlide,
-  type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
+  tocLayout, type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
 } from './exportModel';
 
 /** A recorded hyperlink hotspot: a rect in PDF points on `from` page, targeting an
@@ -296,7 +296,7 @@ function drawDoughnut(page: PDFPage, f: Fonts, o: ExportObject, top: number, dat
 
 // ── Table ────────────────────────────────────────────────────────────────────
 
-function drawTable(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, paint: { data: import('./bindings').TableData; title: string | null; striped: boolean; fontSize: number }): void {
+function drawTable(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, paint: { data: import('./bindings').TableData; title: string | null; striped: boolean; fontSize: number; unitNote: string | null }): void {
   const d = paint.data;
   let y = o.y;
   if (paint.title) {
@@ -304,9 +304,15 @@ function drawTable(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, p
     y += 20;
   }
   const nCols = d.headers.length;
-  const widths = nCols === 2 ? [0.62, 0.38] : Array.from({ length: nCols }, () => 1 / nCols);
+  // The binding may dictate its own column shares (a year-by-year schedule needs
+  // a wide label column and tight numeric ones); otherwise fall back to the
+  // two-column split or an even spread.
+  const widths = d.colWidths && d.colWidths.length === nCols
+    ? d.colWidths
+    : nCols === 2 ? [0.62, 0.38] : Array.from({ length: nCols }, () => 1 / nCols);
   const colX = (i: number): number => o.x + widths.slice(0, i).reduce((a, b) => a + b, 0) * o.w;
   const colW = (i: number): number => widths[i] * o.w;
+  const pad = nCols > 6 ? 3 : 6;
   const fsz = Math.max(6.5, paint.fontSize * S);
   const headH = 18, rowH = Math.max(13, fsz + 7);
   const avail = (o.y + o.h) - y;
@@ -314,7 +320,7 @@ function drawTable(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, p
 
   // header
   rect(page, o.x, y, o.w, headH, { fill: hex(DECK_THEME.navy) });
-  d.headers.forEach((hc, i) => line(page, colX(i) + 6, y + 5, hc.text.toUpperCase(), { size: Math.max(6, fsz - 1), font: f.sansB, color: rgb(1, 1, 1), maxWidth: px(colW(i) - 12), align: hc.align }));
+  d.headers.forEach((hc, i) => line(page, colX(i) + pad, y + 5, hc.text.toUpperCase(), { size: Math.max(6, fsz - 1), font: f.sansB, color: rgb(1, 1, 1), maxWidth: px(colW(i) - pad * 2), align: hc.align }));
   y += headH;
 
   d.rows.slice(0, maxRows).forEach((row, ri) => {
@@ -324,11 +330,13 @@ function drawTable(page: PDFPage, f: Fonts, deck: ExportDeck, o: ExportObject, p
     row.cells.forEach((c, i) => {
       const bold = !!c.bold || !!row.emphasis;
       const color = c.color ? hex(c.color) : row.emphasis ? hex(DECK_THEME.green) : hex(DECK_THEME.ink);
-      line(page, colX(i) + 6, y + (rowH - fsz) / 2, c.text, { size: fsz, font: bold ? f.sansB : f.sans, color, maxWidth: px(colW(i) - 12), align: c.align });
+      const ind = (c.indent ?? 0) * 7;
+      line(page, colX(i) + pad + ind, y + (rowH - fsz) / 2, c.text, { size: fsz, font: bold ? f.sansB : f.sans, color, maxWidth: px(colW(i) - pad * 2 - ind), align: c.align });
     });
     y += rowH;
   });
   if (d.rows.length > maxRows) line(page, o.x, y + 1, `+${d.rows.length - maxRows} more rows`, { size: 6.5, font: f.sansI, color: hex(DECK_THEME.slateLight), maxWidth: px(o.w), align: 'right' });
+  if (paint.unitNote) line(page, o.x, Math.max(y + 2, o.y + o.h - 10), paint.unitNote, { size: 7, font: f.sansI, color: hex(DECK_THEME.slateLight), maxWidth: px(o.w), align: 'right' });
 }
 
 // ── KPI ──────────────────────────────────────────────────────────────────────
@@ -434,18 +442,21 @@ function drawToc(page: PDFPage, f: Fonts, o: ExportObject, p: TocPaint, rec?: Li
     line(page, o.x, y, p.heading, { size: 20, font: f.serifB, color: hex(DECK_THEME.navy), maxWidth: px(o.w), align: 'left' });
     y += 34;
   }
-  const n = Math.max(1, p.entries.length);
-  const rowH = Math.min(26, Math.max(14, (o.y + o.h - y) / n));
-  const fsz = Math.max(8, Math.min(p.style.size * S, rowH * 0.62));
-  const pageColW = 30;
-  p.entries.forEach((e, i) => {
-    const ry = y + i * rowH;
-    const label = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
-    line(page, o.x, ry + (rowH - fsz) / 2, label, { size: fsz, font: f.sansB, color: hex(DECK_THEME.ink), maxWidth: px(o.w - pageColW - 6), align: 'left' });
-    if (p.showPageNumbers) line(page, o.x + o.w - pageColW, ry + (rowH - fsz) / 2, String(e.page), { size: fsz, font: f.sans, color: hex(DECK_THEME.slate), maxWidth: px(pageColW), align: 'right' });
-    // dotted leader
-    hline(page, o.x, ry + rowH - 4, o.w - pageColW, hex(DECK_THEME.rule), 0.3);
-    if (rec) rec([px(o.x), PAGE_H - px(ry + rowH), px(o.x + o.w), PAGE_H - px(ry)], { page: e.page });
+  // Columns, so a long deck's agenda fits the slide instead of running off it.
+  const lay = tocLayout(p, { w: o.w, h: o.h }, y - o.y);
+  const fsz = Math.max(7, lay.fontSize * S);
+  const pageColW = 26;
+  lay.columns.forEach((col, ci) => {
+    const cx = o.x + ci * (lay.colWidth + lay.colGap);
+    col.forEach((e, i) => {
+      const ry = y + i * lay.rowH;
+      const label = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
+      line(page, cx, ry + (lay.rowH - fsz) / 2, label, { size: fsz, font: f.sansB, color: hex(DECK_THEME.ink), maxWidth: px(lay.colWidth - pageColW - 6), align: 'left' });
+      if (p.showPageNumbers) line(page, cx + lay.colWidth - pageColW, ry + (lay.rowH - fsz) / 2, String(e.page), { size: fsz, font: f.sans, color: hex(DECK_THEME.slate), maxWidth: px(pageColW), align: 'right' });
+      // dotted leader
+      hline(page, cx, ry + lay.rowH - 4, lay.colWidth - pageColW, hex(DECK_THEME.rule), 0.3);
+      if (rec) rec([px(cx), PAGE_H - px(ry + lay.rowH), px(cx + lay.colWidth), PAGE_H - px(ry)], { page: e.page });
+    });
   });
 }
 

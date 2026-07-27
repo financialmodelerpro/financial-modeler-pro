@@ -39,6 +39,30 @@ export interface ICReturnsBasisRow { basis: string; irr: number | null; moic: nu
  *  the deck formatter applies the money scale at render. */
 export interface ICStatementLine { label: string; a: number | null; b: number | null; emphasis?: boolean; memo?: boolean }
 export interface ICStatementBlock { colA: string; colB: string; rows: ICStatementLine[]; hasData: boolean }
+/** One line of a FULL year-by-year schedule: a value per column year plus the
+ *  project-life total. `total` is null on stock lines (a balance-sheet position
+ *  does not sum across years) so no renderer can invent one. Raw numbers; the
+ *  deck formatter applies the money scale at render. */
+export interface ICScheduleRow {
+  label: string;
+  values: number[];
+  total: number | null;
+  emphasis?: boolean;
+  memo?: boolean;
+  indent?: number;
+}
+/** A full period-by-period schedule. `years` are the calendar column labels, in
+ *  order, and every row's `values` is exactly that long. Paginated for display by
+ *  the deck binding, never truncated here. */
+export interface ICScheduleBlock {
+  years: number[];
+  rows: ICScheduleRow[];
+  /** True when column 0 is the inception period (the returns streams start there). */
+  hasInception: boolean;
+  /** Whether a project-life Total column is meaningful (flows yes, stocks no). */
+  showTotal: boolean;
+  hasData: boolean;
+}
 /** One swimlane in the development-programme Gantt: a phase's construction and
  *  (optional) operations windows in calendar years, across the model horizon. */
 export interface ICProgrammeLane {
@@ -169,6 +193,19 @@ export interface ICReportModel {
     incomeStatement: ICStatementBlock;
     cashFlow: ICStatementBlock;
     balanceSheet: ICStatementBlock;
+  };
+  /** FULL year-by-year schedules, the same period detail the platform tabs show:
+   *  the three financial statements across every model year (Module 4), and the
+   *  FCFF / FCFE / Distributed-equity (DDM) build-ups across every stream period
+   *  including inception (Module 5). Read straight from the snapshots, no
+   *  recompute; the deck paginates them across slides at render. */
+  schedules: {
+    incomeStatement: ICScheduleBlock;
+    cashFlow: ICScheduleBlock;
+    balanceSheet: ICScheduleBlock;
+    fcff: ICScheduleBlock;
+    fcfe: ICScheduleBlock;
+    ddm: ICScheduleBlock;
   };
   sensitivity: {
     xVariable: string;
@@ -475,6 +512,181 @@ export function buildICReportModel(input: {
     hasData: bsTotals.length > 0,
   };
 
+  // ── FULL year-by-year schedules (every period, no condensing) ─────────────
+  // The same line structure the Module 4 and Module 5 tabs show on screen, one
+  // value per model year. Nothing is recomputed: each row is a snapshot array,
+  // re-signed where a cost reads better negative, and its total is that array's
+  // own sum. Stock lines (balance sheet, cash balances) carry total = null.
+  const N = stmtLabels.length;
+  const take = (arr: number[] | undefined | null, len: number, sign = 1): number[] =>
+    Array.from({ length: len }, (_, i) => sign * (Array.isArray(arr) ? (arr[i] ?? 0) : 0));
+  /** A flow line: values per year plus the project-life total. */
+  const flowRow = (
+    label: string,
+    arr: number[] | undefined | null,
+    opt: { neg?: boolean; emphasis?: boolean; indent?: number; memo?: boolean } = {},
+  ): ICScheduleRow => {
+    const values = take(arr, N, opt.neg ? -1 : 1);
+    return { label, values, total: values.reduce((s, v) => s + v, 0), emphasis: opt.emphasis, indent: opt.indent, memo: opt.memo };
+  };
+  /** A stock line: a position at each year end, with no meaningful total. */
+  const stockRow = (
+    label: string,
+    arr: number[] | undefined | null,
+    opt: { emphasis?: boolean; indent?: number; memo?: boolean } = {},
+  ): ICScheduleRow => ({ label, values: take(arr, N), total: null, emphasis: opt.emphasis, indent: opt.indent, memo: opt.memo });
+
+  const isSchedule: ICScheduleBlock = {
+    years: [...stmtLabels],
+    hasInception: false,
+    showTotal: true,
+    rows: [
+      flowRow('Residential revenue', plS?.residentialRevenuePerPeriod, { indent: 1 }),
+      flowRow('Hospitality revenue', plS?.hospitalityRevenuePerPeriod, { indent: 1 }),
+      flowRow('Retail revenue', plS?.retailRevenuePerPeriod, { indent: 1 }),
+      flowRow('Total revenue', plS?.totalRevenuePerPeriod, { emphasis: true }),
+      flowRow('Cost of sales', plS?.cosPerPeriod, { neg: true, indent: 1 }),
+      flowRow('Hospitality opex', plS?.hospitalityOpexPerPeriod, { neg: true, indent: 1 }),
+      flowRow('Retail opex', plS?.retailOpexPerPeriod, { neg: true, indent: 1 }),
+      flowRow('Head-office and G&A', plS?.hqOpexPerPeriod, { neg: true, indent: 1 }),
+      flowRow('Total operating expenses', plS?.totalOpexPerPeriod, { neg: true }),
+      flowRow('EBITDA', plS?.ebitdaPerPeriod, { emphasis: true }),
+      flowRow('Depreciation and amortization', plS?.daPerPeriod, { neg: true, indent: 1 }),
+      flowRow('EBIT', plS?.ebitPerPeriod, { emphasis: true }),
+      flowRow('Interest and financing cost', plS?.interestExpensePerPeriod, { neg: true, indent: 1 }),
+      flowRow('Profit before tax', plS?.pbtPerPeriod),
+      flowRow('Tax', plS?.taxPerPeriod, { neg: true, indent: 1 }),
+      flowRow('Net income', plS?.patPerPeriod, { emphasis: true }),
+    ],
+    hasData: incomeStatement.hasData,
+  };
+
+  const cfSchedule: ICScheduleBlock = {
+    years: [...stmtLabels],
+    hasInception: false,
+    showTotal: true,
+    rows: [
+      flowRow('Revenue received', cfS?.revenueReceivedPerPeriod, { indent: 1 }),
+      flowRow('Escrow held and released (net)', cfS?.netRevenueAdjustmentPerPeriod, { indent: 1 }),
+      flowRow('Operating expenses paid', cfS?.opexPaidPerPeriod, { indent: 1 }),
+      flowRow('Head-office expenses paid', cfS?.hqOpexPaidPerPeriod, { indent: 1 }),
+      flowRow('Tax paid', cfS?.taxPaidPerPeriod, { indent: 1 }),
+      flowRow('Cash from operations', cfS?.cashFromOperationsPerPeriod, { emphasis: true }),
+      flowRow('Capital expenditure', cfS?.capexPerPeriod, { indent: 1 }),
+      flowRow('Cash from investing', cfS?.cashFromInvestmentPerPeriod, { emphasis: true }),
+      flowRow('Equity drawdown (cash)', cfS?.equityDrawdownPerPeriod, { indent: 1 }),
+      flowRow('Debt drawdown', cfS?.debtDrawdownPerPeriod, { indent: 1 }),
+      flowRow('Debt repayment', cfS?.debtRepaymentPerPeriod, { indent: 1 }),
+      flowRow('Interest paid', cfS?.interestPaidPerPeriod, { indent: 1 }),
+      flowRow('Dividends paid', cfS?.dividendsPaidPerPeriod, { indent: 1 }),
+      flowRow('Cash from financing', cfS?.cashFromFinancingPerPeriod, { emphasis: true }),
+      flowRow('Net change in cash', cfS?.netCashFlowPerPeriod, { emphasis: true }),
+      stockRow('Opening cash', cfS?.openingCashPerPeriod, { memo: true }),
+      stockRow('Closing cash', cfS?.closingCashPerPeriod, { memo: true }),
+      flowRow('Memo: in-kind equity contributed', cfS?.equityInKindDrawdownPerPeriod, { memo: true, indent: 1 }),
+    ],
+    hasData: cashFlow.hasData,
+  };
+
+  const bsSchedule: ICScheduleBlock = {
+    years: [...stmtLabels],
+    hasInception: false,
+    showTotal: false,
+    rows: [
+      stockRow('Cash', bsS?.cashPerPeriod, { indent: 1 }),
+      stockRow('Escrow (restricted cash)', bsS?.escrowRestrictedCashPerPeriod, { indent: 1 }),
+      stockRow('Operating receivables', bsS?.arPerPeriod, { indent: 1 }),
+      stockRow('Residential receivables', bsS?.residentialReceivablesPerPeriod, { indent: 1 }),
+      stockRow('Inventory (work in progress)', bsS?.inventoryPerPeriod, { indent: 1 }),
+      stockRow('Total current assets', bsS?.totalCurrentAssetsPerPeriod, { emphasis: true }),
+      stockRow('Net book value (depreciable)', bsS?.nbvPerPeriod, { indent: 1 }),
+      stockRow('Land', bsS?.landPerPeriod, { indent: 1 }),
+      stockRow('Total fixed assets', bsS?.totalFixedAssetsPerPeriod, { emphasis: true }),
+      stockRow('Total assets', bsS?.totalAssetsPerPeriod, { emphasis: true }),
+      stockRow('Payables', bsS?.apPerPeriod, { indent: 1 }),
+      stockRow('Unearned revenue', bsS?.unearnedRevenuePerPeriod, { indent: 1 }),
+      stockRow('Debt outstanding', bsS?.debtOutstandingPerPeriod, { indent: 1 }),
+      stockRow('Total liabilities', bsS?.totalLiabilitiesPerPeriod, { emphasis: true }),
+      stockRow('Share capital', bsS?.shareCapitalPerPeriod, { indent: 1 }),
+      stockRow('Statutory reserve', bsS?.statutoryReservePerPeriod, { indent: 1 }),
+      stockRow('Retained earnings', bsS?.retainedEarningsPerPeriod, { indent: 1 }),
+      stockRow('Total equity', bsS?.totalEquityPerPeriod, { emphasis: true }),
+      stockRow('Check: assets less liabilities and equity', bsS?.bsDifferencePerPeriod, { memo: true }),
+    ],
+    hasData: balanceSheet.hasData,
+  };
+
+  // Returns build-ups. These run on the STREAM axis (index 0 = inception, the
+  // year before project start), which is why they get their own year labels
+  // rather than reusing the statement axis.
+  const streamYears = rs.streamYearLabels ?? [];
+  const S = streamYears.length;
+  const streamRow = (
+    label: string,
+    arr: number[] | undefined | null,
+    opt: { emphasis?: boolean; indent?: number; memo?: boolean } = {},
+  ): ICScheduleRow => {
+    const values = Array.from({ length: S }, (_, i) => (Array.isArray(arr) ? (arr[i] ?? 0) : 0));
+    return { label, values, total: values.reduce((s, v) => s + v, 0), emphasis: opt.emphasis, indent: opt.indent, memo: opt.memo };
+  };
+  /** Running total of a stream, as a memo line. Display cumulation only. */
+  const cumulativeRow = (label: string, arr: number[] | undefined | null): ICScheduleRow => {
+    let run = 0;
+    const values = Array.from({ length: S }, (_, i) => { run += Array.isArray(arr) ? (arr[i] ?? 0) : 0; return run; });
+    return { label, values, total: null, memo: true };
+  };
+  const streamsHaveData = S > 0 && Array.isArray(rs.fcffPerPeriod) && rs.fcffPerPeriod.length > 0;
+
+  const fcffSchedule: ICScheduleBlock = {
+    years: [...streamYears],
+    hasInception: true,
+    showTotal: true,
+    rows: [
+      streamRow('(-) Historical development investment', bu?.existingPreCapexPerPeriod, { indent: 1 }),
+      streamRow('(+) Cash from operations', bu?.cfoPerPeriod, { indent: 1 }),
+      streamRow('(+) Cash from investing (new capex)', bu?.cfiPerPeriod, { indent: 1 }),
+      streamRow('(+) Terminal enterprise value', bu?.terminalEnterprisePerPeriod, { indent: 1 }),
+      streamRow('= FCFF, unlevered project', rs.fcffPerPeriod, { emphasis: true }),
+      cumulativeRow('Memo: cumulative FCFF', rs.fcffPerPeriod),
+    ],
+    hasData: streamsHaveData,
+  };
+
+  const fcfeSchedule: ICScheduleBlock = {
+    years: [...streamYears],
+    hasInception: true,
+    showTotal: true,
+    rows: [
+      streamRow('(-) Existing equity investment (at inception)', bu?.existingEquityPerPeriod, { indent: 1 }),
+      streamRow('(+) Cash from operations', bu?.cfoPerPeriod, { indent: 1 }),
+      streamRow('(+) Cash from investing (new capex)', bu?.cfiPerPeriod, { indent: 1 }),
+      streamRow('(-) In-kind equity investment', bu?.inKindLandPerPeriod, { indent: 1 }),
+      streamRow('(+) Debt drawdown', bu?.debtDrawPerPeriod, { indent: 1 }),
+      streamRow('(-) Principal repayment', bu?.principalRepayPerPeriod, { indent: 1 }),
+      streamRow('(-) Interest paid', bu?.interestPaidPerPeriod, { indent: 1 }),
+      streamRow('(+) Terminal equity value', bu?.terminalEquityPerPeriod, { indent: 1 }),
+      streamRow('= FCFE, levered equity', rs.fcfePerPeriod, { emphasis: true }),
+      cumulativeRow('Memo: cumulative FCFE', rs.fcfePerPeriod),
+    ],
+    hasData: streamsHaveData,
+  };
+
+  const ddmSchedule: ICScheduleBlock = {
+    years: [...streamYears],
+    hasInception: true,
+    showTotal: true,
+    rows: [
+      streamRow('(-) Existing equity investment (at inception)', bu?.existingEquityPerPeriod, { indent: 1 }),
+      streamRow('(-) New cash equity investment', bu?.equityCashPerPeriod, { indent: 1 }),
+      streamRow('(-) In-kind equity investment', bu?.equityInKindPerPeriod, { indent: 1 }),
+      streamRow('(+) Dividends distributed (cash-sweep waterfall)', bu?.dividendsDistributedPerPeriod, { indent: 1 }),
+      streamRow('(+) Terminal equity value', bu?.terminalEquityPerPeriod, { indent: 1 }),
+      streamRow('= Net equity cash flow (dividend basis)', rs.dividendStreamPerPeriod, { emphasis: true }),
+      cumulativeRow('Memo: cumulative distributions', rs.dividendStreamPerPeriod),
+    ],
+    hasData: streamsHaveData,
+  };
+
   return {
     cover: {
       projectName: project.name,
@@ -560,6 +772,14 @@ export function buildICReportModel(input: {
     exitYears,
     returnsBasis,
     statements: { incomeStatement, cashFlow, balanceSheet },
+    schedules: {
+      incomeStatement: isSchedule,
+      cashFlow: cfSchedule,
+      balanceSheet: bsSchedule,
+      fcff: fcffSchedule,
+      fcfe: fcfeSchedule,
+      ddm: ddmSchedule,
+    },
     sensitivity: {
       xVariable: sens?.xVariable ?? '',
       yVariable: sens?.yVariable ?? '',

@@ -105,7 +105,7 @@ export type ExportPaint =
   | { kind: 'bullets'; items: string[]; numbered: boolean; markerColor: string; style: TextStyle; box?: BoxStyle }
   | KpiPaint
   | { kind: 'chart'; data: ChartData; chartKind: ChartKind; title: string | null; showLegend: boolean; showValues: boolean; box?: BoxStyle }
-  | { kind: 'table'; data: TableData; title: string | null; striped: boolean; fontSize: number; box?: BoxStyle }
+  | { kind: 'table'; data: TableData; title: string | null; striped: boolean; fontSize: number; unitNote: string | null; box?: BoxStyle }
   | { kind: 'image'; url: string | null; fit: 'cover' | 'contain' | 'fill'; alt: string; box?: BoxStyle }
   | { kind: 'shape'; shape: ShapeKind; box?: BoxStyle; text: string; style?: TextStyle }
   | { kind: 'divider'; color: string; thickness: number }
@@ -148,6 +148,43 @@ export function buildTocPaint(o: { heading?: string; style: TextStyle; showPageN
     showNumbers: o.showNumbers !== false,
     box: o.box,
   };
+}
+
+/** How a ToC's entries are arranged inside its box. Shared by the canvas and both
+ *  exporters so the on-screen agenda, the PPTX and the PDF break into the same
+ *  columns at the same point. */
+export interface TocLayout {
+  /** Entries split into display columns, in reading order down each column. */
+  columns: TocEntry[][];
+  colWidth: number;
+  colGap: number;
+  rowH: number;
+  fontSize: number;
+}
+
+const TOC_MIN_ROW = 17;
+const TOC_MAX_ROW = 28;
+const TOC_COL_GAP = 28;
+const TOC_MAX_COLS = 3;
+
+/**
+ * Lay a ToC out to FIT. A long deck (full year-by-year schedules can add a dozen
+ * slides) would otherwise run off the bottom of a fixed box and simply clip, so
+ * the list flows into a second and, if it must, a third column before it starts
+ * tightening the rows. Pure geometry: no DOM, no fonts.
+ */
+export function tocLayout(p: TocPaint, box: { w: number; h: number }, headingH: number): TocLayout {
+  const n = Math.max(1, p.entries.length);
+  const avail = Math.max(32, box.h - headingH);
+  let cols = 1;
+  while (cols < TOC_MAX_COLS && Math.ceil(n / cols) * TOC_MIN_ROW > avail) cols += 1;
+  const perCol = Math.ceil(n / cols);
+  const rowH = Math.min(TOC_MAX_ROW, Math.max(TOC_MIN_ROW * 0.72, avail / perCol));
+  const fontSize = Math.max(7, Math.min(p.style.size, rowH * 0.62));
+  const colGap = cols > 1 ? TOC_COL_GAP : 0;
+  const colWidth = (box.w - colGap * (cols - 1)) / cols;
+  const columns: TocEntry[][] = Array.from({ length: cols }, (_, i) => p.entries.slice(i * perCol, (i + 1) * perCol));
+  return { columns, colWidth, colGap, rowH, fontSize };
 }
 
 export interface ExportChrome {
@@ -249,9 +286,12 @@ export function resolveObjectPaint(o: DeckObject, model: ICReportModel, fmt: Dec
       return { kind: 'chart', data: r.value, chartKind: o.kindOverride ?? r.value.kind, title: o.title ?? null, showLegend: o.showLegend !== false, showValues: !!o.showValues, box: o.box };
     }
     case 'table': {
-      const r = resolveTable(o.table, model, fmt);
+      const r = resolveTable(o.table, model, fmt, { page: o.page });
       if (!r.available) return { kind: 'unlinked', label: 'Table', reason: r.reason };
-      return { kind: 'table', data: r.value, title: o.title ?? null, striped: !!o.striped, fontSize: o.fontSize ?? 11, box: o.box };
+      return {
+        kind: 'table', data: r.value, title: o.title ?? null, striped: !!o.striped,
+        fontSize: o.fontSize ?? 11, unitNote: o.showUnitNote ? r.value.unitNote : null, box: o.box,
+      };
     }
     case 'image':
       return { kind: 'image', url: o.url, fit: o.fit, alt: o.alt ?? '', box: o.box };

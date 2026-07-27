@@ -25,7 +25,7 @@ import type { Deck, TextStyle, ShapeKind } from './types';
 import { DECK_THEME, noHash, fontFor } from './theme';
 import {
   resolveDeckExport, pxToInch, type ExportDeck, type ExportObject, type ExportSlide,
-  type ExportPaint, type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
+  tocLayout, type ExportPaint, type GanttPaint, type HeatmapPaint, type KpiPaint, type TocPaint,
 } from './exportModel';
 
 const AMBER = '#B98A2E';
@@ -73,18 +73,21 @@ function addToc(slide: Slide, o: ExportObject, deck: ExportDeck, p: TocPaint): v
     slide.addText(p.heading, { x: inX(o.x), y: inX(y), w: inX(o.w), h: inX(30), fontFace: deck.fontHeading, fontSize: fs(24), bold: true, color: noHash(DECK_THEME.navy), valign: 'top', margin: 0, isTextBox: true });
     y += 38;
   }
-  const n = Math.max(1, p.entries.length);
-  const rowH = Math.min(30, Math.max(16, (o.y + o.h - y) / n));
-  const fsz = fs(Math.min(p.style.size, rowH * 0.62));
-  const pageW = 40;
-  p.entries.forEach((e, i) => {
-    const ry = y + i * rowH;
-    const link: PptxGenJS.HyperlinkProps = { slide: e.page };
-    const left = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
-    slide.addText(left, { x: inX(o.x), y: inX(ry), w: inX(o.w - pageW), h: inX(rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.ink), valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
-    if (p.showPageNumbers) {
-      slide.addText(String(e.page), { x: inX(o.x + o.w - pageW), y: inX(ry), w: inX(pageW), h: inX(rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.slate), align: 'right', valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
-    }
+  // Columns, so a long deck's agenda fits the slide instead of running off it.
+  const lay = tocLayout(p, { w: o.w, h: o.h }, y - o.y);
+  const fsz = fs(lay.fontSize);
+  const pageW = 36;
+  lay.columns.forEach((col, ci) => {
+    const cx = o.x + ci * (lay.colWidth + lay.colGap);
+    col.forEach((e, i) => {
+      const ry = y + i * lay.rowH;
+      const link: PptxGenJS.HyperlinkProps = { slide: e.page };
+      const left = p.showNumbers ? `${e.num}   ${e.title}` : e.title;
+      slide.addText(left, { x: inX(cx), y: inX(ry), w: inX(lay.colWidth - pageW), h: inX(lay.rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.ink), valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
+      if (p.showPageNumbers) {
+        slide.addText(String(e.page), { x: inX(cx + lay.colWidth - pageW), y: inX(ry), w: inX(pageW), h: inX(lay.rowH), fontFace: deck.fontBody, fontSize: fsz, color: noHash(DECK_THEME.slate), align: 'right', valign: 'middle', margin: 0, isTextBox: true, hyperlink: link });
+      }
+    });
   });
 }
 
@@ -159,19 +162,38 @@ function addTable(slide: Slide, o: ExportObject, deck: ExportDeck, paint: Extrac
     y += 22;
   }
   const cell = (text: string, opts: PptxGenJS.TableCellProps): PptxGenJS.TableCell => ({ text, options: opts });
+  const nCols = d.headers.length;
+  const tight = nCols > 6;
+  const headSize = tight ? fs(8) : fs(10);
   const header: PptxGenJS.TableRow = d.headers.map((hc) =>
-    cell(hc.text, { fill: { color: noHash(DECK_THEME.navy) }, color: 'FFFFFF', bold: true, align: hc.align, fontSize: fs(10), valign: 'middle' }));
+    cell(hc.text, { fill: { color: noHash(DECK_THEME.navy) }, color: 'FFFFFF', bold: true, align: hc.align, fontSize: headSize, valign: 'middle' }));
   const body: PptxGenJS.TableRow[] = d.rows.map((row) => row.cells.map((c) => cell(c.text, {
     color: noHash(c.color ?? (row.emphasis ? DECK_THEME.green : DECK_THEME.ink)),
     bold: !!c.bold || !!row.emphasis, align: c.align, fontSize: fs(paint.fontSize),
     fill: row.shaded ? { color: noHash(DECK_THEME.paleWash) } : row.emphasis ? { color: 'EEF3F9' } : paint.striped ? { color: 'FAFBFD' } : undefined,
     valign: 'middle',
+    // Indented sub-lines keep their hierarchy in PowerPoint via the cell's own
+    // left margin (pptxgenjs margin is [t, r, b, l] in points).
+    margin: [1, tight ? 2 : 4, 1, (tight ? 2 : 4) + (c.indent ?? 0) * 6],
   })));
+  // Honour the binding's column shares so a wide schedule keeps its roomy label
+  // column in PowerPoint exactly as it reads on the canvas.
+  const colW = d.colWidths && d.colWidths.length === nCols
+    ? d.colWidths.map((wf) => inX(o.w) * wf)
+    : undefined;
   slide.addTable([header, ...body], {
     x: inX(o.x), y: inX(y), w: inX(o.w),
+    ...(colW ? { colW } : {}),
     fontFace: deck.fontBody, border: { type: 'solid', color: noHash(DECK_THEME.rule), pt: 0.5 },
     autoPage: false, valign: 'middle',
   });
+  if (paint.unitNote) {
+    slide.addText(paint.unitNote, {
+      x: inX(o.x), y: inX(o.y + o.h - 14), w: inX(o.w), h: inX(12),
+      fontFace: deck.fontBody, fontSize: fs(9), italic: true, color: noHash(DECK_THEME.slateLight),
+      align: 'right', valign: 'bottom', margin: 0, isTextBox: true,
+    });
+  }
 }
 
 // ── KPI tile ─────────────────────────────────────────────────────────────────

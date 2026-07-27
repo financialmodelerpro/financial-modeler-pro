@@ -44,10 +44,10 @@ import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonRepor
 import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck } from '../../lib/persistence/client';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
 import type { Party } from '../../lib/parties';
-import { makeDeckFmt } from '../../lib/reports/deck/bindings';
+import { makeDeckFmt, isPaginatedTable } from '../../lib/reports/deck/bindings';
 import { seedDeck, TEMPLATE_BY_ID } from '../../lib/reports/deck/templates';
 import { upgradeDeckLayout } from '../../lib/reports/deck/deckUpgrade';
-import type { Deck, DeckLink, DeckObject, Slide } from '../../lib/reports/deck/types';
+import type { Deck, DeckLink, DeckObject, Slide, TableObject } from '../../lib/reports/deck/types';
 import { DECK_THEME, FONT_CHOICES_DECK } from '../../lib/reports/deck/theme';
 import {
   updateObject, updateObjects, removeObjects, duplicateObjects, reorderObjects, nudgeObjects,
@@ -715,6 +715,23 @@ function ObjectEditor({ obj, onPatch, slides, currentSlideId }: { obj: DeckObjec
           <div style={{ fontSize: 10, color: DECK_THEME.slate, marginBottom: 6 }}>Linked to <code>{(obj as { table: string }).table}</code> (live)</div>
           <Field label="Title"><input placeholder="(none)" value={(obj as { title?: string | null }).title ?? ''} onChange={(e) => onPatch({ title: e.target.value || null })} style={inp} /></Field>
           <Field label="Striped"><input type="checkbox" checked={!!(obj as { striped?: boolean }).striped} onChange={(e) => onPatch({ striped: e.target.checked })} /></Field>
+          <Field label="Unit note"><input type="checkbox" checked={!!(obj as { showUnitNote?: boolean }).showUnitNote} onChange={(e) => onPatch({ showUnitNote: e.target.checked })} /></Field>
+          {isPaginatedTable((obj as TableObject).table) ? (
+            <>
+              <Field label="Year page">
+                <input
+                  type="number" min={1} step={1}
+                  value={((obj as TableObject).page ?? 0) + 1}
+                  onChange={(e) => onPatch({ page: Math.max(0, (parseInt(e.target.value, 10) || 1) - 1) })}
+                  style={inp}
+                />
+              </Field>
+              <div style={{ fontSize: 10, color: DECK_THEME.slate, marginBottom: 6, lineHeight: 1.5 }}>
+                This schedule spans every model year across several slides. Page {((obj as TableObject).page ?? 0) + 1} shows its
+                own window of years; a page past the end of the model shows as unlinked rather than blank.
+              </div>
+            </>
+          ) : null}
         </>
       ) : null}
 

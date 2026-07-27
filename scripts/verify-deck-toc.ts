@@ -18,7 +18,7 @@
  * Run: npx tsx scripts/verify-deck-toc.ts
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { resolveDeckExport, type TocPaint } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/exportModel';
+import { resolveDeckExport, tocLayout, type TocPaint } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/exportModel';
 import { makeDeckFmt } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/bindings';
 import { icMoneyScaleSpec } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
 import { buildDeckPptx } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/deckPptx';
@@ -134,6 +134,34 @@ console.log('\n=== 6. coerceDeck keeps the toc object + the link across jsonb ==
   check('the toc object SURVIVES coercion (not dropped as unknown)', tocSlide.objects.some((o) => o.type === 'toc'));
   const lk = tocSlide.objects.find((o) => o.id === 'lk');
   check('the object link survives coercion', !!lk && (lk as any).link?.kind === 'slide' && (lk as any).link?.slideId === 'bs');
+}
+
+console.log('\n=== 6b. A long deck\'s agenda FITS: the ToC flows into columns ===');
+{
+  const box = { w: 1184, h: 520 };
+  const mkPaint = (n: number): TocPaint => ({
+    kind: 'toc', heading: '', style: { ...textStyles.body(), size: 15 },
+    showPageNumbers: true, showNumbers: true,
+    entries: Array.from({ length: n }, (_, i) => ({ num: String(i + 1).padStart(2, '0'), title: `Slide ${i + 1}`, page: i + 2, id: `s${i}` })),
+  });
+  const short = tocLayout(mkPaint(12), box, 0);
+  check('a short agenda stays in one column', short.columns.length === 1);
+  check('a short agenda keeps every entry', short.columns.flat().length === 12);
+  // A deck carrying the full year-by-year schedules runs to ~40 slides.
+  const long = tocLayout(mkPaint(42), box, 0);
+  check('a long agenda breaks into columns rather than clipping', long.columns.length > 1);
+  check('a long agenda still lists every slide exactly once',
+    long.columns.flat().length === 42 && new Set(long.columns.flat().map((e) => e.id)).size === 42);
+  check('the columns keep reading order (down, then across)',
+    long.columns[0][0].id === 's0' && long.columns.flat().every((e, i) => e.id === `s${i}`));
+  check('every column fits inside the box height',
+    long.columns.every((c) => c.length * long.rowH <= box.h + 0.001), `${long.columns[0].length} x ${long.rowH}`);
+  check('the columns fit inside the box width',
+    long.columns.length * long.colWidth + (long.columns.length - 1) * long.colGap <= box.w + 0.001);
+  check('the font shrinks with the row height but stays legible', long.fontSize >= 7 && long.fontSize <= 15);
+  const huge = tocLayout(mkPaint(120), box, 0);
+  check('an extreme deck caps at three columns (it never invents a fourth)', huge.columns.length === 3);
+  check('an extreme deck still lists every slide', huge.columns.flat().length === 120);
 }
 
 console.log('\n=== 7. Exporters build a real file from a deck with a ToC + links ===');

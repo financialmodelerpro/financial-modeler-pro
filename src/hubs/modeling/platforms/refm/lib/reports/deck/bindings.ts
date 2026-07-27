@@ -27,7 +27,7 @@
  * No em dashes in this file.
  */
 
-import type { ICReportModel, ICStatementBlock } from '../icReport';
+import type { ICReportModel, ICScheduleBlock, ICStatementBlock } from '../icReport';
 import type { CaseComparisonReport } from '../caseComparisonReport';
 import type { ChartKind } from './types';
 import { DECK_THEME, CHART_SERIES, signColor } from './theme';
@@ -460,18 +460,35 @@ export type TableBindingKey =
   | 'table.scenarioReturns' | 'table.scenarioEconomics' | 'table.facilitySummary'
   | 'table.reMetrics' | 'table.devEconomics'
   | 'table.returnsBasis' | 'table.returnsBridge'
-  | 'table.incomeStatement' | 'table.cashFlow' | 'table.balanceSheet';
+  | 'table.incomeStatement' | 'table.cashFlow' | 'table.balanceSheet'
+  | 'table.isSchedule' | 'table.cfSchedule' | 'table.bsSchedule'
+  | 'table.fcffSchedule' | 'table.fcfeSchedule' | 'table.ddmSchedule';
 
 export type CellAlign = 'left' | 'right';
-export interface TableCell { text: string; align: CellAlign; bold?: boolean; color?: string }
+export interface TableCell { text: string; align: CellAlign; bold?: boolean; color?: string; indent?: number }
 export interface TableRow { cells: TableCell[]; emphasis?: boolean; shaded?: boolean }
-export interface TableData { headers: TableCell[]; rows: TableRow[]; unitNote: string }
+export interface TableData {
+  headers: TableCell[];
+  rows: TableRow[];
+  unitNote: string;
+  /** Column width fractions (summing to 1). Absent = equal columns. A wide
+   *  year-by-year schedule needs a roomy label column and tight numeric ones. */
+  colWidths?: number[];
+}
+
+/** Per-object options a table binding may read. Only paginated schedules use
+ *  `page`; every other binding ignores it. */
+export interface TableOpts { page?: number }
 
 export interface TableDef {
   key: TableBindingKey;
   label: string;
-  group: 'Programme' | 'Costs & value' | 'Financing' | 'Returns' | 'Scenarios';
-  resolve: (m: ICReportModel, f: DeckFmt) => Resolved<TableData>;
+  group: 'Programme' | 'Costs & value' | 'Financing' | 'Returns' | 'Scenarios' | 'Full schedules';
+  /** True when the binding splits across pages (see `page` on the object). */
+  paginated?: boolean;
+  /** How many pages this binding needs for the given model. Default 1. */
+  pageCount?: (m: ICReportModel) => number;
+  resolve: (m: ICReportModel, f: DeckFmt, opts: TableOpts) => Resolved<TableData>;
 }
 
 const h = (text: string, align: CellAlign = 'left'): TableCell => ({ text, align });
@@ -715,6 +732,14 @@ const TABLE_DEFS: TableDef[] = [
     key: 'table.balanceSheet', label: 'Balance sheet', group: 'Returns',
     resolve: (m, f) => statementTable(m.statements?.balanceSheet, f, 'This model has no balance sheet'),
   },
+
+  // ── Full year-by-year schedules (paginated across slides) ─────────────────
+  SCHED('table.isSchedule', 'Income statement by year', (m) => m.schedules?.incomeStatement, 'This model has no income statement'),
+  SCHED('table.cfSchedule', 'Cash flow by year', (m) => m.schedules?.cashFlow, 'This model has no cash flow statement'),
+  SCHED('table.bsSchedule', 'Balance sheet by year', (m) => m.schedules?.balanceSheet, 'This model has no balance sheet'),
+  SCHED('table.fcffSchedule', 'FCFF schedule by year', (m) => m.schedules?.fcff, 'This model has no FCFF stream'),
+  SCHED('table.fcfeSchedule', 'FCFE schedule by year', (m) => m.schedules?.fcfe, 'This model has no FCFE stream'),
+  SCHED('table.ddmSchedule', 'Distributed equity (DDM) schedule by year', (m) => m.schedules?.ddm, 'This model distributes no equity'),
 ];
 
 /** Shared renderer for the three condensed financial statements. A two-column
@@ -737,14 +762,107 @@ function statementTable(block: ICStatementBlock | undefined, f: DeckFmt, missing
   });
 }
 
+// ── Full year-by-year schedules ─────────────────────────────────────────────
+
+/** Year columns per slide. A 16:9 slide holds a roomy label column plus this
+ *  many numeric columns at a readable size; longer models simply run onto more
+ *  slides rather than shrinking to unreadable or silently dropping years. */
+export const SCHEDULE_YEARS_PER_PAGE = 10;
+
+/** Pages a schedule needs. Always at least 1, so an empty model still resolves
+ *  to a single (unlinked) slide rather than none. */
+export const schedulePageCount = (block: ICScheduleBlock | undefined): number =>
+  Math.max(1, Math.ceil((block?.years?.length ?? 0) / SCHEDULE_YEARS_PER_PAGE));
+
+/** Label-column share of the width. More numeric columns = a tighter label. */
+function labelFraction(numericCols: number): number {
+  if (numericCols >= 10) return 0.22;
+  if (numericCols >= 7) return 0.26;
+  if (numericCols >= 4) return 0.32;
+  return 0.40;
+}
+
+/**
+ * Render ONE page of a full schedule: the label column, this page's window of
+ * year columns, and (on the final page of a flow schedule) the project-life
+ * Total. The total is deliberately only on the last page: a Total repeated
+ * beside a partial window invites the reader to add up the visible years and
+ * find they do not tie.
+ *
+ * A page index past the end resolves to the unlinked state rather than an empty
+ * grid, so a deck built when the model was longer says so out loud.
+ */
+function scheduleTable(block: ICScheduleBlock | undefined, f: DeckFmt, opts: TableOpts, missingReason: string): Resolved<TableData> {
+  if (!block || !block.hasData || !block.rows.length || !block.years.length) return missing(missingReason);
+  const pages = schedulePageCount(block);
+  const page = Math.max(0, Math.floor(opts.page ?? 0));
+  if (page >= pages) return missing(`This schedule has only ${pages} page${pages === 1 ? '' : 's'} of years in the current model`);
+
+  const from = page * SCHEDULE_YEARS_PER_PAGE;
+  const to = Math.min(block.years.length, from + SCHEDULE_YEARS_PER_PAGE);
+  const years = block.years.slice(from, to);
+  const lastPage = page === pages - 1;
+  const withTotal = block.showTotal && lastPage;
+
+  const yearHead = (y: number, i: number): TableCell =>
+    h(block.hasInception && from + i === 0 ? `${y} T0` : String(y), 'right');
+  const headers: TableCell[] = [
+    h('Line'),
+    ...years.map(yearHead),
+    ...(withTotal ? [h('Total', 'right')] : []),
+  ];
+
+  const numericCols = years.length + (withTotal ? 1 : 0);
+  const labelW = labelFraction(numericCols);
+  const each = numericCols > 0 ? (1 - labelW) / numericCols : 0;
+  const colWidths = [labelW, ...Array.from({ length: numericCols }, () => each)];
+
+  const rows: TableRow[] = block.rows.map((r) => ({
+    cells: [
+      { text: r.label, align: 'left' as CellAlign, bold: !!r.emphasis, indent: r.indent ?? 0 },
+      ...r.values.slice(from, to).map((v) => money(v, f, !!r.emphasis)),
+      ...(withTotal ? [r.total === null ? c('', 'right') : money(r.total, f, true)] : []),
+    ],
+    emphasis: r.emphasis,
+    shaded: r.memo,
+  }));
+
+  const span = years.length ? `${years[0]} to ${years[years.length - 1]}` : '';
+  const pageNote = pages > 1 ? ` (page ${page + 1} of ${pages})` : '';
+  return ok({ headers, rows, colWidths, unitNote: `${f.moneyUnit}, ${span}${pageNote}` });
+}
+
+/** Declare one paginated schedule binding. */
+function SCHED(
+  key: TableBindingKey,
+  label: string,
+  pick: (m: ICReportModel) => ICScheduleBlock | undefined,
+  missingReason: string,
+): TableDef {
+  return {
+    key, label, group: 'Full schedules', paginated: true,
+    pageCount: (m) => schedulePageCount(pick(m)),
+    resolve: (m, f, opts) => scheduleTable(pick(m), f, opts, missingReason),
+  };
+}
+
 export const TABLE_BINDINGS: Record<TableBindingKey, TableDef> =
   Object.fromEntries(TABLE_DEFS.map((d) => [d.key, d])) as Record<TableBindingKey, TableDef>;
 export const TABLE_KEYS = TABLE_DEFS.map((d) => d.key);
 
-export function resolveTable(key: TableBindingKey, m: ICReportModel, f: DeckFmt): Resolved<TableData> {
+export function resolveTable(key: TableBindingKey, m: ICReportModel, f: DeckFmt, opts: TableOpts = {}): Resolved<TableData> {
   const def = TABLE_BINDINGS[key];
   if (!def) return missing(`Unknown table "${key}"`);
-  return def.resolve(m, f);
+  return def.resolve(m, f, opts);
+}
+
+/** Whether a table binding paginates its columns across slides. */
+export const isPaginatedTable = (key: TableBindingKey): boolean => !!TABLE_BINDINGS[key]?.paginated;
+
+/** How many slides this binding needs for the given model (1 when not paginated). */
+export function tablePageCount(key: TableBindingKey, m: ICReportModel): number {
+  const def = TABLE_BINDINGS[key];
+  return def?.pageCount ? Math.max(1, def.pageCount(m)) : 1;
 }
 
 // ── Formatter factory ───────────────────────────────────────────────────────

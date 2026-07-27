@@ -20,7 +20,7 @@
  * No em dashes in this file.
  */
 
-import type { ICReportModel } from '../icReport';
+import type { ICReportModel, ICScheduleBlock } from '../icReport';
 import type { ReportInputs } from '../../reportInputs';
 import {
   MARGIN, CONTENT_W, SLIDE_W, deckId, resetDeckIds, rowSlots,
@@ -32,7 +32,7 @@ import {
   coverWash, gantt, heatmap, image, kpi, kpiRow, panelLabel, phaseCard, riskMatrix, shape, table,
   text, boundText, titleBlock, toc,
 } from './layout';
-import type { MetricBindingKey } from './bindings';
+import { schedulePageCount, type MetricBindingKey, type TableBindingKey } from './bindings';
 import { PLACEHOLDER } from './placeholders';
 
 /** What a template may read besides the model: narrative the user already wrote. */
@@ -44,11 +44,15 @@ export interface SlideTemplate {
   id: string;
   title: string;
   /** Insert-menu grouping. */
-  group: 'Opening' | 'The asset' | 'The numbers' | 'The case' | 'Closing';
+  group: 'Opening' | 'The asset' | 'The numbers' | 'The case' | 'Full schedules' | 'Closing';
   chrome: Slide['chrome'];
   /** Whether the model supports this slide at all. False = seeded deck omits it. */
   available: (m: ICReportModel, seed: TemplateSeed) => boolean;
-  build: (m: ICReportModel, seed: TemplateSeed, num: string) => DeckObject[];
+  /** How many slides this template expands to for the given model. A full
+   *  year-by-year schedule runs onto as many slides as its horizon needs rather
+   *  than shrinking years out of readability. Default 1. */
+  pages?: (m: ICReportModel) => number;
+  build: (m: ICReportModel, seed: TemplateSeed, num: string, page: number) => DeckObject[];
 }
 
 // ── Seed helpers ────────────────────────────────────────────────────────────
@@ -64,6 +68,39 @@ const toPoints = (s: string | undefined | null, fallback: string[]): string[] =>
 // ── The library ─────────────────────────────────────────────────────────────
 
 const T = (t: SlideTemplate): SlideTemplate => t;
+
+/**
+ * A full year-by-year schedule slide family: one full-bleed table plus a footnote,
+ * repeated for as many pages of years as the model needs. The table is the whole
+ * slide on purpose, a schedule earns its space by being complete and legible, not
+ * by sharing the page with a caption panel.
+ */
+function SCHEDULE(spec: {
+  id: string;
+  title: string;
+  binding: TableBindingKey;
+  block: (m: ICReportModel) => ICScheduleBlock;
+  note: string;
+}): SlideTemplate {
+  const NOTE_H = 26;
+  return T({
+    id: spec.id, title: spec.title, group: 'Full schedules', chrome: 'content',
+    available: (m) => !!spec.block(m)?.hasData,
+    pages: (m) => schedulePageCount(spec.block(m)),
+    build: (m, seed, num, page) => {
+      const pages = schedulePageCount(spec.block(m));
+      const heading = pages > 1 ? `${spec.title} (${page + 1} of ${pages})` : spec.title;
+      const tblH = CONTENT_H - NOTE_H;
+      return [
+        ...titleBlock(num, heading),
+        table({ x: MARGIN, y: CONTENT_Y, w: CONTENT_W, h: tblH }, spec.binding,
+          { fontSize: 9, striped: false, showUnitNote: true, page, name: `${spec.title} table` }),
+        text({ x: MARGIN, y: CONTENT_Y + tblH + 6, w: CONTENT_W, h: NOTE_H - 6 }, spec.note,
+          { ...textStyles.caption(), size: 9, color: DECK_THEME.slateLight }),
+      ];
+    },
+  });
+}
 
 export const SLIDE_TEMPLATES: SlideTemplate[] = [
   // 1 ────────────────────────────────────────────────────────────────────────
@@ -406,6 +443,42 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
     },
   }),
 
+  // ── Full year-by-year schedules ─────────────────────────────────────────────
+  // Each of these is a SLIDE FAMILY: the model's whole horizon, split across as
+  // many slides as it takes, so a reviewer sees every period rather than a
+  // condensed two-column summary. The binding paginates; the template just asks
+  // for page N and lets the table say which page of how many it is.
+  SCHEDULE({
+    id: 'is_schedule', title: 'Income Statement by Year', binding: 'table.isSchedule',
+    block: (m) => m.schedules.incomeStatement,
+    note: 'Full profit and loss for every model year. Costs read negative; the final page carries the project-life total.',
+  }),
+  SCHEDULE({
+    id: 'cf_schedule', title: 'Cash Flow by Year', binding: 'table.cfSchedule',
+    block: (m) => m.schedules.cashFlow,
+    note: 'Direct cash flow for every model year: operations, investing and financing, down to the closing cash balance.',
+  }),
+  SCHEDULE({
+    id: 'bs_schedule', title: 'Balance Sheet by Year', binding: 'table.bsSchedule',
+    block: (m) => m.schedules.balanceSheet,
+    note: 'Year-end position for every model year. These are point-in-time balances, so they carry no project-life total.',
+  }),
+  SCHEDULE({
+    id: 'fcff_schedule', title: 'FCFF Schedule by Year', binding: 'table.fcffSchedule',
+    block: (m) => m.schedules.fcff,
+    note: 'The unlevered project stream, line by line. T0 is inception, the capital already in the ground at project start.',
+  }),
+  SCHEDULE({
+    id: 'fcfe_schedule', title: 'FCFE Schedule by Year', binding: 'table.fcfeSchedule',
+    block: (m) => m.schedules.fcfe,
+    note: 'The levered equity stream: the unlevered flows with debt drawn, interest and principal layered in.',
+  }),
+  SCHEDULE({
+    id: 'ddm_schedule', title: 'Distributed Equity Schedule by Year', binding: 'table.ddmSchedule',
+    block: (m) => m.schedules.ddm,
+    note: 'Cash actually paid to equity under the sweep and dividend policy, against the capital contributed.',
+  }),
+
   // 13 ───────────────────────────────────────────────────────────────────────
   T({
     id: 'returns', title: 'Returns Analysis', group: 'The case', chrome: 'content',
@@ -590,17 +663,30 @@ export const TEMPLATE_BY_ID: Record<string, SlideTemplate> =
 
 // ── Deck assembly ───────────────────────────────────────────────────────────
 
+/** How many slides a template expands to for this model (1 unless it paginates). */
+export const templatePageCount = (t: SlideTemplate, m: ICReportModel): number =>
+  Math.max(1, t.pages ? t.pages(m) : 1);
+
 /** Build one slide from a template. Exported so "reset to layout" and the Insert
- *  menu both go through the same path the seeder does. */
-export function buildSlideFromTemplate(t: SlideTemplate, m: ICReportModel, seed: TemplateSeed, num: string): Slide {
+ *  menu both go through the same path the seeder does. `page` selects which slide
+ *  of a paginated family to build; it is 0 for every single-slide template. */
+export function buildSlideFromTemplate(t: SlideTemplate, m: ICReportModel, seed: TemplateSeed, num: string, page = 0): Slide {
+  const pages = templatePageCount(t, m);
+  const title = pages > 1 ? `${t.title} (${page + 1} of ${pages})` : t.title;
   return {
     id: deckId('sld'),
-    title: t.title,
+    title,
     chrome: t.chrome,
     finding: '',
-    objects: t.build(m, seed, num),
+    objects: t.build(m, seed, num, page),
     templateId: t.id,
   };
+}
+
+/** Every slide a template contributes, in order. */
+export function buildSlidesFromTemplate(t: SlideTemplate, m: ICReportModel, seed: TemplateSeed, nextNum: () => string): Slide[] {
+  return Array.from({ length: templatePageCount(t, m) }, (_, page) =>
+    buildSlideFromTemplate(t, m, seed, nextNum(), page));
 }
 
 /**
@@ -612,11 +698,10 @@ export function seedDeck(projectId: string, m: ICReportModel, seed: TemplateSeed
   resetDeckIds();
   const usable = SLIDE_TEMPLATES.filter((t) => t.available(m, seed));
   let n = 0;
-  const slides = usable.map((t) => {
-    // The cover carries no section chip, and is excluded from the numbering.
-    const num = t.chrome === 'cover' ? '' : String(++n).padStart(2, '0');
-    return buildSlideFromTemplate(t, m, seed, num);
-  });
+  // The cover carries no section chip, and is excluded from the numbering. A
+  // paginated template contributes several slides, each numbered in turn.
+  const slides = usable.flatMap((t) =>
+    buildSlidesFromTemplate(t, m, seed, () => (t.chrome === 'cover' ? '' : String(++n).padStart(2, '0'))));
   const inputs = seed.inputs;
   return {
     schemaVersion: DECK_SCHEMA_VERSION,

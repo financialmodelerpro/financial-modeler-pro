@@ -438,7 +438,11 @@
       "PowerShell($f = \"C:\\\\Users\\\\HP\\\\.claude\\\\projects\\\\D--FMP-financial-modeler-pro\\\\memory\\\\MEMORY.md\"; $kb = [math]::Round\\(\\(Get-Item $f\\).Length/1KB,1\\); \"MEMORY.md is now $kb KB \\(target: under 17.1 KB\\)\")",
       "Bash(awk '{printf \\\\\"%.1f KB\\\\n\\\\\", $5/1024}')",
       "Bash(gh auth *)",
-      "mcp__plugin_vercel_vercel__search_vercel_documentation"
+      "mcp__plugin_vercel_vercel__search_vercel_documentation",
+      "Bash(cd *)",
+      "Bash(sed -i 's/Mig 200 PENDING APPLY. verify 79/Mig 200 APPLIED. verify 79/' project_article_series_reading_nav_2026-07-26.md)",
+      "Bash(sed -i 's/\\(PENDING APPLY, Ahmad applies\\):/\\(APPLIED 2026-07-26\\):/' project_article_series_reading_nav_2026-07-26.md)",
+      "Bash(sed -i 's/\\\\*\\\\*Mig 200 PENDING APPLY.\\\\*\\\\* verify 79/**Mig 200 APPLIED.** verify 79/' MEMORY.md)"
     ]
   }
 }

@@ -27,7 +27,7 @@ import {
   METRIC_KEYS, CHART_KEYS, TABLE_KEYS, METRIC_BINDINGS,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/bindings';
 import { icMoneyScaleSpec } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
-import { seedDeck, SLIDE_TEMPLATES, TEMPLATE_BY_ID } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/templates';
+import { seedDeck, SLIDE_TEMPLATES, TEMPLATE_BY_ID, templatePageCount } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/templates';
 import { coerceDeck } from '../src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { SLIDE_W, SLIDE_H, type Deck } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
 
@@ -169,7 +169,9 @@ check('unlinked result exposes reason not value', debtNo.available === false && 
 // ── Templates seed a deck, number after omit, bake no literals ──────────────
 console.log('\n== templates + seeding ==');
 const deck = seedDeck('proj-1', m, { inputs: null }, { asOf: '2026-07-16' });
-check('deck seeds 1 slide per available template', deck.slides.length === SLIDE_TEMPLATES.filter((t) => t.available(m, { inputs: null })).length);
+// A template contributes 1 slide, or several when it paginates (a full
+// year-by-year schedule runs onto as many slides as the horizon needs).
+check('deck seeds every page of every available template', deck.slides.length === SLIDE_TEMPLATES.filter((t) => t.available(m, { inputs: null })).reduce((n, t) => n + templatePageCount(t, m), 0));
 check('deck has a cover as slide 1', deck.slides[0].chrome === 'cover');
 check('deck default case is Management base', deck.settings.deckCase === 'management');
 check('deck default scale is millions', deck.settings.moneyScale === 'millions');

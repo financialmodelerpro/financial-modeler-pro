@@ -23,7 +23,7 @@ import { textStyles } from './theme';
 import {
   METRIC_BINDINGS, METRIC_KEYS, resolveMetric,
   CHART_BINDINGS, CHART_KEYS, resolveChart,
-  TABLE_BINDINGS, TABLE_KEYS, resolveTable,
+  TABLE_BINDINGS, TABLE_KEYS, resolveTable, isPaginatedTable,
   type DeckFmt, type MetricBindingKey, type ChartBindingKey, type TableBindingKey,
 } from './bindings';
 
@@ -113,7 +113,15 @@ export function blockLandingBox(kind: BlockKind, index: number): Box {
 export function buildBlockObject(spec: BlockSpec, box: Box): DeckObject {
   switch (spec.kind) {
     case 'chart':   return chart(box, spec.bindingKey as ChartBindingKey);
-    case 'table':   return table(box, spec.bindingKey as TableBindingKey);
+    case 'table': {
+      const key = spec.bindingKey as TableBindingKey;
+      // A full year-by-year schedule is wide by nature: drop it full-bleed at the
+      // schedule font size, showing its unit / page note, exactly as the template
+      // lays it out. Anything else keeps the standard table defaults.
+      return isPaginatedTable(key)
+        ? table({ ...box, x: MARGIN, w: SLIDE_W - MARGIN * 2 }, key, { fontSize: 9, striped: false, showUnitNote: true, page: 0 })
+        : table(box, key);
+    }
     case 'gantt':   return gantt(box);
     case 'heatmap': return heatmap(box);
     case 'toc':     return toc(box, { ...textStyles.body(), size: 15 }, { heading: 'Agenda' });
