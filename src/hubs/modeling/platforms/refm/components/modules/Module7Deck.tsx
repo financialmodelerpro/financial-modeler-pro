@@ -440,7 +440,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
         {activeSlide ? (
           <div style={{ position: 'relative', width: canvasW, height: canvasH, flexShrink: 0 }}>
-            <SlideCanvas slide={activeSlide} deck={deck} model={model} ctx={ctx} pageNumber={pageNumberOf(activeSlide)} width={canvasW} thumbnail />
+            <SlideCanvas slide={activeSlide} deck={deck} model={model} ctx={ctx} pageNumber={pageNumberOf(activeSlide)} width={canvasW} interactive={false} />
             {!presentMode ? (
               <EditLayer
                 slide={activeSlide} branding={deck.branding} scale={scale} width={canvasW} height={canvasH}

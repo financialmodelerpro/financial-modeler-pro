@@ -442,7 +442,9 @@
       "Bash(cd *)",
       "Bash(sed -i 's/Mig 200 PENDING APPLY. verify 79/Mig 200 APPLIED. verify 79/' project_article_series_reading_nav_2026-07-26.md)",
       "Bash(sed -i 's/\\(PENDING APPLY, Ahmad applies\\):/\\(APPLIED 2026-07-26\\):/' project_article_series_reading_nav_2026-07-26.md)",
-      "Bash(sed -i 's/\\\\*\\\\*Mig 200 PENDING APPLY.\\\\*\\\\* verify 79/**Mig 200 APPLIED.** verify 79/' MEMORY.md)"
+      "Bash(sed -i 's/\\\\*\\\\*Mig 200 PENDING APPLY.\\\\*\\\\* verify 79/**Mig 200 APPLIED.** verify 79/' MEMORY.md)",
+      "Bash(mkdir -p .tmp-e2e)",
+      "Bash(cp \"C:/Users/HP/AppData/Local/Temp/claude/D--FMP-financial-modeler-pro/80c00c4e-405d-4ba9-9ccf-e0daebee706d/scratchpad/gesture.spec.ts\" .tmp-e2e/gesture.spec.ts)"
     ]
   }
 }

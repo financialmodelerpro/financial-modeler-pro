@@ -24,7 +24,7 @@
 
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { DeckObject, Slide } from '../../../lib/reports/deck/types';
 import type { ObjectPatch } from '../../../lib/reports/deck/mutations';
 import { boundingBox, snapMove, snapResize, type Box, type Guide, type Handle } from '../../../lib/reports/deck/snapping';
@@ -71,12 +71,27 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
 
   const toDevice = (v: number): number => v * scale;
 
-  // ── Pointer gesture handling (window-level while active) ──────────────────
-  const onPointerMove = useCallback((e: PointerEvent) => {
+  // ── Pointer gesture handling ───────────────────────────────────────────────
+  // POINTER CAPTURE, not window listeners. The element that receives the
+  // pointer-down captures the pointer, so every subsequent move / up for that
+  // pointer id retargets to it and React's own (always current) handlers fire,
+  // even when the pointer leaves the element or the slide entirely.
+  //
+  // This is deliberate history, not preference. The previous implementation
+  // added window listeners in the pointer-down handler and removed them in an
+  // effect cleanup keyed on the handler identities. Those identities changed on
+  // every render (they close over `selectable`, a fresh array each time), so the
+  // cleanup ran on every render rather than only on unmount, and because
+  // onGestureStart pushes undo history (a setState) the very first re-render
+  // tore down the listeners that pointer-down had just registered. The gesture
+  // died before the first move event: drag and resize did nothing at all.
+  // Capture keeps the whole lifecycle on the element, where it cannot go stale.
+
+  const applyGesture = (clientX: number, clientY: number): void => {
     const g = gestureRef.current;
     if (!g) return;
-    const dxL = (e.clientX - g.startX) / scale;
-    const dyL = (e.clientY - g.startY) / scale;
+    const dxL = (clientX - g.startX) / scale;
+    const dyL = (clientY - g.startY) / scale;
 
     if (g.kind === 'move') {
       const ids = Object.keys(g.base);
@@ -94,21 +109,31 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
       onTransform({ [g.id]: { x: snapped.box.x, y: snapped.box.y, w: snapped.box.w, h: snapped.box.h } });
       setGuides(snapped.guides);
     }
-  }, [scale, onTransform, selectable]);
+  };
 
-  const endGesture = useCallback(() => {
+  /** Live move / resize while the pointer that started the gesture is down. */
+  const onGesturePointerMove = (e: React.PointerEvent): void => {
+    if (!gestureRef.current) return;
+    e.preventDefault();
+    applyGesture(e.clientX, e.clientY);
+  };
+
+  /** End the gesture. The parent already pushed one history entry at start, so
+   *  the whole drag collapses to a single undo step. */
+  const onGesturePointerUp = (e: React.PointerEvent): void => {
+    if (!gestureRef.current) return;
     gestureRef.current = null;
     setGuides([]);
-    window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', endGesture);
-  }, [onPointerMove]);
+    const el = e.currentTarget;
+    if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
+  };
 
-  useEffect(() => () => {
-    window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', endGesture);
-  }, [onPointerMove, endGesture]);
+  /** Take the pointer so moves keep arriving after it leaves the element. */
+  const capture = (e: React.PointerEvent): void => {
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture unsupported: the gesture still tracks while inside */ }
+  };
 
-  const beginMove = (e: React.PointerEvent, obj: DeckObject) => {
+  const beginMove = (e: React.PointerEvent, obj: DeckObject): void => {
     e.stopPropagation();
     if (obj.locked || editingId) return;
     // Selection: shift toggles into the set, otherwise select just this one
@@ -123,19 +148,21 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
     const base: Record<string, Box> = {};
     selectable.filter((o) => ids.includes(o.id) && !o.locked).forEach((o) => { base[o.id] = { x: o.x, y: o.y, w: o.w, h: o.h }; });
     if (!Object.keys(base).length) return;
+    // Deliberately NOT preventDefault here: cancelling pointerdown suppresses the
+    // compatibility mouse events, and double-click-to-edit-text rides on those.
+    // Text selection is held off with user-select / touch-action on the overlay.
     onGestureStart();
     gestureRef.current = { kind: 'move', startX: e.clientX, startY: e.clientY, base };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', endGesture);
+    capture(e);
   };
 
-  const beginResize = (e: React.PointerEvent, obj: DeckObject, handle: Handle) => {
+  const beginResize = (e: React.PointerEvent, obj: DeckObject, handle: Handle): void => {
     e.stopPropagation();
     if (obj.locked || editingId) return;
+    e.preventDefault();
     onGestureStart();
     gestureRef.current = { kind: 'resize', startX: e.clientX, startY: e.clientY, handle, id: obj.id, base: { x: obj.x, y: obj.y, w: obj.w, h: obj.h } };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', endGesture);
+    capture(e);
   };
 
   // Single selection drives the resize handles; multi-selection shows outlines only.
@@ -146,7 +173,14 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
       ref={rootRef}
       data-testid="deck-edit-layer"
       onPointerDown={(e) => { if (e.target === rootRef.current) { onSelect([]); onBeginEdit(null); } }}
-      style={{ position: 'absolute', inset: 0, width, height }}
+      style={{
+        position: 'absolute', inset: 0, width, height,
+        // touchAction none is what makes a pointer drag possible at all on a
+        // touch / pen device (otherwise the browser claims the gesture to pan),
+        // and userSelect none stops a drag from smearing a text selection across
+        // the slide. Both replace the preventDefault we deliberately do not call.
+        touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+      }}
     >
       {/* Hit areas + per-object selection outline */}
       {selectable.map((o) => {
@@ -157,6 +191,10 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
             key={o.id}
             data-object-hit={o.id}
             onPointerDown={(e) => beginMove(e, o)}
+            onPointerMove={onGesturePointerMove}
+            onPointerUp={onGesturePointerUp}
+            onPointerCancel={onGesturePointerUp}
+            onLostPointerCapture={() => { if (gestureRef.current) { gestureRef.current = null; setGuides([]); } }}
             onDoubleClick={(e) => { e.stopPropagation(); if ((o.type === 'text' || o.type === 'bullets') && !o.locked) onBeginEdit(o.id); }}
             style={{
               position: 'absolute',
@@ -180,6 +218,10 @@ export default function EditLayer(props: EditLayerProps): React.JSX.Element {
             key={h}
             data-handle={h}
             onPointerDown={(e) => beginResize(e, single, h)}
+            onPointerMove={onGesturePointerMove}
+            onPointerUp={onGesturePointerUp}
+            onPointerCancel={onGesturePointerUp}
+            onLostPointerCapture={() => { if (gestureRef.current) { gestureRef.current = null; setGuides([]); } }}
             style={{
               position: 'absolute',
               left: toDevice(hx) - HANDLE_PX / 2, top: toDevice(hy) - HANDLE_PX / 2,

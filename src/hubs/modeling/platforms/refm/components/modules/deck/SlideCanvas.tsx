@@ -39,8 +39,12 @@ export interface SlideCanvasProps {
   width: number;
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
-  /** Thumbnails skip chrome text and interaction for speed. */
+  /** Thumbnails render smaller and without the drop shadow. */
   thumbnail?: boolean;
+  /** Whether this canvas handles its own click-to-select. Defaults to
+   *  `!thumbnail`. The main editor canvas passes false: EditLayer sits on top
+   *  and owns every gesture, so the canvas must stay a pure renderer. */
+  interactive?: boolean;
 }
 
 /** Deck-level chrome: the header band and footer. Not selectable objects. */
@@ -101,9 +105,10 @@ function Positioned({
 
 export default function SlideCanvas({
   slide, deck, ctx, pageNumber, width, selectedId = null, onSelect, thumbnail = false,
+  interactive: interactiveProp,
 }: SlideCanvasProps): React.JSX.Element {
   const scale = width / SLIDE_W;
-  const interactive = !thumbnail;
+  const interactive = interactiveProp ?? !thumbnail;
 
   // The live slide index the ToC resolves against: same page numbering as the
   // export (1-based over non-hidden slides). Injected into the render ctx so the
