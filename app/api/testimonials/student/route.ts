@@ -59,3 +59,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to submit' }, { status: 500 });
   }
 }
+
+/**
+ * Which courses this registration has ALREADY submitted a testimonial for.
+ *
+ * The dashboard used to answer this from localStorage, which is per-browser and
+ * per-registration rather than per-course: a student who submitted on their phone
+ * still saw the prompt on their laptop (and then hit the 409 above), and a stale
+ * flag hid the prompt permanently with no way to clear it. This is the same truth
+ * the duplicate check in POST uses, so the button and the server can no longer
+ * disagree.
+ *
+ * Returns course codes only (no testimonial content), keyed on the caller's own
+ * registration id, so it exposes nothing beyond "have I already shared for this
+ * course".
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const registrationId = (req.nextUrl.searchParams.get('registrationId') ?? '').trim();
+    if (!registrationId) return NextResponse.json({ error: 'registrationId is required' }, { status: 400 });
+
+    const sb = getServerClient();
+    const { data, error } = await sb
+      .from('student_testimonials')
+      .select('course_code')
+      .eq('registration_id', registrationId);
+
+    // Never fail the dashboard over this: an error here means "unknown", and the
+    // button stays visible. The server still blocks a genuine duplicate with 409.
+    if (error) return NextResponse.json({ courses: [] });
+
+    const courses = [...new Set((data ?? [])
+      .map((r) => String((r as { course_code?: string }).course_code ?? '').trim().toLowerCase())
+      .filter(Boolean))];
+    return NextResponse.json({ courses });
+  } catch {
+    return NextResponse.json({ courses: [] });
+  }
+}

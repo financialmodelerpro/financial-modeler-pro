@@ -78,6 +78,25 @@ export function buildProgressMap(sessions: SessionProgress[]): Map<string, Sessi
   return new Map(sessions.map(s => [s.sessionId, s]));
 }
 
+// ── Share Experience visibility ──────────────────────────────────────────────
+// Any logged-in student may share a testimonial, whether or not they have passed
+// an assessment. The ONLY thing that hides the prompt is having already shared,
+// and that is tracked per COURSE from the database (student_testimonials), which
+// is the same truth the server's duplicate check uses. It used to be a
+// browser-local flag, so a submission on one device was invisible on another and
+// a stale flag hid the prompt permanently.
+
+/** True when this course already has a testimonial from this student. */
+export function hasSharedCourse(courseId: string, submittedCourses: ReadonlySet<string>): boolean {
+  return submittedCourses.has(courseId.trim().toLowerCase());
+}
+
+/** True while ANY enrolled course is still unshared, i.e. the student can share.
+ *  Deliberately does not consider progress: passing is not a prerequisite. */
+export function canShareTestimonial(enrolledCourses: string[], submittedCourses: ReadonlySet<string>): boolean {
+  return enrolledCourses.some((c) => !hasSharedCourse(c, submittedCourses));
+}
+
 export function allRegularSessionsPassed(courseId: string, progressMap: Map<string, SessionProgress>): boolean {
   const course = COURSES[courseId];
   if (!course) return false;

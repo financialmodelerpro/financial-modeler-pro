@@ -24,6 +24,8 @@ import {
   type Certificate,
   getEnrolledCourses,
   buildProgressMap,
+  canShareTestimonial,
+  hasSharedCourse as sharedCourse,
   allRegularSessionsPassed,
   Skeleton,
   CourseContent,
@@ -128,7 +130,11 @@ export default function TrainingDashboardPage() {
   // render the correct template (text + hashtags + @-mentions).
   const [shareModal, setShareModal]               = useState<import('@/src/hubs/training/components/dashboard/CourseContent').DashboardShareEvent | null>(null);
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
-  const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
+  /** Course codes this student has ALREADY submitted a testimonial for, from the
+   *  database (see the derived `canShareExperience` / `hasSharedCourse`
+   *  below). Per-course, so sharing for 3SFM never suppresses the BVM prompt, and
+   *  consistent across devices because it is not read from localStorage. */
+  const [submittedCourses, setSubmittedCourses] = useState<Set<string>>(new Set());
   const [dashToast, setDashToast]                 = useState('');
   const [courseShareOpen, setCourseShareOpen]     = useState(false);
   const [courseShareCopied, setCourseShareCopied] = useState(false);
@@ -483,11 +489,30 @@ export default function TrainingDashboardPage() {
       setActiveView('course');
     }
     loadData(sess, needsRefresh);
+    // Which courses have already been shared. Seed OPTIMISTICALLY from the
+    // per-course localStorage key (so a reload right after submitting does not
+    // flash the prompt back), then overwrite with the database, which is the
+    // truth the duplicate check on the server uses. The old global
+    // `fmp_test_<regId>` key is deliberately NOT read: it was per-browser and
+    // per-registration, so a stale one hid the button forever and a submission on
+    // another device was invisible here.
     try {
-      if (localStorage.getItem(`fmp_test_${sess.registrationId}`) === 'true') {
-        setTestimonialSubmitted(true);
+      const optimistic = new Set<string>();
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i) ?? '';
+        const prefix = `fmp_test_${sess.registrationId}_`;
+        if (key.startsWith(prefix) && localStorage.getItem(key) === 'true') optimistic.add(key.slice(prefix.length));
       }
-    } catch { /* ignore */ }
+      if (optimistic.size) setSubmittedCourses(optimistic);
+    } catch { /* localStorage unavailable: the database call below still runs */ }
+    void (async () => {
+      try {
+        const res = await fetch(`/api/testimonials/student?registrationId=${encodeURIComponent(sess.registrationId)}`);
+        if (!res.ok) return; // unknown -> leave the prompt visible
+        const json = await res.json() as { courses?: string[] };
+        setSubmittedCourses(new Set((json.courses ?? []).map((c) => c.toLowerCase())));
+      } catch { /* offline: leave the prompt visible, the server still 409s a duplicate */ }
+    })();
   }, [router, loadData]);
 
   async function downloadTranscript(courseId: string) {
@@ -681,6 +706,15 @@ export default function TrainingDashboardPage() {
   const overallPct = overallWeighted.total > 0
     ? Math.round((overallWeighted.earned / overallWeighted.total) * 100)
     : 0;
+
+  // ── Share Experience visibility ─────────────────────────────────────────────
+  // Any logged-in student may share, whether or not they have passed anything;
+  // the only thing that hides the prompt is having ALREADY shared, and that is
+  // per COURSE and read from the database. So the button shows while the student
+  // still has an unshared enrolled course, and the in-course shortcut shows while
+  // that particular course is unshared.
+  const hasSharedCourse = (courseId: string): boolean => sharedCourse(courseId, submittedCourses);
+  const canShareExperience = canShareTestimonial(enrolledCourses, submittedCourses);
 
   const isEnrolledInBvm = enrolledCourses.includes('bvm');
 
@@ -1072,7 +1106,7 @@ export default function TrainingDashboardPage() {
             {/* ACCOUNT */}
             <SidebarLabel text="Account" />
             <SidebarItem icon={<User size={16} />} label="Profile" onClick={() => { setProfileModal(true); setMobileSidebarOpen(false); }} />
-            {totalPassed >= 1 && !testimonialSubmitted && (
+            {canShareExperience && (
               <SidebarItem icon={<Star size={16} />} label="Share Experience" onClick={() => { setTestimonialModal('written'); setMobileSidebarOpen(false); }} />
             )}
             <SidebarItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
@@ -1133,7 +1167,7 @@ export default function TrainingDashboardPage() {
         <main className="dash-main" style={{ flex: 1, minWidth: 0, padding: '28px 28px 64px', overflowY: 'auto' }}>
 
           {/* Share banner (dismissable) */}
-          {!loading && totalPassed >= 1 && !testimonialSubmitted && !shareBannerDismissed && (
+          {!loading && canShareExperience && !shareBannerDismissed && (
             <div style={{ background: 'linear-gradient(90deg, #FFFBF0, #FEF3C7)', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
                 Enjoying your progress? Share with your network!
@@ -1553,7 +1587,7 @@ export default function TrainingDashboardPage() {
                     dashToast overlay at the bottom of the page. */}
 
                 {/* Testimonial shortcut */}
-                {totalPassed >= 1 && !testimonialSubmitted && (
+                {!hasSharedCourse(activeCourse) && (
                   <button onClick={() => setTestimonialModal('written')}
                     style={{ marginTop: 12, padding: '10px 18px', borderRadius: 8, background: '#FFFBF0', border: '1px solid #FDE68A', color: '#92400E', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                     &#11088; Share Your Experience
@@ -1607,7 +1641,7 @@ export default function TrainingDashboardPage() {
                 studentName={progress?.student.name ?? ''}
                 studentEmail={progress?.student.email ?? ''}
                 onShare={event => setShareModal(event)}
-                testimonialSubmitted={testimonialSubmitted}
+                testimonialSubmitted={hasSharedCourse(activeCourse === 'bvm' ? 'bvm' : displayCourse)}
                 onOpenTestimonial={type => setTestimonialModal(type)}
                 notes={notes}
                 onNoteSave={saveNote}
@@ -1731,8 +1765,12 @@ export default function TrainingDashboardPage() {
           isOpen={true}
           onClose={() => setTestimonialModal(null)}
           onSuccess={() => {
-            setTestimonialSubmitted(true);
-            try { localStorage.setItem(`fmp_test_${localSession.registrationId}`, 'true'); } catch { /* ignore */ }
+            // Mark THIS course shared, in state and as an optimistic localStorage
+            // flag so an immediate reload does not flash the prompt back before
+            // the database read returns. The database stays the source of truth.
+            const shared = activeCourse.toLowerCase();
+            setSubmittedCourses((prev) => new Set(prev).add(shared));
+            try { localStorage.setItem(`fmp_test_${localSession.registrationId}_${shared}`, 'true'); } catch { /* ignore */ }
             setDashToast('Thank you! Your testimonial has been submitted for review.');
             setTimeout(() => setDashToast(''), 4000);
           }}

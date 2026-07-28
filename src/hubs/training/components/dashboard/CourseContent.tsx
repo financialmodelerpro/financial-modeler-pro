@@ -43,6 +43,9 @@ export interface CourseContentProps {
   studentName: string;
   studentEmail: string;
   onShare: (event: DashboardShareEvent) => void;
+  /** True when THIS course has already had a testimonial submitted (from the
+   *  database, per course). Any logged-in student may share otherwise; passing
+   *  an assessment is deliberately NOT a requirement. */
   testimonialSubmitted: boolean;
   onOpenTestimonial: (type: 'written' | 'video') => void;
   // notes + feedback
@@ -560,7 +563,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       })}
 
       {/* ── Share Your Experience (testimonial prompt) ────────────────────── */}
-      {passedCount >= 1 && !testimonialSubmitted && (
+      {!testimonialSubmitted && (
         <div style={{ background: 'linear-gradient(135deg,#FFFBF0,#FFF8E1)', border: '1px solid #FDE68A', borderRadius: 12, padding: '20px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E', marginBottom: 4 }}>⭐ Enjoying the course?</div>
           <div style={{ fontSize: 12, color: '#B45309', lineHeight: 1.5, marginBottom: 14 }}>
