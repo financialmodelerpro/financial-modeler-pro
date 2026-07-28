@@ -20,7 +20,7 @@
  * No em dashes in this file.
  */
 
-import { PDFDocument, PDFArray, PDFName, PDFString, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { PDFDocument, PDFArray, PDFName, PDFString, PDFHexString, StandardFonts, rgb, type PDFFont, type PDFPage, type PDFRef, type RGB } from 'pdf-lib';
 import type { ICReportModel } from '../icReport';
 import type { DeckFmt, ChartData } from './bindings';
 import type { Deck } from './types';
@@ -558,6 +558,48 @@ function drawChrome(page: PDFPage, f: Fonts, es: ExportSlide): void {
 
 export interface BuildDeckPdfArgs { deck: Deck; model: ICReportModel; fmt: DeckFmt }
 
+/**
+ * Build the /Outlines bookmark tree and attach it to the catalog, opening the
+ * bookmark panel on load. One entry per VISIBLE slide, in page order, so the
+ * outline matches the gapless page numbering exactly (resolveDeckExport has
+ * already dropped hidden slides, so `pages[i]` is page i+1 in the reader).
+ *
+ * Flat, one level, because the deck is a flat slide list; the project-report PDF
+ * nests module -> tab because its content genuinely nests. Destinations are
+ * explicit page refs anchored at the top of the page (XYZ with y = page height),
+ * which is the same shape generateProjectPdf.buildOutline uses, so both PDFs
+ * behave identically in a reader.
+ *
+ * pdf-lib has no outline API, so the dictionary chain (Parent / Prev / Next /
+ * First / Last / Count) is written by hand.
+ */
+function buildDeckOutline(doc: PDFDocument, pages: PDFPage[], slides: ExportSlide[]): void {
+  const n = Math.min(pages.length, slides.length);
+  if (n === 0) return;
+  const context = doc.context;
+  const outlinesRef = context.nextRef();
+  const itemRefs: PDFRef[] = Array.from({ length: n }, () => context.nextRef());
+
+  for (let i = 0; i < n; i++) {
+    // Anchor at the top of the page so a jump shows the slide from its header.
+    const dest = [pages[i].ref, 'XYZ', null, PAGE_H, null];
+    const item: Record<string, unknown> = {
+      Title: PDFHexString.fromText(slides[i].title || `Slide ${i + 1}`),
+      Parent: outlinesRef,
+      Dest: dest,
+    };
+    if (i > 0) item.Prev = itemRefs[i - 1];
+    if (i < n - 1) item.Next = itemRefs[i + 1];
+    context.assign(itemRefs[i], context.obj(item as unknown as Parameters<typeof context.obj>[0]));
+  }
+
+  context.assign(outlinesRef, context.obj({
+    Type: 'Outlines', First: itemRefs[0], Last: itemRefs[n - 1], Count: n,
+  } as unknown as Parameters<typeof context.obj>[0]));
+  doc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+  doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+}
+
 /** Build the shareable PDF. Returns the serialized bytes. */
 export async function buildDeckPdf({ deck, model, fmt }: BuildDeckPdfArgs): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -611,5 +653,8 @@ export async function buildDeckPdf({ deck, model, fmt }: BuildDeckPdfArgs): Prom
     if (existing instanceof PDFArray) existing.push(ref);
     else page.node.set(PDFName.of('Annots'), doc.context.obj([ref]));
   }
+
+  // Bookmarks last: every page ref exists by now, same as the link pass above.
+  buildDeckOutline(doc, pages, ex.slides);
   return doc.save();
 }
