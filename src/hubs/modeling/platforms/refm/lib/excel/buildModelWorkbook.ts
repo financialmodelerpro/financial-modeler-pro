@@ -29,13 +29,13 @@ import { formatAssumptionValue } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
-import { resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
+import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, type DisplayScale, type DisplayDecimals,
+  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
 } from './styles';
 
 export interface BuildModelOptions {
@@ -140,7 +140,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const guideWs = wb.addWorksheet(SHEETS.guide, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   addSummary(wb, snap, opts, lm); // third tab; one-page executive summary
   const refs = addAssumptions(wb, snap, opts, capex);
-  addTimeline(wb, snap, refs);
+  addTimeline(wb, snap, refs, opts.state);
   const landAddrs = addLandArea(wb, opts.state, refs);
   const capexAddrs = addCapex(wb, snap, capex, refs, landAddrs);
 
@@ -188,10 +188,15 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // "How this tab is calculated" guideline block appended to every tab. All of
   // this is additive / appended, so the frozen headers, the label-based
   // reconciliation and the locked palette + tab order are untouched.
+  // ORDER MATTERS. The guide blocks append at the bottom (so they need the final
+  // row count), the sub-TOC then inserts rows at the TOP of each tab, which
+  // shifts every section row and the guide row down. Both re-base `sectionReg`
+  // as they go, so the Cover and Guide, built last, link to the corrected rows.
   setSectionSink(null);
+  const guideRows = applyTabGuides(wb, sectionReg);
+  applyTabSubToc(wb, sectionReg, guideRows);
   buildCoverContent(coverWs, snap, opts, sectionReg);
   buildGuideContent(guideWs, snap, opts, sectionReg);
-  applyTabGuides(wb, sectionReg);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
   // stored values + formulas stay in full units). Applied last so every sheet's
@@ -786,7 +791,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // the Inputs tab".
   const inputDivider = (text: string): void => {
     r += 1;
-    for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.navyDark);
+    for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.sectionDark);
     const cell = ws.getCell(`A${r}`); cell.value = text;
     cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.white } };
     cell.alignment = { vertical: 'middle' };
@@ -1004,7 +1009,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 }
 
 // ── Timeline (formula-driven period axis; the canonical date / index source) ───
-function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, refs: AssumptionRefs): void {
+function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, refs: AssumptionRefs, state: FinancialsResolverState): void {
   const ws = wb.addWorksheet(SHEETS.timeline, { properties: { tabColor: { argb: ARGB.navy } } });
   ws.getColumn(1).width = 28;
   ws.getColumn(META_B).width = 3; ws.getColumn(META_C).width = 3; ws.getColumn(TOTAL_COL).width = 3;
@@ -1033,6 +1038,136 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
     hdr(iCell);
   }
   ws.views = [FROZEN_VIEW()];
+  addPhaseTimeline(ws, snap, state, N);
+}
+
+/**
+ * Phase-wise dated timeline + Gantt, appended under the period axis.
+ *
+ * Dates are the model's own: `computePhaseTimeline` is the same pure function the
+ * platform UI and the engine use, so the construction / operations windows here
+ * are the real ones (it honours a phase's explicit startDate, the end-of-period
+ * convention, and pulls operations forward by any overlap periods), not a
+ * re-derivation. `computeProjectTimeline` gives the project envelope.
+ *
+ * The chart is a CELL-BASED Gantt rather than a native Excel chart: exceljs 4.4
+ * exposes no chart API at all (there is no `worksheet.addChart`), so a real chart
+ * is not available in this writer. Colouring the existing year grid is also the
+ * better result here, because the bars line up exactly with the period columns
+ * every other tab is keyed to.
+ */
+function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, N: number): void {
+  const phases = state.phases;
+  const project = state.project;
+  const last = lastActiveCol(N);
+  let r = 6;
+
+  // The period-sheet layout leaves B / C / D as 3-char spacers (they carry UOM /
+  // Rate / Total elsewhere). The Timeline has no such columns, and the dated
+  // phase schedule below needs real width, so reclaim them here. Columns E and
+  // beyond are the period axis and keep their width.
+  ws.getColumn(2).width = 13;
+  ws.getColumn(3).width = 17;
+  ws.getColumn(4).width = 17;
+
+  const yearOfCol = (c: number): number => colYear(snap, c);
+  const iso = (d: string): Date => new Date(d);
+  const yr = (d: string): number => iso(d).getFullYear();
+  const fmtDate = (d: string): string => {
+    const dt = iso(d);
+    return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dt.getMonth()]} ${dt.getFullYear()}`;
+  };
+
+  const lines = phases.map((p) => ({ phase: p, tl: computePhaseTimeline(p, project) }));
+  const projTl = computeProjectTimeline(project, phases);
+
+  // ── 1. Phase schedule (real dates) ──────────────────────────────────────────
+  setSectionHeader(ws.getRow(r), 'Phase schedule (dated)', last, ARGB.sectionDark); r += 1;
+  const HEADS = ['Phase', 'Status', 'Construction start', 'Construction end', 'Operations start', 'Operations end', 'Construction (yrs)', 'Operations (yrs)'];
+  HEADS.forEach((h, i) => setColHeader(ws.getCell(r, 1 + i), h, i === 0 || i === 1 ? 'left' : 'right'));
+  r += 1;
+  for (const { phase, tl } of lines) {
+    setLabel(ws.getCell(r, 1), phase.name);
+    setLabel(ws.getCell(r, 2), phase.status === 'operational' ? 'Operational' : 'Planning');
+    const cells: Array<[number, string | number]> = [
+      [3, fmtDate(tl.constructionStart)], [4, fmtDate(tl.constructionEnd)],
+      [5, fmtDate(tl.operationsStart)], [6, fmtDate(tl.operationsEnd)],
+    ];
+    for (const [c, v] of cells) {
+      const cell = ws.getCell(r, c); cell.value = v;
+      cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      cell.alignment = { horizontal: 'right' };
+    }
+    setFormula(ws.getCell(r, 7), fcell(String(phase.constructionPeriods), phase.constructionPeriods), NUMFMT.int);
+    setFormula(ws.getCell(r, 8), fcell(String(phase.operationsPeriods), phase.operationsPeriods), NUMFMT.int);
+    r += 1;
+  }
+  // Project envelope.
+  setLabel(ws.getCell(r, 1), 'Project', { bold: true });
+  setLabel(ws.getCell(r, 2), `${phases.length} phase${phases.length === 1 ? '' : 's'}`);
+  const envelope: Array<[number, string]> = [[3, fmtDate(projTl.startDate)], [6, fmtDate(projTl.endDate)]];
+  for (const [c, v] of envelope) {
+    const cell = ws.getCell(r, c); cell.value = v;
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
+    cell.alignment = { horizontal: 'right' };
+  }
+  for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.subtotal);
+  r += 2;
+
+  // ── 2. Cell-based Gantt across the period grid ──────────────────────────────
+  setSectionHeader(ws.getRow(r), 'Development programme (Gantt)', last, ARGB.sectionDark); r += 1;
+  // Year ruler over the period columns, so a bar can be read off a year.
+  setColHeader(ws.getCell(r, 1), 'Phase', 'left');
+  for (let c = OPEN_COL; c <= last; c++) setColHeader(ws.getCell(r, c), yearOfCol(c), 'right');
+  r += 1;
+
+  const bar = (cell: ExcelJS.Cell, argb: string, label = ''): void => {
+    fillCell(cell, argb);
+    if (label) {
+      cell.value = label;
+      cell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.white } };
+      cell.alignment = { horizontal: 'center' };
+    }
+  };
+  for (const { phase, tl } of lines) {
+    setLabel(ws.getCell(r, 1), phase.name);
+    const cs = yr(tl.constructionStart), ce = yr(tl.constructionEnd);
+    const os = yr(tl.operationsStart), oe = yr(tl.operationsEnd);
+    const hasOps = phase.operationsPeriods > 0;
+    for (let c = OPEN_COL; c <= last; c++) {
+      const y = yearOfCol(c);
+      // Operations paint over construction in an overlap year, because that is
+      // the year the asset starts earning; the overlap is visible in the dated
+      // table above rather than being fudged into a half-filled cell.
+      if (hasOps && y >= os && y <= oe) bar(ws.getCell(r, c), ARGB.good);
+      else if (phase.constructionPeriods > 0 && y >= cs && y <= ce) bar(ws.getCell(r, c), ARGB.navy);
+      else fillCell(ws.getCell(r, c), ARGB.grey);
+    }
+    r += 1;
+  }
+  // Project end marker row.
+  setLabel(ws.getCell(r, 1), 'Project end', { bold: true });
+  for (let c = OPEN_COL; c <= last; c++) {
+    const cell = ws.getCell(r, c);
+    if (yearOfCol(c) === projTl.endYear) bar(cell, ARGB.sectionDark, 'END');
+    else fillCell(cell, ARGB.grey);
+  }
+  r += 2;
+
+  // ── 3. Legend ───────────────────────────────────────────────────────────────
+  setLabel(ws.getCell(r, 1), 'Legend:', { bold: true });
+  const swatch = (col: number, argb: string, text: string): void => {
+    const c = ws.getCell(r, col); c.value = text; fillCell(c, argb);
+    c.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: ARGB.white } };
+    c.alignment = { horizontal: 'center' };
+  };
+  swatch(2, ARGB.navy, 'Construction');
+  swatch(3, ARGB.good, 'Operations');
+  swatch(4, ARGB.sectionDark, 'Project end');
+  r += 1;
+  const note = ws.getCell(r, 1);
+  note.value = 'Dates are the model\'s own phase timeline (phase start date, construction periods, operations periods and overlap). Operations shade over construction in an overlap year.';
+  note.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
 }
 
 // Strategy -> display group, shared by the Land & Area and Capex groupings.
@@ -3095,7 +3230,7 @@ function frontMatterBanner(ws: ExcelJS.Worksheet, title: string, subtitle: strin
   s.value = subtitle;
   s.font = { name: 'Calibri', size: 12, color: { argb: ARGB.white } };
   s.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-  fillRange(ws, 7, 2, 7, 7, ARGB.navyDark);
+  fillRange(ws, 7, 2, 7, 7, ARGB.sectionDark);
   ws.getRow(7).height = 22;
   return 9;
 }
@@ -3183,7 +3318,7 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
       const gc = ws.getCell(r, 2); gc.value = e.group;
       gc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
       gc.alignment = { indent: 1 };
-      fillRange(ws, r, 2, r, 7, ARGB.navyDark);
+      fillRange(ws, r, 2, r, 7, ARGB.sectionDark);
       zebra = 0; r += 1; continue;
     }
     num += 1;
@@ -3261,7 +3396,7 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
       const gc = ws.getCell(r, 2); gc.value = e.group;
       gc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
       gc.alignment = { indent: 1 };
-      fillRange(ws, r, 2, r, 7, ARGB.navyDark);
+      fillRange(ws, r, 2, r, 7, ARGB.sectionDark);
       r += 1; continue;
     }
     // Tab heading (hyperlinked to the tab) on a pale band.
@@ -3283,13 +3418,19 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
       ws.getRow(r).height = 24;
       r += 1;
     }
-    // Methodology bullets.
+    // Methodology, labelled Inputs / Calculation / Feeds (same content as the
+    // per-tab block at the bottom of each sheet, so the two never drift).
+    const GLABEL: Record<GuideLine['kind'], string> = { inputs: 'Inputs', logic: 'Calculation', feeds: 'Feeds' };
     for (const line of (TAB_GUIDES[e.sheet] ?? [])) {
-      ws.mergeCells(r, 2, r, 7);
-      const bc = ws.getCell(r, 2); bc.value = `•  ${line}`;
+      const lc = ws.getCell(r, 2);
+      lc.value = GLABEL[line.kind];
+      lc.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: ARGB.sectionDark } };
+      lc.alignment = { vertical: 'top', indent: 1 };
+      ws.mergeCells(r, 3, r, 7);
+      const bc = ws.getCell(r, 3); bc.value = line.text;
       bc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
       bc.alignment = { wrapText: true, vertical: 'top', indent: 1 };
-      ws.getRow(r).height = Math.max(16, Math.ceil(line.length / 88) * 15);
+      ws.getRow(r).height = Math.max(16, Math.ceil(line.text.length / 88) * 14);
       r += 1;
     }
     r += 1; // gap before the next tab
@@ -3299,78 +3440,96 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
 
 // ── Per-tab guidance: a "Covers" subtitle + a "How this tab is calculated" block ─
 
-/** Plain-language methodology per tab: what each figure is and how it is derived.
- *  The export is a hardcoded snapshot, so this is how a reader understands the
- *  calculation without a live formula (the per-row Basis column carries the same
- *  intent line by line). Keyed by the SHEETS.* tab name. */
-const TAB_GUIDES: Record<string, string[]> = {
+/**
+ * Plain-language methodology per tab, structured so a reader of the HARDCODED
+ * workbook can reconstruct how the model actually works without a live formula:
+ *
+ *   Inputs   what this tab consumes, and which tab those inputs come from
+ *   Logic    the actual formulas / mechanics the engine applies, in order
+ *   Feeds    where the tab's outputs land downstream (which statement lines)
+ *
+ * The per-row "Basis / Calculation" column carries the same intent line by line;
+ * this block is the tab-level summary. Content mirrors the real engine, so if the
+ * mechanics change, this text changes with them. Keyed by the SHEETS.* tab name.
+ */
+type GuideLine = { kind: 'inputs' | 'logic' | 'feeds'; text: string };
+const G = (kind: GuideLine['kind'], text: string): GuideLine => ({ kind, text });
+
+const TAB_GUIDES: Record<string, GuideLine[]> = {
   [SHEETS.summary]: [
-    'A one-page read-out of the whole model. Every figure is pulled from the detail tabs, not re-derived here.',
-    'Headline metrics (Project / Equity IRR, MOIC, margin) come from the Returns engine; development economics (GDV, cost, profit) from the Capex and Revenue build-ups.',
+    G('inputs', 'Reads finished figures only, from Returns (IRR / MOIC / equity multiple), Capex (total development cost), Revenue (GDV) and Financing (peak debt, funding mix).'),
+    G('logic', 'Nothing is re-derived here. Development margin = profit after financing / GDV; cost to value = total development cost / GDV; the leverage line is peak debt over total sources.'),
+    G('feeds', 'Nothing downstream. This is the read-out: the one page to hand over when the detail is not needed.'),
   ],
   [SHEETS.assumptions]: [
-    'Every model INPUT, grouped by domain (project, phases, land, assets, sub-units, returns, capex, financing, revenue, opex). Input cells carry the navy-pale shading.',
-    'Nothing on this tab is computed. Every calculated tab traces back to these inputs; change one in the platform and re-export to see the effect.',
+    G('inputs', 'This IS the input tab. Every assumption in the model, grouped by domain: project and phases, land and parcels, assets and sub-units, returns, capex lines, financing facilities, revenue and opex.'),
+    G('logic', 'Nothing is computed here. Input cells carry the navy-pale FAST shading so an assumption is never mistaken for a result.'),
+    G('feeds', 'Every other tab. Each calculated figure in the workbook traces back to a cell on this tab; change one in the platform and re-export to see the effect flow through.'),
   ],
   [SHEETS.timeline]: [
-    'The model year axis: one column per period from the project start year through to exit.',
-    'Every statement tab keys its period columns to this axis, so all tabs share one timeline.',
+    G('inputs', 'Project start date and model type, plus each phase\'s start date, construction periods, operations periods and overlap periods.'),
+    G('logic', 'Period 0 is the opening column (Dec of the year before start); periods 1..N are the active years. Construction runs from the phase start for its construction periods; operations begin the day after construction ends, pulled forward by any overlap periods, and run for the operations periods. Project end is the latest operations end across all phases.'),
+    G('feeds', 'Every statement tab keys its period columns to this axis, so all tabs share one timeline and one period index.'),
   ],
   [SHEETS.landArea]: [
-    'Area build-up per asset: NSA -> BUA -> GFA using each asset\'s efficiency ratios.',
-    'Land value = land area x land rate. GDV (for-sale assets) = saleable area x sale price. Unit counts come from the sub-units.',
-    'The per-column Basis / Calculation legend on the tab gives the exact derivation for each metric column.',
+    G('inputs', 'Per asset: land area, land rate, the area basis (NSA / BUA / GFA) and the efficiency ratios between them, sale price for for-sale assets, and the sub-unit schedule.'),
+    G('logic', 'Area build-up per asset: NSA -> BUA -> GFA applying each asset\'s efficiency ratios. Land value = land area x land rate. GDV (for-sale assets) = saleable area x sale price. Unit counts roll up from the sub-units. The Basis / Calculation legend on the tab gives the exact derivation column by column.'),
+    G('feeds', 'BUA / GFA / NSA are the quantity bases for the per-sqm Capex lines; GDV is the revenue base for Sell assets; land value feeds the Capex land line and the Balance Sheet land asset.'),
   ],
   [SHEETS.capex]: [
-    'Each cost line = Rate x Quantity, where the quantity basis is the line\'s method: per sqm (BUA / GFA / NSA), per unit, a percentage (of land / revenue / construction), or a lump sum.',
-    'Costs are phased across the construction periods by the S-curve or manual profile.',
-    'Four totals are shown: incl. all land, excl. in-kind land, and excl. all land, so each downstream tab can pick the right cost base.',
+    G('inputs', 'Cost lines with their rate, method and phasing profile (from Inputs), and the area / unit quantities from Land & Area.'),
+    G('logic', 'Each line = Rate x Quantity, where the quantity follows the line\'s method: per sqm (BUA / GFA / NSA), per unit, a percentage (of land, revenue or construction cost), or a lump sum. Percentage-of lines resolve after their base so the order of calculation is stable. Each line is then spread across its construction periods by the S-curve or the manual profile, so the per-period allocation always sums to 100% of the line total.'),
+    G('feeds', 'Four cost bases are published (incl. all land, excl. in-kind land, excl. all land) so each downstream tab picks the right one: the funding requirement in Financing, Cost of Sales in Revenue, fixed-asset additions in Schedules, and cash from investing in the Cash Flow.'),
   ],
   [SHEETS.financing]: [
-    'The computational engine of the model. Funding requirement per period = capex + interest during construction (IDC).',
-    'Debt is drawn to the funding gap each period per the selected funding method; interest accrues on the drawn balance (capitalised into IDC during construction, expensed thereafter).',
-    'Equity funds the residual requirement. The cash sweep repays debt first, then distributes. Depreciation is straight-line over each asset\'s useful life.',
+    G('inputs', 'Phased capex from Capex, the collections profile from Revenue, opex from Opex, and per-facility terms from Inputs (limit, rate, tenor, fees, repayment) plus the funding method, equity structure, minimum cash reserve and dividend policy.'),
+    G('logic', 'The computational engine of the model. Funding requirement per period = capex + interest during construction (IDC). Debt is drawn to the funding gap each period under the selected funding method; interest accrues on the drawn balance and is capitalised into IDC during construction, then expensed once operations begin. Equity funds the residual requirement. After debt service the cash waterfall runs operations -> debt (sweep) -> dividend -> closing cash, never breaching the minimum cash reserve. Depreciation is straight-line over each asset\'s useful life.'),
+    G('feeds', 'Interest expense and depreciation to the P&L; drawdowns, repayments, interest paid and dividends to the Cash Flow financing block; debt outstanding and equity to the Balance Sheet; the debt and equity streams to the FCFE bridge in Returns.'),
   ],
   [SHEETS.revenue]: [
-    'Recognised revenue per asset by strategy. For-sale (Sell) recognises GDV on handover along the sales curve; Operate / Lease recognise stabilised annual revenue (rate x quantity), ramped by occupancy.',
-    'Cost of Sales = the land + construction cost released against for-sale recognition.',
-    'Escrow withholds a percentage of collections until handover, bridging recognised revenue and cash collected.',
+    G('inputs', 'Per asset: strategy (Sell / Operate / Lease), GDV or stabilised rate and quantity from Land & Area, the sales / handover curve, occupancy and ADR ramps, escrow percentage and release trigger, and the DSO collection terms.'),
+    G('logic', 'Recognition follows the strategy. For-sale (Sell) recognises GDV on handover along the sales curve, using the cohort (vintage) matrix of sale year against recognition year. Operate / Lease recognise stabilised annual revenue (rate x quantity) ramped by occupancy. Cost of Sales releases the land + construction cost against for-sale recognition on the same cohort basis, so margin is matched period by period. Escrow withholds a percentage of collections until handover and releases it after, which is what separates recognised revenue from cash collected.'),
+    G('feeds', 'Revenue and Cost of Sales to the P&L; collections (net of escrow) to the Cash Flow operating block; receivables, inventory, unearned revenue and the escrow balance to the Balance Sheet via the Schedules feeders.'),
   ],
   [SHEETS.opex]: [
-    'Operating expenses per asset plus HQ, by category. Each line = rate (per sqm / per key / percentage of revenue) x quantity, inflated each year.',
-    'The project-total opex feeds EBITDA in the P&L.',
+    G('inputs', 'Per asset and HQ: opex lines by category with their rate, basis and inflation, plus the driving quantity (area, keys, or revenue) and the operating window from the Timeline.'),
+    G('logic', 'Each line = rate x quantity, where the rate is per sqm, per key, or a percentage of revenue, inflated each year from its start year. Lines only run while the asset is operating. Asset opex and head-office / G&A are kept separate so a phase view can show asset-level margin.'),
+    G('feeds', 'Total opex is the deduction between revenue and EBITDA in the P&L, and opex paid (after any accrual timing) is the operating outflow in the Cash Flow.'),
   ],
   [SHEETS.schedules]: [
-    'The Module 4 feeder schedules that drive the statements.',
-    'Fixed Assets & Depreciation: opening + additions - depreciation = closing net book value.',
-    'Working-capital roll-forwards (receivables, payables, inventory, unearned revenue) and the IDC pool, each opening + movement = closing, feeding the Balance Sheet.',
+    G('inputs', 'Capex additions, revenue recognition and collections, opex, tax, and the debt / interest schedule from Financing.'),
+    G('logic', 'The Module 4 feeder schedules, each a roll-forward of the form opening + movement = closing. Fixed Assets: opening + additions - depreciation = closing net book value, with land held separately (land never depreciates). Working capital: receivables (operating via DSO, residential via the milestone schedule), payables via DPO, inventory (work in progress from Cost of Sales), unearned revenue, and the escrow balance. The IDC pool accumulates capitalised interest during construction and releases it into the asset base.'),
+    G('feeds', 'Every closing balance is a Balance Sheet line, and every movement is the corresponding working-capital adjustment in the Indirect Cash Flow.'),
   ],
   [SHEETS.pl]: [
-    'Revenue - Cost of Sales - Operating Expenses = EBITDA.',
-    'EBITDA - Depreciation = EBIT; EBIT - Interest = Profit before Tax; PBT - Tax = PAT (net income).',
-    'Every line links to its source tab, so the statement ties to Revenue, Opex and Financing exactly.',
+    G('inputs', 'Recognised revenue and Cost of Sales from Revenue, total opex from Opex, depreciation and interest expense from Financing, and the tax rate from Inputs.'),
+    G('logic', 'Revenue - Cost of Sales - Operating Expenses = EBITDA. EBITDA - Depreciation and Amortisation = EBIT. EBIT - Interest and financing cost = Profit before Tax. PBT - Tax = PAT (net income). The phase views stop at EBITDA, because depreciation, interest and tax are financed and taxed at project level, not per phase.'),
+    G('feeds', 'PAT is the starting line of the Indirect Cash Flow and the movement in Balance Sheet retained earnings; EBITDA feeds the DSCR and debt-yield covenants in Returns.'),
   ],
   [SHEETS.cashflow]: [
-    'Direct method: cash collected less cash paid (opex, capex, tax, debt service) = net change in cash; opening + change = closing cash.',
-    'Indirect method: PAT + non-cash items (depreciation) +/- working-capital movements.',
-    'Both methods reconcile to the same closing cash each period (see the Checks tab).',
+    G('inputs', 'Collections and escrow from Revenue, opex paid from Opex, capex from Capex, tax from the P&L, and drawdowns / repayments / interest / dividends from Financing.'),
+    G('logic', 'Two methods, both published. Direct: cash collected, less cash paid (opex, head office, tax), = cash from operations; less capex = cash from investing; plus equity and debt drawn, less repayment, interest and dividends = cash from financing. Net change in cash, added to opening, gives closing cash. Indirect: PAT, plus non-cash items (depreciation, interest add-back, Cost of Sales), plus or minus the working-capital movements from Schedules. The two are computed independently and must agree.'),
+    G('feeds', 'Closing cash is the Balance Sheet cash line, and is the single source of truth both methods reconcile to. The Checks tab asserts Direct equals Indirect in every period.'),
   ],
   [SHEETS.balsheet]: [
-    'Assets (cash, receivables, inventory, fixed assets, land) = Liabilities (payables, unearned revenue, debt) + Equity (share capital, retained earnings).',
-    'The sheet balances by construction every period: total assets equal total liabilities plus equity.',
+    G('inputs', 'Closing balances from every Schedules feeder, closing cash from the Cash Flow, debt from Financing, and share capital plus retained earnings from the equity roll-forward.'),
+    G('logic', 'Assets (cash, escrow restricted cash, receivables, inventory, fixed assets, land) = Liabilities (payables, unearned revenue, debt) + Equity (share capital, statutory reserve, retained earnings). The sheet balances by construction every period, because each side is assembled from the same roll-forwards rather than being plugged.'),
+    G('feeds', 'Nothing downstream: this is the closing position. Total equity and debt outstanding feed the leverage and LTV metrics in Returns.'),
   ],
   [SHEETS.returns]: [
-    'Unlevered project return (FCFF) and levered equity return (FCFE): IRR, MOIC and NPV over each cash-flow stream.',
-    'The FCFF -> FCFE bridge shows the effect of leverage (debt drawn, less interest, less principal).',
-    'RE metrics: yield on cost, cap rate at exit, DSCR, and LTV at peak debt.',
+    G('inputs', 'The cash-flow streams (cash from operations and investing from the Cash Flow, debt and equity movements from Financing), the terminal-value assumptions, and the discount rate from Inputs.'),
+    G('logic', 'Three bases. FCFF (unlevered project) = cash from operations + cash from investing, plus terminal enterprise value at exit. FCFE (levered equity) layers in debt drawn, less interest and principal, plus terminal equity value. Distributed equity (DDM) uses the cash actually paid out under the sweep and dividend policy. Each stream yields IRR (the rate where NPV is zero), MOIC (inflows / outflows) and NPV at the discount rate. Terminal value is exit multiple or perpetuity growth as selected. RE metrics: yield on cost, cap rate at exit, DSCR, debt yield, and LTV at peak debt.'),
+    G('feeds', 'The headline metrics on the Summary tab and the KPI matrix on Scenarios.'),
   ],
   [SHEETS.scenarios]: [
-    'Every case compared against the base: the headline KPI matrix with the delta vs base, and the year-on-year impact of each changed input.',
-    'Each case is a full re-run of the engine on the platform; the figures here are those runs, hardcoded.',
+    G('inputs', 'The Management base case plus every override case defined in the platform, and the full engine output for each.'),
+    G('logic', 'Each case is a complete re-run of the engine with its overrides applied to a copy of the base (the base is never mutated). The comparison matrix shows each case\'s headline KPIs with the delta against base; the year-on-year impact section shows each changed input alongside the per-period outputs it drives.'),
+    G('feeds', 'Nothing downstream. The statement tabs in this workbook are the Management base case unless a different case was chosen at export.'),
   ],
   [SHEETS.checks]: [
-    'Integrity checks: the balance sheet balances, the direct and indirect cash flows agree, and the statements reconcile to the platform snapshot.',
-    'The colour legend explains the FAST cell conventions used throughout the workbook.',
+    G('inputs', 'The assembled statements: Balance Sheet totals, both Cash Flow methods, and the platform snapshot values.'),
+    G('logic', 'Integrity assertions, each a difference that must be zero: total assets less total liabilities and equity; Direct closing cash less Indirect closing cash; and each statement total against the platform snapshot it was exported from.'),
+    G('feeds', 'Nothing. This tab is the audit trail: if every check reads zero, the workbook is internally consistent and ties to the platform.'),
   ],
 };
 
@@ -3378,9 +3537,13 @@ const TAB_GUIDES: Record<string, string[]> = {
  *  subtitle row (where the tab has one) and a "How this tab is calculated" block
  *  appended at the BOTTOM (so the frozen header + every data row are untouched).
  *  Runs after the section sink is cleared, so its own header does not register. */
-function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
+function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ title: string; row: number }>>): Map<string, number> {
   // Tabs whose row-2 subtitle can safely become a "Covers" line.
   const A2_COVERS = new Set<string>([SHEETS.landArea, SHEETS.capex, SHEETS.financing, SHEETS.revenue, SHEETS.opex, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.returns, SHEETS.scenarios]);
+  const LABEL: Record<GuideLine['kind'], string> = { inputs: 'Inputs', logic: 'Calculation', feeds: 'Feeds' };
+  /** Row of each tab's guide-block header, so the sub-TOC can link straight to it. */
+  const guideRows = new Map<string, number>();
+
   for (const sheet of Object.keys(TAB_GUIDES)) {
     const ws = wb.getWorksheet(sheet); if (!ws) continue;
     const secs = dedupSections(sectionReg.get(sheet) ?? []);
@@ -3390,6 +3553,7 @@ function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ ti
     if (coversLine && A2_COVERS.has(sheet)) setLabel(ws.getCell('A2'), coversLine);
 
     let r = (ws.rowCount || 1) + 2;
+    guideRows.set(sheet, r);
     setSectionHeader(ws.getRow(r), 'How this tab is calculated', 10); r += 1;
     if (coversLine) {
       ws.mergeCells(r, 1, r, 10);
@@ -3398,12 +3562,22 @@ function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ ti
       cc.alignment = { wrapText: true, vertical: 'top' };
       ws.getRow(r).height = 26; r += 1;
     }
+    // Inputs / Calculation / Feeds, each a labelled row: the label column reads
+    // as a mini table of the tab's mechanics rather than an undifferentiated
+    // bullet list, so a reader can find "what does this feed" at a glance.
     for (const line of TAB_GUIDES[sheet]) {
-      ws.mergeCells(r, 1, r, 10);
-      const c = ws.getCell(r, 1); c.value = `•  ${line}`;
+      const lc = ws.getCell(r, 1);
+      lc.value = LABEL[line.kind];
+      lc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+      lc.alignment = { vertical: 'top', indent: 1 };
+      fillCell(lc, ARGB.navy);
+      ws.mergeCells(r, 2, r, 10);
+      const c = ws.getCell(r, 2); c.value = line.text;
       c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
-      c.alignment = { wrapText: true, vertical: 'top' };
-      ws.getRow(r).height = Math.max(16, Math.ceil(line.length / 95) * 15);
+      c.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+      fillCell(c, ARGB.subtotal);
+      // ~150 chars fit per line across the merged B:J band at this width.
+      ws.getRow(r).height = Math.max(16, Math.ceil(line.text.length / 150) * 14 + 4);
       r += 1;
     }
     ws.mergeCells(r, 1, r, 10);
@@ -3411,6 +3585,113 @@ function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ ti
     note.value = 'This workbook is a hardcoded snapshot; cells do not recalculate. Change inputs in the platform and re-export to run a scenario.';
     note.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
     note.alignment = { wrapText: true, vertical: 'top' };
+  }
+  return guideRows;
+}
+
+// ── Per-tab sub-TOC (top-of-tab navigation) ───────────────────────────────────
+/**
+ * Reserve a compact navigation strip at the top of every data tab: the tab's own
+ * sections as internal hyperlinks, a link straight to the "How this tab is
+ * calculated" block (which otherwise sits hundreds of rows down), and a
+ * "Back to Cover" link.
+ *
+ * Runs as a POST-PASS over finished sheets and inserts rows via `insertRowsAt`,
+ * rather than threading a row offset through fourteen tab builders. Everything
+ * below the insert point shifts down, so the caller's section registry + guide
+ * rows are re-based here and the Cover (built afterwards) links to the corrected
+ * rows. The insert point is just below each tab's frozen header, so the frozen
+ * title / period-header rows and every cross-sheet reference into them (the
+ * Timeline axis at rows 3-4) are untouched.
+ */
+function applyTabSubToc(
+  wb: ExcelJS.Workbook,
+  sectionReg: Map<string, Array<{ title: string; row: number }>>,
+  guideRows: Map<string, number>,
+): void {
+  const LINKS_PER_ROW = 4;
+  const SPAN = 10;
+
+  /** Rows covered by an existing merge on this sheet, so nothing is clobbered. */
+  const mergedRows = (ws: ExcelJS.Worksheet): Set<number> => {
+    const out = new Set<number>();
+    for (const range of ((ws as unknown as { model?: { merges?: string[] } }).model?.merges ?? [])) {
+      const m = /^\$?[A-Z]+\$?(\d+):\$?[A-Z]+\$?(\d+)$/.exec(range);
+      if (!m) continue;
+      for (let R = Number(m[1]); R <= Number(m[2]); R++) out.add(R);
+    }
+    return out;
+  };
+
+  for (const sheet of Object.keys(TAB_GUIDES)) {
+    const ws = wb.getWorksheet(sheet); if (!ws) continue;
+    const secs = dedupSections(sectionReg.get(sheet) ?? []);
+
+    // Entries: every section, then the guide block (the reason for this strip:
+    // on a long tab that block sits hundreds of rows down). Capped so a rich tab
+    // stays to a couple of rows; the Cover carries the full second-level list.
+    const entries: Array<{ label: string; row: number }> = secs.slice(0, 11).map((s) => ({ label: s.title, row: s.row }));
+    const guideRow = guideRows.get(sheet);
+    if (guideRow) entries.push({ label: 'How this tab is calculated', row: guideRow });
+
+    const linkRows = Math.max(1, Math.ceil(entries.length / LINKS_PER_ROW));
+    const need = linkRows + 1; // + the "On this tab" strip carrying Back to Cover
+
+    // WHERE the strip goes. A gridded tab has a frozen header (ySplit >= 2) and a
+    // plain data area beneath it, so rows are reserved just below the freeze and
+    // the strip reads at the top of the sheet body. A designed one-page canvas
+    // (Summary, Checks) has no freeze and merged blocks throughout: inserting
+    // there would split a merge and wreck the layout, so the strip is appended at
+    // the bottom instead. Either way the tab gets its links and Back to Cover.
+    const ySplit = (ws.views?.[0] as { ySplit?: number } | undefined)?.ySplit ?? 0;
+    const merged = mergedRows(ws);
+    const insertAt = ySplit + 1;
+    const canInsert = ySplit >= 2
+      // Nothing merged may straddle the insert point, and the reserved band must
+      // be clear once shifted (blank rows are inserted, so only a straddle can bite).
+      && !merged.has(insertAt) && !merged.has(insertAt - 1);
+
+    let at: number;
+    if (canInsert) {
+      at = insertAt;
+      insertRowsAt(ws, at, need);
+      // Everything at or below the insert point moved down by `need`.
+      const rebase = (n: number): number => (n >= at ? n + need : n);
+      sectionReg.set(sheet, (sectionReg.get(sheet) ?? []).map((s) => ({ ...s, row: rebase(s.row) })));
+      if (guideRow) guideRows.set(sheet, rebase(guideRow));
+      for (const e of entries) e.row = rebase(e.row);
+    } else {
+      at = (ws.rowCount || 1) + 2;
+    }
+
+    // Strip header: label on the left, Back to Cover on the right.
+    fillRange(ws, at, 1, at, SPAN, ARGB.paleBand);
+    const hc = ws.getCell(at, 1);
+    hc.value = canInsert ? 'On this tab' : 'On this tab (sections above)';
+    hc.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: ARGB.sectionDark } };
+    hc.alignment = { indent: 1 };
+    const back = ws.getCell(at, SPAN);
+    back.value = { text: '↑ Back to Cover', hyperlink: `#'${SHEETS.cover}'!A1` };
+    back.font = { name: 'Calibri', size: 8.5, bold: true, color: { argb: ARGB.navy }, underline: true };
+    back.alignment = { horizontal: 'right' };
+    ws.getRow(at).height = 14;
+
+    // Link rows: up to LINKS_PER_ROW jump links each, spread across A..J. Each
+    // label spans two columns; the merge is skipped (not merged) if that band is
+    // already occupied, so the link still renders rather than throwing.
+    for (let i = 0; i < entries.length; i++) {
+      const rowIdx = at + 1 + Math.floor(i / LINKS_PER_ROW);
+      const col = 1 + (i % LINKS_PER_ROW) * 2;   // A, C, E, G
+      const e = entries[i];
+      const right = Math.min(SPAN, col + 1);
+      if (right > col) { try { ws.mergeCells(rowIdx, col, rowIdx, right); } catch { /* band occupied */ } }
+      const c = ws.getCell(rowIdx, col);
+      c.value = { text: `›  ${e.label}`, hyperlink: `#'${sheet}'!A${e.row}` };
+      c.font = { name: 'Calibri', size: 8.5, color: { argb: ARGB.navy }, underline: true };
+      c.alignment = { indent: 1 };
+      ws.getRow(rowIdx).height = 13;
+    }
+    boxBorder(ws, at, 1, at + linkRows, SPAN, ARGB.greyMid);
   }
 }
 

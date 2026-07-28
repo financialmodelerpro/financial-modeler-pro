@@ -21,6 +21,7 @@ import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/mod
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import { buildExcelSampleState } from './excelSampleState';
+import { ARGB, ALLOWED_FILLS } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 
 let pass = 0, fail = 0;
@@ -221,19 +222,129 @@ async function main(): Promise<void> {
   check('Returns has Sources & Uses + Returns by Cash-Flow Basis + Leverage & Coverage', m5(/^Sources & Uses of Capital$/) > 0 && m5(/^Returns by Cash-Flow Basis$/) > 0 && m5(/^Leverage & Coverage$/) > 0);
   check('Returns has the FCFF / FCFE / Distributed build-ups', m5(/^FCFF Build-Up/) > 0 && m5(/^FCFE Build-Up/) > 0 && m5(/^Distributed Equity Build-Up/) > 0);
 
-  // ── Universal navy palette: every cell colour is one standard scheme ─────────
-  // No per-tab or off-palette colours (no green / teal / blue accents). Allowed:
-  // navy / navyDark / deep-navy section band / pale-navy subtotal / navy-pale
-  // input / grey / greyMid / light-navy border, plus black, white and red (fails).
-  const PALETTE = new Set(['FF1B4F8A', 'FF1B3A6B', 'FF0C2340', 'FFE8EEF7', 'FFE2EAF4', 'FFF1F3F5', 'FFD9DEE3', 'FFBDCCE3', 'FF000000', 'FFFFFFFF', 'FFC00000']);
-  const stray = new Map<string, string>();
+  // ── LOCKED palette: every fill comes from the one sanctioned set ─────────────
+  // ALLOWED_FILLS is exported from styles.ts, so this check tracks the single
+  // source of truth rather than a hand-copied list that can drift out of step.
+  // Text / border colours carry a slightly wider set (they include the navy text
+  // tone and the FAST input / link colours, which are never used as fills).
+  const TEXT_OK = new Set<string>([
+    ARGB.navy, ARGB.navyDark, ARGB.sectionDark, ARGB.formula, ARGB.white, ARGB.bad,
+    ARGB.slate, ARGB.ink, ARGB.greyMid, ARGB.inputBorder, ARGB.good, ARGB.linked, ARGB.input,
+  ]);
+  const strayFill = new Map<string, string>();
+  const strayText = new Map<string, string>();
   for (const ws of wb.worksheets) {
     ws.eachRow((row) => row.eachCell((c) => {
-      const fc = (c.font as any)?.color?.argb; const fl = (c.fill as any)?.fgColor?.argb; const bd = (c.border as any)?.bottom?.color?.argb;
-      for (const x of [fc, fl, bd]) if (typeof x === 'string' && !PALETTE.has(x)) stray.set(x, ws.name);
+      const fl = (c.fill as any)?.fgColor?.argb;
+      if (typeof fl === 'string' && !ALLOWED_FILLS.has(fl)) strayFill.set(fl, ws.name);
+      const fc = (c.font as any)?.color?.argb; const bd = (c.border as any)?.bottom?.color?.argb;
+      for (const x of [fc, bd]) if (typeof x === 'string' && !TEXT_OK.has(x)) strayText.set(x, ws.name);
     }));
   }
-  check('every cell uses the standard navy palette (no green / per-tab colours)', stray.size === 0, [...stray.entries()].map(([k, v]) => `${k}@${v}`).join(' '));
+  check('every FILL is in the locked palette', strayFill.size === 0, [...strayFill.entries()].map(([k, v]) => `${k}@${v}`).join(' '));
+  check('every text / border colour is in the locked palette', strayText.size === 0, [...strayText.entries()].map(([k, v]) => `${k}@${v}`).join(' '));
+
+  // The forbidden darks must be gone as FILLS. #1B3A6B survives as a text tone
+  // only; #0C2340 and pure black must not appear as a fill anywhere.
+  const FORBIDDEN_FILLS = ['FF0C2340', 'FF1B3A6B', 'FF000000'];
+  const forbiddenHits = new Map<string, string>();
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row) => row.eachCell((c) => {
+      const fl = (c.fill as any)?.fgColor?.argb;
+      if (typeof fl === 'string' && FORBIDDEN_FILLS.includes(fl)) forbiddenHits.set(fl, ws.name);
+    }));
+  }
+  check('no forbidden dark / black FILL remains (0C2340, 1B3A6B, black)', forbiddenHits.size === 0, [...forbiddenHits.entries()].map(([k, v]) => `${k}@${v}`).join(' '));
+  // Section header bands are navy or the one sanctioned darker shade, never else.
+  const badBand = new Map<string, string>();
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row, R) => {
+      const a = row.getCell(1);
+      const fl = (a.fill as any)?.fgColor?.argb;
+      const isBand = typeof fl === 'string' && (a.font as any)?.color?.argb === ARGB.white && typeof a.value === 'string';
+      if (isBand && fl !== ARGB.navy && fl !== ARGB.sectionDark) badBand.set(`${fl}@${ws.name}!A${R}`, ws.name);
+    });
+  }
+  check('every section header band is navy or sectionDark', badBand.size === 0, [...badBand.keys()].join(' '));
+
+  // ── Per-tab sub-TOC: top-of-tab navigation with working internal links ───────
+  const DATA_TABS = ALL_SHEETS.filter((n) => n !== 'Cover' && n !== 'Guide');
+  const cellText = (v: any): string => {
+    if (typeof v === 'string') return v;
+    if (v && typeof v === 'object') { if ('text' in v) return String(v.text); if ('result' in v) return String(v.result); }
+    return v == null ? '' : String(v);
+  };
+  for (const name of DATA_TABS) {
+    const ws = wb.getWorksheet(name)!;
+    let strip = -1, back = false;
+    const internal: Array<{ label: string; row: number }> = [];
+    ws.eachRow((row, R) => {
+      if (strip < 0 && /^On this tab/.test(cellText(row.getCell(1).value))) strip = R;
+      row.eachCell({ includeEmpty: false }, (c) => {
+        const v: any = c.value;
+        if (!v || typeof v !== 'object' || typeof v.hyperlink !== 'string') return;
+        if (String(v.text).includes('Back to Cover')) { back = v.hyperlink === "#'Cover'!A1"; return; }
+        const m = new RegExp(`^#'${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}'!A(\\d+)$`).exec(v.hyperlink);
+        if (m) internal.push({ label: cellText(v.text).replace(/^›\s*/, ''), row: Number(m[1]) });
+      });
+    });
+    check(`${name}: has a sub-TOC strip`, strip > 0, `strip=${strip}`);
+    check(`${name}: sub-TOC has a Back to Cover link`, back);
+    check(`${name}: sub-TOC carries internal jump links`, internal.length > 0, `${internal.length}`);
+    // Every jump link must land on the row whose column A actually holds that label.
+    const norm = (t: string): string => t.replace(/^\d+\.\s*/, '').trim();
+    const misses = internal.filter((e) => norm(cellText(ws.getCell(e.row, 1).value)) !== norm(e.label));
+    check(`${name}: every sub-TOC link lands on its own section row`, misses.length === 0,
+      misses.slice(0, 2).map((e) => `"${e.label}"->A${e.row}`).join(' '));
+    // The buried guide block must be one click away.
+    check(`${name}: sub-TOC links to the basis-of-calculation block`, internal.some((e) => /How this tab is calculated/i.test(e.label)));
+  }
+
+  // ── Basis of calculation on every data tab, in the Inputs/Calculation/Feeds shape ─
+  for (const name of DATA_TABS) {
+    const ws = wb.getWorksheet(name)!;
+    let head = -1; const parts = new Set<string>();
+    ws.eachRow((row, R) => {
+      const a = row.getCell(1);
+      const navyBand = (a.fill as any)?.fgColor?.argb === ARGB.navy;
+      if (head < 0 && navyBand && /How this tab is calculated/i.test(cellText(a.value))) head = R;
+      if (head > 0 && R > head) { const t = cellText(a.value); if (t === 'Inputs' || t === 'Calculation' || t === 'Feeds') parts.add(t); }
+    });
+    check(`${name}: has a "How this tab is calculated" block`, head > 0, `row=${head}`);
+    check(`${name}: block explains Inputs + Calculation + Feeds`, parts.size === 3, [...parts].join(','));
+  }
+
+  // ── Timeline: phase-wise dated programme + cell Gantt ────────────────────────
+  {
+    const tl = wb.getWorksheet('Timeline')!;
+    const rowOf = (re: RegExp): number => { let r = -1; tl.eachRow((row, R) => { if (r < 0 && re.test(cellText(row.getCell(1).value))) r = R; }); return r; };
+    check('Timeline keeps the period axis rows', /Period ending/.test(cellText(tl.getCell(3, 1).value)) && /Period index/.test(cellText(tl.getCell(4, 1).value)));
+    const schedRow = rowOf(/^Phase schedule \(dated\)/);
+    const ganttRow = rowOf(/^Development programme \(Gantt\)/);
+    check('Timeline has a dated phase schedule', schedRow > 0);
+    check('Timeline has a Gantt programme', ganttRow > schedRow);
+    // Dated columns, driven by computePhaseTimeline.
+    const heads = [3, 4, 5, 6].map((c) => cellText(tl.getCell(schedRow + 1, c).value));
+    check('Timeline schedule carries construction + operations windows',
+      heads.join('|') === 'Construction start|Construction end|Operations start|Operations end', heads.join('|'));
+    const firstPhase = cellText(tl.getCell(schedRow + 2, 3).value);
+    check('Timeline dates are real month-year dates from the model', /^[A-Z][a-z]{2} \d{4}$/.test(firstPhase), firstPhase);
+    check('Timeline states the project envelope', rowOf(/^Project$/) > schedRow);
+    // The Gantt paints construction (navy) and operations (green) bars on the grid.
+    let cBars = 0, oBars = 0, endMark = 0;
+    tl.eachRow((row, R) => {
+      if (R <= ganttRow) return;
+      for (let c = 5; c <= 5 + N; c++) {
+        const fl = (row.getCell(c).fill as any)?.fgColor?.argb;
+        if (fl === ARGB.navy) cBars += 1;
+        else if (fl === ARGB.good) oBars += 1;
+        else if (fl === ARGB.sectionDark && cellText(row.getCell(c).value) === 'END') endMark += 1;
+      }
+    });
+    check('Gantt paints construction bars', cBars > 0, `${cBars}`);
+    check('Gantt paints operations bars', oBars > 0, `${oBars}`);
+    check('Gantt marks project end exactly once', endMark === 1, `${endMark}`);
+  }
   // Tab colours are uniform navy across every sheet.
   const tabColors = new Set(wb.worksheets.map((w) => (w.properties as any)?.tabColor?.argb).filter(Boolean));
   check('all worksheet tab colours are the same navy', tabColors.size === 1 && tabColors.has('FF1B4F8A'), [...tabColors].join(','));

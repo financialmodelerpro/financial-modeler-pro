@@ -12,32 +12,68 @@
  */
 import type ExcelJS from 'exceljs';
 
+/**
+ * LOCKED REPORT PALETTE (2026-07-28). Every fill in the workbook comes from this
+ * table. Do not introduce a new colour; pick the closest role below.
+ *
+ *   Section headers ............ navy        #1B4F8A
+ *   Darker shade (top-level) ... sectionDark #0D2E5A   (only where the design
+ *                                genuinely needs a second, deeper level)
+ *   Sub-header band ............ paleBand    #DDE7F3
+ *   Sub-header / zebra ......... subtotal    #E8EEF7
+ *   Period header row .......... grey        #F1F3F5
+ *   Secondary text ............. slate       #5A6675
+ *   Positive / pass ............ good        #2E7D52
+ *   Body text .................. ink         #2A3440
+ *
+ * FORBIDDEN as a fill: #0C2340, #1B3A6B, any pure black, gold.
+ *   (#1B3A6B survives ONLY as a text colour, see `navyDark` below.)
+ *
+ * Text convention (FAST): input-blue for hardcoded inputs, black for formulas,
+ * green for cross-sheet links.
+ */
 // FAST palette (Excel-canonical), ARGB.
 export const ARGB = {
   input: 'FF0070C0',     // blue (legacy; inputs now use the navy-pale shading below)
   // FAST input cell shading: navy-pale fill + navy text + light border, matching
   // the on-screen FAST_INPUT cells and the PDF input shading, so an assumption
-  // reads at a glance without a coloured font.
+  // reads at a glance without a coloured font. Deliberately distinct from the
+  // paleBand / subtotal shades so an input never reads as a sub-header.
   inputFill: 'FFE2EAF4',   // navy-pale fill (PDF FAST_FILL)
   inputBorder: 'FFBDCCE3', // light navy border (PDF FAST_BORDER)
   formula: 'FF000000',   // black, calculations
   linked: 'FF00B050',    // green, cross-sheet references
   external: 'FFFF0000',  // red, external links (unused for now)
   navy: 'FF1B4F8A',
+  // TEXT ONLY. Historically also used as a fill; every fill call site now uses
+  // `sectionDark`. Kept as a navy text tone (titles, basis notes, column heads).
   navyDark: 'FF1B3A6B',
   // Deep navy band for top-level section headers: the darkest shade in the
   // monochrome navy hierarchy (section = deepest, total = navy, subtotal =
   // pale navy), so a section break stands out from a total without introducing
-  // a second hue. Named `accent` for historical call-site reasons; it is navy.
-  accent: 'FF0C2340',
+  // a second hue. `accent` is the historical call-site name for this same
+  // colour; both resolve to the locked #0D2E5A.
+  sectionDark: 'FF0D2E5A',
+  accent: 'FF0D2E5A',
   white: 'FFFFFFFF',
   grey: 'FFF1F3F5',
   greyMid: 'FFD9DEE3',
+  // Sub-header band (the per-tab sub-TOC strip and section sub-bands).
+  paleBand: 'FFDDE7F3',
   subtotal: 'FFE8EEF7',
-  good: 'FF107C41',
+  slate: 'FF5A6675',
+  ink: 'FF2A3440',
+  good: 'FF2E7D52',
   bad: 'FFC00000',
   warnBg: 'FFFFF3CD',
 };
+
+/** Every fill colour the workbook is allowed to emit. The verifier asserts that
+ *  no cell carries a fill outside this set, so the palette cannot drift again. */
+export const ALLOWED_FILLS: ReadonlySet<string> = new Set([
+  ARGB.navy, ARGB.sectionDark, ARGB.paleBand, ARGB.subtotal, ARGB.grey,
+  ARGB.greyMid, ARGB.inputFill, ARGB.white, ARGB.good, ARGB.bad, ARGB.warnBg,
+]);
 
 /**
  * Excel accounting number format (no currency symbol): right-aligned digits,
@@ -267,6 +303,48 @@ export function boxBorder(ws: ExcelJS.Worksheet, top: number, left: number, bott
       cell.border = b;
     }
   }
+}
+
+/**
+ * Insert `count` blank rows at row `at`, shifting everything below down.
+ *
+ * ExcelJS's own `spliceRows` moves cell values, styles and row heights but does
+ * NOT move merged ranges: the merge stays anchored to the old row numbers and
+ * the written file is corrupt (a band merged over the wrong cells). This wrapper
+ * un-merges everything first, splices, then re-merges at the shifted rows, and
+ * also rewrites any same-sheet internal hyperlink target (#'Sheet'!A12) whose
+ * row moved, so a link still points at its section afterwards.
+ *
+ * Used by the per-tab sub-TOC, which reserves rows at the top of a finished
+ * sheet rather than threading an offset through every tab builder.
+ */
+export function insertRowsAt(ws: ExcelJS.Worksheet, at: number, count: number): void {
+  if (count <= 0) return;
+  const model = ws as unknown as { model?: { merges?: string[] } };
+  const merges = [...(model.model?.merges ?? [])];
+  for (const m of merges) { try { ws.unMergeCells(m); } catch { /* not merged after all */ } }
+
+  ws.spliceRows(at, 0, ...Array.from({ length: count }, () => [] as never[]));
+
+  const shiftA1 = (a1: string): string => a1.replace(/^(\$?[A-Z]+\$?)(\d+)$/, (_s, col: string, row: string) => {
+    const R = Number(row);
+    return `${col}${R >= at ? R + count : R}`;
+  });
+  for (const m of merges) {
+    const [tl, br] = m.split(':');
+    try { ws.mergeCells(`${shiftA1(tl)}:${shiftA1(br ?? tl)}`); } catch { /* overlaps an existing merge */ }
+  }
+
+  // Re-point internal links that targeted a row which has now moved.
+  const self = new RegExp(`^#'?${ws.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'?!(\\$?[A-Z]+\\$?)(\\d+)$`);
+  ws.eachRow((row) => row.eachCell({ includeEmpty: false }, (cell) => {
+    const v = cell.value as { text?: string; hyperlink?: string } | null;
+    if (!v || typeof v !== 'object' || typeof v.hyperlink !== 'string') return;
+    const m = self.exec(v.hyperlink);
+    if (!m) return;
+    const R = Number(m[2]);
+    if (R >= at) cell.value = { ...v, hyperlink: `#'${ws.name}'!${m[1]}${R + count}` } as ExcelJS.CellValue;
+  }));
 }
 
 /** Column letter for a 1-based column index (1 -> A, 27 -> AA). */
