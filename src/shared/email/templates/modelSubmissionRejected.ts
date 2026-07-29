@@ -10,6 +10,11 @@ interface ModelSubmissionRejectedData {
   attemptsRemaining: number;
   maxAttempts: number;
   reviewerNote: string;
+  /** Absolute link to download the admin-returned marked-up model. On a reject
+   *  this is the copy the student works FROM for their next attempt, so it
+   *  matters more here than on an approval. Null when no file was attached. */
+  reviewedFileUrl?: string | null;
+  reviewedFileName?: string | null;
 }
 
 /**
@@ -21,6 +26,7 @@ interface ModelSubmissionRejectedData {
 export async function modelSubmissionRejectedTemplate({
   name, courseLabel, fileName, attemptNumber,
   attemptsRemaining, maxAttempts, reviewerNote,
+  reviewedFileUrl, reviewedFileName,
 }: ModelSubmissionRejectedData) {
   const exhausted = attemptsRemaining <= 0;
   const subject = exhausted
@@ -46,13 +52,21 @@ export async function modelSubmissionRejectedTemplate({
       <div style="font-size:13px;color:#374151;line-height:1.55;">${reviewerNote.replace(/\n/g, '<br/>')}</div>
     </div>
 
+    ${reviewedFileUrl
+      ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:18px;margin:20px 0;">
+           <div style="font-size:11px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Your marked-up model</div>
+           <div style="font-size:13px;color:#374151;line-height:1.55;margin-bottom:12px;">Your reviewer returned a marked-up copy of your model${reviewedFileName ? ` (<strong>${reviewedFileName}</strong>)` : ''}. Work from this file for your next attempt, the comments show exactly what to change. It is also available in your dashboard under My Model.</div>
+           <div>${button('Download marked-up model', reviewedFileUrl)}</div>
+         </div>`
+      : ''}
+
     ${exhausted
       ? p('You have used all of your model submission attempts. Please reply to this email so we can talk through next steps and unlock your Final Exam manually.')
       : p(`Use the reviewer note above to refine your model and upload a new version when you are ready. You have <strong>${attemptsRemaining}</strong> resubmission${attemptsRemaining === 1 ? '' : 's'} left.`)
     }
 
     <div style="text-align:center;margin:24px 0;">
-      ${button(exhausted ? 'Open Dashboard' : 'Resubmit Your Model', `${LEARN_URL}/training/dashboard`)}
+      ${button(exhausted ? 'Open Dashboard' : 'Resubmit Your Model', `${LEARN_URL}/training/dashboard?tab=my-model`)}
     </div>
 
     ${divider()}
@@ -65,10 +79,11 @@ export async function modelSubmissionRejectedTemplate({
     + `Submission: ${fileName} (attempt ${attemptNumber} of ${maxAttempts})\n`
     + `Resubmissions remaining: ${attemptsRemaining} of ${maxAttempts}\n\n`
     + `Reviewer note:\n${reviewerNote}\n\n`
+    + `${reviewedFileUrl ? `Your reviewer returned a marked-up model${reviewedFileName ? ` (${reviewedFileName})` : ''}. Work from this file for your next attempt.\nDownload: ${reviewedFileUrl}\n\n` : ''}`
     + `${exhausted
         ? 'You have used all attempts. Please reply to this email to discuss next steps.'
         : 'Use the reviewer note to refine your model and upload again when ready.'}\n\n`
-    + `Dashboard: ${LEARN_URL}/training/dashboard`;
+    + `Your models: ${LEARN_URL}/training/dashboard?tab=my-model`;
 
   return { subject, html, text };
 }

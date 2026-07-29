@@ -107,12 +107,17 @@ export async function POST(
   const reviewNoteToStore = decision === 'reject' ? note : (note || null);
   const nowIso = new Date().toISOString();
 
-  // Reviewed-model return (mig 185): on approve, the admin may attach a reviewed
-  // model. Upload it to the SAME private bucket BEFORE the DB update so the row
-  // carries the reference atomically; a validation failure rejects the request
-  // and a DB-write failure rolls the uploaded object back (no orphaned bytes).
+  // Reviewed-model return (mig 185): on EITHER decision the admin may attach a
+  // marked-up model. Upload it to the SAME private bucket BEFORE the DB update
+  // so the row carries the reference atomically; a validation failure rejects
+  // the request and a DB-write failure rolls the uploaded object back (no
+  // orphaned bytes).
+  //
+  // This used to be approve-only, which withheld marked-up feedback from
+  // exactly the students who need it most: the ones being sent back for
+  // another attempt. Both decisions now return the reviewed file.
   let reviewedMeta: { path: string; name: string; size: number; mime: string } | null = null;
-  if (decision === 'approve' && reviewedFile) {
+  if (reviewedFile) {
     const ext = fileExt(reviewedFile.name);
     if (!ext || !(ext in ALLOWED_MODEL_EXT_TO_MIME)) {
       return NextResponse.json({ error: 'invalid_file_type', message: 'Allowed reviewed-model types: .xlsx, .xls, .xlsm, .pdf' }, { status: 400 });
@@ -260,6 +265,10 @@ export async function POST(
         attemptsRemaining,
         maxAttempts,
         reviewerNote: note,
+        // Same ownership-checked proxy the approval email uses. On a reject this
+        // is the marked-up copy the student works FROM for their next attempt.
+        reviewedFileUrl: reviewedMeta ? `${LEARN_URL}/api/training/model-submission/${submission.id}/reviewed-file` : null,
+        reviewedFileName: reviewedMeta?.name ?? null,
       });
       await sendEmail({ to: submission.email, subject, html, text, from: FROM.training });
     }

@@ -126,10 +126,12 @@ export default function AdminModelSubmissionsPage() {
     }
     setBusyDecision(decision);
     try {
-      // Approve WITH a reviewed file -> multipart; otherwise JSON (reject +
-      // file-less approve are unchanged, so the route stays backward compatible).
+      // A reviewed file on EITHER decision -> multipart; otherwise JSON (a
+      // file-less review is unchanged, so the route stays backward compatible).
+      // Reject used to drop the file, which withheld the marked-up copy from
+      // the students who need it most.
       const url = `/api/admin/model-submissions/${reviewing.id}/review`;
-      const res = decision === 'approve' && reviewedFile
+      const res = reviewedFile
         ? await (() => {
             const fd = new FormData();
             fd.append('decision', decision);
@@ -153,7 +155,7 @@ export default function AdminModelSubmissionsPage() {
       showToast(
         decision === 'approve'
           ? `Approved.${reviewedFile ? ' Reviewed model returned.' : ''} ${json.emailSent ? 'Student emailed.' : 'Email failed - check email logs.'}`
-          : `Rejected. ${json.attemptsRemaining ?? 0} attempt${(json.attemptsRemaining ?? 0) === 1 ? '' : 's'} remaining for student. ${json.emailSent ? 'Student emailed.' : 'Email failed - check email logs.'}`,
+          : `Rejected.${reviewedFile ? ' Marked-up model returned.' : ''} ${json.attemptsRemaining ?? 0} attempt${(json.attemptsRemaining ?? 0) === 1 ? '' : 's'} remaining for student. ${json.emailSent ? 'Student emailed.' : 'Email failed - check email logs.'}`,
         'ok',
       );
       setReviewing(null);
@@ -449,11 +451,12 @@ export default function AdminModelSubmissionsPage() {
                   />
 
                   {/* Reviewed-model return (mig 185): optional file attached on
-                      APPROVE. The student receives it via email + in their
-                      dashboard. Approve without a file behaves exactly as before. */}
+                      EITHER decision. The student receives it via email + in
+                      their dashboard under My Model. A file-less review behaves
+                      exactly as before. */}
                   <div style={{ marginTop: 14 }}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                      Reviewed model to return (optional, on approve)
+                      Marked-up model to return (optional, approve or reject)
                     </label>
                     <input
                       type="file"
@@ -465,8 +468,8 @@ export default function AdminModelSubmissionsPage() {
                     />
                     <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
                       {reviewedFile
-                        ? `Attached: ${reviewedFile.name} (returned to the student on approve).`
-                        : '.xlsx, .xls, .xlsm, .pdf up to 25 MB. Leave empty to approve without returning a file.'}
+                        ? `Attached: ${reviewedFile.name} (returned to the student on approve OR reject).`
+                        : '.xlsx, .xls, .xlsm, .pdf up to 25 MB. On a reject this is the copy they rebuild from, so attach it whenever you have marked one up.'}
                     </div>
                   </div>
 

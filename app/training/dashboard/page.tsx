@@ -36,6 +36,7 @@ import {
 } from '@/src/hubs/training/components/dashboard';
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
+import { MyModelView } from '@/src/hubs/training/components/dashboard/MyModelView';
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
 import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
@@ -124,7 +125,8 @@ export default function TrainingDashboardPage() {
   const [tourRun,   setTourRun]   = useState(false);
   const [tourReady, setTourReady] = useState(false);
   // View mode: 'overview' (landing page), 'course' (course detail), or 'live-sessions'
-  const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions'>('overview');
+  const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions' | 'my-model'>('overview');
+  const [reviewedModelCount, setReviewedModelCount] = useState(0);
   // share + testimonials
   // Structured event carrying everything the ShareModal forwarder needs to
   // render the correct template (text + hashtags + @-mentions).
@@ -280,6 +282,18 @@ export default function TrainingDashboardPage() {
       .catch(() => {});
   }, []);
 
+  // Sidebar badge for My Model: how many attempts came back with a marked-up
+  // model attached. Best effort, a failure just leaves the badge off.
+  useEffect(() => {
+    fetch('/api/training/model-submission/history')
+      .then(r => r.json())
+      .then((j: { courses?: Record<string, { hasReviewedFile?: boolean }[]> }) => {
+        const all = Object.values(j.courses ?? {}).flat();
+        setReviewedModelCount(all.filter(a => a?.hasReviewedFile).length);
+      })
+      .catch(() => {});
+  }, []);
+
   // Detect scroll for sticky breadcrumb
   useEffect(() => {
     const onScroll = () => setScrolledDown(window.scrollY > 100);
@@ -293,13 +307,14 @@ export default function TrainingDashboardPage() {
     localStorage.setItem('fmp_sidebar_collapsed', String(next));
   }
 
-  function navigateTo(view: 'overview' | 'course' | 'live-sessions', courseId?: string) {
+  function navigateTo(view: 'overview' | 'course' | 'live-sessions' | 'my-model', courseId?: string) {
     setActiveView(view);
     if (courseId) setActiveCourse(courseId);
     setMobileSidebarOpen(false);
     // Update URL without full navigation
     const url = view === 'overview' ? '/training/dashboard'
       : view === 'live-sessions' ? '/training/dashboard?tab=live-sessions'
+      : view === 'my-model' ? '/training/dashboard?tab=my-model'
       : `/training/dashboard?course=${courseId ?? activeCourse}`;
     window.history.replaceState({}, '', url);
   }
@@ -481,6 +496,11 @@ export default function TrainingDashboardPage() {
     const tabParam = params.get('tab');
     if (tabParam === 'live-sessions') {
       setActiveView('live-sessions');
+    }
+    // ?tab=my-model, so the review emails can deep-link straight to the
+    // student's submitted + reviewed models.
+    if (tabParam === 'my-model') {
+      setActiveView('my-model');
     }
     // If ?course= is set, go directly to course view
     const courseParam = params.get('course');
@@ -1094,6 +1114,22 @@ export default function TrainingDashboardPage() {
               />
             </div>
 
+            {/* MY MODEL: the one home for submitted models + the marked-up
+                copies the reviewer returns. Previously reachable only inside a
+                course tab, latest attempt only, so earlier feedback was lost. */}
+            <SidebarLabel text="My Model" />
+            <SidebarItem
+              icon={<FileText size={16} />}
+              label="My Model"
+              active={activeView === 'my-model'}
+              onClick={() => navigateTo('my-model')}
+              badge={reviewedModelCount > 0 ? reviewedModelCount : undefined}
+              badgeColor="#166534"
+              tooltip={reviewedModelCount > 0
+                ? `${reviewedModelCount} reviewed model${reviewedModelCount === 1 ? '' : 's'} returned`
+                : 'Your submitted models and reviewer feedback'}
+            />
+
             {/* MY ACHIEVEMENTS */}
             <SidebarLabel text="My Achievements" />
             <SidebarItem icon={<Award size={16} />} label="Certificates" active={false}
@@ -1669,6 +1705,13 @@ export default function TrainingDashboardPage() {
               studentName={studentName}
               registrationId={localSession.registrationId}
             />
+          )}
+
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {/* MY MODEL TAB                                                        */}
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {activeView === 'my-model' && localSession && (
+            <MyModelView enrolledCourses={enrolledCourses} />
           )}
         </main>
       </div>

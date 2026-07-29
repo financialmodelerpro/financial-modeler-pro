@@ -33,6 +33,34 @@ export interface ModelSubmissionRow {
 }
 
 /**
+ * One attempt as the student-facing "My Model" view renders it.
+ *
+ * Deliberately NOT the raw row: storage paths never reach the client (the bytes
+ * stream through the ownership-checked download routes instead), so this
+ * carries only a `hasReviewedFile` flag plus display metadata.
+ *
+ * Lives here rather than beside the route because the component and the route
+ * both need it, and a training component may not import from `app/`
+ * (boundaries/dependencies).
+ */
+export interface ModelAttemptView {
+  id: string;
+  courseCode: '3SFM' | 'BVM';
+  attemptNumber: number;
+  status: ModelSubmissionStatus;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  /** The student's own uploaded file. */
+  fileName: string;
+  fileSize: number;
+  /** The admin-returned marked-up model, when one was attached (either decision). */
+  hasReviewedFile: boolean;
+  reviewedFileName: string | null;
+  reviewedFileSize: number | null;
+}
+
+/**
  * Aggregate the student's model-submission state for a given course. The
  * shape this returns is the canonical input to:
  *   - cert engine: gates issueCertificateForPending

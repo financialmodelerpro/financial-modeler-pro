@@ -55,7 +55,7 @@ export async function modelSubmissionApprovedTemplate({
     ${p('The Final Exam for this course is now unlocked on your dashboard. Pass it and your certificate is issued automatically.')}
 
     <div style="text-align:center;margin:24px 0;">
-      ${button('Go to Dashboard', `${LEARN_URL}/training/dashboard`)}
+      ${button('Go to Dashboard', `${LEARN_URL}/training/dashboard?tab=my-model`)}
     </div>
 
     ${divider()}
@@ -69,7 +69,7 @@ export async function modelSubmissionApprovedTemplate({
     + `${reviewerNote ? `\nReviewer note: ${reviewerNote}\n` : ''}`
     + `${reviewedFileUrl ? `\nYour reviewer returned a marked-up model${reviewedFileName ? ` (${reviewedFileName})` : ''}.\nDownload: ${reviewedFileUrl}\n` : ''}`
     + `\nThe Final Exam is now unlocked on your dashboard.\n`
-    + `\nDashboard: ${LEARN_URL}/training/dashboard`;
+    + `\nYour models: ${LEARN_URL}/training/dashboard?tab=my-model`;
 
   return { subject, html, text };
 }
