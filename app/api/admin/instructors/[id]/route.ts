@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,11 @@ export async function PATCH(
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const k of allowed) {
     if (body[k] !== undefined) updates[k] = body[k];
+  }
+  // A scheme-less "www.linkedin.com/in/name" is a RELATIVE href, so it would
+  // resolve against our own domain. Normalize before storing.
+  if (updates.linkedin_url !== undefined) {
+    updates.linkedin_url = normalizeLinkedInUrl(updates.linkedin_url as string | null);
   }
 
   const { data, error } = await sb

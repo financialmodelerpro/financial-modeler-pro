@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { RichTextarea } from '@/src/components/admin/RichTextarea';
+import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
 
 interface Instructor {
   id: string;
@@ -220,7 +221,7 @@ export default function AdminInstructorsPage() {
                   {(ins.email || ins.linkedin_url) && (
                     <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4, display: 'flex', gap: 10 }}>
                       {ins.email && <span>✉ {ins.email}</span>}
-                      {ins.linkedin_url && <a href={ins.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>in ↗</a>}
+                      {normalizeLinkedInUrl(ins.linkedin_url) && <a href={normalizeLinkedInUrl(ins.linkedin_url)!} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>in ↗</a>}
                     </div>
                   )}
                 </div>

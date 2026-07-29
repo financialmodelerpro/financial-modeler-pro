@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,9 @@ export async function POST(req: NextRequest) {
       bio: (body.bio as string | undefined) ?? null,
       photo_url: (body.photo_url as string | undefined) ?? null,
       email: (body.email as string | undefined) ?? null,
-      linkedin_url: (body.linkedin_url as string | undefined) ?? null,
+      // Normalized so a pasted "www.linkedin.com/in/name" is stored with its
+      // scheme; without it an href resolves relative to our own domain.
+      linkedin_url: normalizeLinkedInUrl(body.linkedin_url as string | undefined),
       credentials: (body.credentials as string | undefined) ?? null,
       display_order: typeof body.display_order === 'number' ? body.display_order : 0,
       is_default: isDefault,
