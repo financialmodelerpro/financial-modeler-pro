@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,7 +56,9 @@ export async function POST(req: NextRequest) {
       testimonial_type,
       written_content: body.written_content?.trim() ?? null,
       video_url:       body.video_url?.trim() ?? null,
-      linkedin_url:    body.linkedin_url?.trim() ?? null,
+      // Normalized so a pasted "www.linkedin.com/in/name" is stored with its
+      // scheme; without it an href resolves relative to our own domain.
+      linkedin_url:    normalizeLinkedInUrl(body.linkedin_url),
       course_name:     body.course_name?.trim() ?? null,
       hub:             'training',
       status:          'pending',

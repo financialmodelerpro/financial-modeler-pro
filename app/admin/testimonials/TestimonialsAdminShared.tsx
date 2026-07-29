@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
 
 interface Testimonial {
   id: string;
@@ -172,9 +173,13 @@ function ReviewModal({
             </MetaRow>
             {t.linkedin_url && (
               <MetaRow label="LinkedIn">
-                <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0A66C2', fontWeight: 600, textDecoration: 'none' }}>
-                  {t.linkedin_url} ↗
-                </a>
+                {normalizeLinkedInUrl(t.linkedin_url) ? (
+                  <a href={normalizeLinkedInUrl(t.linkedin_url)!} target="_blank" rel="noopener noreferrer" style={{ color: '#0A66C2', fontWeight: 600, textDecoration: 'none' }}>
+                    {t.linkedin_url} ↗
+                  </a>
+                ) : (
+                  <span style={{ color: '#92400E' }}>{t.linkedin_url} (not a usable link)</span>
+                )}
               </MetaRow>
             )}
           </div>
@@ -442,8 +447,8 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                             {t.source === 'student' ? 'Student' : 'Manual'}
                           </span>
                           {t.is_featured && <span style={{ fontSize: 9, fontWeight: 700, color: '#C9A84C' }}>★ Featured</span>}
-                          {t.linkedin_url && (
-                            <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer"
+                          {normalizeLinkedInUrl(t.linkedin_url) && (
+                            <a href={normalizeLinkedInUrl(t.linkedin_url)!} target="_blank" rel="noopener noreferrer"
                               style={{ fontSize: 9, color: '#0A66C2', textDecoration: 'none', fontWeight: 600 }}>in ↗</a>
                           )}
                         </div>
