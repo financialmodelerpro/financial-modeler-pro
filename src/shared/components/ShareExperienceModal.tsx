@@ -61,17 +61,24 @@ export function ShareExperienceModal({
   const [success, setSuccess]     = useState(false);
   const [copied, setCopied]       = useState(false);
 
-  if (!isOpen) return null;
-
-  const apiUrl = hub === 'training' ? '/api/testimonials/student' : '/api/modeling/submit-testimonial';
   const siteUrl = hub === 'training' ? LEARN_URL : APP_URL;
 
-  // Social share text
+  // Social share text.
   const shareText = hub === 'training'
     ? `I'm learning Financial Modeling at Financial Modeler Pro! ${sessionsCompleted > 0 ? `Just completed ${sessionsCompleted} sessions${courseName ? ` of the ${courseName} course` : ''}.` : ''} #FinancialModeling #Finance #Learning\n${siteUrl}`
     : `I'm using Financial Modeler Pro for professional financial modeling! #FinancialModeling #Finance\n${siteUrl}`;
 
+  // MUST stay above the `isOpen` early return with every other hook. It used to
+  // sit below it, so a closed render called 14 hooks fewer than an open one: any
+  // caller that keeps this mounted with isOpen={false} and later flips it to true
+  // crashes React with "Rendered more hooks than during the previous render". The
+  // current callers only mount it already-open, which is why the bug never fired.
   const [socialText, setSocialText] = useState(shareText);
+
+  // Early return AFTER all hooks, so the hook order is identical on every render.
+  if (!isOpen) return null;
+
+  const apiUrl = hub === 'training' ? '/api/testimonials/student' : '/api/modeling/submit-testimonial';
 
   const certShareText = certificationEarned && verificationUrl
     ? `I just earned my ${courseName || 'Financial Modeling'} Certificate from Financial Modeler Pro! Verify it here: ${verificationUrl} #FinancialModeling #Certified`

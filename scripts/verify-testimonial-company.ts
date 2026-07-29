@@ -120,5 +120,19 @@ ok('share prompt hidden for no-plan users', /!noPlan && !shareDone/.test(dash));
 const trainingDash = read('app/training/dashboard/page.tsx');
 ok('training dashboard still passes hub="training"', /hub="training"/.test(trainingDash));
 
+// ── 7. Rules of hooks: every hook must precede the isOpen early return ─────
+// A hook below it means a closed render calls fewer hooks than an open one, so
+// flipping isOpen false -> true crashes with "Rendered more hooks than during
+// the previous render".
+{
+  const guard = modal.indexOf('if (!isOpen) return null;');
+  ok('share modal has the isOpen early return', guard !== -1);
+  const after = guard === -1 ? '' : modal.slice(guard);
+  ok('no useState after the early return', !/\buseState\s*[(<]/.test(after));
+  ok('no useEffect after the early return', !/\buseEffect\s*\(/.test(after));
+  ok('no useRef/useMemo/useCallback after the early return', !/\buse(Ref|Memo|Callback)\s*[(<]/.test(after));
+  ok('socialText hook sits above the early return', modal.indexOf('const [socialText') < guard);
+}
+
 console.log(`\nverify-testimonial-company: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
