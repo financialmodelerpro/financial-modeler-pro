@@ -143,6 +143,12 @@
 
 ## Database Migrations Log
 
+> **Migration head as of 2026-07-29: `200_article_series.sql`. Next number is `201`.** Convention is `NNN_snake_case_description.sql`, zero-padded 3 digits, sequential. (`m2_0_module1_rebuild.sql` is an unnumbered legacy outlier and is not part of the sequence.) The AI foundation Units 2 / 3 / 5 (feature registry, metering + per-tier caps, admin panel) are the next migrations expected, starting at 201.
+
+> **No schema changes were made on 2026-07-29.** Three features shipped that day needed none: the testimonial company field already existed on both tables (`testimonials.company` mig 009, `student_testimonials.company` mig 021), the My Model view reuses the `reviewed_file_*` columns from mig 185, and LinkedIn URL normalization is applied at render + submit rather than by rewriting stored rows.
+>
+> **Live DATA fix, 2026-07-29 (no schema change).** Stale SANDBOX Paddle ids were cleared for `ahmaddin.ch@gmail.com` after the switch to live: `user_platform_subscriptions.paddle_subscription_id` / `paddle_customer_id` (via the existing `clearPaddleSubscriptionIds` helper), then the same two columns on the `users` row. The stored `sub_01kvz4rmzhm8q6v9nr7mc1rxew` 404s on live, which made `isLivePaddleSubscription()` return true and BLOCKED every admin manual plan change for that user, while `loadUserPaddleContext` re-read the dead id through its mig-176 global fallback. Plan/status/gate inputs were untouched (verified by field diff): `subscription_plan` and `subscription_status` are unchanged, so access was never affected. `scripts/diagnose_stale_paddle_sub.ts` re-checks for this class of orphan.
+
 > **Skipped numbers**: `069`, `073`, `127`, these numbers were never used (no file ever existed). Not missing migrations, just gaps in the numbering. Migrations are otherwise sequential through `147`. The log table below also omits some real files between `125`-`135` (`125_teams_and_announcement_tracking`, `126_assessment_attempts_in_progress`, `128_backfill_missing_training_students`, `129_add_registration_id_unique`, `130_training_passwords_registration_id_unique`, `131_meta_name_pending_course_nullable`, `132_training_enrollments`, `133_next_training_reg_id_fn`, `134_backfill_enrollments`, `135_register_coming_soon`), these all exist on disk in `supabase/migrations/`; backfilling their descriptions here is a docs-debt follow-up.
 
 | File | Description |
