@@ -147,7 +147,7 @@ export default function SubmitModelingTestimonialPage() {
                   placeholder="e.g. Investment Analyst" style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Company</label>
+                <label style={labelStyle}>Company / Organization</label>
                 <input value={form.company} onChange={e => set('company', e.target.value)}
                   placeholder="e.g. BlackRock" style={inputStyle} />
               </div>

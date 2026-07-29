@@ -9,6 +9,7 @@ import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
 import BillingView from '@/src/hubs/modeling/components/BillingView';
+import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -261,6 +262,13 @@ export default function ModelingDashboardPage() {
   const [logoHeight, setLogoHeight] = useState<number>(36);
   const [headerHeight, setHeaderHeight] = useState<number>(64);
   const profileRef = useRef<HTMLDivElement>(null);
+  // Share-experience prompt. This is the MODELING hub's testimonial (the
+  // `testimonials` table via /api/modeling/submit-testimonial), a different
+  // system from the Training Hub student testimonial, so the modal is opened
+  // with hub="modeling" and no course/registration context.
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareDone, setShareDone] = useState(false);
+  const [shareToast, setShareToast] = useState('');
 
   useInactivityLogout({
     onLogout: async () => { await signOut({ redirect: false }); },
@@ -752,10 +760,69 @@ export default function ModelingDashboardPage() {
               </div>
             </section>
           )}
+          {/* Share your experience: the MODELING hub testimonial. Only shown to
+              users who actually have access (a no-plan user has not used the
+              platform, so there is nothing to review yet). */}
+          {!noPlan && !shareDone && (
+            <section style={{ marginTop: 40 }}>
+              <div style={{
+                background: theme.surface, border: `1.5px solid ${theme.border}`, borderRadius: 14,
+                padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                boxShadow: theme.cardShadow,
+              }}>
+                <span style={{ fontSize: 26 }} aria-hidden>⭐</span>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, color: theme.heading, marginBottom: 3 }}>
+                    Using the Modeling Hub? Share your experience
+                  </div>
+                  <div style={{ fontSize: 12.5, color: theme.muted, lineHeight: 1.6 }}>
+                    Tell other finance professionals how the platform works for you. Takes a minute, and we review before anything is published.
+                  </div>
+                </div>
+                <button
+                  data-testid="modeling-share-experience"
+                  onClick={() => setShareOpen(true)}
+                  style={{
+                    background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13,
+                    padding: '10px 20px', borderRadius: 9, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Share your experience
+                </button>
+              </div>
+            </section>
+          )}
           </>
           )}
         </main>
       </div>
+
+      {/* Modeling Hub testimonial modal (hub="modeling" -> testimonials table).
+          The Training Hub has its own, opened from the training dashboard. */}
+      {shareOpen && (
+        <ShareExperienceModal
+          isOpen={true}
+          onClose={() => setShareOpen(false)}
+          onSuccess={() => {
+            setShareDone(true);
+            setShareToast('Thank you! Your testimonial has been submitted for review.');
+            setTimeout(() => setShareToast(''), 4000);
+          }}
+          studentName={user.name ?? ''}
+          studentEmail={user.email ?? ''}
+          userId={(user as { id?: string }).id}
+          hub="modeling"
+        />
+      )}
+
+      {shareToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999, background: '#1A7A30', color: '#fff',
+          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+        }}>
+          {shareToast}
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { AdminEditBar } from '@/src/hubs/main/components/landing/AdminEditBar';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
+import { testimonialByline } from '@/src/shared/utils/testimonialByline';
 
 export const revalidate = 0;
 
@@ -716,9 +717,9 @@ export default async function LandingPage() {
                           </a>
                         )}
                       </div>
-                      {(t.role || t.company) && (
+                      {testimonialByline(t.role, t.company) && (
                         <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {[t.role, t.company].filter(Boolean).join(' · ')}
+                          {testimonialByline(t.role, t.company)}
                         </div>
                       )}
                       {t.location && <div style={{ fontSize:10, color:'#B0B8C8', marginTop:1 }}>{t.location}</div>}

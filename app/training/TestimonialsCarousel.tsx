@@ -2,6 +2,7 @@
 
 import type { Testimonial } from '@/src/shared/cms';
 import { normalizeLinkedInUrl } from '@/src/shared/utils/externalUrl';
+import { testimonialByline } from '@/src/shared/utils/testimonialByline';
 
 interface Props {
   testimonials: Testimonial[];
@@ -107,7 +108,7 @@ function Card({ t }: { t: Testimonial }) {
   const initials = t.name.split(' ').map(w => w[0] ?? '').join('').toUpperCase().slice(0, 2) || '?';
   // Strip "· 3SFM" / "· BVM" suffix from role - shown separately as badge
   const cleanRole = (t.role ?? '').replace(/[\s·]+(?:3SFM|BVM|SFM)[\s·]*/gi, '').trim().replace(/[·\s]+$/, '').trim();
-  const subtitle = [cleanRole, t.company].filter(Boolean).join(' · ');
+  const subtitle = testimonialByline(cleanRole, t.company);
 
   return (
     <div style={{

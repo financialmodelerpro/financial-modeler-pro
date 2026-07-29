@@ -96,9 +96,24 @@ export function ShareExperienceModal({
 
     setSubmitting(true);
     try {
+      // The two hubs are independent systems with their own tables, routes and
+      // field names, so the payload is shaped per hub. Training posts camelCase
+      // to /api/testimonials/student (student_testimonials); Modeling posts the
+      // snake_case column names /api/modeling/submit-testimonial reads
+      // (testimonials): testimonial_type, text, video_url, role, linkedin_url.
       const body = hub === 'training'
         ? { registrationId: regId, studentName: name, studentEmail, courseCode, courseName, type, content, rating, videoUrl, jobTitle, company, linkedinUrl }
-        : { name, email: studentEmail, type, content, rating, videoUrl, jobTitle, company, linkedinUrl };
+        : {
+            name,
+            email:            studentEmail,
+            testimonial_type: type,
+            text:             content,
+            video_url:        videoUrl,
+            role:             jobTitle,
+            company,
+            linkedin_url:     linkedinUrl,
+            rating,
+          };
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -204,7 +219,7 @@ export function ShareExperienceModal({
               </div>
 
               <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>Company</label>
+                <label style={labelStyle}>Company / Organization</label>
                 <input value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Deloitte" style={inputStyle} />
               </div>
 
@@ -288,11 +303,18 @@ export function ShareExperienceModal({
                 </div>
               </div>
 
+              {/* Company: the video tab shares the written tab's state, but had no
+                  input of its own, so a video-only submitter could never set it. */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={labelStyle}>Company / Organization</label>
+                <input value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Deloitte" style={inputStyle} />
+              </div>
+
               {/* Description */}
               <div style={{ marginBottom: 12 }}>
                 <label style={labelStyle}>Brief Description</label>
                 <textarea value={videoDesc} onChange={e => setVideoDesc(e.target.value.slice(0, 300))}
-                  placeholder="What did you enjoy most about the course?"
+                  placeholder={hub === 'training' ? 'What did you enjoy most about the course?' : 'What do you use the Modeling Hub for?'}
                   style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
               </div>
 
@@ -325,7 +347,9 @@ export function ShareExperienceModal({
           {tab === 'social' && (
             <div>
               <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 12, lineHeight: 1.5 }}>
-                Share your learning journey with your network! Edit the message below and choose a platform.
+                {hub === 'training'
+                  ? 'Share your learning journey with your network! Edit the message below and choose a platform.'
+                  : 'Share your experience with your network. Edit the message below and choose a platform.'}
               </p>
 
               <div style={{ marginBottom: 16 }}>

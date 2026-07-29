@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
+import { testimonialByline } from '@/src/shared/utils/testimonialByline';
 import type { Module } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
@@ -485,7 +486,7 @@ export default async function ModelingHubPage() {
                     </div>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
-                      {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
+                      {testimonialByline(t.role, t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{testimonialByline(t.role, t.company)}</div>}
                     </div>
                   </div>
                 </div>

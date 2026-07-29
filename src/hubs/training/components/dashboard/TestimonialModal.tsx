@@ -63,7 +63,7 @@ export function TestimonialModal({ mode, studentName, studentEmail, regId, cours
 
   const fields = [
     { label: 'Job Title', value: jobTitle,    setter: setJobTitle,    placeholder: 'e.g. Financial Analyst' },
-    { label: 'Company',   value: company,     setter: setCompany,     placeholder: 'e.g. Goldman Sachs' },
+    { label: 'Company / Organization', value: company, setter: setCompany, placeholder: 'e.g. Goldman Sachs' },
     { label: 'Location',  value: location,    setter: setLocation,    placeholder: 'e.g. Lahore, Pakistan' },
     { label: 'LinkedIn',  value: linkedinUrl, setter: setLinkedinUrl, placeholder: 'https://linkedin.com/in/...' },
   ];

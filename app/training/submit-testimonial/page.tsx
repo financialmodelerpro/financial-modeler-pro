@@ -177,7 +177,7 @@ export default function SubmitTrainingTestimonialPage() {
                   placeholder="e.g. Financial Analyst" style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Company</label>
+                <label style={labelStyle}>Company / Organization</label>
                 <input value={form.company} onChange={e => set('company', e.target.value)}
                   placeholder="e.g. KPMG" style={inputStyle} />
               </div>
