@@ -446,7 +446,9 @@
       "Bash(mkdir -p .tmp-e2e)",
       "Bash(cp \"C:/Users/HP/AppData/Local/Temp/claude/D--FMP-financial-modeler-pro/80c00c4e-405d-4ba9-9ccf-e0daebee706d/scratchpad/gesture.spec.ts\" .tmp-e2e/gesture.spec.ts)",
       "Bash(rm -f scripts/tmp-check-testimonials.ts)",
-      "Bash(mv scripts/tmp-verify-share.ts scripts/verify-training-testimonial-gate.ts)"
+      "Bash(mv scripts/tmp-verify-share.ts scripts/verify-training-testimonial-gate.ts)",
+      "PowerShell(npx next lint --file app/admin/testimonials/TestimonialsAdminShared.tsx)",
+      "PowerShell(npx eslint app/admin/testimonials/TestimonialsAdminShared.tsx)"
     ]
   }
 }

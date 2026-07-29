@@ -87,6 +87,152 @@ function ShareButtons({ t, onCopied }: { t: Testimonial; onCopied: () => void })
   );
 }
 
+function Stars({ rating }: { rating: number }) {
+  return (
+    <>
+      {Array.from({ length: 5 }).map((_, idx) => (
+        <span key={idx} style={{ fontSize: 15, color: idx < rating ? '#F59E0B' : '#E5E7EB' }}>★</span>
+      ))}
+    </>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, fontSize: 12, lineHeight: 1.6 }}>
+      <span style={{ minWidth: 92, color: '#9CA3AF', fontWeight: 600 }}>{label}</span>
+      <span style={{ color: '#374151', flex: 1 }}>{children}</span>
+    </div>
+  );
+}
+
+/** Full-testimonial review modal, so an admin reads the whole thing before approving. */
+function ReviewModal({
+  t, onClose, onStatus, onToggleLanding, onToggleFeatured, onCopied,
+}: {
+  t: Testimonial;
+  onClose: () => void;
+  onStatus: (status: 'pending' | 'approved' | 'rejected') => void;
+  onToggleLanding: () => void;
+  onToggleFeatured: () => void;
+  onCopied: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const sc  = STATUS_COLORS[t.status] ?? STATUS_COLORS.pending;
+  const hub = HUB_BADGE[t.hub] ?? HUB_BADGE.modeling;
+
+  const actionBtn = (bg: string, color: string, border: string): React.CSSProperties => ({
+    fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7,
+    border: `1px solid ${border}`, background: bg, color, cursor: 'pointer', whiteSpace: 'nowrap',
+  });
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 14, width: 'min(720px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.28)', overflow: 'hidden' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #E8F0FB', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B' }}>{t.name}</h2>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: hub.bg, color: hub.color }}>{hub.label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: t.source === 'student' ? '#EFF6FF' : '#F3F4F6', color: t.source === 'student' ? '#1D4ED8' : '#6B7280' }}>
+                {t.source === 'student' ? 'Student' : 'Manual'}
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: sc.bg, color: sc.color, textTransform: 'capitalize' }}>{t.status}</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+              Submitted {new Date(t.created_at).toLocaleString()}
+              {t.approved_at ? ` · approved ${new Date(t.approved_at).toLocaleDateString()}` : ''}
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+            style={{ background: 'transparent', border: 'none', fontSize: 22, lineHeight: 1, color: '#9CA3AF', cursor: 'pointer', padding: 2 }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {(t.role || t.company) && <MetaRow label="Role">{[t.role, t.company].filter(Boolean).join(' · ')}</MetaRow>}
+            {t.course_name && <MetaRow label="Course">{t.course_name}</MetaRow>}
+            {t.location && <MetaRow label="Location">{t.location}</MetaRow>}
+            <MetaRow label="Type">{t.testimonial_type}</MetaRow>
+            <MetaRow label="Rating">
+              {t.rating != null ? <Stars rating={t.rating} /> : <span style={{ color: '#9CA3AF' }}>Not rated</span>}
+            </MetaRow>
+            {t.linkedin_url && (
+              <MetaRow label="LinkedIn">
+                <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0A66C2', fontWeight: 600, textDecoration: 'none' }}>
+                  {t.linkedin_url} ↗
+                </a>
+              </MetaRow>
+            )}
+          </div>
+
+          {t.video_url && (
+            <a href={t.video_url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-block', alignSelf: 'flex-start', background: '#FEE2E2', color: '#B91C1C', fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 7, textDecoration: 'none' }}>
+              ▶ Watch video testimonial ↗
+            </a>
+          )}
+
+          {/* FULL text, no truncation */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+              Full testimonial{t.text ? ` · ${t.text.trim().split(/\s+/).length} words` : ''}
+            </div>
+            {t.text ? (
+              <div style={{ background: '#F8FAFF', border: '1px solid #E8F0FB', borderRadius: 10, padding: '16px 18px', fontSize: 14, lineHeight: 1.75, color: '#1F2937', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {t.text}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic' }}>No written content submitted.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #E8F0FB', background: '#FAFBFF', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={() => onStatus('approved')} disabled={t.status === 'approved'}
+            style={{ ...actionBtn('#1A7A30', '#fff', '#1A7A30'), opacity: t.status === 'approved' ? 0.5 : 1, cursor: t.status === 'approved' ? 'default' : 'pointer' }}>
+            ✓ Approve
+          </button>
+          <button onClick={() => onStatus('rejected')} disabled={t.status === 'rejected'}
+            style={{ ...actionBtn('#FEE2E2', '#DC2626', '#FECACA'), opacity: t.status === 'rejected' ? 0.5 : 1, cursor: t.status === 'rejected' ? 'default' : 'pointer' }}>
+            ✕ Reject
+          </button>
+          {t.status !== 'pending' && (
+            <button onClick={() => onStatus('pending')} style={actionBtn('#fff', '#6B7280', '#E5E7EB')}>Reset to pending</button>
+          )}
+          <button onClick={onToggleLanding}
+            style={actionBtn(t.show_on_landing ? '#F0FFF4' : '#F3F4F6', t.show_on_landing ? '#1A7A30' : '#6B7280', t.show_on_landing ? '#A3D9AE' : '#E5E7EB')}>
+            {t.show_on_landing ? '👁 Visible on site' : '🚫 Hidden'}
+          </button>
+          {t.source === 'student' && (
+            <button onClick={onToggleFeatured}
+              style={actionBtn(t.is_featured ? '#FEF3C7' : '#F9FAFB', t.is_featured ? '#92400E' : '#6B7280', t.is_featured ? '#FDE68A' : '#E5E7EB')}>
+              {t.is_featured ? '★ Unfeature' : '☆ Feature'}
+            </button>
+          )}
+          <div style={{ marginLeft: 'auto' }}>
+            <ShareButtons t={t} onCopied={onCopied} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface SharedProps {
   defaultHub?: HubTab;
 }
@@ -97,6 +243,8 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
   const [hubTab,    setHubTab]          = useState<HubTab>(defaultHub);
   const [loading,   setLoading]         = useState(true);
   const [toast,     setToast]           = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  // Keyed (not a copy) so the open modal reflects the refetched row after every action.
+  const [reviewKey, setReviewKey]       = useState<{ id: string; source: string } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -169,6 +317,10 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
       showToast('Failed to delete', 'error');
     }
   }
+
+  const reviewing = reviewKey
+    ? testimonials.find(t => t.id === reviewKey.id && t.source === reviewKey.source) ?? null
+    : null;
 
   const hubFiltered = hubTab === 'all' ? testimonials : testimonials.filter(t => t.hub === hubTab);
 
@@ -297,16 +449,27 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                         </div>
                       </td>
 
-                      {/* Content */}
-                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#374151', maxWidth: 220 }}>
-                        {t.testimonial_type === 'video' && t.video_url ? (
+                      {/* Content - click to read the whole thing before approving */}
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#374151', maxWidth: 240 }}>
+                        {t.testimonial_type === 'video' && t.video_url && (
                           <a href={t.video_url} target="_blank" rel="noopener noreferrer"
-                            style={{ color: '#166534', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                            style={{ display: 'inline-block', marginBottom: 4, color: '#166534', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
                             ▶ Watch Video ↗
                           </a>
-                        ) : (
-                          <span title={t.text}>{t.text.slice(0, 90)}{t.text.length > 90 ? '…' : ''}</span>
                         )}
+                        {t.text && (
+                          <div
+                            onClick={() => setReviewKey({ id: t.id, source: t.source })}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            {t.text.slice(0, 90)}{t.text.length > 90 ? '…' : ''}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setReviewKey({ id: t.id, source: t.source })}
+                          style={{ marginTop: 5, fontSize: 10, fontWeight: 700, background: t.status === 'pending' ? '#FEF3C7' : '#EFF6FF', color: t.status === 'pending' ? '#92400E' : '#1B4F8A', border: `1px solid ${t.status === 'pending' ? '#FDE68A' : '#DBEAFE'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          {t.status === 'pending' ? '🔍 Read & review' : '🔍 Read full'}
+                        </button>
                       </td>
 
                       {/* Rating */}
@@ -371,6 +534,17 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
           )}
         </div>
       </main>
+
+      {reviewing && (
+        <ReviewModal
+          t={reviewing}
+          onClose={() => setReviewKey(null)}
+          onStatus={status => updateStatus(reviewing.id, reviewing.source, status)}
+          onToggleLanding={() => toggleLanding(reviewing.id, reviewing.source, reviewing.show_on_landing ?? false)}
+          onToggleFeatured={() => toggleFeatured(reviewing.id, reviewing.source, reviewing.is_featured)}
+          onCopied={() => showToast('Copied to clipboard')}
+        />
+      )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
