@@ -15,17 +15,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No content to enhance' }, { status: 400 });
     }
 
-    // Routed through the central AI client (Unit 1): the key, timeout, retry
-    // policy, and error mapping all live there now. This route no longer
+    // Routed through the central AI client (Unit 1): the key, model, timeout,
+    // retry policy, and error mapping all live there now. This route no longer
     // constructs an Anthropic client or reads the key from the environment.
     //
-    // Behaviour preserved exactly: same prompt, same max_tokens, same model
-    // string, same 'AI not configured' 500 on a missing key, same fallback to
-    // the original content when no text block comes back. The model is pinned
-    // here rather than taking the client default because this is a refactor;
-    // see the Unit 1 report for why that pin needs a separate decision.
+    // No `model` here on purpose. It used to pin claude-sonnet-4-20250514,
+    // whose published retirement date has passed, so the call was returning a
+    // 404 from the API and surfacing as "AI enhancement failed". Taking the
+    // client default (DEFAULT_AI_MODEL, overridable with ANTHROPIC_MODEL) means
+    // this route cannot be stranded on a retired model again: the next model
+    // change is one line in models.ts and every feature follows.
     const result = await runAi({
-      model: 'claude-sonnet-4-20250514',
       maxTokens: 2048,
       messages: [{
         role: 'user',

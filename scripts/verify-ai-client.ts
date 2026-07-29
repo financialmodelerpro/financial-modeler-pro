@@ -83,9 +83,15 @@ async function main() {
   ok('enhance route imports runAi', enhance.includes("from '@/src/shared/ai/client'"));
   ok('enhance route no longer imports the SDK', !enhance.includes('@anthropic-ai/sdk'));
   ok('enhance route no longer reads the key', !enhance.includes('ANTHROPIC_API_KEY'));
-  // Behaviour preservation: same model, same cap, same error strings.
-  ok('enhance route preserves its model pin', enhance.includes("'claude-sonnet-4-20250514'"));
+  // Behaviour preservation: same cap, same error strings, same fallback.
   ok('enhance route preserves max_tokens 2048', /maxTokens:\s*2048/.test(enhance));
+  // The route must take the CLIENT default rather than pinning a model of its
+  // own, so a model change is one line in models.ts and no feature can be
+  // stranded on a retired model. The previous pin had already outlived its
+  // published retirement date.
+  ok('enhance route pins no model of its own', !/^\s*model:/m.test(code('app/api/admin/newsletter/enhance/route.ts')));
+  ok('the retired model string is gone from the codebase',
+    files.filter((f) => code(f).includes('claude-sonnet-4-20250514')).length === 0);
   ok('enhance route preserves the "AI not configured" message', enhance.includes("'AI not configured'"));
   ok('enhance route preserves the "AI enhancement failed" message', enhance.includes("'AI enhancement failed'"));
   ok('enhance route preserves the original-content fallback', /result\.text \|\| content/.test(enhance));
