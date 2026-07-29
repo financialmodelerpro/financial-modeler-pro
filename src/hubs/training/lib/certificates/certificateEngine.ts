@@ -628,11 +628,17 @@ export async function issueCertificateForPending(
  *      unique index on `(LOWER(email), course_code)` is the hard DB guard;
  *      this check is just a cheap early-out so we don't regenerate PDFs for
  *      already-issued students.
- *   2. Run `checkEligibility()` against the Supabase-native rules, all
- *      required sessions passed, final passed, watch threshold met (with
- *      grandfathering + per-session bypass).
+ *   2. Run `checkEligibility()` against the Supabase-native rules: every
+ *      required session passed AND the final passed (merged from
+ *      training_assessment_results + the Apps Script history fallback).
+ *      NOTE: there is NO watch-threshold check here. Watch percentage gates
+ *      UNLOCKING an assessment, not issuing a certificate, so a stale claim
+ *      to the contrary used to appear in this comment.
  *   3. Build `PendingCertificate` from eligibility + training_registrations_meta.
- *   4. Hand off to `issueCertificateForPending()` with `issuedVia: 'auto'`.
+ *   4. Hand off to `issueCertificateForPending()` with `issuedVia: 'auto'`,
+ *      which applies the model-approval gate (held while the per-course
+ *      `model_submission_required_<course>` flag is on and the student has no
+ *      approved submission).
  *
  * Safe to call multiple times, the pre-check + DB unique index together
  * prevent duplicates. Failure states surface as `{ ok: false, error }`.

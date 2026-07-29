@@ -167,7 +167,19 @@ export default function CertificatesPage() {
 
   const handleForceIssue = async () => {
     if (!fiEmail.trim()) { showToast('Enter an email'); return; }
-    if (!confirm(`Force-issue ${fiCourse} certificate for ${fiEmail.trim()}? This bypasses the watch-threshold check and is audited.`)) return;
+    // The warning must name what is ACTUALLY skipped. The route builds the
+    // certificate by hand (it never calls checkEligibility) and passes
+    // force: true (which skips the model-approval gate), so both gates are
+    // overridden. The old text named a watch-threshold check that this path
+    // does not perform, and stayed silent on the two that matter.
+    if (!confirm(
+      `Force-issue ${fiCourse} certificate for ${fiEmail.trim()}?\n\n`
+      + 'This OVERRIDES both certificate gates:\n'
+      + '  - Model approval: issues even if their model is pending or rejected, or was never submitted.\n'
+      + '  - Exam eligibility: issues even if they have not passed the final exam or every session.\n\n'
+      + 'Use only for a deliberate override (paper record, support case). '
+      + 'The certificate is recorded as force-issued against your admin account.'
+    )) return;
     setFiBusy(true); setFiResult(null);
     try {
       const res = await fetch('/api/admin/certificates/force-issue', {

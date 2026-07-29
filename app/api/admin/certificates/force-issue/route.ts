@@ -73,9 +73,18 @@ async function resolveStudent(
  * POST /api/admin/certificates/force-issue
  *
  * Admin-only override that generates a certificate for a specific student +
- * course, bypassing the watch-threshold check. Works even when the student
- * isn't in Supabase yet, falls back to Apps Script's `listStudents`, then
- * to admin-supplied overrides.
+ * course, overriding BOTH certificate gates:
+ *   - exam eligibility: this route never calls checkEligibility, it builds the
+ *     PendingCertificate by hand from whatever scores exist (final score
+ *     defaults to 0), so it issues even when the final was never passed.
+ *   - model approval: `force: true` skips issueCertificateForPending's
+ *     model-submission gate, so it issues while a model is pending/rejected.
+ * (An earlier version of this comment said it bypassed a "watch-threshold
+ * check". No such check exists on the certificate path; watch percentage
+ * gates unlocking an assessment.)
+ *
+ * Works even when the student isn't in Supabase yet, falls back to Apps
+ * Script's `listStudents`, then to admin-supplied overrides.
  *
  * Body: { email, courseCode, nameOverride?, regIdOverride? }
  */
