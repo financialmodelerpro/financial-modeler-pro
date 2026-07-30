@@ -423,20 +423,27 @@ console.log('\n── Canonical module parity (platforms.ts fallback vs modules-
     else fail('M7 is IC Presentation Builder (post-swap)', `got "${m7?.name}"`);
   }
 
-  // The migration that corrects the live DB row must exist and must NOT
-  // rename the slug: entitlement gating resolves module_7 through
-  // SLUG_TO_COMPONENT_NUMBER['reports'].
-  const migPath = join(REPO_ROOT, 'supabase/migrations/201_refm_module7_ic_presentation.sql');
-  if (!existsSync(migPath)) {
-    fail('migration 201 present', 'supabase/migrations/201_refm_module7_ic_presentation.sql missing');
-  } else {
-    const sql = readFileSync(migPath, 'utf8');
-    if (sql.includes("name        = 'IC Presentation Builder'")) pass('migration 201 sets the canonical M7 name');
-    else fail('migration 201 sets the canonical M7 name', 'UPDATE not found');
+  // The migrations that correct the live DB row must exist, and NONE of them
+  // may rename the module slug: entitlement gating resolves module_7 through
+  // SLUG_TO_COMPONENT_NUMBER['reports'], so a slug rewrite would silently drop
+  // the row out of that lookup.
+  const m7Migrations = [
+    { file: '201_refm_module7_ic_presentation.sql', needle: "name        = 'IC Presentation Builder'", label: 'sets the canonical M7 name' },
+    { file: '202_refm_module7_features.sql', needle: 'features   = target', label: 'replaces the stale Reports feature bullets' },
+  ];
+  for (const m of m7Migrations) {
+    const p = join(REPO_ROOT, 'supabase/migrations', m.file);
+    if (!existsSync(p)) {
+      fail(`migration ${m.file} present`, 'missing');
+      continue;
+    }
+    const sql = readFileSync(p, 'utf8');
+    if (sql.includes(m.needle)) pass(`${m.file} ${m.label}`);
+    else fail(`${m.file} ${m.label}`, `marker not found: ${m.needle}`);
     if (/^\s*slug\s*=/m.test(sql)) {
-      fail('migration 201 leaves the slug alone', "it rewrites slug, which would drop the row out of SLUG_TO_COMPONENT_NUMBER");
+      fail(`${m.file} leaves the slug alone`, 'it rewrites slug, which would drop the row out of SLUG_TO_COMPONENT_NUMBER');
     } else {
-      pass('migration 201 leaves the slug alone (gating safe)');
+      pass(`${m.file} leaves the slug alone (gating safe)`);
     }
   }
 }
