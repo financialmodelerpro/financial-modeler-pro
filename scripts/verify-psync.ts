@@ -29,6 +29,11 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/usePlatformModules';
 import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
 import { getPlatform } from '../src/hubs/modeling/config/platforms';
+import {
+  orderModulesForDisplay,
+  moduleFeatureKey,
+  type LiveModuleInput,
+} from '../src/shared/entitlements/moduleCatalog';
 
 const REPO_ROOT = resolve(__dirname, '..');
 
@@ -445,6 +450,87 @@ console.log('\n── Canonical module parity (platforms.ts fallback vs modules-
     } else {
       pass(`${m.file} leaves the slug alone (gating safe)`);
     }
+  }
+}
+
+// ── Display numbering parity (admin <-> platform <-> marketing) ───────────
+// platform_modules.number is a stable ROUTING id, not a display number. Every
+// user-facing surface numbers modules by their 1-based position in
+// display_order. The marketing page used to render the raw number, so a
+// reordered/hidden module showed a different number there than in admin and the
+// sidebar. These checks pin the shared helper against the real production
+// shape, where Collaborate/API Access carry numbers 10/11 but sit at positions
+// 8/9 because the two hidden modules sort last.
+console.log('\n── Display numbering parity (admin / sidebar / marketing) ──');
+{
+  const live: LiveModuleInput[] = [
+    { slug: 'project-setup', number: 1,  name: 'Project Setup',           short_name: 'Setup',        status: 'live',        display_order: 0 },
+    { slug: 'revenue',       number: 2,  name: 'Revenue',                 short_name: 'Revenue',      status: 'live',        display_order: 1 },
+    { slug: 'opex',          number: 3,  name: 'OpEx',                    short_name: 'OpEx',         status: 'live',        display_order: 2 },
+    { slug: 'financials',    number: 4,  name: 'Financials',              short_name: 'Financials',   status: 'live',        display_order: 3 },
+    { slug: 'returns',       number: 5,  name: 'Returns',                 short_name: 'Returns',      status: 'live',        display_order: 4 },
+    { slug: 'scenarios',     number: 6,  name: 'Scenario Analysis',       short_name: 'Scenarios',    status: 'live',        display_order: 5 },
+    { slug: 'reports',       number: 7,  name: 'IC Presentation Builder', short_name: 'Presentation', status: 'live',        display_order: 6 },
+    { slug: 'collaborate',   number: 10, name: 'Collaborate',             short_name: 'Collaborate',  status: 'coming_soon', display_order: 7 },
+    { slug: 'api-access',    number: 11, name: 'API Access',              short_name: 'API Access',   status: 'coming_soon', display_order: 8 },
+    { slug: 'portfolio',     number: 8,  name: 'Portfolio',               short_name: 'Portfolio',    status: 'hidden',      display_order: 9 },
+    { slug: 'market-data',   number: 9,  name: 'Market Data',             short_name: 'Market Data',  status: 'hidden',      display_order: 10 },
+  ];
+
+  const ordered = orderModulesForDisplay(live);
+
+  if (ordered.length === 9) pass('hidden modules dropped before numbering (9 of 11 visible)');
+  else fail('hidden modules dropped before numbering', `got ${ordered.length}, expected 9`);
+
+  const contiguous = ordered.every((o, i) => o.position === i + 1);
+  if (contiguous) pass('positions are contiguous 1..9 (no gaps from hidden modules)');
+  else fail('positions are contiguous', ordered.map((o) => o.position).join(','));
+
+  // The exact regression: routing number 10/11 must DISPLAY as 8/9.
+  const collab = ordered.find((o) => o.module.slug === 'collaborate');
+  const api = ordered.find((o) => o.module.slug === 'api-access');
+  if (collab?.position === 8) pass('Collaborate displays as Module 8 (routing id 10)');
+  else fail('Collaborate displays as Module 8', `got position ${collab?.position}, routing number ${collab?.module.number}`);
+  if (api?.position === 9) pass('API Access displays as Module 9 (routing id 11)');
+  else fail('API Access displays as Module 9', `got position ${api?.position}, routing number ${api?.module.number}`);
+
+  const rawNumbered = ordered.filter((o) => o.position !== o.module.number);
+  if (rawNumbered.length > 0) pass(`position differs from routing number for ${rawNumbered.length} module(s), so rendering the raw number would regress`);
+  else fail('fixture exercises the bug', 'position == number for every module; this fixture cannot catch the regression');
+
+  // Routing identity must survive display renumbering.
+  const m7 = ordered.find((o) => o.module.slug === 'reports');
+  if (m7 && moduleFeatureKey(m7.module.slug, m7.module.number) === 'module_7') {
+    pass('renumbering does not move the entitlement key (reports -> module_7)');
+  } else {
+    fail('renumbering does not move the entitlement key', `got ${m7 ? moduleFeatureKey(m7.module.slug, m7.module.number) : 'no row'}`);
+  }
+
+  // The sidebar and the marketing page must agree module for module.
+  const sidebar = toSidebarNavList(live as unknown as FetchedModule[]);
+  const sidebarNums = sidebar.map((s) => {
+    const mm = s.label.match(/^Module\s+(\d+)/);
+    return mm ? Number(mm[1]) : -1;
+  });
+  const marketingNums = ordered.map((o) => o.position);
+  if (JSON.stringify(sidebarNums) === JSON.stringify(marketingNums)) {
+    pass(`sidebar and marketing numbering identical (${marketingNums.join(',')})`);
+  } else {
+    fail('sidebar and marketing numbering identical', `sidebar ${sidebarNums.join(',')} vs marketing ${marketingNums.join(',')}`);
+  }
+
+  // The marketing page must not render the raw number any more.
+  const pagePath = join(REPO_ROOT, 'app/modeling/[slug]/page.tsx');
+  const pageSrc = readFileSync(pagePath, 'utf8');
+  if (pageSrc.includes('orderModulesForDisplay(dbPlatformModules)')) {
+    pass('marketing page numbers modules via orderModulesForDisplay');
+  } else {
+    fail('marketing page numbers modules via orderModulesForDisplay', 'call not found');
+  }
+  if (/number:\s*m\.number/.test(pageSrc)) {
+    fail('marketing page no longer renders the raw routing number', 'found `number: m.number`');
+  } else {
+    pass('marketing page no longer renders the raw routing number');
   }
 }
 

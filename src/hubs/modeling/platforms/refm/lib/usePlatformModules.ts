@@ -16,7 +16,7 @@
 
 import { useEffect, useState } from 'react';
 import { MODULES, type ModuleConfig } from './modules-config';
-import { SLUG_TO_COMPONENT_NUMBER } from '@/src/shared/entitlements/moduleCatalog';
+import { SLUG_TO_COMPONENT_NUMBER, orderModulesForDisplay } from '@/src/shared/entitlements/moduleCatalog';
 
 /**
  * The platform slug the REFM workspace reads its modules under. This is the
@@ -155,11 +155,10 @@ export const STATIC_SIDEBAR_MODULES: readonly SidebarNavItem[] = [
  * the displayed module number.
  */
 export function toSidebarNavList(fetched: readonly FetchedModule[]): SidebarNavItem[] {
-  return fetched
-    .filter((m) => m.status !== 'hidden')
-    .slice()
-    .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
-    .map((m, i) => fetchedToNav(m, i + 1));
+  // Ordering + display numbering come from the shared helper so the sidebar,
+  // the admin panel, Plan Builder and the public marketing page all show the
+  // same number for the same module.
+  return orderModulesForDisplay(fetched).map(({ module, position }) => fetchedToNav(module, position));
 }
 
 /**

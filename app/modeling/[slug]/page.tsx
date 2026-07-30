@@ -7,6 +7,7 @@ import { PLATFORMS, getPlatform, platformPricingSegment } from '@/src/hubs/model
 import type { PlatformModule } from '@/src/hubs/modeling/config/platforms';
 import { getModules, getAllPageSections } from '@/src/shared/cms';
 import { getPlatformModules } from '@/src/shared/cms/platform-modules';
+import { orderModulesForDisplay } from '@/src/shared/entitlements/moduleCatalog';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 
 // Per-field width + alignment style from admin VF keys.
@@ -125,17 +126,22 @@ export default async function PlatformDetailPage({
     : s === 'coming_soon' ? 'planned'
     : s === 'pro' || s === 'enterprise' ? 'planned'
     : 'planned';
+  // The DISPLAYED number is the 1-based position in display_order, NOT the raw
+  // platform_modules.number (which is a stable routing id that deliberately
+  // never renumbers). Ordering and numbering come from the shared
+  // orderModulesForDisplay helper, the same one the workspace sidebar and Plan
+  // Builder use and the same rule the admin panel renders, so admin, platform
+  // and marketing always agree. Rendering the raw number here is what made this
+  // page show "Module 10: Collaborate" while admin and the sidebar showed
+  // "Module 8".
   const platformModulesView: PlatformModule[] = dbPlatformModules.length > 0
-    ? dbPlatformModules
-        .filter((m) => m.status !== 'hidden')
-        .sort((a, b) => (a.display_order ?? a.number) - (b.display_order ?? b.number))
-        .map((m) => ({
-          number: m.number,
-          name: m.name,
-          description: m.description,
-          status: moduleStatusFromDb(m.status as string),
-          tabs: m.features.slice(0, 6),
-        }))
+    ? orderModulesForDisplay(dbPlatformModules).map(({ module: m, position }) => ({
+        number: position,
+        name: m.name,
+        description: m.description,
+        status: moduleStatusFromDb(m.status as string),
+        tabs: m.features.slice(0, 6),
+      }))
     : platform.modules;
 
   // Pass 46 (2026-05-14): REFM-only asset class catalog, fetched

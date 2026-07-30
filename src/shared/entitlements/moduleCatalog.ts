@@ -66,6 +66,42 @@ export interface ModuleFeatureRow {
   active: true;
 }
 
+/** A live module paired with the number the UI should DISPLAY for it. */
+export interface OrderedModule<T> {
+  module: T;
+  /** 1-based position in display_order. THIS is the number users see. */
+  position: number;
+}
+
+/**
+ * THE single source of truth for module display numbering.
+ *
+ * `platform_modules.number` is a stable ROUTING id (see SLUG_TO_COMPONENT_NUMBER
+ * above), not a display number: it never renumbers when an admin reorders or
+ * hides a module, which is exactly what makes it safe for routing and wrong for
+ * display. Every user-facing surface instead numbers modules by their 1-based
+ * position in display_order, so admin reordering renumbers everything cleanly.
+ *
+ * The admin panel (/admin/platform-modules renders `i + 1`), the workspace
+ * sidebar (toSidebarNavList) and Plan Builder (deriveModuleFeatureRows) all
+ * follow this rule. The public marketing page used to render the raw `number`
+ * instead, which is why it showed "Module 10: Collaborate" while admin and the
+ * platform both showed "Module 8, Collaborate". Route every surface through
+ * this helper so they cannot disagree again.
+ *
+ * Hidden modules are dropped before numbering, so positions are contiguous on
+ * every public surface.
+ */
+export function orderModulesForDisplay<T extends LiveModuleInput>(
+  modules: readonly T[],
+): OrderedModule<T>[] {
+  return modules
+    .filter((m) => m.status !== 'hidden')
+    .slice()
+    .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
+    .map((module, i) => ({ module, position: i + 1 }));
+}
+
 /**
  * Derive Plan Builder module rows from the live registry. Hidden modules are
  * dropped entirely (defence in depth: getPlatformModules already excludes them).
@@ -74,20 +110,16 @@ export interface ModuleFeatureRow {
  * stable slug-derived identity, so assignments survive reorder.
  */
 export function deriveModuleFeatureRows(modules: readonly LiveModuleInput[]): ModuleFeatureRow[] {
-  return modules
-    .filter((m) => m.status !== 'hidden')
-    .slice()
-    .sort((a, b) => (a.display_order - b.display_order) || (a.number - b.number))
-    .map((m, i) => ({
-      feature_key: moduleFeatureKey(m.slug, m.number),
-      label: `Module ${i + 1}: ${m.short_name || m.name}`,
-      category: 'module' as const,
-      feature_type: 'gate' as const,
-      build_status: 'live' as const,
-      moduleStatus: m.status as Exclude<LiveModuleStatus, 'hidden'>,
-      display_order: i + 1,
-      active: true as const,
-    }));
+  return orderModulesForDisplay(modules).map(({ module: m, position }) => ({
+    feature_key: moduleFeatureKey(m.slug, m.number),
+    label: `Module ${position}: ${m.short_name || m.name}`,
+    category: 'module' as const,
+    feature_type: 'gate' as const,
+    build_status: 'live' as const,
+    moduleStatus: m.status as Exclude<LiveModuleStatus, 'hidden'>,
+    display_order: position,
+    active: true as const,
+  }));
 }
 
 /** Format a limit cap for display: -1 renders as "Unlimited". */
