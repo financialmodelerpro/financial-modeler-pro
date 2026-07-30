@@ -27,6 +27,8 @@ import {
   toSidebarNavList,
   type FetchedModule,
 } from '../src/hubs/modeling/platforms/refm/lib/usePlatformModules';
+import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config';
+import { getPlatform } from '../src/hubs/modeling/config/platforms';
 
 const REPO_ROOT = resolve(__dirname, '..');
 
@@ -367,6 +369,74 @@ if (!existsSync(specPath)) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       fail('Playwright', msg.slice(0, 200));
+    }
+  }
+}
+
+// ── Canonical module-name parity ──────────────────────────────────────────
+// Three surfaces render the REFM module list: the public marketing page
+// (app/modeling/[slug]/page.tsx), the admin panel, and the workspace sidebar.
+// All three read the platform_modules DB table at runtime and fall back to the
+// hardcoded list in src/hubs/modeling/config/platforms.ts when it is empty.
+// That fallback drifted once already: it kept the PRE-SWAP ordering (M6
+// "Reports & Visualizations", M7 "Scenarios & Sensitivity") long after
+// modules-config.ts had M6 = Scenario Analysis and M7 = IC Presentation
+// Builder, so an empty DB would have rendered the wrong marketing copy.
+// These checks pin the fallback to the canonical list so it cannot drift again.
+console.log('\n── Canonical module parity (platforms.ts fallback vs modules-config.ts) ──');
+{
+  const refm = getPlatform('real-estate');
+  if (!refm) {
+    fail('canonical parity', "getPlatform('real-estate') returned nothing");
+  } else {
+    const fallback = refm.modules;
+    if (fallback.length !== MODULES.length) {
+      fail('fallback module count', `platforms.ts has ${fallback.length}, modules-config has ${MODULES.length}`);
+    } else {
+      pass(`fallback module count matches canonical (${MODULES.length})`);
+    }
+
+    for (const canon of MODULES) {
+      const row = fallback.find((m) => m.number === canon.num);
+      if (!row) {
+        fail(`M${canon.num} present in fallback`, 'missing');
+        continue;
+      }
+      // Marketing may use either the short sidebar label or the descriptive
+      // long label, but never a name the canonical list does not know about.
+      if (row.name === canon.shortLabel || row.name === canon.longLabel) {
+        pass(`M${canon.num} name matches canonical`, row.name);
+      } else {
+        fail(
+          `M${canon.num} name matches canonical`,
+          `platforms.ts "${row.name}" is neither shortLabel "${canon.shortLabel}" nor longLabel "${canon.longLabel}"`,
+        );
+      }
+    }
+
+    // The swap that caused the original drift, pinned explicitly.
+    const m6 = fallback.find((m) => m.number === 6);
+    const m7 = fallback.find((m) => m.number === 7);
+    if (m6?.name === 'Scenario Analysis') pass('M6 is Scenario Analysis (post-swap)');
+    else fail('M6 is Scenario Analysis (post-swap)', `got "${m6?.name}"`);
+    if (m7?.name === 'IC Presentation Builder') pass('M7 is IC Presentation Builder (post-swap)');
+    else fail('M7 is IC Presentation Builder (post-swap)', `got "${m7?.name}"`);
+  }
+
+  // The migration that corrects the live DB row must exist and must NOT
+  // rename the slug: entitlement gating resolves module_7 through
+  // SLUG_TO_COMPONENT_NUMBER['reports'].
+  const migPath = join(REPO_ROOT, 'supabase/migrations/201_refm_module7_ic_presentation.sql');
+  if (!existsSync(migPath)) {
+    fail('migration 201 present', 'supabase/migrations/201_refm_module7_ic_presentation.sql missing');
+  } else {
+    const sql = readFileSync(migPath, 'utf8');
+    if (sql.includes("name        = 'IC Presentation Builder'")) pass('migration 201 sets the canonical M7 name');
+    else fail('migration 201 sets the canonical M7 name', 'UPDATE not found');
+    if (/^\s*slug\s*=/m.test(sql)) {
+      fail('migration 201 leaves the slug alone', "it rewrites slug, which would drop the row out of SLUG_TO_COMPONENT_NUMBER");
+    } else {
+      pass('migration 201 leaves the slug alone (gating safe)');
     }
   }
 }
