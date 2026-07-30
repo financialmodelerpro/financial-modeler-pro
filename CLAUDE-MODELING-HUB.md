@@ -54,7 +54,7 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 
 ### P-Sync verifier
 ```bash
-npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync (70 pass / 0 fail / 3 skip)
+npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync (108 pass / 0 fail / 3 skip)
 npx playwright test tests/e2e/psync-flow.spec.ts   # 4 specs
 ```
 
@@ -67,6 +67,21 @@ Full auth shape (NextAuth provider, device trust, OTP flow, scrypt password stor
 - **Subdomain rewrite**: `app.financialmodelerpro.com/` rewrites to `/modeling` (URL unchanged). See `next.config.ts`. Do NOT touch.
 - **Clean auth URLs**: `/signin` → `/modeling/signin`, `/register` → `/modeling/register`.
 - **Sidebar shell**: every platform consumes the shared shell layout at `src/components/refm/` (folder name retained from REFM origin). Module 1 status pill colors + Inputs/Results sub-tab pattern + FAST blue input style are documented per-platform.
+
+---
+
+## Module display numbering: position, NOT `platform_modules.number` (2026-07-30)
+
+`platform_modules` carries TWO different numbers and they are not interchangeable:
+
+- **`number` is a stable ROUTING id.** `SLUG_TO_COMPONENT_NUMBER` in `src/shared/entitlements/moduleCatalog.ts` maps `slug -> component number -> module_N` feature key. It deliberately never renumbers when an admin reorders or hides a module, which is exactly what makes it safe for routing and WRONG for display.
+- **The 1-based position in `display_order` is what users see.** Admin (`/admin/platform-modules` renders `i + 1`, real number only in the row tooltip), the workspace sidebar and Plan Builder all number this way.
+
+**`orderModulesForDisplay()` in `moduleCatalog.ts` is the single source of truth** (drop hidden, sort by `display_order` with `number` as tiebreak, assign 1-based position). `toSidebarNavList`, `deriveModuleFeatureRows` and the public marketing page (`app/modeling/[slug]/page.tsx`) all route through it. Do not re-derive this rule anywhere.
+
+The bug it fixes: the marketing page rendered the raw `number`, so with Portfolio (8) and Market Data (9) hidden it showed "Module 10: Collaborate" and "Module 11: API Access" where admin and the sidebar both showed 8 and 9. Modules 1 to 7 matched only by coincidence, because their routing id happened to equal their position. `verify-psync` pins this with a fixture where position differs from routing number, asserts sidebar and marketing produce identical numbering, and asserts the marketing page no longer contains `number: m.number`.
+
+The marketing page reads `platform_modules` live and falls back to the hardcoded list in `src/hubs/modeling/config/platforms.ts` ONLY when the table is empty. That fallback had drifted to the PRE-SWAP ordering (M6 "Reports & Visualizations", M7 "Scenarios & Sensitivity"); it is now pinned to `modules-config.ts` by a `verify-psync` parity check.
 
 ---
 

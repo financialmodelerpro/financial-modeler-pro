@@ -16,6 +16,39 @@
 
 ---
 
+## FLAG FOR REVIEW, `src/middleware.ts` has never run in production (2026-07-30, DECISION NEEDED)
+
+Verified, not suspected: `app/` is the project source root and there is no `src/app`, so Next resolves middleware at the ROOT (`middleware.ts`) and `src/middleware.ts` is never compiled. `.next/server/middleware-manifest.json` is `{"middleware":{}}`, the build output never mentions middleware, and `/admin/cms`, `/admin/users`, `/admin/revenue` all return **200 unauthenticated** in production. The `/login` + `/admin/login` 307s that made it look alive come from `next.config.ts` redirects (which even comment that they are the primary handler).
+
+**Severity is contained.** All 118 `/api/admin/*` routes are individually guarded (verified 401/403 unauthenticated), and admin pages render an empty client shell that `useRequireAdmin` bounces. So no data is exposed. What is missing is the documented defence-in-depth layer.
+
+**Do NOT just move the file to the project root.** That ACTIVATES a gate that has never executed in production. If the NextAuth JWT `role` claim is not populated as `getToken` expects, every admin is locked out on the next deploy. Sequence: confirm the claim shape on a live token first, then move, then verify `/admin/*` still loads for an admin before it reaches prod. Root CLAUDE.md "Do NOT touch list" has been corrected to record the real state.
+
+---
+
+## FLAG FOR REVIEW, `refm_project_versions` exceeds the PostgREST 1000-row cap (2026-07-30, CORRECTNESS)
+
+The table holds **1,399 rows**; an unbounded `select('*')` returns exactly **1,000** (18.9 MB) and silently drops the rest. PostgREST caps at 1000 by default and does not error. Any read in `src/hubs/modeling/platforms/refm/lib/persistence/server.ts` (11 query sites) that lacks an explicit `.range()` is already losing 399 rows.
+
+This is a data-correctness bug, not a perf issue, and it grows. Audit each site and paginate the ones that must return everything (see the `paginate-large-tables` pattern). Not attempted yet; out of scope of the 2026-07-30 perf pass.
+
+---
+
+## PERF BACKLOG, Phases 2 to 4 (2026-07-30, diagnosed + measured, NOT applied)
+
+Phase 1 shipped (parallelised sequential admin count queries: newsletter subscribers 1569ms -> 277ms, admin dashboard 855ms -> 281ms). The bigger wins are all still open, ranked by payoff per unit of effort:
+
+1. **11.6 MB of unoptimized, uncacheable PNGs on the marketing home. Biggest single win, close to trivial.** Includes a **4.1 MB favicon** (`cms_content.header_settings.icon_url`, served as `<link rel="icon">` on every page of all three properties) and a 4.25 MB founder photo. Every one returns `Cache-Control: no-cache` from Supabase storage, so even with an ETag each navigation pays a blocking revalidation round-trip per image. Only 1 file in the repo uses `next/image` against 80 raw `<img>`; `next.config.ts` has no `images` config. Fix: resize + WebP, set a long `cacheControl` on the storage objects.
+2. **Nothing is cached anywhere.** Zero `unstable_cache` / `'use cache'` / React `cache()` / `revalidateTag` in the codebase, and the busiest marketing pages are explicitly `revalidate = 0` (portal home, articles, contact, about, pricing, modeling, training). Result: `x-vercel-cache: MISS` on every hit, full SSR in `iad1` for every visitor. Measured cold start ~3.1s.
+3. **Root-layout tax on every page sitewide.** `generateMetadata()` runs a `cms_content` query before `<head>` can flush, and `<PromoBanner />` is an async server component with no Suspense boundary costing 2 more Supabase queries. Latent landmine: the moment a Paddle API key is set, PromoBanner adds a live `GET api.paddle.com/discounts` to every page render (cached only 60s per lambda instance).
+4. **Admin renders nothing server-side.** `app/admin/layout.tsx` is `'use client'` and returns `null` until `useSession()` resolves, so every admin page is a 5-hop serial waterfall (HTML shell -> ~520 KB JS -> `/api/auth/session` -> mount -> `/api/admin/*`). The layout gate is also redundant with the (currently dead) middleware.
+5. **Heavy libs eagerly bundled**: pdf-lib 412 KB on `/admin/certificate-designer`, recharts 348 KB on `/admin/analytics`, tiptap/prosemirror ~340 KB on page-builder / communications-hub / live-sessions. All `next/dynamic` candidates.
+6. **No streaming boundaries**: zero `loading.tsx` files in `app/`, so the slowest query on a page gates first paint for the whole page.
+
+Not a problem, checked: fonts (self-hosted `next/font` Inter, preloaded), all script tags `async`, single 62 KB CSS bundle, no oversized assets in `public/`.
+
+---
+
 ## FLAG FOR REVIEW, Existing-operations / historical-baseline inputs not consumed by the compute pipeline (2026-06-17)
 
 Surfaced by the Module 6 exhaustive per-field audit on the live FMP RE HUB project (`verify-module6-field-census.ts`). About 11 existing-operations inputs are EMPIRICALLY inert, an override changes nothing in the full financials + returns snapshot:
