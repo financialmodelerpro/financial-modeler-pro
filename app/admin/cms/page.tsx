@@ -6,17 +6,19 @@ import { getServerSession } from 'next-auth';
 async function getStats() {
   try {
     const sb = getServerClient();
-    const [usersRes, articlesRes, coursesRes] = await Promise.all([
+    // All four counts are independent, so they go out in ONE parallel wave.
+    // The projects table might not exist, so its count is resolved through a
+    // catch that yields 0 rather than rejecting, which would fail the batch.
+    const projectsCount = Promise.resolve(
+      sb.from('projects').select('id', { count: 'exact', head: true }),
+    ).then(r => r.count ?? 0).catch(() => 0);
+
+    const [usersRes, articlesRes, coursesRes, projectCount] = await Promise.all([
       sb.from('users').select('id', { count: 'exact', head: true }),
       sb.from('articles').select('id', { count: 'exact', head: true }).eq('status', 'published'),
       sb.from('courses').select('id', { count: 'exact', head: true }).eq('status', 'published'),
+      projectsCount,
     ]);
-    // Try projects table, might not exist
-    let projectCount = 0;
-    try {
-      const { count } = await sb.from('projects').select('id', { count: 'exact', head: true });
-      projectCount = count ?? 0;
-    } catch { projectCount = 0; }
     return {
       users: usersRes.count ?? 0,
       articles: articlesRes.count ?? 0,

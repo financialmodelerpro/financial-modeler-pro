@@ -26,14 +26,24 @@ export async function GET(req: NextRequest) {
   if (search) query = query.ilike('email', `%${search}%`);
   query = query.order('subscribed_at', { ascending: false }).range(offset, offset + limit - 1);
 
-  const { data, count, error } = await query;
+  // The page query and the four stat counts are independent, so they go out as
+  // ONE parallel wave instead of five sequential round-trips. Every count is
+  // still computed BY THE DATABASE (head: true, count: 'exact'), never by
+  // pulling rows and counting in JS, so the numbers are unchanged.
+  const [
+    { data, count, error },
+    { count: totalActive },
+    { count: trainingActive },
+    { count: modelingActive },
+    { count: unsubscribed },
+  ] = await Promise.all([
+    query,
+    sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('hub', 'training'),
+    sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('hub', 'modeling'),
+    sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'unsubscribed'),
+  ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Get counts for stats
-  const { count: totalActive } = await sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active');
-  const { count: trainingActive } = await sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('hub', 'training');
-  const { count: modelingActive } = await sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('hub', 'modeling');
-  const { count: unsubscribed } = await sb.from('newsletter_subscribers').select('*', { count: 'exact', head: true }).eq('status', 'unsubscribed');
 
   return NextResponse.json({
     subscribers: data ?? [],

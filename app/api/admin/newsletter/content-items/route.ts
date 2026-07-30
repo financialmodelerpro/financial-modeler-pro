@@ -39,8 +39,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'certification_update') {
-    const { count: totalStudents } = await sb.from('training_registrations_meta').select('*', { count: 'exact', head: true });
-    const { count: totalCertified } = await sb.from('student_certificates').select('*', { count: 'exact', head: true });
+    // Two independent counts, so one parallel wave rather than two round-trips.
+    const [{ count: totalStudents }, { count: totalCertified }] = await Promise.all([
+      sb.from('training_registrations_meta').select('*', { count: 'exact', head: true }),
+      sb.from('student_certificates').select('*', { count: 'exact', head: true }),
+    ]);
     return NextResponse.json({
       items: [{ id: 'stats', label: 'Current Stats', data: { totalStudents: totalStudents ?? 0, totalCertified: totalCertified ?? 0 } }],
     });
