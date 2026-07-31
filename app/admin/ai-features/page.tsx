@@ -50,6 +50,13 @@ const CATEGORY_LABEL: Record<string, string> = {
   generation: 'Generation',
 };
 
+/** The standard admin shell. CmsAdminNav must sit inside a flex row or the
+ *  page content stacks below the full-height sidebar instead of beside it. */
+const SHELL: React.CSSProperties = {
+  display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC',
+};
+const MAIN: React.CSSProperties = { flex: 1, padding: 40, overflowY: 'auto' };
+
 const card: React.CSSProperties = {
   background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: 20, marginBottom: 20,
 };
@@ -144,14 +151,25 @@ export default function AdminAiFeaturesPage() {
   const dirty = (f: Feature) => planKeys.some((p) => capEdits[capKey(f, p)] !== undefined);
   const totalFeatures = groups.reduce((n, g) => n + g.features.length, 0);
 
+  // CmsAdminNav is a sidebar ELEMENT, not a layout: it renders a fixed-width,
+  // flexShrink:0, 100vh sticky column and expects to be a FLEX CHILD. Without
+  // the flex parent below it and the content become block siblings and the
+  // content stacks underneath the full-height sidebar. Every admin page uses
+  // this same shell, so keep it identical here.
   if (authLoading || loading) {
-    return (<><CmsAdminNav /><div style={{ padding: 40, color: '#5A6675' }}>Loading AI features...</div></>);
+    return (
+      <div style={SHELL}>
+        <CmsAdminNav active="/admin/ai-features" />
+        <main style={MAIN}><div style={{ color: '#5A6675' }}>Loading AI features...</div></main>
+      </div>
+    );
   }
 
   return (
-    <>
-      <CmsAdminNav />
-      <div style={{ padding: '28px 32px', maxWidth: 1200 }}>
+    <div style={SHELL}>
+      <CmsAdminNav active="/admin/ai-features" />
+      <main style={MAIN} data-testid="admin-ai-features-page">
+        <div style={{ maxWidth: 1200 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1B3A6B', margin: '0 0 6px' }}>AI Control Panel</h1>
         <p style={{ fontSize: 13, color: '#5A6675', margin: '0 0 22px', maxWidth: 780 }}>
           Every registered AI feature, grouped by platform. Toggling a feature off stops it running.
@@ -314,7 +332,8 @@ export default function AdminAiFeaturesPage() {
           no cap has been configured for that plan yet. Enforcement is server-side; this screen only edits
           the configuration it reads from.
         </p>
-      </div>
-    </>
+        </div>
+      </main>
+    </div>
   );
 }

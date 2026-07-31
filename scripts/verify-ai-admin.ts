@@ -226,6 +226,18 @@ async function main() {
   const usageSrc = read('src/shared/ai/usage.ts');
   const nav = read('src/components/admin/CmsAdminNav.tsx');
 
+  // Layout: CmsAdminNav is a sidebar ELEMENT (fixed width, flexShrink:0, 100vh
+  // sticky), not a layout. Rendered outside a flex row it becomes a block
+  // sibling and the page content stacks BELOW it instead of beside it, which is
+  // exactly what shipped first. These pin the standard admin shell.
+  ok('the panel never renders CmsAdminNav in a bare fragment',
+    !/<>\s*<CmsAdminNav/.test(page));
+  ok('the panel wraps the nav in a flex row', /display:\s*'flex'[^}]*minHeight:\s*'100vh'/.test(page));
+  ok('the content sits in a <main> that takes the remaining width', /<main style=\{MAIN\}/.test(page) && /flex:\s*1/.test(page));
+  ok('every CmsAdminNav render is inside the shell, loading state included',
+    (page.match(/<CmsAdminNav/g) ?? []).length === (page.match(/style=\{SHELL\}/g) ?? []).length);
+  ok('the nav is told which item is active', /<CmsAdminNav active="\/admin\/ai-features"/.test(page));
+
   ok('the panel renders the unavailable REASON, not a zero', page.includes('usage.reason'));
   ok('the panel marks the unavailable state for testing', page.includes('usage-unavailable'));
   ok('the usage cell says "not tracked" rather than 0 when unmeasured', page.includes("'not tracked'"));
