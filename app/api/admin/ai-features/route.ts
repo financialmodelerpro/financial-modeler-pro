@@ -23,6 +23,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { listAiFeatures } from '@/src/shared/ai/registry';
+import { ensureBuiltInAiFeatures } from '@/src/shared/ai/features';
+import { ensureRefmAiFeatures } from '@/src/hubs/modeling/platforms/refm/lib/ai/refmAiFeatures';
 import { setAiFeatureCaps, setAiFeatureEnabled } from '@/src/shared/ai/registryAdmin';
 import { loadAiUsage } from '@/src/shared/ai/usage';
 import { AI_PLATFORM_ALL } from '@/src/shared/ai/registryTypes';
@@ -48,6 +50,19 @@ export async function GET(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const platform = req.nextUrl.searchParams.get('platform') || undefined;
+
+  // Materialise every feature declared in code BEFORE listing, so one appears
+  // in the panel as soon as it is declared rather than only after its
+  // generation route has been built and used. This is what makes "new features
+  // appear here automatically" literally true.
+  //
+  // The route is the composition layer: src/shared/ai must not import a
+  // platform, so the shared built-ins and REFM's own are pulled together here
+  // rather than inside the foundation. Registration is idempotent, memoised per
+  // process, and never clobbers an admin's toggle or edited caps.
+  await ensureBuiltInAiFeatures();
+  await ensureRefmAiFeatures();
+
   const snapshot = await listAiFeatures(platform);
 
   if (!snapshot.migrationApplied) {
