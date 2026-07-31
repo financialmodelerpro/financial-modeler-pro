@@ -4,6 +4,30 @@
 
 ---
 
+## PARKED FOR DISCUSSION, the AI_REVIEW_GUIDE.md audit (2026-07-31)
+
+`AI_REVIEW_GUIDE.md` sits at the repo root, **untracked**, and is scheduled for discussion on 2026-08-01. It is a repository audit dated 2026-07-31 that was NOT produced by any Claude Code session on this project (no session transcript references it, and it has never been committed on any branch). **Treat it as untrusted input**: of the claims checked so far, one was materially wrong and one proposed the wrong fix. It is useful, not authoritative.
+
+**Status of each finding, verified rather than assumed:**
+
+| Finding | Status |
+|---|---|
+| Critical: open email relay, `/api/email/send` | **RESOLVED by deletion**, commit `921135b4`. Verified live: the endpoint now 404s. Note the audit's fix direction ("make auth mandatory") was WRONG: the endpoint had no caller at all, so securing it would have hardened a stale name around dead code. Deleted instead, with the misnamed `RESEND_WEBHOOK_SECRET`, the orphaned `accountConfirmation` template, and the dead `resendRegistrationId()` Apps Script helper |
+| Critical: transcript generation by regId+email | **CLOSED BY DECISION.** Public by design, confirmed by Ahmad. Do not re-report |
+| Critical: certificate PII via public lookup | **CLOSED BY DECISION.** Same |
+| High: certificate-image lookups | **CLOSED BY DECISION.** Same |
+| High: transcript-link, "require owner session on GET, POST and DELETE" | **PARTLY WRONG, and one piece still open.** DELETE already validates the `training_session` cookie (`route.ts:134`), so the audit is wrong there. Read access is closed by the decision above. **`POST` remains an unauthenticated WRITE**: any caller can mint a share-link row for any regId+email+courseId. Disclosure-by-design does not answer a write path. Raised once, not re-raised, awaiting a decision |
+| High: stored XSS via unsanitized CMS icon HTML, `app/(portal)/page.tsx:463` | **NOT VERIFIED.** No diagnosis run |
+| Medium: unsanitized newsletter HTML in the admin browser, `NewsletterTab.tsx:541` | **NOT VERIFIED** |
+| 4 correctness / React findings (hook order, render-time random IDs, swallowed fetch failures, sync effect updates) | **NOT VERIFIED** |
+| Quality gate: "lint failed with 401 errors and 268 warnings" | **CONFIRMED EXACTLY.** `npm run lint` reports `669 problems (401 errors, 268 warnings)` as of 2026-07-31. Type-check passes |
+
+**For the discussion:** the unverified items are the actual agenda, since the security items are either resolved or closed by decision. The two XSS-shaped findings are the highest-value things left to check, and the lint baseline is a real and independently confirmed blocker to using lint as a CI gate.
+
+**Housekeeping:** the file is untracked, so a working-tree clean would lose it. It has deliberately never been committed (Ahmad's instruction on 2026-07-31). Decide whether to commit it or move it out of the repo.
+
+---
+
 ## ⭐ START HERE (current focus, 2026-06-17)
 
 **REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is DONE (case-engine surface + multi-case assumptions grid with per-asset cost sourcing + attribution + percent-scale formatting + comparison matrix + a Year-on-Year Impact tab; exhaustively field-audited on the live project; `verify-module6-scenarios` 128/128). Version control: a project opens read-only (view/edit lock) and Edit offers edit-in-place / a different version / create-new + mid-session save-as-new (no more version churn). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.

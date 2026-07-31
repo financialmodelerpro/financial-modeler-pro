@@ -46,7 +46,7 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
 > - [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md), Feature status, archived phase narratives (M1.R → M1.13d pre-M2.0 + M2.0 → M2.0i post-rebuild)
 > - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure
-> - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference
+> - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference. **Currently parked at the top: the `AI_REVIEW_GUIDE.md` audit (untracked, untrusted, per-finding status recorded), for discussion 2026-08-01.**
 > - [ARCHITECTURE.md](ARCHITECTURE.md), Three-tier folder rationale, alias guide, boundary rules
 > - [HANDOFF.md](HANDOFF.md), AUTO-GENERATED live status snapshot (commit, stack, latest migration, templates, verifiers, routes, env). Never hand-edit; regenerate with `npm run handoff` (`scripts/generate-handoff.ts` derives it from git + the repo, so it cannot go stale like the old PROJECT_HANDOFF.md did).
 
