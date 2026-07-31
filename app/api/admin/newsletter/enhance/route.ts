@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { runAi } from '@/src/shared/ai/client';
+import { checkAndConsume, meterDenyStatus } from '@/src/shared/ai/metering';
+import { ensureAiFeature, NEWSLETTER_ENHANCE_FEATURE } from '@/src/shared/ai/features';
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if ((session?.user as { role?: string } | undefined)?.role !== 'admin') {
+  const user = session?.user as { role?: string; id?: string } | undefined;
+  if (user?.role !== 'admin') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -13,6 +16,37 @@ export async function POST(req: NextRequest) {
     const { content } = await req.json() as { content: string };
     if (!content?.trim()) {
       return NextResponse.json({ error: 'No content to enhance' }, { status: 400 });
+    }
+
+    // ── Metering ────────────────────────────────────────────────────────────
+    // The cap comes from ai_feature_caps, the same rows /admin/ai-features
+    // edits, so lowering a cap there changes what this route enforces on the
+    // very next request. There is no cap value in this file.
+    //
+    // Admins are metered like everyone else. The entitlement gate bypasses
+    // admins so support cannot be locked out; a cap is a spend control, and the
+    // admin is the account most able to run up a bill.
+    if (!user.id) {
+      return NextResponse.json({ error: 'No user id on the session; cannot meter this request.' }, { status: 401 });
+    }
+
+    // Self-register so the feature exists to be capped and toggled. A failure
+    // here is not fatal: metering denies an unregistered feature, so this fails
+    // closed rather than opening the gate.
+    await ensureAiFeature(NEWSLETTER_ENHANCE_FEATURE);
+
+    const decision = await checkAndConsume({
+      userId: user.id,
+      featureId: NEWSLETTER_ENHANCE_FEATURE.featureId,
+      platformSlug: NEWSLETTER_ENHANCE_FEATURE.platformSlug,
+    });
+
+    if (!decision.allowed) {
+      console.warn('[newsletter-enhance] denied by metering:', { reason: decision.reason, cap: decision.cap, plan: decision.planKey });
+      return NextResponse.json(
+        { error: decision.message, reason: decision.reason, cap: decision.cap },
+        { status: meterDenyStatus(decision.reason) },
+      );
     }
 
     // Routed through the central AI client (Unit 1): the key, model, timeout,

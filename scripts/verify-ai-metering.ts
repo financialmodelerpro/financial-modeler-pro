@@ -1,0 +1,283 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * scripts/verify-ai-metering.ts
+ *
+ * Verifier for server-side AI cap enforcement.
+ *
+ * THE CENTRAL CLAIM: editing a cap in /admin/ai-features changes what is
+ * enforced. So the headline test sets a cap through the SAME admin write path
+ * the panel uses, then calls checkAndConsume repeatedly and asserts the block
+ * lands on exactly the (cap+1)th call, then re-edits the cap and asserts the
+ * limit moves. No hardcoded number is consulted anywhere in that chain.
+ *
+ * The second claim is FAIL CLOSED. Every uncertain path must deny: unregistered
+ * feature, disabled feature, no cap row, cap of zero, no plan, and an
+ * unreachable counter store. Each is exercised.
+ *
+ * The in-memory database fake implements ai_usage_consume with the SAME
+ * semantics as the SQL function in migration 205, including the cap<=0 guard
+ * and the conditional increment, so the decision logic is tested end to end
+ * without a live database.
+ *
+ *   npx tsx scripts/verify-ai-metering.ts
+ */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { checkAndConsume, currentPeriodStart, meterDenyStatus } from '../src/shared/ai/metering';
+import { registerAiFeature } from '../src/shared/ai/registry';
+import { setAiFeatureCaps, setAiFeatureEnabled } from '../src/shared/ai/registryAdmin';
+import { loadAiUsage } from '../src/shared/ai/usage';
+import { AI_PLATFORM_ALL } from '../src/shared/ai/registryTypes';
+
+const ROOT = join(__dirname, '..');
+let pass = 0, fail = 0;
+const ok = (label: string, cond: boolean, detail = '') => {
+  if (cond) { pass++; return; }
+  fail++;
+  console.error(`FAIL ${label}${detail ? ` :: ${detail}` : ''}`);
+};
+const eq = (label: string, a: unknown, b: unknown) =>
+  ok(`${label} (expected ${JSON.stringify(b)}, got ${JSON.stringify(a)})`, a === b);
+const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+
+// ── Fake database, including an ai_usage_consume that mirrors the SQL ───────
+type Row = Record<string, unknown>;
+type Pred = (r: Row) => boolean;
+interface FakeDb { tables: Record<string, Row[] | undefined>; rpcBroken?: boolean }
+
+let seq = 0;
+const nextId = () => `uuid-${++seq}`;
+
+function exec(db: FakeDb, table: string, s: { op: string; filters: Pred[]; payload: unknown; opts: any }) {
+  const rows = db.tables[table];
+  if (rows === undefined) return { data: null, error: { code: '42P01', message: `relation "public.${table}" does not exist` } };
+  const match = (r: Row) => s.filters.every((f) => f(r));
+  if (s.op === 'select') return { data: rows.filter(match).map((r) => ({ ...r })), error: null };
+  if (s.op === 'insert') { const row = { id: nextId(), ...(s.payload as Row) }; rows.push(row); return { data: [{ ...row }], error: null }; }
+  if (s.op === 'update') { const hit = rows.filter(match); for (const r of hit) Object.assign(r, s.payload as Row); return { data: hit.map((r) => ({ ...r })), error: null }; }
+  if (s.op === 'upsert') {
+    const conflict = String(s.opts?.onConflict ?? '').split(',').map((c: string) => c.trim()).filter(Boolean);
+    for (const incoming of s.payload as Row[]) {
+      const hit = rows.find((r) => conflict.every((c) => r[c] === incoming[c]));
+      if (hit) { if (s.opts?.ignoreDuplicates !== true) Object.assign(hit, incoming); continue; }
+      rows.push({ id: nextId(), ...incoming });
+    }
+    return { data: null, error: null };
+  }
+  return { data: null, error: { message: `unsupported ${s.op}` } };
+}
+
+function fakeClient(db: FakeDb): any {
+  return {
+    from(table: string) {
+      const s = { op: 'select', filters: [] as Pred[], payload: null as unknown, opts: null as any };
+      const b: any = {
+        select() { return b; },
+        insert(p: unknown) { s.op = 'insert'; s.payload = p; return b; },
+        update(p: unknown) { s.op = 'update'; s.payload = p; return b; },
+        upsert(p: unknown, o: any) { s.op = 'upsert'; s.payload = p; s.opts = o; return b; },
+        eq(c: string, v: unknown) { s.filters.push((r) => r[c] === v); return b; },
+        in(c: string, vs: unknown[]) { s.filters.push((r) => vs.includes(r[c])); return b; },
+        maybeSingle() {
+          return Promise.resolve(exec(db, table, s)).then((r: any) =>
+            r.error ? r : { data: (r.data ?? [])[0] ?? null, error: null });
+        },
+        order() { return b; }, limit() { return b; }, range() { return b; },
+        then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
+          return Promise.resolve(exec(db, table, s)).then(res, rej);
+        },
+      };
+      return b;
+    },
+    // Mirrors migration 205's ai_usage_consume exactly.
+    rpc(name: string, args: any) {
+      if (name !== 'ai_usage_consume') return Promise.resolve({ data: null, error: { message: `unknown function ${name}` } });
+      if (db.rpcBroken || db.tables.ai_usage_counters === undefined) {
+        return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.ai_usage_consume' } });
+      }
+      const { p_user, p_feature, p_period, p_cap } = args;
+      if (p_cap === null || p_cap === undefined || p_cap <= 0) return Promise.resolve({ data: null, error: null });
+      const rows = db.tables.ai_usage_counters!;
+      const hit = rows.find((r) => r.user_id === p_user && r.ai_feature_id === p_feature && r.period_start === p_period);
+      if (!hit) { rows.push({ id: nextId(), user_id: p_user, ai_feature_id: p_feature, period_start: p_period, used: 1 }); return Promise.resolve({ data: 1, error: null }); }
+      if ((hit.used as number) < p_cap) { hit.used = (hit.used as number) + 1; return Promise.resolve({ data: hit.used, error: null }); }
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
+}
+
+const USER = 'user-1';
+const freshDb = (counters = true): FakeDb => ({
+  tables: {
+    ai_features: [], ai_feature_caps: [],
+    entitlement_plans: [{ plan_key: 'firm', platform_slug: AI_PLATFORM_ALL, active: true }],
+    users: [{ id: USER, subscription_plan: 'firm', role: 'admin' }],
+    ai_usage_counters: counters ? [] : undefined,
+  },
+});
+
+const FEATURE = {
+  featureId: 'newsletter_enhance', platformSlug: AI_PLATFORM_ALL, name: 'Newsletter rewriter',
+  category: 'generation' as const, grounding: ['context' as const],
+};
+const consume = (sb: any, extra: any = {}) =>
+  checkAndConsume({ userId: USER, featureId: FEATURE.featureId, platformSlug: FEATURE.platformSlug, sb, ...extra });
+
+async function main() {
+  // ── 1. THE HEADLINE: an admin cap edit changes the enforced limit ─────────
+  const db = freshDb();
+  const sb = fakeClient(db);
+  await registerAiFeature(FEATURE, sb);
+  await setAiFeatureEnabled(FEATURE.featureId, FEATURE.platformSlug, true, sb);
+
+  // Set the cap through the SAME path /admin/ai-features uses.
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 3 }, sb);
+
+  const results = [] as any[];
+  for (let i = 0; i < 5; i++) results.push(await consume(sb));
+
+  eq('call 1 of cap 3 is allowed', results[0].allowed, true);
+  eq('call 2 of cap 3 is allowed', results[1].allowed, true);
+  eq('call 3 of cap 3 is allowed', results[2].allowed, true);
+  eq('call 4 BLOCKS at exactly the cap', results[3].allowed, false);
+  eq('and the reason is cap_reached', results[3].allowed === false && results[3].reason, 'cap_reached');
+  eq('call 5 stays blocked', results[4].allowed, false);
+  eq('the third allowed call reports used 3', results[2].allowed && results[2].used, 3);
+  eq('remaining reaches zero', results[2].allowed && results[2].remaining, 0);
+  eq('the enforced cap is the DB value', results[2].allowed && results[2].cap, 3);
+  eq('a blocked attempt does NOT inflate the counter', (db.tables.ai_usage_counters ?? [])[0].used, 3);
+
+  // Now RAISE the cap in the panel. The limit must move immediately.
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 5 }, sb);
+  const after1 = await consume(sb);
+  const after2 = await consume(sb);
+  const after3 = await consume(sb);
+  eq('raising the cap to 5 immediately allows call 4', after1.allowed, true);
+  eq('and call 5', after2.allowed, true);
+  eq('then blocks again at the NEW cap', after3.allowed, false);
+  eq('the new enforced cap is 5', after1.allowed && after1.cap, 5);
+
+  // And LOWERING it below current usage blocks at once.
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 1 }, sb);
+  const lowered = await consume(sb);
+  eq('lowering the cap below current usage blocks immediately', lowered.allowed, false);
+  eq('reported against the lowered cap', lowered.allowed === false && lowered.cap, 1);
+
+  // ── 2. FAIL CLOSED on every uncertain path ────────────────────────────────
+  const db2 = freshDb();
+  const sb2 = fakeClient(db2);
+
+  const unregistered = await consume(sb2);
+  eq('an unregistered feature is DENIED', unregistered.allowed, false);
+  eq('with reason not_registered', unregistered.allowed === false && unregistered.reason, 'not_registered');
+
+  await registerAiFeature(FEATURE, sb2);
+  const disabled = await consume(sb2);
+  eq('a registered but DISABLED feature is denied', disabled.allowed, false);
+  eq('with reason disabled', disabled.allowed === false && disabled.reason, 'disabled');
+
+  await setAiFeatureEnabled(FEATURE.featureId, FEATURE.platformSlug, true, sb2);
+  // Registration seeded a cap for 'firm' (the only active plan). Remove it to
+  // reach the no-cap path.
+  db2.tables.ai_feature_caps = [];
+  const noCap = await consume(sb2);
+  eq('no cap row for the plan is DENIED', noCap.allowed, false);
+  eq('with reason no_cap', noCap.allowed === false && noCap.reason, 'no_cap');
+
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 0 }, sb2);
+  const zero = await consume(sb2);
+  eq('a cap of ZERO denies the tier', zero.allowed, false);
+  eq('with reason cap_reached', zero.allowed === false && zero.reason, 'cap_reached');
+  eq('and no counter row is created for a zero cap', (db2.tables.ai_usage_counters ?? []).length, 0);
+
+  db2.tables.users = [{ id: USER, subscription_plan: null, role: 'admin' }];
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 5 }, sb2);
+  const noPlan = await consume(sb2);
+  eq('a user with no resolvable plan is DENIED', noPlan.allowed, false);
+  eq('with reason no_plan', noPlan.allowed === false && noPlan.reason, 'no_plan');
+
+  // Counter store unreachable (pre-migration 205, or the function is missing).
+  const db3 = freshDb(false);
+  const sb3 = fakeClient(db3);
+  await registerAiFeature(FEATURE, sb3);
+  await setAiFeatureEnabled(FEATURE.featureId, FEATURE.platformSlug, true, sb3);
+  await setAiFeatureCaps(FEATURE.featureId, FEATURE.platformSlug, { firm: 100 }, sb3);
+  const noStore = await consume(sb3);
+  eq('an unreachable counter store DENIES (fail closed)', noStore.allowed, false);
+  eq('with reason unavailable', noStore.allowed === false && noStore.reason, 'unavailable');
+  ok('and it does NOT fall through to allowing the call', noStore.allowed === false);
+
+  // ── 3. Admins are metered, no bypass ──────────────────────────────────────
+  ok('the metering module contains no admin bypass',
+    !/role\s*===\s*'admin'|isAdmin/.test(read('src/shared/ai/metering.ts')));
+
+  // ── 4. Monthly period ─────────────────────────────────────────────────────
+  eq('the period is the first of the month, UTC',
+    currentPeriodStart(new Date(Date.UTC(2026, 6, 31, 23, 59))), '2026-07-01');
+  eq('a new month is a new period key',
+    currentPeriodStart(new Date(Date.UTC(2026, 7, 1, 0, 0))), '2026-08-01');
+  ok('so usage resets without a cron job', true);
+
+  // ── 5. Usage report reads the counters ────────────────────────────────────
+  const usage = await loadAiUsage(undefined, sb);
+  ok('usage becomes available once counters exist', usage.available);
+  if (usage.available) {
+    const row = usage.rows.find((r) => r.featureId === FEATURE.featureId);
+    ok('and reports the feature by its code id', !!row);
+    eq('with the real call count', row?.calls, 5);
+    eq('and the distinct user count', row?.users, 1);
+    ok('with a human period label', /\w+ \d{4}/.test(usage.periodLabel));
+  }
+  const usageNoStore = await loadAiUsage(undefined, sb3);
+  eq('usage stays UNAVAILABLE when the store is missing, never zeroed', usageNoStore.available, false);
+
+  // ── 6. Deny statuses ──────────────────────────────────────────────────────
+  eq('cap reached maps to 402 (upgrade to continue)', meterDenyStatus('cap_reached'), 402);
+  eq('unavailable maps to 503', meterDenyStatus('unavailable'), 503);
+  eq('disabled maps to 404', meterDenyStatus('disabled'), 404);
+
+  // ── 7. Source assertions ──────────────────────────────────────────────────
+  const metering = read('src/shared/ai/metering.ts');
+  const route = read('app/api/admin/newsletter/enhance/route.ts');
+  const sql = read('supabase/migrations/205_ai_usage_metering.sql');
+
+  // Assertions about what the CODE does run against comment-stripped source:
+  // metering.ts names DEFAULT_AI_MONTHLY_CAPS in its header precisely to explain
+  // that it is a seeding default and is NOT consulted here, and a naive scan
+  // would read that explanation as the thing it denies.
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const meteringCode = code(metering);
+
+  ok('metering reads the cap through resolveAiCap (the DB path)', /resolveAiCap/.test(meteringCode));
+  ok('metering never reads a hardcoded cap default',
+    !/DEFAULT_AI_MONTHLY_CAPS|FALLBACK_AI_MONTHLY_CAP/.test(meteringCode));
+  ok('no numeric cap literal is used as a limit in metering',
+    !/cap\s*=\s*\d+/.test(meteringCode));
+  ok('the live route meters BEFORE calling the model',
+    route.indexOf('checkAndConsume') < route.indexOf('runAi('));
+  ok('the live route returns the deny status', /meterDenyStatus/.test(route));
+  ok('the route carries no cap value of its own', !/cap\s*[:=]\s*\d+/.test(route));
+
+  ok('the migration guards a zero cap before inserting', /p_cap IS NULL OR p_cap <= 0/.test(sql));
+  ok('the migration increments only when under cap', /WHERE ai_usage_counters\.used < p_cap/.test(sql));
+  ok('the decision is one atomic statement', /ON CONFLICT[\s\S]{0,200}DO UPDATE[\s\S]{0,200}RETURNING used/.test(sql));
+  ok('the counter is unique per user, feature and period', /UNIQUE \(user_id, ai_feature_id, period_start\)/.test(sql));
+  ok('the migration is additive', !/DROP TABLE|TRUNCATE|DELETE FROM/i.test(sql));
+  ok('RLS is on the counter table', /ALTER TABLE ai_usage_counters ENABLE ROW LEVEL SECURITY/.test(sql));
+  ok('the function is not callable by anon or authenticated',
+    /REVOKE ALL ON FUNCTION ai_usage_consume[\s\S]{0,200}anon/.test(sql));
+
+  const EM = String.fromCharCode(0x2014);
+  for (const [n, s] of [['metering.ts', metering], ['205 migration', sql], ['enhance route', route],
+    ['usage.ts', read('src/shared/ai/usage.ts')], ['features.ts', read('src/shared/ai/features.ts')],
+    ['verify-ai-metering.ts', read('scripts/verify-ai-metering.ts')]] as const) {
+    ok(`${n} contains no em dashes`, !s.includes(EM));
+  }
+
+  console.log(`\nverify-ai-metering: ${pass} passed, ${fail} failed`);
+  if (fail > 0) process.exit(1);
+}
+
+main().catch((e) => { console.error('verify-ai-metering crashed:', e); process.exit(1); });

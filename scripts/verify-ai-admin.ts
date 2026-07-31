@@ -206,11 +206,13 @@ async function main() {
   eq('a newly registered feature appears with no code change', listed.features.length, 2);
 
   // ── 7. USAGE HONESTY ──────────────────────────────────────────────────────
+  // Metering now exists (the counters land with migration 205), so the panel
+  // CAN show real numbers. What must never regress is the unavailable path:
+  // when usage cannot be read, the panel says so instead of rendering zeroes.
+  // Called with no client on purpose, which is the "no store reachable" case.
   const usage = await loadAiUsage('real-estate');
-  eq('usage reports unavailable while metering does not exist', usage.available, false);
+  eq('an unreadable usage store reports unavailable, and does NOT throw', usage.available, false);
   ok('and gives a reason', !usage.available && usage.reason.length > 30);
-  ok('the reason explains that nothing is being counted',
-    !usage.available && /not installed|not being counted/i.test(usage.reason));
   ok('the reason explicitly denies that this means zero',
     !usage.available && /not a count of zero/i.test(usage.reason));
   eq('usageFor returns null when usage is unavailable', usageFor(usage, 'm7_ic_narrative', 'real-estate'), null);
@@ -255,8 +257,8 @@ async function main() {
 
   ok('the admin write path does not read the API key or import the SDK',
     !/ANTHROPIC_API_KEY/.test(admin) && !/@anthropic-ai\/sdk/.test(admin));
-  ok('usage.ts documents itself as the single seam for the metering unit',
-    /FOR UNIT 3/.test(usageSrc));
+  ok('usage.ts keeps the unavailable path load-bearing now that metering exists',
+    /UNAVAILABLE PATH IS STILL LOAD-BEARING/.test(usageSrc));
 
   const EM_DASH = String.fromCharCode(0x2014);
   for (const [name, src] of [
