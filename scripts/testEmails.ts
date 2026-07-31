@@ -4,11 +4,12 @@
  * Brevo delivery and sender-domain verification.
  *
  * Usage:
- *   npx ts-node --project tsconfig.json -e "require('./scripts/testEmails.ts')"
- *   OR via the API route (recommended):
- *   curl -X POST http://localhost:3000/api/email/send \
- *     -H "Content-Type: application/json" \
- *     -d '{"template":"otpVerification","to":"your@email.com","data":{"code":"123456"}}'
+ *   npx tsx --env-file=.env.local scripts/testEmails.ts
+ *
+ * Sends through the same sendEmail() path the platform uses, so a pass here
+ * exercises the real Brevo configuration. The old POST /api/email/send bridge
+ * that this comment used to document was deleted on 2026-07-31: it was an
+ * unauthenticated relay with no caller.
  *
  * Requires .env.local with BREVO_API_KEY set.
  */
@@ -24,7 +25,6 @@ import { quizResultTemplate }               from '../src/shared/email/templates/
 import { certificateIssuedTemplate }        from '../src/shared/email/templates/certificateIssued';
 import { lockedOutTemplate }                from '../src/shared/email/templates/lockedOut';
 import { passwordResetTemplate }            from '../src/shared/email/templates/passwordReset';
-import { accountConfirmationTemplate }      from '../src/shared/email/templates/accountConfirmation';
 
 // ── Change this to your test inbox ───────────────────────────────────────────
 const TEST_TO = process.env.TEST_EMAIL ?? 'your-test@email.com';
@@ -106,17 +106,6 @@ async function run() {
         const t = await passwordResetTemplate({
           resetUrl: 'https://financialmodelerpro.com/reset-password?token=test-token-123',
           expiresMinutes: 60,
-        });
-        return sendEmail({ to: TEST_TO, ...t, from: FROM.noreply });
-      },
-    },
-    {
-      label: '[no-reply@] Account Confirmation',
-      fn: async () => {
-        const t = await accountConfirmationTemplate({
-          name: 'Test User',
-          email: TEST_TO,
-          confirmUrl: 'https://financialmodelerpro.com/confirm-email?token=test-token-456',
         });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.noreply });
       },

@@ -403,13 +403,6 @@ export async function getStudentProgress(
   return raw;
 }
 
-/** Trigger a re-send of the registration ID email. */
-export async function resendRegistrationId(
-  email: string,
-): Promise<ScriptResponse<null>> {
-  return callScript<null>({ action: 'resendId', email });
-}
-
 /** Fetch all certificates issued to a given email address. */
 export async function getCertificatesByEmail(
   email: string,

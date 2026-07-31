@@ -63,15 +63,21 @@ Needs a SEPARATE engine-level investigation (not a Module 6 change). Do NOT alte
 
 ---
 
-## ACTIVE FOLLOW-UP, Rename RESEND_WEBHOOK_SECRET to EMAIL_BRIDGE_BEARER_SECRET (2026-05-11)
+## RESOLVED BY DELETION, the RESEND_WEBHOOK_SECRET rename (closed 2026-07-31)
 
-The provider is Brevo. The dormant Resend webhook route (`/api/webhooks/resend`) has now been REMOVED, so the env var `RESEND_WEBHOOK_SECRET` has ONE remaining live use: the bearer token for `POST /api/email/send` (the Google Apps Script email bridge). The name is misleading (nothing to do with Resend). Rename to a vendor-neutral `EMAIL_BRIDGE_BEARER_SECRET` in a future commit. This is a coordinated env change (must add the new Vercel env var first), so it stays a bookmarked follow-up, not a silent code edit. Steps:
+This was a bookmarked plan to rename `RESEND_WEBHOOK_SECRET` to `EMAIL_BRIDGE_BEARER_SECRET`, on the premise that the variable had ONE live use: the bearer token for `POST /api/email/send`, "the Google Apps Script email bridge".
 
-1. Add `EMAIL_BRIDGE_BEARER_SECRET` to Vercel env vars with the same value as `RESEND_WEBHOOK_SECRET`.
-2. Update `app/api/email/send/route.ts` to read `EMAIL_BRIDGE_BEARER_SECRET` (fallback to legacy `RESEND_WEBHOOK_SECRET` for one deploy cycle).
-3. Update Apps Script to send the new header name.
-4. Remove the legacy `RESEND_WEBHOOK_SECRET` env var + the legacy fallback after one deploy cycle.
-5. Update `.env.example` + `app/api/admin/env-check/route.ts` to reflect the new name.
+**The premise was wrong, and the rename was never needed.** Diagnosis on 2026-07-31 established that the endpoint had no caller at all:
+
+- Zero callers anywhere in the tree. Nothing imports the route; no client, server, or cron call exists.
+- All 8 templates it served already had native in-app senders through `sendEmail` (Brevo). The 8th, `accountConfirmation`, had no caller at all and was superseded by `confirmEmailTemplate`.
+- `CLAUDE-FEATURES.md` recorded, at the Brevo migration itself (commit `166a8ecb`, 2026-05-11), that the last three Apps Script email triggers had been moved into Next.js and the bridge was "kept for backwards compat". It was a compatibility shim, not a dependency.
+- Apps Script handles exam questions only; it does not send platform email. Our own Apps Script client is outbound-only.
+- `RESEND_WEBHOOK_SECRET` was never set in Vercel, so the `if (secret)` gate never ran: the endpoint accepted unauthenticated requests in production and would render any of 8 branded templates, to any recipient, with caller-supplied data. That is phishing-grade, from a domain that passes SPF and DKIM.
+
+**Action taken instead of the rename:** the route, the orphaned template, the dead `resendRegistrationId()` Apps Script helper, and the env var were all DELETED. Renaming would have hardened a stale name around an endpoint that should not exist. Nothing to carry forward.
+
+Standing lesson: a "live dependency" recorded in a commit message is an assertion, not evidence. This one was inherited across two sessions and a Resend purge before anyone tested it.
 
 ---
 

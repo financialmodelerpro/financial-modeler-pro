@@ -746,7 +746,7 @@ This is the only true shared-code violation. Everything else is either hub-inter
 
 Auth + DB: `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 URLs: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_MAIN_URL`, `NEXT_PUBLIC_LEARN_URL`.
-Email (Brevo): `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`, `EMAIL_FROM_SUPPORT`. `RESEND_WEBHOOK_SECRET` is retained ONLY as the bearer-token check on `/api/email/send` (the Apps Script email bridge); the Resend webhook it was named for was removed 2026-07-02. Rename to `EMAIL_BRIDGE_BEARER_SECRET` is a bookmarked follow-up (see CLAUDE-TODO.md).
+Email (Brevo): `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`, `EMAIL_FROM_SUPPORT`. `RESEND_WEBHOOK_SECRET` and `/api/email/send` were both REMOVED 2026-07-31 (dead endpoint, unauthenticated in production).
 Captcha: `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY`.
 AI: `ANTHROPIC_API_KEY`.
 YouTube: `YOUTUBE_API_KEY`, `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID`.
@@ -809,7 +809,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
 ### Security considerations
 
 - `/api/cms`, `/api/branding` GET endpoints are public. CLAUDE.md flags both. `cms_content` row that contains `header_settings.logo_url` etc. is intentionally public; nothing sensitive should ever live there.
-- The email provider is Brevo (migrated 2026-05-11, commit `166a8ec`). The old Resend webhook (`/api/webhooks/resend`) was removed 2026-07-02; engagement tracking (open/click/bounce/complaint) via a Brevo webhook is a pending follow-up. Rotate `RESEND_WEBHOOK_SECRET` if the secret leaks (its only remaining use is the bearer-token check on `/api/email/send`).
+- The email provider is Brevo (migrated 2026-05-11, commit `166a8ec`). The old Resend webhook (`/api/webhooks/resend`) was removed 2026-07-02; engagement tracking (open/click/bounce/complaint) via a Brevo webhook is a pending follow-up. `RESEND_WEBHOOK_SECRET` no longer exists: it was removed 2026-07-31 with `/api/email/send`, the only thing that read it.
 - Admin protection lives in two places: middleware (`src/middleware.ts`) and individual route handlers (manual `getServerSession` checks). Centralize in middleware longer-term to reduce drift risk.
 
 ---
