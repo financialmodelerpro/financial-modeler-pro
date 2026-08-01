@@ -304,3 +304,42 @@ export async function exportReportDeck(
     return { data: null, error: e instanceof Error ? e.message : 'Could not read the exported file' };
   }
 }
+
+/**
+ * Draft ONE IC narrative field from the project's computed figures (AI Unit 7).
+ *
+ * Minimal trigger. The Generate buttons, the quota display, and the
+ * apply-or-discard confirmation are Unit 8; this is the wire they call.
+ *
+ * `model` is the ICReportModel the deck already assembled, posted as-is so the
+ * server never recomputes. The response is a DRAFT: it carries `applied: false`
+ * and nothing has been saved. Applying it is a separate, user-confirmed write
+ * through saveReportInputs.
+ */
+export function generateIcNarrative(
+  projectId: string,
+  args: {
+    field: 'executiveSummary' | 'recommendation' | 'risks' | 'returnsCommentary' | 'exitCommentary' | 'scenarioTakeaway';
+    model: unknown;
+    scale?: 'millions' | 'thousands';
+    currency?: string;
+    includeSeries?: boolean;
+  },
+): Promise<FetchResult<{
+  applied: false;
+  field: string;
+  label: string;
+  targetField: string;
+  draft: string;
+  risks?: Array<{ risk: string; mitigant: string }>;
+  audit: { ok: boolean; checked: number; supported: number; rounded: number; unsupported: Array<{ raw: string; index: number }>; summary: string };
+  meter: { used: number; cap: number; remaining: number; planKey: string; periodStart: string };
+  usage: { inputTokens: number | null; outputTokens: number | null };
+  model: string;
+  elapsedMs: number;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/ai/ic-narrative`, {
+    method: 'POST',
+    body: JSON.stringify(args),
+  });
+}

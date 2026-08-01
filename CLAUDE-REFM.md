@@ -257,6 +257,7 @@ npx tsx scripts/verify-phase-date-scenarios.ts    # M2/M3 setter dual-write + 9L
 npx tsx scripts/verify-versioning.ts              # session versioning + change_log
 npx tsx scripts/verify-version-naming.ts          # auto version names + rollover
 npx tsx scripts/verify-refm-version-reads.ts      # no persistence read can be silently truncated by the PostgREST 1000-row cap: structural (every query site bounded) + behavioural (in-memory fake that truncates at 1000) (46)
+npx tsx scripts/verify-ic-narrative-generation.ts # M7 AI Unit 7: IC narrative generation. Field catalog + availability gating + output shaping (em-dash strip, risk-row parsing) + the SPEND GATE counted on injected fakes (an unavailable field, a capped user, and a disabled feature must each make ZERO ai calls) + prompt assembly over a REAL engine-built model + audit teeth. No key, no DB (149)
 npx tsx scripts/verify-pdf-export.ts              # full-project PDF export smoke test (pdf-lib)
 npx tsx scripts/verify-cases.ts                   # scenario/case merge engine (applyOverrides/buildOverrides/seed) 19/19
 npx tsx scripts/verify-module6-field-census.ts    # EMPIRICAL per-field audit on the LIVE project fixture (gitignored; skips-with-notice when absent, refresh via scripts/fetch-fmp-re-hub.ts). Asserts every picker field is a proven KPI mover OR gated/excluded with a reason; 17 checks
