@@ -55,6 +55,30 @@ function sourceFiles(): string[] {
   return out;
 }
 
+// `scripts/` is scanned SEPARATELY, and only by the retired-model check.
+//
+// It was left out of sourceFiles() because the single-call-path rules are
+// about the running application, and a maintenance script legitimately
+// constructs its own client. But "the retired model string is gone from the
+// codebase" is a claim about the CODEBASE, and scripts are part of it: the
+// pin in scripts/diagnose_anthropic_key.ts survived this check for a month
+// precisely because the check could not see it, so a good key reported a 404
+// and read as a key failure. A verifier whose scope is narrower than its
+// claim is how that happens.
+// This file is excluded from its own scan: the retired id appears here as the
+// search term itself, in code rather than in a comment, so including it would
+// make the check permanently red for the one file that is supposed to be
+// looking for the string.
+function scriptFiles(): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(join(ROOT, 'scripts'))) {
+    if (!/\.tsx?$/.test(name)) continue;
+    if (name === 'verify-ai-client.ts') continue;
+    out.push(`scripts/${name}`);
+  }
+  return out;
+}
+
 async function main() {
   const files = sourceFiles();
   ok('found source files to scan', files.length > 100);
@@ -90,8 +114,21 @@ async function main() {
   // stranded on a retired model. The previous pin had already outlived its
   // published retirement date.
   ok('enhance route pins no model of its own', !/^\s*model:/m.test(code('app/api/admin/newsletter/enhance/route.ts')));
-  ok('the retired model string is gone from the codebase',
-    files.filter((f) => code(f).includes('claude-sonnet-4-20250514')).length === 0);
+  // Scripts included: see the note on scriptFiles(). Comments are stripped by
+  // code(), so explaining the history in prose is fine; only a live pin fails.
+  const retiredPins = [...files, ...scriptFiles()]
+    .filter((f) => code(f).includes('claude-sonnet-4-20250514'));
+  ok(`the retired model string is gone from the codebase (found in: ${retiredPins.join(', ') || 'nothing'})`,
+    retiredPins.length === 0);
+
+  // The key diagnostic must take the model from the client config, not restate
+  // one. Restating is what stranded it on a retired id, and a diagnostic that
+  // can manufacture its own 404 is worse than no diagnostic: it reports a
+  // model problem as a key problem.
+  const diag = code('scripts/diagnose_anthropic_key.ts');
+  ok('the key diagnostic imports DEFAULT_AI_MODEL', /import\s*\{[^}]*DEFAULT_AI_MODEL[^}]*\}\s*from/.test(diag));
+  ok('the key diagnostic declares no model constant of its own',
+    !/const\s+DEFAULT_MODEL\s*=\s*['"]/.test(diag));
   ok('enhance route preserves the "AI not configured" message', enhance.includes("'AI not configured'"));
   ok('enhance route preserves the "AI enhancement failed" message', enhance.includes("'AI enhancement failed'"));
   ok('enhance route preserves the original-content fallback', /result\.text \|\| content/.test(enhance));

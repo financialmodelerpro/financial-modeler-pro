@@ -13,24 +13,32 @@
  *   429 rate_limit_error     -> rate limited
  *   402 / credit             -> billing or quota exhausted
  *
- * The key is read from process.env.ANTHROPIC_API_KEY, which is exactly where
- * the one existing AI route (app/api/admin/newsletter/enhance) reads it, so a
- * pass here proves that route's path works too.
+ * The key is read from process.env.ANTHROPIC_API_KEY, the same variable
+ * `runAi()` reads (src/shared/ai/client.ts is the single place the platform
+ * constructs an SDK client), and the model comes from that same config via
+ * DEFAULT_AI_MODEL. So this script tests the real configuration rather than a
+ * private copy of it, and cannot report a failure the platform would not have.
  *
  * Usage:
  *   npx tsx --env-file=.env.local scripts/diagnose_anthropic_key.ts [model]
  *
- * The key must be present locally to run this. It currently lives only in the
- * Vercel project env, so either paste it into .env.local or run `vercel env
- * pull` first.
+ * The key must be present locally to run this. As of 2026-08-01 `.env.local`
+ * has ANTHROPIC_API_KEY present but EMPTY, so the script exits 2 (cannot test)
+ * rather than making a call; the working key lives in the Vercel project env.
+ * Paste it into .env.local or run `vercel env pull` to test locally.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { DEFAULT_AI_MODEL } from '../src/shared/ai/models';
 
-// Matches the model string the existing newsletter-enhance route uses, so the
-// test exercises the real configuration rather than a guess.
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
-const model = process.argv[2] ?? DEFAULT_MODEL;
+// IMPORTED, never restated. This script used to pin its own copy of a model id
+// ('claude-sonnet-4-20250514'), which was retired on 2026-06-15 and now 404s,
+// so running the script against a perfectly good key reported a failure and
+// read as a key problem. A diagnostic that can invent its own failure is worse
+// than no diagnostic. Reading DEFAULT_AI_MODEL from the AI client's own config
+// means this test always exercises the model the platform actually calls, and
+// a model change stays a one-line edit in one place.
+const model = process.argv[2] ?? DEFAULT_AI_MODEL;
 
 async function main() {
   const key = process.env.ANTHROPIC_API_KEY ?? '';
@@ -78,7 +86,7 @@ async function main() {
     console.log('  message       :', message);
     const hint =
       status === 401 ? 'Key is wrong, revoked, or from a different org. Re-copy it from the Anthropic console.'
-      : status === 404 ? `Model "${model}" is not available to this org. Try another model id.`
+      : status === 404 ? `Model "${model}" is not available to this org (or has been retired). This is a MODEL problem, not a key problem: the key authenticated. Check DEFAULT_AI_MODEL in src/shared/ai/models.ts, or the ANTHROPIC_MODEL env override.`
       : status === 429 ? 'Rate limited. Retry shortly.'
       : status === 400 ? 'Malformed request (model id or params).'
       : /credit|billing|quota/i.test(message) ? 'Billing or credit problem on the Anthropic account.'
