@@ -39,6 +39,44 @@ import { findNarrativeTargets, type NarrativeTarget } from '../../../lib/reports
 import { IC_NARRATIVE_FIELDS, type IcNarrativeFieldKey } from '../../../lib/ai/icNarrative';
 import { generateIcNarrative } from '../../../lib/persistence/client';
 
+/**
+ * Containment for the whole AI section.
+ *
+ * The Presentation tab is the product; AI drafting is an accessory on it. So the
+ * accessory is not allowed to take the tab down under any circumstances: if
+ * anything inside this subtree throws while rendering, the section disappears
+ * and the deck editor carries on. The user loses a button, not their work.
+ *
+ * A class component because that is still the only way to catch a render error
+ * in a subtree. It renders NOTHING on failure rather than an error box: the
+ * section is optional, and a red panel where a Generate button used to be would
+ * read as "the deck is broken" when the deck is fine.
+ *
+ * The error is logged, always, so a failure is visible in the console and in
+ * session replay rather than silently swallowed.
+ */
+export class NarrativeAiBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error('[ic-narrative-ui] the AI drafting section failed and was hidden:', error, info.componentStack);
+  }
+
+  render(): React.ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 export interface NarrativeAiStatus {
   available: boolean;
   blockedReason: string | null;

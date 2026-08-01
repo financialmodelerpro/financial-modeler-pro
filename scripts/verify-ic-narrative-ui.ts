@@ -382,6 +382,73 @@ async function main() {
   const getBlock = route.slice(route.indexOf('export async function GET'), route.indexOf('export async function POST'));
   ok('the GET handler makes no AI call', !/runAi|generateIcNarrative/.test(getBlock));
 
+  // ── 10b. Containment: the AI section cannot take the tab down ────────────
+  //
+  // Added after a live 500 on the Presentation tab. Whatever the cause turns
+  // out to be, an accessory on the tab must never be able to break the tab, so
+  // the properties below are pinned rather than assumed.
+  {
+    const shellRaw = read(SHELL_REL);
+    ok('the AI section is wrapped in an error boundary', /<NarrativeAiBoundary>/.test(shellRaw));
+    ok('the review modal is wrapped too', (shellRaw.match(/<NarrativeAiBoundary>/g) ?? []).length >= 2,
+      `found ${(shellRaw.match(/<NarrativeAiBoundary>/g) ?? []).length}`);
+    ok('the boundary renders nothing on failure, not an error box',
+      /this\.state\.failed \? null : this\.props\.children/.test(code(UI_REL)));
+    ok('a boundary failure is logged rather than swallowed',
+      /componentDidCatch[\s\S]{0,300}console\.error/.test(code(UI_REL)));
+
+    // The status fetch must fail soft: any failure resolves to a null status,
+    // which hides the section. A throw escaping that effect would surface in
+    // the tab.
+    ok('the status fetch is wrapped in try/catch',
+      /try \{[\s\S]{0,400}getIcNarrativeStatus[\s\S]{0,400}\} catch/.test(code(SHELL_REL)));
+    ok('a failed status fetch sets null rather than leaving stale state',
+      /catch[\s\S]{0,220}setAiStatus\(null\)/.test(code(SHELL_REL)));
+
+    // Why the client-side boundary is sufficient: the AI section never renders
+    // on the server, because the shell returns early while the deck is null and
+    // the deck arrives from an effect.
+    ok('the shell returns early while the deck is null', /if \(!deck\) return </.test(code(SHELL_REL)));
+    ok('the AI section sits after that guard',
+      code(SHELL_REL).indexOf('if (!deck) return <') < code(SHELL_REL).indexOf('<NarrativeAiBoundary>'));
+
+    // The segment must never be statically prerendered: it is per-user.
+    const layout = read('app/refm/layout.tsx');
+    ok('the /refm segment is explicitly dynamic', /export const dynamic = 'force-dynamic'/.test(layout));
+    ok('the layout reads the session, which is why it must be dynamic', /getServerSession/.test(layout));
+  }
+
+  // ── 10c. NO HOOK AFTER AN EARLY RETURN. The regression guard. ────────────
+  //
+  // This is the check that would have caught the live 500. Unit 8 added a
+  // useCallback BELOW the component's early returns (no project / loading / no
+  // model / no deck). On the first render the component bailed at `loading` and
+  // never reached it; once the deck loaded it did, so React counted one more
+  // hook than the render before and threw "Rendered more hooks than during the
+  // previous render", killing the whole Presentation tab. It fired whether the
+  // AI feature was on or off, because the hook ran regardless of the feature.
+  //
+  // ESLint's rules-of-hooks catches this too, and did. It is pinned here as
+  // well because this file is the one a future AI unit will edit, and a lint
+  // error is easy to scroll past where a failing verifier is not.
+  {
+    const src = read(SHELL_REL);
+    const start = src.indexOf('export default function Module7Deck');
+    ok('the deck component was found', start > 0);
+    // The component body ends where the next top-level declaration begins.
+    const after = src.slice(start);
+    const endRel = after.slice(1).search(/\n(?:function|const|export) [A-Za-z]/);
+    const body = endRel > 0 ? after.slice(0, endRel + 1) : after;
+
+    const firstGuard = body.search(/\n {2}if \(![A-Za-z]+\) return </);
+    ok('the component has early returns', firstGuard > 0);
+
+    const tail = body.slice(firstGuard);
+    const hooksAfter = [...tail.matchAll(/\b(useState|useEffect|useMemo|useCallback|useRef|useReducer|useContext)\s*\(/g)]
+      .map((m) => m[1]);
+    eq(`no React hook is called after an early return (found: ${hooksAfter.join(', ')})`, hooksAfter.length, 0);
+  }
+
   // ── 11. House style ──────────────────────────────────────────────────────
   for (const rel of [UI_REL, TARGETS_REL]) {
     ok(`${rel} carries no em dash`, !/[\u2014\u2015]/.test(read(rel)));

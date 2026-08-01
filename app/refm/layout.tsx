@@ -24,6 +24,22 @@ import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
  * This reuses the resolver + the pure decision (isNoPlanLockedOut) so direct-URL
  * gating and the dashboard cards agree. No gate logic is duplicated.
  */
+/**
+ * Never statically prerendered.
+ *
+ * This segment is per-user by definition: the layout reads the session and the
+ * live entitlement gate, and the workspace inside it reads per-user data
+ * including the AI quota. Reading a cookie already forces dynamic rendering, so
+ * the build has always shown this route as dynamic and this export changes
+ * nothing today. It is here so it STAYS that way: if the session read above ever
+ * moves or is refactored, the segment cannot silently become static and start
+ * serving one user's prerendered shell to everyone.
+ *
+ * The export lives in the layout, not the page: `page.tsx` is a client
+ * component, and route segment config is only honoured in a server file.
+ */
+export const dynamic = 'force-dynamic';
+
 export default async function RefmLayout({ children }: { children: React.ReactNode }) {
   await ensureNotComingSoon();
 

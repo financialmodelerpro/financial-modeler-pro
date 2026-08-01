@@ -42,7 +42,7 @@ import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
 import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus } from '../../lib/persistence/client';
-import { NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
+import { NarrativeAiBoundary, NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
 import { buildNarrativePatch } from '../../lib/reports/deck/narrativeTargets';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
 import type { Party } from '../../lib/parties';
@@ -179,12 +179,23 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       setDeck(dr.data?.deck ?? null);
       setPast([]); setFuture([]);
       setLoading(false);
-      // AI status last and unawaited by the rest: the deck must render whether
-      // or not the AI feature is reachable, so a slow or failing status call can
-      // never hold up the editor. A null status simply hides the buttons.
-      const ai = await getIcNarrativeStatus(activeProjectId);
-      if (!alive) return;
-      setAiStatus(ai.data ?? null);
+      // AI status last, and FAIL SOFT.
+      //
+      // The deck must render whether or not the AI feature is reachable, so
+      // every failure mode here resolves to a null status, which hides the AI
+      // section and leaves the editor untouched. The try/catch is not
+      // redundant with the client wrapper's own error handling: the wrapper
+      // returns an error result for a non-OK response, but a rejected promise
+      // from anywhere in that chain would otherwise escape this effect and
+      // surface as an unhandled error in the tab.
+      try {
+        const ai = await getIcNarrativeStatus(activeProjectId);
+        if (!alive) return;
+        setAiStatus(ai.data ?? null);
+      } catch (err) {
+        console.error('[ic-narrative-ui] AI status could not be read; the AI section stays hidden:', err);
+        if (alive) setAiStatus(null);
+      }
     })();
     return () => { alive = false; };
   }, [activeProjectId]);
@@ -372,7 +383,16 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
    * persisted until Save, which is what keeps "never auto-saved" true all the
    * way to the database.
    */
-  const applyNarrativeDrafts = useCallback((drafts: NarrativeDraft[]) => {
+  //
+  // NOT a hook, deliberately. This sits AFTER the early returns above (no
+  // project / loading / no model / no deck), and a useCallback here runs on
+  // some renders and not others, so React counts a different number of hooks
+  // once the deck finishes loading and throws "Rendered more hooks than during
+  // the previous render". That crashed the whole Presentation tab in
+  // production, with the AI feature switched OFF, because the hook ran
+  // regardless of the feature. A plain function has no hook order to get wrong,
+  // and it matches applyObjectPatch directly above.
+  const applyNarrativeDrafts = (drafts: NarrativeDraft[]) => {
     if (!drafts.length) return;
     commit((d) => drafts.reduce((acc, draft) => {
       const slide = acc.slides.find((s) => s.id === draft.target.slideId);
@@ -384,7 +404,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     setNotice(drafts.length === 1
       ? `Applied the ${drafts[0].label.toLowerCase()} draft. Save to keep it.`
       : `Applied ${drafts.length} drafts. Save to keep them.`);
-  }, [commit]);
+  };
 
   return (
     <div data-testid="module7-deck" style={{ display: 'grid', gridTemplateColumns: '214px 1fr 288px', height: 'calc(100vh - 190px)', minHeight: 560, background: DECK_THEME.offWhite, borderTop: `1px solid ${DECK_THEME.rule}` }}>
@@ -499,7 +519,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
             so it stays reachable while an object is selected. Selecting a
             narrative block highlights its row rather than hiding the list. */}
         {model && !presentMode ? (
-          <>
+          <NarrativeAiBoundary>
             <SectionLabel>AI drafting</SectionLabel>
             <NarrativeAiPanel
               projectId={activeProjectId ?? ''}
@@ -512,7 +532,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
               onDrafts={(d) => setAiDrafts((cur) => [...cur.filter((c) => !d.some((x) => x.field === c.field)), ...d])}
               onNotice={setNotice}
             />
-          </>
+          </NarrativeAiBoundary>
         ) : null}
 
         <PropertiesPanel
@@ -525,11 +545,13 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
       {/* The review step. A draft reaches a slide only through here. */}
       {aiDrafts.length ? (
-        <NarrativeReviewModal
-          drafts={aiDrafts}
-          onApply={applyNarrativeDrafts}
-          onClose={() => setAiDrafts([])}
-        />
+        <NarrativeAiBoundary>
+          <NarrativeReviewModal
+            drafts={aiDrafts}
+            onApply={applyNarrativeDrafts}
+            onClose={() => setAiDrafts([])}
+          />
+        </NarrativeAiBoundary>
       ) : null}
     </div>
   );
