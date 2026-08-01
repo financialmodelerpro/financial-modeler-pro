@@ -12,12 +12,18 @@
  * bypasses it), so the application layer is the actual access boundary.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
 import type {
   RefmProjectRow,
   RefmProjectVersionRow,
   RefmProjectVersionListItem,
 } from './types';
+
+// The list helpers take an optional trailing client so a verifier can run
+// them against an in-memory fake that reproduces PostgREST's row cap.
+// Production call sites pass nothing and get the real server client.
+type Db = SupabaseClient;
 
 const PROJECT_COLS_BASE =
   'id, user_id, name, location, status, asset_mix, schema_version, current_version_id, created_at, updated_at';
@@ -115,26 +121,90 @@ function decorateVersionRow<T extends Record<string, unknown>>(row: T | null): T
 }
 
 // ── refm_projects ───────────────────────────────────────────────────────────
-// Returns project rows decorated with `version_count` (computed via a
-// second query). Two round-trips per page render is acceptable; the
-// alternative (denormalized version_count column on refm_projects with
-// trigger upkeep) is more moving parts than the picker UX warrants.
-export async function listProjects(userId: string): Promise<{
+// Page size for every walked read. PostgREST's default `max-rows` is 1000,
+// so a page larger than this is silently truncated to 1000 and the walk
+// would stop early believing it had reached the end.
+const PAGE_SIZE = 1000;
+const PROJECT_HARD_CAP = 10_000;
+
+async function listProjectRowsPaginated(
+  sb: Db,
+  userId: string,
+  cols: string,
+): Promise<{ rows: Array<Record<string, unknown>>; error: { message: string; code?: string | null } | null }> {
+  const out: Array<Record<string, unknown>> = [];
+  let from = 0;
+  while (from < PROJECT_HARD_CAP) {
+    const { data, error } = await sb
+      .from('refm_projects')
+      .select(cols)
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return { rows: out, error };
+    const page = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    out.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return { rows: out, error: null };
+}
+
+// Counts versions per project with one EXACT head count per project.
+//
+// 2026-08-01 correctness fix. This used to be a single unbounded
+// `select('project_id').in('project_id', ids)` whose row count WAS the
+// answer, which meant PostgREST's 1000-row cap silently became the
+// answer instead: on the live database (1,399 version rows for one user,
+// 1,397 of them on a single project) the picker rendered ~1,000 versions
+// for a project that has 1,397. `head: true` returns NO rows, so the cap
+// cannot apply, and `count: 'exact'` is computed by Postgres itself.
+// Round trips are per project (bounded by the entitlement project cap)
+// and run in parallel batches, and each transfers an empty body.
+const COUNT_CONCURRENCY = 8;
+
+async function countVersionsByProject(
+  sb: Db,
+  projectIds: string[],
+): Promise<{ counts: Record<string, number>; error: string | null }> {
+  const counts: Record<string, number> = {};
+  for (let i = 0; i < projectIds.length; i += COUNT_CONCURRENCY) {
+    const batch = projectIds.slice(i, i + COUNT_CONCURRENCY);
+    const results = await Promise.all(batch.map(async (projectId) => {
+      const { count, error } = await sb
+        .from('refm_project_versions')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId);
+      return { projectId, count: count ?? 0, error: error?.message ?? null };
+    }));
+    for (const r of results) {
+      if (r.error) return { counts, error: r.error };
+      counts[r.projectId] = r.count;
+    }
+  }
+  return { counts, error: null };
+}
+
+// Returns project rows decorated with `version_count` (computed via
+// separate exact counts). The extra round-trips per page render are
+// acceptable; the alternative (denormalized version_count column on
+// refm_projects with trigger upkeep) is more moving parts than the
+// picker UX warrants.
+export async function listProjects(userId: string, sb: Db = getServerClient()): Promise<{
   rows: Array<RefmProjectRow & { version_count: number }>;
   error: string | null;
 }> {
-  const sb = getServerClient();
-  let data: unknown[] | null = null;
+  let data: Array<Record<string, unknown>> | null = null;
   if (archivedApplied !== false) {
-    const r = await sb.from('refm_projects').select(PROJECT_COLS_FULL).eq('user_id', userId).order('updated_at', { ascending: false });
-    if (!r.error) { archivedApplied = true; data = r.data as unknown[]; }
+    const r = await listProjectRowsPaginated(sb, userId, PROJECT_COLS_FULL);
+    if (!r.error) { archivedApplied = true; data = r.rows; }
     else if (!isMissingColumnError(r.error)) { return { rows: [], error: r.error.message }; }
     else { archivedApplied = false; }
   }
   if (data === null) {
-    const r = await sb.from('refm_projects').select(PROJECT_COLS_BASE).eq('user_id', userId).order('updated_at', { ascending: false });
+    const r = await listProjectRowsPaginated(sb, userId, PROJECT_COLS_BASE);
     if (r.error) return { rows: [], error: r.error.message };
-    data = (r.data as unknown[]).map((row) => decorateProjectRow(row as Record<string, unknown>));
+    data = r.rows.map((row) => decorateProjectRow(row)) as Array<Record<string, unknown>>;
   }
 
   const projects = (data ?? []) as unknown as RefmProjectRow[];
@@ -142,17 +212,8 @@ export async function listProjects(userId: string): Promise<{
     return { rows: [], error: null };
   }
 
-  const projectIds = projects.map(p => p.id);
-  const { data: countRows, error: countErr } = await sb
-    .from('refm_project_versions')
-    .select('project_id')
-    .in('project_id', projectIds);
-  if (countErr) return { rows: [], error: countErr.message };
-
-  const counts: Record<string, number> = {};
-  for (const r of (countRows ?? []) as Array<{ project_id: string }>) {
-    counts[r.project_id] = (counts[r.project_id] ?? 0) + 1;
-  }
+  const { counts, error: countErr } = await countVersionsByProject(sb, projects.map(p => p.id));
+  if (countErr) return { rows: [], error: countErr };
 
   return {
     rows: projects.map(p => ({ ...p, version_count: counts[p.id] ?? 0 })),
@@ -323,14 +384,14 @@ export async function getLatestVersion(
 // the page comes back full so genuinely huge histories still surface
 // every row. The order remains version_number DESC so newest-first
 // rendering in VersionModal is unchanged.
-const VERSION_PAGE_SIZE = 1000;
+const VERSION_PAGE_SIZE = PAGE_SIZE;
 const VERSION_HARD_CAP  = 50_000;
 
 async function listVersionsPaginated(
+  sb: Db,
   projectId: string,
   cols: string,
 ): Promise<{ rows: Array<Record<string, unknown>>; error: string | null }> {
-  const sb = getServerClient();
   const out: Array<Record<string, unknown>> = [];
   let from = 0;
   // Pull pages of VERSION_PAGE_SIZE until the response comes back
@@ -354,9 +415,10 @@ async function listVersionsPaginated(
 
 export async function listVersions(
   projectId: string,
+  sb: Db = getServerClient(),
 ): Promise<{ rows: RefmProjectVersionListItem[]; error: string | null }> {
   if (m152Applied !== false) {
-    const { rows, error } = await listVersionsPaginated(projectId, VERSION_LIST_COLS_FULL);
+    const { rows, error } = await listVersionsPaginated(sb, projectId, VERSION_LIST_COLS_FULL);
     if (!error) {
       m152Applied = true;
       return { rows: rows as unknown as RefmProjectVersionListItem[], error: null };
@@ -366,7 +428,7 @@ export async function listVersions(
     }
     m152Applied = false;
   }
-  const { rows, error } = await listVersionsPaginated(projectId, VERSION_LIST_COLS_BASE);
+  const { rows, error } = await listVersionsPaginated(sb, projectId, VERSION_LIST_COLS_BASE);
   if (error) return { rows: [], error };
   return {
     rows: rows.map((r) => decorateVersionRow(r)) as unknown as RefmProjectVersionListItem[],

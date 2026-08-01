@@ -50,11 +50,15 @@ Verified, not suspected: `app/` is the project source root and there is no `src/
 
 ---
 
-## FLAG FOR REVIEW, `refm_project_versions` exceeds the PostgREST 1000-row cap (2026-07-30, CORRECTNESS)
+## RESOLVED, `refm_project_versions` exceeds the PostgREST 1000-row cap (raised 2026-07-30, FIXED 2026-08-01)
 
-The table holds **1,399 rows**; an unbounded `select('*')` returns exactly **1,000** (18.9 MB) and silently drops the rest. PostgREST caps at 1000 by default and does not error. Any read in `src/hubs/modeling/platforms/refm/lib/persistence/server.ts` (11 query sites) that lacks an explicit `.range()` is already losing 399 rows.
+The table holds **1,399 rows** and an unbounded `select` returns exactly **1,000** with a 200, silently dropping the rest.
 
-This is a data-correctness bug, not a perf issue, and it grows. Audit each site and paginate the ones that must return everything (see the `paginate-large-tables` pattern). Not attempted yet; out of scope of the 2026-07-30 perf pass.
+**Audit of all 11 query sites in `src/hubs/modeling/platforms/refm/lib/persistence/server.ts` (2026-08-01):** ten were already bounded (`.maybeSingle()` / `.limit(1)` / the `listVersionsPaginated` range-walk added by the 2026-05-31 hotfix, plus the write paths). Exactly **one** was unbounded: the `version_count` aggregation in `listProjects`, which pulled `select('project_id').in('project_id', ids)` and used the returned array's LENGTH as the count. The row count being the answer meant the cap became the answer: the live user's project with 1,397 versions rendered as ~1,000 in the picker tile.
+
+**No version was ever lost from history.** The version list itself (`listVersions` -> VersionModal / ExportModal) walks pages of 1000 and was verified live to return all 1,397 rows, oldest (v1) included. The damage was confined to the displayed count.
+
+**Fix:** counting now uses one `count: 'exact', head: true` query per project (head returns no rows, so no cap can apply, and Postgres computes the count), run in parallel batches of 8; the project list itself is now walked with `.range()` too, for symmetry with the version walk. Live proof after the fix: `version_count=1397` / `listVersions rows=1397 min=1 max=1397 distinct=1397`. New verifier **`verify-refm-version-reads` 46**, half structural (every query site must carry an explicit bound) and half behavioural (an in-memory fake that truncates at 1000 exactly like PostgREST); proven to have teeth, restoring the old counting logic fails 6 checks including the 1,000-vs-1,397 case.
 
 ---
 
