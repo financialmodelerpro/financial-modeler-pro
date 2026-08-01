@@ -148,6 +148,9 @@ function fakeDeps(opts: {
     // fakes must answer it. Left to the real implementation it reads the local
     // (empty) key and refuses every generation before the interesting part.
     configured: () => opts.configured !== false,
+    // Unit 9: a failed generation refunds the credit. The fake records it so the
+    // Unit 7 checks keep working and the call is observable.
+    refund: async () => ({ refunded: true as const, used: 0 }),
     ensure: async () => { opts.calls.ensure++; return true; },
     meter: async () => {
       opts.calls.meter++;

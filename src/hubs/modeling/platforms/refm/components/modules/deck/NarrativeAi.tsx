@@ -37,7 +37,7 @@ import { DECK_THEME } from '../../../lib/reports/deck/theme';
 import type { Deck } from '../../../lib/reports/deck/types';
 import { findNarrativeTargets, type NarrativeTarget } from '../../../lib/reports/deck/narrativeTargets';
 import { IC_NARRATIVE_FIELDS, type IcNarrativeFieldKey } from '../../../lib/ai/icNarrative';
-import { generateIcNarrative } from '../../../lib/persistence/client';
+import { generateIcNarrative, getIcNarrativeStatus } from '../../../lib/persistence/client';
 
 /**
  * Containment for the whole AI section.
@@ -192,6 +192,16 @@ export function NarrativeAiPanel({
     });
     if (res.error || !res.data) {
       onNotice(res.error ?? 'The draft could not be generated.');
+      // A failed generation is REFUNDED server-side (migration 206), so the
+      // allowance the user sees must go back up. Rather than trust a number
+      // carried in an error body, re-read the same status endpoint the panel
+      // was seeded from: it is the authoritative count, and it is right whether
+      // the refund succeeded, silently failed, or was never installed. One
+      // cheap read, on a failure path only.
+      const fresh = await getIcNarrativeStatus(projectId);
+      if (fresh.data) {
+        onStatusRefresh({ used: fresh.data.used, cap: fresh.data.cap, remaining: fresh.data.remaining });
+      }
       return null;
     }
     // The meter reading comes back from the SERVER on every generation, so the

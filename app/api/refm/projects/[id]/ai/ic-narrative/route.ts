@@ -188,6 +188,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       reason: result.reason,
       ...(result.stage === 'metering' ? { cap: result.cap, planKey: result.planKey } : {}),
       ...(result.stage === 'ai' ? { retryable: result.retryable } : {}),
+      // The refund report travels with the failure so the quota display can
+      // show the RESTORED number instead of assuming either way.
+      ...((result.stage === 'ai' || result.stage === 'empty') && result.refund ? { refund: result.refund } : {}),
     }, { status: result.status });
   }
 

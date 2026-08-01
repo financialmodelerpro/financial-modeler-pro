@@ -25,7 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { checkAndConsume, currentPeriodStart, meterDenyStatus } from '../src/shared/ai/metering';
+import { checkAndConsume, currentPeriodStart, meterDenyStatus, refundAiUsage } from '../src/shared/ai/metering';
 import { registerAiFeature } from '../src/shared/ai/registry';
 import { setAiFeatureCaps, setAiFeatureEnabled } from '../src/shared/ai/registryAdmin';
 import { loadAiUsage } from '../src/shared/ai/usage';
@@ -93,6 +93,18 @@ function fakeClient(db: FakeDb): any {
     },
     // Mirrors migration 205's ai_usage_consume exactly.
     rpc(name: string, args: any) {
+      // Mirrors migration 206's ai_usage_refund: one update, floored at zero,
+      // never creates a row.
+      if (name === 'ai_usage_refund') {
+        if (db.rpcBroken || db.tables.ai_usage_counters === undefined) {
+          return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.ai_usage_refund' } });
+        }
+        const { p_user, p_feature, p_period } = args;
+        const row = db.tables.ai_usage_counters!.find((r) => r.user_id === p_user && r.ai_feature_id === p_feature && r.period_start === p_period);
+        if (!row) return Promise.resolve({ data: null, error: null });
+        row.used = Math.max((row.used as number) - 1, 0);
+        return Promise.resolve({ data: row.used, error: null });
+      }
       if (name !== 'ai_usage_consume') return Promise.resolve({ data: null, error: { message: `unknown function ${name}` } });
       if (db.rpcBroken || db.tables.ai_usage_counters === undefined) {
         return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.ai_usage_consume' } });
@@ -269,8 +281,108 @@ async function main() {
   ok('the function is not callable by anon or authenticated',
     /REVOKE ALL ON FUNCTION ai_usage_consume[\s\S]{0,200}anon/.test(sql));
 
+  // ── 8. REFUND: a failed generation must not cost quota (migration 206) ────
+  //
+  // Consume happens BEFORE the call, which is correct for concurrency, so the
+  // other half is giving the credit back when the call produced nothing. These
+  // checks prove the counting, and the SQL assertions prove the atomicity,
+  // which is a property of the statement and cannot be shown by a JS fake.
+  {
+    const refundSql = read('supabase/migrations/206_ai_usage_refund.sql');
+
+    ok('the refund is ONE update statement, not read-modify-write',
+      /UPDATE ai_usage_counters[\s\S]{0,300}RETURNING used INTO v_used/.test(refundSql));
+    ok('and there is no SELECT of the count before it',
+      !/SELECT[\s\S]{0,120}used[\s\S]{0,120}FROM ai_usage_counters/i.test(refundSql));
+    ok('the refund floors at zero so it cannot break the CHECK',
+      /GREATEST\(ai_usage_counters\.used - 1, 0\)/.test(refundSql));
+    ok('the refund never creates a counter row', !/INSERT INTO ai_usage_counters/.test(refundSql));
+    ok('the refund is scoped to one user, feature and period',
+      /WHERE user_id = p_user[\s\S]{0,160}ai_feature_id = p_feature[\s\S]{0,160}period_start = p_period/.test(refundSql));
+    ok('the refund function is not callable by anon or authenticated',
+      /REVOKE ALL ON FUNCTION ai_usage_refund[\s\S]{0,220}anon/.test(refundSql));
+    ok('migration 206 is additive', !/DROP |TRUNCATE|DELETE FROM|ALTER TABLE/i.test(refundSql));
+
+    // Behaviour, against the same in-memory fake.
+    const db = freshDb();
+    db.tables.ai_usage_counters = [];
+    const sb = fakeClient(db);
+    const U = 'user-refund';
+    const F = 'feature-row-1';
+    const P = '2026-08-01';
+    const countOf = () => (db.tables.ai_usage_counters ?? []).find(
+      (r: any) => r.user_id === U && r.ai_feature_id === F && r.period_start === P,
+    )?.used ?? null;
+
+    // Consume three, refund one: the arithmetic has to land exactly.
+    for (let i = 0; i < 3; i++) await sb.rpc('ai_usage_consume', { p_user: U, p_feature: F, p_period: P, p_cap: 10 });
+    eq('three generations consumed', countOf(), 3);
+
+    const r1 = await refundAiUsage({ userId: U, featureRowId: F, periodStart: P, sb: sb as any });
+    eq('a refund reports success', r1.refunded, true);
+    eq('and returns the new count', r1.refunded === true ? r1.used : null, 2);
+    eq('the counter went down by exactly one', countOf(), 2);
+
+    // A refund never drives the counter negative, however many arrive.
+    for (let i = 0; i < 6; i++) await refundAiUsage({ userId: U, featureRowId: F, periodStart: P, sb: sb as any });
+    eq('over-refunding floors at zero rather than going negative', countOf(), 0);
+
+    // Interleaved consumes and refunds settle at the right number. This is the
+    // closest a single-threaded fake gets to concurrency: the calls are started
+    // together and resolve through the same row.
+    await Promise.all([
+      sb.rpc('ai_usage_consume', { p_user: U, p_feature: F, p_period: P, p_cap: 10 }),
+      sb.rpc('ai_usage_consume', { p_user: U, p_feature: F, p_period: P, p_cap: 10 }),
+      sb.rpc('ai_usage_consume', { p_user: U, p_feature: F, p_period: P, p_cap: 10 }),
+      sb.rpc('ai_usage_consume', { p_user: U, p_feature: F, p_period: P, p_cap: 10 }),
+    ]);
+    eq('four concurrent consumes all counted', countOf(), 4);
+    await Promise.all([
+      refundAiUsage({ userId: U, featureRowId: F, periodStart: P, sb: sb as any }),
+      refundAiUsage({ userId: U, featureRowId: F, periodStart: P, sb: sb as any }),
+    ]);
+    eq('two concurrent refunds both counted, none lost', countOf(), 2);
+
+    // A period with no row: nothing to give back, and nothing invented.
+    const other = await refundAiUsage({ userId: U, featureRowId: F, periodStart: '2026-07-01', sb: sb as any });
+    eq('refunding a period that was never consumed refunds nothing', other.refunded, false);
+    eq('and says why', other.refunded === false ? other.reason : null, 'no_row');
+    eq('and creates no row for that period', (db.tables.ai_usage_counters ?? []).length, 1);
+
+    // Before migration 206 is applied, the refund reports it and never throws.
+    const noFn = fakeClient(freshDb());
+    (noFn as any).rpc = (name: string) => Promise.resolve(
+      name === 'ai_usage_refund'
+        ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.ai_usage_refund' } }
+        : { data: 1, error: null },
+    );
+    const pre = await refundAiUsage({ userId: U, featureRowId: F, periodStart: P, sb: noFn as any });
+    eq('with migration 206 unapplied the refund reports not_installed',
+      pre.refunded === false ? pre.reason : null, 'not_installed');
+
+    // The consume decision must carry what the refund needs.
+    ok('an allowed decision carries the feature row id to refund against',
+      /featureRowId: feature\.id/.test(meteringCode));
+    ok('the refund takes the period it was charged to, not a fresh one',
+      /periodStart: string/.test(meteringCode) && !/currentPeriodStart\(\)[\s\S]{0,80}refund/i.test(meteringCode));
+
+    // The service must refund on failure and NOT on success.
+    const svc = code(read('src/hubs/modeling/platforms/refm/lib/ai/icNarrativeService.ts'));
+    ok('the service refunds when the AI call fails',
+      /if \(!result\.ok\) \{[\s\S]{0,600}giveBack\(\)/.test(svc));
+    ok('the service refunds when the draft comes back empty',
+      /!shaped\.text\.trim\(\)[\s\S]{0,300}giveBack\(\)/.test(svc));
+    ok('the service refunds the exact counter it consumed',
+      /featureRowId: decision\.featureRowId[\s\S]{0,120}periodStart: decision\.periodStart/.test(svc));
+    const successTail = svc.slice(svc.indexOf('return {\n    ok: true'));
+    ok('a SUCCESSFUL generation does not refund', !/giveBack/.test(successTail));
+    ok('a flagged audit is not treated as a failure',
+      !/audit\.ok[\s\S]{0,200}giveBack/.test(svc));
+  }
+
   const EM = String.fromCharCode(0x2014);
   for (const [n, s] of [['metering.ts', metering], ['205 migration', sql], ['enhance route', route],
+    ['206 migration', read('supabase/migrations/206_ai_usage_refund.sql')],
     ['usage.ts', read('src/shared/ai/usage.ts')], ['features.ts', read('src/shared/ai/features.ts')],
     ['verify-ai-metering.ts', read('scripts/verify-ai-metering.ts')]] as const) {
     ok(`${n} contains no em dashes`, !s.includes(EM));

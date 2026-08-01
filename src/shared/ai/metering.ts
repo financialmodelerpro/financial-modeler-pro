@@ -62,7 +62,19 @@ export type MeterDenyReason =
   | 'unavailable';
 
 export type MeterDecision =
-  | { allowed: true; used: number; cap: number; remaining: number; planKey: string; periodStart: string }
+  | {
+      allowed: true;
+      used: number;
+      cap: number;
+      remaining: number;
+      planKey: string;
+      periodStart: string;
+      /** The ai_features ROW id this credit was charged against. Carried so a
+       *  caller can refund the exact counter it consumed without re-resolving
+       *  the feature, which could return a different row if the registry
+       *  changed between the two calls. */
+      featureRowId: string;
+    }
   | { allowed: false; reason: MeterDenyReason; message: string; cap: number | null; planKey: string | null };
 
 /** First day of the current calendar month, UTC, as YYYY-MM-DD. The period key
@@ -175,7 +187,72 @@ export async function checkAndConsume(input: ConsumeInput): Promise<MeterDecisio
       cap, planKey);
   }
 
-  return { allowed: true, used, cap, remaining: Math.max(0, cap - used), planKey, periodStart };
+  return { allowed: true, used, cap, remaining: Math.max(0, cap - used), planKey, periodStart, featureRowId: feature.id };
+}
+
+export interface RefundInput {
+  userId: string;
+  /** The ai_features ROW id, as returned on an allowed decision. */
+  featureRowId: string;
+  /** The period the credit was consumed in. Pass the SAME periodStart the
+   *  decision returned, never a freshly computed one: a generation that starts
+   *  on the last second of the month must be refunded against the month it was
+   *  charged to, not the one it finished in. */
+  periodStart: string;
+  sb?: SupabaseClient;
+}
+
+export type RefundOutcome =
+  /** The counter was decremented. `used` is the new count. */
+  | { refunded: true; used: number }
+  /** Nothing was given back, and why. Never an error the caller must handle:
+   *  a refund runs on a path that is already failing, and a failed refund must
+   *  not become a second failure in front of the user. */
+  | { refunded: false; reason: 'no_row' | 'not_installed' | 'error' };
+
+/**
+ * Give one generation back after a call that failed.
+ *
+ * Called ONLY after checkAndConsume returned allowed, and only when the work
+ * that credit paid for did not happen. A successful generation keeps its count,
+ * including one whose draft came back audit-flagged: that draft is usable and
+ * the user received it.
+ *
+ * The concurrency guarantee is unchanged by this. The decision to allow is
+ * still made once, atomically, before anything is spent; this only reverses a
+ * spend that produced nothing. Switching to consume-after-success would be the
+ * dangerous change, because then two concurrent calls could both pass the check
+ * before either had incremented.
+ *
+ * Never throws. Migration-tolerant: before 206 is applied it reports
+ * not_installed and the caller carries on.
+ */
+export async function refundAiUsage(input: RefundInput): Promise<RefundOutcome> {
+  const sb = input.sb ?? getServerClient();
+
+  const res = await sb.rpc('ai_usage_refund', {
+    p_user: input.userId,
+    p_feature: input.featureRowId,
+    p_period: input.periodStart,
+  });
+
+  if (res.error) {
+    const missing = isMissing(res.error);
+    console.error('[ai-metering] refund failed:', {
+      featureRowId: input.featureRowId,
+      code: res.error.code,
+      message: res.error.message,
+      note: missing
+        ? 'migration 206 (ai_usage_refund) is not applied yet, so the credit stays spent'
+        : 'the credit stays spent',
+    });
+    return { refunded: false, reason: missing ? 'not_installed' : 'error' };
+  }
+
+  // NULL means no counter row matched, so there was nothing to give back.
+  if (typeof res.data !== 'number') return { refunded: false, reason: 'no_row' };
+
+  return { refunded: true, used: res.data };
 }
 
 /** HTTP status for a denial. 402 marks "upgrade to continue", which is what a

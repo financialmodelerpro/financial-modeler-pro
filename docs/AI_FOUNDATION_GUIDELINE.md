@@ -137,11 +137,12 @@ Future phases (categories 2-4) are scoped and added as new units when reached. T
 
   The related prompt rule, added at Unit 9: the model is told to **describe relationships in words rather than compute them** ("the levered return sits well above the unlevered one" instead of stating a difference it worked out). Most flags come from the model doing helpful arithmetic on two supplied figures, so this cuts them at the source rather than explaining them after the fact.
 
+- **Refunding a credit on a failed generation** (was open at Unit 9, BUILT 2026-08-01, migration 206). A generation that produces nothing does not cost quota. The credit is still consumed BEFORE the call, because consuming after success lets concurrent requests all pass the check first, so the concurrency guarantee is unchanged; the failure paths simply give it back through `ai_usage_refund()`, one atomic UPDATE floored at zero that never creates a row. Every AI failure refunds: out of credit, rate limit, timeout, network drop, refusal, unknown error, and a 200 that carried no usable text. A SUCCESS keeps its count, and so does a draft that came back audit-flagged, because the user received usable text and the warning is information about it, not a failure. The quota display re-reads the status endpoint after a failure so the restored number is the server's, not an assumption.
+
 ### Still open
 
 - **Market-data source** for category 2 (assumption validation): own benchmark dataset vs web search / external market-data API. Decided when category 2 is built. The foundation leaves room via the external grounding type.
 
-- **Refunding a credit on a deployment-level failure.** Metering consumes the credit before the call, which is correct for concurrency, but it means a failure that is our fault (no key, account out of credit, model retired) still costs the user one generation. Unit 9 removed the one case knowable for free: with no API key configured, the generation is refused BEFORE the meter and costs nothing. An account with no credit is only discoverable by calling, so that case still consumes one. A refund path would need a new `ai_usage_refund()` function and a migration; not built, because the state is transient and the alternative (consume after the call) reopens the concurrency hole. Revisit if it bites in practice.
 
 ---
 

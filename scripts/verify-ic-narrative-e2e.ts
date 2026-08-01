@@ -103,10 +103,11 @@ function buildState(): any {
   };
 }
 
-interface Calls { meter: number; run: number; ensure: number }
+interface Calls { meter: number; run: number; ensure: number; refund: number }
 function deps(o: { calls: Calls; allow?: boolean; reason?: any; text?: string; configured?: boolean; aiKind?: string }) {
   return {
     configured: () => o.configured !== false,
+    refund: async () => { o.calls.refund++; return { refunded: true as const, used: 0 }; },
     ensure: async () => { o.calls.ensure++; return true; },
     meter: async () => {
       o.calls.meter++;
@@ -139,7 +140,7 @@ async function main() {
 
   // ══ GUARDRAIL 1: the feature toggle gates generation, server-side ═════════
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({
       userId: 'u', field: 'executiveSummary', model,
       deps: deps({ calls, allow: false, reason: 'disabled' }) as any,
@@ -156,7 +157,7 @@ async function main() {
 
   // ══ GUARDRAIL 2: metering counts and the cap hard-stops, server-side ══════
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({
       userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, allow: false, reason: 'cap_reached' }) as any,
     });
@@ -165,7 +166,7 @@ async function main() {
     eq('and it maps to 402, the upgrade signal', res.status, 402);
   }
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({ userId: 'u', field: 'executiveSummary', model, deps: deps({ calls }) as any });
     eq('an allowed generation proceeds', res.ok, true);
     eq('exactly one credit was claimed', calls.meter, 1);
@@ -179,7 +180,7 @@ async function main() {
 
   // ══ GUARDRAIL 3: only real model numbers reach the prompt ════════════════
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     let captured: any = null;
     const d: any = deps({ calls });
     const inner = d.run;
@@ -207,7 +208,7 @@ async function main() {
     const invented = auditGroundedText('Comparable schemes trade at 8,750 per sqm.', [doc]);
     eq('an invented figure is caught', invented.ok, false);
 
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({
       userId: 'u', field: 'executiveSummary', model,
       deps: deps({ calls, text: 'The scheme benchmarks at 9,412 per sqm against its peers.' }) as any,
@@ -318,7 +319,7 @@ async function main() {
 
   // ══ GUARDRAIL 9: a deployment failure does not silently cost a credit ════
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({
       userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, configured: false }) as any,
     });
@@ -328,7 +329,7 @@ async function main() {
     ok('and the message says the allowance was not used', /no ai allowance was used/i.test(res.message));
   }
   {
-    const calls: Calls = { meter: 0, run: 0, ensure: 0 };
+    const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
     const res: any = await generateIcNarrative({
       userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, aiKind: 'insufficient_credit' }) as any,
     });
@@ -342,6 +343,78 @@ async function main() {
     ok('the client classifies an out-of-credit 400 distinctly', /insufficient_credit/.test(client));
     ok('and still falls back to bad_request if the wording changes',
       client.indexOf('insufficient_credit') < client.indexOf("kind: 'bad_request'"));
+  }
+
+  // ══ GUARDRAIL 9b: a failed generation does not cost quota (migration 206) ══
+  //
+  // The credit is consumed before the call for concurrency reasons, so the
+  // other half is giving it back whenever the call produced nothing. Every
+  // failure mode is exercised: an out-of-credit account, a rate limit, a
+  // timeout, a network drop, and a 200 that carried no usable text.
+  {
+    for (const kind of ['insufficient_credit', 'rate_limit', 'network', 'server', 'unknown', 'refusal']) {
+      const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
+      const res: any = await generateIcNarrative({
+        userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, aiKind: kind }) as any,
+      });
+      eq(`a ${kind} failure refuses`, res.ok, false);
+      eq(`a ${kind} failure consumed one credit`, calls.meter, 1);
+      eq(`and refunded it`, calls.refund, 1);
+      eq(`and reports the refund to the caller`, res.refund?.refunded, true);
+    }
+
+    // A 200 with nothing usable in it is still a failure for the user.
+    {
+      const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
+      const res: any = await generateIcNarrative({
+        userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, text: '   ' }) as any,
+      });
+      eq('an empty draft refuses', res.stage, 'empty');
+      eq('and the credit is refunded', calls.refund, 1);
+      ok('and the message says the allowance was not used', /allowance has not been used/i.test(res.message));
+    }
+
+    // A SUCCESS keeps its count. This is the other half of the rule and the one
+    // that would quietly make the cap meaningless if it broke.
+    {
+      const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
+      const res: any = await generateIcNarrative({
+        userId: 'u', field: 'executiveSummary', model, deps: deps({ calls, text: 'A clean grounded paragraph.' }) as any,
+      });
+      eq('a successful generation succeeds', res.ok, true);
+      eq('and does NOT refund', calls.refund, 0);
+    }
+
+    // A FLAGGED draft is a success: the user has usable text, so it is charged.
+    {
+      const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
+      const res: any = await generateIcNarrative({
+        userId: 'u', field: 'executiveSummary', model,
+        deps: deps({ calls, text: 'The scheme benchmarks at 9,412 per sqm.' }) as any,
+      });
+      eq('a flagged draft is still a success', res.ok, true);
+      eq('its audit failed', res.audit.ok, false);
+      eq('and it is NOT refunded, because the user received a draft', calls.refund, 0);
+    }
+
+    // The failure path must not be blocked by a refund that itself fails.
+    {
+      const calls: Calls = { meter: 0, run: 0, ensure: 0, refund: 0 };
+      const d: any = deps({ calls, aiKind: 'rate_limit' });
+      d.refund = async () => ({ refunded: false as const, reason: 'not_installed' as const });
+      const res: any = await generateIcNarrative({ userId: 'u', field: 'executiveSummary', model, deps: d });
+      eq('a refund that cannot run still returns the original failure', res.stage, 'ai');
+      eq('and reports that nothing was given back', res.refund?.refunded, false);
+      eq('naming the reason', res.refund?.reason, 'not_installed');
+    }
+
+    // The UI must resync its allowance after a failure rather than leaving a
+    // consumed-but-refunded number on screen.
+    const ui = code('src/hubs/modeling/platforms/refm/components/modules/deck/NarrativeAi.tsx');
+    ok('the panel re-reads the allowance after a failed generation',
+      /res\.error \|\| !res\.data[\s\S]{0,600}getIcNarrativeStatus\(projectId\)/.test(ui));
+    ok('and pushes the refreshed numbers up',
+      /fresh\.data[\s\S]{0,200}onStatusRefresh\(\{[\s\S]{0,120}remaining: fresh\.data\.remaining/.test(ui));
   }
 
   // ══ GUARDRAIL 10: the voice ══════════════════════════════════════════════
@@ -366,7 +439,7 @@ async function main() {
       ok(`${k} states what it must NOT become`, /NOT AS:/.test(spec.shape));
       const full = narrativeTaskFor(spec);
       ok(`${k} composes task then shape`, full.includes(spec.task) && full.endsWith(spec.shape));
-      ok(`${k} carries no em dash`, !/[—―]/.test(full));
+      ok(`${k} carries no em dash`, !/[\u2014\u2015]/.test(full));
       for (const w of BANNED_MARKETING_WORDS) {
         // The prompt may NAME a banned word only in the voice block, never use it.
         ok(`${k} does not itself use "${w}"`, !full.toLowerCase().includes(w));
