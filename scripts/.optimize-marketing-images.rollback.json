@@ -1,0 +1,32 @@
+[
+  {
+    "ref": "cms_content header_settings/icon_url",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1776181702737_logo-fileArtboard-4.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1776181702737_logo-fileArtboard-4-256.png"
+  },
+  {
+    "ref": "cms_content header_settings/logo_url",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1776335615679_logo-fileArtboard-2.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1776335615679_logo-fileArtboard-2-512.webp"
+  },
+  {
+    "ref": "page_sections 71c0aef0 .photo_url",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1785495182927_Ahmad-Din-founder.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1785495182927_Ahmad-Din-founder-800.webp"
+  },
+  {
+    "ref": "page_sections 2c593d4a .imageSrc",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1776534979283_Vision_Image.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1776534979283_Vision_Image-1200.webp"
+  },
+  {
+    "ref": "page_sections c6eb62f8 .imageSrc",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1776534960095_Mission_Image.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1776534960095_Mission_Image-1200.webp"
+  },
+  {
+    "ref": "page_sections 030acdfe .logo_url",
+    "from": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/1776109393520_logo-fileArtboard-2.png",
+    "to": "https://rybktevsyblcarwqanhd.supabase.co/storage/v1/object/public/cms-assets/optimized/1776109393520_logo-fileArtboard-2-480.webp"
+  }
+]

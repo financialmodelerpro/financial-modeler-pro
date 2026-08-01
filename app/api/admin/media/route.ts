@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
 
 /* ── GET /api/admin/media?bucket=cms-assets ─── */
 export async function GET(req: NextRequest) {
@@ -85,7 +86,8 @@ export async function POST(req: NextRequest) {
 
   const { error } = await sb.storage
     .from(bucket)
-    .upload(path, buffer, { contentType: file.type, upsert: false });
+    // Path is `${timestamp}_${name}`, so the bytes at this URL never change.
+    .upload(path, buffer, { contentType: file.type, upsert: false, cacheControl: STORAGE_CACHE_IMMUTABLE });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 

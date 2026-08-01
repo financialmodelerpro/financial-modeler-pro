@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -29,14 +30,15 @@ export async function POST(req: NextRequest) {
     // Try upload; if bucket missing, create it then retry
     const { error: uploadErr } = await sb.storage
       .from('avatars')
-      .upload(filename, buffer, { contentType: file.type, upsert: true });
+      // filename carries Date.now(), so a replaced avatar is a new URL.
+      .upload(filename, buffer, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
 
     if (uploadErr) {
       if (uploadErr.message.toLowerCase().includes('bucket') || uploadErr.message.toLowerCase().includes('not found')) {
         await sb.storage.createBucket('avatars', { public: true });
         const { error: retryErr } = await sb.storage
           .from('avatars')
-          .upload(filename, buffer, { contentType: file.type, upsert: true });
+          .upload(filename, buffer, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
         if (retryErr) return NextResponse.json({ error: retryErr.message }, { status: 500 });
       } else {
         return NextResponse.json({ error: uploadErr.message }, { status: 500 });

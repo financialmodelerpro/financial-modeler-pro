@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/integrations/teams/teamsMeetings';
 
@@ -33,7 +34,9 @@ export async function PUT(req: NextRequest) {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
     const path = `banners/${sessionId}.${ext}`;
     const bytes = Buffer.from(await file.arrayBuffer());
-    await sb.storage.from('live-session-banners').upload(path, bytes, { contentType: file.type, upsert: true });
+    // Path is `banners/${sessionId}.${ext}` and is overwritten in place, so a
+    // long cache would keep showing the previous banner after a replacement.
+    await sb.storage.from('live-session-banners').upload(path, bytes, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_REPLACEABLE });
     const { data: { publicUrl } } = sb.storage.from('live-session-banners').getPublicUrl(path);
     await sb.from('live_sessions').update({ banner_url: publicUrl, updated_at: new Date().toISOString() }).eq('id', sessionId);
     return NextResponse.json({ success: true, url: publicUrl });

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
 import satori from 'satori';
 import sharp from 'sharp';
 import { loadOgFonts } from '@/src/shared/ogFonts';
@@ -119,6 +120,9 @@ export async function POST() {
       await sb.storage.from('cms-assets').upload(name, pngBuffer, {
         contentType: 'image/png',
         upsert: true,
+        // Fixed name, regenerated in place: a long cache would serve the old
+        // render after a regenerate.
+        cacheControl: STORAGE_CACHE_REPLACEABLE,
       });
 
       const { data: urlData } = sb.storage.from('cms-assets').getPublicUrl(name);

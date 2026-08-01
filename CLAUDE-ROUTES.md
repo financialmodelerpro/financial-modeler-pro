@@ -451,6 +451,7 @@ src/components/admin/
 
 ```
 src/shared/
+├── storage/cacheControl.ts           # NEW 2026-08-01. The two Supabase-upload Cache-Control values + the rule that picks between them. STORAGE_CACHE_IMMUTABLE (1 year) for content-unique paths (timestamp/uuid: a replacement is a NEW url, so nothing can go stale); STORAGE_CACHE_REPLACEABLE (5 min) for stable paths written with upsert:true, where a long cache would show an admin the OLD image after they replaced it. An upload passing NEITHER gets Supabase's default max-age=3600. Consumed by admin/media, admin/site-settings, admin/generate-images, admin/live-sessions, user/avatar, training/upload-avatar.
 ├── audit/index.ts                    # writeAuditEvent + admin_audit_log writer
 ├── auth/
 │   ├── captcha.ts                    # hCaptcha verification helper
@@ -814,6 +815,8 @@ docs/
 
 ```
 scripts/
+├── optimize-marketing-images.ts             # NEW 2026-08-01. Resizes + re-encodes the oversized images the marketing site serves and re-points the CMS at the copies. Declarative TARGETS table: each entry is one DB reference (cms_content section/key or page_sections id + jsonb path) plus the CSS box the site renders it in, so a target width is always the render box at 2x DPR with the source of the number recorded. Downscale only (withoutEnlargement, no crop, aspect ratio untouched). Writes NEW `cms-assets/optimized/` objects with STORAGE_CACHE_IMMUTABLE and leaves the originals in place, so rollback is restoring the old URL (map written to scripts/.optimize-marketing-images.rollback.json). Dry run by default, --apply to write, idempotent (a reference already on optimized/ is skipped). Live result 2026-08-01: 9.84 MB -> 222 KB across /, /about, /about/ahmad-din, /pricing.
+├── verify-marketing-images.ts               # NEW 2026-08-01 (76). Three axes on the LIVE pages: weight (per-image + per-page budget), caching (real max-age, asserted via a RANGED GET because the CDN answers HEAD with a blanket no-cache whatever the object stores), and FIDELITY, each optimized image compared against the original it replaced, both flattened onto white and resampled to one box, as a mean per-channel difference (flattening matters: comparing raw RGB reads the pixels UNDER full transparency, which PNG and lossy WebP encode differently, and a logo that renders identically scores as wildly different). Missing baseline is reported as a skip, never a silent pass. Also asserts the source rule: every public-image upload passes a cacheControl.
 ├── module1-snapshot-diff.ts                 # Legacy single-phase, 17.5 KB baseline (frozen, pre-M2.0 v3/v4 era)
 ├── module1-multiphase-diff.ts               # Multi-phase v4, 23.0 KB baseline (frozen, pre-M2.0 v3/v4 era)
 ├── module1-areaprogram-diff.ts              # M1.7 Area Program, 2.8 KB baseline (frozen, pre-M2.0 v3/v4 era)

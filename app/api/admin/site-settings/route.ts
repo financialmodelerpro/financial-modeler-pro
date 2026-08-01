@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest) {
   const { error } = await sb.storage.from('cms-assets').upload(path, buf, {
     contentType: file.type,
     upsert: true,
+    // Path is `${folder}/${Date.now()}.${ext}`: a replacement uploads to a new
+    // path, so this URL's bytes are fixed for good.
+    cacheControl: STORAGE_CACHE_IMMUTABLE,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
