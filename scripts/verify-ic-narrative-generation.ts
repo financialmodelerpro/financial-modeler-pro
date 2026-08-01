@@ -139,10 +139,15 @@ function fakeDeps(opts: {
   denyReason?: any;
   responseText?: string;
   aiFails?: boolean;
+  configured?: boolean;
   calls: Calls;
 }) {
   const allow = opts.allow !== false;
   return {
+    // Unit 9 added a pre-flight configuration check ahead of the meter, so the
+    // fakes must answer it. Left to the real implementation it reads the local
+    // (empty) key and refuses every generation before the interesting part.
+    configured: () => opts.configured !== false,
     ensure: async () => { opts.calls.ensure++; return true; },
     meter: async () => {
       opts.calls.meter++;
@@ -197,8 +202,10 @@ async function main() {
   ok('the voice bans em dashes explicitly', /never use an em dash/i.test(IC_NARRATIVE_VOICE));
   ok('the voice sets the practitioner-teaching stance',
     /practitioner/i.test(IC_NARRATIVE_VOICE) && /teach/i.test(IC_NARRATIVE_VOICE));
+  // Phrasing was tightened in Unit 9 ("CONSTRUCTIVE, NOT CRITICAL"); the
+  // assertion checks the rule is present, not one wording of it.
   ok('the voice asks for constructive rather than critical',
-    /constructive rather than critical/i.test(IC_NARRATIVE_VOICE));
+    /constructive[, ]+(rather than|not) critical/i.test(IC_NARRATIVE_VOICE));
   ok('the voice is IC-appropriate', /investment committee/i.test(IC_NARRATIVE_VOICE));
   for (const k of IC_NARRATIVE_FIELD_KEYS) {
     ok(`${k} prompt carries no em dash`, !hasEmDash(IC_NARRATIVE_FIELDS[k].task));

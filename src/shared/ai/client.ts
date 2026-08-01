@@ -99,6 +99,22 @@ function classify(err: unknown): { kind: AiErrorKind; status: number | null; ret
     return { kind: 'rate_limit', status: 429, retryable: true, message: 'Rate limited by the Anthropic API. Try again shortly.' };
   }
   if (err instanceof Anthropic.BadRequestError) {
+    // A spent account arrives here, as a 400 with an invalid_request_error type,
+    // because the SDK has no distinct class for it. This is the ONE place the
+    // module inspects a message rather than a typed class, and it is a
+    // deliberate exception: it only REFINES a 400 into a more specific kind and
+    // falls straight back to bad_request if Anthropic rewords the string, so
+    // the worst case is the behaviour we had before. Worth the exception
+    // because "invalid request for this model" sends the reader to the model
+    // config when the actual fix is to top up the account.
+    if (/credit balance|insufficient.{0,20}credit|billing|purchase credits/i.test(err.message ?? '')) {
+      return {
+        kind: 'insufficient_credit',
+        status: 400,
+        retryable: false,
+        message: 'The Anthropic account has insufficient credit. Add credit to the account to enable AI generation. This is a billing problem, not a configuration or model problem.',
+      };
+    }
     return { kind: 'bad_request', status: 400, retryable: false, message: `Invalid request for this model: ${err.message}` };
   }
   if (err instanceof Anthropic.InternalServerError) {

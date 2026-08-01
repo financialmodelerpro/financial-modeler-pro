@@ -104,6 +104,8 @@ One unit at a time. Diagnose first, build, verify, hold for review, then the nex
 | 8 | M7 | Generate buttons + quota UI | No | 3, 7 |
 | 9 | M7 | End-to-end verify + voice polish | No | 5, 8 |
 
+**Status 2026-08-01: units 0 to 9 are built and live.** The feature registers DISABLED and is switched on per platform in /admin/ai-features. Live text quality is the one thing still unproven: generation currently returns an out-of-credit billing error from the Anthropic account, which the client now reports as a billing problem rather than a model problem. The final read-through of real generated prose happens once credit is added.
+
 Future phases (categories 2-4) are scoped and added as new units when reached. They plug into the same foundation without changing it.
 
 ---
@@ -125,10 +127,21 @@ Future phases (categories 2-4) are scoped and added as new units when reached. T
 
 ---
 
-## 8. Open decisions (non-blocking for M7)
+## 8. Decisions
+
+### Settled
+
+- **Generate-all counting** (raised for Unit 8, settled there). Each field is one counted call, because each is one API call and the count has to track the bill. The UX rule that follows: **state the cost before spending it.** The button reads `Generate all (N)`, a warning appears when N exceeds the remaining allowance, the calls run sequentially (in parallel they would race past the cap and burn credits the server then refuses), and a run that hits the cap stops and reports "Generated 3 of 5".
+
+- **Audit-flagged drafts** (left open by Unit 4, settled at Unit 9). When the numeric audit finds a figure it cannot match to the supplied model data, the draft is **shown with a visible warning, not blocked**. Three reasons: the credit is already spent, so discarding leaves the user nothing; the audit is deliberately conservative and flags derived figures and ordinary prose digits, so auto-rejection would throw away sound drafts; and every draft is reviewed by a human before it enters a pack, which is the control that actually matters. What is NOT acceptable is silence, so the finding is logged server-side and travels with the draft into the review, where the offending figures are listed and the text stays fully editable. Locked by `verify-ic-narrative-e2e`, which fails if Apply is ever disabled on a flagged draft.
+
+  The related prompt rule, added at Unit 9: the model is told to **describe relationships in words rather than compute them** ("the levered return sits well above the unlevered one" instead of stating a difference it worked out). Most flags come from the model doing helpful arithmetic on two supplied figures, so this cuts them at the source rather than explaining them after the fact.
+
+### Still open
 
 - **Market-data source** for category 2 (assumption validation): own benchmark dataset vs web search / external market-data API. Decided when category 2 is built. The foundation leaves room via the external grounding type.
-- **Generate-all counting**: whether "Generate all" counts as one action or one per field. Each API call must be counted so cost tracks reality; UX label decided at Unit 8.
+
+- **Refunding a credit on a deployment-level failure.** Metering consumes the credit before the call, which is correct for concurrency, but it means a failure that is our fault (no key, account out of credit, model retired) still costs the user one generation. Unit 9 removed the one case knowable for free: with no API key configured, the generation is refused BEFORE the meter and costs nothing. An account with no credit is only discoverable by calling, so that case still consumes one. A refund path would need a new `ai_usage_refund()` function and a migration; not built, because the state is transient and the alternative (consume after the call) reopens the concurrency hole. Revisit if it bites in practice.
 
 ---
 

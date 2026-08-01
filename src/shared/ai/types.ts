@@ -29,6 +29,14 @@ export type AiErrorKind =
   | 'model_not_found'
   /** Malformed request (400): bad params for this model. */
   | 'bad_request'
+  /**
+   * The Anthropic account has no credit. Arrives as a 400, like a malformed
+   * request, but it is an ACCOUNT problem and the fix is a payment, not a code
+   * change. Kept distinct so the message can say so: reported as a generic bad
+   * request it reads as "the model is wrong", which sends whoever is on call
+   * hunting through model ids instead of opening the billing page.
+   */
+  | 'insufficient_credit'
   /** Rate limited (429). Retryable after a wait. */
   | 'rate_limit'
   /** Anthropic-side failure (500 / 529). Retryable. */

@@ -66,6 +66,17 @@ export interface IcNarrativeFieldSpec {
   /** What to write. Static strings, so every prompt in the product is reviewable
    *  in one file rather than assembled at runtime from fragments. */
   task: string;
+  /**
+   * What the finished text must READ AS, and what it must not become.
+   *
+   * Separate from `task` because they fail differently. A task that is followed
+   * to the letter can still produce the wrong KIND of text: an executive summary
+   * that is really a list of model outputs, a recommendation that is really a
+   * second thesis, a risk register that is really reassurance. This line is the
+   * shape check, stated last in the prompt where it carries most weight, and the
+   * verifier asserts every field has one.
+   */
+  shape: string;
   /** Whether the supplied model can support this field at all. */
   available(model: ICReportModel): IcAvailability;
 }
@@ -86,14 +97,32 @@ export const IC_NARRATIVE_VOICE = [
   'VOICE AND FORM:',
   'Write as an experienced development finance practitioner presenting to an investment committee.',
   '',
-  'Teach as you go. When you quote a figure, say briefly what drives it, so a reader learns how to read the number rather than only what it is. That explanation is the value you add.',
-  'Be constructive rather than critical. Where the numbers are weak, say what would have to change for them to work, not that the project is bad.',
-  'Be specific. Prefer a sentence that names a driver over a sentence that could describe any project.',
-  'Committee register: complete sentences, plain professional English, no marketing language, no hedging filler, no rhetorical questions.',
-  'Do not restate the task, do not open with a heading or the field name, and do not close with a summary of what you just wrote. Return only the text that belongs in the field.',
+  'TEACH THE MECHANISM. When you quote a figure, say briefly what drives it, so the reader learns how to READ the number and not merely what it is. The interpretation is your contribution; the figure is already in the table beside your text.',
+  'CONSTRUCTIVE, NOT CRITICAL. Where the numbers are weak, say what would have to change for them to work. Do not characterise the project, the sponsor, or the assumptions as bad, poor, or unattractive.',
+  'SPECIFIC, NOT GENERIC. Prefer a sentence that names a driver in THIS project over one that could be pasted into any deck.',
+  'COMPARE IN WORDS, NOT IN ARITHMETIC. When two supplied figures relate to each other, describe the relationship ("the levered return sits well above the unlevered one, so debt is contributing materially") rather than stating a difference, sum, ratio, or percentage change that you worked out yourself. A figure you calculated is a figure nobody checked, and it will be flagged.',
+  'WHEN A FIGURE IS NOT AVAILABLE, say so in a short clause and move on. Do not estimate it, and do not build a paragraph around its absence.',
+  '',
+  'REGISTER:',
+  'Complete sentences, plain professional English, third person throughout. Do not write "we", "I", "our", or "you".',
+  'No marketing language. Do not use: compelling, attractive, robust, strong, exciting, significant upside, well positioned, best in class, world class, unlock, or leverage as a verb.',
+  'No hedging filler ("it should be noted that", "it is worth mentioning"), no rhetorical questions, and no closing sentence that summarises what you just wrote.',
+  'Do not restate the task, and do not open with a heading or the field name. Return only the text that belongs in the field.',
   'Do not use bullet points or markdown formatting unless the task explicitly asks for a structured list.',
   'Never use an em dash. Use a comma, a colon, parentheses, or a new sentence instead.',
 ].join('\n');
+
+/**
+ * Words that mark the register slipping from practitioner to brochure.
+ *
+ * Exported so the verifier can assert the voice block actually names them: a
+ * model follows "do not write compelling" far more reliably than it follows
+ * "avoid marketing language", and the difference is worth pinning.
+ */
+export const BANNED_MARKETING_WORDS = [
+  'compelling', 'attractive', 'robust', 'exciting', 'well positioned',
+  'best in class', 'world class', 'significant upside',
+] as const;
 
 /** Shared framing so each field knows where it sits in the pack. */
 const IC_CONTEXT =
@@ -117,6 +146,7 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       '',
       'Do not include a recommendation or the size of the ask; those belong in their own field.',
     ].join('\n'),
+    shape: 'READS AS: an investment thesis a committee member could repeat back in three sentences. NOT AS: a list of the model outputs, and not as a recommendation.',
     available: (m) => (m?.overview?.name
       ? { ok: true }
       : { ok: false, reason: 'The report model has no project overview to summarise.' }),
@@ -138,6 +168,7 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       '',
       'State the ask plainly. Do not repeat the full investment thesis and do not list the risks in detail; both have their own field.',
     ].join('\n'),
+    shape: 'READS AS: a clear ask with the conditions attached to it. NOT AS: a second executive summary, and not as a risk register.',
     available: (m) => (m?.ask
       ? { ok: true }
       : { ok: false, reason: 'The report model carries no funding ask.' }),
@@ -161,6 +192,7 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       'Return ONLY a JSON array, no prose before or after it, in exactly this shape:',
       '[{"risk": "one sentence naming the risk and the figure that shows it", "mitigant": "one sentence naming the action or structural protection"}]',
     ].join('\n'),
+    shape: 'READS AS: a risk register a committee would actually debate, each row naming what could go wrong and what answers it. NOT AS: generic development risks, and not as reassurance dressed up as a mitigant.',
     available: (m) => (m?.headline && m?.devEconomics
       ? { ok: true }
       : { ok: false, reason: 'The report model carries no returns or development economics to assess risk against.' }),
@@ -183,6 +215,7 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       '',
       'The reader can see the numbers in the table beside this text. Your job is the interpretation, not a restatement of every line.',
     ].join('\n'),
+    shape: 'READS AS: a practitioner teaching the committee how to read this return profile. NOT AS: a restatement of the returns table in sentences.',
     available: (m) => {
       const h = m?.headline;
       if (!h) return { ok: false, reason: 'The report model carries no headline returns.' };
@@ -209,6 +242,7 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       'Say what the shape of that comparison implies for timing flexibility: whether holding longer is rewarded, whether an earlier exit costs much, and what a committee member should watch as the decision approaches.',
       'Quote only the exit figures supplied. Do not speculate about market conditions at any future date.',
     ].join('\n'),
+    shape: 'READS AS: a view on timing flexibility and what it is worth. NOT AS: a forecast of future market conditions.',
     available: (m) => ((m?.exitYears?.length ?? 0) > 0
       ? { ok: true }
       : { ok: false, reason: 'The report model carries no exit-year analysis, so there is no optionality to comment on.' }),
@@ -226,9 +260,10 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
       '',
       'Draft the scenario takeaway in two short paragraphs.',
       'Say what the comparison between the cases actually shows: which case is the base, how far the others move the headline measures, and which input driver is doing that work, using the drivers listed with each case.',
-      'Then say what that sensitivity means for the decision: where the case is robust and which assumption most deserves scrutiny before approval.',
+      'Then say what that sensitivity means for the decision: which outcomes hold across the range tested, and which assumption most deserves scrutiny before approval.',
       'Compare only the cases supplied. Do not invent a case, a probability, or a weighting that is not in the data.',
     ].join('\n'),
+    shape: 'READS AS: what the spread between cases means for the approval decision. NOT AS: a description of the comparison table.',
     available: (m) => {
       const cols = m?.scenarios?.columns?.length ?? 0;
       return cols >= 2
@@ -239,6 +274,19 @@ export const IC_NARRATIVE_FIELDS: Record<IcNarrativeFieldKey, IcNarrativeFieldSp
 };
 
 export const IC_NARRATIVE_FIELD_KEYS = Object.keys(IC_NARRATIVE_FIELDS) as IcNarrativeFieldKey[];
+
+/**
+ * The full instruction for a field: what to write, then what it must read as.
+ *
+ * The shape line goes LAST on purpose. The supplied data and the task sit above
+ * it, and the last thing a model reads carries disproportionate weight, so the
+ * kind-of-text check is the instruction closest to the point of writing. Same
+ * reasoning the shared render layer uses when it repeats the figure rules after
+ * the payload.
+ */
+export function narrativeTaskFor(spec: IcNarrativeFieldSpec): string {
+  return [spec.task, '', spec.shape].join('\n');
+}
 
 /**
  * Narrow an untrusted string from a request body to a known field key.

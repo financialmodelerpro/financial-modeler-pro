@@ -44,7 +44,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { runAi } from '@/src/shared/ai/client';
+import { aiConfigured, runAi } from '@/src/shared/ai/client';
 import { checkAndConsume, meterDenyStatus, type MeterDenyReason } from '@/src/shared/ai/metering';
 import { ensureAiFeature } from '@/src/shared/ai/features';
 import { collectGrounding } from '@/src/shared/ai/grounding/providers';
@@ -61,6 +61,7 @@ import { IC_NARRATIVE_FEATURE } from './refmAiFeatures';
 import {
   IC_NARRATIVE_FIELDS,
   IC_NARRATIVE_VOICE,
+  narrativeTaskFor,
   shapeNarrativeOutput,
   type IcNarrativeFieldKey,
 } from './icNarrative';
@@ -121,9 +122,12 @@ export interface IcNarrativeDeps {
   run: typeof runAi;
   collect: typeof collectGrounding;
   ensure: typeof ensureAiFeature;
+  /** Whether an API key is present. Injected so the verifier can prove that an
+   *  unconfigured deployment costs the user nothing. */
+  configured: typeof aiConfigured;
 }
 
-const DEFAULT_DEPS: IcNarrativeDeps = { meter: checkAndConsume, run: runAi, collect: collectGrounding, ensure: ensureAiFeature };
+const DEFAULT_DEPS: IcNarrativeDeps = { meter: checkAndConsume, run: runAi, collect: collectGrounding, ensure: ensureAiFeature, configured: aiConfigured };
 
 export interface GenerateIcNarrativeInput {
   userId: string;
@@ -166,6 +170,26 @@ export async function generateIcNarrative(input: GenerateIcNarrativeInput): Prom
   const availability = spec.available(input.model);
   if (!availability.ok) {
     return { ok: false, stage: 'availability', reason: 'not_applicable', status: 409, message: availability.reason };
+  }
+
+  // 2b. Is a generation even possible? Checked BEFORE the meter, for the same
+  //     reason availability is: metering consumes the credit up front, so a
+  //     call that cannot possibly succeed would cost the user one of their
+  //     monthly generations and return an error. With no API key configured,
+  //     the outcome is known in advance and costs nothing to check.
+  //
+  //     This cannot cover every deployment failure (an account out of credit is
+  //     only discoverable by calling), but it removes the one case that is
+  //     knowable for free.
+  if (!deps.configured()) {
+    return {
+      ok: false,
+      stage: 'ai',
+      reason: 'not_configured',
+      status: 503,
+      retryable: false,
+      message: 'AI is not configured on this deployment, so no draft can be generated. No AI allowance was used.',
+    };
   }
 
   // 3. Metering. Registration first so the feature exists to be toggled and
@@ -222,7 +246,7 @@ export async function generateIcNarrative(input: GenerateIcNarrativeInput): Prom
   //    the payload; the field task and the house voice sit inside them.
   const request = buildGroundedRequest({
     bundle,
-    task: spec.task,
+    task: narrativeTaskFor(spec),
     voice: IC_NARRATIVE_VOICE,
     maxTokens: spec.maxTokens,
   });
@@ -238,9 +262,14 @@ export async function generateIcNarrative(input: GenerateIcNarrativeInput): Prom
       ok: false,
       stage: 'ai',
       reason: result.kind,
+      // Both of these are DEPLOYMENT problems, not user problems, and both are
+      // stated as such: a user who reads "the draft could not be generated"
+      // will retry, spending another credit on a call that cannot succeed.
       message: result.kind === 'not_configured'
-        ? 'AI is not configured on this deployment.'
-        : `The draft could not be generated: ${result.message}`,
+        ? 'AI is not configured on this deployment. No generation is possible until an API key is set.'
+        : result.kind === 'insufficient_credit'
+          ? 'AI generation is unavailable: the platform\'s AI account is out of credit. This is a billing issue on our side, not a problem with your project or your plan. Please contact support.'
+          : `The draft could not be generated: ${result.message}`,
       status: result.status && result.status >= 400 && result.status < 600 ? result.status : 502,
       retryable: result.retryable,
     };
