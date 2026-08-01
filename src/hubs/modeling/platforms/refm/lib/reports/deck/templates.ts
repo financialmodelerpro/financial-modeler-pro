@@ -589,10 +589,16 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
     id: 'key_risks', title: 'Key Risks', group: 'Closing', chrome: 'content',
     available: () => true,
     build: (m, seed, num) => {
+      // 2026-08-01 fix: this read `row.title`, but a RiskItem is {risk, mitigant}
+      // (reportInputs.ts). `title` was always undefined, so every seeded risk
+      // mapped to an empty string, was filtered out, and the slide fell back to
+      // placeholders. Any risk written in the old report form never reached the
+      // deck. `title` is still accepted as a fallback in case an older row shape
+      // is sitting in a project's jsonb.
       const seeded = seed.inputs?.risks?.length
         ? seed.inputs.risks.map((r) => {
-            const row = r as { title?: string; mitigant?: string };
-            return { risk: row.title ?? '', likelihood: 'Medium' as const, impact: 'Medium' as const, mitigation: row.mitigant ?? '' };
+            const row = r as { risk?: string; title?: string; mitigant?: string };
+            return { risk: row.risk ?? row.title ?? '', likelihood: 'Medium' as const, impact: 'Medium' as const, mitigation: row.mitigant ?? '' };
           }).filter((r) => r.risk)
         : [];
       const rows = seeded.length ? seeded : [

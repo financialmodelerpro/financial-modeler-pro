@@ -41,7 +41,9 @@ import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
-import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck } from '../../lib/persistence/client';
+import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus } from '../../lib/persistence/client';
+import { NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
+import { buildNarrativePatch } from '../../lib/reports/deck/narrativeTargets';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
 import type { Party } from '../../lib/parties';
 import { makeDeckFmt, isPaginatedTable } from '../../lib/reports/deck/bindings';
@@ -110,6 +112,11 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const [exporting, setExporting] = useState<'pptx' | 'pdf' | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // AI drafting (Unit 8). `aiStatus` is a MIRROR of the server's answer, never a
+  // local allowance: it is seeded from the status endpoint and refreshed from
+  // the meter reading each generation returns.
+  const [aiStatus, setAiStatus] = useState<NarrativeAiStatus | null>(null);
+  const [aiDrafts, setAiDrafts] = useState<NarrativeDraft[]>([]);
   const [canvasW, setCanvasW] = useState(860);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -172,6 +179,12 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       setDeck(dr.data?.deck ?? null);
       setPast([]); setFuture([]);
       setLoading(false);
+      // AI status last and unawaited by the rest: the deck must render whether
+      // or not the AI feature is reachable, so a slow or failing status call can
+      // never hold up the editor. A null status simply hides the buttons.
+      const ai = await getIcNarrativeStatus(activeProjectId);
+      if (!alive) return;
+      setAiStatus(ai.data ?? null);
     })();
     return () => { alive = false; };
   }, [activeProjectId]);
@@ -349,6 +362,30 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
   const applyObjectPatch = (objId: string, patch: ObjectPatch) => commit((d) => updateObject(d, sid, objId, patch));
 
+  /**
+   * Apply reviewed drafts to their own slides.
+   *
+   * Each patch targets the slide the draft came from, NOT the active slide, so
+   * Apply all works without walking the user through six slides. It goes
+   * through `commit`, so it lands in the undo stack and marks the deck dirty:
+   * an applied draft is an ordinary edit the user can undo, and it is still not
+   * persisted until Save, which is what keeps "never auto-saved" true all the
+   * way to the database.
+   */
+  const applyNarrativeDrafts = useCallback((drafts: NarrativeDraft[]) => {
+    if (!drafts.length) return;
+    commit((d) => drafts.reduce((acc, draft) => {
+      const slide = acc.slides.find((s) => s.id === draft.target.slideId);
+      const existing = slide?.objects.find((o) => o.id === draft.target.objectId) ?? null;
+      const patch = buildNarrativePatch(draft.target, { draft: draft.draft, risks: draft.risks }, existing);
+      return patch ? updateObject(acc, draft.target.slideId, draft.target.objectId, patch as ObjectPatch) : acc;
+    }, d));
+    setAiDrafts((cur) => cur.filter((c) => !drafts.some((d) => d.field === c.field)));
+    setNotice(drafts.length === 1
+      ? `Applied the ${drafts[0].label.toLowerCase()} draft. Save to keep it.`
+      : `Applied ${drafts.length} drafts. Save to keep them.`);
+  }, [commit]);
+
   return (
     <div data-testid="module7-deck" style={{ display: 'grid', gridTemplateColumns: '214px 1fr 288px', height: 'calc(100vh - 190px)', minHeight: 560, background: DECK_THEME.offWhite, borderTop: `1px solid ${DECK_THEME.rule}` }}>
 
@@ -458,6 +495,26 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
       {/* ── Right: properties ───────────────────────────────────────────── */}
       <aside data-testid="deck-properties" style={{ borderLeft: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', overflowY: 'auto', padding: 14 }}>
+        {/* AI drafting sits ABOVE the properties, and outside PropertiesPanel,
+            so it stays reachable while an object is selected. Selecting a
+            narrative block highlights its row rather than hiding the list. */}
+        {model && !presentMode ? (
+          <>
+            <SectionLabel>AI drafting</SectionLabel>
+            <NarrativeAiPanel
+              projectId={activeProjectId ?? ''}
+              deck={deck}
+              model={model}
+              currency={s.project?.currency ?? 'SAR'}
+              status={aiStatus}
+              selectedObjectId={selectedIds.length === 1 ? selectedIds[0] : null}
+              onStatusRefresh={(next) => setAiStatus((cur) => (cur ? { ...cur, ...next } : cur))}
+              onDrafts={(d) => setAiDrafts((cur) => [...cur.filter((c) => !d.some((x) => x.field === c.field)), ...d])}
+              onNotice={setNotice}
+            />
+          </>
+        ) : null}
+
         <PropertiesPanel
           deck={deck} slide={activeSlide} selectedIds={selectedIds} model={model}
           onObjectPatch={applyObjectPatch}
@@ -465,6 +522,15 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           onSlidePatch={(patch) => activeSlide && commit((d) => updateSlide(d, activeSlide.id, patch))}
         />
       </aside>
+
+      {/* The review step. A draft reaches a slide only through here. */}
+      {aiDrafts.length ? (
+        <NarrativeReviewModal
+          drafts={aiDrafts}
+          onApply={applyNarrativeDrafts}
+          onClose={() => setAiDrafts([])}
+        />
+      ) : null}
     </div>
   );
 }

@@ -343,3 +343,22 @@ export function generateIcNarrative(
     body: JSON.stringify(args),
   });
 }
+
+/** IC narrative availability + this month's remaining allowance (AI Unit 8).
+ *  Read-only and free: no credit is spent, so the UI can render button state
+ *  without anyone paying to find out. The server re-decides on generate. */
+export function getIcNarrativeStatus(projectId: string): Promise<FetchResult<{
+  available: boolean;
+  blockedReason: string | null;
+  enabled: boolean;
+  configured: boolean;
+  readOnly: string | null;
+  planKey: string | null;
+  cap: number | null;
+  used: number | null;
+  remaining: number | null;
+  periodStart: string;
+  fields: Array<{ field: string; label: string; section: string; targetField: string }>;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/ai/ic-narrative`, { method: 'GET' });
+}

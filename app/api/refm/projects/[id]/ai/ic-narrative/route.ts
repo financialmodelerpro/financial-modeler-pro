@@ -40,11 +40,92 @@ import { getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persi
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
 import { generateIcNarrative } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrativeService';
-import { coerceNarrativeFieldKey } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrative';
+import { IC_NARRATIVE_FIELDS, IC_NARRATIVE_FIELD_KEYS, coerceNarrativeFieldKey } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrative';
+import { IC_NARRATIVE_FEATURE } from '@/src/hubs/modeling/platforms/refm/lib/ai/refmAiFeatures';
+import { ensureAiFeature } from '@/src/shared/ai/features';
+import { getAiFeature } from '@/src/shared/ai/registry';
+import { resolveAiCap } from '@/src/shared/ai/registryTypes';
+import { currentPeriodStart, resolveUserPlanKey } from '@/src/shared/ai/metering';
+import { readAiUsed } from '@/src/shared/ai/usage';
+import { aiConfigured } from '@/src/shared/ai/client';
 import type { ICReportModel } from '@/src/hubs/modeling/platforms/refm/lib/reports/icReport';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * GET -> whether generation is available to this user, and how much of their
+ * monthly allowance is left.
+ *
+ * Read-only and free: it spends no credit and makes no AI call, so the UI can
+ * render six buttons in their correct state (enabled, disabled with a reason,
+ * or hidden entirely because the feature is switched off) without anyone paying
+ * to discover that.
+ *
+ * This is a MIRROR of the server's decision, never a substitute for it. The
+ * authoritative check is checkAndConsume inside the POST; if this endpoint said
+ * "3 left" and the true answer were zero, the POST would still refuse. That is
+ * the point of computing it separately rather than trusting a number the client
+ * holds.
+ */
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { userId, isAdmin } = await getRefmUserContext();
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id: projectId } = await ctx.params;
+
+  const { row: project, error: projErr } = await getProject(userId, projectId);
+  if (projErr) return NextResponse.json({ error: projErr }, { status: 500 });
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Register first, so a fresh deployment reports the real toggle state rather
+  // than "not registered" until someone happens to press Generate.
+  await ensureAiFeature(IC_NARRATIVE_FEATURE);
+
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  const readOnly = writeBlockReason(gate);
+
+  const feature = await getAiFeature(IC_NARRATIVE_FEATURE.featureId, IC_NARRATIVE_FEATURE.platformSlug);
+  const planKey = await resolveUserPlanKey(userId);
+  const cap = feature && planKey ? resolveAiCap(feature, planKey) : null;
+  const periodStart = currentPeriodStart();
+  const used = feature ? await readAiUsed(userId, feature.id, periodStart) : null;
+
+  const enabled = !!feature?.enabled;
+  const remaining = cap !== null && used !== null ? Math.max(0, cap - used) : null;
+
+  // One reason string, resolved in the order the server would refuse in, so the
+  // UI never has to reimplement that precedence.
+  const blockedReason =
+    !aiConfigured() ? 'AI is not configured on this deployment.'
+    : !feature ? 'The IC narrative feature is not registered.'
+    : !enabled ? 'IC narrative generation is switched off for this platform.'
+    : readOnly ? (readOnly === 'LAPSED'
+        ? 'Your subscription has lapsed. Renew your plan to generate drafts.'
+        : 'Your subscription has expired. Access is read-only during the grace period.')
+    : !planKey ? 'No plan could be resolved for this account.'
+    : cap === null ? 'No monthly AI allowance is configured for your plan.'
+    : remaining !== null && remaining <= 0 ? `You have used all ${cap} AI generations included in your plan this month.`
+    : null;
+
+  return NextResponse.json({
+    available: blockedReason === null,
+    blockedReason,
+    enabled,
+    configured: aiConfigured(),
+    readOnly: readOnly ?? null,
+    planKey,
+    cap,
+    used,
+    remaining,
+    periodStart,
+    fields: IC_NARRATIVE_FIELD_KEYS.map((k) => ({
+      field: k,
+      label: IC_NARRATIVE_FIELDS[k].label,
+      section: IC_NARRATIVE_FIELDS[k].section,
+      targetField: String(IC_NARRATIVE_FIELDS[k].targetField),
+    })),
+  });
+}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { userId, isAdmin } = await getRefmUserContext();

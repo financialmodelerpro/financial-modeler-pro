@@ -145,3 +145,45 @@ export function usageFor(report: AiUsageReport, featureId: string, platformSlug:
   if (!report.available) return null;
   return report.rows.find((r) => r.featureId === featureId && r.platformSlug === platformSlug) ?? null;
 }
+
+/**
+ * How many generations ONE user has spent on ONE feature this period.
+ *
+ * The admin report above aggregates across users, which is the wrong shape for
+ * a user-facing quota display. This is the per-user read the feature UI needs
+ * before it renders "12 of 100 left".
+ *
+ * Returns null, never zero, when the counter cannot be read (pre-migration, or
+ * the store is unreachable). Zero means "has not generated this month"; null
+ * means "nobody knows", and a quota display must not present the second as the
+ * first. Same rule the admin panel follows.
+ *
+ * `featureRowId` is the ai_features row id (counters key on it), not the
+ * code-level feature id.
+ */
+export async function readAiUsed(
+  userId: string,
+  featureRowId: string,
+  periodStart: string,
+  client?: SupabaseClient,
+): Promise<number | null> {
+  let sb: SupabaseClient;
+  try {
+    sb = client ?? getServerClient();
+  } catch {
+    return null;
+  }
+
+  const res = await sb
+    .from('ai_usage_counters')
+    .select('used')
+    .eq('user_id', userId)
+    .eq('ai_feature_id', featureRowId)
+    .eq('period_start', periodStart)
+    .maybeSingle();
+
+  if (res.error) return null;
+  // No row is a genuine zero: the counter is only created on first spend.
+  const used = (res.data as { used?: number } | null)?.used;
+  return typeof used === 'number' ? used : 0;
+}
