@@ -71,7 +71,7 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 | `app/admin/layout.tsx` | Wraps all `/admin/*` children. `/admin` (login) bypasses the auth hook to avoid render-loop. All other paths render through `<AdminProtected>` which calls `useRequireAdmin()` (redirects non-admins to `/`). |
 | `src/components/admin/CmsAdminNav.tsx` | Sidebar (every page renders it manually as `<CmsAdminNav active="/admin/foo" />`). |
 | `src/lib/shared/auth.ts` | NextAuth `authorize()`. Admin role bypasses `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED`. |
-| `src/middleware.ts` | `/admin/:path*` requires session, `/admin/login` and `/admin` root explicitly excluded. |
+| `src/middleware.ts` | **Does nothing. Never runs.** Next resolves middleware at the repo root and this file is at `src/`, so it is never compiled (`middleware-manifest.json` is empty and `/admin/*` returns 200 unauthenticated). The `/admin/*` gate that actually fires is the CLIENT-side `useRequireAdmin()` in the layout, plus the per-route `getServerSession` check in each API handler. See PLATFORM_INVENTORY.md Section 10. |
 
 Most admin pages follow this shape:
 

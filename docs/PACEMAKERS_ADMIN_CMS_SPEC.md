@@ -42,6 +42,8 @@ If PaceMakers already uses a different DB/auth, keep the same **section structur
 **Admin login:** single entry at `/admin`. Authenticated admins land on the dashboard (`/admin/cms` or `/admin`). No separate `/login` page needed.
 
 **Middleware (`src/middleware.ts`) rules for all `/admin/*`:**
+
+> **Implementation reality (2026-08-01):** this section is the SPEC, not a description of the running system. The middleware was written to `src/middleware.ts`, which Next never compiles (middleware resolves at the repo root), so none of the five rules below has ever executed in production. Rules 1 and 2 are effectively delivered by `next.config.ts` redirects; the `/admin/*` gate is the client-side `useRequireAdmin()` plus per-route `getServerSession` checks in the API handlers. See PLATFORM_INVENTORY.md Section 10 before implementing against this spec.
 1. `/login` and `/admin/login` → 307 redirect to `/admin` (strip query params).
 2. `/admin` + valid admin token → pass through.
 3. `/admin/:path*` unauthenticated → 307 to `/admin`.
@@ -324,7 +326,7 @@ All use Next.js ISR (`revalidate = 60`) or on-demand revalidation triggered afte
 
 ## 9. Build Order (suggested)
 
-1. **Foundation:** Supabase project, `users` table + NextAuth admin login, `/admin` layout + sidebar, middleware protection.
+1. **Foundation:** Supabase project, `users` table + NextAuth admin login, `/admin` layout + sidebar, middleware protection (see the Section 3 note: in the built system the middleware never ran, so treat this step as unbuilt rather than done).
 2. **Leads** first — wire the existing contact form to `POST /api/leads` + the admin inbox + notification email. This is the firm's lifeblood; do it before content polish.
 3. **Media Library** (everything else uploads images through it).
 4. **Branding + Header + Site Settings** (logo/colors/SEO so public pages look right).

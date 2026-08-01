@@ -410,7 +410,7 @@ Sidebar source: `src/components/admin/CmsAdminNav.tsx` (consumed by 30 admin pag
 - `/admin/whitelabel` (Phase 3, commit `a000fbd`)
 - `/admin/permissions`, `/admin/overrides`, `/admin/plans` (Phase 5, commit `d8405e5`)
 - `/admin/founder` (2026-04-18; founder lives in Page Builder Founder section)
-- `/admin/login`, `/login` (2026-04-24; both 307 to `/admin` via middleware)
+- `/admin/login`, `/login` (2026-04-24; both 307 to `/admin` via `next.config.ts` `redirects()`, NOT via middleware: `src/middleware.ts` has never run, see Section 10)
 
 ### Logical hub ownership of admin pages
 
@@ -613,7 +613,7 @@ D:\FMP\financial-modeler-pro\
 |   |   +-- seo\                 canonical helper
 |   |   +-- shared\              19 cross-hub libs
 |   |   \-- training\            25 Training Hub libs
-|   +-- middleware.ts            Admin auth + cache-busting
+|   +-- middleware.ts            DEAD CODE, never compiled (Next resolves middleware at the repo root, not src/). See Section 10.
 |   +-- styles\                  (likely empty after globals.css consolidation)
 |   \-- types\                   7 type files (post subscription.types.ts deletion)
 +-- supabase\
@@ -730,12 +730,18 @@ This is the only true shared-code violation. Everything else is either hub-inter
 - `rewrites().beforeFiles`: per-host root and clean auth URL rewrites (already documented in Section 1).
 - `redirects()`: subdomain-aware host regex `(www\.)?financialmodelerpro\.com` + 308 (`permanent: true`) for canonical moves like `/training/:path*` -> `learn.*`. 307s for legacy admin URLs and learn-side `/training/signin` -> `/signin`.
 
-### `src/middleware.ts`
+### `src/middleware.ts` (DEAD CODE, has never run in production)
 
-- Owns `/login`, `/admin`, `/admin/login`, `/admin/:path+`.
-- All redirects 307 with no-cache headers (`Cache-Control: no-store, no-cache, must-revalidate, max-age=0`, `Pragma: no-cache`, `Expires: 0`) to overwrite stale 308s cached by browsers.
-- `/admin` itself is passed through (with no-cache headers) so the inline login form renders.
-- `/admin/:path+` requires NextAuth role=admin; non-admin gets 307 to `/portal`; unauth gets 307 to `/admin`.
+**Everything this file says it does, it does not do.** Next.js resolves middleware at the PROJECT ROOT. `app/` is the source root and there is no `src/app`, so the middleware entry point would have to be `./middleware.ts`; `src/middleware.ts` is never compiled. Verified 2026-07-30, re-verified 2026-08-01:
+
+- There is no `middleware.ts` at the repo root, only `src/middleware.ts`.
+- `.next/server/middleware-manifest.json` is `{"version":3,"middleware":{},"functions":{},"sortedMiddleware":[]}`.
+- Live: `/admin/cms`, `/admin/users`, `/admin/revenue`, `/admin/plans`, `/admin/ai-features` all return **200 unauthenticated** (after the apex -> www 307). The body is the generic marketing shell: no admin nav, no admin data. `useRequireAdmin` bounces the visitor once the client bundle mounts, so the gate is CLIENT-side, not server-side.
+- The `/login` and `/admin/login` 307s that make the file look alive come from `next.config.ts` `redirects()` (lines 160-161), which even comments that it is the primary handler for those two paths.
+
+What the file WOULD do if it were at the root (kept as a description of intent, not of behaviour): own `/login`, `/admin`, `/admin/login`, `/admin/:path+`; 307 with no-cache headers to overwrite browser-cached 308s; pass `/admin` through so the inline login form renders; require NextAuth `role=admin` on `/admin/:path+`.
+
+**Do not "fix" this by moving the file to the root.** That ACTIVATES a gate that has never executed against production tokens. If the NextAuth JWT `role` claim is not shaped the way `getToken` expects, every admin is locked out on the next deploy. Sequence: confirm the claim shape on a live token, move, verify `/admin/*` still loads for a real admin, then ship.
 
 ### `vercel.json`
 
@@ -810,7 +816,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
 
 - `/api/cms`, `/api/branding` GET endpoints are public. CLAUDE.md flags both. `cms_content` row that contains `header_settings.logo_url` etc. is intentionally public; nothing sensitive should ever live there.
 - The email provider is Brevo (migrated 2026-05-11, commit `166a8ec`). The old Resend webhook (`/api/webhooks/resend`) was removed 2026-07-02; engagement tracking (open/click/bounce/complaint) via a Brevo webhook is a pending follow-up. `RESEND_WEBHOOK_SECRET` no longer exists: it was removed 2026-07-31 with `/api/email/send`, the only thing that read it.
-- Admin protection lives in two places: middleware (`src/middleware.ts`) and individual route handlers (manual `getServerSession` checks). Centralize in middleware longer-term to reduce drift risk.
+- **Admin protection is per-route only.** The middleware layer (`src/middleware.ts`) has never run, see the note in Section 10, so the individual `getServerSession` + role check at the top of each handler is not defence in depth, it is the ONLY server-side enforcement. Measured live 2026-08-01 across all **121** `app/api/admin/*` route files (the previously documented 118 predates three additions): **69 return 401, 44 return 403, 8 return 200**. Every one of the 8 is a read-only GET of data the public site already renders, and every write method on those same routes is guarded: `asset-types` (GET documented PUBLIC since Pass 46, and it returns only `visible` rows unless an authenticated admin passes `includeHidden`), `modules` (platform catalog), `training` (course list, scanned for PII, none), and the five `*-coming-soon` flag readers that public pages poll by design. So no privileged data and no mutation is reachable unauthenticated, but the accurate claim is "every admin WRITE is guarded", not "every admin route is guarded". Centralizing in middleware is still the longer-term fix, and it now carries the prerequisite in Section 10 (the JWT role-claim test) before the file is activated.
 
 ---
 
@@ -884,7 +890,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
   - Move `app/verify/*` under `app/training/verify/*` and update next.config.ts host rewrites so `learn.*/verify/*` rewrites correctly. Or extract verify into a hub-neutral subfolder.
   - Move `app/portal/page.tsx` decision: pin to Modeling Hub (rename to `app/modeling/portal/page.tsx`) or keep cross-hub.
   - Adopt a path-alias-per-hub (`@training/*`, `@modeling/*`, `@shared/*`) replacing today's monolithic `@/src/*`. Enforce via ESLint `no-restricted-imports` so Training cannot import Modeling and vice versa.
-  - Centralize all admin protection in middleware (remove per-route `getServerSession` boilerplate).
+  - Centralize all admin protection in middleware (remove per-route `getServerSession` boilerplate). **Prerequisite:** `src/middleware.ts` has never run (Section 10). Move it to the repo root and prove the gate fires against a live admin token BEFORE deleting any per-route check, or this trade removes the only enforcement that exists.
 - **What stays the same**: production routes (URLs unchanged), DB schema, deployment config except for any rewrite changes for `/verify`.
 - **Risk to Training Hub**: medium. File moves under `src/components/training/` and `src/lib/training/` can break dozens of imports; if a single broken import slips into deploy, students see runtime errors.
 - **Time estimate**: 3-5 days plus a stabilization week.
@@ -968,10 +974,10 @@ After 1-9, the boundary table at the end of Section 9 is fully clean. After that
 
 ### F. What to avoid
 
-- **Do not move `app/admin/*` pages without first centralizing admin auth in middleware**. Today every admin route does its own session check; moving them around without unifying that check first risks shipping a page where the check was forgotten.
+- **Do not move `app/admin/*` pages without first centralizing admin auth in middleware**. Today every admin route does its own session check; moving them around without unifying that check first risks shipping a page where the check was forgotten. Note the check is the ONLY server-side enforcement, since `src/middleware.ts` has never run (Section 10), so a forgotten check is a real hole, not a redundant one.
 - **Do not split `src/lib/training/certificateEngine.ts` into hub-neutral primitives**. It is the load-bearing critical path for cert issuance. Refactor only inside the file; do not extract.
 - **Do not change `cookieName: 'training_session'`** in `src/lib/training/training-session.ts`. Cookie name change == every student logged out.
-- **Do not delete `app/login/page.tsx`** if it still exists. (It was deleted 2026-04-24; verify on disk before assuming.) The `/login` URL is now handled by middleware redirect; a stale file would intercept first.
+- **Do not delete `app/login/page.tsx`** if it still exists. (It was deleted 2026-04-24; verify on disk before assuming.) The `/login` URL is now handled by a `next.config.ts` redirect (not middleware, which has never run); a stale file would intercept first.
 - **Do not change `next.config.ts` `MAIN_HOST_RE`** without re-testing every Search Console URL. The history of fixes there is long and easy to regress.
 - **Do not delete `src/lib/training/appsScript.ts`** until a Supabase replacement is in place for question fetch + course details + reset-attempts. The four call sites are documented in Section 11.
 - **Do not run a destructive `git clean -fdx`** in this repo without first archiving `_legacy_backup/` and `js/` if either contains historic prototype work the user wants to keep.

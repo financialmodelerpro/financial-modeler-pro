@@ -144,7 +144,7 @@ financial-modeler-pro/
 |   |   +-- anthropic/                   (Future home; today /api/agents/* hosts the logic)
 |   +-- features/
 |   |   +-- marketing-studio/            Moved from src/lib/marketing-studio/ (hub-shared but feature-scoped)
-|   +-- middleware.ts                    Stays at src/middleware.ts (Next.js convention)
+|   +-- middleware.ts                    Stays at src/middleware.ts. NOTE (2026-07-30): this is NOT the Next.js convention, and the file has never run. Middleware resolves at the repo ROOT unless the source root is src/ (it is not: app/ lives at the root). Do not act on this row without reading PLATFORM_INVENTORY.md Section 10.
 |   +-- assets/                          Stays (Inter font files; consumed by satori)
 |   +-- agents/                          (Decision: delete or fill out; see Quick Wins)
 +-- public/                              Static assets (no change)
@@ -947,7 +947,7 @@ Across phases, parallelization is unsafe: each phase depends on the previous pha
 The following are explicitly out of scope; they are valuable but not required for portability:
 
 - **Splitting `app/api/` into hub-prefixed folders.** Documented in A.4. URL contract dependency.
-- **Centralizing admin auth into middleware.** PLATFORM_INVENTORY.md F.7. Independent improvement.
+- **Centralizing admin auth into middleware.** PLATFORM_INVENTORY.md F.7. Independent improvement, and blocked on the middleware actually running: the file sits at `src/middleware.ts` where Next never compiles it (Section 10).
 - **Removing Apps Script integration entirely.** PLATFORM_INVENTORY.md S.11. Dependent on a Supabase replacement for question fetch + course details + reset-attempts; not a folder restructure problem.
 - **Filling out Modeling Hub platforms 2-10.** Product roadmap, not architecture.
 - **Filling out REFM Modules 2-11.** Product roadmap.
@@ -970,7 +970,7 @@ These are not part of the restructure proper but are obvious cleanups uncovered 
 | J.7 | Confirm migrations 069, 073, 127 are intentionally absent (PLATFORM_INVENTORY.md Section 6 discrepancy) | 30 min | Independent |
 | J.8 | Confirm REFM Excel/PDF export is real (where does ExportModal.tsx generate from?) | 1 hour | Independent |
 | J.9 | Dedupe `CountdownTimer.tsx` between `src/components/shared/` and `src/components/training/` | 30 min | Phase 2.4.a |
-| J.10 | Centralize admin auth into middleware (eliminate per-route session checks) | 1 day | Independent (high value but separate effort) |
+| J.10 | Centralize admin auth into middleware (eliminate per-route session checks). **Blocked on first moving `src/middleware.ts` to the repo root, where Next can actually see it, and proving the gate fires on a live admin token. It has never run.** | 1 day | Independent (high value but separate effort) |
 
 ---
 
@@ -1001,7 +1001,7 @@ To make the safety promise concrete:
 - No file under `app/api/cron/*` is renamed or moved (Vercel cron contract).
 - `next.config.ts` host rewrites and redirects are unchanged.
 - `vercel.json` is unchanged.
-- `src/middleware.ts` stays at its current path (Next.js convention).
+- `src/middleware.ts` stays at its current path. (This was written believing `src/middleware.ts` is the Next.js convention. It is not, when `app/` is at the repo root, and the file has consequently never executed. Corrected 2026-07-30; the fix is deliberately NOT part of this restructure, see PLATFORM_INVENTORY.md Section 10.)
 - Cookie names (`training_session`, `fmp-trusted-device`) are unchanged.
 - Env vars are unchanged.
 - Database migrations are unchanged. No new migration files are created.

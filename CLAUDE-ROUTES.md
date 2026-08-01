@@ -69,8 +69,8 @@ app/admin/
 ├── content/page.tsx
 ├── health/page.tsx
 # NOTE: app/admin/founder/page.tsx DELETED 2026-04-18, founder editing moved to Page Builder → Founder section (team)
-# NOTE: app/admin/login/page.tsx + LoginForm.tsx DELETED 2026-04-24, the welcome/intermediate/form chain collapsed into /admin itself. Legacy /admin/login URL is now a 307 in middleware (src/middleware.ts), not a page.
-# NOTE: app/login/page.tsx DELETED 2026-04-24, same: handled by middleware 307 with no-cache headers.
+# NOTE: app/admin/login/page.tsx + LoginForm.tsx DELETED 2026-04-24, the welcome/intermediate/form chain collapsed into /admin itself. Legacy /admin/login URL is now a 307, issued by next.config.ts redirects() (NOT by src/middleware.ts, which has never run in production: Next resolves middleware at the repo root, so the file at src/ is never compiled. See PLATFORM_INVENTORY.md Section 10).
+# NOTE: app/login/page.tsx DELETED 2026-04-24, same: a next.config.ts 307 with no-cache headers from headers().
 ├── media/page.tsx
 ├── modeling-access/page.tsx       # Modeling Hub access whitelist admin (migration 136): add-email form + per-row Revoke + toggle-state summary. Sidebar nav entry 🔑 Access Whitelist under Modeling Hub.
 ├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
