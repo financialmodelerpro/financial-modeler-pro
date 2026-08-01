@@ -28,15 +28,69 @@
 
 ---
 
-## ⭐ START HERE (current focus, 2026-06-17)
+## ⭐ START HERE (current focus, 2026-08-01)
 
-**REFM Modules 1-6 are built; Module 7 Reports is the next module surface.** The **Excel MODEL export** (`lib/excel/`) and **PDF export** (`lib/pdf/`) are complete module-for-module mirrors. The Excel export is a HARDCODED platform snapshot (every cell = the platform value as a constant; editing does NOT recalculate, re-export after changing inputs), one standard navy palette, tabs in module order; `verify-excel-export` 129/129. Module 6 Scenario Analysis is DONE (case-engine surface + multi-case assumptions grid with per-asset cost sourcing + attribution + percent-scale formatting + comparison matrix + a Year-on-Year Impact tab; exhaustively field-audited on the live project; `verify-module6-scenarios` 128/128). Version control: a project opens read-only (view/edit lock) and Edit offers edit-in-place / a different version / create-new + mid-session save-as-new (no more version churn). The earlier formula-driven Excel approach was retired in favour of this hardcoded mirror.
+**TOMORROW: Module 7 fixes.** Everything below is known-open; nothing here is a
+guess about what might be wrong.
 
-**NEXT / pending units:**
-- **Module 7 Reports** (charts / dashboards): the remaining module surface (config: `module7` = Reports, currently a stub).
-- **Two-way Sensitivity grid** on the Excel Returns tab: the one Module 5 section not yet mirrored (the on-screen + PDF grid already exist via `computeReturnsSensitivity`).
-- **Scenario re-basing** in Module 6: promote a non-base case to base (deferred; needs per-case override recompute against the new base).
-- Per-element override grammar can extend beyond `parcelFunding` if a scenario needs per-period velocity / profile curves (today those stay whole-array auto-capture).
+**Where Module 7 actually stands.** The IC Presentation Builder is LIVE and
+substantial: slide editor with direct manipulation, 18 auto-omitting templates,
+full year-by-year schedules, live ToC, native PPTX + PDF export from one shared
+resolved-export contract, and AI drafting on the narrative blocks. Migration 199
+applied. Detail in [CLAUDE-REFM.md](CLAUDE-REFM.md); AI detail in
+[CLAUDE-AI.md](CLAUDE-AI.md).
+
+### The gap that matters most: nobody has driven it in a browser
+
+The deck editor and the AI panel are verified structurally and behaviourally,
+NOT visually. This is not a theoretical worry:
+
+- **EditLayer was dead for about ten days** behind passing checks (its effect
+  deps changed every render, so the cleanup killed each gesture). Found only by
+  opening it. See `[[feedback_gesture_lifecycle_pointer_capture]]`.
+- **A hook after an early return crashed the whole Presentation tab** on
+  2026-08-01, shipped past a 126-check verifier, caught by ESLint after the
+  fact. Fixed in `a8b4247d`; `verify-ic-narrative-ui` now fails if any hook
+  sits after an early return.
+
+So: open Module 7 in a real browser and exercise drag, resize, snap, inline text
+edit, undo/redo, slide add/duplicate/reorder, Insert data block, and export,
+before trusting any of it.
+
+### Module 7 build work still outstanding (Phase 3-4)
+
+- **Insert menu**: add new bound objects, images, and shapes to a slide. Today
+  only "Insert data block" exists (`blockLibrary.ts`).
+- **Image upload**: `ImageObject` renders but there is no upload path. Use the
+  timestamped-path + `STORAGE_CACHE_IMMUTABLE` convention from
+  `src/shared/storage/cacheControl.ts`.
+- **Group / ungroup, align / distribute**: `BaseObject.groupId` exists and is
+  honoured by nothing yet.
+- **PNG export** (per slide, satori + sharp). PPTX and PDF are done; PNG would
+  go through the same `resolveDeckExport` contract so it cannot drift.
+
+### AI, blocked on one external thing
+
+- **No real generated prose has ever been read.** The Anthropic account is out
+  of credit, so a Generate click spends a credit, hits the billing error, and
+  now refunds it (mig 206). Once credit is added: enable **IC narrative** in
+  `/admin/ai-features` (it registers DISABLED), generate one field, and read it
+  for voice, for whether it teaches the mechanism rather than restating the
+  table, and for whether the audit chip stays green.
+- **One credit is sitting spent** on Ahmad's August counter
+  (`m7_ic_narrative`, `2026-08-01`, `used: 1`) from a failed test that predates
+  the refund. Refund it or leave it; it is 1 of 500.
+
+### Older items, still genuinely open
+
+- **Two-way Sensitivity grid** on the Excel Returns tab: the one Module 5
+  section not yet mirrored (the on-screen and PDF grids already exist via
+  `computeReturnsSensitivity`).
+- **Scenario re-basing** in Module 6: promote a non-base case to base. Needs
+  per-case override recompute against the new base.
+- Per-element override grammar could extend beyond `parcelFunding` if a scenario
+  needs per-period velocity / profile curves (today those stay whole-array
+  auto-capture).
 
 ---
 
