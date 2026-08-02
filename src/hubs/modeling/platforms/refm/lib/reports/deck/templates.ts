@@ -34,6 +34,7 @@ import {
 } from './layout';
 import { schedulePageCount, type MetricBindingKey, type TableBindingKey } from './bindings';
 import { PLACEHOLDER } from './placeholders';
+import { stripEmDashesDeep } from '@/src/shared/text/houseStyle';
 
 /** What a template may read besides the model: narrative the user already wrote. */
 export interface TemplateSeed {
@@ -700,8 +701,18 @@ export function buildSlidesFromTemplate(t: SlideTemplate, m: ICReportModel, seed
  * rather than shipped blank, and section numbering is assigned AFTER omission so
  * the chips read 01..N with no gaps.
  */
-export function seedDeck(projectId: string, m: ICReportModel, seed: TemplateSeed, opt: { asOf: string; title?: string }): Deck {
+export function seedDeck(projectId: string, m: ICReportModel, rawSeed: TemplateSeed, opt: { asOf: string; title?: string }): Deck {
   resetDeckIds();
+  // House style, applied where the text ENTERS the deck rather than at each of
+  // the places it is read back out.
+  //
+  // `seed.inputs` is narrative held in refm_report_inputs: executive summary
+  // points, risk rows, conditions precedent, header and footer. It is static
+  // content from the user's own earlier typing or from a seed, so unlike the AI
+  // path nothing had ever cleaned it, and an em dash typed into the report form
+  // reached the slide, the PPTX and the PDF unchanged. One pass here covers
+  // every template that reads it.
+  const seed: TemplateSeed = { ...rawSeed, inputs: rawSeed.inputs ? stripEmDashesDeep(rawSeed.inputs) : rawSeed.inputs };
   const usable = SLIDE_TEMPLATES.filter((t) => t.available(m, seed));
   let n = 0;
   // The cover carries no section chip, and is excluded from the numbering. A

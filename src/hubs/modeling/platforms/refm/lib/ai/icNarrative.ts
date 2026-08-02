@@ -31,6 +31,7 @@
  * No em dashes in this file, and none in any prompt string it holds.
  */
 
+import { stripEmDashes, containsEmDash as sharedContainsEmDash } from '@/src/shared/text/houseStyle';
 import type { ReportInputs, RiskItem } from '../reportInputs';
 import type { ICReportModel } from '../reports/icReport';
 
@@ -314,8 +315,10 @@ export function coerceNarrativeFieldKey(v: unknown): IcNarrativeFieldKey | null 
  * them from the check that hunts for them, and an exemption is how a rule stops
  * being enforced.
  */
-const EM_DASH = /[\u2014\u2015]/g;
-const EM_DASH_SPACED = /\s*[\u2014\u2015]\s*/g;
+// The character class and the substitution rule now live in ONE place,
+// src/shared/text/houseStyle.ts, so the AI path, static content and the
+// content verifier cannot drift about what an em dash is or what replaces it.
+// Behaviour here is unchanged.
 
 /**
  * House style, enforced on the OUTPUT rather than only requested in the prompt.
@@ -337,7 +340,7 @@ export function sanitizeNarrativeText(raw: string): string {
   const fence = /^```[a-z]*\s*\n([\s\S]*?)\n?```$/i.exec(t);
   if (fence) t = fence[1].trim();
 
-  t = t.replace(EM_DASH_SPACED, ', ').replace(EM_DASH, ', ');
+  t = stripEmDashes(t);
 
   // Matched quotes around the whole answer, only when they do not appear inside.
   if (t.length > 1 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith('“') && t.endsWith('”')))) {
@@ -352,7 +355,7 @@ export function sanitizeNarrativeText(raw: string): string {
 /** True when a string still carries an em dash. Used by the verifier and by any
  *  caller that wants to assert the house rule held. */
 export function hasEmDash(s: string): boolean {
-  return EM_DASH.test(s);
+  return sharedContainsEmDash(s);
 }
 
 const cleanRow = (s: unknown): string => (typeof s === 'string' ? sanitizeNarrativeText(s).replace(/\s+/g, ' ').trim() : '');
