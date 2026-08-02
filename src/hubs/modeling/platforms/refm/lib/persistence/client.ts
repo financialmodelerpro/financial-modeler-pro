@@ -315,6 +315,17 @@ export function getReportDeckVersion(projectId: string, versionId: string): Prom
   );
 }
 
+/** Overwrite a saved version in place (the deck's "update this version"). Saves
+ *  the working deck in the same call; version number and date are preserved. */
+export function updateReportDeckVersion(
+  projectId: string, versionId: string, deck: Deck, label?: string | null,
+): Promise<FetchResult<{ version: DeckVersionListItem }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions/${encodeURIComponent(versionId)}`,
+    { method: 'PATCH', body: JSON.stringify({ deck, label: label ?? null }) },
+  );
+}
+
 export function deleteReportDeckVersion(projectId: string, versionId: string): Promise<FetchResult<{ ok: true }>> {
   return callJson(
     `/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions/${encodeURIComponent(versionId)}`,

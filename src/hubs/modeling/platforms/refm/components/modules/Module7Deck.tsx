@@ -41,7 +41,7 @@ import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
-import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus } from '../../lib/persistence/client';
+import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus, updateReportDeckVersion } from '../../lib/persistence/client';
 import { NarrativeAiBoundary, NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
 import { buildNarrativePatch } from '../../lib/reports/deck/narrativeTargets';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
@@ -60,6 +60,7 @@ import { availableBlocks, BLOCK_SECTIONS, type BlockSpec } from '../../lib/repor
 import SlideCanvas from './deck/SlideCanvas';
 import SlideNavigator from './deck/SlideNavigator';
 import DeckVersionsModal from './deck/DeckVersionsModal';
+import DeckSaveChoiceModal, { type DeckSaveChoice } from './deck/DeckSaveChoiceModal';
 import EditLayer from './deck/EditLayer';
 import type { RenderCtx } from './deck/SlideObjectView';
 import { SLIDE_W, SLIDE_H, DECK_SCHEMA_VERSION } from '../../lib/reports/deck/types';
@@ -90,7 +91,21 @@ function Banner({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
 
 // ── The module ──────────────────────────────────────────────────────────────
 
-export default function Module7Deck({ activeProjectId = null }: { activeProjectId?: string | null } = {}): React.JSX.Element {
+export interface Module7DeckProps {
+  activeProjectId?: string | null;
+  /**
+   * Hand the shell this module's save action so the TOPBAR Save (the main save
+   * affordance) drives the deck while the Presentation tab is open, instead of
+   * the project-version flow that has nothing to do with a deck. Called with
+   * null on unmount so the shell never holds a stale handler.
+   */
+  onRegisterSave?: (fn: (() => void) | null) => void;
+  /** Report unsaved deck edits up, so the topbar Save shows its unsaved state
+   *  for the deck exactly as it does for the model. */
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+export default function Module7Deck({ activeProjectId = null, onRegisterSave, onDirtyChange }: Module7DeckProps = {}): React.JSX.Element {
   const s = useModule1Store(useShallow((st) => ({
     project: st.project, phases: st.phases, parcels: st.parcels, landAllocationMode: st.landAllocationMode,
     assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides,
@@ -115,6 +130,9 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const [exportOpen, setExportOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [saveChoiceOpen, setSaveChoiceOpen] = useState(false);
+  // True when the versions modal is standing in as the naming step of a Save.
+  const [versionsFromSave, setVersionsFromSave] = useState(false);
   // AI drafting (Unit 8). `aiStatus` is a MIRROR of the server's answer, never a
   // local allowance: it is seeded from the status endpoint and refreshed from
   // the meter reading each generation returns.
@@ -310,13 +328,38 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     });
   }, []);
 
-  const save = useCallback(async () => {
+  /**
+   * Saving asks first, rather than overwriting silently.
+   *
+   * The deck is one row per project, so the old Save upserted straight over the
+   * previous document with no prompt, and never touched the named versions at
+   * all. Every save now goes through the choice modal (the deck's equivalent of
+   * the platform's EditChoiceModal), which is also what the topbar Save reaches
+   * through while this module is open.
+   */
+  const requestSave = useCallback(() => {
+    if (!activeProjectId || !deck || !canSave) return;
+    setSaveChoiceOpen(true);
+  }, [activeProjectId, deck, canSave]);
+
+  /** Plain working-deck save, with no version involved. */
+  const saveWorkingDeck = useCallback(async () => {
     if (!activeProjectId || !deck) return;
     setSaving(true); setNotice(null);
     const res = await saveReportDeck(activeProjectId, deck);
     setSaving(false);
     if (res.error) { setNotice(res.error); return; }
     setDirty(false); setNotice('Presentation saved.');
+  }, [activeProjectId, deck]);
+
+  /** Overwrite the linked saved version, keeping its name, number and date. */
+  const saveOverVersion = useCallback(async (versionId: string, name: string) => {
+    if (!activeProjectId || !deck) return;
+    setSaving(true); setNotice(null);
+    const res = await updateReportDeckVersion(activeProjectId, versionId, deck);
+    setSaving(false);
+    if (res.error) { setNotice(res.error); return; }
+    setDirty(false); setNotice(`Updated the saved version "${name}".`);
   }, [activeProjectId, deck]);
 
   const doExport = useCallback(async (format: 'pptx' | 'pdf') => {
@@ -367,7 +410,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     // selected on the slide BEHIND it, and Escape would clear that selection
     // out from under the user. Moving these shortcuts from the canvas column to
     // the document is what made that reachable, so the guard belongs here.
-    if (versionsOpen || aiDrafts.length > 0) return;
+    if (versionsOpen || saveChoiceOpen || aiDrafts.length > 0) return;
     // Never fight the browser's own text undo. Inside an input, textarea,
     // select or contentEditable the native stack is the right one, so the deck
     // history stays out of the way entirely.
@@ -405,7 +448,18 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
       commit((d) => nudgeObjects(d, sid, selectedIds, dx, dy));
     }
-  }, [editingId, presentMode, versionsOpen, aiDrafts.length, activeSlideId, selectedIds, undo, redo, commit, pushHistory]);
+  }, [editingId, presentMode, versionsOpen, saveChoiceOpen, aiDrafts.length, activeSlideId, selectedIds, undo, redo, commit, pushHistory]);
+
+  // Publish the save action + dirty state to the shell, so the topbar Save
+  // opens the deck's save choice while this module is open. Registered with
+  // null on unmount, so leaving the tab hands the topbar back to the model.
+  useEffect(() => {
+    onRegisterSave?.(requestSave);
+    return () => onRegisterSave?.(null);
+  }, [onRegisterSave, requestSave]);
+
+  useEffect(() => { onDirtyChange?.(dirty && canSave); }, [onDirtyChange, dirty, canSave]);
+  useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
 
   // Bind the shortcuts at the document for as long as the deck is mounted.
   //
@@ -549,8 +603,8 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       <main style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, outline: 'none' }}>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: `1px solid ${DECK_THEME.rule}` }}>
         <div style={{ width: '100%', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button style={btn('primary')} onClick={() => void save()} disabled={saving || !dirty || !canSave} data-testid="deck-save">{saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
-          <button style={btn()} onClick={() => setVersionsOpen(true)} disabled={!canSave} data-testid="deck-versions-open" title="Save this presentation under a name, or load one you saved earlier">Versions</button>
+          <button style={btn('primary')} onClick={requestSave} disabled={saving || !dirty || !canSave} data-testid="deck-save">{saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
+          <button style={btn()} onClick={() => { setVersionsFromSave(false); setVersionsOpen(true); }} disabled={!canSave} data-testid="deck-versions-open" title="Save this presentation under a name, or load one you saved earlier">Versions</button>
           <span style={{ width: 1, height: 20, background: DECK_THEME.rule, margin: '0 2px' }} />
           <button style={iconBtn} title="Undo (Ctrl+Z)" onClick={undo} disabled={!past.length} data-testid="deck-undo">↶</button>
           <button style={iconBtn} title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!future.length} data-testid="deck-redo">↷</button>
@@ -684,6 +738,24 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       </aside>
       ) : null}
 
+      {/* Every save asks first. "Update" writes the working deck, and also
+          overwrites the linked saved version when there is one so its name
+          keeps describing what you see. "New version" hands off to the
+          versions modal for the name, and deliberately leaves you on the
+          working deck: the version is a saved copy, not a context switch. */}
+      {saveChoiceOpen ? (
+        <DeckSaveChoiceModal
+          projectId={activeProjectId ?? ''}
+          onCancel={() => setSaveChoiceOpen(false)}
+          onChoose={(choice: DeckSaveChoice, linked) => {
+            setSaveChoiceOpen(false);
+            if (choice === 'new-version') { setVersionsFromSave(true); setVersionsOpen(true); return; }
+            if (linked) void saveOverVersion(linked.id, linked.label ?? `Version ${linked.versionNumber}`);
+            else void saveWorkingDeck();
+          }}
+        />
+      ) : null}
+
       {/* Named presentation versions (migration 207). Loading goes through
           `commit`, so it is ONE undo step and still needs Save: looking at an
           older version can never destroy the deck on screen. */}
@@ -692,7 +764,9 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           projectId={activeProjectId ?? ''}
           deck={deck}
           dirty={dirty}
-          onClose={() => setVersionsOpen(false)}
+          autoCloseOnSave={versionsFromSave}
+          onSavedVersion={() => setDirty(false)}
+          onClose={() => { setVersionsOpen(false); setVersionsFromSave(false); }}
           onNotice={setNotice}
           onLoad={(loaded, label) => {
             commit(() => ({ ...loaded, projectId: activeProjectId ?? loaded.projectId }));

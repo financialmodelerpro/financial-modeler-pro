@@ -22,12 +22,16 @@
  * No em dashes in this file.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { addTextBox, addBlankSlide, updateObject, removeObjects } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/mutations';
 import { coerceDeck } from '../src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { SLIDE_W, SLIDE_H, type Deck, type DeckObject } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean): void => { if (cond) { pass++; console.log(`  [PASS] ${name}`); } else { fail++; console.log(`  [FAIL] ${name}`); } };
+
+const containsEmDashLiteral = (t: string): boolean => new RegExp(`[—―]`).test(t);
 
 const obj = (id: string, type: string, x: number, y: number, w = 100, h = 40, extra: any = {}): DeckObject =>
   ({ id, type, x, y, w, h, rot: 0, ...extra } as DeckObject);
@@ -163,6 +167,59 @@ console.log('== named versions: bindings are stored, figures are NOT ==');
   check('no resolved value field is persisted on the KPI', !('value' in (kpi ?? {})));
   check('no formatted display string is persisted on the KPI', !('display' in (kpi ?? {})));
   check('the free text box is the ONLY user-authored content path', serialised.includes('headline.projectIrr'));
+}
+
+console.log('== save choice: wiring (source assertions) ==');
+{
+  const read = (p: string): string => readFileSync(join(__dirname, '..', p), 'utf8');
+  const deckSrv = read('src/hubs/modeling/platforms/refm/lib/persistence/deck-server.ts');
+  const route = read('app/api/refm/projects/[id]/report-deck/versions/[versionId]/route.ts');
+  const shell = read('src/hubs/modeling/platforms/refm/components/modules/Module7Deck.tsx');
+  const platform = read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx');
+  const choice = read('src/hubs/modeling/platforms/refm/components/modules/deck/DeckSaveChoiceModal.tsx');
+
+  // An in-place update must revise the SAME version, so these two columns must
+  // never appear in the patch. If they ever do, "update" silently renumbers or
+  // re-dates a version and the history stops being trustworthy.
+  const upd = deckSrv.slice(deckSrv.indexOf('export async function updateDeckVersion'), deckSrv.indexOf('export async function deleteDeckVersion'));
+  // Scope this to the PATCH PAYLOAD only. Testing the whole function body would
+  // match the row type annotation and the select list, which mention both
+  // columns perfectly legitimately, and the assertion would fail while the code
+  // was correct (it did exactly that on the first run).
+  const payload = upd.slice(upd.indexOf('const patch'), upd.indexOf('.update(patch)'));
+  check('the patch payload is found', payload.length > 40);
+  check('updateDeckVersion never patches version_number', !/version_number/.test(payload));
+  check('updateDeckVersion never patches created_at', !/created_at/.test(payload));
+  check('the payload check has teeth (it would catch a renumber)',
+    /version_number/.test(payload + 'patch.version_number = 1;'));
+  check('updateDeckVersion is scoped by project_id as well as id',
+    upd.includes(".eq('project_id', projectId)") && upd.includes(".eq('id', versionId)"));
+  check('updateDeckVersion also saves the working deck', upd.includes('upsertDeck(projectId, deck)'));
+  check('updateDeckVersion only renames when a label is supplied', upd.includes('patch.label = label.trim()'));
+
+  check('PATCH route exists on the version resource', /export async function PATCH/.test(route));
+  check('PATCH re-validates the posted deck through coerceDeck', /coerceDeck\(body\?\.deck/.test(route));
+  check('PATCH is behind the read-only grace write gate', route.includes('writeBlockReason(gate)'));
+
+  // Every save must ask. If the Save button ever calls a writer directly again,
+  // the silent overwrite is back.
+  check('the deck Save button opens the choice, not a writer', shell.includes('onClick={requestSave}'));
+  check('requestSave opens the choice modal', /const requestSave[\s\S]{0,240}setSaveChoiceOpen\(true\)/.test(shell));
+  check('the choice modal is in the keyboard guard', shell.includes('versionsOpen || saveChoiceOpen || aiDrafts.length > 0'));
+  check('choosing a new version hands off to the versions modal', shell.includes("if (choice === 'new-version')"));
+  check('save-as-new does NOT reload or switch slide (stay where you are)',
+    !/new-version'\s*\)\s*\{[^}]*setActiveSlideId/.test(shell));
+
+  check('the module registers its save with the shell', shell.includes('onRegisterSave?.(requestSave)'));
+  check('the module clears the registration on unmount', shell.includes('onRegisterSave?.(null)'));
+  check('the topbar Save prefers the deck handler when one is registered',
+    platform.includes('if (deckSaveRef.current) { deckSaveRef.current(); return; }'));
+  check('the topbar unsaved state follows the deck on module 7',
+    platform.includes('hasUnsaved={isDeckModule ? deckDirty : hasUnsaved}'));
+
+  check('the choice names the version it would overwrite', choice.includes('Update "${linkedName}"'.replace('${linkedName}', '${linkedName}')));
+  check('the choice degrades honestly when nothing is linked', choice.includes('Update this presentation'));
+  check('no em dash in the new save-choice modal', !containsEmDashLiteral(choice));
 }
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

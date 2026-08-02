@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { getDeckVersion, deleteDeckVersion } from '@/src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
+import { getDeckVersion, deleteDeckVersion, updateDeckVersion, coerceDeck } from '@/src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
@@ -44,6 +44,45 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (error) return serverError(error);
   if (!deck) return notFound();
   return NextResponse.json({ deck });
+}
+
+/**
+ * PATCH -> overwrite this saved version's document with the posted deck, the
+ * deck equivalent of the platform's "edit this version in place". The working
+ * deck is saved in the same call so the two cannot diverge. version_number and
+ * created_at are preserved: this is the same version, revised.
+ */
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string; versionId: string }> }) {
+  const { id, versionId } = await ctx.params;
+
+  const { userId, isAdmin } = await getRefmUserContext();
+  if (!userId) return unauthorized();
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  const block = writeBlockReason(gate);
+  if (block) {
+    return NextResponse.json(
+      {
+        error: block === 'LAPSED'
+          ? 'Your subscription has lapsed. Renew your plan to save presentation changes.'
+          : 'Your subscription has expired. Access is read-only during the grace period, renew to save presentation changes.',
+        code: block,
+      },
+      { status: 403 },
+    );
+  }
+
+  const owned = await requireOwnedProject(id);
+  if (owned instanceof NextResponse) return owned;
+
+  const body = await req.json().catch(() => null) as { deck?: unknown; label?: unknown } | null;
+  const deck = coerceDeck(body?.deck, id, today());
+  if (!deck) return NextResponse.json({ error: 'A deck with at least one slide is required.' }, { status: 400 });
+  const label = typeof body?.label === 'string' ? body.label : null;
+
+  const { version, error } = await updateDeckVersion(id, versionId, deck, label);
+  if (error) return serverError(error);
+  if (!version) return notFound();
+  return NextResponse.json({ version });
 }
 
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string; versionId: string }> }) {

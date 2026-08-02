@@ -65,9 +65,14 @@ export interface DeckVersionsModalProps {
    *  `commit`, so it is one undo step and still needs Save). */
   onLoad: (deck: Deck, label: string) => void;
   onNotice: (msg: string) => void;
+  /** The working deck was saved as part of a version save, so clear dirty. */
+  onSavedVersion?: () => void;
+  /** Close as soon as a version is saved. Set when this modal IS the naming
+   *  step of a Save, so the user is not left in a dialog after saving. */
+  autoCloseOnSave?: boolean;
 }
 
-export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onLoad, onNotice }: DeckVersionsModalProps): React.JSX.Element {
+export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onLoad, onNotice, onSavedVersion, autoCloseOnSave }: DeckVersionsModalProps): React.JSX.Element {
   const [versions, setVersions] = useState<DeckVersionListItem[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [available, setAvailable] = useState(true);
@@ -106,7 +111,14 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
     setBusy(false);
     if (res.error) { setErr(res.error); return; }
     setLabel(''); setComment('');
-    onNotice(`Saved presentation version "${name}".`);
+    onNotice(`Saved presentation version "${name}". You are still editing the working presentation.`);
+    // The server saved the working deck in the same call, so the parent's dirty
+    // flag has to clear or the deck would still look unsaved.
+    onSavedVersion?.();
+    // Opened from a Save click, the naming step IS the save, so finish there.
+    // Opened from the Versions button, stay put so the new row is visible in
+    // the list that was the point of opening it.
+    if (autoCloseOnSave) { onClose(); return; }
     refresh();
   };
 

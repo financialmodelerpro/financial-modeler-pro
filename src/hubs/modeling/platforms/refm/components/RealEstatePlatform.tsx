@@ -673,7 +673,17 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Comment). The old plain-label handleSaveVersion path is retired so a
   // version is never named with a bare "Version N" counter.
 
+  // Module 7 owns its own document (the deck), so while the Presentation tab is
+  // open the topbar Save must drive THAT rather than the project-version flow,
+  // which has nothing to do with a deck. The module registers its save action
+  // here on mount and clears it on unmount, so the topbar hands itself back to
+  // the model the moment the user leaves the tab.
+  const deckSaveRef = useRef<(() => void) | null>(null);
+  const [deckDirty, setDeckDirty] = useState(false);
+  const registerDeckSave = useCallback((fn: (() => void) | null) => { deckSaveRef.current = fn; }, []);
+
   const handleSaveQuick = useCallback(() => {
+    if (deckSaveRef.current) { deckSaveRef.current(); return; }
     const session = getSessionState();
     // A version is "properly named" once it carries the auto-generated
     // {Project}_vX.Y_date_task label. Auto-started sessions get a default
@@ -1215,7 +1225,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
       // per-tab row the other modules use.
       return (
         <div data-testid="module7-shell-wrap" style={{ height: '100%', minHeight: 0 }}>
-          <Module7Deck activeProjectId={activeProjectId} />
+          <Module7Deck
+            activeProjectId={activeProjectId}
+            onRegisterSave={registerDeckSave}
+            onDirtyChange={setDeckDirty}
+          />
         </div>
       );
     }
@@ -1254,7 +1268,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectName={activeProjectData?.name ?? ''}
         activeProjectData={activeProjectData}
         activeVersionData={activeVersionData}
-        hasUnsaved={hasUnsaved}
+        hasUnsaved={isDeckModule ? deckDirty : hasUnsaved}
         lastSavedAt={lastSavedAt}
         currentUserRole={currentUserRole}
         can={can}

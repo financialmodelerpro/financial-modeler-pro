@@ -345,6 +345,58 @@ export async function setDeckCurrentVersion(projectId: string, versionId: string
   return { error: null };
 }
 
+/**
+ * Overwrite a saved version's document in place, and keep the working deck in
+ * step, which is the deck equivalent of the platform's "edit this version in
+ * place" choice.
+ *
+ * Migration 207 describes this table as append-only, and every OTHER path here
+ * honours that: save-as-new inserts, load copies out, delete removes. This is
+ * the one deliberate exception, and it mirrors the project versions table,
+ * whose migration carries the same append-only wording while
+ * `PATCH /versions/[versionId]` has always overwritten a row's snapshot. A
+ * named version the user is actively working in has to be correctable, or
+ * every fix spawns a new version and the names stop meaning anything.
+ *
+ * `version_number` and `created_at` are deliberately NOT touched: this is the
+ * same version, revised, not a new one. The label is only changed when a new
+ * one is supplied, so an in-place save never silently renames.
+ */
+export async function updateDeckVersion(
+  projectId: string, versionId: string, deck: Deck, label?: string | null,
+): Promise<{ version: DeckVersionListItem | null; error: string | null }> {
+  const sb = getServerClient();
+  const patch: Record<string, unknown> = { deck: { ...deck, projectId, updatedAt: null }, schema_version: deck.schemaVersion ?? DECK_SCHEMA_VERSION };
+  if (typeof label === 'string' && label.trim()) patch.label = label.trim();
+
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .update(patch)
+    .eq('project_id', projectId)   // scoped by project: a version id alone must not reach across projects
+    .eq('id', versionId)
+    .select('id, version_number, label, comment, created_at')
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingTable(error)) return { version: null, error: VERSION_MIGRATION_HINT };
+    return { version: null, error: error.message };
+  }
+  if (!data) return { version: null, error: 'That saved version no longer exists.' };
+
+  // The working deck is the document the user is looking at, so it is saved
+  // too. Without this an in-place version update would leave the working row
+  // stale and the next load would silently discard the edit.
+  const up = await upsertDeck(projectId, deck);
+  if (up.error) return { version: null, error: up.error };
+  await setDeckCurrentVersion(projectId, versionId);
+
+  const row = data as { id: string; version_number: number; label: string | null; comment: string | null; created_at: string | null };
+  return {
+    version: { id: row.id, versionNumber: row.version_number, label: row.label, comment: row.comment, createdAt: row.created_at },
+    error: null,
+  };
+}
+
 export async function deleteDeckVersion(projectId: string, versionId: string): Promise<{ error: string | null }> {
   const sb = getServerClient();
   const { error } = await sb.from('refm_report_deck_versions').delete().eq('project_id', projectId).eq('id', versionId);
