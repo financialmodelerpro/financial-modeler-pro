@@ -1214,7 +1214,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       // navigator / canvas / properties shell), so it renders without the
       // per-tab row the other modules use.
       return (
-        <div data-testid="module7-shell-wrap">
+        <div data-testid="module7-shell-wrap" style={{ height: '100%', minHeight: 0 }}>
           <Module7Deck activeProjectId={activeProjectId} />
         </div>
       );
@@ -1231,6 +1231,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // During read-only GRACE the same lock applies and the Edit affordance is
   // suppressed (editing is impossible), the renew banner replaces the view-lock
   // banner. The pointer-events lock on module content covers both.
+  // Module 7 (the IC deck builder) is the one surface that fills the workspace
+  // rather than flowing inside it.
+  const isDeckModule = activeModule === 'module7' && !!activeProjectId;
   const viewLocked = !!activeProjectId && (!editMode || graceReadOnly) && activeModule !== 'dashboard';
   // Show the normal "click Edit" view-lock banner only when NOT in grace (grace
   // shows its own renew banner instead, since Edit is unavailable).
@@ -1293,7 +1296,22 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onOpenRbac={() => setRbacModalOpen(true)}
           modules={dynamicSidebarModules}
         />
-        <main className={scrollStyles.scroll} style={{ flex: 1, padding: 'var(--sp-3)', overflow: 'auto' }}>
+        {/* Module 7 is the one full-height surface: it owns its own scrolling
+            regions, so the workspace becomes a flex column and hands it the
+            remaining height instead of letting it size itself off `vh`. Inside
+            this `zoom: 0.8` shell a `vh` unit resolves against the real
+            viewport while the shell's coordinate space is 1.25x that, which is
+            what left a large blank band under the deck. Modules 1 to 6 keep the
+            original block-flow scrolling untouched. */}
+        <main
+          className={scrollStyles.scroll}
+          style={{
+            flex: 1, padding: 'var(--sp-3)', minHeight: 0,
+            overflow: isDeckModule ? 'hidden' : 'auto',
+            display: isDeckModule ? 'flex' : undefined,
+            flexDirection: isDeckModule ? 'column' : undefined,
+          }}
+        >
           {loadError && (
             <div
               role="alert"
@@ -1463,7 +1481,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
               model-mutating store setters (see the setViewLocked effect above), so
               ALL view/navigation stays interactive while no model number can
               change. The view-lock banner above communicates the mode. */}
-          <div data-testid="module-content">
+          <div data-testid="module-content" style={isDeckModule ? { flex: 1, minHeight: 0 } : undefined}>
             {renderModule()}
           </div>
         </main>

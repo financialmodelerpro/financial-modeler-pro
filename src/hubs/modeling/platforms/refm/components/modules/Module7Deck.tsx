@@ -58,6 +58,7 @@ import {
 } from '../../lib/reports/deck/mutations';
 import { availableBlocks, BLOCK_SECTIONS, type BlockSpec } from '../../lib/reports/deck/blockLibrary';
 import SlideCanvas from './deck/SlideCanvas';
+import SlideNavigator from './deck/SlideNavigator';
 import EditLayer from './deck/EditLayer';
 import type { RenderCtx } from './deck/SlideObjectView';
 import { SLIDE_W, SLIDE_H, DECK_SCHEMA_VERSION } from '../../lib/reports/deck/types';
@@ -117,7 +118,20 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   // the meter reading each generation returns.
   const [aiStatus, setAiStatus] = useState<NarrativeAiStatus | null>(null);
   const [aiDrafts, setAiDrafts] = useState<NarrativeDraft[]>([]);
-  const [canvasW, setCanvasW] = useState(860);
+  // Layout measurement.
+  //
+  // The platform shell runs at `zoom: 0.8` with `height: calc(100vh / 0.8)`, so
+  // both `vh` units and viewport media queries lie inside it: `vh` still
+  // resolves against the real viewport while the shell's own coordinate space
+  // is 1.25x that. This module used to size itself `calc(100vh - 190px)`, which
+  // is why it left a large blank band under the deck on tall screens. Nothing
+  // here reads the viewport: the shell fills its parent and every breakpoint
+  // comes from the measured element.
+  const [rootW, setRootW] = useState(1400);
+  const [stage, setStage] = useState<{ w: number; h: number }>({ w: 1120, h: 620 });
+  const [propsOpen, setPropsOpen] = useState(false);
+  const rootRoRef = useRef<ResizeObserver | null>(null);
+  const stageRoRef = useRef<ResizeObserver | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
 
   // Undo / redo: whole-deck snapshots.
@@ -226,14 +240,34 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
   useEffect(() => { if (deck && !activeSlideId) setActiveSlideId(deck.slides[0]?.id ?? null); }, [deck, activeSlideId]);
 
-  useEffect(() => {
-    const el = canvasWrapRef.current;
+  // Callback refs rather than an effect: the measured elements mount only after
+  // the loading / no-model / no-deck guards below have passed, so an effect
+  // keyed on those flags is easy to get subtly wrong. A callback ref observes
+  // exactly when the node appears and disconnects when it goes away.
+  const setRootRef = useCallback((el: HTMLDivElement | null) => {
+    rootRoRef.current?.disconnect();
+    rootRoRef.current = null;
     if (!el) return;
-    const ro = new ResizeObserver(() => setCanvasW(Math.max(360, el.clientWidth - 48)));
+    const read = () => setRootW(el.clientWidth);
+    const ro = new ResizeObserver(read);
     ro.observe(el);
-    setCanvasW(Math.max(360, el.clientWidth - 48));
-    return () => ro.disconnect();
-  }, [loading]);
+    rootRoRef.current = ro;
+    read();
+  }, []);
+
+  const setStageRef = useCallback((el: HTMLDivElement | null) => {
+    stageRoRef.current?.disconnect();
+    stageRoRef.current = null;
+    canvasWrapRef.current = el;
+    if (!el) return;
+    const read = () => setStage({ w: el.clientWidth, h: el.clientHeight });
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    stageRoRef.current = ro;
+    read();
+  }, []);
+
+  useEffect(() => () => { rootRoRef.current?.disconnect(); stageRoRef.current?.disconnect(); }, []);
 
   // ── History-aware mutation plumbing ───────────────────────────────────────
   const pushHistory = useCallback(() => {
@@ -356,7 +390,29 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const ctx: RenderCtx = { model, fmt, branding: deck.branding, preview: presentMode, onNavigate: selectSlide };
   const visibleSlides = deck.slides.filter((sl) => !sl.hidden);
   const pageNumberOf = (sl: Slide): number => visibleSlides.findIndex((v) => v.id === sl.id) + 1;
-  const scale = canvasW / SLIDE_W;
+  // ── Responsive shape, from the measured shell width (not media queries) ────
+  const mode: 'wide' | 'mid' | 'narrow' | 'compact' =
+    rootW >= 1600 ? 'wide' : rootW >= 1100 ? 'mid' : rootW >= 820 ? 'narrow' : 'compact';
+  const filmstrip = mode === 'compact';
+  const navW = mode === 'wide' ? 248 : mode === 'mid' ? 216 : 200;
+  const propsW = mode === 'wide' ? 300 : 280;
+  // Wide and mid dock the properties panel; below that it becomes an overlay so
+  // the slide keeps the width.
+  const propsDocked = mode === 'wide' || mode === 'mid';
+  const propsVisible = propsDocked || propsOpen;
+  const navThumbW = filmstrip ? 150 : navW - 34;
+
+  // ── Fit-to-BOX, the core sizing fix ───────────────────────────────────────
+  // The old rule was width-only (`canvasW = column - 48`, height whatever fell
+  // out), so the slide overflowed its column into an inner scrollbar on wide
+  // screens and left the column's spare height unused on narrow ones. A 16:9
+  // stage has to honour both axes.
+  const STAGE_PAD = 28;
+  const scale = Math.max(0.05, Math.min(
+    (stage.w - STAGE_PAD * 2) / SLIDE_W,
+    (stage.h - STAGE_PAD * 2) / SLIDE_H,
+  ));
+  const canvasW = SLIDE_W * scale;
   const canvasH = SLIDE_H * scale;
   const sid = activeSlide?.id ?? '';
 
@@ -407,43 +463,39 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   };
 
   return (
-    <div data-testid="module7-deck" style={{ display: 'grid', gridTemplateColumns: '214px 1fr 288px', height: 'calc(100vh - 190px)', minHeight: 560, background: DECK_THEME.offWhite, borderTop: `1px solid ${DECK_THEME.rule}` }}>
+    <div
+      ref={setRootRef}
+      data-testid="module7-deck"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: filmstrip
+          ? 'minmax(0,1fr)'
+          : `${navW}px minmax(0,1fr)${propsDocked && propsVisible ? ` ${propsW}px` : ''}`,
+        gridTemplateRows: filmstrip ? 'auto minmax(0,1fr)' : 'minmax(0,1fr)',
+        height: '100%', minHeight: 0, position: 'relative',
+        background: DECK_THEME.offWhite, borderTop: `1px solid ${DECK_THEME.rule}`,
+      }}
+    >
 
-      {/* ── Left: slide navigator ───────────────────────────────────────── */}
-      <aside data-testid="deck-navigator" style={{ borderRight: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', overflowY: 'auto', padding: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: DECK_THEME.slate }}>Slides ({deck.slides.length})</span>
-          <button title="Add blank slide" style={iconBtn} data-testid="deck-add-slide"
-            onClick={() => { pushHistory(); let nid = ''; setDeck((d) => { if (!d) return d; const r = addBlankSlide(d, activeSlideId); nid = r.newId; return r.deck; }); setDirty(true); if (nid) selectSlide(nid); }}>+</button>
-        </div>
-        {deck.slides.map((sl, i) => {
-          const active = sl.id === activeSlide?.id;
-          return (
-            <div key={sl.id} data-testid="deck-nav-item" onClick={() => selectSlide(sl.id)}
-              style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: 6, borderRadius: 4, cursor: 'pointer', background: active ? '#EEF3F9' : 'transparent', border: `1px solid ${active ? DECK_THEME.navy : 'transparent'}`, marginBottom: 6, opacity: sl.hidden ? 0.45 : 1 }}>
-              <div style={{ fontSize: 9, color: DECK_THEME.slateLight, width: 14, textAlign: 'right', paddingTop: 2, flexShrink: 0 }}>{i + 1}</div>
-              <div style={{ border: `1px solid ${DECK_THEME.rule}`, background: '#FFF', flexShrink: 0 }}>
-                <SlideCanvas slide={sl} deck={deck} model={model} ctx={ctx} pageNumber={pageNumberOf(sl)} width={120} thumbnail />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: DECK_THEME.ink, lineHeight: 1.3, wordBreak: 'break-word' }}>{sl.title}</div>
-                {active ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                    <NavAction label={sl.hidden ? 'Show' : 'Hide'} onClick={(e) => { e.stopPropagation(); commit((d) => updateSlide(d, sl.id, { hidden: !sl.hidden })); }} />
-                    <NavAction label="Duplicate" onClick={(e) => { e.stopPropagation(); pushHistory(); let nid = ''; setDeck((d) => { if (!d) return d; const r = duplicateSlide(d, sl.id); nid = r.newId; return r.deck; }); setDirty(true); if (nid) selectSlide(nid); }} />
-                    {i > 0 ? <NavAction label="Up" onClick={(e) => { e.stopPropagation(); commit((d) => moveSlide(d, i, i - 1)); }} /> : null}
-                    {i < deck.slides.length - 1 ? <NavAction label="Down" onClick={(e) => { e.stopPropagation(); commit((d) => moveSlide(d, i, i + 1)); }} /> : null}
-                    {deck.slides.length > 1 ? <NavAction label="Delete" danger onClick={(e) => { e.stopPropagation(); commit((d) => removeSlide(d, sl.id)); if (activeSlideId === sl.id) setActiveSlideId(deck.slides.find((x) => x.id !== sl.id)?.id ?? null); }} /> : null}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </aside>
+      {/* ── Left (or top, when narrow): slide navigator ─────────────────── */}
+      <SlideNavigator
+        deck={deck} model={model} ctx={ctx}
+        activeSlideId={activeSlide?.id ?? null}
+        orientation={filmstrip ? 'horizontal' : 'vertical'}
+        thumbWidth={navThumbW}
+        pageNumberOf={pageNumberOf}
+        onSelect={selectSlide}
+        onReorder={(from, to) => commit((d) => moveSlide(d, from, to))}
+        onMove={(from, to) => commit((d) => moveSlide(d, from, to))}
+        onAddSlide={() => { pushHistory(); let nid = ''; setDeck((d) => { if (!d) return d; const r = addBlankSlide(d, activeSlideId); nid = r.newId; return r.deck; }); setDirty(true); if (nid) selectSlide(nid); }}
+        onToggleHidden={(sl) => commit((d) => updateSlide(d, sl.id, { hidden: !sl.hidden }))}
+        onDuplicate={(sl) => { pushHistory(); let nid = ''; setDeck((d) => { if (!d) return d; const r = duplicateSlide(d, sl.id); nid = r.newId; return r.deck; }); setDirty(true); if (nid) selectSlide(nid); }}
+        onDelete={(sl) => { commit((d) => removeSlide(d, sl.id)); if (activeSlideId === sl.id) setActiveSlideId(deck.slides.find((x) => x.id !== sl.id)?.id ?? null); }}
+      />
 
-      {/* ── Centre: toolbar + canvas ────────────────────────────────────── */}
-      <main ref={canvasWrapRef} tabIndex={0} onKeyDown={onKeyDown} style={{ overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, outline: 'none' }}>
+      {/* ── Centre: a fixed control strip over a stage that owns the rest ── */}
+      <main tabIndex={0} onKeyDown={onKeyDown} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, outline: 'none' }}>
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: `1px solid ${DECK_THEME.rule}` }}>
         <div style={{ width: '100%', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={btn('primary')} onClick={() => void save()} disabled={saving || !dirty || !canSave} data-testid="deck-save">{saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
           <span style={{ width: 1, height: 20, background: DECK_THEME.rule, margin: '0 2px' }} />
@@ -475,6 +527,11 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
             ) : null}
           </div>
           <button style={btn('ghost', presentMode)} onClick={() => { setPresentMode((v) => !v); setSelectedIds([]); setEditingId(null); }} data-testid="deck-present-toggle">{presentMode ? 'Editing off' : 'Preview'}</button>
+          {/* Below the docked width the properties panel becomes an overlay, so
+              it needs its own affordance. */}
+          {!propsDocked ? (
+            <button style={btn('ghost', propsOpen)} onClick={() => setPropsOpen((v) => !v)} data-testid="deck-props-toggle">{propsOpen ? 'Hide panel' : 'Properties'}</button>
+          ) : null}
         </div>
 
         <div style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11, color: DECK_THEME.slate }}>
@@ -494,27 +551,51 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
         {!canSave ? <div style={{ width: '100%' }}><Banner tone="warn">Migration 199 has not been applied yet, so the presentation cannot be saved. Everything else works: the deck is built live from your model.</Banner></div> : null}
         {notice ? <div style={{ width: '100%' }}><Banner tone="info">{notice}</Banner></div> : null}
+        </div>
 
-        {activeSlide ? (
-          <div style={{ position: 'relative', width: canvasW, height: canvasH, flexShrink: 0 }}>
-            <SlideCanvas slide={activeSlide} deck={deck} model={model} ctx={ctx} pageNumber={pageNumberOf(activeSlide)} width={canvasW} interactive={false} />
-            {!presentMode ? (
-              <EditLayer
-                slide={activeSlide} branding={deck.branding} scale={scale} width={canvasW} height={canvasH}
-                selectedIds={selectedIds} editingId={editingId}
-                onSelect={setSelectedIds} onBeginEdit={setEditingId}
-                onGestureStart={pushHistory}
-                onTransform={(patches) => live((d) => updateObjects(d, sid, patches))}
-                onTextCommit={(id, value) => applyObjectPatch(id, typeof value === 'string' ? { text: value } : { items: value })}
-              />
-            ) : null}
-          </div>
-        ) : null}
-        <div style={{ fontSize: 10, color: DECK_THEME.slateLight }}>Drag to move, handles to resize, double-click text to edit. Arrows nudge, Ctrl+D duplicates, Ctrl+Z undoes.</div>
+        {/* The stage takes every pixel the control strip did not, and the slide
+            scales to FIT it on both axes. Nothing here scrolls: if the strip
+            grows (a banner appears) the slide simply scales down. */}
+        <div
+          ref={setStageRef}
+          data-testid="deck-stage"
+          style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: STAGE_PAD, overflow: 'hidden' }}
+        >
+          {activeSlide ? (
+            <div style={{ position: 'relative', width: canvasW, height: canvasH, flexShrink: 0, boxShadow: '0 6px 24px rgba(13,46,90,0.16)' }}>
+              <SlideCanvas slide={activeSlide} deck={deck} model={model} ctx={ctx} pageNumber={pageNumberOf(activeSlide)} width={canvasW} interactive={false} />
+              {!presentMode ? (
+                <EditLayer
+                  slide={activeSlide} branding={deck.branding} scale={scale} width={canvasW} height={canvasH}
+                  selectedIds={selectedIds} editingId={editingId}
+                  onSelect={setSelectedIds} onBeginEdit={setEditingId}
+                  onGestureStart={pushHistory}
+                  onTransform={(patches) => live((d) => updateObjects(d, sid, patches))}
+                  onTextCommit={(id, value) => applyObjectPatch(id, typeof value === 'string' ? { text: value } : { items: value })}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ flexShrink: 0, padding: '6px 14px 8px', fontSize: 10, color: DECK_THEME.slateLight, borderTop: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF' }}>
+          Drag to move, handles to resize, double-click text to edit. Arrows nudge, Ctrl+D duplicates, Ctrl+Z undoes.
+        </div>
       </main>
 
-      {/* ── Right: properties ───────────────────────────────────────────── */}
-      <aside data-testid="deck-properties" style={{ borderLeft: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', overflowY: 'auto', padding: 14 }}>
+      {/* ── Right: properties. Docked at wide and mid widths, an overlay below
+             that so the slide never gives up the space. ─────────────────── */}
+      {propsVisible ? (
+      <aside
+        data-testid="deck-properties"
+        style={propsDocked
+          ? { borderLeft: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', overflowY: 'auto', padding: 14, minHeight: 0 }
+          : {
+              position: 'absolute', top: 0, right: 0, bottom: 0, width: Math.min(propsW, Math.max(240, rootW - 60)),
+              borderLeft: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', overflowY: 'auto', padding: 14,
+              boxShadow: '-8px 0 24px rgba(13,46,90,0.14)', zIndex: 15,
+            }}
+      >
         {/* AI drafting sits ABOVE the properties, and outside PropertiesPanel,
             so it stays reachable while an object is selected. Selecting a
             narrative block highlights its row rather than hiding the list. */}
@@ -542,6 +623,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           onSlidePatch={(patch) => activeSlide && commit((d) => updateSlide(d, activeSlide.id, patch))}
         />
       </aside>
+      ) : null}
 
       {/* The review step. A draft reaches a slide only through here. */}
       {aiDrafts.length ? (
@@ -555,10 +637,6 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       ) : null}
     </div>
   );
-}
-
-function NavAction({ label, onClick, danger }: { label: string; onClick: (e: React.MouseEvent) => void; danger?: boolean }): React.JSX.Element {
-  return <button onClick={onClick} style={{ fontSize: 9, color: danger ? DECK_THEME.red : DECK_THEME.slate, background: 'none', border: `1px solid ${DECK_THEME.rule}`, borderRadius: 3, padding: '1px 5px', cursor: 'pointer' }}>{label}</button>;
 }
 
 function ExportItem({ title, desc, onClick, testid }: { title: string; desc: string; onClick: () => void; testid: string }): React.JSX.Element {
