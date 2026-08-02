@@ -1,0 +1,69 @@
+/**
+ * /api/refm/projects/[id]/report-deck/versions/[versionId] (Module 7, migration 207)
+ *
+ *   GET    -> { deck } for one saved version, validated through coerceDeck. The
+ *             client loads it over the working deck as an ordinary undoable
+ *             edit, so a load is recoverable with Ctrl+Z and still needs Save.
+ *   DELETE -> remove one saved version. The working deck is untouched: the FK
+ *             is ON DELETE SET NULL, so only the pointer clears.
+ *
+ * Both are scoped by project_id as well as version id, so a version id from
+ * another project cannot be read or deleted through this route even if guessed.
+ *
+ * No em dashes in this file.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import { getDeckVersion, deleteDeckVersion } from '@/src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
+import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { writeBlockReason } from '@/src/shared/entitlements/gate';
+
+function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+function notFound() { return NextResponse.json({ error: 'Not found' }, { status: 404 }); }
+function serverError(msg: string) { return NextResponse.json({ error: msg }, { status: 500 }); }
+
+async function requireOwnedProject(id: string): Promise<{ userId: string } | NextResponse> {
+  const userId = await getRefmUserId();
+  if (!userId) return unauthorized();
+  const { row, error } = await getProject(userId, id);
+  if (error) return serverError(error);
+  if (!row) return notFound();
+  return { userId };
+}
+
+const today = (): string => new Date().toISOString().slice(0, 10);
+
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string; versionId: string }> }) {
+  const { id, versionId } = await ctx.params;
+  const owned = await requireOwnedProject(id);
+  if (owned instanceof NextResponse) return owned;
+
+  const { deck, error } = await getDeckVersion(id, versionId, today());
+  if (error) return serverError(error);
+  if (!deck) return notFound();
+  return NextResponse.json({ deck });
+}
+
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string; versionId: string }> }) {
+  const { id, versionId } = await ctx.params;
+
+  const { userId, isAdmin } = await getRefmUserContext();
+  if (!userId) return unauthorized();
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  const block = writeBlockReason(gate);
+  if (block) {
+    return NextResponse.json(
+      { error: 'Your access is read-only. Renew your plan to delete presentation versions.', code: block },
+      { status: 403 },
+    );
+  }
+
+  const owned = await requireOwnedProject(id);
+  if (owned instanceof NextResponse) return owned;
+
+  const { error } = await deleteDeckVersion(id, versionId);
+  if (error) return serverError(error);
+  return NextResponse.json({ ok: true });
+}

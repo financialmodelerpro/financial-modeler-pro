@@ -31,6 +31,14 @@ function isMissingTable(err: { code?: string | null; message?: string | null } |
   return err.code === '42P01' || /relation .* does not exist/i.test(err.message ?? '');
 }
 
+function isMissingColumn(err: { code?: string | null; message?: string | null } | null): boolean {
+  if (!err) return false;
+  return err.code === '42703' || /column .* does not exist/i.test(err.message ?? '');
+}
+
+const VERSION_MIGRATION_HINT =
+  'Saved presentation versions are not available yet (migration 207_refm_report_deck_versions.sql has not been applied). Your presentation still saves normally.';
+
 const MIGRATION_HINT =
   'The presentation deck table is not available yet (migration 199_report_decks.sql has not been applied). Ask an admin to apply it; your deck cannot be saved until then.';
 
@@ -187,5 +195,162 @@ export async function deleteDeck(projectId: string): Promise<{ error: string | n
   const sb = getServerClient();
   const { error } = await sb.from('refm_report_decks').delete().eq('project_id', projectId);
   if (error && !isMissingTable(error)) return { error: error.message };
+  return { error: null };
+}
+
+// ── Named deck versions (migration 207) ─────────────────────────────────────
+//
+// Mirrors the project version store in server.ts: append-only rows, a monotonic
+// per-project version_number computed MAX+1 in this layer (the unique index is
+// what actually enforces it under concurrency), and a pointer column on the
+// working row saying which version it corresponds to.
+//
+// refm_report_decks stays the LIVE working deck. Saving a version copies the
+// working deck into a new row; loading one copies that row's jsonb back over
+// the working deck. A load therefore never consumes the history it came from.
+//
+// Every read is tolerant of migration 207 being absent, so the Presentation tab
+// keeps working (without versioning) on a database that predates it.
+
+export interface DeckVersionListItem {
+  id: string;
+  versionNumber: number;
+  label: string | null;
+  comment: string | null;
+  createdAt: string | null;
+}
+
+/** Whether the deck-version table is reachable. `available: false` means
+ *  migration 207 has not been applied; the caller hides the version UI. */
+export async function listDeckVersions(projectId: string): Promise<{
+  versions: DeckVersionListItem[]; currentVersionId: string | null; available: boolean; error: string | null;
+}> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .select('id, version_number, label, comment, created_at')
+    .eq('project_id', projectId)
+    .order('version_number', { ascending: false });
+
+  if (error) {
+    if (isMissingTable(error)) return { versions: [], currentVersionId: null, available: false, error: null };
+    return { versions: [], currentVersionId: null, available: true, error: error.message };
+  }
+
+  // The pointer lives on the working row and is read separately so a missing
+  // COLUMN (207 partially applied) degrades to "no current version" rather than
+  // failing the whole list.
+  let currentVersionId: string | null = null;
+  const cur = await sb.from('refm_report_decks').select('current_version_id').eq('project_id', projectId).maybeSingle();
+  if (!cur.error) currentVersionId = (cur.data as { current_version_id: string | null } | null)?.current_version_id ?? null;
+
+  const rows = (data ?? []) as Array<{ id: string; version_number: number; label: string | null; comment: string | null; created_at: string | null }>;
+  return {
+    versions: rows.map((r) => ({
+      id: r.id, versionNumber: r.version_number, label: r.label, comment: r.comment, createdAt: r.created_at,
+    })),
+    currentVersionId,
+    available: true,
+    error: null,
+  };
+}
+
+/** MAX(version_number) + 1 for this project. */
+async function nextDeckVersionNumber(projectId: string): Promise<{ next: number; error: string | null; available: boolean }> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .select('version_number')
+    .eq('project_id', projectId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return { next: 1, error: null, available: false };
+    return { next: 1, error: error.message, available: true };
+  }
+  return { next: ((data as { version_number?: number } | null)?.version_number ?? 0) + 1, error: null, available: true };
+}
+
+/**
+ * Save the given deck as a NEW named version, and point the working deck at it.
+ *
+ * The working row is upserted with the same deck in the same call, so "save as
+ * a version" also saves the user's current work: the two can never disagree
+ * about what the named version contains.
+ */
+export async function saveDeckVersion(projectId: string, deck: Deck, label: string, comment: string | null): Promise<{
+  version: DeckVersionListItem | null; error: string | null;
+}> {
+  const { next, error: numErr, available } = await nextDeckVersionNumber(projectId);
+  if (!available) return { version: null, error: VERSION_MIGRATION_HINT };
+  if (numErr) return { version: null, error: numErr };
+
+  const sb = getServerClient();
+  const payload = { ...deck, projectId, updatedAt: null };
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .insert({
+      project_id: projectId,
+      version_number: next,
+      schema_version: deck.schemaVersion ?? DECK_SCHEMA_VERSION,
+      deck: payload,
+      label: label.trim() || null,
+      comment: comment?.trim() || null,
+    })
+    .select('id, version_number, label, comment, created_at')
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingTable(error)) return { version: null, error: VERSION_MIGRATION_HINT };
+    return { version: null, error: error.message };
+  }
+  const row = data as { id: string; version_number: number; label: string | null; comment: string | null; created_at: string | null } | null;
+  if (!row) return { version: null, error: 'The version could not be saved.' };
+
+  // Keep the working deck in step, then point it at the version just written.
+  const up = await upsertDeck(projectId, deck);
+  if (up.error) return { version: null, error: up.error };
+  await setDeckCurrentVersion(projectId, row.id);
+
+  return {
+    version: { id: row.id, versionNumber: row.version_number, label: row.label, comment: row.comment, createdAt: row.created_at },
+    error: null,
+  };
+}
+
+/** Read one saved version's deck document, validated through `coerceDeck`. */
+export async function getDeckVersion(projectId: string, versionId: string, fallbackAsOf: string): Promise<{ deck: Deck | null; error: string | null }> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .select('deck')
+    .eq('project_id', projectId)   // scoped by project: a version id alone must not reach across projects
+    .eq('id', versionId)
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return { deck: null, error: VERSION_MIGRATION_HINT };
+    return { deck: null, error: error.message };
+  }
+  if (!data) return { deck: null, error: null };
+  return { deck: coerceDeck((data as { deck: unknown }).deck, projectId, fallbackAsOf), error: null };
+}
+
+/** Point the working deck at a saved version (or at none). Best-effort: the
+ *  pointer is a convenience, never a correctness requirement. */
+export async function setDeckCurrentVersion(projectId: string, versionId: string | null): Promise<{ error: string | null }> {
+  const sb = getServerClient();
+  const { error } = await sb.from('refm_report_decks').update({ current_version_id: versionId }).eq('project_id', projectId);
+  if (error && !isMissingTable(error) && !isMissingColumn(error)) return { error: error.message };
+  return { error: null };
+}
+
+export async function deleteDeckVersion(projectId: string, versionId: string): Promise<{ error: string | null }> {
+  const sb = getServerClient();
+  const { error } = await sb.from('refm_report_deck_versions').delete().eq('project_id', projectId).eq('id', versionId);
+  if (error) {
+    if (isMissingTable(error)) return { error: VERSION_MIGRATION_HINT };
+    return { error: error.message };
+  }
   return { error: null };
 }

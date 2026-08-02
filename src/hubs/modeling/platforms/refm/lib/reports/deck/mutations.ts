@@ -21,8 +21,10 @@
  */
 
 import type { Deck, DeckObject, Slide, SlideChrome } from './types';
-import { clampToCanvas, GRID } from './types';
+import { clampToCanvas, GRID, MARGIN } from './types';
 import { buildBlockObject, blockLandingBox, type BlockSpec } from './blockLibrary';
+import { text, CONTENT_Y } from './layout';
+import { textStyles } from './theme';
 
 /** A collision-safe id for a runtime-created object or slide. */
 let runtimeSeq = 0;
@@ -75,6 +77,31 @@ export function addBlock(deck: Deck, slideId: string, spec: BlockSpec): { deck: 
   if (!slide) return { deck, newId: '' };
   const base = buildBlockObject(spec, blockLandingBox(spec.kind, slide.objects.length));
   const id = freshId(base.type.slice(0, 3));
+  const obj = { ...base, id } as DeckObject;
+  return { deck: mapSlide(deck, slideId, (s) => ({ ...s, objects: [...s.objects, obj] })), newId: id };
+}
+
+/**
+ * Add a FREE text box: an unbound object the user types into.
+ *
+ * Every other insert path (`addBlock`) produces a model-BOUND object carrying a
+ * binding key, which is what makes the deck auto-sync. A text box is the
+ * deliberate opposite: it has no binding, so it is the one object whose content
+ * is the user's own words and will never be re-resolved from the model. The
+ * `text()` primitive is reused verbatim, so the box is an ordinary TextObject
+ * that the canvas, the inline editor, `coerceDeck`, PPTX and PDF already
+ * handle, with no schema change and no DECK_SCHEMA_VERSION bump.
+ *
+ * It lands staggered like a pasted block so repeated inserts do not stack
+ * invisibly on one another.
+ */
+export function addTextBox(deck: Deck, slideId: string, content = 'New text box'): { deck: Deck; newId: string } {
+  const slide = deck.slides.find((s) => s.id === slideId);
+  if (!slide) return { deck, newId: '' };
+  const step = (slide.objects.length % 6) * GRID;
+  const box = clampToCanvas({ x: MARGIN + step, y: CONTENT_Y + step, w: 380, h: 96 });
+  const base = text(box, content, { ...textStyles.body() });
+  const id = freshId('txt');
   const obj = { ...base, id } as DeckObject;
   return { deck: mapSlide(deck, slideId, (s) => ({ ...s, objects: [...s.objects, obj] })), newId: id };
 }

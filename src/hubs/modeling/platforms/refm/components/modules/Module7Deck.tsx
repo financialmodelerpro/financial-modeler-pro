@@ -53,12 +53,13 @@ import type { Deck, DeckLink, DeckObject, Slide, TableObject } from '../../lib/r
 import { DECK_THEME, FONT_CHOICES_DECK } from '../../lib/reports/deck/theme';
 import {
   updateObject, updateObjects, removeObjects, duplicateObjects, reorderObjects, nudgeObjects,
-  duplicateSlide, addBlankSlide, removeSlide, moveSlide, updateSlide, updateBranding, updateSettings, addBlock,
+  duplicateSlide, addBlankSlide, removeSlide, moveSlide, updateSlide, updateBranding, updateSettings, addBlock, addTextBox,
   type ObjectPatch, type ZDir,
 } from '../../lib/reports/deck/mutations';
 import { availableBlocks, BLOCK_SECTIONS, type BlockSpec } from '../../lib/reports/deck/blockLibrary';
 import SlideCanvas from './deck/SlideCanvas';
 import SlideNavigator from './deck/SlideNavigator';
+import DeckVersionsModal from './deck/DeckVersionsModal';
 import EditLayer from './deck/EditLayer';
 import type { RenderCtx } from './deck/SlideObjectView';
 import { SLIDE_W, SLIDE_H, DECK_SCHEMA_VERSION } from '../../lib/reports/deck/types';
@@ -113,6 +114,7 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
   const [exporting, setExporting] = useState<'pptx' | 'pdf' | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   // AI drafting (Unit 8). `aiStatus` is a MIRROR of the server's answer, never a
   // local allowance: it is seeded from the status endpoint and refreshed from
   // the meter reading each generation returns.
@@ -346,9 +348,34 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
 
   const selectSlide = useCallback((id: string) => { setActiveSlideId(id); setSelectedIds([]); setEditingId(null); }, []);
 
-  // ── Keyboard shortcuts (attached to the canvas column) ────────────────────
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  //
+  // These used to hang off the canvas column's own onKeyDown with tabIndex={0},
+  // which meant Ctrl+Z did nothing at all unless that column happened to hold
+  // focus: click the slide rail or a properties field and undo was silently
+  // dead. They are now bound once at the document while the deck is mounted.
+  //
+  // The event shape is the intersection of React's synthetic event and the DOM
+  // one, so the same handler can serve either.
+  const onKeyDown = useCallback((e: {
+    key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean;
+    target?: EventTarget | null; preventDefault: () => void;
+  }) => {
     if (editingId || presentMode) return;
+    // A modal owns the keyboard while it is open. Without this, Delete pressed
+    // over the versions modal or the AI review modal would delete the objects
+    // selected on the slide BEHIND it, and Escape would clear that selection
+    // out from under the user. Moving these shortcuts from the canvas column to
+    // the document is what made that reachable, so the guard belongs here.
+    if (versionsOpen || aiDrafts.length > 0) return;
+    // Never fight the browser's own text undo. Inside an input, textarea,
+    // select or contentEditable the native stack is the right one, so the deck
+    // history stays out of the way entirely.
+    const t = e.target as HTMLElement | null;
+    if (t && typeof t.tagName === 'string') {
+      const tag = t.tagName.toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return;
+    }
     const mod = e.ctrlKey || e.metaKey;
     const sid = activeSlideId;
     if (!sid) return;
@@ -378,7 +405,20 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
       commit((d) => nudgeObjects(d, sid, selectedIds, dx, dy));
     }
-  }, [editingId, presentMode, activeSlideId, selectedIds, undo, redo, commit, pushHistory]);
+  }, [editingId, presentMode, versionsOpen, aiDrafts.length, activeSlideId, selectedIds, undo, redo, commit, pushHistory]);
+
+  // Bind the shortcuts at the document for as long as the deck is mounted.
+  //
+  // This is a keyboard listener, NOT a pointer gesture: re-registering it when
+  // the handler identity changes is harmless, because a keystroke is a single
+  // discrete event rather than a stream that has to survive a re-render. Do not
+  // "correct" the drag gestures in EditLayer / SlideNavigator to this shape:
+  // those must stay on pointer capture.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => onKeyDown(e);
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onKeyDown]);
 
   // ── Guards ────────────────────────────────────────────────────────────────
   if (!activeProjectId) return <div data-testid="m7-no-project" style={{ padding: 32, color: DECK_THEME.slate, fontSize: 13 }}>Open a project to build its Investment Committee presentation.</div>;
@@ -425,6 +465,16 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
     if (nid) setSelectedIds([nid]);
     setDirty(true);
     setPickerOpen(false);
+  };
+
+  // Insert a free text box + select it, ready to type into (one history step).
+  const insertTextBox = () => {
+    if (!sid) return;
+    pushHistory();
+    let nid = '';
+    setDeck((d) => { if (!d) return d; const r = addTextBox(d, sid); nid = r.newId; return r.deck; });
+    if (nid) { setSelectedIds([nid]); setEditingId(nid); }
+    setDirty(true);
   };
 
   const applyObjectPatch = (objId: string, patch: ObjectPatch) => commit((d) => updateObject(d, sid, objId, patch));
@@ -494,10 +544,13 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
       />
 
       {/* ── Centre: a fixed control strip over a stage that owns the rest ── */}
-      <main tabIndex={0} onKeyDown={onKeyDown} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, outline: 'none' }}>
+      {/* No onKeyDown / tabIndex here any more: the shortcuts are bound at the
+          document, so they work wherever focus sits in the editor. */}
+      <main style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, outline: 'none' }}>
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: `1px solid ${DECK_THEME.rule}` }}>
         <div style={{ width: '100%', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={btn('primary')} onClick={() => void save()} disabled={saving || !dirty || !canSave} data-testid="deck-save">{saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
+          <button style={btn()} onClick={() => setVersionsOpen(true)} disabled={!canSave} data-testid="deck-versions-open" title="Save this presentation under a name, or load one you saved earlier">Versions</button>
           <span style={{ width: 1, height: 20, background: DECK_THEME.rule, margin: '0 2px' }} />
           <button style={iconBtn} title="Undo (Ctrl+Z)" onClick={undo} disabled={!past.length} data-testid="deck-undo">↶</button>
           <button style={iconBtn} title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!future.length} data-testid="deck-redo">↷</button>
@@ -513,6 +566,12 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
               <BlockPicker blocks={blocks} onPick={insertBlock} onClose={() => setPickerOpen(false)} />
             ) : null}
           </div>
+          {/* A free text box: the one insert that is deliberately NOT bound to
+              the model, so it holds the user's own words. */}
+          <button
+            style={btn()} onClick={insertTextBox} disabled={presentMode || !sid}
+            data-testid="deck-insert-text" title="Add a free text box you type into (not linked to the model)"
+          >+ Text box</button>
           <div style={{ flex: 1 }} />
           <div style={{ position: 'relative' }}>
             <button style={btn('ghost', exportOpen)} onClick={() => setExportOpen((v) => !v)} disabled={!!exporting} data-testid="deck-export">
@@ -623,6 +682,26 @@ export default function Module7Deck({ activeProjectId = null }: { activeProjectI
           onSlidePatch={(patch) => activeSlide && commit((d) => updateSlide(d, activeSlide.id, patch))}
         />
       </aside>
+      ) : null}
+
+      {/* Named presentation versions (migration 207). Loading goes through
+          `commit`, so it is ONE undo step and still needs Save: looking at an
+          older version can never destroy the deck on screen. */}
+      {versionsOpen ? (
+        <DeckVersionsModal
+          projectId={activeProjectId ?? ''}
+          deck={deck}
+          dirty={dirty}
+          onClose={() => setVersionsOpen(false)}
+          onNotice={setNotice}
+          onLoad={(loaded, label) => {
+            commit(() => ({ ...loaded, projectId: activeProjectId ?? loaded.projectId }));
+            setActiveSlideId(loaded.slides[0]?.id ?? null);
+            setSelectedIds([]);
+            setEditingId(null);
+            setNotice(`Loaded version "${label}". Save to keep it as your current presentation.`);
+          }}
+        />
       ) : null}
 
       {/* The review step. A draft reaches a slide only through here. */}

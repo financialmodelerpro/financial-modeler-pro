@@ -278,6 +278,50 @@ export function resetReportDeck(projectId: string): Promise<FetchResult<{ ok: tr
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, { method: 'DELETE' });
 }
 
+// ── Named deck versions (migration 207) ─────────────────────────────────────
+// The deck equivalent of project versioning: several named presentations saved
+// separately per project. `available` is false when 207 is outstanding, and the
+// builder then hides the version controls instead of failing.
+
+export interface DeckVersionListItem {
+  id: string;
+  versionNumber: number;
+  label: string | null;
+  comment: string | null;
+  createdAt: string | null;
+}
+
+export function listReportDeckVersions(projectId: string): Promise<FetchResult<{
+  versions: DeckVersionListItem[]; currentVersionId: string | null; available: boolean;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions`, { method: 'GET' });
+}
+
+/** Save the deck as a NEW named version (this also saves the working deck). */
+export function saveReportDeckVersion(
+  projectId: string, deck: Deck, label: string, comment?: string | null,
+): Promise<FetchResult<{ version: DeckVersionListItem }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions`, {
+    method: 'POST',
+    body:   JSON.stringify({ deck, label, comment: comment ?? null }),
+  });
+}
+
+/** Load one saved version's deck document. */
+export function getReportDeckVersion(projectId: string, versionId: string): Promise<FetchResult<{ deck: Deck }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions/${encodeURIComponent(versionId)}`,
+    { method: 'GET' },
+  );
+}
+
+export function deleteReportDeckVersion(projectId: string, versionId: string): Promise<FetchResult<{ ok: true }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions/${encodeURIComponent(versionId)}`,
+    { method: 'DELETE' },
+  );
+}
+
 /** Render the deck to an editable .pptx or a shareable .pdf, SERVER-SIDE. The
  *  builders import node-only libs, so the client posts the deck + the already
  *  resolved ICReportModel (no recompute) and gets a binary Blob back. `model` is
