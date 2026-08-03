@@ -29,6 +29,14 @@ function buildState(returns?: any): any {
   project.operatingAr = { dsoDays: 30, daysPerYear: 365 };
   project.tax = { rate: 0.15 };
   if (returns) project.returns = returns;
+  // Fund layer Step 1 (2026-08-03), TEST HOOK ONLY, no behaviour of its own.
+  //
+  // With FUND_LAYER_TOGGLE=off-present this whole suite runs against a state
+  // that CARRIES the fund toggle, switched off. Every one of these checks must
+  // still pass, unchanged, which is what "the toggle is present and inert"
+  // means in practice. scripts/verify-fund-layer-guard.ts runs this file both
+  // ways and compares the results; nothing else reads the variable.
+  if (process.env.FUND_LAYER_TOGGLE === 'off-present') project.fundTerms = { enabled: false };
   // A phase paying dividends so the dividend stream is non-trivial.
   const p1: any = { ...makeDefaultPhase(), id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 8, overlapPeriods: 0,
     dividendPolicy: { enabled: true, priority: 'before_sweep', startingYear: 2029, payoutRatio: 0.5, mode: 'cash_above_min' } };

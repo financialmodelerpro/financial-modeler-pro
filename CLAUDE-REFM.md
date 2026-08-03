@@ -1,6 +1,22 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-07-09. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
+## 2026-08-03: Fund layer Step 1, the toggle-off regression guard
+
+First step of the fund layer (management fee, preferred return, carry, gross versus net returns). Scope, the linear fee base decision and the 7-step sequence live in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md), which is the source of truth; this entry records only what shipped.
+
+**Guard before feature code, deliberately.** Nothing of the fund layer was built here except the toggle and the verifier that proves it is inert. `Project.fundTerms?: { enabled?: boolean }` is a new optional field alongside `returns?` / `partners?` / `covenants?`, plus a pure `lib/fundTerms.ts` (`resolveFundTerms` / `isFundLayerActive`) with NO consumers. Default is off BY OMISSION: nothing stamps the field, and only a literal `true` resolves to on, so an older snapshot or hand-edited jsonb cannot switch the layer on by accident.
+
+**No migration, and none is needed.** The project rides inside the `refm_project_versions.snapshot` jsonb and hydration spreads it whole (`snap.project as Project`), so the toggle persists with zero schema change. The fund terms TABLE arrives with Step 2, where the M1 Fund Terms tab needs real storage.
+
+**Why the guard is a comparison, not golden numbers.** `verify-returns-snapshot` (99 checks) is property-based: identities, relationships and ranges at 1e-2 tolerance. A uniform drift, say every distribution three percent lower, passes all 99. Pinning golden values instead would rot on the first legitimate model change and get re-blessed unread. So `scripts/verify-fund-layer-guard.ts` (71 checks) compares the SAME ENGINE RUN WITHOUT THE TOGGLE against the run with it present and off, in one process on identical inputs: exact `Object.is` deep equality (Map-aware, because the financing snapshot carries per-facility Maps that `JSON.stringify` flattens to `{}`) over the FULL financials and returns snapshots, across levered / unlevered / perpetuity-terminal / no-terminal / scenario-override shapes, reporting the exact diverging path. It also runs the entire returns suite twice as a child process (`FUND_LAYER_TOGGLE=off-present`) and requires an identical TRANSCRIPT, not just matching totals.
+
+**Teeth proven, not assumed.** A deliberate 1e-9 drift injected into `resolveReturnsConfig` behind the toggle failed 12 checks with the exact path (`returns.config.discountRate: 0.1 vs 0.100000001`) and propagated to FCFF IRR and the equity multiple. The existing 99-check suite passed that same drift unchanged, which is precisely the gap this guard closes. The injection was reverted and the tree re-verified clean.
+
+**Deliberately NOT asserted:** that the toggle ON changes nothing. That holds only until Step 3 adds the fee, and a guard that has to be deleted to make progress is not a guard.
+
+Engine untouched. `verify-fund-layer-guard` 71, `verify-returns-snapshot` 99, `verify-cases` 35, type-check + build clean.
+
 ## 2026-07-09 session: M7 Reports (Phases 1-3a) + M5 per-partner returns + M1-Parties link
 
 **M5 per-partner returns (commit 188950f6).** Each equity holder shows FCFE-based + DDM-based IRR/MOIC/equity-multiple driven by ONE per-partner shareholding = TIME-WEIGHTED average capital balance (dollar-years: `K[i,t]=existing+Sigma(s<=t)(cash+inKind)`, `share=Sigma K[i,t]/Sigma K_total[t]`), manual override = the agreed cap-table share (drives both bases). Each stream = agreedShare x the exact consolidated stream (FCFE passed in as `consolidatedFcfePerPeriod`; DDM reconstructed internally), so Sigma partners == consolidated per period and total returns are byte-identical. Engine `src/core/calculations/returns/partners.ts` kept every prior `PartnerResult` field (so verify-returns-engine 107 / -snapshot 99 unchanged); UI `Module5Returns.tsx` horizontal side-by-side tables + Weighted-Avg/Agreed rows + green/amber reconciliation chip. verify-per-partner-streams 15.

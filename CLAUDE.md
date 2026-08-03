@@ -44,6 +44,7 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
 > - [CLAUDE-REFM.md](CLAUDE-REFM.md), Real Estate Financial Modeling (REFM), platform status (Modules 1-7) + conventions + Excel/PDF export
 > - [CLAUDE-AI.md](CLAUDE-AI.md), AI foundation (client, registry, metering, grounding, admin panel, IC narrative). Load when touching anything AI
+> - [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md), Fund layer (management fee, hurdle, carry, gross vs net returns), scope + linear-fee-base decision + 7-step build sequence. Step 1 (toggle-off regression guard) DONE 2026-08-03: `Project.fundTerms?` + pure `lib/fundTerms.ts` + `scripts/verify-fund-layer-guard.ts` 71, no migration, no feature code. Load when touching anything fund
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
 > - [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md), Feature status, archived phase narratives (M1.R → M1.13d pre-M2.0 + M2.0 → M2.0i post-rebuild)
 > - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure

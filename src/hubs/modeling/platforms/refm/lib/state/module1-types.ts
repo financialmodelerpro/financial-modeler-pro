@@ -618,6 +618,31 @@ export interface Project {
     perpetuityGrowth?: number;
   };
   /**
+   * Fund layer, Step 1 (2026-08-03): the standalone-vs-fund toggle, and
+   * nothing else yet.
+   *
+   * A project models a single development today. The fund layer will add
+   * management fee, preferred return, carry, and gross-vs-net returns on top
+   * (see docs/FUND_LAYER_GUIDELINE.md). This field is the toggle that gates
+   * ALL of it, and it is deliberately the ONLY thing here at Step 1: the fee
+   * percentage, fee base, hurdle, carry and committed capital arrive with the
+   * M1 Fund Terms tab at Step 2.
+   *
+   * ABSENT or `enabled: false` means standalone, which is every project that
+   * exists today, so the default is off by omission rather than by a stamped
+   * value. Nothing in any engine reads this yet; `scripts/verify-fund-layer-guard.ts`
+   * pins that turning it on and off changes no number until feature code
+   * deliberately makes it.
+   *
+   * Storage needs NO migration: the project rides inside the version snapshot
+   * jsonb and hydration spreads it whole, exactly as `returns` / `partners` /
+   * `covenants` do. The fund terms TABLE arrives at Step 2.
+   */
+  fundTerms?: {
+    /** Fund economics on or off. Undefined = off = standalone = today. */
+    enabled?: boolean;
+  };
+  /**
    * M5 Pass 2: equity partners (sponsor / JV / landowner). Splits the
    * project's total equity across investors so M5 can show per-partner
    * IRR / MOIC / Equity Multiple. Additive + optional: when empty / undefined
