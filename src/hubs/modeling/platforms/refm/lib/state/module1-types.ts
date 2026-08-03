@@ -631,16 +631,42 @@ export interface Project {
    * ABSENT or `enabled: false` means standalone, which is every project that
    * exists today, so the default is off by omission rather than by a stamped
    * value. Nothing in any engine reads this yet; `scripts/verify-fund-layer-guard.ts`
-   * pins that turning it on and off changes no number until feature code
-   * deliberately makes it.
+   * pins that a fully populated but DISABLED block changes no number until
+   * feature code deliberately makes it.
    *
-   * Storage needs NO migration: the project rides inside the version snapshot
-   * jsonb and hydration spreads it whole, exactly as `returns` / `partners` /
-   * `covenants` do. The fund terms TABLE arrives at Step 2.
+   * Step 2 (2026-08-03) added the terms themselves. This block is the
+   * ENGINE-FACING copy: it rides inside the version snapshot jsonb, so a saved
+   * version reproduces the numbers it was computed with, Module 6 scenarios can
+   * override fund terms later, and the PDF/Excel version picker stays honest
+   * about old versions. The durable per-project store the Fund Terms tab reads
+   * and writes is `refm_fund_terms` (migration 208), mirrored here on every
+   * save. That split follows the M5 partner precedent, which links to a party
+   * by id but SNAPSHOTS the name so the engine never depends on a mutable side
+   * table.
+   *
+   * Every rate is a DECIMAL FRACTION (0.02 = 2%), matching `returns.discountRate`
+   * and `dividendPolicy.payoutRatio`. All fields optional so an older snapshot
+   * hydrates unchanged; `resolveFundTerms` fills and range-clamps the gaps.
    */
   fundTerms?: {
     /** Fund economics on or off. Undefined = off = standalone = today. */
     enabled?: boolean;
+    /** Management fee, decimal fraction of the fee base. */
+    managementFeePct?: number;
+    /** What the fee is charged on. Two LINEAR options only in v1; fund size is
+     *  circular and deferred to v1.1 (see lib/fundTerms.ts FEE_BASES). */
+    feeBase?: 'committed_capital' | 'total_development_cost';
+    /** Preferred return paid to investors before carry, decimal fraction. */
+    hurdleRatePct?: number;
+    /** Performance fee on the residual above the hurdle, decimal fraction. */
+    carryPct?: number;
+    /** Committed capital in project currency; the fee base when feeBase is
+     *  'committed_capital'. Kept when the base changes so the typed number is
+     *  never lost. */
+    committedCapital?: number;
+    /** Fee income split across party roles (roles from PARTY_ROLES).
+     *  sharePct is a decimal fraction. */
+    feeShares?: Array<{ role: string; sharePct: number }>;
   };
   /**
    * M5 Pass 2: equity partners (sponsor / JV / landowner). Splits the

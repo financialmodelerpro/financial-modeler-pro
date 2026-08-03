@@ -49,6 +49,7 @@ import Overview from './Overview';
 import ProjectsScreen from './ProjectsScreen';
 import Module1ProjectPhases from './modules/Module1ProjectPhases';
 import Module1Parties from './modules/Module1Parties';
+import Module1FundTerms from './modules/Module1FundTerms';
 import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
@@ -196,13 +197,18 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   })),
 ];
 
-// ── Module 1 tabs (M2.0: 4 tabs) ──────────────────────────────────────────
+// ── Module 1 tabs ─────────────────────────────────────────────────────────
+// Fund Terms (fund layer Step 2, 2026-08-03) sits at 3, directly after Parties,
+// because its fee share is split by PARTY ROLE and reads better once the roles
+// are in front of the user. Inputs only: nothing on that tab changes a number
+// until Step 3 wires the fee into M4.
 export const m1Tabs = [
   { key: 'project-phases', icon: '📅', label: '1. Project & Phases', step: 1 },
   { key: 'parties', icon: '🤝', label: '2. Parties', step: 2 },
-  { key: 'assets', icon: '🏗️', label: '3. Assets & Sub-units', step: 3 },
-  { key: 'costs', icon: '💸', label: '4. Capex', step: 4 },
-  { key: 'financing', icon: '🏦', label: '5. Financing', step: 5 },
+  { key: 'fund-terms', icon: '🏛️', label: '3. Fund Terms', step: 3 },
+  { key: 'assets', icon: '🏗️', label: '4. Assets & Sub-units', step: 4 },
+  { key: 'costs', icon: '💸', label: '5. Capex', step: 5 },
+  { key: 'financing', icon: '🏦', label: '6. Financing', step: 6 },
 ];
 
 // ── Module 2 tabs (M2 Pass 9h: 5 tabs - Inputs / Revenue / CoS / Schedules / Escrow) ──
@@ -972,6 +978,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           </div>
           {activeTab === 'project-phases' && <Module1ProjectPhases />}
           {activeTab === 'parties' && <Module1Parties projectId={activeProjectId} />}
+          {activeTab === 'fund-terms' && <Module1FundTerms projectId={activeProjectId} />}
           {activeTab === 'assets' && <Module1Assets />}
           {activeTab === 'costs' && <Module1Costs />}
           {activeTab === 'financing' && <Module1Financing />}

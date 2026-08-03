@@ -168,20 +168,46 @@ function buildState(opts: { returns?: any; noDebt?: boolean } = {}): any {
   };
 }
 
-/** The same state with the toggle PRESENT and OFF. Nothing else differs. */
+/**
+ * The same state with fund terms PRESENT and DISABLED. Nothing else differs.
+ *
+ * Step 2 made this a FULLY POPULATED block rather than a bare `enabled: false`,
+ * because that is the state a real user reaches: they open the Fund Terms tab,
+ * type a 2% fee, a 8% hurdle, 20% carry and a fee split, and leave the toggle
+ * off until they are ready. "Stored but no effect" has to hold for THOSE
+ * values, not only for an empty object. A bare toggle would have passed this
+ * guard while a populated one silently changed the model.
+ */
 function withToggleOff(state: any): any {
-  const next = { ...state, project: { ...state.project, fundTerms: { enabled: false } } };
-  return next;
+  return {
+    ...state,
+    project: {
+      ...state.project,
+      fundTerms: {
+        enabled: false,
+        managementFeePct: 0.02,
+        feeBase: 'committed_capital',
+        hurdleRatePct: 0.08,
+        carryPct: 0.20,
+        committedCapital: 250_000_000,
+        feeShares: [{ role: 'Sponsor', sharePct: 0.6 }, { role: 'Developer', sharePct: 0.4 }],
+      },
+    },
+  };
 }
 
 function runPair(label: string, state: any): void {
   const plain = state;
   const toggled = withToggleOff(state);
 
-  // Sanity: the two inputs really do differ by exactly the toggle, or the
-  // comparison below would be proving nothing.
-  check(`${label}: the toggled state carries the toggle, off`,
-    toggled.project.fundTerms?.enabled === false && plain.project.fundTerms === undefined);
+  // Sanity: the two inputs really do differ by exactly the fund block, and the
+  // block is POPULATED, or the comparison below would be proving nothing.
+  check(`${label}: the toggled state carries populated fund terms, disabled`,
+    toggled.project.fundTerms?.enabled === false
+    && toggled.project.fundTerms?.managementFeePct === 0.02
+    && toggled.project.fundTerms?.carryPct === 0.20
+    && (toggled.project.fundTerms?.feeShares ?? []).length === 2
+    && plain.project.fundTerms === undefined);
 
   const finA = computeFinancialsSnapshot(plain);
   const finB = computeFinancialsSnapshot(toggled);
@@ -295,6 +321,11 @@ console.log('\n=== D. The toggle survives the storage it actually uses ===');
   const back = JSON.parse(JSON.stringify(withToggle));
   check('an off toggle survives the jsonb round trip', back.fundTerms?.enabled === false);
   check('it still resolves to off after the round trip', resolveFundTerms(back).enabled === false);
+  // The Step 2 terms ride in the same snapshot, so a version save captures the
+  // fee it was computed with rather than whatever the side table says today.
+  check('the populated terms survive the round trip',
+    resolveFundTerms(back).managementFeePct === 0.02 && resolveFundTerms(back).carryPct === 0.20
+    && resolveFundTerms(back).feeShares.length === 2);
 
   const plainProject = buildState().project;
   const backPlain = JSON.parse(JSON.stringify(plainProject));

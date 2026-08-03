@@ -21,6 +21,7 @@ import type {
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
+import type { FundTerms } from '../fundTerms';
 import type { ReportInputs } from '../reportInputs';
 import type { Deck } from '../reports/deck/types';
 
@@ -211,6 +212,27 @@ export function loadVersion(
 
 export function listParties(projectId: string): Promise<FetchResult<{ parties: Party[] }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/parties`, { method: 'GET' });
+}
+
+// ── Fund terms (fund layer Step 2, migration 208) ───────────────────────────
+// The durable per-project store behind the M1 Fund Terms tab. The ENGINE reads
+// the mirrored copy in the version snapshot (Project.fundTerms), not this, so a
+// saved version reproduces the terms it was computed with. `available:false`
+// means migration 208 is outstanding and the tab says so rather than failing.
+
+export function getFundTerms(projectId: string): Promise<FetchResult<{
+  terms: FundTerms; saved: boolean; available: boolean;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/fund-terms`, { method: 'GET' });
+}
+
+export function saveFundTerms(projectId: string, terms: FundTerms): Promise<FetchResult<{
+  terms: FundTerms; saved: boolean; available: boolean;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/fund-terms`, {
+    method: 'PUT',
+    body:   JSON.stringify({ terms }),
+  });
 }
 
 export function createParty(
