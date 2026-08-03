@@ -41,7 +41,7 @@ import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
-import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus, updateReportDeckVersion } from '../../lib/persistence/client';
+import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus, updateReportDeckVersion, saveReportDeckVersion, type DeckVersionListItem } from '../../lib/persistence/client';
 import { NarrativeAiBoundary, NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
 import { buildNarrativePatch } from '../../lib/reports/deck/narrativeTargets';
 import { icMoneyScaleSpec, type ReportInputs } from '../../lib/reportInputs';
@@ -131,8 +131,12 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
   const [pickerOpen, setPickerOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [saveChoiceOpen, setSaveChoiceOpen] = useState(false);
-  // True when the versions modal is standing in as the naming step of a Save.
-  const [versionsFromSave, setVersionsFromSave] = useState(false);
+  // Which saved version is on screen, and whether this database can keep
+  // versions at all (migration 207). Both come from the deck GET: opening a
+  // project opens its LAST SAVED VERSION, and the editor names it rather than
+  // leaving the user guessing which presentation they are in.
+  const [openedVersion, setOpenedVersion] = useState<DeckVersionListItem | null>(null);
+  const [versionsAvailable, setVersionsAvailable] = useState(true);
   // AI drafting (Unit 8). `aiStatus` is a MIRROR of the server's answer, never a
   // local allowance: it is seeded from the status endpoint and refreshed from
   // the meter reading each generation returns.
@@ -211,6 +215,11 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
       if (!alive) return;
       setCanSave(dr.data?.canSave ?? true);
       setDeck(dr.data?.deck ?? null);
+      // The server resolved which document to open (the last saved version when
+      // there is one) and which version that is. Nothing is decided here, so
+      // the tab cannot disagree with the versions list about what is open.
+      setOpenedVersion(dr.data?.openedVersion ?? null);
+      setVersionsAvailable(dr.data?.versionsAvailable !== false);
       setPast([]); setFuture([]);
       setLoading(false);
       // AI status last, and FAIL SOFT.
@@ -342,7 +351,9 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
     setSaveChoiceOpen(true);
   }, [activeProjectId, deck, canSave]);
 
-  /** Plain working-deck save, with no version involved. */
+  /** Plain working-deck save, with no version involved. Reached only on a
+   *  database without migration 207, where there is no version table to write
+   *  to and the deck is the single working document it has always been. */
   const saveWorkingDeck = useCallback(async () => {
     if (!activeProjectId || !deck) return;
     setSaving(true); setNotice(null);
@@ -352,6 +363,25 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
     setDirty(false); setNotice('Presentation saved.');
   }, [activeProjectId, deck]);
 
+  /**
+   * Save the deck as a NEW version, named by the server.
+   *
+   * Nothing is typed: the name is generated on the model-version pattern
+   * ({Project}_Presentation_v1.3_08032026). `label` is passed only when the
+   * user deliberately named one in the versions modal.
+   */
+  const saveAsNewVersion = useCallback(async (label?: string | null) => {
+    if (!activeProjectId || !deck) return;
+    setSaving(true); setNotice(null);
+    const res = await saveReportDeckVersion(activeProjectId, deck, label ?? null);
+    setSaving(false);
+    if (res.error || !res.data?.version) { setNotice(res.error ?? 'The version could not be saved.'); return; }
+    const v = res.data.version;
+    setOpenedVersion(v);
+    setDirty(false);
+    setNotice(`Saved as "${v.label ?? `Version ${v.versionNumber}`}". This is now the version that opens with the project.`);
+  }, [activeProjectId, deck]);
+
   /** Overwrite the linked saved version, keeping its name, number and date. */
   const saveOverVersion = useCallback(async (versionId: string, name: string) => {
     if (!activeProjectId || !deck) return;
@@ -359,6 +389,7 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
     const res = await updateReportDeckVersion(activeProjectId, versionId, deck);
     setSaving(false);
     if (res.error) { setNotice(res.error); return; }
+    if (res.data?.version) setOpenedVersion(res.data.version);
     setDirty(false); setNotice(`Updated the saved version "${name}".`);
   }, [activeProjectId, deck]);
 
@@ -604,7 +635,26 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
         <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: `1px solid ${DECK_THEME.rule}` }}>
         <div style={{ width: '100%', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={btn('primary')} onClick={requestSave} disabled={saving || !dirty || !canSave} data-testid="deck-save">{saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
-          <button style={btn()} onClick={() => { setVersionsFromSave(false); setVersionsOpen(true); }} disabled={!canSave} data-testid="deck-versions-open" title="Save this presentation under a name, or load one you saved earlier">Versions</button>
+          <button style={btn()} onClick={() => setVersionsOpen(true)} disabled={!canSave} data-testid="deck-versions-open" title="Browse every saved version of this presentation, or open an earlier one">Versions</button>
+          {/* Which version is on screen. The project opens on the last one
+              saved, so this is the answer to "which presentation am I in",
+              and it is the version an in-place Save updates. */}
+          {openedVersion ? (
+            <span
+              data-testid="deck-open-version"
+              title={`Opened the last saved version.${openedVersion.createdAt ? ` Saved ${new Date(openedVersion.createdAt).toLocaleString()}.` : ''}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: 300,
+                padding: '3px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 600,
+                border: `1px solid ${DECK_THEME.pale}`, background: DECK_THEME.paleWash, color: DECK_THEME.navy,
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>v{openedVersion.versionNumber}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                {openedVersion.label ?? `Version ${openedVersion.versionNumber}`}
+              </span>
+            </span>
+          ) : null}
           <span style={{ width: 1, height: 20, background: DECK_THEME.rule, margin: '0 2px' }} />
           <button style={iconBtn} title="Undo (Ctrl+Z)" onClick={undo} disabled={!past.length} data-testid="deck-undo">↶</button>
           <button style={iconBtn} title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!future.length} data-testid="deck-redo">↷</button>
@@ -738,20 +788,31 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
       </aside>
       ) : null}
 
-      {/* Every save asks first. "Update" writes the working deck, and also
-          overwrites the linked saved version when there is one so its name
-          keeps describing what you see. "New version" hands off to the
-          versions modal for the name, and deliberately leaves you on the
-          working deck: the version is a saved copy, not a context switch. */}
+      {/* Every save asks first, and neither answer asks for a name.
+          "Update" overwrites the version on screen, keeping its name, number
+          and date. "New version" saves an auto-named copy and leaves you
+          editing where you are: a version is a saved point to come back to,
+          not a context switch.
+
+          With no version to update (the first save of a deck, or one saved
+          before versioning existed) "update" creates that first version rather
+          than writing an orphan working row, so the history is never empty
+          however many times the deck has been saved. Only a database without
+          migration 207 falls back to the plain working save. */}
       {saveChoiceOpen ? (
         <DeckSaveChoiceModal
-          projectId={activeProjectId ?? ''}
+          openVersion={openedVersion}
           onCancel={() => setSaveChoiceOpen(false)}
           onChoose={(choice: DeckSaveChoice, linked) => {
             setSaveChoiceOpen(false);
-            if (choice === 'new-version') { setVersionsFromSave(true); setVersionsOpen(true); return; }
+            if (!versionsAvailable) { void saveWorkingDeck(); return; }
+            if (choice === 'new-version') { void saveAsNewVersion(); return; }
+            // `linked` IS `openedVersion`: the modal is told what is open
+            // rather than resolving the stored pointer, which only moves on a
+            // save and so still named the previous version after opening an
+            // older one from the versions modal.
             if (linked) void saveOverVersion(linked.id, linked.label ?? `Version ${linked.versionNumber}`);
-            else void saveWorkingDeck();
+            else void saveAsNewVersion();
           }}
         />
       ) : null}
@@ -764,16 +825,19 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
           projectId={activeProjectId ?? ''}
           deck={deck}
           dirty={dirty}
-          autoCloseOnSave={versionsFromSave}
-          onSavedVersion={() => setDirty(false)}
-          onClose={() => { setVersionsOpen(false); setVersionsFromSave(false); }}
+          openedVersionId={openedVersion?.id ?? null}
+          onSavedVersion={(v) => { setDirty(false); if (v) setOpenedVersion(v); }}
+          onClose={() => setVersionsOpen(false)}
           onNotice={setNotice}
-          onLoad={(loaded, label) => {
+          onLoad={(loaded, version) => {
             commit(() => ({ ...loaded, projectId: activeProjectId ?? loaded.projectId }));
             setActiveSlideId(loaded.slides[0]?.id ?? null);
             setSelectedIds([]);
             setEditingId(null);
-            setNotice(`Loaded version "${label}". Save to keep it as your current presentation.`);
+            // The loaded version becomes the one on screen, so a save updates
+            // IT rather than the version that happened to be open before.
+            setOpenedVersion(version);
+            setNotice(`Loaded "${version.label ?? `Version ${version.versionNumber}`}". Save to keep it as the version that opens with the project.`);
           }}
         />
       ) : null}

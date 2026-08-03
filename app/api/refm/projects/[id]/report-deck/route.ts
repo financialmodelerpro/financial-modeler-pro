@@ -1,10 +1,12 @@
 /**
  * /api/refm/projects/[id]/report-deck (Module 7, IC Presentation Builder, migration 199)
  *
- *   GET    -> { deck, canSave }. deck is null when the project has none saved yet;
- *             the client then seeds one from the slide templates. canSave is false
- *             when migration 199 is outstanding, so the tab can show a clear
- *             banner instead of failing a save with a raw Postgres error.
+ *   GET    -> { deck, canSave, openedVersion }. deck is null when the project has
+ *             none saved yet; the client then seeds one from the slide templates.
+ *             canSave is false when migration 199 is outstanding, so the tab can
+ *             show a clear banner instead of failing a save with a raw Postgres
+ *             error. The deck returned is the LAST SAVED VERSION when there is
+ *             one (see getDeck), and openedVersion says which version that is.
  *   PUT    -> upsert the deck document. The body is re-validated through
  *             coerceDeck, never trusted as jsonb.
  *   DELETE -> drop the deck, which resets the project to a freshly seeded one.
@@ -76,9 +78,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const owned = await requireOwnedProject(id);
   if (owned instanceof NextResponse) return owned;
 
-  const { deck, error, canSave } = await getDeck(id, today());
+  const { deck, error, canSave, openedVersion, versionsAvailable } = await getDeck(id, today());
   if (error) return serverError(error);
-  return NextResponse.json({ deck, canSave });
+  // `openedVersion` names the saved version this document IS, so the editor can
+  // say which one is open. Null means the project has no version history yet
+  // (or migration 207 is outstanding); the client then shows the working deck
+  // exactly as it did before. `versionsAvailable` distinguishes those two, and
+  // is what decides whether a Save can create a version.
+  return NextResponse.json({ deck, canSave, openedVersion, versionsAvailable });
 }
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

@@ -5,16 +5,21 @@
  * 207 there was exactly ONE deck per project (refm_report_decks.project_id is
  * the primary key) and every Save overwrote it, so a user could not keep a
  * "Pre-IC draft" beside a "Board pack v2". This lists the saved versions, saves
- * the current deck as a new named one, loads one back, and deletes one.
+ * the current deck as a new one, opens one back up, and deletes one.
+ *
+ * This is now the BROWSING surface, not a naming step. Saving no longer routes
+ * through here for a name: a version is auto-named server-side on the model
+ * version pattern, and the project opens on the last one saved. A name typed
+ * here is still honoured, so a user who wants to call one "Board pack v2" can.
  *
  * Two deliberate properties:
  *
- *   * Loading is an ordinary undoable edit. The parent applies the loaded deck
- *     through `commit`, so Ctrl+Z brings back what was on screen and the load
- *     still has to be Saved to reach the working row. Nothing is destroyed by
- *     looking at an old version.
+ *   * Opening a version is an ordinary undoable edit. The parent applies the
+ *     loaded deck through `commit`, so Ctrl+Z brings back what was on screen
+ *     and the load still has to be Saved to become the version that opens with
+ *     the project. Nothing is destroyed by looking at an old version.
  *   * Saving a version also saves the working deck (server-side, one call), so
- *     the named version and the live deck can never disagree about what was
+ *     the version and the live deck can never disagree about what was
  *     captured.
  *
  * Because slides hold BINDING KEYS rather than figures, a saved version records
@@ -60,19 +65,21 @@ export interface DeckVersionsModalProps {
   deck: Deck;
   /** True when the working deck has edits not yet saved, so a load can warn. */
   dirty: boolean;
+  /** The version currently on screen, marked OPEN in the list. Resolved by the
+   *  parent from the deck GET, so the list agrees with the editor about which
+   *  version is open rather than re-deriving it from the pointer column. */
+  openedVersionId?: string | null;
   onClose: () => void;
   /** Apply a loaded version over the working deck (parent routes it through
    *  `commit`, so it is one undo step and still needs Save). */
-  onLoad: (deck: Deck, label: string) => void;
+  onLoad: (deck: Deck, version: DeckVersionListItem) => void;
   onNotice: (msg: string) => void;
-  /** The working deck was saved as part of a version save, so clear dirty. */
-  onSavedVersion?: () => void;
-  /** Close as soon as a version is saved. Set when this modal IS the naming
-   *  step of a Save, so the user is not left in a dialog after saving. */
-  autoCloseOnSave?: boolean;
+  /** The working deck was saved as part of a version save, so clear dirty. The
+   *  saved row is passed on so the editor can show it as the open version. */
+  onSavedVersion?: (version: DeckVersionListItem | null) => void;
 }
 
-export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onLoad, onNotice, onSavedVersion, autoCloseOnSave }: DeckVersionsModalProps): React.JSX.Element {
+export default function DeckVersionsModal({ projectId, deck, dirty, openedVersionId, onClose, onLoad, onNotice, onSavedVersion }: DeckVersionsModalProps): React.JSX.Element {
   const [versions, setVersions] = useState<DeckVersionListItem[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [available, setAvailable] = useState(true);
@@ -103,33 +110,31 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
     return () => { cancelled = true; };
   }, [projectId, reloadKey]);
 
+  /** A name is optional. Left blank, the SERVER names the version on the same
+   *  pattern the model versions use, so saving never stops to ask. */
   const doSave = async () => {
     const name = label.trim();
-    if (!name) { setErr('Give this version a name.'); return; }
     setBusy(true); setErr(null);
-    const res = await saveReportDeckVersion(projectId, deck, name, comment.trim() || null);
+    const res = await saveReportDeckVersion(projectId, deck, name || null, comment.trim() || null);
     setBusy(false);
-    if (res.error) { setErr(res.error); return; }
+    if (res.error || !res.data?.version) { setErr(res.error ?? 'The version could not be saved.'); return; }
+    const saved = res.data.version;
     setLabel(''); setComment('');
-    onNotice(`Saved presentation version "${name}". You are still editing the working presentation.`);
+    onNotice(`Saved presentation version "${saved.label ?? `Version ${saved.versionNumber}`}". You are still editing where you were.`);
     // The server saved the working deck in the same call, so the parent's dirty
     // flag has to clear or the deck would still look unsaved.
-    onSavedVersion?.();
-    // Opened from a Save click, the naming step IS the save, so finish there.
-    // Opened from the Versions button, stay put so the new row is visible in
-    // the list that was the point of opening it.
-    if (autoCloseOnSave) { onClose(); return; }
+    onSavedVersion?.(saved);
     refresh();
   };
 
   const doLoad = async (v: DeckVersionListItem) => {
     const name = v.label ?? `Version ${v.versionNumber}`;
-    if (dirty && !window.confirm(`Load "${name}" over your current presentation? Your unsaved changes will be replaced (Ctrl+Z undoes this).`)) return;
+    if (dirty && !window.confirm(`Open "${name}" over your current presentation? Your unsaved changes will be replaced (Ctrl+Z undoes this).`)) return;
     setBusy(true); setErr(null);
     const res = await getReportDeckVersion(projectId, v.id);
     setBusy(false);
     if (res.error || !res.data?.deck) { setErr(res.error ?? 'That version could not be loaded.'); return; }
-    onLoad(res.data.deck, name);
+    onLoad(res.data.deck, v);
     onClose();
   };
 
@@ -151,7 +156,7 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: DECK_THEME.navy }}>Presentation versions</div>
             <div style={{ fontSize: 11, color: DECK_THEME.slate, marginTop: 2 }}>
-              Save this presentation under a name and keep several side by side.
+              Every save keeps a version. The project opens on the last one saved; open any other from here.
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: DECK_THEME.slate }} title="Close">✕</button>
@@ -177,7 +182,7 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input
                   style={inp} value={label} onChange={(e) => setLabel(e.target.value)} maxLength={120}
-                  placeholder="Version name, for example: Pre-IC draft" data-testid="deck-version-name"
+                  placeholder="Name (optional). Leave blank to name it automatically." data-testid="deck-version-name"
                   onKeyDown={(e) => { if (e.key === 'Enter' && !busy) void doSave(); }}
                 />
                 <input
@@ -185,11 +190,11 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
                   placeholder="Note (optional)"
                 />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button style={btn(true)} onClick={() => void doSave()} disabled={busy || !label.trim()} data-testid="deck-version-save">
+                  <button style={btn(true)} onClick={() => void doSave()} disabled={busy} data-testid="deck-version-save">
                     {busy ? 'Saving...' : 'Save as new version'}
                   </button>
                   <span style={{ fontSize: 10.5, color: DECK_THEME.slateLight, lineHeight: 1.4 }}>
-                    This also saves your current presentation.
+                    Named automatically unless you type one. This also saves your current presentation.
                   </span>
                 </div>
               </div>
@@ -204,12 +209,15 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
               <div style={{ fontSize: 12, color: DECK_THEME.slate }}>Loading...</div>
             ) : !versions.length ? (
               <div style={{ fontSize: 12, color: DECK_THEME.slate, lineHeight: 1.5 }}>
-                No saved versions yet. Your presentation is still saved as one working deck; naming a version keeps a copy you can come back to.
+                No saved versions yet. The next save creates one, named automatically, and the project will open on it from then on.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {versions.map((v) => {
-                  const isCurrent = v.id === currentId;
+                  // The version the editor has open wins over the stored
+                  // pointer: the parent knows what it actually rendered, and
+                  // the pointer can lag by one save on an older database.
+                  const isCurrent = v.id === (openedVersionId ?? currentId);
                   return (
                     <div
                       key={v.id} data-testid="deck-version-row"
@@ -227,13 +235,13 @@ export default function DeckVersionsModal({ projectId, deck, dirty, onClose, onL
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: DECK_THEME.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {v.label ?? `Version ${v.versionNumber}`}
-                          {isCurrent ? <span style={{ fontSize: 9.5, fontWeight: 700, color: DECK_THEME.navy, marginLeft: 6 }}>CURRENT</span> : null}
+                          {isCurrent ? <span style={{ fontSize: 9.5, fontWeight: 700, color: DECK_THEME.navy, marginLeft: 6 }}>OPEN</span> : null}
                         </div>
                         <div style={{ fontSize: 10.5, color: DECK_THEME.slateLight, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {v.createdAt ? new Date(v.createdAt).toLocaleString() : 'Saved'}{v.comment ? ` · ${v.comment}` : ''}
                         </div>
                       </div>
-                      <button style={btn()} onClick={() => void doLoad(v)} disabled={busy} data-testid="deck-version-load">Load</button>
+                      <button style={btn()} onClick={() => void doLoad(v)} disabled={busy || isCurrent} data-testid="deck-version-load" title={isCurrent ? 'This version is already open' : 'Open this version in the editor'}>Open</button>
                       <button style={btn(false, true)} onClick={() => void doDelete(v)} disabled={busy} title="Delete this saved version">Delete</button>
                     </div>
                   );

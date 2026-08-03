@@ -17,6 +17,10 @@
  *   * It offers two options, not three. "Edit a different version" belongs to
  *     the load flow, which the versions modal already owns.
  *
+ * Neither option asks for a name. A new version is auto-named server-side on
+ * the model version pattern ({Project}_Presentation_v1.3_08032026), so the
+ * choice is only about WHAT the save should do, never about typing.
+ *
  * The current version's name is resolved live when the modal opens, the same
  * way EditChoiceModal shows the version you are about to overwrite, so nobody
  * confirms an in-place save without seeing what it replaces. When the working
@@ -29,15 +33,23 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DECK_THEME } from '../../../lib/reports/deck/theme';
-import { listReportDeckVersions, type DeckVersionListItem } from '../../../lib/persistence/client';
+import { type DeckVersionListItem } from '../../../lib/persistence/client';
 
 export type DeckSaveChoice = 'in-place' | 'new-version';
 
 export interface DeckSaveChoiceModalProps {
-  projectId: string;
+  /** The version the editor has OPEN, which is the one an in-place save
+   *  updates. Null when the presentation has no saved version yet.
+   *
+   *  This used to be looked up here from `current_version_id`. That pointer is
+   *  only moved by a SAVE, so after opening an older version from the versions
+   *  modal it still named the previously saved one, and confirming "update"
+   *  would have named one version while overwriting another. The editor knows
+   *  what it actually rendered, so it is the only honest source. */
+  openVersion: DeckVersionListItem | null;
   onChoose: (choice: DeckSaveChoice, linked: DeckVersionListItem | null) => void;
   onCancel: () => void;
 }
@@ -47,27 +59,12 @@ const overlay: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
 };
 
-export default function DeckSaveChoiceModal({ projectId, onChoose, onCancel }: DeckSaveChoiceModalProps): React.JSX.Element | null {
+export default function DeckSaveChoiceModal({ openVersion, onChoose, onCancel }: DeckSaveChoiceModalProps): React.JSX.Element | null {
   const [choice, setChoice] = useState<DeckSaveChoice>('in-place');
-  const [linked, setLinked] = useState<DeckVersionListItem | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Resolve which saved version (if any) this deck was last saved as, so the
-  // in-place option can name what it is about to overwrite.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const res = await listReportDeckVersions(projectId);
-      if (cancelled) return;
-      setLoading(false);
-      const cur = res.data?.currentVersionId ?? null;
-      setLinked(cur ? (res.data?.versions ?? []).find((v) => v.id === cur) ?? null : null);
-    })();
-    return () => { cancelled = true; };
-  }, [projectId]);
 
   if (typeof document === 'undefined') return null;
 
+  const linked = openVersion;
   const linkedName = linked ? (linked.label ?? `Version ${linked.versionNumber}`) : null;
 
   const options: Array<{ value: DeckSaveChoice; title: string; desc: string }> = [
@@ -76,12 +73,12 @@ export default function DeckSaveChoiceModal({ projectId, onChoose, onCancel }: D
       title: linkedName ? `Update "${linkedName}"` : 'Update this presentation',
       desc: linkedName
         ? `Overwrites the saved version "${linkedName}" with what is on screen, keeping its name, number and date. No new version is created.`
-        : 'Saves your working presentation. It is not linked to a saved version yet, so nothing else is overwritten.',
+        : 'Saves what is on screen. This presentation has no saved version yet, so this save creates the first one.',
     },
     {
       value: 'new-version',
       title: 'Save as a new version',
-      desc: 'Keeps a named copy of the presentation as it stands now. You carry on editing where you are; the copy is there to come back to.',
+      desc: 'Keeps a copy of the presentation as it stands now, named automatically. You carry on editing where you are; the copy is there to come back to.',
     },
   ];
 
@@ -97,7 +94,7 @@ export default function DeckSaveChoiceModal({ projectId, onChoose, onCancel }: D
         <div style={{ padding: '14px 16px', borderBottom: `1px solid ${DECK_THEME.rule}` }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: DECK_THEME.navy }}>Save presentation</div>
           <div style={{ fontSize: 11, color: DECK_THEME.slate, marginTop: 2 }}>
-            {loading ? 'Checking saved versions...' : 'Choose how this save should be kept.'}
+            Choose how this save should be kept.
           </div>
         </div>
 
@@ -137,8 +134,8 @@ export default function DeckSaveChoiceModal({ projectId, onChoose, onCancel }: D
             style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 4, cursor: 'pointer', border: `1px solid ${DECK_THEME.rule}`, background: '#FFFFFF', color: DECK_THEME.ink }}
           >Cancel</button>
           <button
-            onClick={() => onChoose(choice, linked)} disabled={loading} data-testid="deck-save-choice-confirm"
-            style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, borderRadius: 4, cursor: loading ? 'default' : 'pointer', border: `1px solid ${DECK_THEME.navy}`, background: DECK_THEME.navy, color: '#FFFFFF', opacity: loading ? 0.6 : 1 }}
+            onClick={() => onChoose(choice, linked)} data-testid="deck-save-choice-confirm"
+            style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, borderRadius: 4, cursor: 'pointer', border: `1px solid ${DECK_THEME.navy}`, background: DECK_THEME.navy, color: '#FFFFFF' }}
           >Continue</button>
         </div>
       </div>

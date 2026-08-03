@@ -5,8 +5,11 @@
  *           deck payloads, so listing stays cheap however large a deck grows.
  *           `available: false` means migration 207 is outstanding; the client
  *           hides the version UI rather than showing broken controls.
- *   POST -> save the posted deck as a NEW named version and point the working
- *           deck at it. Body: { deck, label, comment? }.
+ *   POST -> save the posted deck as a NEW version and point the working deck at
+ *           it. Body: { deck, label?, comment? }. `label` is optional: left out,
+ *           the version is auto-named server-side
+ *           ({Project}_Presentation_v1.3_08032026), mirroring the model version
+ *           naming so saving a presentation never stops to ask for a name.
  *
  * This mirrors /api/refm/projects/[id]/versions (the project snapshot history):
  * append-only rows, a monotonic per-project number assigned server-side, and a
@@ -83,17 +86,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const body = await req.json().catch(() => null) as { deck?: unknown; label?: unknown; comment?: unknown } | null;
 
-  // A version must be named: the whole point is telling saved presentations
-  // apart in the list.
+  // A name is OPTIONAL. An omitted one is generated in saveDeckVersion, on the
+  // same pattern the model versions use, so a save never has to stop and ask.
+  // Naming there rather than here keeps one namer for every caller.
   const label = typeof body?.label === 'string' ? body.label.trim() : '';
-  if (!label) return NextResponse.json({ error: 'A version name is required.' }, { status: 400 });
 
   // The posted deck is re-validated, never trusted as jsonb.
   const deck = coerceDeck(body?.deck, id, today());
   if (!deck) return NextResponse.json({ error: 'A deck with at least one slide is required.' }, { status: 400 });
 
   const comment = typeof body?.comment === 'string' ? body.comment : null;
-  const { version, error } = await saveDeckVersion(id, deck, label, comment);
+  const { version, error } = await saveDeckVersion(id, deck, label || null, comment);
   if (error) return serverError(error);
   return NextResponse.json({ version });
 }

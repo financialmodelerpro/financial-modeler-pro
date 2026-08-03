@@ -25,6 +25,7 @@ import {
   type Deck, type DeckBranding, type DeckObject, type DeckObjectType, type DeckSettings, type Slide,
 } from '../reports/deck/types';
 import { DEFAULT_BRANDING } from '../reports/deck/theme';
+import { autoDeckVersionName } from '../reports/deck/versionNaming';
 
 function isMissingTable(err: { code?: string | null; message?: string | null } | null): boolean {
   if (!err) return false;
@@ -147,27 +148,158 @@ export function coerceDeck(raw: unknown, projectId: string, fallbackAsOf: string
 
 // ── Read / write ────────────────────────────────────────────────────────────
 
-/** The saved deck, or null when the project has none yet (the caller then seeds
- *  from templates). A missing TABLE is not an error: it is a pre-migration
- *  state, and the tab degrades to an unsaveable in-memory deck. */
-export async function getDeck(projectId: string, fallbackAsOf: string): Promise<{ deck: Deck | null; error: string | null; canSave: boolean }> {
+/**
+ * The saved deck, or null when the project has none yet (the caller then seeds
+ * from templates). A missing TABLE is not an error: it is a pre-migration
+ * state, and the tab degrades to an unsaveable in-memory deck.
+ *
+ * Opening a project now opens the LAST SAVED VERSION rather than an unnamed
+ * working document. `resolveOpenDeck` below decides which of the two rows that
+ * is; this function stays the single read the Presentation tab makes.
+ */
+export async function getDeck(projectId: string, fallbackAsOf: string): Promise<{
+  deck: Deck | null; error: string | null; canSave: boolean;
+  openedVersion: DeckVersionListItem | null; versionsAvailable: boolean;
+}> {
   const sb = getServerClient();
   const { data, error } = await sb
     .from('refm_report_decks')
-    .select('deck, updated_at')
+    .select('deck, updated_at, current_version_id')
     .eq('project_id', projectId)
     .maybeSingle();
 
   if (error) {
-    if (isMissingTable(error)) return { deck: null, error: null, canSave: false };
-    return { deck: null, error: error.message, canSave: true };
+    // A missing COLUMN means 207 is half-applied: retry without the pointer so
+    // the deck still loads (199-only databases keep working).
+    if (isMissingColumn(error)) {
+      const retry = await sb.from('refm_report_decks').select('deck, updated_at').eq('project_id', projectId).maybeSingle();
+      if (retry.error || !retry.data) {
+        if (retry.error && isMissingTable(retry.error)) return { deck: null, error: null, canSave: false, openedVersion: null, versionsAvailable: false };
+        return { deck: null, error: retry.error?.message ?? null, canSave: true, openedVersion: null, versionsAvailable: false };
+      }
+      const r = retry.data as { deck: unknown; updated_at: string | null };
+      const d = coerceDeck(r.deck, projectId, fallbackAsOf);
+      if (d) d.updatedAt = r.updated_at;
+      return { deck: d, error: null, canSave: true, openedVersion: null, versionsAvailable: false };
+    }
+    if (isMissingTable(error)) return { deck: null, error: null, canSave: false, openedVersion: null, versionsAvailable: false };
+    return { deck: null, error: error.message, canSave: true, openedVersion: null, versionsAvailable: false };
   }
-  if (!data) return { deck: null, error: null, canSave: true };
 
-  const row = data as { deck: unknown; updated_at: string | null };
-  const deck = coerceDeck(row.deck, projectId, fallbackAsOf);
-  if (deck) deck.updatedAt = row.updated_at;
-  return { deck, error: null, canSave: true };
+  const row = (data ?? null) as { deck: unknown; updated_at: string | null; current_version_id: string | null } | null;
+  const working = row ? coerceDeck(row.deck, projectId, fallbackAsOf) : null;
+  if (working) working.updatedAt = row?.updated_at ?? null;
+
+  const resolved = await resolveOpenDeck(projectId, working, row?.updated_at ?? null, row?.current_version_id ?? null, fallbackAsOf);
+  return {
+    deck: resolved.deck, error: null, canSave: true,
+    openedVersion: resolved.openedVersion, versionsAvailable: resolved.versionsAvailable,
+  };
+}
+
+/**
+ * Which document a fresh open should show, and which saved version it is.
+ *
+ * The rule is "whatever was saved last", which is what a user means by the
+ * presentation they left open:
+ *
+ *   * Normally the newest version row wins. Every save path writes a version
+ *     (in place, or a new auto-named one), so this is the document the user
+ *     last pressed Save on.
+ *   * The working row wins when its `updated_at` is strictly NEWER than that
+ *     version's `created_at`. Two cases reach this: a deck saved before this
+ *     change, when a plain working save left no version behind, and an
+ *     in-place version update, whose row keeps its original `created_at` while
+ *     the working row is rewritten. Both hold the same or newer content, so
+ *     preferring the working row here can never show stale slides.
+ *   * When the working row wins, the version it is LINKED to (if any) is still
+ *     reported, so the editor can name what is open.
+ *
+ * Version identity is metadata only: the deck document itself is unchanged, so
+ * nothing downstream (render, export, bindings) can behave differently.
+ */
+/**
+ * The open rule, as a pure decision so it can be tested without a database.
+ *
+ * True = show the newest saved VERSION. False = show the working row.
+ *
+ * The version wins by default, including when either timestamp is unreadable:
+ * the whole point of the change is that a project opens on its last saved
+ * version, so an unparseable date must not silently fall back to the old
+ * behaviour. Only a working row that is demonstrably NEWER (a deck saved before
+ * versioning existed, or an in-place update, which rewrites the working row but
+ * leaves the version's created_at alone) keeps its place.
+ */
+export function shouldOpenVersion(args: {
+  hasWorkingDeck: boolean; workingUpdatedAt: string | null; versionCreatedAt: string | null;
+}): boolean {
+  if (!args.hasWorkingDeck) return true;
+  const workingMs = args.workingUpdatedAt ? Date.parse(args.workingUpdatedAt) : NaN;
+  const versionMs = args.versionCreatedAt ? Date.parse(args.versionCreatedAt) : NaN;
+  if (!Number.isFinite(workingMs) || !Number.isFinite(versionMs)) return true;
+  return !(workingMs > versionMs);
+}
+
+async function resolveOpenDeck(
+  projectId: string,
+  working: Deck | null,
+  workingUpdatedAt: string | null,
+  currentVersionId: string | null,
+  fallbackAsOf: string,
+): Promise<{ deck: Deck | null; openedVersion: DeckVersionListItem | null; versionsAvailable: boolean }> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .select('id, version_number, label, comment, created_at, deck')
+    .eq('project_id', projectId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // No version history reachable (207 outstanding, or none saved yet): the
+  // working deck is all there is, exactly as before this change.
+  //
+  // `versionsAvailable` separates those two cases for the caller. It is what
+  // tells the editor whether a Save can create a version at all: on a database
+  // without 207 the deck falls back to the single working row it has always
+  // had, rather than reporting a failed version save.
+  if (error) return { deck: working, openedVersion: null, versionsAvailable: !isMissingTable(error) };
+  if (!data) return { deck: working, openedVersion: null, versionsAvailable: true };
+
+  const v = data as {
+    id: string; version_number: number; label: string | null; comment: string | null;
+    created_at: string | null; deck: unknown;
+  };
+  const meta: DeckVersionListItem = {
+    id: v.id, versionNumber: v.version_number, label: v.label, comment: v.comment, createdAt: v.created_at,
+  };
+
+  if (!shouldOpenVersion({ hasWorkingDeck: !!working, workingUpdatedAt, versionCreatedAt: v.created_at })) {
+    // Report the linked version when there is one, so an in-place save still
+    // opens under its own name rather than looking unversioned.
+    const linked = currentVersionId === v.id ? meta : currentVersionId ? await getDeckVersionMeta(projectId, currentVersionId) : null;
+    return { deck: working, openedVersion: linked, versionsAvailable: true };
+  }
+
+  const versionDeck = coerceDeck(v.deck, projectId, fallbackAsOf);
+  if (!versionDeck) return { deck: working, openedVersion: null, versionsAvailable: true };
+  versionDeck.updatedAt = v.created_at;
+  return { deck: versionDeck, openedVersion: meta, versionsAvailable: true };
+}
+
+/** One version's metadata (no payload). Tolerant: a missing table or row is
+ *  simply "no version", never an error the tab has to render. */
+async function getDeckVersionMeta(projectId: string, versionId: string): Promise<DeckVersionListItem | null> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_report_deck_versions')
+    .select('id, version_number, label, comment, created_at')
+    .eq('project_id', projectId)
+    .eq('id', versionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const r = data as { id: string; version_number: number; label: string | null; comment: string | null; created_at: string | null };
+  return { id: r.id, versionNumber: r.version_number, label: r.label, comment: r.comment, createdAt: r.created_at };
 }
 
 export async function upsertDeck(projectId: string, deck: Deck): Promise<{ error: string | null }> {
@@ -255,36 +387,75 @@ export async function listDeckVersions(projectId: string): Promise<{
   };
 }
 
-/** MAX(version_number) + 1 for this project. */
-async function nextDeckVersionNumber(projectId: string): Promise<{ next: number; error: string | null; available: boolean }> {
+/**
+ * MAX(version_number) + 1 for this project, plus the existing names the
+ * auto-namer needs.
+ *
+ * One query serves both: the integer is what the unique index enforces, while
+ * the labels carry the human X.Y sequence (the model versions store their
+ * label inside the name the same way, so the two schemes roll over
+ * identically). Rows are read newest-first and the labels are handed on with
+ * their dates, because `nextDeckVersionLabel` advances from the LATEST version
+ * by date rather than the maximum, so deleting a version does not refill its
+ * number.
+ */
+async function nextDeckVersionNumber(projectId: string): Promise<{
+  next: number; existing: Array<{ label: string | null; createdAt: string | null }>; error: string | null; available: boolean;
+}> {
   const sb = getServerClient();
   const { data, error } = await sb
     .from('refm_report_deck_versions')
-    .select('version_number')
+    .select('version_number, label, created_at')
     .eq('project_id', projectId)
-    .order('version_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('version_number', { ascending: false });
   if (error) {
-    if (isMissingTable(error)) return { next: 1, error: null, available: false };
-    return { next: 1, error: error.message, available: true };
+    if (isMissingTable(error)) return { next: 1, existing: [], error: null, available: false };
+    return { next: 1, existing: [], error: error.message, available: true };
   }
-  return { next: ((data as { version_number?: number } | null)?.version_number ?? 0) + 1, error: null, available: true };
+  const rows = (data ?? []) as Array<{ version_number: number; label: string | null; created_at: string | null }>;
+  const maxNumber = rows.reduce((m, r) => Math.max(m, r.version_number ?? 0), 0);
+  return {
+    next: maxNumber + 1,
+    existing: rows.map((r) => ({ label: r.label, createdAt: r.created_at })),
+    error: null,
+    available: true,
+  };
+}
+
+/** The project's name, for the auto-generated version name. Never fatal: an
+ *  unreadable name degrades to the generic "Project" prefix rather than
+ *  failing a save. */
+async function projectDisplayName(projectId: string): Promise<string | null> {
+  const sb = getServerClient();
+  const { data, error } = await sb.from('refm_projects').select('name').eq('id', projectId).maybeSingle();
+  if (error || !data) return null;
+  return (data as { name: string | null }).name ?? null;
 }
 
 /**
- * Save the given deck as a NEW named version, and point the working deck at it.
+ * Save the given deck as a NEW version, and point the working deck at it.
  *
  * The working row is upserted with the same deck in the same call, so "save as
  * a version" also saves the user's current work: the two can never disagree
  * about what the named version contains.
+ *
+ * `label` is OPTIONAL. Left empty, the version is auto-named here rather than
+ * in the UI, on the same pattern the model versions use
+ * ({Project}_Presentation_v1.3_08032026). Naming on the server is deliberate:
+ * every path that reaches this function (the Save button, the versions modal,
+ * a direct POST) gets a real name, so the history cannot acquire an unnamed
+ * row through a path that forgot to generate one. A caller that DOES supply a
+ * name still wins, so a user can name a version deliberately.
  */
-export async function saveDeckVersion(projectId: string, deck: Deck, label: string, comment: string | null): Promise<{
+export async function saveDeckVersion(projectId: string, deck: Deck, label: string | null, comment: string | null): Promise<{
   version: DeckVersionListItem | null; error: string | null;
 }> {
-  const { next, error: numErr, available } = await nextDeckVersionNumber(projectId);
+  const { next, existing, error: numErr, available } = await nextDeckVersionNumber(projectId);
   if (!available) return { version: null, error: VERSION_MIGRATION_HINT };
   if (numErr) return { version: null, error: numErr };
+
+  const chosen = (label ?? '').trim();
+  const finalLabel = chosen || autoDeckVersionName(await projectDisplayName(projectId), existing);
 
   const sb = getServerClient();
   const payload = { ...deck, projectId, updatedAt: null };
@@ -295,7 +466,7 @@ export async function saveDeckVersion(projectId: string, deck: Deck, label: stri
       version_number: next,
       schema_version: deck.schemaVersion ?? DECK_SCHEMA_VERSION,
       deck: payload,
-      label: label.trim() || null,
+      label: finalLabel,
       comment: comment?.trim() || null,
     })
     .select('id, version_number, label, comment, created_at')

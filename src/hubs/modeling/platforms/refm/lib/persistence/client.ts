@@ -262,7 +262,15 @@ export function saveReportInputs(projectId: string, inputs: ReportInputs): Promi
 // outstanding, so the tab can say so plainly rather than failing a save with a
 // raw Postgres error.
 
-export function getReportDeck(projectId: string): Promise<FetchResult<{ deck: Deck | null; canSave: boolean }>> {
+export function getReportDeck(projectId: string): Promise<FetchResult<{
+  deck: Deck | null; canSave: boolean;
+  /** The saved version the returned deck IS (the last one saved), or null when
+   *  the project has no version history yet. */
+  openedVersion?: DeckVersionListItem | null;
+  /** False when migration 207 is outstanding, so a Save keeps to the single
+   *  working deck instead of trying to create a version. */
+  versionsAvailable?: boolean;
+}>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck`, { method: 'GET' });
 }
 
@@ -297,13 +305,16 @@ export function listReportDeckVersions(projectId: string): Promise<FetchResult<{
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions`, { method: 'GET' });
 }
 
-/** Save the deck as a NEW named version (this also saves the working deck). */
+/** Save the deck as a NEW version (this also saves the working deck).
+ *  `label` is optional: omitted or blank, the server auto-names the version
+ *  ({Project}_Presentation_v1.3_08032026), so an ordinary Save never has to
+ *  stop and ask the user for a name. */
 export function saveReportDeckVersion(
-  projectId: string, deck: Deck, label: string, comment?: string | null,
+  projectId: string, deck: Deck, label?: string | null, comment?: string | null,
 ): Promise<FetchResult<{ version: DeckVersionListItem }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/report-deck/versions`, {
     method: 'POST',
-    body:   JSON.stringify({ deck, label, comment: comment ?? null }),
+    body:   JSON.stringify({ deck, label: label ?? null, comment: comment ?? null }),
   });
 }
 
