@@ -651,21 +651,57 @@ export interface Project {
   fundTerms?: {
     /** Fund economics on or off. Undefined = off = standalone = today. */
     enabled?: boolean;
-    /** Management fee, decimal fraction of the fee base. */
-    managementFeePct?: number;
-    /** What the fee is charged on. Two LINEAR options only in v1; fund size is
-     *  circular and deferred to v1.1 (see lib/fundTerms.ts FEE_BASES). */
-    feeBase?: 'committed_capital' | 'total_development_cost';
-    /** Preferred return paid to investors before carry, decimal fraction. */
-    hurdleRatePct?: number;
-    /** Performance fee on the residual above the hurdle, decimal fraction. */
+
+    // ── Fee bases the user TYPES. Never solved outputs: that is what keeps
+    //    every fee linear and out of the M4 circular solve.
+    /** Fund size (target or committed), base for the one-time structure fee. */
+    fundSize?: number;
+    /** Debt facility LIMIT (not the drawn balance), base for the arranging fee. */
+    facilityLimit?: number;
+
+    // ── Fund management fees. Each fee's timing and base are declared once in
+    //    FUND_FEE_SPECS (lib/fundTerms.ts), which the UI renders from and the
+    //    verifier polices.
+    /** One time, decimal fraction of fund size. */
+    fundStructureFeePct?: number;
+    /** Annual, decimal fraction of OPENING (beginning of period) NAV. */
+    fundManagementFeePct?: number;
+    /** Annual, decimal fraction of OPENING NAV. */
+    custodyAdminFeePct?: number;
+    /** One time, decimal fraction of the facility limit. */
+    debtArrangingFeePct?: number;
+    /** Flat currency amount per annum. */
+    otherExpensesPerAnnum?: number;
+
+    // ── Performance fee.
+    /** Performance fee on the residual above the hurdle, decimal fraction.
+     *  Written alongside `carryPct` (the same number) so a reader written
+     *  against either name resolves correctly. */
+    performanceFeePct?: number;
+    /** Same number as performanceFeePct: carry IS the performance fee. Kept so
+     *  a snapshot written before 2026-08-04 still resolves. */
     carryPct?: number;
-    /** Committed capital in project currency; the fee base when feeBase is
-     *  'committed_capital'. Kept when the base changes so the typed number is
-     *  never lost. */
+    /** Hurdle expressed as an IRR, decimal fraction. */
+    hurdleRatePct?: number;
+
+    /** Per-PARTY split of each fee type. partyId links to refm_parties and
+     *  partyName is snapshotted, so a renamed or deleted party never blanks a
+     *  saved row. */
+    feeDistribution?: Array<{
+      partyId: string; partyName: string;
+      performanceFeePct: number; developerFeePct: number; commissionPct: number;
+    }>;
+
+    // ── LEGACY (2026-08-03, migration 208). Retired from the UI, still carried
+    //    so an existing snapshot keeps its values and nothing is silently lost.
+    /** @deprecated superseded by the explicit fee set above. */
+    managementFeePct?: number;
+    /** @deprecated each fee now declares its own base in FUND_FEE_SPECS. */
+    feeBase?: 'committed_capital' | 'total_development_cost';
+    /** @deprecated superseded by `fundSize`. */
     committedCapital?: number;
-    /** Fee income split across party roles (roles from PARTY_ROLES).
-     *  sharePct is a decimal fraction. */
+    /** @deprecated superseded by `feeDistribution`, which splits per PARTY
+     *  rather than per role. */
     feeShares?: Array<{ role: string; sharePct: number }>;
   };
   /**

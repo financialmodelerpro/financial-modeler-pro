@@ -1,10 +1,13 @@
 /**
  * /api/refm/projects/[id]/fund-terms (fund layer Step 2, migration 208)
  *
- *   GET -> { terms, saved, available }. `saved:false` means the project has no
- *          row yet and the caller gets standalone defaults, which is every
- *          project that exists today. `available:false` means migration 208 is
- *          outstanding, and the tab says so rather than failing.
+ *   GET -> { terms, saved, available, extended }. `saved:false` means the
+ *          project has no row yet and the caller gets standalone defaults.
+ *          `available:false` means migration 208 is outstanding, and the tab
+ *          says so rather than failing. `extended:false` means migration 209
+ *          is outstanding, so the extended fee set and the distribution matrix
+ *          could not be read from or written to the table; they still ride in
+ *          the version snapshot, which is what the engine reads.
  *   PUT -> { terms } upsert. Body is re-validated through `resolveFundTerms`,
  *          never trusted: an out-of-range fee or an unrecognised fee base is
  *          coerced, not stored.
@@ -67,9 +70,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const owned = await requireOwnedProject(id);
   if (owned instanceof NextResponse) return owned;
 
-  const { terms, saved, available, error } = await getFundTerms(id);
+  const { terms, saved, available, extended, error } = await getFundTerms(id);
   if (error) return serverError(error);
-  return NextResponse.json({ terms, saved, available });
+  // `extended:false` means migration 209 is outstanding, so the extended fee
+  // fields could not be read from the table. They still ride in the version
+  // snapshot, which is what the engine reads, and the tab says so.
+  return NextResponse.json({ terms, saved, available, extended });
 }
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -85,7 +91,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   // deferred circular 'fund_size' fee base.
   const terms = resolveFundTerms({ fundTerms: body?.terms } as never);
 
-  const { error, available } = await upsertFundTerms(id, terms);
-  if (error) return NextResponse.json({ error, available }, { status: available ? 500 : 409 });
-  return NextResponse.json({ terms, saved: true, available: true });
+  const { error, available, extended } = await upsertFundTerms(id, terms);
+  if (error) return NextResponse.json({ error, available, extended }, { status: available ? 500 : 409 });
+  return NextResponse.json({ terms, saved: true, available: true, extended });
 }

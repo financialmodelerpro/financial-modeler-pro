@@ -221,13 +221,13 @@ export function listParties(projectId: string): Promise<FetchResult<{ parties: P
 // means migration 208 is outstanding and the tab says so rather than failing.
 
 export function getFundTerms(projectId: string): Promise<FetchResult<{
-  terms: FundTerms; saved: boolean; available: boolean;
+  terms: FundTerms; saved: boolean; available: boolean; extended?: boolean;
 }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/fund-terms`, { method: 'GET' });
 }
 
 export function saveFundTerms(projectId: string, terms: FundTerms): Promise<FetchResult<{
-  terms: FundTerms; saved: boolean; available: boolean;
+  terms: FundTerms; saved: boolean; available: boolean; extended?: boolean;
 }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/fund-terms`, {
     method: 'PUT',

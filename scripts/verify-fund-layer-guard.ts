@@ -185,10 +185,27 @@ function withToggleOff(state: any): any {
       ...state.project,
       fundTerms: {
         enabled: false,
+        // Fee bases the user types.
+        fundSize: 500_000_000,
+        facilityLimit: 300_000_000,
+        // Every fund management fee, at a realistic rate.
+        fundStructureFeePct: 0.01,
+        fundManagementFeePct: 0.02,
+        custodyAdminFeePct: 0.0025,
+        debtArrangingFeePct: 0.0075,
+        otherExpensesPerAnnum: 1_500_000,
+        // Performance fee and hurdle.
+        performanceFeePct: 0.20,
+        carryPct: 0.20,
+        hurdleRatePct: 0.08,
+        // The per-party distribution matrix.
+        feeDistribution: [
+          { partyId: 'party-1', partyName: 'Sponsor Co', performanceFeePct: 0.6, developerFeePct: 1, commissionPct: 0.5 },
+          { partyId: 'party-2', partyName: 'JV Partner', performanceFeePct: 0.4, developerFeePct: 0, commissionPct: 0.5 },
+        ],
+        // Legacy migration-208 fields, still carried.
         managementFeePct: 0.02,
         feeBase: 'committed_capital',
-        hurdleRatePct: 0.08,
-        carryPct: 0.20,
         committedCapital: 250_000_000,
         feeShares: [{ role: 'Sponsor', sharePct: 0.6 }, { role: 'Developer', sharePct: 0.4 }],
       },
@@ -204,8 +221,11 @@ function runPair(label: string, state: any): void {
   // block is POPULATED, or the comparison below would be proving nothing.
   check(`${label}: the toggled state carries populated fund terms, disabled`,
     toggled.project.fundTerms?.enabled === false
-    && toggled.project.fundTerms?.managementFeePct === 0.02
-    && toggled.project.fundTerms?.carryPct === 0.20
+    && toggled.project.fundTerms?.fundSize === 500_000_000
+    && toggled.project.fundTerms?.fundManagementFeePct === 0.02
+    && toggled.project.fundTerms?.otherExpensesPerAnnum === 1_500_000
+    && toggled.project.fundTerms?.performanceFeePct === 0.20
+    && (toggled.project.fundTerms?.feeDistribution ?? []).length === 2
     && (toggled.project.fundTerms?.feeShares ?? []).length === 2
     && plain.project.fundTerms === undefined);
 
@@ -322,10 +342,15 @@ console.log('\n=== D. The toggle survives the storage it actually uses ===');
   check('an off toggle survives the jsonb round trip', back.fundTerms?.enabled === false);
   check('it still resolves to off after the round trip', resolveFundTerms(back).enabled === false);
   // The Step 2 terms ride in the same snapshot, so a version save captures the
-  // fee it was computed with rather than whatever the side table says today.
+  // fees it was computed with rather than whatever the side table says today.
+  const rt = resolveFundTerms(back);
   check('the populated terms survive the round trip',
-    resolveFundTerms(back).managementFeePct === 0.02 && resolveFundTerms(back).carryPct === 0.20
-    && resolveFundTerms(back).feeShares.length === 2);
+    rt.fundSize === 500_000_000 && rt.fundManagementFeePct === 0.02
+    && rt.otherExpensesPerAnnum === 1_500_000 && rt.performanceFeePct === 0.20);
+  check('the distribution matrix survives with party ids and names',
+    rt.feeDistribution.length === 2
+    && rt.feeDistribution[0].partyId === 'party-1' && rt.feeDistribution[0].partyName === 'Sponsor Co'
+    && rt.feeDistribution[1].commissionPct === 0.5);
 
   const plainProject = buildState().project;
   const backPlain = JSON.parse(JSON.stringify(plainProject));
