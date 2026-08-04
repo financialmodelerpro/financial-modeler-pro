@@ -51,7 +51,7 @@ import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 import { resolveFundTerms } from './fundTerms';
-import { computeFundFeeSchedule, emptyFundFeeSchedule, type FundFeeSchedule } from './fundFees';
+import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, type FundFeeSchedule } from './fundFees';
 
 export type FinancialsResolverState = Pick<
   Module1Store,
@@ -2438,6 +2438,16 @@ export function computeFinancialsSnapshot(
       // NAV is NET assets, so a debt drawdown does not move it: cash and debt
       // rise together. Belt and braces on top of the freeze above.
       closingNavPerPeriod: feeFree.bs.totalEquityPerPeriod,
+      // The facility limit comes from the model's stated facilities, never from
+      // the drawn balance. Both sources are inputs: `principal` and `ltvPct`
+      // are typed on the tranche, and capex comes from the cost lines and
+      // carries no IDC, so neither moves with the funding solve.
+      facilityLimit: resolveFacilityLimit({
+        tranches: state.financingTranches,
+        capexTotal: feeFree.financing.capex.totals.exclLandInKind,
+        manualLimit: fundTerms.facilityLimit,
+        override: fundTerms.facilityLimitOverride,
+      }),
     });
     return computeFinancialsSnapshotSolved(state, schedule);
   }

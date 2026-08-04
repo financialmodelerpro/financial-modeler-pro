@@ -45,7 +45,9 @@ import {
   resolveFundTerms, isFundLayerActive, coerceFeeBase, sanitizeFeeShares, sanitizeFeeDistribution,
   feeColumnTotal, feeColumnBalanced, feeShareTotal, feeSharesBalanced,
   toFundTermsPatch, fromRow, toRow, toLegacyRow,
+  FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow, resolveFeeEarners,
 } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
+import { resolveFacilityLimit } from '../src/hubs/modeling/platforms/refm/lib/fundFees';
 import { PARTY_ROLES } from '../src/hubs/modeling/platforms/refm/lib/parties';
 
 let pass = 0, fail = 0;
@@ -185,6 +187,116 @@ console.log('\n=== 4. The distribution matrix is per PARTY ===');
     Math.abs(feeColumnTotal(rows, 'developerFeePct') - 1) < 1e-9 && Math.abs(feeColumnTotal(rows, 'commissionPct') - 1) < 1e-9);
 }
 
+console.log('\n=== 4b. The Fund Manager is an earner, not a party ===');
+{
+  check('the reserved row id is not a uuid, so it cannot collide with a party',
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(FUND_MANAGER_ROW_ID) && FUND_MANAGER_ROW_ID === '__fund_manager__');
+  check('the predicate recognises the manager row', isFundManagerRow({ partyId: FUND_MANAGER_ROW_ID }));
+  check('the predicate rejects a party row', !isFundManagerRow({ partyId: 'some-party-uuid' }));
+  check('the predicate tolerates junk', !isFundManagerRow(null) && !isFundManagerRow(undefined) && !isFundManagerRow({}));
+  check('the default name is set', DEFAULT_FUND_TERMS.fundManagerName === DEFAULT_FUND_MANAGER_NAME);
+  check('a blank stored name falls back to the default',
+    resolveFundTerms({ fundTerms: { fundManagerName: '   ' } } as any).fundManagerName === DEFAULT_FUND_MANAGER_NAME);
+  check('a real stored name is kept and trimmed',
+    resolveFundTerms({ fundTerms: { fundManagerName: '  Acme Managers  ' } } as any).fundManagerName === 'Acme Managers');
+
+  // The manager's row lives in the SAME matrix as the parties, so the matrix
+  // stays one uniform structure rather than a special case bolted on.
+  const withManager = resolveFundTerms({ fundTerms: {
+    enabled: true, fundManagerName: 'Acme',
+    feeDistribution: [
+      { partyId: FUND_MANAGER_ROW_ID, partyName: 'Acme', performanceFeePct: 0.2, developerFeePct: 0, commissionPct: 0 },
+      { partyId: 'p1', partyName: 'Sponsor', performanceFeePct: 0.8, developerFeePct: 1, commissionPct: 1 },
+    ],
+  } } as any);
+  check('the manager row survives sanitisation', withManager.feeDistribution.some(isFundManagerRow));
+  check('the manager row counts toward the column total',
+    Math.abs(feeColumnTotal(withManager.feeDistribution, 'performanceFeePct') - 1) < 1e-9);
+  check('a column including the manager can balance', feeColumnBalanced(withManager.feeDistribution, 'performanceFeePct'));
+
+  // resolveFeeEarners is the contract Step 5 consumes.
+  const earners = resolveFeeEarners(withManager);
+  check('the Fund Manager is ALWAYS the first earner', earners[0].kind === 'fund_manager');
+  check('the Fund Manager takes 100% of the management fees', earners[0].managementFeeShare === 1);
+  check('no party takes any management fee',
+    earners.filter((e) => e.kind === 'party').every((e) => e.managementFeeShare === 0));
+  check('the Fund Manager carries its matrix share of the performance fee', earners[0].performanceFeePct === 0.2);
+  check('a party earner carries its own matrix shares',
+    earners[1].entityId === 'p1' && earners[1].performanceFeePct === 0.8 && earners[1].commissionPct === 1);
+  check('every earner has a stable id and a name', earners.every((e) => !!e.entityId && typeof e.name === 'string'));
+  check('the management-fee shares sum to exactly 1 across all earners',
+    Math.abs(earners.reduce((s, e) => s + e.managementFeeShare, 0) - 1) < 1e-12);
+
+  // The manager exists even with an empty matrix, because it earns the
+  // management fees whether or not anyone has split the performance fee.
+  const noMatrix = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo' } } as any));
+  check('the Fund Manager is present with an EMPTY matrix', noMatrix.length === 1 && noMatrix[0].kind === 'fund_manager');
+  check('and still takes the management fees', noMatrix[0].managementFeeShare === 1);
+  check('and takes no performance fee it was not given', noMatrix[0].performanceFeePct === 0);
+
+  // It must NOT be shaped like an M5 equity partner: it contributes no equity,
+  // so a zero-equity PartnerInput would give it a 0% shareholding and an
+  // undefined IRR, and would break Sigma partners == consolidated.
+  check('the earner shape carries no equity contribution fields',
+    !('cashContribution' in earners[0]) && !('inKindContribution' in earners[0]) && !('manualShareholdingPct' in earners[0]));
+}
+
+console.log('\n=== 4c. Facility limit is read from the model, never from drawn debt ===');
+{
+  const cap = 100_000_000;
+  const stated = resolveFacilityLimit({ tranches: [{ principal: 250_000_000 }, { principal: 50_000_000 }], capexTotal: cap, manualLimit: 9, override: false });
+  check('stated principal is summed across tranches', stated.amount === 300_000_000);
+  check('stated principal is reported as the source', stated.source === 'stated_principal');
+  check('stated principal beats the typed figure', stated.amount !== 9);
+
+  const ltv = resolveFacilityLimit({ tranches: [{ ltvPct: 60 }], capexTotal: cap, manualLimit: 9, override: false });
+  check('the LTV cap is ltvPct x capex', ltv.amount === 60_000_000);
+  check('the LTV cap is reported as the source', ltv.source === 'ltv_cap');
+  check('the LTV explanation says it is NOT the drawn balance', /not the drawn balance/i.test(ltv.explanation));
+
+  const manual = resolveFacilityLimit({ tranches: [], capexTotal: cap, manualLimit: 42, override: false });
+  check('with no stated limit the typed figure is used', manual.amount === 42 && manual.source === 'manual');
+  const none = resolveFacilityLimit({ tranches: [], capexTotal: cap, manualLimit: 0, override: false });
+  check('with nothing at all the limit is zero', none.amount === 0 && none.source === 'none');
+
+  const pinned = resolveFacilityLimit({ tranches: [{ principal: 250_000_000 }], capexTotal: cap, manualLimit: 7, override: true });
+  check('the override wins over a stated principal', pinned.amount === 7 && pinned.source === 'manual');
+
+  // The UI path: no capex available, so the SOURCE is reported without an
+  // amount rather than the tab re-deriving capex and drifting from the engine.
+  const uiLtv = resolveFacilityLimit({ tranches: [{ ltvPct: 60 }], capexTotal: null, manualLimit: 0, override: false });
+  check('with no capex the LTV source is still identified', uiLtv.source === 'ltv_cap');
+  check('and it reports that the amount is not known here', uiLtv.amountKnown === false);
+  check('every other resolution DOES know its amount',
+    stated.amountKnown && ltv.amountKnown && manual.amountKnown && none.amountKnown && pinned.amountKnown);
+
+  check('negative or junk tranche values are ignored',
+    resolveFacilityLimit({ tranches: [{ principal: -5 }, { ltvPct: -10 }], capexTotal: cap, manualLimit: 0, override: false }).source === 'none');
+  check('a negative typed figure clamps to zero',
+    resolveFacilityLimit({ tranches: [], capexTotal: cap, manualLimit: -5, override: true }).amount === 0);
+
+  // The whole point: no code path reads a drawn balance.
+  const feesSrc = read('src/hubs/modeling/platforms/refm/lib/fundFees.ts');
+  const feesCode = feesSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  check('the fee layer never reads outstanding or drawSchedule', !/outstanding|drawSchedule/.test(feesCode));
+}
+
+console.log('\n=== 4d. Fund size stays a typed input, on purpose ===');
+{
+  // Reading fund size from the model would be circular: fund size is equity
+  // plus debt, debt is solved by the funding requirement, and the fees raise
+  // that requirement. The tab has to SAY so rather than looking like an
+  // oversight a later step should "fix".
+  const spec = FUND_FEE_SPECS.find((f) => f.key === 'fundStructureFeePct')!;
+  check('the structure fee still charges on fund_size', spec.base === 'fund_size');
+  check('fund_size is a linear base', (LINEAR_FEE_BASES as readonly string[]).includes('fund_size'));
+  check('the SOLVED variant is explicitly forbidden', (CIRCULAR_FEE_BASES as readonly string[]).includes('fund_size_solved' as never));
+
+  const tab = read('src/hubs/modeling/platforms/refm/components/modules/Module1FundTerms.tsx');
+  check('the tab explains WHY fund size is typed', /equity plus debt/i.test(tab) && /funding requirement/i.test(tab));
+  check('the tab says reading it would change its own base', /change its own base/i.test(tab));
+}
+
 console.log('\n=== 5. The two stores agree, and retired columns still resolve ===');
 {
   const terms = {
@@ -232,7 +344,15 @@ console.log('\n=== 5. The two stores agree, and retired columns still resolve ==
   check('the server names the 209 column set', extCols.length === 8);
   check('every 208 column exists in migration 208', baseCols.every((c) => new RegExp(`^\\s*${c}\\s`, 'm').test(sql208)));
   check('every 209 column is added by migration 209', extCols.every((c) => new RegExp(`ADD COLUMN IF NOT EXISTS ${c}\\b`).test(sql209)), extCols.join(','));
-  check('the server falls back rather than failing when 209 is absent', /extendedApplied = false/.test(serverFile) && /toLegacyRow/.test(serverFile));
+  // The fallback is now a three-tier walk (210 -> 209 -> 208), because the
+  // Fund Manager columns can lag exactly as the 209 columns did.
+  check('the server knows three schema tiers', /type SchemaTier = 208 \| 209 \| 210/.test(serverFile));
+  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[210, 209, 208\]/.test(serverFile));
+  check('it has a row shape for every tier',
+    /toRow\(t\)/.test(serverFile) && /toRow209\(t\)/.test(serverFile) && /toLegacyRow\(t\)/.test(serverFile));
+  check('it steps down on a missing COLUMN rather than failing', /isMissingColumn/.test(serverFile));
+  check('it recognises the 210 columns as steppable',
+    /fund_manager_name\|facility_limit_override/.test(serverFile));
 }
 
 console.log('\n=== 6. Step 1 contract survives the rebuild ===');

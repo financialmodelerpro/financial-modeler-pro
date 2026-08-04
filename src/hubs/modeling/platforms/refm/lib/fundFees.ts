@@ -76,9 +76,118 @@ export interface FundFeeSchedule {
   /** The opening-NAV series the NAV fees charged on, surfaced so the UI and
    *  the verifier can show WHAT was charged rather than only how much. */
   openingNavPerPeriod: number[];
+  /** The facility limit the arranging fee charged on, and where it came from,
+   *  so the tab can show the source rather than an unexplained number. */
+  facilityLimit: ResolvedFacilityLimit;
 }
 
 const zeros = (n: number): number[] => new Array<number>(Math.max(0, n)).fill(0);
+
+// ── Facility limit, resolved from the model ────────────────────────────────
+
+/** Where the facility limit used as a fee base came from. */
+export type FacilityLimitSource = 'stated_principal' | 'ltv_cap' | 'manual' | 'none';
+
+export interface ResolvedFacilityLimit {
+  amount: number;
+  source: FacilityLimitSource;
+  /** Human sentence for the tab, so the user can see WHY the number is what it is. */
+  explanation: string;
+  /**
+   * False when the SOURCE was determined but the amount could not be computed
+   * here, which happens only in the UI: the LTV cap needs a capex total, and
+   * the Fund Terms tab has no cheap way to get one. Re-implementing capex in
+   * the tab would be a second implementation free to drift from the engine's,
+   * so instead the tab shows the percentage and says the amount comes from the
+   * model. The engine always passes a capex total, so it always gets an amount.
+   */
+  amountKnown: boolean;
+}
+
+/** The tranche fields this resolver reads. Structural, so no engine import. */
+export interface FacilityLimitTranche {
+  principal?: number;
+  ltvPct?: number;
+}
+
+/**
+ * The facility LIMIT the debt arranging fee charges on.
+ *
+ * Read from the model where the model states one, because asking a user to
+ * retype a number the model already holds is how the two drift apart.
+ *
+ * ONLY INPUTS ARE CONSIDERED, in this order:
+ *
+ *   1. stated principal  Sigma tranche.principal where set. An absolute
+ *                        facility amount the user typed. (Note: this field is
+ *                        currently inert in the financing engine, but it is
+ *                        still the user's stated facility size, and it is an
+ *                        input, which is all the fee base requires.)
+ *   2. LTV cap           Sigma (tranche.ltvPct% x capex). ltvPct is deprecated
+ *                        for per-facility drawdown scaling but is still the
+ *                        only stated LTV cap in the model. Capex comes from the
+ *                        cost lines and carries no IDC, so it does NOT move
+ *                        with the funding solve.
+ *   3. manual            the figure typed on the Fund Terms tab.
+ *
+ * THE DRAWN BALANCE IS NEVER USED. `FacilityResult.outstanding` and
+ * `drawSchedule` are SOLVED OUTPUTS: under Methods 2 and 3 they come straight
+ * from the funding gap, which the fees themselves raise. Charging the arranging
+ * fee on drawn debt would be the exact circularity this layer forbids, which is
+ * why this function takes tranche INPUTS and a capex total, and has no access
+ * to a computed facility result at all.
+ */
+export function resolveFacilityLimit(args: {
+  tranches: readonly FacilityLimitTranche[];
+  /** Total capex, excluding in-kind land. An input-driven aggregate. `null`
+   *  means the caller cannot compute it (the UI); see `amountKnown`. */
+  capexTotal: number | null;
+  /** The figure typed on the Fund Terms tab. */
+  manualLimit: number;
+  /** When true the typed figure wins, whatever the model says. */
+  override: boolean;
+}): ResolvedFacilityLimit {
+  const manual = Math.max(0, args.manualLimit || 0);
+  if (args.override) {
+    return { amount: manual, source: 'manual', amountKnown: true, explanation: 'Using the amount you entered (override is on).' };
+  }
+
+  const statedPrincipal = (args.tranches ?? [])
+    .reduce((s, t) => s + Math.max(0, Number(t.principal) || 0), 0);
+  if (statedPrincipal > 0) {
+    return {
+      amount: statedPrincipal,
+      source: 'stated_principal',
+      amountKnown: true,
+      explanation: 'From your facilities: the stated principal on the debt tranches in Module 1 Financing.',
+    };
+  }
+
+  const ltvSum = (args.tranches ?? [])
+    .reduce((s, t) => s + Math.max(0, Number(t.ltvPct) || 0), 0);
+  if (ltvSum > 0) {
+    if (args.capexTotal === null) {
+      return {
+        amount: 0, source: 'ltv_cap', amountKnown: false,
+        explanation: `From your facilities: the LTV cap (${ltvSum.toFixed(2)}% of project capex). The amount is computed in the model, not here. Never the drawn balance.`,
+      };
+    }
+    const capex = Math.max(0, args.capexTotal || 0);
+    if (capex > 0) {
+      return {
+        amount: (ltvSum / 100) * capex,
+        source: 'ltv_cap',
+        amountKnown: true,
+        explanation: `From your facilities: the LTV cap (${ltvSum.toFixed(2)}% of project capex). Not the drawn balance.`,
+      };
+    }
+  }
+
+  if (manual > 0) {
+    return { amount: manual, source: 'manual', amountKnown: true, explanation: 'Your facilities state no limit, so the amount you entered is used.' };
+  }
+  return { amount: 0, source: 'none', amountKnown: true, explanation: 'No facility limit found in your model, and none entered, so this fee is zero.' };
+}
 
 /**
  * Opening NAV per period from a closing-NAV series.
@@ -102,6 +211,13 @@ export interface FundFeeInputs {
    * Net assets (assets minus liabilities), so funding does not move it.
    */
   closingNavPerPeriod: readonly number[];
+  /**
+   * The facility limit, already resolved from the model by
+   * `resolveFacilityLimit`. Passed in rather than read off `terms` so the fee
+   * base is whatever the model actually states, with the typed figure as the
+   * fallback. Omit to fall back to the typed figure alone.
+   */
+  facilityLimit?: ResolvedFacilityLimit;
 }
 
 /**
@@ -116,6 +232,10 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
   const { terms, axisLength } = input;
   const N = Math.max(0, axisLength);
   const openingNav = openingFromClosing(input.closingNavPerPeriod, N);
+  // The resolved limit, or the typed figure when no resolution was supplied
+  // (the pure-unit-test path).
+  const facilityLimit: ResolvedFacilityLimit = input.facilityLimit
+    ?? { amount: terms.facilityLimit, source: 'manual', amountKnown: true, explanation: 'Using the amount entered on the Fund Terms tab.' };
 
   const lines: FundFeeLine[] = FUND_FEE_SPECS.map((spec) => {
     const rate = spec.kind === 'rate' ? (terms[spec.key] as number) : 0;
@@ -130,7 +250,7 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
       for (let t = 0; t < N; t++) {
         switch (spec.base) {
           case 'fund_size':      basis[t] = terms.fundSize; break;
-          case 'facility_limit': basis[t] = terms.facilityLimit; break;
+          case 'facility_limit': basis[t] = facilityLimit.amount; break;
           case 'opening_nav':    basis[t] = Math.max(0, openingNav[t] ?? 0); break;
           case 'flat_amount':    basis[t] = flat; break;
         }
@@ -170,6 +290,7 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
     totalPerPeriod,
     total: totalPerPeriod.reduce((s, v) => s + v, 0),
     openingNavPerPeriod: terms.enabled ? openingNav : zeros(N),
+    facilityLimit,
   };
 }
 
@@ -186,5 +307,6 @@ export function emptyFundFeeSchedule(axisLength: number): FundFeeSchedule {
     totalPerPeriod: zeros(N),
     total: 0,
     openingNavPerPeriod: zeros(N),
+    facilityLimit: { amount: 0, source: 'none', amountKnown: true, explanation: 'The fund layer is off.' },
   };
 }

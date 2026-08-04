@@ -118,9 +118,12 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
   check('the fund structure fee total equals rate x fund size', near(structure.total, 5_000_000));
 
   const arranging = line('debtArrangingFeePct');
-  check('the debt arranging fee is charged in period 0', near(arranging.amountPerPeriod[0], 300_000_000 * 0.0075));
+  // The base is the limit RESOLVED FROM THE MODEL (section 1b proves which
+  // source won), not the figure typed on the tab, so assert against that.
+  const resolvedLimit = sched.facilityLimit.amount;
+  check('the debt arranging fee is charged in period 0', near(arranging.amountPerPeriod[0], resolvedLimit * 0.0075, 1));
   check('the debt arranging fee is charged ONCE', near(sum(arranging.amountPerPeriod.slice(1)), 0));
-  check('the arranging fee uses the facility LIMIT, not drawn debt', near(arranging.basisPerPeriod[0], 300_000_000));
+  check('the arranging fee uses the resolved facility LIMIT', near(arranging.basisPerPeriod[0], resolvedLimit, 1));
 
   // Annual flat: every period.
   const other = line('otherExpensesPerAnnum');
@@ -144,6 +147,44 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
 
   check('the total is the sum of the lines',
     sched.totalPerPeriod.every((v, t) => near(v, sched.lines.reduce((s, l) => s + (l.amountPerPeriod[t] ?? 0), 0))));
+}
+
+console.log('\n=== 1b. The arranging fee charges the limit the MODEL states ===');
+{
+  // The fixture's tranche carries ltvPct 60 and no stated principal, so the
+  // limit resolves from the LTV cap rather than the typed figure, and the fee
+  // must follow the model rather than what someone typed months ago.
+  const snap = computeFinancialsSnapshot(buildState({ fund: true }));
+  const arranging = snap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!;
+  const capex = snap.financing.capex.totals.exclLandInKind;
+
+  check('the limit resolved from the model, not the typed figure', snap.fundFees.facilityLimit.source === 'ltv_cap',
+    snap.fundFees.facilityLimit.source);
+  check('the resolved limit is the LTV cap on capex', near(snap.fundFees.facilityLimit.amount, 0.6 * capex, 1));
+  check('the arranging fee charges THAT limit, not the typed 300m',
+    near(arranging.basisPerPeriod[0], 0.6 * capex, 1) && !near(arranging.basisPerPeriod[0], 300_000_000, 1));
+  check('the engine always knows the amount (it has capex)', snap.fundFees.facilityLimit.amountKnown === true);
+
+  // The override pins the typed figure.
+  const pinned = buildState({ fund: true });
+  pinned.project.fundTerms = { ...TERMS, facilityLimitOverride: true };
+  const pinnedSnap = computeFinancialsSnapshot(pinned);
+  check('with the override on, the typed figure is used', pinnedSnap.fundFees.facilityLimit.amount === 300_000_000);
+  check('and the arranging fee follows it',
+    near(pinnedSnap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.amountPerPeriod[0], 300_000_000 * 0.0075));
+
+  // A stated principal beats the LTV cap.
+  const stated = buildState({ fund: true });
+  stated.financingTranches = [{ ...stated.financingTranches[0], principal: 400_000_000 }];
+  const statedSnap = computeFinancialsSnapshot(stated);
+  check('a stated principal wins over the LTV cap', statedSnap.fundFees.facilityLimit.source === 'stated_principal');
+  check('and the fee charges the stated principal',
+    near(statedSnap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.amountPerPeriod[0], 400_000_000 * 0.0075));
+
+  // The decisive one: the limit must NOT track the drawn balance.
+  const drawn = sum(snap.directCF.debtDrawdownPerPeriod);
+  check('the resolved limit is NOT the drawn balance', !near(snap.fundFees.facilityLimit.amount, drawn, 1),
+    `limit ${snap.fundFees.facilityLimit.amount} vs drawn ${drawn}`);
 }
 
 console.log('\n=== 2. The P&L books it below EBITDA and above tax ===');
@@ -247,8 +288,9 @@ console.log('\n=== 4. The fee raises the funding requirement by exactly its cash
   check('period 0: the requirement rises by EXACTLY the period-0 fee',
     near(reqOn[0] - reqOff[0], on.pl.fundFeesPerPeriod[0] ?? 0, 0.5),
     `rise ${reqOn[0] - reqOff[0]} vs fee ${on.pl.fundFeesPerPeriod[0]}`);
-  check('the period-0 fee is the two one-time fees, charged together',
-    near(on.pl.fundFeesPerPeriod[0] ?? 0, 500_000_000 * 0.01 + 300_000_000 * 0.0075 + 1_500_000));
+  check('the period-0 fee is the two one-time fees plus the annual flat, charged together',
+    near(on.pl.fundFeesPerPeriod[0] ?? 0,
+      500_000_000 * 0.01 + on.fundFees.facilityLimit.amount * 0.0075 + 1_500_000, 1));
   check('the rise is a real fraction of the fee, not a rounding artefact', reqDelta > 0.01 * feeTotal);
 
   // With tax on, the fee also cuts the tax bill, so the NET cash effect is the
@@ -339,6 +381,9 @@ console.log('\n=== 6. No fee feeds back into its own base ===');
     terms: resolveFundTerms({ fundTerms: { ...TERMS } } as any),
     axisLength: off.axisLength,
     closingNavPerPeriod: off.bs.totalEquityPerPeriod,
+    // Same resolved limit the engine used, so this reproduces the engine's
+    // schedule rather than a typed-figure variant of it.
+    facilityLimit: on.fundFees.facilityLimit,
   });
   check('the booked fees equal the schedule derived from the FEE-FREE pass',
     on.fundFees.totalPerPeriod.every((v, t) => near(v, expected.totalPerPeriod[t] ?? 0, 0.001)));

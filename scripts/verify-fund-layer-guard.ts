@@ -185,9 +185,13 @@ function withToggleOff(state: any): any {
       ...state.project,
       fundTerms: {
         enabled: false,
+        // The Fund Manager exists only when the layer is on, so a disabled
+        // project carrying one must still be completely inert.
+        fundManagerName: 'Acme Fund Managers',
         // Fee bases the user types.
         fundSize: 500_000_000,
         facilityLimit: 300_000_000,
+        facilityLimitOverride: true,
         // Every fund management fee, at a realistic rate.
         fundStructureFeePct: 0.01,
         fundManagementFeePct: 0.02,
@@ -200,8 +204,9 @@ function withToggleOff(state: any): any {
         hurdleRatePct: 0.08,
         // The per-party distribution matrix.
         feeDistribution: [
-          { partyId: 'party-1', partyName: 'Sponsor Co', performanceFeePct: 0.6, developerFeePct: 1, commissionPct: 0.5 },
-          { partyId: 'party-2', partyName: 'JV Partner', performanceFeePct: 0.4, developerFeePct: 0, commissionPct: 0.5 },
+          { partyId: '__fund_manager__', partyName: 'Acme Fund Managers', performanceFeePct: 0.2, developerFeePct: 0, commissionPct: 0 },
+          { partyId: 'party-1', partyName: 'Sponsor Co', performanceFeePct: 0.5, developerFeePct: 1, commissionPct: 0.5 },
+          { partyId: 'party-2', partyName: 'JV Partner', performanceFeePct: 0.3, developerFeePct: 0, commissionPct: 0.5 },
         ],
         // Legacy migration-208 fields, still carried.
         managementFeePct: 0.02,
@@ -225,7 +230,7 @@ function runPair(label: string, state: any): void {
     && toggled.project.fundTerms?.fundManagementFeePct === 0.02
     && toggled.project.fundTerms?.otherExpensesPerAnnum === 1_500_000
     && toggled.project.fundTerms?.performanceFeePct === 0.20
-    && (toggled.project.fundTerms?.feeDistribution ?? []).length === 2
+    && (toggled.project.fundTerms?.feeDistribution ?? []).length === 3
     && (toggled.project.fundTerms?.feeShares ?? []).length === 2
     && plain.project.fundTerms === undefined);
 
@@ -348,9 +353,14 @@ console.log('\n=== D. The toggle survives the storage it actually uses ===');
     rt.fundSize === 500_000_000 && rt.fundManagementFeePct === 0.02
     && rt.otherExpensesPerAnnum === 1_500_000 && rt.performanceFeePct === 0.20);
   check('the distribution matrix survives with party ids and names',
-    rt.feeDistribution.length === 2
-    && rt.feeDistribution[0].partyId === 'party-1' && rt.feeDistribution[0].partyName === 'Sponsor Co'
-    && rt.feeDistribution[1].commissionPct === 0.5);
+    rt.feeDistribution.length === 3
+    && rt.feeDistribution.some((r) => r.partyId === 'party-1' && r.partyName === 'Sponsor Co')
+    && rt.feeDistribution.some((r) => r.partyId === 'party-2' && r.commissionPct === 0.5));
+  check('the Fund Manager row and name survive the round trip',
+    rt.fundManagerName === 'Acme Fund Managers'
+    && rt.feeDistribution.some((r) => r.partyId === '__fund_manager__' && r.performanceFeePct === 0.2));
+  check('a populated Fund Manager is still inert with the toggle off',
+    rt.enabled === false);
 
   const plainProject = buildState().project;
   const backPlain = JSON.parse(JSON.stringify(plainProject));

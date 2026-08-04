@@ -43,9 +43,11 @@ import { FAST_INPUT } from './_shared/inputStyles';
 import type { Party } from '../../lib/parties';
 import {
   FUND_FEE_SPECS, FEE_BASE_LABELS, FEE_TIMING_LABELS, FEE_DISTRIBUTION_COLUMNS,
+  FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow,
   resolveFundTerms, toFundTermsPatch, feeColumnTotal, feeColumnBalanced,
   type FeeDistributionColumnKey, type FeeDistributionRow, type FundTerms,
 } from '../../lib/fundTerms';
+import { resolveFacilityLimit } from '../../lib/fundFees';
 import { getFundTerms, saveFundTerms, listParties } from '../../lib/persistence/client';
 
 const NAVY = '#1B3A6B';
@@ -126,7 +128,9 @@ function AmountInput({ value, onChange, testId }: {
 }
 
 export default function Module1FundTerms({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, setProject } = useModule1Store(useShallow((s) => ({ project: s.project, setProject: s.setProject })));
+  const { project, setProject, financingTranches } = useModule1Store(useShallow((s) => ({
+    project: s.project, setProject: s.setProject, financingTranches: s.financingTranches,
+  })));
 
   // The snapshot copy is the source of truth for what is ON SCREEN, because it
   // is what a version save captures. The table row seeds it on open.
@@ -182,19 +186,35 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
   // dropped: they are counted and surfaced, and only removed on an explicit
   // save, because discarding numbers a user typed without telling them is how
   // trust in a model is lost.
-  const displayRows = useMemo<FeeDistributionRow[]>(() => parties.map((p) => {
-    const stored = terms.feeDistribution.find((r) => r.partyId === p.id);
-    return {
-      partyId: p.id,
-      partyName: p.name,
-      performanceFeePct: stored?.performanceFeePct ?? 0,
-      developerFeePct: stored?.developerFeePct ?? 0,
-      commissionPct: stored?.commissionPct ?? 0,
+  // The Fund Manager is ALWAYS the first row: it exists whenever the fund layer
+  // is on, whether or not any party has been given a share, because it earns
+  // the management fees regardless. It is not a party and never appears on the
+  // Parties tab, so it is pinned here rather than looked up.
+  const displayRows = useMemo<FeeDistributionRow[]>(() => {
+    const managerStored = terms.feeDistribution.find(isFundManagerRow);
+    const manager: FeeDistributionRow = {
+      partyId: FUND_MANAGER_ROW_ID,
+      partyName: terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME,
+      performanceFeePct: managerStored?.performanceFeePct ?? 0,
+      developerFeePct: managerStored?.developerFeePct ?? 0,
+      commissionPct: managerStored?.commissionPct ?? 0,
     };
-  }), [parties, terms.feeDistribution]);
+    const partyRows = parties.map((p) => {
+      const stored = terms.feeDistribution.find((r) => r.partyId === p.id);
+      return {
+        partyId: p.id,
+        partyName: p.name,
+        performanceFeePct: stored?.performanceFeePct ?? 0,
+        developerFeePct: stored?.developerFeePct ?? 0,
+        commissionPct: stored?.commissionPct ?? 0,
+      };
+    });
+    return [manager, ...partyRows];
+  }, [parties, terms.feeDistribution, terms.fundManagerName]);
 
+  // Orphans exclude the Fund Manager row, which has no party to go missing.
   const orphans = useMemo(
-    () => terms.feeDistribution.filter((r) => !parties.some((p) => p.id === r.partyId)),
+    () => terms.feeDistribution.filter((r) => !isFundManagerRow(r) && !parties.some((p) => p.id === r.partyId)),
     [terms.feeDistribution, parties],
   );
 
@@ -228,6 +248,16 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
   }
 
   const off = !terms.enabled;
+
+  // The facility limit as the model states it. capexTotal is null because the
+  // tab has no cheap capex total; the resolver then reports the SOURCE without
+  // an amount rather than the UI re-deriving capex and drifting from the engine.
+  const facility = resolveFacilityLimit({
+    tranches: financingTranches ?? [],
+    capexTotal: null,
+    manualLimit: terms.facilityLimit,
+    override: terms.facilityLimitOverride,
+  });
 
   return (
     <div data-testid="module1-fund-terms">
@@ -272,17 +302,65 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
           Both figures are yours to enter: a target or committed fund size, and the facility limit. They are inputs
           rather than results, so a fee can raise the funding requirement without the extra funding raising the fee.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--sp-2)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--sp-2)' }}>
           <div>
             <label style={label}>Fund size</label>
             <AmountInput value={terms.fundSize} onChange={(v) => patch({ fundSize: v })} testId="fund-terms-fund-size" />
-            <div style={{ ...helpText, marginTop: 4 }}>Base for the one-time fund structure fee.</div>
+            <div style={{ ...helpText, marginTop: 4 }}>
+              Base for the one-time fund structure fee. You enter this rather than the model working it out:
+              fund size is equity plus debt, the debt is decided by the funding requirement, and these fees
+              raise that requirement. Reading it from the model would make the fee change its own base.
+            </div>
           </div>
           <div>
             <label style={label}>Facility limit</label>
-            <AmountInput value={terms.facilityLimit} onChange={(v) => patch({ facilityLimit: v })} testId="fund-terms-facility-limit" />
-            <div style={{ ...helpText, marginTop: 4 }}>The limit, not the drawn balance. Base for the debt arranging fee.</div>
+            {/* Read from the model where the model states one. The tab cannot
+                compute capex cheaply, so an LTV cap resolves with the source
+                but no amount here (amountKnown false) and says so, rather than
+                the UI re-implementing capex and drifting from the engine. */}
+            {facility.source !== 'manual' && facility.source !== 'none' ? (
+              <div data-testid="fund-terms-facility-resolved" style={{
+                border: `1px solid ${BORDER}`, borderRadius: 6, padding: '7px 9px', background: '#F4F8FD',
+                fontSize: 12, color: NAVY, fontWeight: 600,
+              }}>
+                {facility.amountKnown ? facility.amount.toLocaleString() : 'From your facilities'}
+              </div>
+            ) : (
+              <AmountInput value={terms.facilityLimit} onChange={(v) => patch({ facilityLimit: v })} testId="fund-terms-facility-limit" />
+            )}
+            <div style={{ ...helpText, marginTop: 4 }}>{facility.explanation}</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={terms.facilityLimitOverride} data-testid="fund-terms-facility-override"
+                onChange={(e) => patch({ facilityLimitOverride: e.target.checked })}
+              />
+              <span style={{ fontSize: 11, color: NAVY }}>Enter the limit myself</span>
+            </label>
+            {terms.facilityLimitOverride ? (
+              <div style={{ marginTop: 6 }}>
+                <AmountInput value={terms.facilityLimit} onChange={(v) => patch({ facilityLimit: v })} testId="fund-terms-facility-limit" />
+              </div>
+            ) : null}
           </div>
+        </div>
+      </div>
+
+      {/* ── The Fund Manager ────────────────────────────────────────────── */}
+      <div style={card}>
+        <div style={sectionTitle}>Fund Manager</div>
+        <div style={{ ...helpText, marginBottom: 'var(--sp-2)' }}>
+          The entity that runs the fund. It exists only while the fund structure is on, so it is set here rather
+          than on the Parties tab. It earns ALL of the fund management fees below, and takes its own share of the
+          performance fee in the distribution table.
+        </div>
+        <div style={{ maxWidth: 360 }}>
+          <label style={label}>Name</label>
+          <input
+            type="text" value={terms.fundManagerName} maxLength={120}
+            onChange={(e) => patch({ fundManagerName: e.target.value })}
+            placeholder={DEFAULT_FUND_MANAGER_NAME} data-testid="fund-terms-manager-name"
+            style={{ ...FAST_INPUT, background: '#FFFFFF' }}
+          />
         </div>
       </div>
 
@@ -292,6 +370,7 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
         <div style={{ ...helpText, marginBottom: 'var(--sp-2)' }}>
           Each fee shows when it is charged and what it is charged on. Annual NAV fees use NAV at the START of the
           year, so the amount is known before that year`s cash moves.
+          {' '}<strong>All of these go to {terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME}</strong>, in full and unsplit.
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 560 }}>
@@ -361,25 +440,36 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
         </div>
 
         {!parties.length ? (
-          <div style={{ background: '#F4F8FD', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '10px 12px', ...helpText }} data-testid="fund-terms-no-parties">
-            No parties yet. Add them on the Parties tab and they will appear here as rows.
+          <div style={{ background: '#F4F8FD', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '10px 12px', ...helpText, marginBottom: 'var(--sp-2)' }} data-testid="fund-terms-no-parties">
+            No parties yet. Add them on the Parties tab and they will appear here alongside the Fund Manager.
           </div>
-        ) : (
+        ) : null}
+        {(
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 560 }} data-testid="fund-terms-matrix">
               <thead>
                 <tr>
-                  <th style={{ ...th, width: '34%' }}>Party</th>
+                  <th style={{ ...th, width: '34%' }}>Earns</th>
                   {FEE_DISTRIBUTION_COLUMNS.map((c) => <th key={c.key} style={th}>{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {displayRows.map((row) => (
                   <tr key={row.partyId} data-testid="fund-terms-matrix-row">
-                    <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{row.partyName}</div>
+                    <td style={{ ...td, background: isFundManagerRow(row) ? '#F4F8FD' : undefined }}>
+                      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {row.partyName}
+                        {isFundManagerRow(row) ? (
+                          <span
+                            data-testid="fund-terms-manager-badge"
+                            style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: '#FFFFFF', background: BLUE, borderRadius: 3, padding: '1px 5px' }}
+                          >FUND MANAGER</span>
+                        ) : null}
+                      </div>
                       <div style={helpText}>
-                        {(parties.find((p) => p.id === row.partyId)?.roles ?? []).join(', ') || 'No role set'}
+                        {isFundManagerRow(row)
+                          ? 'Also earns 100% of the fund management fees'
+                          : (parties.find((p) => p.id === row.partyId)?.roles ?? []).join(', ') || 'No role set'}
                       </div>
                     </td>
                     {FEE_DISTRIBUTION_COLUMNS.map((c) => (

@@ -29,20 +29,41 @@
  */
 
 import { getServerClient } from '@/src/core/db/supabase';
-import { DEFAULT_FUND_TERMS, fromRow, toRow, toLegacyRow, type FundTerms } from '../fundTerms';
+import { DEFAULT_FUND_TERMS, fromRow, toRow, toRow209, toLegacyRow, type FundTerms } from '../fundTerms';
 
 /** Migration 208 columns: the floor every applied database has. */
 const COLS_BASE = 'fund_enabled, management_fee_pct, fee_base, hurdle_rate_pct, carry_pct, committed_capital, fee_shares';
 /** Migration 209 additions. */
 const COLS_209 = 'fund_size, facility_limit, fund_structure_fee_pct, fund_management_fee_pct, custody_admin_fee_pct, debt_arranging_fee_pct, other_expenses_per_annum, fee_distribution';
-const COLS_FULL = `${COLS_BASE}, ${COLS_209}`;
+/** Migration 210 additions: the Fund Manager name + the facility-limit override. */
+const COLS_210 = 'fund_manager_name, facility_limit_override';
+const COLS_FULL = `${COLS_BASE}, ${COLS_209}, ${COLS_210}`;
+/** The 208 + 209 set, for a database where 210 is outstanding. */
+const COLS_209_ONLY = `${COLS_BASE}, ${COLS_209}`;
 
-/** Cached after the first successful query so each request does not re-probe.
- *  undefined = unknown, true = 209 applied, false = fall back to the 208 set. */
-let extendedApplied: boolean | undefined;
+/**
+ * Which column set this database actually has, cached after the first
+ * successful query so each request does not re-probe. Three tiers now, because
+ * 210 (the Fund Manager) can lag 209 exactly as 209 lagged 208.
+ *
+ *   210 = everything, 209 = through the distribution matrix, 208 = the original
+ *   set. `undefined` = not yet probed; the read starts at the top and steps down
+ *   on "column does not exist".
+ */
+type SchemaTier = 208 | 209 | 210;
+let schemaTier: SchemaTier | undefined;
 
 /** Test seam: reset the cached probe. */
-export function resetFundTermsSchemaProbe(): void { extendedApplied = undefined; }
+export function resetFundTermsSchemaProbe(): void { schemaTier = undefined; }
+
+const COLS_FOR: Record<SchemaTier, string> = { 210: COLS_FULL, 209: COLS_209_ONLY, 208: COLS_BASE };
+const ROW_FOR: Record<SchemaTier, (t: FundTerms) => Record<string, unknown>> = {
+  210: (t) => toRow(t) as unknown as Record<string, unknown>,
+  209: (t) => toRow209(t) as unknown as Record<string, unknown>,
+  208: (t) => toLegacyRow(t) as unknown as Record<string, unknown>,
+};
+/** Highest first: the read and the write both walk down this list. */
+const TIERS: SchemaTier[] = [210, 209, 208];
 
 function isMissingTable(err: { code?: string | null; message?: string | null } | null): boolean {
   if (!err) return false;
@@ -55,7 +76,7 @@ function isMissingColumn(err: { code?: string | null; message?: string | null } 
   const m = err.message ?? '';
   if (/column .* does not exist/i.test(m)) return true;
   if (/could not find the .* column/i.test(m)) return true;
-  return /(fund_size|facility_limit|fund_structure_fee_pct|fund_management_fee_pct|custody_admin_fee_pct|debt_arranging_fee_pct|other_expenses_per_annum|fee_distribution)/.test(m);
+  return /(fund_size|facility_limit|fund_structure_fee_pct|fund_management_fee_pct|custody_admin_fee_pct|debt_arranging_fee_pct|other_expenses_per_annum|fee_distribution|fund_manager_name|facility_limit_override)/.test(m);
 }
 
 const defaults = (): FundTerms => ({ ...DEFAULT_FUND_TERMS, feeDistribution: [], feeShares: [] });
@@ -73,26 +94,25 @@ export async function getFundTerms(projectId: string): Promise<{
   terms: FundTerms; saved: boolean; available: boolean; extended: boolean; error: string | null;
 }> {
   const sb = getServerClient();
+  // Start at the cached tier when known, else probe from the top down.
+  const start = schemaTier ? TIERS.indexOf(schemaTier) : 0;
 
-  if (extendedApplied !== false) {
-    const full = await sb.from('refm_fund_terms').select(COLS_FULL).eq('project_id', projectId).maybeSingle();
-    if (!full.error) {
-      extendedApplied = true;
-      if (!full.data) return { terms: defaults(), saved: false, available: true, extended: true, error: null };
-      return { terms: fromRow(full.data as never), saved: true, available: true, extended: true, error: null };
+  for (let i = start; i < TIERS.length; i++) {
+    const tier = TIERS[i];
+    const res = await sb.from('refm_fund_terms').select(COLS_FOR[tier]).eq('project_id', projectId).maybeSingle();
+    if (!res.error) {
+      schemaTier = tier;
+      const extended = tier >= 209;
+      if (!res.data) return { terms: defaults(), saved: false, available: true, extended, error: null };
+      return { terms: fromRow(res.data as never), saved: true, available: true, extended, error: null };
     }
-    if (isMissingTable(full.error)) return { terms: defaults(), saved: false, available: false, extended: false, error: null };
-    if (!isMissingColumn(full.error)) return { terms: defaults(), saved: false, available: true, extended: true, error: full.error.message };
-    extendedApplied = false;   // 209 not applied: fall through to the 208 set
+    if (isMissingTable(res.error)) return { terms: defaults(), saved: false, available: false, extended: false, error: null };
+    // A missing COLUMN means this tier is ahead of the database: step down.
+    if (!isMissingColumn(res.error)) {
+      return { terms: defaults(), saved: false, available: true, extended: tier >= 209, error: res.error.message };
+    }
   }
-
-  const base = await sb.from('refm_fund_terms').select(COLS_BASE).eq('project_id', projectId).maybeSingle();
-  if (base.error) {
-    if (isMissingTable(base.error)) return { terms: defaults(), saved: false, available: false, extended: false, error: null };
-    return { terms: defaults(), saved: false, available: true, extended: false, error: base.error.message };
-  }
-  if (!base.data) return { terms: defaults(), saved: false, available: true, extended: false, error: null };
-  return { terms: fromRow(base.data as never), saved: true, available: true, extended: false, error: null };
+  return { terms: defaults(), saved: false, available: true, extended: false, error: null };
 }
 
 /**
@@ -105,29 +125,20 @@ export async function upsertFundTerms(projectId: string, terms: FundTerms): Prom
 }> {
   const sb = getServerClient();
   const stamp = new Date().toISOString();
+  const MISSING_TABLE = 'Fund terms cannot be saved yet (migration 208_refm_fund_terms.sql has not been applied). Your entries stay with the project version you save.';
+  const start = schemaTier ? TIERS.indexOf(schemaTier) : 0;
 
-  if (extendedApplied !== false) {
-    const full = await sb
+  // Walk down the tiers, writing the widest row the database will accept.
+  // Whatever a lower tier cannot hold still travels in the version snapshot,
+  // which is what the engine reads, so nothing the user typed is lost.
+  for (let i = start; i < TIERS.length; i++) {
+    const tier = TIERS[i];
+    const res = await sb
       .from('refm_fund_terms')
-      .upsert({ project_id: projectId, ...toRow(terms), updated_at: stamp }, { onConflict: 'project_id' });
-    if (!full.error) { extendedApplied = true; return { error: null, available: true, extended: true }; }
-    if (isMissingTable(full.error)) {
-      return { error: 'Fund terms cannot be saved yet (migration 208_refm_fund_terms.sql has not been applied). Your entries stay with the project version you save.', available: false, extended: false };
-    }
-    if (!isMissingColumn(full.error)) return { error: full.error.message, available: true, extended: true };
-    extendedApplied = false;
+      .upsert({ project_id: projectId, ...ROW_FOR[tier](terms), updated_at: stamp }, { onConflict: 'project_id' });
+    if (!res.error) { schemaTier = tier; return { error: null, available: true, extended: tier >= 209 }; }
+    if (isMissingTable(res.error)) return { error: MISSING_TABLE, available: false, extended: false };
+    if (!isMissingColumn(res.error)) return { error: res.error.message, available: true, extended: tier >= 209 };
   }
-
-  // 209 outstanding: persist what the table can hold. The extended fields still
-  // travel in the version snapshot, so nothing the user typed is lost.
-  const base = await sb
-    .from('refm_fund_terms')
-    .upsert({ project_id: projectId, ...toLegacyRow(terms), updated_at: stamp }, { onConflict: 'project_id' });
-  if (base.error) {
-    if (isMissingTable(base.error)) {
-      return { error: 'Fund terms cannot be saved yet (migration 208_refm_fund_terms.sql has not been applied). Your entries stay with the project version you save.', available: false, extended: false };
-    }
-    return { error: base.error.message, available: true, extended: false };
-  }
-  return { error: null, available: true, extended: false };
+  return { error: MISSING_TABLE, available: false, extended: false };
 }

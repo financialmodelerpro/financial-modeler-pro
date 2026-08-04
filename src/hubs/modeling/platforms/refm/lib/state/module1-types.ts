@@ -652,12 +652,24 @@ export interface Project {
     /** Fund economics on or off. Undefined = off = standalone = today. */
     enabled?: boolean;
 
+    /** The entity that earns 100% of the fund management fees and holds the
+     *  reserved `__fund_manager__` row in `feeDistribution`. Lives here rather
+     *  than in refm_parties because it only exists when the fund layer is on. */
+    fundManagerName?: string;
+
     // ── Fee bases the user TYPES. Never solved outputs: that is what keeps
     //    every fee linear and out of the M4 circular solve.
-    /** Fund size (target or committed), base for the one-time structure fee. */
+    /** Fund size (target or committed), base for the one-time structure fee.
+     *  Deliberately NOT read from the model: fund size is equity plus debt,
+     *  debt is solved by the funding requirement, and the fees raise that
+     *  requirement, so reading it would be circular. */
     fundSize?: number;
-    /** Debt facility LIMIT (not the drawn balance), base for the arranging fee. */
+    /** Debt facility LIMIT (not the drawn balance), base for the arranging fee.
+     *  Resolved from the model's stated facilities where it has one; this is
+     *  the manual figure used otherwise. */
     facilityLimit?: number;
+    /** True when the typed `facilityLimit` should win over the model's figure. */
+    facilityLimitOverride?: boolean;
 
     // ── Fund management fees. Each fee's timing and base are declared once in
     //    FUND_FEE_SPECS (lib/fundTerms.ts), which the UI renders from and the

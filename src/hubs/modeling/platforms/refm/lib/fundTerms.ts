@@ -151,6 +151,11 @@ export type FeeDistributionColumnKey = typeof FEE_DISTRIBUTION_COLUMNS[number]['
  * `partyId` links to refm_parties; `partyName` is SNAPSHOTTED at save time so a
  * renamed or deleted party never blanks a saved row, and no report has to join
  * back to a mutable side table. Same shape an M5 equity partner uses.
+ *
+ * The FUND MANAGER also occupies a row here, carrying the reserved id below.
+ * That keeps the matrix ONE uniform structure keyed by party id rather than a
+ * special case bolted on the side, and the reserved id is what tells the two
+ * apart wherever the difference matters.
  */
 export interface FeeDistributionRow {
   partyId: string;
@@ -158,6 +163,84 @@ export interface FeeDistributionRow {
   performanceFeePct: number;
   developerFeePct: number;
   commissionPct: number;
+}
+
+/**
+ * The Fund Manager's reserved row id in the distribution matrix.
+ *
+ * Deliberately not a uuid: it must be recognisable on sight in stored jsonb,
+ * and it must never collide with a refm_parties id (which is a uuid), so a
+ * party can never be mistaken for the manager or the other way round.
+ */
+export const FUND_MANAGER_ROW_ID = '__fund_manager__';
+
+export const DEFAULT_FUND_MANAGER_NAME = 'Fund Manager';
+
+/** True for the Fund Manager's row rather than a project party's. */
+export function isFundManagerRow(row: { partyId?: string } | null | undefined): boolean {
+  return row?.partyId === FUND_MANAGER_ROW_ID;
+}
+
+/**
+ * An entity that EARNS fee income: the Fund Manager, or a project party.
+ *
+ * This is the contract Step 5 consumes to flow fee income into M5 Parties and
+ * the per-partner returns. It is deliberately NOT `PartnerInput`: an M5 partner
+ * is defined by the equity it contributed and earns a time-weighted SHARE of
+ * the consolidated stream, and the Fund Manager contributes no equity at all.
+ * Dropping it into `PartnerInput` would give it a zero shareholding, a zero
+ * invested base and an undefined IRR, and would break the reconciliation that
+ * makes the partner table trustworthy (Sigma partners == consolidated). A fee
+ * earner sits alongside the equity partners, not inside them.
+ */
+export interface FeeEarner {
+  /** Stable id: FUND_MANAGER_ROW_ID, or a refm_parties id. */
+  entityId: string;
+  name: string;
+  kind: 'fund_manager' | 'party';
+  /**
+   * Share of the FUND MANAGEMENT fees (structure, management, custody and
+   * admin, debt arranging, other expenses). 1 for the Fund Manager, 0 for
+   * everyone else: those fees are the manager's by definition and are never
+   * split, so this is a constant rather than a stored input.
+   */
+  managementFeeShare: number;
+  /** Shares of the split fee types, from the distribution matrix. */
+  performanceFeePct: number;
+  developerFeePct: number;
+  commissionPct: number;
+}
+
+/**
+ * Every entity entitled to fee income, Fund Manager first.
+ *
+ * The Fund Manager is ALWAYS present when the fund layer is on, even with an
+ * empty matrix, because it earns the management fees regardless of whether
+ * anyone has split the performance fee yet.
+ */
+export function resolveFeeEarners(terms: FundTerms): FeeEarner[] {
+  const fmRow = terms.feeDistribution.find(isFundManagerRow);
+  const manager: FeeEarner = {
+    entityId: FUND_MANAGER_ROW_ID,
+    name: terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME,
+    kind: 'fund_manager',
+    managementFeeShare: 1,
+    performanceFeePct: fmRow?.performanceFeePct ?? 0,
+    developerFeePct: fmRow?.developerFeePct ?? 0,
+    commissionPct: fmRow?.commissionPct ?? 0,
+  };
+  const parties: FeeEarner[] = terms.feeDistribution
+    .filter((r) => !isFundManagerRow(r))
+    .map((r) => ({
+      entityId: r.partyId,
+      name: r.partyName,
+      kind: 'party' as const,
+      managementFeeShare: 0,
+      performanceFeePct: r.performanceFeePct,
+      developerFeePct: r.developerFeePct,
+      commissionPct: r.commissionPct,
+    }));
+  return [manager, ...parties];
 }
 
 // ── Resolved terms ─────────────────────────────────────────────────────────
@@ -172,9 +255,29 @@ export interface FeeShare {
 export interface FundTerms {
   enabled: boolean;
 
-  /** Bases the user types. Never solved outputs, which is what keeps the fees linear. */
+  /** The entity that earns the fund management fees. Exists only when the fund
+   *  layer is on, which is why it lives here and not on the Parties tab. */
+  fundManagerName: string;
+
+  /**
+   * FUND SIZE STAYS A TYPED INPUT, deliberately, and this is not an oversight.
+   * Fund size is equity plus debt; debt is solved by the funding requirement;
+   * and the fees RAISE that requirement. Reading it from the model would make
+   * the fee feed its own base, which is the circularity the whole layer is
+   * built to avoid. A target or committed figure the user states does not move
+   * when funding moves.
+   */
   fundSize: number;
+  /**
+   * The facility LIMIT the debt arranging fee charges on. Resolved from the
+   * model where the model states one (see resolveFacilityLimit in fundFees.ts);
+   * this stored number is the manual value, used when the model has no limit or
+   * when `facilityLimitOverride` pins it. Never the DRAWN balance, which is a
+   * solved output.
+   */
   facilityLimit: number;
+  /** True when the typed `facilityLimit` should win over the model's figure. */
+  facilityLimitOverride: boolean;
 
   /** Fund management fees (see FUND_FEE_SPECS for each one's timing and base). */
   fundStructureFeePct: number;
@@ -208,8 +311,10 @@ export type LegacyFeeBase = typeof LEGACY_FEE_BASES[number];
 
 export const DEFAULT_FUND_TERMS: FundTerms = {
   enabled: false,
+  fundManagerName: DEFAULT_FUND_MANAGER_NAME,
   fundSize: 0,
   facilityLimit: 0,
+  facilityLimitOverride: false,
   fundStructureFeePct: 0,
   fundManagementFeePct: 0,
   custodyAdminFeePct: 0,
@@ -336,8 +441,11 @@ export function resolveFundTerms(project: Pick<Project, 'fundTerms'> | null | un
   if (!raw || typeof raw !== 'object') return freshDefaults();
   return {
     enabled: raw.enabled === true,
+    fundManagerName: typeof raw.fundManagerName === 'string' && raw.fundManagerName.trim()
+      ? raw.fundManagerName.trim() : DEFAULT_FUND_MANAGER_NAME,
     fundSize: nonNegative(raw.fundSize),
     facilityLimit: nonNegative(raw.facilityLimit),
+    facilityLimitOverride: raw.facilityLimitOverride === true,
     fundStructureFeePct: clamp01(raw.fundStructureFeePct),
     fundManagementFeePct: clamp01(raw.fundManagementFeePct),
     custodyAdminFeePct: clamp01(raw.custodyAdminFeePct),
@@ -372,8 +480,10 @@ export type FundTermsPatch = NonNullable<Project['fundTerms']>;
 export function toFundTermsPatch(t: FundTerms): FundTermsPatch {
   return {
     enabled: t.enabled,
+    fundManagerName: t.fundManagerName,
     fundSize: t.fundSize,
     facilityLimit: t.facilityLimit,
+    facilityLimitOverride: t.facilityLimitOverride,
     fundStructureFeePct: t.fundStructureFeePct,
     fundManagementFeePct: t.fundManagementFeePct,
     custodyAdminFeePct: t.custodyAdminFeePct,
@@ -412,14 +522,22 @@ export interface FundTermsRow {
   debt_arranging_fee_pct?: number;
   other_expenses_per_annum?: number;
   fee_distribution?: unknown;
+  // Migration 210
+  fund_manager_name?: string;
+  facility_limit_override?: boolean;
 }
 
 export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerms {
   if (!row) return freshDefaults();
   return {
     enabled: row.fund_enabled === true,
+    fundManagerName: typeof row.fund_manager_name === 'string' && row.fund_manager_name.trim() ? row.fund_manager_name.trim() : DEFAULT_FUND_MANAGER_NAME,
+    // Key order deliberately matches the FundTerms interface and
+    // DEFAULT_FUND_TERMS, because verify-fund-terms compares the row and
+    // snapshot round trips with JSON.stringify, which is order sensitive.
     fundSize: nonNegative(row.fund_size),
     facilityLimit: nonNegative(row.facility_limit),
+    facilityLimitOverride: row.facility_limit_override === true,
     fundStructureFeePct: clamp01(row.fund_structure_fee_pct),
     fundManagementFeePct: clamp01(row.fund_management_fee_pct),
     custodyAdminFeePct: clamp01(row.custody_admin_fee_pct),
@@ -453,7 +571,19 @@ export function toRow(t: FundTerms): Required<FundTermsRow> {
     debt_arranging_fee_pct: t.debtArrangingFeePct,
     other_expenses_per_annum: t.otherExpensesPerAnnum,
     fee_distribution: t.feeDistribution,
+    fund_manager_name: t.fundManagerName,
+    facility_limit_override: t.facilityLimitOverride,
   };
+}
+
+/** The migrations 208 + 209 subset, for a database where 210 is not applied.
+ *  The Fund Manager name and the override flag still ride in the version
+ *  snapshot, which is what the engine reads. */
+export function toRow209(t: FundTerms): FundTermsRow {
+  const row: Record<string, unknown> = { ...toRow(t) };
+  delete row.fund_manager_name;
+  delete row.facility_limit_override;
+  return row as unknown as FundTermsRow;
 }
 
 /** The migration-208 subset, for a database where 209 is not applied yet. The
