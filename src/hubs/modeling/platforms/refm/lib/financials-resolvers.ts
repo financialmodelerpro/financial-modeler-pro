@@ -50,6 +50,8 @@ import {
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
+import { resolveFundTerms } from './fundTerms';
+import { computeFundFeeSchedule, emptyFundFeeSchedule, type FundFeeSchedule } from './fundFees';
 
 export type FinancialsResolverState = Pick<
   Module1Store,
@@ -108,6 +110,14 @@ export interface ProjectPL {
   totalOpexPerPeriod: number[];
   // Profit waterfall
   ebitdaPerPeriod: number[];
+  /** Fund layer Step 3 (2026-08-04): total fund fees charged this period.
+   *  Positive = an expense. Zero on every standalone project, which is every
+   *  project with the fund toggle off. Sits BELOW EBITDA and ABOVE the tax /
+   *  Zakat line, so it reduces EBIT, PBT, tax and PAT but never EBITDA. */
+  fundFeesPerPeriod: number[];
+  /** EBITDA less the fund fees. Equals ebitdaPerPeriod when the fund layer is
+   *  off, so a standalone P&L reads exactly as it did before. */
+  ebitdaAfterFundFeesPerPeriod: number[];
   daPerPeriod: number[];
   ebitPerPeriod: number[];
   interestExpensePerPeriod: number[];
@@ -126,6 +136,13 @@ export interface ProjectDirectCF {
   netRevenueAdjustmentPerPeriod: number[]; // = release - held
   opexPaidPerPeriod: number[];             // negative
   hqOpexPaidPerPeriod: number[];           // negative
+  /** Fund layer Step 3 (2026-08-04): fund fees PAID, negative. Paid in the
+   *  period charged (no payable), which is what keeps the balance sheet
+   *  balanced by construction: the expense reduces retained earnings through
+   *  PAT and the cash reduces by the same amount in the same period. Zero on
+   *  every project with the fund toggle off. This line is inside operating
+   *  cash, which is how the fee reaches the funding requirement. */
+  fundFeesPaidPerPeriod: number[];         // negative
   taxPaidPerPeriod: number[];              // negative
   cashFromOperationsPerPeriod: number[];
   // Investment
@@ -379,6 +396,11 @@ export interface ProjectFinancialsSnapshot {
   directCF: ProjectDirectCF;
   indirectCF: ProjectIndirectCF;
   bs: ProjectBS;
+  /** Fund layer Step 3 (2026-08-04): the per-fee schedule this snapshot was
+   *  computed with, including the basis each fee charged on. `active: false`
+   *  on every standalone project, with every array zero. Surfaced so a reader
+   *  can see WHAT was charged, not only the total the P&L shows. */
+  fundFees: FundFeeSchedule;
   /** M4 Pass 2S (2026-05-24): cash sweep schedule + adjusted BS Cash /
    *  Debt curves. Always present; sweep.enabled === false when no
    *  tranche has sweep configured. */
@@ -1365,7 +1387,14 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
  */
 function computeFinancialsSnapshotOnce(
   state: FinancialsResolverState,
-  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] },
+  opts?: {
+    fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[];
+    /** Fund layer Step 3: the FROZEN fee schedule. Computed once, before the
+     *  iterative solver, from a fee-free pass, and passed unchanged into every
+     *  iteration. It is an INPUT here and is never derived from this pass, so
+     *  no fee can feed its own base. Absent = no fund fees at all. */
+    fundFees?: FundFeeSchedule;
+  },
 ): ProjectFinancialsSnapshot {
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
@@ -1636,12 +1665,23 @@ function computeFinancialsSnapshotOnce(
   const interestExpense = financing.combined.totalInterestExpensed.slice(0, N);
   while (interestExpense.length < N) interestExpense.push(0);
 
+  // Fund fees (Step 3). A FROZEN input: the schedule was computed once, before
+  // the iterative solver, from a fee-free snapshot, so it cannot move while the
+  // funding requirement is being solved. All zeros when the fund toggle is off.
+  const fundFeeSchedule = opts?.fundFees ?? emptyFundFeeSchedule(N);
+  const fundFees = zeros(N);
+  for (let t = 0; t < N; t++) fundFees[t] = fundFeeSchedule.totalPerPeriod[t] ?? 0;
+
   const ebitda = zeros(N);
+  const ebitdaAfterFundFees = zeros(N);
   const ebit = zeros(N);
   const pbt = zeros(N);
   for (let t = 0; t < N; t++) {
     ebitda[t] = totalRev[t] - cosTotal[t] - totalOpex[t];
-    ebit[t] = ebitda[t] - da[t];
+    // Below EBITDA, above the tax line: the fee reduces EBIT, PBT, tax and PAT
+    // while EBITDA itself stays the operating measure it was.
+    ebitdaAfterFundFees[t] = ebitda[t] - fundFees[t];
+    ebit[t] = ebitdaAfterFundFees[t] - da[t];
     pbt[t] = ebit[t] - interestExpense[t]; // + interestIncome (zero today)
   }
   const taxRate = Math.max(0, project.tax?.rate ?? 0);
@@ -1663,6 +1703,8 @@ function computeFinancialsSnapshotOnce(
     hqOpexPerPeriod: hqOpex,
     totalOpexPerPeriod: totalOpex,
     ebitdaPerPeriod: ebitda,
+    fundFeesPerPeriod: fundFees,
+    ebitdaAfterFundFeesPerPeriod: ebitdaAfterFundFees,
     daPerPeriod: da,
     ebitPerPeriod: ebit,
     interestExpensePerPeriod: interestExpense,
@@ -1727,7 +1769,13 @@ function computeFinancialsSnapshotOnce(
 
   const cashFromOps = zeros(N);
   for (let t = 0; t < N; t++) {
-    cashFromOps[t] = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - taxPaidArr[t];
+    // Fund fees are an operating outflow, paid in the period charged. Being
+    // inside cashFromOps is what makes them reach the funding requirement:
+    // computeFundingGap builds Method 3's cash-available line from these
+    // arrays, so a fee lowers available cash and the gap sizes more funding to
+    // keep the minimum reserve. No extra plumbing, and no way to book the fee
+    // in the P&L while forgetting the cash.
+    cashFromOps[t] = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - fundFees[t] - taxPaidArr[t];
   }
 
   // Capex: project total per-period from financing engine.
@@ -1959,6 +2007,7 @@ function computeFinancialsSnapshotOnce(
     netRevenueAdjustmentPerPeriod: netRevAdj,
     opexPaidPerPeriod: opexPaidProject.map((v) => -v),
     hqOpexPaidPerPeriod: hqOpexPaid.map((v) => -v),
+    fundFeesPaidPerPeriod: fundFees.map((v) => -v),
     taxPaidPerPeriod: taxPaidArr.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOps,
     capexPerPeriod: capexProj.map((v) => -v),
@@ -2234,6 +2283,7 @@ function computeFinancialsSnapshotOnce(
     directCF,
     indirectCF,
     bs,
+    fundFees: fundFeeSchedule,
     cashSweep,
     dividends,
     bsReconciliation,
@@ -2355,13 +2405,58 @@ function maxArrDelta(a: number[] | undefined, b: number[] | undefined): number {
  */
 export function computeFinancialsSnapshot(
   state: FinancialsResolverState,
-  opts?: { fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[] },
+  opts?: {
+    fundingGap?: FundingGapInputs; idcCashBudget?: number[]; sweepBudget?: number[];
+    fundFees?: FundFeeSchedule;
+  },
 ): ProjectFinancialsSnapshot {
   // Explicit-opts call (e.g. a verifier feeding a fixed gap/budget): one pass.
-  if (opts?.fundingGap || opts?.idcCashBudget || opts?.sweepBudget) {
+  if (opts?.fundingGap || opts?.idcCashBudget || opts?.sweepBudget || opts?.fundFees) {
     return computeFinancialsSnapshotOnce(state, opts);
   }
 
+  // ── Fund layer Step 3: the fee schedule is resolved BEFORE the solver ────
+  //
+  // The funding requirement is solved iteratively below. If the fees were
+  // computed inside that loop from anything the solver moves, a bigger
+  // drawdown could produce a bigger fee, which is the circular dependency the
+  // guideline forbids. So the schedule is built ONCE here, from a fee-free
+  // pass, and then handed to every iteration as a constant.
+  //
+  // The cost is one extra full snapshot when the fund toggle is ON. When it is
+  // off, `resolveFundTerms` reports disabled, this whole block is skipped, and
+  // the function behaves exactly as it did before the fund layer existed,
+  // which is what scripts/verify-fund-layer-guard.ts pins.
+  const fundTerms = resolveFundTerms(state.project);
+  if (fundTerms.enabled) {
+    // The fee-free pass goes straight to the solver, NOT back through this
+    // function: recursing here would re-enter this branch and never terminate.
+    const feeFree = computeFinancialsSnapshotSolved(state, undefined);
+    const schedule = computeFundFeeSchedule({
+      terms: fundTerms,
+      axisLength: feeFree.axisLength,
+      // NAV is NET assets, so a debt drawdown does not move it: cash and debt
+      // rise together. Belt and braces on top of the freeze above.
+      closingNavPerPeriod: feeFree.bs.totalEquityPerPeriod,
+    });
+    return computeFinancialsSnapshotSolved(state, schedule);
+  }
+
+  return computeFinancialsSnapshotSolved(state, undefined);
+}
+
+/**
+ * The iterative fixed-point solve, with an optional FROZEN fund fee schedule.
+ *
+ * Split out of `computeFinancialsSnapshot` so the fee schedule can be resolved
+ * first and then held constant across every iteration. `fundFees` is threaded
+ * into each pass unchanged and is never re-derived from a pass, which is the
+ * structural guarantee that funding cannot raise the fees.
+ */
+function computeFinancialsSnapshotSolved(
+  state: FinancialsResolverState,
+  fundFees: FundFeeSchedule | undefined,
+): ProjectFinancialsSnapshot {
   const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
   const fundingMethod = finCfg.fundingMethod;
   // Default 'conditional' (2026-06-02): IDC debt is raised only to maintain
@@ -2381,7 +2476,8 @@ export function computeFinancialsSnapshot(
   const needsIteration = fundingMethod === 2 || fundingMethod === 3 || idcConditional || hasSweep;
 
   // No circular input => single pass (Methods 1 + 4, no conditional IDC, no sweep).
-  let snap = computeFinancialsSnapshotOnce(state, undefined);
+  // `fundFees` rides along on every pass as a constant, here and below.
+  let snap = computeFinancialsSnapshotOnce(state, fundFees ? { fundFees } : undefined);
   if (!needsIteration) return snap;
 
   // Iterate to a fixed point. TOL is in currency units; MAX_ITERS caps the
@@ -2403,7 +2499,10 @@ export function computeFinancialsSnapshot(
     if (iter > 0 && gapDelta < TOL && idcDelta < TOL && sweepDelta < TOL) break;
     if (!derived.fundingGap && !derived.idcCashBudget && !derived.sweepBudget) break; // nothing to feed
     applied = derived;
-    snap = computeFinancialsSnapshotOnce(state, derived);
+    // The fee schedule is passed through UNCHANGED. It is never part of
+    // `derived`, so no iteration can revise it: the solver may raise funding to
+    // cover the fees, and that higher funding cannot come back as a bigger fee.
+    snap = computeFinancialsSnapshotOnce(state, fundFees ? { ...derived, fundFees } : derived);
   }
   return snap;
 }

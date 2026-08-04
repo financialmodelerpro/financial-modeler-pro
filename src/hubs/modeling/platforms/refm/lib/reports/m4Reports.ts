@@ -120,7 +120,12 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
 
   const ebitda = totalRev.map((v, i) => v - (cosTotal[i] ?? 0) - (totalOpex[i] ?? 0));
-  const ebit = ebitda.map((v, i) => v - (da[i] ?? 0));
+  // Fund fees sit between EBITDA and EBIT (fund layer Step 3), so EBIT is
+  // struck AFTER them. Without this the rendered EBIT would disagree with the
+  // snapshot's, and the statement would stop footing from EBITDA down to PAT
+  // the moment a fund project was opened. Zero on every standalone project.
+  const fundFeesLocal = (p.fundFeesPerPeriod ?? []).slice(0, ebitda.length);
+  const ebit = ebitda.map((v, i) => v - (fundFeesLocal[i] ?? 0) - (da[i] ?? 0));
   const pbt = ebit.map((v, i) => v - (interestExpense[i] ?? 0));
   const taxArr = pbt.map((v) => Math.max(0, v) * p.taxRate);
   const pat = pbt.map((v, i) => v - (taxArr[i] ?? 0));
@@ -182,6 +187,23 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
 
   // Phase-level P&L stops at EBITDA (D&A, interest, tax are project-level).
   if (phaseFiltered) return rows;
+
+  // Fund fees (fund layer Step 3, 2026-08-04). Rendered BELOW EBITDA and ABOVE
+  // the tax line, one row per fee so a reader sees what is being charged rather
+  // than a single opaque total. Omitted entirely when the fund layer is off,
+  // which is every standalone project, so an existing P&L is unchanged. Built
+  // here rather than in the tab, so the screen, the PDF and the Excel export
+  // all pick it up from the one place.
+  const fundFees = p.fundFeesPerPeriod ?? [];
+  if (fundFees.some((v) => v !== 0)) {
+    for (const line of snap.fundFees.lines) {
+      if (line.amountPerPeriod.some((v) => v !== 0)) {
+        rows.push({ label: line.label, values: negArr(line.amountPerPeriod), indent: 1 });
+      }
+    }
+    rows.push({ label: 'Total Fund Fees', values: negArr(fundFees), isSubtotal: true });
+    rows.push({ label: 'EBITDA after fund fees', values: p.ebitdaAfterFundFeesPerPeriod ?? ebitda, isTotal: true });
+  }
 
   rows.push({ label: 'Depreciation & Amortization', values: negArr(da), indent: 1 });
   rows.push({ label: labels.ebit, values: ebit, isSubtotal: true });

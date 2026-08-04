@@ -28,6 +28,25 @@
 
 ---
 
+## KNOWN ISSUE: gap-sized drawdown does not fully meet the computed requirement (2026-08-04)
+
+**Found during fund layer Step 3; NOT caused by it, and explicitly out of scope for an additive step. Ahmad's decision 2026-08-04: leave drawdown sizing alone, log it here for later.**
+
+**What happens.** With `fundingMethod: 3` (cash-deficit funding) and a minimum cash reserve set, the model's closing cash goes NEGATIVE in the first operating period, because the drawdown raised is smaller than `method3Waterfall.netCashRequiredPerPeriod` for that period. On the standard hotel fixture (2 construction periods, 8 operating, min cash 5m) the trough is about **-9.8m with NO fund fees at all**. Turning fund fees on deepens it to about -11.0m, which is the fee's own cash cost and no more.
+
+**What it is NOT.**
+- Not the fund layer: the baseline troughs negative on its own, and `verify-fund-fees` pins that the fees never amplify the shortfall beyond their own cost.
+- Not a facility size cap: raising the tranche `ltvPct` from 60 to 95 does not change the drawn amount or the trough.
+- Not the drawdown method: switching `drawdownMethod` to `min_cash_floor` produces identical numbers, because Method 3 gap-sizing supplies the schedule and overrides the tranche's own method.
+
+**Where to look.** `deriveCircularInputs` in `financials-resolvers.ts` feeds `method3Waterfall.netCashRequiredPerPeriod` back as `FundingGapInputs.method3PerPeriod`, and the financing engine turns that into the actual drawdown. The requirement is computed correctly (it rises by exactly the right amount when costs rise); what is drawn against it falls short once construction capex stops. Prime suspects, in order: the one-period LAG the gap formula applies (`Pass 2T-Fix`, this year's need funded from last year's cash), and whatever bounds the per-period draw inside the engine once the capex curve ends.
+
+**Why it matters.** A feasibility model that shows negative cash is showing an infeasible plan. Any user running Method 3 with a min-cash reserve sees a trough that the funding schedule claims to have covered.
+
+**When it is fixed**, `scripts/verify-fund-fees.ts` section 5 carries a ready-made place for the real assertion: it currently asserts the baseline troughs negative and documents WHY the non-negativity check is absent. Replace that with the non-negativity check and the comment above it.
+
+---
+
 ## ⭐ START HERE (current focus, 2026-08-01)
 
 **TOMORROW: Module 7 fixes.** Everything below is known-open; nothing here is a
