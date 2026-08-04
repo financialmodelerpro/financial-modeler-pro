@@ -2,13 +2,15 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
+**Status as of 2026-08-04: Steps 1, 2 and 3 are LIVE.** Migrations 208, 209 and 210 applied and behaviourally verified. Step 4 (the M5 waterfall) is next. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+
 ---
 
 ## 1. What the fund layer is
 
 A project today models a single development. The fund layer adds the economics of a fund or GP-LP structure on top:
 
-- a **management fee** charged on the capital
+- **fund management fees** charged by the Fund Manager
 - a **preferred return (hurdle)** to investors
 - a **performance fee (carry)** to the fund manager once the hurdle is met
 - returns reported both **gross** (before fund fees) and **net** (after)
@@ -19,35 +21,60 @@ It is **independent** of the platform's other systems. It touches the model engi
 
 ---
 
-## 2. The key design decision: linear fee base
+## 2. The key design decision: every fee base is linear
 
-The management fee is charged on an **input-driven base**:
+**The principle, unchanged since day one.** A fee is a cash outflow, so paying it RAISES the funding requirement: in a cash-deficit or funding-gap scenario the model must raise more funding to keep cash non-negative while paying the fee. That is correct and required. But if a fee were charged on anything the funding solve moves within the same period, then more funding would raise the base, which would raise the fee, which would raise the funding requirement again. That is a circular loop and it would mean touching the M4 circular solve.
 
-- committed capital (user-entered), or
-- total development cost
+So: **the fee raises funding, but the higher funding does not raise the fee.** Linear, testable, and it never enters the circular block.
 
-It is **not** charged on fund size (equity + debt) in v1.
+### What changed from the original plan, and why
 
-**Why.** The fee is a cash outflow, so it increases the funding requirement: in a cash-deficit or funding-gap scenario the model must raise more funding to keep cash non-negative while paying the fee. That is correct and required. But if the fee base were fund size, then more funding would raise fund size, which would raise the fee, which would raise the funding requirement again. That is a circular loop and it would mean touching the M4 circular solve.
+The original plan named ONE management fee on a choice of two bases (committed capital or total development cost). Step 2 replaced that with the fee set a real fund actually carries, because one rate cannot express fees with different timings and different bases. The **principle** survived intact; the **specifics** are now:
 
-With an input-driven base the flow is one-directional: **the fee raises funding, but the higher funding does not raise the fee.** Linear, testable, and it never enters the circular block.
+| Fee | Timing | Base |
+|---|---|---|
+| Fund structure fee | one time | fund size |
+| Fund management fee | annual | **opening** NAV |
+| Custody and admin fee | annual | **opening** NAV |
+| Debt arranging fee | one time | facility limit |
+| Other expenses | annual | flat amount |
 
-Fund-size fee base is deferred to v1.1 post-launch. It is already designed as a third enum option on the fee-base toggle, so adding it later is a new option, not a rebuild.
+**Fund size as a base needs care, and the original doc was imprecise about it.** The old wording said the fee is "not charged on fund size" because fund size is equity plus debt and debt is solved. That is still true of a **derived** fund size. But the fund structure fee IS charged on fund size **as a number the user types**: a target or committed figure that does not move when funding moves. The distinction is one careless line wide, so `fund_size_solved` is named explicitly in the forbidden list.
+
+**NAV fees charge OPENING NAV** (the close of the prior period), so the fee is known before the period's cash moves. Closing NAV and average NAV are both forbidden. NAV is also defined as NET assets (assets minus liabilities), so a debt drawdown does not move it at all: cash and debt rise together.
+
+### The rule is a data structure, not a comment
+
+`FUND_FEE_SPECS` in `src/hubs/modeling/platforms/refm/lib/fundTerms.ts` declares each fee's `timing` and `base`. `LINEAR_FEE_BASES` is the allowed set; `CIRCULAR_FEE_BASES` names what must never appear (`closing_nav`, `average_nav`, `drawn_debt`, `total_sources`, `funding_requirement`, `fund_size_solved`). `scripts/verify-fund-terms.ts` fails on the REGISTRY, so a bad fee added to the DATA is caught as well as one added to the UI. Proven with teeth: injecting `base: 'closing_nav'` fails four checks.
+
+### And one more layer: the schedule is FROZEN before the solver
+
+Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot` is an iterative fixed point, and a fee computed INSIDE that loop would drift every iteration. So when the toggle is on, the engine runs a **fee-free pass** first, builds the fee schedule from it, and then threads that schedule UNCHANGED into every iteration. It is never part of the derived circular inputs, so no iteration can revise it. See Step 3 below.
 
 ---
 
 ## 3. Where it affects the model
 
-| Module / area | What changes | Effect | Additive or engine? |
-|---|---|---|---|
-| **M1 Project Setup** | New Fund Terms tab: standalone-vs-fund toggle (default off), fee %, fee base choice, hurdle rate, carry %, committed capital, fee-share by party role | Defines the fund inputs. No effect when toggle off | Additive (new tab + table) |
-| **Schema** | New fund terms table keyed to project: toggle, fee %, fee base enum, hurdle %, carry %, committed capital, party role + fee-share fields | Storage only. Absent or empty means standalone | Additive migration |
-| **M4 Financial Statements + Funding** | Management fee as an expense line, below EBITDA and above Zakat. Because the fee is a cash outflow it **increases the funding requirement**: in a funding-gap scenario the model raises more funding to keep cash non-negative while paying the fee. Fee base is linear, so the fee does not feed back into its own base | Fee raises the funding requirement by the fee amount (more debt or equity in a gap scenario). Fee does not feed back into fund size. Toggle off means no fee line, identical to today | Engine-adjacent (additive, one-directional, not circular) |
-| **M5 Returns** | Adds IRR excluding fund fee (gross), hurdle accrual and unpaid hurdle balance, performance fee once the hurdle is met, distributions net of fee, and post-fee IRR and MOIC. The waterfall runs: return capital, pay preferred/hurdle, then split residual per carry | Splits returns into investor (net of fee) and fund manager (fee income). Gross returns unchanged, net returns lower by the fees | Additive (new return lines + waterfall) |
-| **M5 Parties** | Fee income as a return line for the Fund Manager party, tied to the per-partner returns already built | Fund Manager gains fee income, investor parties see net-of-fee returns | Additive |
-| **Excel export** | Fee line and waterfall rows added to the relevant tabs, in the locked palette | Presentation of the above | Additive |
-| **M7 IC Report** | Fee sections in the IC deck (fee terms, waterfall, net vs gross) | Report presentation only | Additive, post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then waterfall exhausts distributable cash, hurdle balance closes, fee-off equals current behaviour, fee flows to funding requirement | Proves the layer is safe and correct | Guardrail |
+| Module / area | What changes | Status |
+|---|---|---|
+| **M1 Project Setup** | New Fund Terms tab (tab 3, after Parties): the toggle, the **Fund Manager**, the five fund fees, performance fee + hurdle, the fee bases, and a per-PARTY fee distribution matrix | **LIVE** |
+| **Schema** | `refm_fund_terms`, one row per project. Migration 208 (toggle + original terms), 209 (the real fee set + `fee_distribution` jsonb), 210 (`fund_manager_name` + `facility_limit_override`) | **LIVE**, all three applied |
+| **M4 Financial Statements + Funding** | Fund fees as an expense line BELOW EBITDA and ABOVE Zakat (`fundFeesPerPeriod`, `ebitdaAfterFundFeesPerPeriod`), plus `directCF.fundFeesPaidPerPeriod` inside operating cash, which is how the fee reaches the funding requirement | **LIVE** |
+| **M5 Returns** | IRR excluding fund fees (gross), hurdle accrual and unpaid balance, performance fee once the hurdle is met, distributions net of fee, post-fee IRR and MOIC | **Step 4, next** |
+| **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract already built (see below) | **Step 5** |
+| **Excel export** | Fee line and waterfall rows in the locked palette | Step 6 |
+| **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, and the waterfall | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 73) |
+
+### The Fund Manager
+
+Added 2026-08-04. It is **not a project party**: it exists only while the fund layer is on, so a `refm_parties` row would give every standalone project a counterparty its model has no concept of. It lives in `fundTerms.fundManagerName`, earns **100% of all five fund management fees, unsplit** (no share to store, the entitlement is total by definition), and takes its performance-fee share through a row in the distribution matrix carrying the reserved id `__fund_manager__` (a non-uuid, so it cannot collide with a real party id).
+
+**`resolveFeeEarners(terms) -> FeeEarner[]` is the contract Step 5 consumes**, and it is deliberately NOT `PartnerInput`. An M5 partner is defined by the equity it contributed and earns `shareholdingPct x the consolidated stream`, which is what makes Sigma partners == consolidated hold by construction. A no-equity Fund Manager dropped into that shape would take a 0% shareholding, a zero invested base and an undefined IRR, and would break that reconciliation. A fee earner sits ALONGSIDE the equity partners, not inside them.
+
+### The facility limit is read from the model
+
+Added 2026-08-04. The diagnosis is worth keeping: **there is no facility limit the engine enforces.** `FinancingTranche.principal` is an input but nothing reads it; `ltvPct` is an input but deprecated for per-facility scaling; and `FacilityResult.outstanding` / `drawSchedule` are SOLVED OUTPUTS straight from the funding gap. So `resolveFacilityLimit` walks inputs only: stated principal (summed), else the LTV cap (`ltvPct x capex`, and capex carries no IDC so it does not move with the funding solve), else the typed figure, with `facilityLimitOverride` to pin the typed one. The drawn balance is never read.
 
 ---
 
@@ -55,15 +82,23 @@ Fund-size fee base is deferred to v1.1 post-launch. It is already designed as a 
 
 One step at a time. Diagnose first, build, verify, hold for review, then the next.
 
-| Step | Title | Delivers | Migration | Depends on | Engine risk |
-|---|---|---|---|---|---|
-| 1 | **Toggle-off regression guard** | The verifier, written before any feature code: run the returns snapshot suite with the fund toggle present and OFF, require byte-identical returns to today | Maybe (toggle storage) | - | None (test only) |
-| 2 | M1 Fund Terms tab + schema | Fund Terms tab with toggle, fee %, fee base choice, hurdle %, carry %, committed capital, fee-share by party role. Inputs only, no engine wiring | Yes | 1 | None |
-| 3 | M4 management fee line + funding impact | Fee line below EBITDA above Zakat on the linear base. Fee flows into the funding requirement so a funding-gap project raises more funding and stays cash-non-negative. Verify no feedback into its own base | Maybe | 2 | Engine-adjacent (linear, one-directional) |
-| 4 | M5 waterfall + hurdle + carry | Distribution waterfall: return capital, pay preferred/hurdle with accrual and unpaid balance, then performance fee per carry. Distributions net of fee | Maybe | 3 | Additive return logic |
-| 5 | M5 net vs gross returns | Gross IRR (excluding fund fee), post-fee IRR and MOIC, investor net-of-fee returns and Fund Manager fee income wired to per-partner returns and M5 Parties | No | 4 | Additive |
-| 6 | Excel export rows | Fee line and waterfall rows in the exported model, locked palette, live formulas | No | 5 | None |
-| 7 | End-to-end verify | Toggle off equals today. Toggle on: fee flows to funding requirement, waterfall exhausts distributable cash, hurdle balance closes, gross vs net correct, fund manager fee income correct. Live check on FMP RE HUB | No | 6 | None |
+| Step | Title | Status | Migration |
+|---|---|---|---|
+| 1 | **Toggle-off regression guard** | **DONE 2026-08-03** | None needed |
+| 2 | M1 Fund Terms tab + schema | **DONE 2026-08-03, EXTENDED 2026-08-04** | 208, 209, 210 |
+| 3 | M4 fund fee line + funding impact | **DONE 2026-08-04** | None needed |
+| 4 | M5 waterfall + hurdle + carry | **NEXT** | Maybe |
+| 5 | M5 net vs gross returns + Fund Manager fee income | Pending | No |
+| 6 | Excel export rows | Pending | No |
+| 7 | End-to-end verify | Pending | No |
+
+### What each completed step actually delivered
+
+**Step 1** wrote the guard BEFORE any feature code. The design point worth remembering: the existing returns suite is property-based (identities, ranges, 1e-2 tolerance), so a uniform drift passes all 99 of its checks, while pinned golden numbers rot on the first legitimate model change. So the guard compares **the same engine run without the toggle**, in-process, on identical inputs: exact `Object.is` deep equality over the full financials and returns snapshots. It has teeth, proven against a deliberate 1e-9 drift.
+
+**Step 2** shipped the tab and the storage, then was extended the next day to the real fee set and the per-party matrix, then again for the Fund Manager and the model-read facility limit. Each extension kept the previous columns (additive only; `carry_pct` and `hurdle_rate_pct` never changed meaning, so no data moved).
+
+**Step 3** put the fees in M4. The fees reach the funding requirement through `cashFromOps`, which is what `computeFundingGap` reads, so no new plumbing was needed: the period-0 funding requirement rises by exactly the period-0 fee. The schedule freeze (section 2) is what keeps it out of the circular solve.
 
 ---
 
@@ -72,7 +107,7 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 **Ships before launch (v1):** M1 Fund Terms tab and toggle, schema, M4 fee line into the funding requirement, M5 hurdle/carry/waterfall/net-and-gross returns, M5 Parties fee income, Excel export rows, the verifiers.
 
 **Waits:**
-- fund-size fee base and the circular solve (v1.1, post-launch)
+- a fund-size fee base DERIVED from the solve, and the circular solve it would need (v1.1, post-launch)
 - M7 IC Report fee sections (post-launch, numbers already live in M5 and Excel)
 - any fund entity above the project, multi-project funds (future)
 
@@ -81,12 +116,24 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 ## 6. Standing rules
 
 - **Regression guard first.** Step 1 is the toggle-off byte-identical verifier, written before any feature code. Nothing ships if it fails.
-- **Toggle off equals today.** With the fund toggle off, every existing project produces numerically identical results to today. Non-negotiable.
-- **Additive only.** New tab, new table, new lines. No drops, no destructive schema change. Migrations numbered, applied manually by Ahmad in Supabase.
-- **Linear fee base only in v1.** Committed capital or total development cost. Do not wire the fund-size base, it is circular.
-- **Engine verifiers stay green.** The returns snapshot and returns engine verifiers stay green on every step. The fee line and waterfall get their own checks.
+- **Toggle off equals today.** With the fund toggle off, every existing project produces numerically identical results to today. Non-negotiable, and the guard tests it with a FULLY POPULATED but disabled block, not a bare toggle: that is the state a real user reaches.
+- **Additive only.** New tab, new table, new columns. No drops, no destructive schema change. Migrations numbered, applied manually by Ahmad in Supabase.
+- **Linear fee bases only.** Enforced by `FUND_FEE_SPECS` + `LINEAR_FEE_BASES` / `CIRCULAR_FEE_BASES`, not by anyone remembering.
+- **Anything the solver moves must be frozen before the solve.** Step 3's fee schedule is built from a fee-free pass and passed unchanged into every iteration. Step 4's hurdle accrual has the same exposure: a hurdle accruing on a balance the solver moves would reintroduce exactly the circularity Step 3 removed.
+- **Schema reads stay tolerant, in tiers.** The server probes 210 -> 209 -> 208 and steps down on a missing column, so the tab survives a database that lags the repo. Whatever a lower tier cannot hold still rides in the version snapshot.
+- **Engine inputs live in the version snapshot.** The durable table is the tab's store; the ENGINE reads `Project.fundTerms` inside the snapshot, so a saved version reproduces the terms it was computed with and Module 6 scenarios can override them later.
+- **Migrations are verified BEHAVIOURALLY.** Grepping the DDL proves presence, not behaviour. Every applied migration gets live probes on a THROWAWAY project that is deleted afterwards.
+- **Engine verifiers stay green.** The returns snapshot and returns engine verifiers stay green on every step.
 - **Diagnose first.** Every step starts with a read-only diagnosis, reported before building.
 - **One step at a time.** Lock and verify a step before the next.
 - **Hold for review.** Engine-adjacent steps (M4, M5) hold for Ahmad's live check before push.
 - **No em dashes** anywhere in content.
 - **Commit and push in the same step**, then confirm the deploy SHA matches HEAD.
+
+---
+
+## 7. Known issues and open gaps
+
+**Gap-sized drawdown does not fully meet the computed requirement.** Found during Step 3, NOT caused by it. With `fundingMethod: 3` and a minimum cash reserve, closing cash goes negative in the first operating period because the drawdown raised is smaller than `netCashRequiredPerPeriod`. The baseline troughs at about -9.8m **with no fund fees at all**; fees deepen it by their own cash cost and no more. Not a facility size cap (LTV 60 -> 95 changes nothing) and not the drawdown method (`min_cash_floor` is identical, since Method 3 gap-sizing supplies the schedule). **Decision 2026-08-04: out of scope for an additive step, logged in CLAUDE-TODO.md for later.** `verify-fund-fees` section 5 documents why the non-negativity assertion is absent and is where it belongs once fixed.
+
+**No browser verification.** Every fund step so far has been proven by types, verifiers and build only. The Fund Terms tab now carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) that no verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks.

@@ -28,6 +28,22 @@
 
 ---
 
+## OPEN GAP: the fund layer has never been opened in a browser (2026-08-04)
+
+Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility-limit changes) are live and proven by **types, verifiers and build only**. Nothing has been driven in a real browser.
+
+**What is unverified visually**, in rough order of risk:
+
+1. **The Fund Terms tab** (M1 tab 3): the Fund Manager card, the pinned `__fund_manager__` matrix row with its badge, the resolved facility-limit display and its "Enter the limit myself" override, the percent inputs (which re-sync during render via a `{text, from}` draft rather than an effect), and the per-column total chips.
+2. **The M4 P&L with fees on**: one row per charged fee, the Total Fund Fees subtotal and the EBITDA after fund fees line, rendered through the shared `m4Reports` builder so they also reach the PDF and Excel.
+3. **The save path end to end**: type terms, save, reload, confirm the durable row and the version snapshot agree.
+
+**Why this is not paranoia.** Module 7's `EditLayer` sat dead for about ten days behind passing checks, found only by opening it (`[[feedback_gesture_lifecycle_pointer_capture]]`). A verifier cannot see a mis-wired checkbox, an input that will not accept a keystroke, or a panel that renders off-screen.
+
+**Cheapest useful pass:** open a project with the fund toggle ON, fill every field on the tab, save, reload, and check M4's P&L shows the fee rows and still foots from EBITDA to PAT.
+
+---
+
 ## KNOWN ISSUE: gap-sized drawdown does not fully meet the computed requirement (2026-08-04)
 
 **Found during fund layer Step 3; NOT caused by it, and explicitly out of scope for an additive step. Ahmad's decision 2026-08-04: leave drawdown sizing alone, log it here for later.**
