@@ -44,20 +44,23 @@
  * added to the exit-year flow.
  */
 import {
-  computeReturns,
+  computeReturns, summariseStream,
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
   buildSponsorStreamsForExit, exitYearAnalysis, computePerAssetReturns,
   computeSensitivity, defaultSensitivityValues,
+  computeDistributionWaterfall,
 } from '@/src/core/calculations/returns';
 import type {
-  ReturnsResult, ReturnsInput, TerminalMethod,
+  ReturnsResult, ReturnsInput, TerminalMethod, StreamReturns,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
   ExitYearRow, PerAssetSnapshot, SensitivityGrid, SensitivityVariable, SponsorStreamInputs,
+  WaterfallSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
+import { resolveFundTerms } from './fundTerms';
 
 export interface ReturnsConfig {
   discountRate: number;
@@ -166,6 +169,30 @@ export interface ReturnsSnapshot {
   /** M5 Pass 2: default two-way sensitivity grid (Exit Cap Rate x Sales Price).
    *  The UI re-runs computeReturnsSensitivity when the user picks variables. */
   sensitivity: SensitivityGrid;
+  // ── Fund layer Step 4 (2026-08-05): the distribution waterfall ──────────
+  /**
+   * The waterfall over the Distributed-Equity stream, on the reference model's
+   * structure: equity drawn folds into ONE unpaid hurdle balance, a single
+   * `hurdlePaid` line settles it, and the performance fee is a flat percentage
+   * of whatever is left above it. No return-of-capital tier, no catch-up, no
+   * residual split. `active: false` with every number zero on every project
+   * with the fund toggle off, which is every standalone project.
+   */
+  waterfall: WaterfallSnapshot;
+  /**
+   * The Distributed-Equity stream NET of the performance fee, index for index
+   * with `dividendStreamPerPeriod`. Identical to the gross stream when the fund
+   * layer is off, because the waterfall then takes no carry.
+   *
+   * GROSS IS NOT TOUCHED. `dividendStreamPerPeriod` and `result` keep their
+   * exact existing meaning and values, so every existing reader (the UI, the
+   * partner split, the Excel and PDF exports, the IC deck bindings) is
+   * unaffected and net is strictly additive alongside it.
+   */
+  netDividendStreamPerPeriod: number[];
+  /** POST-FEE IRR and MOIC (plus NPV / payback) on the net cash flow: equity
+   *  invested plus distributions net of the performance fee. */
+  resultNetDividends: StreamReturns;
 }
 
 /** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
@@ -322,6 +349,58 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     -(v + (inKindAxis[t] ?? 0)) + (divPaidAxis[t] ?? 0));
   dividendAxis[exit] = (dividendAxis[exit] ?? 0) + tvEquity;
   const dividendStream = incep(-existingEquity, dividendAxis);
+
+  // ── Fund layer Step 4 (2026-08-05): the distribution waterfall ──────────
+  //
+  // The waterfall runs over the DISTRIBUTED-EQUITY stream, because that is the
+  // stream that IS distributions: its negatives are the equity investors drew
+  // in and its positives are the cash they get back. FCFE is levered free cash
+  // flow, which is a different question and is deliberately left alone.
+  //
+  // It is driven off the GROSS COMPONENTS, not the netted stream above. A
+  // period can carry an equity draw and a dividend at the same time, and
+  // netting them first would hide the distribution behind the draw and
+  // mis-state the hurdle payment below it.
+  //
+  // NOTHING HERE FEEDS BACK INTO M4. The performance fee is a split of cash
+  // that has already left the project, so it moves no project cash, never
+  // reaches computeFundingGap, and cannot revise the funding solve. The
+  // snapshot this reads has already converged, so the schedule is frozen by
+  // construction rather than by a second fee-free pass (see waterfall.ts and
+  // Step 3).
+  const fundTerms = resolveFundTerms(project);
+  const wfEquityDrawn = new Array<number>(E + 1).fill(0);
+  const wfDistributions = new Array<number>(E + 1).fill(0);
+  // A capital movement books to the side its SIGN says, so an over-levered
+  // existing asset (existing equity below zero, which the inception line
+  // deliberately does not clamp) lands as a distribution rather than as a
+  // negative draw the waterfall has no line for.
+  const bookEquityDrawn = (i: number, v: number): void => {
+    if (v >= 0) wfEquityDrawn[i] += v; else wfDistributions[i] += -v;
+  };
+  const bookDistribution = (i: number, v: number): void => {
+    if (v >= 0) wfDistributions[i] += v; else wfEquityDrawn[i] += -v;
+  };
+  bookEquityDrawn(0, existingEquity);
+  for (let t = 0; t < E; t++) {
+    bookEquityDrawn(t + 1, (equityCashAxis[t] ?? 0) + (inKindAxis[t] ?? 0));
+    bookDistribution(t + 1, divPaidAxis[t] ?? 0);
+  }
+  bookDistribution(exit + 1, tvEquity);
+
+  const waterfall = computeDistributionWaterfall({
+    equityDrawnPerPeriod: wfEquityDrawn,
+    distributionsPerPeriod: wfDistributions,
+    hurdleRate: fundTerms.hurdleRatePct,
+    performanceFeePct: fundTerms.performanceFeePct,
+    active: fundTerms.enabled,
+  });
+  // Net of fee. The performance fee is the only thing that separates net from
+  // gross, and it is zero on an inactive waterfall, so a standalone project
+  // gets net === gross value for value rather than a separately computed
+  // lookalike. Equals the waterfall's own netCashflowPerPeriod when active
+  // (net distributions less equity drawn), which the verifier pins.
+  const netDividendStream = dividendStream.map((v, i) => v - (waterfall.performanceFeePerPeriod[i] ?? 0));
 
   // ── Step-by-step build-up components (E+1, index 0 = inception) ──────
   const buildup = {
@@ -571,5 +650,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     exitYears,
     perAsset,
     sensitivity,
+    waterfall,
+    netDividendStreamPerPeriod: netDividendStream,
+    // Summarised with the SAME function and the same discount rate the gross
+    // streams use, so net and gross are comparable numbers rather than two
+    // metrics that merely share a name.
+    resultNetDividends: summariseStream({ perPeriod: netDividendStream }, cfg.discountRate),
   };
 }

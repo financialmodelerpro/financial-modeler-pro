@@ -91,6 +91,8 @@ export { computePerAssetReturns } from './perAsset';
 export type { AssetReturnInput, AssetReturnRow, PerAssetSnapshot } from './perAsset';
 export { computeSensitivity, defaultSensitivityValues } from './sensitivity';
 export type { SensitivityVariable, SensitivityAxis, SensitivityGrid } from './sensitivity';
+export { computeDistributionWaterfall, emptyWaterfall } from './waterfall';
+export type { WaterfallInputs, WaterfallPeriod, WaterfallSnapshot } from './waterfall';
 export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,

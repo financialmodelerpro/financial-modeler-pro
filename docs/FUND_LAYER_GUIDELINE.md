@@ -2,7 +2,7 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
-**Status as of 2026-08-04: Steps 1, 2 and 3 are LIVE.** Migrations 208, 209 and 210 applied and behaviourally verified. Step 4 (the M5 waterfall) is next. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+**Status as of 2026-08-05: Steps 1, 2, 3 and 4 are LIVE.** Migrations 208, 209 and 210 applied and behaviourally verified; Step 4 needed none. Step 5 (M5 net vs gross presentation + Fund Manager fee income) is next. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
 
@@ -60,11 +60,11 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | **M1 Project Setup** | New Fund Terms tab (tab 3, after Parties): the toggle, the **Fund Manager**, the five fund fees, performance fee + hurdle, the fee bases, and a per-PARTY fee distribution matrix | **LIVE** |
 | **Schema** | `refm_fund_terms`, one row per project. Migration 208 (toggle + original terms), 209 (the real fee set + `fee_distribution` jsonb), 210 (`fund_manager_name` + `facility_limit_override`) | **LIVE**, all three applied |
 | **M4 Financial Statements + Funding** | Fund fees as an expense line BELOW EBITDA and ABOVE Zakat (`fundFeesPerPeriod`, `ebitdaAfterFundFeesPerPeriod`), plus `directCF.fundFeesPaidPerPeriod` inside operating cash, which is how the fee reaches the funding requirement | **LIVE** |
-| **M5 Returns** | IRR excluding fund fees (gross), hurdle accrual and unpaid balance, performance fee once the hurdle is met, distributions net of fee, post-fee IRR and MOIC | **Step 4, next** |
-| **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract already built (see below) | **Step 5** |
+| **M5 Returns** | Distribution waterfall over the Distributed-Equity stream on the REFERENCE structure (one combined hurdle balance settled by a single `hurdlePaid` line, then a flat performance fee on the excess), hurdle accrual and unpaid balance, distributions net of fee, post-fee IRR and MOIC. Gross streams untouched | **LIVE** (engine + snapshot; presentation is Step 5) |
+| **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract already built (see below), and the net-vs-gross UI | **Step 5, next** |
 | **Excel export** | Fee line and waterfall rows in the locked palette | Step 6 |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, and the waterfall | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 73) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, and the waterfall | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 73, `verify-fund-waterfall` 382) |
 
 ### The Fund Manager
 
@@ -87,8 +87,8 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 | 1 | **Toggle-off regression guard** | **DONE 2026-08-03** | None needed |
 | 2 | M1 Fund Terms tab + schema | **DONE 2026-08-03, EXTENDED 2026-08-04** | 208, 209, 210 |
 | 3 | M4 fund fee line + funding impact | **DONE 2026-08-04** | None needed |
-| 4 | M5 waterfall + hurdle + carry | **NEXT** | Maybe |
-| 5 | M5 net vs gross returns + Fund Manager fee income | Pending | No |
+| 4 | **M5 waterfall + hurdle + performance fee** | **DONE 2026-08-05** (rebuilt same day to the reference structure) | None needed |
+| 5 | M5 net vs gross returns + Fund Manager fee income | **NEXT** | No |
 | 6 | Excel export rows | Pending | No |
 | 7 | End-to-end verify | Pending | No |
 
@@ -99,6 +99,30 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 **Step 2** shipped the tab and the storage, then was extended the next day to the real fee set and the per-party matrix, then again for the Fund Manager and the model-read facility limit. Each extension kept the previous columns (additive only; `carry_pct` and `hurdle_rate_pct` never changed meaning, so no data moved).
 
 **Step 3** put the fees in M4. The fees reach the funding requirement through `cashFromOps`, which is what `computeFundingGap` reads, so no new plumbing was needed: the period-0 funding requirement rises by exactly the period-0 fee. The schedule freeze (section 2) is what keeps it out of the circular solve.
+
+**Step 4** put the waterfall in M5. `src/core/calculations/returns/waterfall.ts` is pure and primitives-only (so the `@core` boundary holds and the resolver does the FundTerms mapping); `computeReturnsSnapshot` calls it and adds `waterfall`, `netDividendStreamPerPeriod` and `resultNetDividends` to the snapshot. No migration: `carry_pct` and `hurdle_rate_pct` have existed since migration 208 and already ride in the version snapshot.
+
+**It was REBUILT the same day** to match the reference model. The first cut was a conventional three-tier private-equity waterfall (return of capital, then a preferred return, then a residual split). The reference is simpler and the difference is structural, so the old shape was removed rather than wrapped. **The reference mechanic, per period:**
+
+```
+hurdleAccrued    = (unpaidHurdleBoP + equityDrawn) x hurdleRate
+totalHurdleOwed  = equityDrawn + unpaidHurdleBoP + hurdleAccrued
+hurdlePaid       = MIN(distributions, totalHurdleOwed)
+unpaidHurdleEoP  = totalHurdleOwed - hurdlePaid
+excess           = distributions - hurdlePaid
+performanceFee   = excess x performanceFeePct
+netDistributions = distributions - performanceFee
+```
+
+Five points are worth carrying forward:
+
+1. **There is NO return-of-capital tier, no catch-up, and no residual split.** Equity drawn folds straight into the hurdle owed and is settled by the single `hurdlePaid` line, so `unpaidHurdle` is ONE balance carrying unreturned capital AND accrued preferred together. That naming is the reference's and is the most misreadable thing in the file. The performance fee is a FLAT percentage of everything above the hurdle, not a share of a split. The verifier pins the fold-in directly (at a zero hurdle rate the balance IS the unreturned capital) and asserts the removed tier fields left no vestige on the shape.
+2. **It runs over the Distributed-Equity stream**, not FCFE. That stream IS distributions: its negatives are equity drawn, its positives are cash returned. It is driven off the GROSS COMPONENTS (`existingEquity`, `equityCashAxis`, `inKindAxis`, `divPaidAxis`, `tvEquity`) rather than the netted stream, because a period can carry an equity draw and a dividend at once and netting first would hide the distribution behind the draw.
+3. **The hurdle is NOT in the solve, structurally rather than carefully.** The guideline flagged it as carrying Step 3's exposure. It does not: the performance fee is a SPLIT of cash that has already left the project, so it moves no project cash, never reaches `computeFundingGap`, and M5 runs after M4 has converged. The schedule is frozen by construction, with no second fee-free pass needed. `verify-fund-waterfall` section 5 proves it by running the same project at three hurdle and fee settings and requiring the FULL financials snapshot and every gross stream to be identical across all three.
+4. **The accrual compounds AND charges the same-period draw.** Substituting, the whole mechanic collapses to `owed = (BoP + drawn) x (1 + r)`, so the balance compounds at exactly `(1+r)` per period and a single draw C held n periods owes `C x (1+r)^(n+1)`. **A consequence worth knowing rather than rediscovering:** because of that extra power, an investor paid exactly the hurdle balance earns MORE than the hurdle rate as an IRR (16.64% on an 8% hurdle over one period, 8.83% over ten, converging down as the horizon lengthens). The hurdle here is a stated accrual convention, not an IRR the payment reproduces. The verifier pins the compounding identity and the closed form, and deliberately does NOT assert an IRR equality that the model does not have (the pre-rebuild version did assert it, correctly for its own opening-balance-only accrual).
+5. **Proven with teeth.** Three sabotages against the rebuilt engine: dropping the same-period draw from the accrual base fails 62 checks, charging the fee on the gross distribution instead of the excess fails 35, and not folding equity drawn into the owed balance fails 79.
+
+**Step 4 shipped NO UI.** Presentation of net vs gross is Step 5, so the waterfall currently lives in the snapshot and the verifier only. This is a deliberate scope boundary, not an oversight, and it means the known browser-verification gap below is unchanged rather than widened.
 
 ---
 
@@ -119,7 +143,7 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 - **Toggle off equals today.** With the fund toggle off, every existing project produces numerically identical results to today. Non-negotiable, and the guard tests it with a FULLY POPULATED but disabled block, not a bare toggle: that is the state a real user reaches.
 - **Additive only.** New tab, new table, new columns. No drops, no destructive schema change. Migrations numbered, applied manually by Ahmad in Supabase.
 - **Linear fee bases only.** Enforced by `FUND_FEE_SPECS` + `LINEAR_FEE_BASES` / `CIRCULAR_FEE_BASES`, not by anyone remembering.
-- **Anything the solver moves must be frozen before the solve.** Step 3's fee schedule is built from a fee-free pass and passed unchanged into every iteration. Step 4's hurdle accrual has the same exposure: a hurdle accruing on a balance the solver moves would reintroduce exactly the circularity Step 3 removed.
+- **Anything the solver moves must be frozen before the solve.** Step 3's fee schedule is built from a fee-free pass and passed unchanged into every iteration. Step 4 was expected to carry the same exposure and turned out not to: carry is a split of already-distributed cash, so it never reaches the funding requirement. That is asserted by a verifier, not assumed. The rule still binds anything later that spends real project cash.
 - **Schema reads stay tolerant, in tiers.** The server probes 210 -> 209 -> 208 and steps down on a missing column, so the tab survives a database that lags the repo. Whatever a lower tier cannot hold still rides in the version snapshot.
 - **Engine inputs live in the version snapshot.** The durable table is the tab's store; the ENGINE reads `Project.fundTerms` inside the snapshot, so a saved version reproduces the terms it was computed with and Module 6 scenarios can override them later.
 - **Migrations are verified BEHAVIOURALLY.** Grepping the DDL proves presence, not behaviour. Every applied migration gets live probes on a THROWAWAY project that is deleted afterwards.
@@ -136,4 +160,8 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 
 **Gap-sized drawdown does not fully meet the computed requirement.** Found during Step 3, NOT caused by it. With `fundingMethod: 3` and a minimum cash reserve, closing cash goes negative in the first operating period because the drawdown raised is smaller than `netCashRequiredPerPeriod`. The baseline troughs at about -9.8m **with no fund fees at all**; fees deepen it by their own cash cost and no more. Not a facility size cap (LTV 60 -> 95 changes nothing) and not the drawdown method (`min_cash_floor` is identical, since Method 3 gap-sizing supplies the schedule). **Decision 2026-08-04: out of scope for an additive step, logged in CLAUDE-TODO.md for later.** `verify-fund-fees` section 5 documents why the non-negativity assertion is absent and is where it belongs once fixed.
 
-**No browser verification.** Every fund step so far has been proven by types, verifiers and build only. The Fund Terms tab now carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) that no verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks.
+**No browser verification.** Every fund step so far has been proven by types, verifiers and build only. The Fund Terms tab now carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) that no verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks. Step 4 added no UI, so it neither closes nor widens this; Step 5 is where the waterfall becomes visible and is the right place to close it.
+
+**The waterfall has no UI yet (2026-08-05).** `waterfall`, `netDividendStreamPerPeriod` and `resultNetDividends` are on the returns snapshot and nothing renders them. Step 5 adds the M5 surface (a Waterfall tab, or a net-vs-gross block on the Returns tab) plus the Fund Manager fee income line. Until then the numbers exist and are verified but are not reachable in the product.
+
+**Pre-existing, unrelated: `verify-module6-scenarios` is 127 passed / 1 failed** on `Module 7 is Reports and live (enabled)`, a stale expectation left over from the Modules 6 and 7 swap (Module 7 is now "IC Presentation Builder"). Confirmed identical with all Step 4 code removed, so it is not a fund-layer regression. Logged here so the next step does not spend time re-diagnosing it.
