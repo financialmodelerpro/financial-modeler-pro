@@ -61,10 +61,10 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | **Schema** | `refm_fund_terms`, one row per project. Migration 208 (toggle + original terms), 209 (the real fee set + `fee_distribution` jsonb), 210 (`fund_manager_name` + `facility_limit_override`) | **LIVE**, all three applied |
 | **M4 Financial Statements + Funding** | Fund fees as an expense line BELOW EBITDA and ABOVE Zakat (`fundFeesPerPeriod`, `ebitdaAfterFundFeesPerPeriod`), plus `directCF.fundFeesPaidPerPeriod` inside operating cash, which is how the fee reaches the funding requirement | **LIVE** |
 | **M5 Returns** | Distribution waterfall over the Distributed-Equity stream on the REFERENCE structure (one combined hurdle balance settled by a single `hurdlePaid` line, then a flat performance fee on the excess), hurdle accrual and unpaid balance, distributions net of fee, post-fee IRR and MOIC. Gross streams untouched | **LIVE** (engine + snapshot; presentation is Step 5) |
-| **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract already built (see below), and the net-vs-gross UI | **Step 5, next** |
+| **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract, plus the net-vs-gross and waterfall UI on the Returns tab | **LIVE** |
 | **Excel export** | Fee line and waterfall rows in the locked palette | Step 6 |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, and the waterfall | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 73, `verify-fund-waterfall` 382) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, and the fee earners | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 73, `verify-fund-waterfall` 382, `verify-fund-fee-income` 107) |
 
 ### The Fund Manager
 
@@ -88,8 +88,8 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 | 2 | M1 Fund Terms tab + schema | **DONE 2026-08-03, EXTENDED 2026-08-04** | 208, 209, 210 |
 | 3 | M4 fund fee line + funding impact | **DONE 2026-08-04** | None needed |
 | 4 | **M5 waterfall + hurdle + performance fee** | **DONE 2026-08-05** (rebuilt same day to the reference structure) | None needed |
-| 5 | M5 net vs gross returns + Fund Manager fee income | **NEXT** | No |
-| 6 | Excel export rows | Pending | No |
+| 5 | **M5 net vs gross returns + Fund Manager fee income** | **DONE 2026-08-05** | None needed |
+| 6 | Excel export rows | **NEXT** | No |
 | 7 | End-to-end verify | Pending | No |
 
 ### What each completed step actually delivered
@@ -122,7 +122,16 @@ Five points are worth carrying forward:
 4. **The accrual compounds AND charges the same-period draw.** Substituting, the whole mechanic collapses to `owed = (BoP + drawn) x (1 + r)`, so the balance compounds at exactly `(1+r)` per period and a single draw C held n periods owes `C x (1+r)^(n+1)`. **A consequence worth knowing rather than rediscovering:** because of that extra power, an investor paid exactly the hurdle balance earns MORE than the hurdle rate as an IRR (16.64% on an 8% hurdle over one period, 8.83% over ten, converging down as the horizon lengthens). The hurdle here is a stated accrual convention, not an IRR the payment reproduces. The verifier pins the compounding identity and the closed form, and deliberately does NOT assert an IRR equality that the model does not have (the pre-rebuild version did assert it, correctly for its own opening-balance-only accrual).
 5. **Proven with teeth.** Three sabotages against the rebuilt engine: dropping the same-period draw from the accrual base fails 62 checks, charging the fee on the gross distribution instead of the excess fails 35, and not folding equity drawn into the owed balance fails 79.
 
-**Step 4 shipped NO UI.** Presentation of net vs gross is Step 5, so the waterfall currently lives in the snapshot and the verifier only. This is a deliberate scope boundary, not an oversight, and it means the known browser-verification gap below is unchanged rather than widened.
+**Step 4 shipped NO UI.** Presentation of net vs gross was Step 5, so the waterfall lived in the snapshot and the verifier only. Deliberate scope boundary, not an oversight.
+
+**Step 5** made the fund layer visible for the first time, and wired the fee income. Two parts, and the second one is the load-bearing design decision:
+
+1. **The M5 surface** (`Module5Returns.tsx`). Two new sections, each gated on the snapshot's `active` flag so a standalone project renders nothing at all: **Fund Distribution Waterfall** (gross vs net IRR and MOIC tiles, a gross-vs-net comparison table, and the waterfall in the reference's exact row order) and **Fund Fee Income** (per-earner management and performance fee, with the five fee lines broken out). Two presentation rules worth keeping: **balance rows carry no lifetime total** (a balance summed across periods is meaningless), and gross distributions appear only as a **memo below** the reference sequence so the nine rows match exactly.
+2. **Fee earners sit BESIDE the equity partners, never inside them.** `src/core/calculations/returns/feeEarners.ts` is a separate pure engine with its own snapshot; `PartnersSection` and `computePartnerReturns` were **not edited at all**, which is a stronger guarantee than any assertion about them. The Fund Manager takes 100% of the five management fees (never split, a constant rather than a stored input) plus its matrix share of the performance fee; project parties take only their matrix share. **Shares are never normalised**: a matrix summing to 80% allocates 80% and reports the remainder as `unallocatedPerformanceFee`, with a three-state chip separating "not allocated yet" (neutral) from "allocated wrong" (amber).
+
+**The check that earns its place.** Within a fund-ON run, changing the fee distribution matrix must leave the ENTIRE partners block and every gross stream byte-identical, with only `feeEarners` moving. Proven with teeth by leaking the Fund Manager into the partner roster: `verify-fund-fee-income` catches it on three checks, and **all 556 pre-existing checks pass** (`verify-returns-snapshot` 99, `verify-fund-waterfall` 382, `verify-fund-layer-guard` 75). A zero-equity partner takes a 0% share, so `Sigma partners == consolidated` still holds and every property-based check survives the pollution. That is exactly the failure mode section 3 warns about, and nothing before Step 5 could see it.
+
+**The UI is verified at SOURCE level only, and that limit is real.** `verify-fund-fee-income` section 7 asserts the sections are gated, the reference labels appear in the reference ORDER, and the fee section is a sibling of `PartnersSection`; section 7b asserts every array handed to the tables is full-length and finite, which is where a runtime crash would come from. It does NOT prove the surface renders. A real render check was attempted and abandoned: the table tree imports a CSS module, which is a Next build feature `tsx` cannot compile, and stubbing the module interop did not hold. The live browser check is therefore a genuine part of Step 5's sign-off, not a formality.
 
 ---
 
@@ -162,6 +171,6 @@ Five points are worth carrying forward:
 
 **No browser verification.** Every fund step so far has been proven by types, verifiers and build only. The Fund Terms tab now carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) that no verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks. Step 4 added no UI, so it neither closes nor widens this; Step 5 is where the waterfall becomes visible and is the right place to close it.
 
-**The waterfall has no UI yet (2026-08-05).** `waterfall`, `netDividendStreamPerPeriod` and `resultNetDividends` are on the returns snapshot and nothing renders them. Step 5 adds the M5 surface (a Waterfall tab, or a net-vs-gross block on the Returns tab) plus the Fund Manager fee income line. Until then the numbers exist and are verified but are not reachable in the product.
+**No render-level UI verification (2026-08-05).** Step 5's two M5 sections are asserted at source level only (gating, reference row ORDER, sibling placement, and the shape of every array fed to the tables). A real render check under `tsx` is blocked by the CSS-module import in the table tree, which is a Next build feature `tsx` cannot compile; stubbing the interop was tried and did not hold. Closing this properly needs either a jsdom or Playwright harness with the Next transform available, which is its own piece of work and is not gating Step 6.
 
 **Pre-existing, unrelated: `verify-module6-scenarios` is 127 passed / 1 failed** on `Module 7 is Reports and live (enabled)`, a stale expectation left over from the Modules 6 and 7 swap (Module 7 is now "IC Presentation Builder"). Confirmed identical with all Step 4 code removed, so it is not a fund-layer regression. Logged here so the next step does not spend time re-diagnosing it.

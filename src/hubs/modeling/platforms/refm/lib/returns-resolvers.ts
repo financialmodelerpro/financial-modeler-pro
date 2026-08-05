@@ -49,18 +49,18 @@ import {
   equityExposure, stabilizationMetrics, debtAnalytics, computePartnerReturns,
   buildSponsorStreamsForExit, exitYearAnalysis, computePerAssetReturns,
   computeSensitivity, defaultSensitivityValues,
-  computeDistributionWaterfall,
+  computeDistributionWaterfall, computeFeeEarnerReturns,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod, StreamReturns,
   DevelopmentEconomics, ExitAnalysis, SourcesUses, FundingMix,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics, PartnersSnapshot,
   ExitYearRow, PerAssetSnapshot, SensitivityGrid, SensitivityVariable, SponsorStreamInputs,
-  WaterfallSnapshot,
+  WaterfallSnapshot, FeeEarnersSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import type { Project } from './state/module1-types';
-import { resolveFundTerms } from './fundTerms';
+import { resolveFundTerms, resolveFeeEarners } from './fundTerms';
 
 export interface ReturnsConfig {
   discountRate: number;
@@ -193,6 +193,20 @@ export interface ReturnsSnapshot {
   /** POST-FEE IRR and MOIC (plus NPV / payback) on the net cash flow: equity
    *  invested plus distributions net of the performance fee. */
   resultNetDividends: StreamReturns;
+  /**
+   * Fund layer Step 5 (2026-08-05): who EARNS the fund's fees. The Fund
+   * Manager takes 100% of the five management fees plus its matrix share of
+   * the performance fee; project parties take only their matrix share.
+   *
+   * DELIBERATELY SEPARATE FROM `partners`. A fee earner contributes no equity,
+   * so it is not a `PartnerInput` and is not inside the partner snapshot. The
+   * identity that makes the partner table trustworthy (Sigma partners ==
+   * consolidated, per period) is untouched by anything in here.
+   *
+   * `active: false` with an empty earner list on every project with the fund
+   * toggle off, which is every standalone project.
+   */
+  feeEarners: FeeEarnersSnapshot;
 }
 
 /** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
@@ -401,6 +415,36 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // lookalike. Equals the waterfall's own netCashflowPerPeriod when active
   // (net distributions less equity drawn), which the verifier pins.
   const netDividendStream = dividendStream.map((v, i) => v - (waterfall.performanceFeePerPeriod[i] ?? 0));
+
+  // ── Fund layer Step 5 (2026-08-05): who earns the fees ──────────────────
+  //
+  // Computed ALONGSIDE the partners, never inside them. A fee earner holds no
+  // equity, so it cannot take a shareholding, and the partner identity
+  // (Sigma partners == consolidated, per period) is left exactly as it was.
+  //
+  // The two fee series arrive on different axes and are aligned here: the M4
+  // fee schedule is axis-indexed (length N) while the waterfall is
+  // inception-prefixed (length E+1), so management fees are lifted onto the
+  // stream basis with a ZERO inception. That is not a fudge: the fund charges
+  // no management fee before the project axis begins.
+  const managementFeeAxis = snap.fundFees.totalPerPeriod.slice(0, E).map((v) => v ?? 0);
+  const feeEarners = computeFeeEarnerReturns({
+    // resolveFeeEarners always puts the Fund Manager first and always includes
+    // it when the layer is on, even with an empty matrix, because the
+    // management fees are its entitlement regardless of any split.
+    earners: fundTerms.enabled
+      ? resolveFeeEarners(fundTerms).map((e) => ({
+        entityId: e.entityId,
+        name: e.name,
+        kind: e.kind,
+        managementFeeShare: e.managementFeeShare,
+        performanceFeeShare: e.performanceFeePct,
+      }))
+      : [],
+    managementFeePerPeriod: incep(0, managementFeeAxis),
+    performanceFeePerPeriod: waterfall.performanceFeePerPeriod,
+    active: fundTerms.enabled,
+  });
 
   // ── Step-by-step build-up components (E+1, index 0 = inception) ──────
   const buildup = {
@@ -656,5 +700,6 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     // streams use, so net and gross are comparable numbers rather than two
     // metrics that merely share a name.
     resultNetDividends: summariseStream({ perPeriod: netDividendStream }, cfg.discountRate),
+    feeEarners,
   };
 }

@@ -187,6 +187,22 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin == null ? 'neutral' : de.developmentMargin >= 0 ? 'good' : 'bad'} />
       </MetricGrid>
 
+      {/* ── Fund layer Step 5: the distribution waterfall + gross vs net.
+            Renders ONLY when the fund toggle is on. Every standalone project
+            sees exactly what it saw before. ── */}
+      {rs.waterfall.active && (
+        <FundWaterfallSection
+          waterfall={rs.waterfall}
+          gross={r.dividends}
+          net={rs.resultNetDividends}
+          exitYearLabel={rs.exitYearLabel}
+          axisLabels={axisLabels}
+          inceptionLabel={inceptionLabel}
+          currency={currency}
+          fmt={fmt}
+        />
+      )}
+
       {/* ── Equity Partners ── */}
       <PartnersSection
         partners={project.partners ?? []}
@@ -202,6 +218,21 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         currency={currency}
         onChange={(next) => state.setProject({ partners: next })}
       />
+
+      {/* ── Fund layer Step 5: who EARNS the fees. Sits beside the equity
+            partners above, never inside them: a fee earner holds no equity, so
+            it takes no shareholding and cannot disturb the identity that makes
+            the partner table reconcile. Renders only when the toggle is on. ── */}
+      {rs.feeEarners.active && (
+        <FeeIncomeSection
+          snapshot={rs.feeEarners}
+          feeLines={snap.fundFees.lines}
+          axisLabels={axisLabels}
+          inceptionLabel={inceptionLabel}
+          currency={currency}
+          fmt={fmt}
+        />
+      )}
 
       {/* ── Sources & Uses ── */}
       <SectionTitle>Sources &amp; Uses of Capital</SectionTitle>
@@ -313,6 +344,281 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       {/* ── Two-way Sensitivity (Equity IRR), moved to the bottom of the tab. ── */}
       <SensitivitySection snap={snap} project={project} />
     </div>
+  );
+}
+
+/**
+ * Fund layer Step 5: the distribution waterfall, plus returns gross vs net.
+ *
+ * ROW ORDER AND LABELS MATCH THE REFERENCE MODEL and are not to be reordered
+ * for aesthetics: the sequence IS the calculation, each line feeding the next.
+ *
+ * Two presentation decisions worth knowing:
+ *
+ *   BALANCE ROWS CARRY NO TOTAL. Unpaid hurdle BoP, total hurdle owed and
+ *   unpaid hurdle EoP are BALANCES, and a balance summed across periods is a
+ *   number with no meaning. They are left blank rather than filled with a
+ *   figure a reader might trust.
+ *
+ *   GROSS DISTRIBUTIONS ARE A MEMO. The reference sequence ends at
+ *   distributions net of the fee. Gross distributions are appended BELOW the
+ *   sequence, clearly marked as a memo, purely so the hurdle-paid MIN and the
+ *   excess line can be read without mental arithmetic.
+ */
+function FundWaterfallSection(props: {
+  waterfall: import('@/src/core/calculations/returns').WaterfallSnapshot;
+  gross: import('@/src/core/calculations/returns').StreamReturns;
+  net: import('@/src/core/calculations/returns').StreamReturns;
+  exitYearLabel: number;
+  axisLabels: number[];
+  inceptionLabel: number;
+  currency: string;
+  fmt: (n: number) => string;
+}): React.JSX.Element {
+  const { waterfall: w, gross, net, axisLabels, inceptionLabel, currency, fmt } = props;
+
+  // Same (E+1) convention every other M5 table uses: index 0 is the inception
+  // period and renders in the prior-year column.
+  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
+    label,
+    values: arr.slice(1),
+    priorValue: arr[0] ?? 0,
+    totalOverride: fmt(arr.reduce((s, v) => s + (v ?? 0), 0)),
+    ...opts,
+  });
+  /** A balance line: no lifetime total, because balances do not sum. */
+  const balanceRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row =>
+    toRow(label, arr, { totalOverride: '', ...opts });
+
+  const rows: M4Row[] = [
+    toRow('Equity Drawn', w.equityDrawnPerPeriod),
+    balanceRow('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle)),
+    toRow('Hurdle Accrued', w.hurdleAccruedPerPeriod),
+    balanceRow('Total Hurdle Owed', w.totalHurdleOwedPerPeriod, { isSubtotal: true }),
+    toRow('Hurdle Paid', w.hurdlePaidPerPeriod),
+    balanceRow('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod, { isSubtotal: true }),
+    toRow('Excess Distributions', w.excessDistributionsPerPeriod),
+    toRow('Performance Fee', w.performanceFeePerPeriod),
+    toRow('Distributions Net of Performance Fee', w.netDistributionPerPeriod, { isTotal: true }),
+    toRow('Memo: Distributions (gross, before fee)', w.distributionPerPeriod, { indent: 1 }),
+  ];
+
+  const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
+
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-fund-waterfall">
+      <SectionTitle>Fund Distribution Waterfall</SectionTitle>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Equity drawn folds into a single unpaid hurdle balance, which accrues at the hurdle rate and is settled
+        by one Hurdle Paid line. Anything distributed above it is excess, and the performance fee is a flat
+        percentage of that excess. Hurdle {fmtPct(w.hurdleRate)}, performance fee {fmtPct(w.performanceFeePct)}.
+      </div>
+
+      {/* Gross vs net, the headline of this section. */}
+      <MetricGrid min={155}>
+        <MetricCard
+          label="Distributed Equity IRR (gross)" value={fmtPct(gross.irr)} sub={`MOIC ${fmtX(gross.moic)}`}
+          tooltip="Before the fund's performance fee. This is the same figure shown in the headline tiles and is unaffected by the waterfall."
+        />
+        <MetricCard
+          label="Distributed Equity IRR (net)" value={fmtPct(net.irr)} sub={`MOIC ${fmtX(net.moic)}`}
+          tooltip="After the performance fee: equity invested plus distributions net of the fee."
+        />
+        <MetricCard label="Performance Fee" value={fmt(w.totalPerformanceFee)} sub="total over the hold" />
+        <MetricCard
+          label="Unpaid Hurdle at Exit" value={fmt(w.hurdleShortfall)}
+          sub={w.hurdleShortfall > 0 ? 'hurdle not fully met' : 'hurdle fully settled'}
+          tone={w.hurdleShortfall > 0 ? 'bad' : 'good'}
+          tooltip="The closing unpaid hurdle balance. It carries unreturned capital as well as accrued hurdle, because there is no separate return-of-capital tier."
+        />
+      </MetricGrid>
+
+      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ textAlign: 'left', padding: '6px 10px' }}>Distributed Equity</th>
+              <th style={th}>IRR</th>
+              <th style={th}>MOIC</th>
+              <th style={th}>Invested</th>
+              <th style={th}>Distributions</th>
+              <th style={th}>Net Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <td style={{ textAlign: 'left', padding: '6px 10px', fontWeight: 600 }}>Excluding fund fees (gross)</td>
+              <td style={td}>{fmtPct(gross.irr)}</td>
+              <td style={td}>{fmtX(gross.moic)}</td>
+              <td style={td}>{fmt(gross.totalOutflow)}</td>
+              <td style={td}>{fmt(gross.totalInflow)}</td>
+              <td style={{ ...td, fontWeight: 600 }}>{fmt(gross.netProfit)}</td>
+            </tr>
+            <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+              <td style={{ textAlign: 'left', padding: '6px 10px', fontWeight: 800 }}>Net of performance fee</td>
+              <td style={{ ...td, fontWeight: 700 }}>{fmtPct(net.irr)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{fmtX(net.moic)}</td>
+              <td style={td}>{fmt(net.totalOutflow)}</td>
+              <td style={td}>{fmt(net.totalInflow)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{fmt(net.netProfit)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <M4PeriodTable
+        title={`Distribution Waterfall (hold to ${props.exitYearLabel})`}
+        caption="Each line feeds the next, in the order shown. Balance lines (BoP, Total Hurdle Owed, EoP) carry no lifetime total, because a balance summed across periods has no meaning. The prior column is the inception period. Gross distributions are shown as a memo below the sequence."
+        yearLabels={axisLabels}
+        rows={rows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={inceptionLabel}
+      />
+    </section>
+  );
+}
+
+/**
+ * Fund layer Step 5: fee income, by earner.
+ *
+ * Sits BESIDE the equity partners, never inside them. The Fund Manager
+ * contributes no equity, so it holds no shareholding and appears in no partner
+ * total; a project party that also earns a fee share appears in BOTH tables,
+ * with its equity return and its fee income kept separate.
+ *
+ * The performance-fee shares are shown EXACTLY as entered, never normalised. A
+ * matrix that does not add to 100% leaves an unallocated remainder, which is
+ * displayed rather than absorbed, because absorbing it would invent an
+ * allocation the user never made.
+ */
+function FeeIncomeSection(props: {
+  snapshot: import('@/src/core/calculations/returns').FeeEarnersSnapshot;
+  feeLines: import('../../lib/fundFees').FundFeeSchedule['lines'];
+  axisLabels: number[];
+  inceptionLabel: number;
+  currency: string;
+  fmt: (n: number) => string;
+}): React.JSX.Element {
+  const { snapshot: s, feeLines, axisLabels, inceptionLabel, currency, fmt } = props;
+
+  const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11 };
+  const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', fontSize: 11, borderBottom: '1px solid var(--color-border)' };
+  const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+
+  // Reconciliation chip on the performance-fee split, mirroring the partner
+  // one. Three states, not two: nobody has allocated yet (neutral, a normal
+  // starting point), allocated to 100% (green), or allocated to something else
+  // (amber with the signed delta).
+  const chip = s.noneAllocated
+    ? { bg: '#F3F4F6', fg: '#4B5563', icon: 'i', text: 'Performance fee not allocated yet' }
+    : s.performanceFeeReconciles
+      ? { bg: '#E7F6EC', fg: '#1A7A30', icon: '✓', text: `Performance fee shares total ${fmtPct(s.performanceFeeShareSum)}` }
+      : { bg: '#FEF3C7', fg: '#92400E', icon: '⚠', text: `Performance fee shares total ${fmtPct(s.performanceFeeShareSum)}` };
+
+  // The five management fees, lifted onto the stream basis with a zero
+  // inception so they line up with every other table on this surface.
+  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
+    label,
+    values: arr.slice(1),
+    priorValue: arr[0] ?? 0,
+    totalOverride: fmt(arr.reduce((sum, v) => sum + (v ?? 0), 0)),
+    ...opts,
+  });
+  const onStreamBasis = (axis: number[]): number[] => [0, ...axis.slice(0, axisLabels.length)];
+  const feeLineRows: M4Row[] = [
+    ...feeLines.map((line) => toRow(line.label, onStreamBasis(line.amountPerPeriod), { indent: 1 })),
+    toRow('= Total Management Fees', s.managementFeePerPeriod, { isSubtotal: true }),
+    toRow('Performance Fee', s.performanceFeePerPeriod),
+    toRow('= Total Fee Income', s.totalFeeIncomePerPeriod, { isTotal: true }),
+  ];
+
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-fee-income">
+      <SectionTitle>Fund Fee Income</SectionTitle>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Who earns the fund&apos;s fees, as distinct from who owns its equity. The Fund Manager takes 100% of the
+        five management fees (its entitlement by definition, never split) plus its share of the performance fee
+        from the Module 1 distribution matrix; project parties take only their matrix share. Fee earners hold no
+        equity, so nothing here is part of the equity split above and no figure in the Equity Partners tables
+        moves because of it.
+      </div>
+
+      <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-1)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={thL}>Fee Earner</th>
+              <th style={thL}>Type</th>
+              <th style={th} title="Share of the five fund management fees">Mgmt Fee %</th>
+              <th style={th}>Management Fees</th>
+              <th style={th} title="Share of the performance fee, from the Module 1 distribution matrix">Perf. Fee %</th>
+              <th style={th}>Performance Fee</th>
+              <th style={th}>Total Fee Income</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.earners.map((e) => (
+              <tr key={e.entityId}>
+                <td style={{ ...tdL, fontWeight: 600 }}>{e.name}</td>
+                <td style={{ ...tdL, color: 'var(--color-meta)' }}>
+                  {e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party'}
+                </td>
+                <td style={td}>{fmtPct(e.managementFeeShare)}</td>
+                <td style={td}>{fmt(e.totalManagementFeeIncome)}</td>
+                <td style={td}>{fmtPct(e.performanceFeeShare)}</td>
+                <td style={td}>{fmt(e.totalPerformanceFeeIncome)}</td>
+                <td style={{ ...td, fontWeight: 700 }}>{fmt(e.totalFeeIncome)}</td>
+              </tr>
+            ))}
+            {/* An unallocated remainder is SHOWN, not absorbed into an earner. */}
+            {s.unallocatedPerformanceFee > 0 && (
+              <tr>
+                <td style={{ ...tdL, fontStyle: 'italic', color: 'var(--color-meta)' }}>Unallocated</td>
+                <td style={tdL} />
+                <td style={td} />
+                <td style={td} />
+                <td style={{ ...td, color: 'var(--color-meta)' }}>{fmtPct(Math.max(0, 1 - s.performanceFeeShareSum))}</td>
+                <td style={{ ...td, color: 'var(--color-meta)' }}>{fmt(s.unallocatedPerformanceFee)}</td>
+                <td style={{ ...td, color: 'var(--color-meta)' }}>{fmt(s.unallocatedPerformanceFee)}</td>
+              </tr>
+            )}
+            <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+              <td style={{ ...tdL, fontWeight: 800 }}>Total</td>
+              <td style={tdL} />
+              <td style={td} />
+              <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalManagementFee)}</td>
+              <td style={td} />
+              <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalPerformanceFee)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{fmt(s.totalManagementFee + s.totalPerformanceFee)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-2)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: chip.bg, color: chip.fg, borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>
+          {chip.icon} {chip.text}
+          {!s.noneAllocated && !s.performanceFeeReconciles && (
+            <span style={{ fontWeight: 600 }}>
+              ({s.performanceFeeShareDelta >= 0 ? '+' : ''}{fmtPct(s.performanceFeeShareDelta)} vs 100%)
+            </span>
+          )}
+        </span>
+      </div>
+
+      <M4PeriodTable
+        title="Fee Income by Period"
+        caption="The five management fees as charged in Module 4, plus the performance fee from the waterfall above. Management fees are charged on the project axis, so the inception column is zero. These are fee entitlements, not equity distributions."
+        yearLabels={axisLabels}
+        rows={feeLineRows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={inceptionLabel}
+      />
+    </section>
   );
 }
 

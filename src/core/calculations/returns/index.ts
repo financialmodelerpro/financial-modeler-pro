@@ -93,6 +93,8 @@ export { computeSensitivity, defaultSensitivityValues } from './sensitivity';
 export type { SensitivityVariable, SensitivityAxis, SensitivityGrid } from './sensitivity';
 export { computeDistributionWaterfall, emptyWaterfall } from './waterfall';
 export type { WaterfallInputs, WaterfallPeriod, WaterfallSnapshot } from './waterfall';
+export { computeFeeEarnerReturns, emptyFeeEarners } from './feeEarners';
+export type { FeeEarnerInput, FeeEarnerInputs, FeeEarnerResult, FeeEarnersSnapshot } from './feeEarners';
 export {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries, safeRatio,
