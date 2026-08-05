@@ -109,14 +109,24 @@ export interface ProjectPL {
   hqOpexPerPeriod: number[];
   totalOpexPerPeriod: number[];
   // Profit waterfall
+  /** EBITDA, struck AFTER the fund fees (2026-08-05, reference alignment).
+   *  Identical to `ebitdaBeforeFundFeesPerPeriod` on every standalone project,
+   *  because the fees are then all zero. */
   ebitdaPerPeriod: number[];
+  /** Revenue less cost of sales less operating expenses, BEFORE fund fees.
+   *  The phase-level P&L uses this: fund fees are project level and carry no
+   *  phase allocation, so a per-phase EBITDA cannot be struck after them. */
+  ebitdaBeforeFundFeesPerPeriod: number[];
   /** Fund layer Step 3 (2026-08-04): total fund fees charged this period.
    *  Positive = an expense. Zero on every standalone project, which is every
-   *  project with the fund toggle off. Sits BELOW EBITDA and ABOVE the tax /
-   *  Zakat line, so it reduces EBIT, PBT, tax and PAT but never EBITDA. */
+   *  project with the fund toggle off. Totals into the P&L's "Total Fund
+   *  Management Fee" line, ABOVE EBITDA (2026-08-05, reference alignment), so
+   *  it reduces EBITDA and everything below it. */
   fundFeesPerPeriod: number[];
-  /** EBITDA less the fund fees. Equals ebitdaPerPeriod when the fund layer is
-   *  off, so a standalone P&L reads exactly as it did before. */
+  /** DEPRECATED ALIAS of `ebitdaPerPeriod`, retained so a caller written
+   *  against Step 3 still finds the after-fee figure under the name it used.
+   *  EBITDA is now struck after the fees, so the two are the same array of
+   *  values by construction. Prefer `ebitdaPerPeriod`. */
   ebitdaAfterFundFeesPerPeriod: number[];
   daPerPeriod: number[];
   ebitPerPeriod: number[];
@@ -1672,16 +1682,40 @@ function computeFinancialsSnapshotOnce(
   const fundFees = zeros(N);
   for (let t = 0; t < N; t++) fundFees[t] = fundFeeSchedule.totalPerPeriod[t] ?? 0;
 
+  // ── EBITDA IS STRUCK AFTER THE FUND FEES (2026-08-05) ────────────────────
+  //
+  // Step 3 originally placed the fees BELOW EBITDA and above the tax line, so
+  // EBITDA stayed a pre-fee operating measure and a second "EBITDA after fund
+  // fees" line carried the net figure. The reference model does it the other
+  // way: the fees total into their own line and EBITDA is struck AFTER them,
+  // so there is ONE EBITDA and it is already net of fund fees. Changed to
+  // match, because two EBITDA rows in one statement is exactly the kind of
+  // thing a reader quotes the wrong one of.
+  //
+  // The pre-fee measure is still computed and exposed, because the phase-level
+  // P&L needs it: fund fees are PROJECT level and carry no phase allocation,
+  // so a per-phase EBITDA cannot be struck after them.
+  //
+  // On every standalone project fundFees is all zeros, so ebitda,
+  // ebitdaBeforeFundFees and ebitdaAfterFundFees are the same numbers and
+  // nothing downstream moves. That is what the toggle-off guard pins.
+  //
+  // KNOWN CONSEQUENCE, deliberate: ICR and DSCR read `ebitdaPerPeriod`, so on a
+  // fund project they are now measured on after-fee EBITDA. That follows from
+  // the reference's definition rather than being a side effect of it.
+  const ebitdaBeforeFundFees = zeros(N);
   const ebitda = zeros(N);
   const ebitdaAfterFundFees = zeros(N);
   const ebit = zeros(N);
   const pbt = zeros(N);
   for (let t = 0; t < N; t++) {
-    ebitda[t] = totalRev[t] - cosTotal[t] - totalOpex[t];
-    // Below EBITDA, above the tax line: the fee reduces EBIT, PBT, tax and PAT
-    // while EBITDA itself stays the operating measure it was.
-    ebitdaAfterFundFees[t] = ebitda[t] - fundFees[t];
-    ebit[t] = ebitdaAfterFundFees[t] - da[t];
+    ebitdaBeforeFundFees[t] = totalRev[t] - cosTotal[t] - totalOpex[t];
+    ebitda[t] = ebitdaBeforeFundFees[t] - fundFees[t];
+    // Retained as an alias of `ebitda`, not as a second definition. Kept so a
+    // reader or a caller written against Step 3 still finds the after-fee
+    // figure under the name it used, and finds the RIGHT number.
+    ebitdaAfterFundFees[t] = ebitda[t];
+    ebit[t] = ebitda[t] - da[t];
     pbt[t] = ebit[t] - interestExpense[t]; // + interestIncome (zero today)
   }
   const taxRate = Math.max(0, project.tax?.rate ?? 0);
@@ -1703,6 +1737,7 @@ function computeFinancialsSnapshotOnce(
     hqOpexPerPeriod: hqOpex,
     totalOpexPerPeriod: totalOpex,
     ebitdaPerPeriod: ebitda,
+    ebitdaBeforeFundFeesPerPeriod: ebitdaBeforeFundFees,
     fundFeesPerPeriod: fundFees,
     ebitdaAfterFundFeesPerPeriod: ebitdaAfterFundFees,
     daPerPeriod: da,

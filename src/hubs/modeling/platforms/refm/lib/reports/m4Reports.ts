@@ -119,13 +119,16 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     for (let t = 0; t < N; t++) interestExpense[t] = p.interestExpensePerPeriod[t] ?? 0;
   }
 
-  const ebitda = totalRev.map((v, i) => v - (cosTotal[i] ?? 0) - (totalOpex[i] ?? 0));
-  // Fund fees sit between EBITDA and EBIT (fund layer Step 3), so EBIT is
-  // struck AFTER them. Without this the rendered EBIT would disagree with the
-  // snapshot's, and the statement would stop footing from EBITDA down to PAT
-  // the moment a fund project was opened. Zero on every standalone project.
-  const fundFeesLocal = (p.fundFeesPerPeriod ?? []).slice(0, ebitda.length);
-  const ebit = ebitda.map((v, i) => v - (fundFeesLocal[i] ?? 0) - (da[i] ?? 0));
+  // EBITDA IS STRUCK AFTER THE FUND FEES (2026-08-05, reference alignment).
+  // The fees total into their own line and EBITDA follows, so there is ONE
+  // EBITDA and it is already net of fund fees. `ebitdaBefore` is the pre-fee
+  // measure the PHASE-level statement uses, because fund fees are project
+  // level and carry no phase allocation. Both are the same numbers on every
+  // standalone project, where the fees are all zero.
+  const ebitdaBefore = totalRev.map((v, i) => v - (cosTotal[i] ?? 0) - (totalOpex[i] ?? 0));
+  const fundFeesLocal = (p.fundFeesPerPeriod ?? []).slice(0, ebitdaBefore.length);
+  const ebitda = ebitdaBefore.map((v, i) => v - (fundFeesLocal[i] ?? 0));
+  const ebit = ebitda.map((v, i) => v - (da[i] ?? 0));
   const pbt = ebit.map((v, i) => v - (interestExpense[i] ?? 0));
   const taxArr = pbt.map((v) => Math.max(0, v) * p.taxRate);
   const pat = pbt.map((v, i) => v - (taxArr[i] ?? 0));
@@ -183,17 +186,25 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
   rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
 
-  rows.push({ label: labels.ebitda, values: ebitda, isTotal: true });
+  // Phase-level P&L stops at EBITDA (D&A, interest, tax are project-level), and
+  // uses the PRE-FEE measure: fund fees are project level with no phase
+  // allocation, so a per-phase EBITDA cannot be struck after them.
+  if (phaseFiltered) {
+    rows.push({ label: labels.ebitda, values: ebitdaBefore, isTotal: true });
+    return rows;
+  }
 
-  // Phase-level P&L stops at EBITDA (D&A, interest, tax are project-level).
-  if (phaseFiltered) return rows;
-
-  // Fund fees (fund layer Step 3, 2026-08-04). Rendered BELOW EBITDA and ABOVE
-  // the tax line, one row per fee so a reader sees what is being charged rather
-  // than a single opaque total. Omitted entirely when the fund layer is off,
-  // which is every standalone project, so an existing P&L is unchanged. Built
-  // here rather than in the tab, so the screen, the PDF and the Excel export
-  // all pick it up from the one place.
+  // Fund fees (fund layer Step 3, repositioned 2026-08-05 to match the
+  // reference). They total into "Total Fund Management Fee" and EBITDA is
+  // struck AFTER that line, so the statement carries ONE EBITDA and it is
+  // already net of fund fees. One row per fee so a reader sees what is being
+  // charged rather than a single opaque total.
+  //
+  // The whole block is omitted when the fund layer is off, which is every
+  // standalone project, so the rows there are byte-identical to before: EBITDA
+  // still lands immediately after Total Operating Expenses with the same
+  // values. Built here rather than in the tab, so the screen, the PDF and the
+  // Excel export all pick it up from the one place.
   const fundFees = p.fundFeesPerPeriod ?? [];
   if (fundFees.some((v) => v !== 0)) {
     for (const line of snap.fundFees.lines) {
@@ -201,9 +212,10 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
         rows.push({ label: line.label, values: negArr(line.amountPerPeriod), indent: 1 });
       }
     }
-    rows.push({ label: 'Total Fund Fees', values: negArr(fundFees), isSubtotal: true });
-    rows.push({ label: 'EBITDA after fund fees', values: p.ebitdaAfterFundFeesPerPeriod ?? ebitda, isTotal: true });
+    rows.push({ label: 'Total Fund Management Fee', values: negArr(fundFees), isSubtotal: true });
   }
+
+  rows.push({ label: labels.ebitda, values: ebitda, isTotal: true });
 
   rows.push({ label: 'Depreciation & Amortization', values: negArr(da), indent: 1 });
   rows.push({ label: labels.ebit, values: ebit, isSubtotal: true });
@@ -393,6 +405,19 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     rows.push({ label: 'HQ Expenses', values: d.hqOpexPaidPerPeriod, indent: 1 });
   }
   rows.push({ label: 'Total Operating Expenses Paid', values: d.opexPaidPerPeriod.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0)), isSubtotal: true });
+
+  // Fund fees paid (2026-08-05). They were ALWAYS inside cash from operations
+  // (that is how the fee reaches the funding requirement), but they had no row,
+  // so the operating section could not be footed: the total was right and
+  // unexplained. Carries exactly the values of the P&L's "Total Fund Management
+  // Fee" line, negated, because the fee is paid in the period it is charged.
+  //
+  // Direct and Indirect still agree: the fee is a cash expense already inside
+  // PAT, so the indirect method needs no add-back and is left untouched.
+  const fundFeesPaid = d.fundFeesPaidPerPeriod ?? [];
+  if (fundFeesPaid.some((v) => v !== 0)) {
+    rows.push({ label: 'Fund Management and Other Expenses', values: fundFeesPaid, indent: 1 });
+  }
 
   if (d.taxPaidPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: `${labels.taxPaid}`, values: d.taxPaidPerPeriod, indent: 1 });

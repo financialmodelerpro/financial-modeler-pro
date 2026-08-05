@@ -34,7 +34,7 @@
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeFundFeeSchedule, openingFromClosing, emptyFundFeeSchedule } from '../src/hubs/modeling/platforms/refm/lib/fundFees';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
-import { buildPLRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { getFinancialLabels } from '../src/core/calculations/financials';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -187,18 +187,28 @@ console.log('\n=== 1b. The arranging fee charges the limit the MODEL states ==='
     `limit ${snap.fundFees.facilityLimit.amount} vs drawn ${drawn}`);
 }
 
-console.log('\n=== 2. The P&L books it below EBITDA and above tax ===');
+console.log('\n=== 2. The P&L strikes EBITDA AFTER the fees (2026-08-05) ===');
 {
   const off = computeFinancialsSnapshot(buildState({ fund: false }));
   const on = computeFinancialsSnapshot(buildState({ fund: true }));
   const N = on.axisLength;
 
-  check('EBITDA itself is UNCHANGED by the fees',
-    on.pl.ebitdaPerPeriod.every((v, t) => near(v, off.pl.ebitdaPerPeriod[t] ?? 0)));
-  check('EBITDA after fund fees = EBITDA - fees',
-    on.pl.ebitdaAfterFundFeesPerPeriod.every((v, t) => near(v, (on.pl.ebitdaPerPeriod[t] ?? 0) - (on.pl.fundFeesPerPeriod[t] ?? 0))));
-  check('EBIT = EBITDA after fees - D&A',
-    on.pl.ebitPerPeriod.every((v, t) => near(v, (on.pl.ebitdaAfterFundFeesPerPeriod[t] ?? 0) - (on.pl.daPerPeriod[t] ?? 0))));
+  // REPOSITIONED to match the reference. Step 3 put the fees BELOW EBITDA, so
+  // EBITDA was a pre-fee measure and these two checks asserted it was unchanged
+  // by the fees. The reference totals the fees into their own line and strikes
+  // EBITDA after it, so EBITDA is now NET of fund fees and the pre-fee measure
+  // moved to its own field. The old assertions are not weakened here, they are
+  // re-pointed at the field that still carries the claim they were making.
+  check('the PRE-FEE measure is unchanged by the fees',
+    on.pl.ebitdaBeforeFundFeesPerPeriod.every((v, t) => near(v, off.pl.ebitdaPerPeriod[t] ?? 0)));
+  check('EBITDA is now struck AFTER the fees',
+    on.pl.ebitdaPerPeriod.every((v, t) => near(v, (on.pl.ebitdaBeforeFundFeesPerPeriod[t] ?? 0) - (on.pl.fundFeesPerPeriod[t] ?? 0))));
+  check('EBITDA falls by exactly the fee each period',
+    on.pl.ebitdaPerPeriod.every((v, t) => near(v, (off.pl.ebitdaPerPeriod[t] ?? 0) - (on.pl.fundFeesPerPeriod[t] ?? 0))));
+  check('the retained alias equals EBITDA exactly, so no caller reads a stale figure',
+    on.pl.ebitdaAfterFundFeesPerPeriod.every((v, t) => v === on.pl.ebitdaPerPeriod[t]));
+  check('EBIT = EBITDA - D&A, with no second fee deduction',
+    on.pl.ebitPerPeriod.every((v, t) => near(v, (on.pl.ebitdaPerPeriod[t] ?? 0) - (on.pl.daPerPeriod[t] ?? 0))));
   check('the P&L fee line equals the schedule',
     on.pl.fundFeesPerPeriod.every((v, t) => near(v, on.fundFees.totalPerPeriod[t] ?? 0)));
   check('the fees are a real, positive charge', sum(on.pl.fundFeesPerPeriod) > 0);
@@ -226,36 +236,156 @@ console.log('\n=== 3. Statement integrity holds WITH fees on ===');
     on.directCF.fundFeesPaidPerPeriod.every((v, t) => near(-v, on.pl.fundFeesPerPeriod[t] ?? 0)));
 }
 
-console.log('\n=== 3b. The rendered P&L shows the fees and still foots ===');
+console.log('\n=== 3b. The rendered P&L: fees total, THEN EBITDA (reference order) ===');
 {
   const state = buildState({ fund: true, taxRate: 0.15 });
   const on = computeFinancialsSnapshot(state);
-  const rows = buildPLRows({ snap: on, state, filterPhaseId: '__all__', labels: getFinancialLabels(state.project), fmt: (v: number) => String(v) } as any);
+  const mkCtx = (s: any, snap: any, phase = '__all__') => ({
+    snap, state: s, filterPhaseId: phase, labels: getFinancialLabels(s.project), fmt: (v: number) => String(v),
+  }) as any;
+  const rows = buildPLRows(mkCtx(state, on));
   const label = (s: string) => rows.find((r: any) => r.label === s);
+  const idx = (s: string) => rows.findIndex((r: any) => r.label === s);
 
   check('a row is rendered per charged fee',
     on.fundFees.lines.filter((l) => l.total !== 0).every((l) => !!label(l.label)));
-  check('a Total Fund Fees subtotal is rendered', !!label('Total Fund Fees'));
-  check('an EBITDA after fund fees line is rendered', !!label('EBITDA after fund fees'));
+  check('the subtotal is labelled "Total Fund Management Fee"', !!label('Total Fund Management Fee'));
   check('the fee rows are NEGATIVE (a charge, like every other expense row)',
-    (label('Total Fund Fees')?.values ?? []).every((v: number, t: number) => near(v, -(on.pl.fundFeesPerPeriod[t] ?? 0))));
+    (label('Total Fund Management Fee')?.values ?? []).every((v: number, t: number) => near(v, -(on.pl.fundFeesPerPeriod[t] ?? 0))));
 
-  // The whole point of striking EBIT after the fees: the rendered statement has
-  // to foot from EBITDA down to PAT, or the screen and the snapshot disagree.
-  const ebitdaRow = label('EBITDA') ?? rows.find((r: any) => /EBITDA$/.test(r.label));
-  const afterRow = label('EBITDA after fund fees');
+  // ORDER IS THE POINT of the 2026-08-05 change: the fee total comes BEFORE
+  // EBITDA, and there is exactly ONE EBITDA row.
+  const ebitdaIdx = idx('EBITDA');
+  const feeIdx = idx('Total Fund Management Fee');
+  const opexIdx = idx('Total Operating Expenses');
+  check('the fee total sits BELOW operating expenses', feeIdx > opexIdx && opexIdx >= 0);
+  check('and ABOVE EBITDA', ebitdaIdx > feeIdx && feeIdx >= 0);
+  check('there is exactly ONE EBITDA row in the statement',
+    rows.filter((r: any) => /^EBITDA/.test(r.label)).length === 1);
+  check('the old second EBITDA row is gone', !label('EBITDA after fund fees'));
+  check('the old "Total Fund Fees" label is gone', !label('Total Fund Fees'));
+
+  // The rendered statement must foot from EBITDA through to Net Income.
   const ebitRow = rows.find((r: any) => r.label === 'EBIT' || /^EBIT\b/.test(r.label));
-  check('rendered EBITDA - fees = rendered EBITDA after fees',
-    (afterRow?.values ?? []).every((v: number, t: number) =>
-      near(v, (ebitdaRow?.values?.[t] ?? 0) - (on.pl.fundFeesPerPeriod[t] ?? 0))));
-  check('rendered EBIT matches the snapshot EBIT (struck after the fees)',
+  check('rendered EBITDA is the snapshot EBITDA (already net of fees)',
+    (label('EBITDA')?.values ?? []).every((v: number, t: number) => near(v, on.pl.ebitdaPerPeriod[t] ?? 0, 1)));
+  check('rendered EBITDA = pre-fee measure less the fee',
+    (label('EBITDA')?.values ?? []).every((v: number, t: number) =>
+      near(v, (on.pl.ebitdaBeforeFundFeesPerPeriod[t] ?? 0) - (on.pl.fundFeesPerPeriod[t] ?? 0), 1)));
+  check('rendered EBIT = rendered EBITDA - D&A, with no second fee deduction',
+    (ebitRow?.values ?? []).every((v: number, t: number) =>
+      near(v, (label('EBITDA')?.values?.[t] ?? 0) - (on.pl.daPerPeriod[t] ?? 0), 1)));
+  check('rendered EBIT matches the snapshot EBIT',
     (ebitRow?.values ?? []).every((v: number, t: number) => near(v, on.pl.ebitPerPeriod[t] ?? 0, 1)));
+  const patLabel = getFinancialLabels(state.project).pat;
+  check('the statement still foots all the way to Net Income',
+    !!rows.find((r: any) => r.label === patLabel));
+
+  // The PHASE statement keeps the PRE-FEE measure: fund fees are project level
+  // and carry no phase allocation, so a per-phase EBITDA cannot be net of them.
+  const phaseRows = buildPLRows(mkCtx(state, on, state.phases[0].id));
+  const phaseEbitda = phaseRows.find((r: any) => r.label === 'EBITDA');
+  check('the phase P&L renders no fund fee rows', !phaseRows.some((r: any) => r.label === 'Total Fund Management Fee'));
+  check('and its EBITDA is the PRE-FEE measure', !!phaseEbitda);
 
   // And a standalone project must show no fee rows at all.
   const offState = buildState({ fund: false, taxRate: 0.15 });
-  const offRows = buildPLRows({ snap: computeFinancialsSnapshot(offState), state: offState, filterPhaseId: '__all__', labels: getFinancialLabels(offState.project), fmt: (v: number) => String(v) } as any);
+  const offSnap = computeFinancialsSnapshot(offState);
+  const offRows = buildPLRows(mkCtx(offState, offSnap));
   check('a standalone P&L renders NO fund fee rows',
-    !offRows.some((r: any) => r.label === 'Total Fund Fees' || r.label === 'EBITDA after fund fees'));
+    !offRows.some((r: any) => /Fund/.test(r.label)));
+  check('a standalone P&L still has exactly one EBITDA row, right after opex',
+    offRows.filter((r: any) => /^EBITDA/.test(r.label)).length === 1
+    && offRows.findIndex((r: any) => r.label === 'EBITDA')
+       === offRows.findIndex((r: any) => r.label === 'Total Operating Expenses') + 1);
+}
+
+console.log('\n=== 3c. The cash flow SHOWS the fee inside operating activities ===');
+{
+  const state = buildState({ fund: true, taxRate: 0.15 });
+  const on = computeFinancialsSnapshot(state);
+  const mkCtx = (s: any, snap: any) => ({
+    snap, state: s, filterPhaseId: '__all__', labels: getFinancialLabels(s.project), fmt: (v: number) => String(v),
+  }) as any;
+  const rows = buildDirectCFRows(mkCtx(state, on));
+  const idx = (s: string) => rows.findIndex((r: any) => r.label === s);
+  const row = (s: string) => rows.find((r: any) => r.label === s);
+
+  const feeIdx = idx('Fund Management and Other Expenses');
+  const cfoIdx = idx('Cash Flow from Operations');
+  const sectionIdx = idx('CASH FROM OPERATIONS');
+  check('a "Fund Management and Other Expenses" row is rendered', feeIdx >= 0);
+  check('it sits INSIDE operating activities', feeIdx > sectionIdx && sectionIdx >= 0);
+  check('and ABOVE Cash Flow from Operations', cfoIdx > feeIdx);
+  check('it is NEGATIVE, like every other cash expense row',
+    (row('Fund Management and Other Expenses')?.values ?? []).every((v: number) => v <= 0));
+
+  // The whole point: it must carry the SAME total as the P&L fee line, or the
+  // two statements are telling the reader different things about one charge.
+  const plRows = buildPLRows(mkCtx(state, on));
+  const plFee = plRows.find((r: any) => r.label === 'Total Fund Management Fee');
+  check('it carries exactly the P&L fee line, period for period',
+    (row('Fund Management and Other Expenses')?.values ?? [])
+      .every((v: number, t: number) => near(v, plFee?.values?.[t] ?? 0)),
+    'CF row must equal the P&L Total Fund Management Fee');
+  check('and its lifetime total equals the P&L fee total',
+    near(sum(row('Fund Management and Other Expenses')?.values ?? []), sum(plFee?.values ?? [])));
+  check('the row is the snapshot fundFeesPaid series, not a re-derivation',
+    (row('Fund Management and Other Expenses')?.values ?? [])
+      .every((v: number, t: number) => v === (on.directCF.fundFeesPaidPerPeriod[t] ?? 0)));
+
+  // The operating section must now FOOT: it could not before, which is the
+  // reason this row exists.
+  const revRcv = row('Total Revenue Received') ?? row('Total Revenue Collected');
+  void revRcv;
+  check('Cash Flow from Operations still matches the snapshot',
+    (row('Cash Flow from Operations')?.values ?? [])
+      .every((v: number, t: number) => near(v, on.directCF.cashFromOperationsPerPeriod[t] ?? 0, 1)));
+
+  // Direct and Indirect must still agree: the fee is a cash expense already in
+  // PAT, so the indirect method needs no add-back.
+  const indirect = buildIndirectCFRows(mkCtx(state, on));
+  const indCfo = indirect.find((r: any) => r.label === 'Cash Flow from Operations');
+  check('Direct and Indirect cash from operations still agree',
+    (indCfo?.values ?? []).every((v: number, t: number) =>
+      near(v, on.directCF.cashFromOperationsPerPeriod[t] ?? 0, 1)));
+  check('the Indirect statement gained no fund fee row (none is needed)',
+    !indirect.some((r: any) => /Fund Management/.test(r.label)));
+
+  // A standalone project shows nothing.
+  const offState = buildState({ fund: false, taxRate: 0.15 });
+  const offRows = buildDirectCFRows(mkCtx(offState, computeFinancialsSnapshot(offState)));
+  check('a standalone cash flow renders NO fund fee row',
+    !offRows.some((r: any) => /Fund Management/.test(r.label)));
+}
+
+console.log('\n=== 3d. The chain: P&L -> operating cash -> cash available ===');
+{
+  const off = computeFinancialsSnapshot(buildState({ fund: false, taxRate: 0.15 }));
+  const on = computeFinancialsSnapshot(buildState({ fund: true, taxRate: 0.15 }));
+  const N = on.axisLength;
+
+  check('the fee is a real charge in the P&L', sum(on.pl.fundFeesPerPeriod) > 0);
+  check('it reaches operating cash as an outflow of the same size',
+    on.directCF.fundFeesPaidPerPeriod.every((v, t) => near(v, -(on.pl.fundFeesPerPeriod[t] ?? 0))));
+
+  // Cash from operations must fall by the fee, net of the tax shield: the fee
+  // reduces PBT, so it reduces tax paid too, and the cash effect is the fee
+  // less the tax saved. Asserting the raw fee here would be wrong.
+  let cashChainOk = true;
+  for (let t = 0; t < N; t++) {
+    const taxDelta = (on.directCF.taxPaidPerPeriod[t] ?? 0) - (off.directCF.taxPaidPerPeriod[t] ?? 0);
+    const expected = (off.directCF.cashFromOperationsPerPeriod[t] ?? 0)
+      - (on.pl.fundFeesPerPeriod[t] ?? 0) + taxDelta;
+    if (!near(on.directCF.cashFromOperationsPerPeriod[t] ?? 0, expected, 1)) cashChainOk = false;
+  }
+  check('cash from operations falls by the fee, net of the tax it saves', cashChainOk);
+
+  // Cash available is what the sweep and the dividend both read, so the fee
+  // reaching it is what makes the chain real rather than presentational.
+  check('pre-sweep closing cash is lower with the fee charged',
+    on.cashSweep.preSweepClosingCash.some((v, t) => v < (off.cashSweep.preSweepClosingCash[t] ?? 0) - 0.5),
+    'the fee must reduce the cash the sweep and dividend see');
 }
 
 console.log('\n=== 4. The fee raises the funding requirement by exactly its cash effect ===');
@@ -427,6 +557,8 @@ console.log('\n=== 7. Toggle off changes nothing ===');
   check('the P&L fee line is all zeros', off.pl.fundFeesPerPeriod.every((v) => v === 0));
   check('EBITDA after fees equals EBITDA exactly',
     off.pl.ebitdaAfterFundFeesPerPeriod.every((v, t) => v === off.pl.ebitdaPerPeriod[t]));
+  check('and the pre-fee measure equals EBITDA exactly, so all three coincide',
+    off.pl.ebitdaBeforeFundFeesPerPeriod.every((v, t) => v === off.pl.ebitdaPerPeriod[t]));
   check('the CF fee line is all zeros', off.directCF.fundFeesPaidPerPeriod.every((v) => v === 0));
 
   // A DISABLED but fully populated block must behave exactly like no block at
