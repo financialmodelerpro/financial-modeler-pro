@@ -2,7 +2,7 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
-**Status as of 2026-08-05: Steps 1, 2, 3 and 4 are LIVE.** Migrations 208, 209 and 210 applied and behaviourally verified; Step 4 needed none. Step 5 (M5 net vs gross presentation + Fund Manager fee income) is next. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+**Status as of 2026-08-09: Steps 1 through 5b are LIVE.** Migrations 208, 209, 210 and 211 applied; Step 4 needed none. Step 6 (Excel export rows) is next, and the Fund Fee Basis block Step 5b added to the Excel P&L is a down payment on it. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
 
@@ -58,13 +58,13 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | Module / area | What changes | Status |
 |---|---|---|
 | **M1 Project Setup** | New Fund Terms tab (tab 3, after Parties): the toggle, the **Fund Manager**, the five fund fees, performance fee + hurdle, the fee bases, and a per-PARTY fee distribution matrix | **LIVE** |
-| **Schema** | `refm_fund_terms`, one row per project. Migration 208 (toggle + original terms), 209 (the real fee set + `fee_distribution` jsonb), 210 (`fund_manager_name` + `facility_limit_override`) | **LIVE**, all three applied |
-| **M4 Financial Statements + Funding** | Fund fees total into a **Total Fund Management Fee** line and **EBITDA is struck AFTER it** (2026-08-05, reference alignment), plus a visible **Fund Management and Other Expenses** row inside operating cash flow, which is how the fee reaches the funding requirement | **LIVE** |
+| **Schema** | `refm_fund_terms`, one row per project. Migration 208 (toggle + original terms), 209 (the real fee set + `fee_distribution` jsonb), 210 (`fund_manager_name` + `facility_limit_override`), 211 (`fund_size_override`, the fund size becoming model-derived) | **LIVE**, all four applied |
+| **M4 Financial Statements + Funding** | Fund fees total into a **Total Fund Management Fee** line and **EBITDA is struck AFTER it** (2026-08-05, reference alignment), plus a visible **Fund Management and Other Expenses** row inside operating cash flow, which is how the fee reaches the funding requirement. A **Fund Fee Basis** table (shared builder, also on M5 and in Excel) states what each fee is charged on and the rate applied, so a zero fee is diagnosable rather than ambiguous | **LIVE** |
 | **M5 Returns** | Distribution waterfall over the Distributed-Equity stream on the REFERENCE structure (one combined hurdle balance settled by a single `hurdlePaid` line, then a flat performance fee on the excess), hurdle accrual and unpaid balance, distributions net of fee, post-fee IRR and MOIC. Gross streams untouched | **LIVE** (engine + snapshot; presentation is Step 5) |
 | **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract, plus the net-vs-gross and waterfall UI on the Returns tab | **LIVE** |
 | **Excel export** | Fee line and waterfall rows in the locked palette | Step 6 |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, and the fee earners | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 173, `verify-fund-fees` 101, `verify-fund-waterfall` 382, `verify-fund-fee-income` 107) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, and the fee earners | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 107) |
 
 ### The Fund Manager
 
@@ -89,6 +89,7 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 | 3 | M4 fund fee line + funding impact | **DONE 2026-08-04** | None needed |
 | 4 | **M5 waterfall + hurdle + performance fee** | **DONE 2026-08-05** (rebuilt same day to the reference structure) | None needed |
 | 5 | **M5 net vs gross returns + Fund Manager fee income** | **DONE 2026-08-05** | None needed |
+| 5b | **Fee basis display + model-derived fund size** | **DONE 2026-08-05** (pushed 2026-08-09) | 211 |
 | 6 | Excel export rows | **NEXT** | No |
 | 7 | End-to-end verify | Pending | No |
 
@@ -139,6 +140,14 @@ Five points are worth carrying forward:
 2. **Fee earners sit BESIDE the equity partners, never inside them.** `src/core/calculations/returns/feeEarners.ts` is a separate pure engine with its own snapshot; `PartnersSection` and `computePartnerReturns` were **not edited at all**, which is a stronger guarantee than any assertion about them. The Fund Manager takes 100% of the five management fees (never split, a constant rather than a stored input) plus its matrix share of the performance fee; project parties take only their matrix share. **Shares are never normalised**: a matrix summing to 80% allocates 80% and reports the remainder as `unallocatedPerformanceFee`, with a three-state chip separating "not allocated yet" (neutral) from "allocated wrong" (amber).
 
 **The check that earns its place.** Within a fund-ON run, changing the fee distribution matrix must leave the ENTIRE partners block and every gross stream byte-identical, with only `feeEarners` moving. Proven with teeth by leaking the Fund Manager into the partner roster: `verify-fund-fee-income` catches it on three checks, and **all 556 pre-existing checks pass** (`verify-returns-snapshot` 99, `verify-fund-waterfall` 382, `verify-fund-layer-guard` 75). A zero-equity partner takes a 0% share, so `Sigma partners == consolidated` still holds and every property-based check survives the pollution. That is exactly the failure mode section 3 warns about, and nothing before Step 5 could see it.
+
+**Step 5b** answered a question the statements could not: a fee reading zero told you nothing about whether the RATE was zero or the BASE was empty, and the fund structure fee did exactly that.
+
+*The display.* One shared builder, `buildFundFeeBasisRows` in `lib/reports/m4Reports.ts`, returns fee / timing / base / rate / basis / charged per fee. It feeds the new `FundFeeBasisTable` on the M4 P&L (consolidated only: the fees are project level and carry no phase allocation) AND the M5 fee income section AND a Fund Fee Basis block on the Excel P&L tab, so screen, PDF and workbook cannot drift. The Excel block uses the free meta columns B and C for Base and Rate, which is what lets it land without shifting the period axis at column F (the sub-TOC and print setup depend on that position). P&L fee rows also state rate, base and base amount inline, and a zero basis is called out rather than left as a quiet 0.
+
+*The fund size.* This is the part to read carefully, because it reverses a decision that section 2 defends. Fund size was a TYPED input on purpose: it is equity plus debt, debt is solved by the funding requirement, and the fees raise that requirement, so reading it live would let a fee feed its own base. It is now DERIVED (`resolveFundSize`: equity grand total + existing debt + drawdowns + capitalised IDC, the lifetime total, not any period balance). **What makes that safe is not that the danger went away, it is the FREEZE**: the value is resolved once, from the fee-free pass, before the iterative solver runs, and is then a constant for every iteration, exactly as opening NAV has been since Step 3. So the invariant is narrow and precise: the base KIND `fund_size` is linear and allowed; the VALUE is resolved once and frozen; `fund_size_solved`, a live solved figure read INSIDE the loop, stays in `CIRCULAR_FEE_BASES` and stays forbidden. `fundSizeOverride` (migration 211) pins the typed target instead, and the typed figure is also the fallback when the model raises no capital. The Fund Terms tab shows "From your model" rather than a number, because the tab has no computed snapshot and re-deriving the funding solve there would be a second implementation free to drift.
+
+`verify-fund-fees` grew 73 -> 131 for this, including a section proving every fee shows its base and its rate, and section 6b proving the freeze holds.
 
 **The UI is verified at SOURCE level only, and that limit is real.** `verify-fund-fee-income` section 7 asserts the sections are gated, the reference labels appear in the reference ORDER, and the fee section is a sibling of `PartnersSection`; section 7b asserts every array handed to the tables is full-length and finite, which is where a runtime crash would come from. It does NOT prove the surface renders. A real render check was attempted and abandoned: the table tree imports a CSS module, which is a Next build feature `tsx` cannot compile, and stubbing the module interop did not hold. The live browser check is therefore a genuine part of Step 5's sign-off, not a formality.
 
