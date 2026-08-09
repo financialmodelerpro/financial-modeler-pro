@@ -30,21 +30,33 @@
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { CountdownTimer } from '@/src/shared/components/CountdownTimer';
-import { isLaunchBannerPath, launchDismissKey } from './launchCountdown';
+import { isLaunchBannerPath, launchDismissKey, type LaunchMode, type LaunchCopy, type LaunchedCopy } from './launchCountdown';
 
 const NAVY_DARKEST = '#0D2E5A';
 const NAVY = '#1B4F8A';
 const GOLD = '#C9A84C';
 
-export default function LaunchCountdownPopup({ targetIso, headline, subline }: {
+export default function LaunchCountdownPopup({ targetIso, mode, countdown, launched }: {
   targetIso: string;
-  /** Admin-editable, platform-resolved. Never built in this component. */
-  headline: string;
-  subline: string;
+  /** Which state the SERVER resolved. The client can advance countdown ->
+   *  launched when the clock crosses the date, but never the other way. */
+  mode: Exclude<LaunchMode, 'hidden'>;
+  /** Both sets of copy, admin-editable and platform-resolved. Never built here. */
+  countdown: LaunchCopy;
+  launched: LaunchedCopy;
 }): React.JSX.Element | null {
   const [visible, setVisible] = useState(false);
+  // Local mode, seeded from the server. It only ever moves forward, when the
+  // countdown reaches zero while someone is looking at the page.
+  const [current, setCurrent] = useState<Exclude<LaunchMode, 'hidden'>>(mode);
   const pathname = usePathname();
-  const storageKey = launchDismissKey(targetIso);
+  // Keyed on the CURRENT mode, so closing the countdown does not also swallow
+  // the launch announcement later in the same session.
+  const storageKey = launchDismissKey(targetIso, current);
+
+  // A server-driven mode change (a new request after the date passed) wins over
+  // whatever this tab was showing.
+  useEffect(() => { setCurrent(mode); }, [mode]);
 
   useEffect(() => {
     if (!isLaunchBannerPath(pathname)) { setVisible(false); return; }
@@ -68,15 +80,20 @@ export default function LaunchCountdownPopup({ targetIso, headline, subline }: {
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, dismiss]);
 
-  // Reaching zero hides it WITHOUT writing the dismissal flag: the banner is
-  // over for everyone, not dismissed by this visitor.
-  const onComplete = useCallback(() => setVisible(false), []);
+  // Reaching zero SWITCHES to the launch announcement rather than hiding, so a
+  // visitor sitting on the page at launch sees the news instead of the banner
+  // vanishing under them. No dismissal is written: this is a state change, not
+  // a dismissal, and the new state carries its own storage key.
+  const onComplete = useCallback(() => setCurrent('launched'), []);
 
   if (!visible) return null;
 
-  // Square on every screen: the side is the smaller of 400px, the viewport
-  // width minus a gutter, and the viewport height minus a gutter.
-  const side = 'min(400px, calc(100vw - 32px), calc(100vh - 32px))';
+  const isLaunched = current === 'launched';
+  const copy: LaunchCopy = isLaunched ? launched : countdown;
+
+  // WIDE, not square. Width leads and height follows the content, capped to the
+  // viewport so a short window scrolls the card rather than overflowing it.
+  const width = 'min(800px, calc(100vw - 32px))';
 
   return (
     <>
@@ -94,20 +111,21 @@ export default function LaunchCountdownPopup({ targetIso, headline, subline }: {
         data-testid="launch-countdown-banner"
         role="dialog"
         aria-modal="false"
-        aria-label="Launch countdown"
+        aria-label={isLaunched ? 'Launch announcement' : 'Launch countdown'}
+        data-mode={current}
         style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           zIndex: 701,
-          width: side, height: side,
+          width, maxHeight: 'calc(100vh - 32px)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           textAlign: 'center',
-          padding: 'clamp(16px, 4.5vmin, 28px)',
+          padding: 'clamp(22px, 4vw, 44px) clamp(18px, 4vw, 52px)',
           borderRadius: 18,
           background: `linear-gradient(135deg, #0A1F3D 0%, ${NAVY_DARKEST} 55%, ${NAVY} 100%)`,
           border: `1px solid rgba(201,168,76,0.45)`,
           boxShadow: '0 28px 70px -20px rgba(0,0,0,0.65)',
           fontFamily: "'Inter', sans-serif",
-          overflow: 'hidden',
+          overflowY: 'auto',
         }}
       >
         <button
@@ -128,49 +146,77 @@ export default function LaunchCountdownPopup({ targetIso, headline, subline }: {
           display: 'inline-flex', alignItems: 'center', gap: 7,
           background: 'rgba(201,168,76,0.14)', border: '1px solid rgba(201,168,76,0.5)',
           borderRadius: 20, padding: '4px 14px',
-          fontSize: 'clamp(9px, 2.4vmin, 11px)', fontWeight: 800, color: GOLD,
+          fontSize: 'clamp(9px, 1.5vw, 11px)', fontWeight: 800, color: GOLD,
           letterSpacing: '0.1em', textTransform: 'uppercase',
-          marginBottom: 'clamp(8px, 2.5vmin, 14px)',
+          marginBottom: 'clamp(10px, 1.8vw, 16px)',
         }}>
-          Launching soon
+          {isLaunched ? 'Now live' : 'Launching soon'}
         </div>
 
         <div data-testid="launch-countdown-headline" style={{
-          fontSize: 'clamp(17px, 4.8vmin, 25px)', fontWeight: 800, color: '#fff',
-          lineHeight: 1.2, letterSpacing: '-0.02em',
-          marginBottom: 'clamp(5px, 1.6vmin, 8px)',
+          fontSize: 'clamp(20px, 3.6vw, 34px)', fontWeight: 800, color: '#fff',
+          lineHeight: 1.15, letterSpacing: '-0.02em',
+          marginBottom: 'clamp(6px, 1.2vw, 10px)',
         }}>
-          {headline}
+          {copy.headline}
         </div>
 
-        {subline && (
+        {copy.subline && (
           <div data-testid="launch-countdown-subline" style={{
-            fontSize: 'clamp(11px, 2.9vmin, 13.5px)', fontWeight: 500,
-            color: 'rgba(255,255,255,0.72)', lineHeight: 1.5,
-            marginBottom: 'clamp(10px, 3vmin, 18px)',
-            maxWidth: '92%',
+            fontSize: 'clamp(12px, 1.7vw, 15px)', fontWeight: 500,
+            color: 'rgba(255,255,255,0.72)', lineHeight: 1.55,
+            marginBottom: 'clamp(14px, 2.4vw, 22px)',
+            maxWidth: 560,
           }}>
-            {subline}
+            {copy.subline}
           </div>
         )}
 
-        <div style={{ width: '100%' }}>
-          <CountdownTimer
-            targetDate={targetIso}
-            onComplete={onComplete}
-            accentColor={GOLD}
-            cardBackground="rgba(255,255,255,0.06)"
-            cardBorder="rgba(201,168,76,0.28)"
-          />
-        </div>
+        {!isLaunched && (
+          <>
+            {/* CountdownTimer caps its own digit grid at min(440px, 100%), so in
+                a wide card the digits centre rather than stretching apart. */}
+            <div style={{ width: '100%' }}>
+              <CountdownTimer
+                targetDate={targetIso}
+                onComplete={onComplete}
+                accentColor={GOLD}
+                cardBackground="rgba(255,255,255,0.06)"
+                cardBorder="rgba(201,168,76,0.28)"
+              />
+            </div>
 
-        <div style={{
-          marginTop: 'clamp(10px, 3vmin, 18px)',
-          fontSize: 'clamp(10px, 2.6vmin, 12.5px)',
-          color: 'rgba(255,255,255,0.62)', letterSpacing: '0.02em',
-        }}>
-          {new Date(targetIso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}
-        </div>
+            <div style={{
+              marginTop: 'clamp(12px, 2vw, 20px)',
+              fontSize: 'clamp(11px, 1.5vw, 13px)',
+              color: 'rgba(255,255,255,0.62)', letterSpacing: '0.02em',
+            }}>
+              {new Date(targetIso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}
+            </div>
+          </>
+        )}
+
+        {/* Post-launch call to action. A plain anchor, not next/link, because the
+            destination is an absolute app-subdomain URL while this banner also
+            renders on the apex marketing pages. Rendered only when a
+            destination resolved, so a cleared href degrades to no button rather
+            than a dead link. */}
+        {isLaunched && launched.ctaHref && launched.ctaLabel && (
+          <a
+            href={launched.ctaHref}
+            data-testid="launch-countdown-cta"
+            style={{
+              display: 'inline-block',
+              background: GOLD, color: NAVY_DARKEST,
+              fontWeight: 800, fontSize: 'clamp(13px, 1.6vw, 15px)',
+              padding: 'clamp(10px, 1.4vw, 14px) clamp(22px, 3vw, 34px)',
+              borderRadius: 9, textDecoration: 'none',
+              boxShadow: '0 10px 26px -10px rgba(201,168,76,0.7)',
+            }}
+          >
+            {launched.ctaLabel}
+          </a>
+        )}
       </div>
     </>
   );

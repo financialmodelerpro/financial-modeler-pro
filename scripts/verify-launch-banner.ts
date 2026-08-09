@@ -22,8 +22,11 @@ import {
   LAUNCH_DATE_KEY, LAUNCH_BANNER_PATHS, LAUNCH_SETTING_KEYS,
   LAUNCH_HEADLINE_KEY, LAUNCH_SUBLINE_KEY, LAUNCH_PLATFORM_KEY,
   DEFAULT_LAUNCH_HEADLINE, DEFAULT_LAUNCH_SUBLINE, PLATFORM_TOKEN,
-  isLaunchBannerPath, launchDismissKey, resolveLaunchCountdown,
-  resolveLaunchCopy, applyPlatformToken,
+  isLaunchBannerPath, launchDismissKey, resolveLaunchState,
+  resolveLaunchCopy, resolveLaunchedCopy, applyPlatformToken,
+  LAUNCH_BANNER_ENABLED_KEY, LAUNCHED_HEADLINE_KEY, LAUNCHED_SUBLINE_KEY,
+  LAUNCHED_CTA_LABEL_KEY, LAUNCHED_CTA_HREF_KEY,
+  DEFAULT_LAUNCHED_HEADLINE, DEFAULT_LAUNCHED_CTA_LABEL,
 } from '../src/hubs/main/components/launch/launchCountdown';
 import { PLATFORMS, getPlatform } from '../src/hubs/modeling/config/platforms';
 
@@ -38,35 +41,52 @@ const NOW = Date.parse('2026-08-09T12:00:00.000Z');
 const future = '2026-08-20T05:00:00.000Z';
 const past = '2026-04-22T07:00:00.000Z';
 
-console.log('=== 1. Show only before the launch date ===');
+console.log('=== 1. Three states, and the date decides two of them ===');
 {
-  const r = resolveLaunchCountdown({ launchDate: future, nowMs: NOW });
-  check('a future launch date SHOWS', r.show === true && r.reason === 'ok');
+  const r = resolveLaunchState({ launchDate: future, nowMs: NOW });
+  check('a future launch date COUNTS DOWN', r.mode === 'countdown' && r.reason === 'ok_countdown');
   check('and carries the normalized ISO instant', r.targetIso === future, r.targetIso);
 
-  const p = resolveLaunchCountdown({ launchDate: past, nowMs: NOW });
-  check('a past launch date is HIDDEN', p.show === false && p.reason === 'already_launched');
+  const p = resolveLaunchState({ launchDate: past, nowMs: NOW });
+  check('a past launch date switches to LAUNCHED, it does not vanish',
+    p.mode === 'launched' && p.reason === 'ok_launched');
+  check('and the launched state still carries the instant', p.targetIso === past);
 
   // The boundary, both sides, one millisecond apart.
   const t = Date.parse(future);
-  check('one ms BEFORE the instant still shows',
-    resolveLaunchCountdown({ launchDate: future, nowMs: t - 1 }).show === true);
-  check('AT the exact instant it is hidden (the hub is live, not counting down)',
-    resolveLaunchCountdown({ launchDate: future, nowMs: t }).show === false);
-  check('one ms AFTER the instant it is hidden',
-    resolveLaunchCountdown({ launchDate: future, nowMs: t + 1 }).show === false);
+  check('one ms BEFORE the instant it is still counting down',
+    resolveLaunchState({ launchDate: future, nowMs: t - 1 }).mode === 'countdown');
+  check('AT the exact instant it is LAUNCHED (not a frozen zero)',
+    resolveLaunchState({ launchDate: future, nowMs: t }).mode === 'launched');
+  check('one ms AFTER the instant it is LAUNCHED',
+    resolveLaunchState({ launchDate: future, nowMs: t + 1 }).mode === 'launched');
+
+  // The off switch overrides BOTH date-derived states.
+  check('OFF hides a countdown',
+    resolveLaunchState({ launchDate: future, nowMs: NOW, bannerEnabled: false }).mode === 'hidden');
+  check('OFF hides a launched banner too',
+    resolveLaunchState({ launchDate: past, nowMs: NOW, bannerEnabled: false }).mode === 'hidden');
+  check('and says WHY it is hidden',
+    resolveLaunchState({ launchDate: past, nowMs: NOW, bannerEnabled: false }).reason === 'turned_off');
+  check('an ABSENT enabled flag means ON, so an existing install is unaffected',
+    resolveLaunchState({ launchDate: future, nowMs: NOW }).mode === 'countdown'
+    && resolveLaunchState({ launchDate: future, nowMs: NOW, bannerEnabled: undefined }).mode === 'countdown');
+  check('an explicit true is ON',
+    resolveLaunchState({ launchDate: future, nowMs: NOW, bannerEnabled: true }).mode === 'countdown');
 }
 
 console.log('\n=== 2. Missing or malformed settings never render ===');
 {
   for (const [label, value] of [['null', null], ['undefined', undefined], ['empty', ''], ['whitespace', '   ']] as const) {
-    const r = resolveLaunchCountdown({ launchDate: value, nowMs: NOW });
-    check(`a ${label} launch date is hidden (reason not_set)`, r.show === false && r.reason === 'not_set');
+    const r = resolveLaunchState({ launchDate: value, nowMs: NOW });
+    check(`a ${label} launch date is hidden (reason not_set)`, r.mode === 'hidden' && r.reason === 'not_set');
   }
-  const bad = resolveLaunchCountdown({ launchDate: 'not a date', nowMs: NOW });
+  const bad = resolveLaunchState({ launchDate: 'not a date', nowMs: NOW });
   check('an unparseable value is hidden rather than rendering "Invalid Date"',
-    bad.show === false && bad.reason === 'invalid_date');
+    bad.mode === 'hidden' && bad.reason === 'invalid_date');
   check('a hidden decision never carries a target to render', bad.targetIso === '');
+  check('OFF wins even over an unparseable date (checked first)',
+    resolveLaunchState({ launchDate: 'not a date', nowMs: NOW, bannerEnabled: false }).reason === 'turned_off');
 }
 
 console.log('\n=== 3. The path allowlist is exactly the five target pages ===');
@@ -91,18 +111,26 @@ console.log('\n=== 3. The path allowlist is exactly the five target pages ===');
   check('a null pathname is hidden, not crashed', isLaunchBannerPath(null) === false);
 }
 
-console.log('\n=== 4. Dismissal is per launch date, for the session ===');
+console.log('\n=== 4. Dismissal is per launch date AND per state, for the session ===');
 {
   check('the key includes the launch date', launchDismissKey(future).includes(future));
   check('a different date is a DIFFERENT key, so a rescheduled launch shows again',
     launchDismissKey(future) !== launchDismissKey(past));
-  check('the same date is a stable key', launchDismissKey(future) === launchDismissKey(future));
+  check('the same date and mode is a stable key',
+    launchDismissKey(future, 'countdown') === launchDismissKey(future, 'countdown'));
+  // The reason the mode is in the key at all: the date does not change when the
+  // launch happens, so one key would let a dismissed countdown swallow the
+  // launch announcement for the rest of the session.
+  check('THE PIN: dismissing the countdown does NOT suppress the launched message',
+    launchDismissKey(future, 'countdown') !== launchDismissKey(future, 'launched'));
 
   const popup = read('src/hubs/main/components/launch/LaunchCountdownPopup.tsx');
   check('dismissal uses sessionStorage (returns next session), not localStorage',
     /sessionStorage\.setItem/.test(popup) && !/localStorage/.test(popup));
-  check('reaching zero hides the banner without writing a dismissal',
-    /onComplete\s*=\s*useCallback\(\(\)\s*=>\s*setVisible\(false\)/.test(popup));
+  check('reaching zero SWITCHES to launched rather than hiding',
+    /onComplete\s*=\s*useCallback\(\(\)\s*=>\s*setCurrent\('launched'\)/.test(popup));
+  check('and that switch writes no dismissal (it is a state change, not a dismissal)',
+    !/onComplete[\s\S]{0,120}sessionStorage/.test(popup));
   check('storage access is guarded, so private mode cannot break the page',
     /catch\s*\{/.test(popup) && /try\s*\{/.test(popup));
 }
@@ -191,9 +219,8 @@ console.log('\n=== 7. Platform naming is source-derived, never hardcoded ===');
 
 console.log('\n=== 8. Settings keys + admin wiring ===');
 {
-  check('all four settings keys are batched into one query',
-    LAUNCH_SETTING_KEYS.length === 4
-    && LAUNCH_SETTING_KEYS.includes(LAUNCH_DATE_KEY)
+  check('the countdown settings keys are all in the batched query',
+    LAUNCH_SETTING_KEYS.includes(LAUNCH_DATE_KEY)
     && LAUNCH_SETTING_KEYS.includes(LAUNCH_HEADLINE_KEY)
     && LAUNCH_SETTING_KEYS.includes(LAUNCH_SUBLINE_KEY)
     && LAUNCH_SETTING_KEYS.includes(LAUNCH_PLATFORM_KEY));
@@ -213,13 +240,13 @@ console.log('\n=== 8. Settings keys + admin wiring ===');
   // The fix for the reported failure: the admin can SEE whether it is live.
   check('THE FIX: the card shows a live banner status', /launch-banner-status/.test(card));
   check('and derives that status from the SAME resolver the banner uses',
-    /resolveLaunchCountdown\(/.test(card));
+    /resolveLaunchState\(/.test(card));
   check('status is computed from the SAVED date, not the unsaved draft',
-    /resolveLaunchCountdown\(\{\s*launchDate:\s*saved\.launchDate/.test(card));
+    /resolveLaunchState\(\{[\s\S]{0,60}launchDate:\s*saved\.launchDate/.test(card));
   check('the card previews the resolved copy through the shared resolver',
     /resolveLaunchCopy\(/.test(card));
   check('the save reports the resulting state so a no-op cannot read as success',
-    /next\.launchDate \?/.test(card));
+    /const after = resolveLaunchState\(/.test(card));
 
   const admin = read('app/admin/modules/page.tsx');
   check('the admin page mounts the dedicated banner card', /<LaunchBannerCard/.test(admin));
@@ -230,7 +257,83 @@ console.log('\n=== 8. Settings keys + admin wiring ===');
     !/alwaysShowDate/.test(shared) && !/description\?:/.test(shared));
 }
 
-console.log('\n=== 9. House style ===');
+console.log('\n=== 9. Launched-state copy, CTA and sizing ===');
+{
+  const name = 'Real Estate Financial Modeling';
+  const href = 'https://app.example.com/modeling/real-estate';
+
+  const d = resolveLaunchedCopy({ platformName: name, platformHref: href });
+  check('the launched headline defaults and names the platform',
+    d.headline === applyPlatformToken(DEFAULT_LAUNCHED_HEADLINE, name) && d.headline.includes(name));
+  check('the CTA label defaults and names the platform',
+    d.ctaLabel === applyPlatformToken(DEFAULT_LAUNCHED_CTA_LABEL, name) && d.ctaLabel.includes(name));
+  check('the CTA falls back to the DERIVED platform destination', d.ctaHref === href);
+
+  const custom = resolveLaunchedCopy({
+    headline: 'We are open', subline: 'Come in', ctaLabel: 'Open it',
+    ctaHref: '/somewhere', platformName: name, platformHref: href,
+  });
+  check('admin launched copy wins', custom.headline === 'We are open' && custom.subline === 'Come in');
+  check('an admin CTA href overrides the derived one', custom.ctaHref === '/somewhere');
+  check('an admin CTA label wins', custom.ctaLabel === 'Open it');
+  check('the platform token resolves in the CTA label',
+    resolveLaunchedCopy({ ctaLabel: `Go to ${PLATFORM_TOKEN}`, platformName: name }).ctaLabel === `Go to ${name}`);
+  check('with no href anywhere, the CTA href is empty so no dead link renders',
+    resolveLaunchedCopy({ platformName: name }).ctaHref === '');
+
+  const popup = read('src/hubs/main/components/launch/LaunchCountdownPopup.tsx');
+  check('the CTA renders only when BOTH a destination and a label exist',
+    /isLaunched && launched\.ctaHref && launched\.ctaLabel/.test(popup));
+  check('the countdown timer is not rendered in the launched state', /\{!isLaunched && \(/.test(popup));
+  check('the CTA is a plain anchor (absolute cross-domain URL, not next\/link)',
+    /<a\s[\s\S]{0,200}href=\{launched\.ctaHref\}/.test(popup));
+
+  // Sizing: wide, not square.
+  check('the card is ~800px wide and no longer square',
+    /min\(800px, calc\(100vw - 32px\)\)/.test(popup) && !/aspectRatio/.test(popup));
+  check('height follows content and is capped to the viewport',
+    /maxHeight: 'calc\(100vh - 32px\)'/.test(popup) && !/height: side/.test(popup));
+  check('overflow scrolls inside the card rather than clipping',
+    /overflowY: 'auto'/.test(popup));
+
+  const server = read('src/hubs/main/components/launch/LaunchCountdownBanner.tsx');
+  check('the server sends BOTH copies so the zero crossing can switch in place',
+    /countdown=\{countdownCopy\}/.test(server) && /launched=\{launchedCopy\}/.test(server));
+  check('the CTA destination is derived from the platform SLUG, not hardcoded',
+    /\/modeling\/\$\{slug\}/.test(server));
+}
+
+console.log('\n=== 10. Off switch + launched keys are wired through admin ===');
+{
+  check('all nine settings keys are batched into one query', LAUNCH_SETTING_KEYS.length === 9,
+    String(LAUNCH_SETTING_KEYS.length));
+  for (const k of [LAUNCH_BANNER_ENABLED_KEY, LAUNCHED_HEADLINE_KEY, LAUNCHED_SUBLINE_KEY,
+                   LAUNCHED_CTA_LABEL_KEY, LAUNCHED_CTA_HREF_KEY]) {
+    check(`${k} is in the batched key list`, LAUNCH_SETTING_KEYS.includes(k));
+  }
+
+  const route = read('app/api/admin/modeling-coming-soon/route.ts');
+  for (const k of [LAUNCH_BANNER_ENABLED_KEY, LAUNCHED_HEADLINE_KEY, LAUNCHED_SUBLINE_KEY,
+                   LAUNCHED_CTA_LABEL_KEY, LAUNCHED_CTA_HREF_KEY]) {
+    check(`the admin route reads and writes ${k}`, route.includes(k));
+  }
+  check('the route treats an absent enabled flag as ON', /!== 'false'/.test(route));
+
+  const card = read('src/components/admin/LaunchBannerCard.tsx');
+  check('the admin card has an on/off switch', /launch-banner-enabled/.test(card));
+  check('and launched-copy fields', /launch-banner-launched-headline/.test(card) && /launch-banner-cta-label/.test(card));
+  check('and previews the launched state as well as the countdown',
+    /launch-banner-preview-launched/.test(card));
+  check('the status readout covers all three states',
+    /ok_countdown/.test(card) && /ok_launched/.test(card) && /turned_off/.test(card));
+  check('the status still comes from the shared resolver', /resolveLaunchState\(/.test(card));
+  check('the save message reports the resolved state rather than assuming success',
+    /after\.mode === 'countdown'/.test(card));
+  check('turning it off is explained as keeping the date (cron safety)',
+    /auto-launch cron/.test(card));
+}
+
+console.log('\n=== 11. House style ===');
 {
   const EM = String.fromCharCode(0x2014);
   for (const f of [

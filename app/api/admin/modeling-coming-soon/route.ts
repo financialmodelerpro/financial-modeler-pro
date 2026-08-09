@@ -20,6 +20,14 @@ const KEYS = [
   'modeling_hub_launch_headline',
   'modeling_hub_launch_subline',
   'modeling_hub_launch_platform',
+  // Three-state banner (2026-08-09c): the master switch plus the post-launch
+  // copy and its call to action. Countdown vs launched is derived from the
+  // date, never stored, so only the OFF choice needs persisting.
+  'modeling_hub_launch_banner_enabled',
+  'modeling_hub_launched_headline',
+  'modeling_hub_launched_subline',
+  'modeling_hub_launched_cta_label',
+  'modeling_hub_launched_cta_href',
 ] as const;
 
 type KeyMap = Map<string, string>;
@@ -45,6 +53,12 @@ function toResponse(map: KeyMap) {
     headline:           map.get('modeling_hub_launch_headline') ?? '',
     subline:            map.get('modeling_hub_launch_subline') ?? '',
     platformSlug:       map.get('modeling_hub_launch_platform') ?? '',
+    // ABSENT MEANS ON, so an install predating this key is unaffected.
+    bannerEnabled:      map.get('modeling_hub_launch_banner_enabled') !== 'false',
+    launchedHeadline:   map.get('modeling_hub_launched_headline') ?? '',
+    launchedSubline:    map.get('modeling_hub_launched_subline') ?? '',
+    launchedCtaLabel:   map.get('modeling_hub_launched_cta_label') ?? '',
+    launchedCtaHref:    map.get('modeling_hub_launched_cta_href') ?? '',
   };
 }
 
@@ -65,6 +79,9 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json() as {
       enabled?: boolean; launchDate?: string; autoLaunch?: boolean;
       headline?: string; subline?: string; platformSlug?: string;
+      bannerEnabled?: boolean;
+      launchedHeadline?: string; launchedSubline?: string;
+      launchedCtaLabel?: string; launchedCtaHref?: string;
     };
     const sb = getServerClient();
     const rows: Array<{ key: string; value: string }> = [];
@@ -93,6 +110,23 @@ export async function PATCH(req: NextRequest) {
     }
     if (typeof body.platformSlug === 'string') {
       rows.push({ key: 'modeling_hub_launch_platform', value: body.platformSlug.trim() });
+    }
+    if (typeof body.bannerEnabled === 'boolean') {
+      rows.push({ key: 'modeling_hub_launch_banner_enabled', value: body.bannerEnabled ? 'true' : 'false' });
+    }
+    // Post-launch copy. Empty is a meaningful write here too (it restores the
+    // default), so these are stored as sent rather than skipped when blank.
+    if (typeof body.launchedHeadline === 'string') {
+      rows.push({ key: 'modeling_hub_launched_headline', value: body.launchedHeadline.trim() });
+    }
+    if (typeof body.launchedSubline === 'string') {
+      rows.push({ key: 'modeling_hub_launched_subline', value: body.launchedSubline.trim() });
+    }
+    if (typeof body.launchedCtaLabel === 'string') {
+      rows.push({ key: 'modeling_hub_launched_cta_label', value: body.launchedCtaLabel.trim() });
+    }
+    if (typeof body.launchedCtaHref === 'string') {
+      rows.push({ key: 'modeling_hub_launched_cta_href', value: body.launchedCtaHref.trim() });
     }
     if (rows.length === 0) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
