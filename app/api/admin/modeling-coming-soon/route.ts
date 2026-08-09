@@ -3,11 +3,23 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 
+// Hub-level launch settings. The launch date here drives BOTH the public
+// countdown banner (src/hubs/main/components/launch/) and the auto-launch cron,
+// deliberately: one date, so what a visitor is counting down to and the moment
+// the hub actually flips cannot drift apart.
+//
+// The three banner-copy keys (2026-08-09) are admin-editable text, so the
+// announcement changes without a deploy. They live in the same free-form
+// key/value table (`training_settings.key` is the primary key with no
+// constraint on the key set), so they needed NO migration.
 const KEYS = [
   'modeling_hub_coming_soon',
   'modeling_hub_launch_date',
   'modeling_hub_auto_launch',
   'modeling_hub_last_auto_launched_at',
+  'modeling_hub_launch_headline',
+  'modeling_hub_launch_subline',
+  'modeling_hub_launch_platform',
 ] as const;
 
 type KeyMap = Map<string, string>;
@@ -27,6 +39,12 @@ function toResponse(map: KeyMap) {
     launchDate:         map.get('modeling_hub_launch_date') ?? '',
     autoLaunch:         map.get('modeling_hub_auto_launch') === 'true',
     lastAutoLaunchedAt: map.get('modeling_hub_last_auto_launched_at') ?? '',
+    // Banner copy. Returned RAW (blank when unset) rather than defaulted here,
+    // so the admin field shows empty and the placeholder communicates the
+    // default, instead of the default looking like a saved value.
+    headline:           map.get('modeling_hub_launch_headline') ?? '',
+    subline:            map.get('modeling_hub_launch_subline') ?? '',
+    platformSlug:       map.get('modeling_hub_launch_platform') ?? '',
   };
 }
 
@@ -44,7 +62,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    const body = await req.json() as { enabled?: boolean; launchDate?: string; autoLaunch?: boolean };
+    const body = await req.json() as {
+      enabled?: boolean; launchDate?: string; autoLaunch?: boolean;
+      headline?: string; subline?: string; platformSlug?: string;
+    };
     const sb = getServerClient();
     const rows: Array<{ key: string; value: string }> = [];
 
@@ -60,6 +81,18 @@ export async function PATCH(req: NextRequest) {
     }
     if (typeof body.autoLaunch === 'boolean') {
       rows.push({ key: 'modeling_hub_auto_launch', value: body.autoLaunch ? 'true' : 'false' });
+    }
+    // Banner copy. An empty string is a MEANINGFUL write (it clears the custom
+    // text and restores the default at render), so these are stored as sent
+    // rather than skipped when blank.
+    if (typeof body.headline === 'string') {
+      rows.push({ key: 'modeling_hub_launch_headline', value: body.headline.trim() });
+    }
+    if (typeof body.subline === 'string') {
+      rows.push({ key: 'modeling_hub_launch_subline', value: body.subline.trim() });
+    }
+    if (typeof body.platformSlug === 'string') {
+      rows.push({ key: 'modeling_hub_launch_platform', value: body.platformSlug.trim() });
     }
     if (rows.length === 0) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });

@@ -8,17 +8,6 @@ interface Props {
   endpoint: string;
   previewUrl: string;
   onMessage?: (msg: string, type: 'success' | 'error') => void;
-  /** Override the "what this toggle does" sentence. The default text describes
-   *  the signin/register surfaces, which is right for those two cards and wrong
-   *  for any other key pointed at this component. Additive: omit it and the
-   *  existing cards read exactly as before. */
-  description?: { on: string; off: string };
-  /** Keep the launch-date editor visible even when Coming Soon is OFF.
-   *  The signin/register cards hide the date with the toggle (no coming-soon
-   *  page means no countdown to schedule). A date that drives something else,
-   *  like the public launch banner, still needs editing when the toggle is off,
-   *  so those callers opt in here. Defaults to the original behaviour. */
-  alwaysShowDate?: boolean;
 }
 
 interface FetchedState {
@@ -40,7 +29,7 @@ function localToIso(local: string): string {
   return isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
-export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, onMessage, description, alwaysShowDate = false }: Props) {
+export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, onMessage }: Props) {
   const [enabled, setEnabled] = useState(false);
   const [launchDate, setLaunchDate] = useState('');
   const [draft, setDraft] = useState('');
@@ -111,9 +100,8 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
           </div>
           <div style={{ fontSize: 12, color: '#6B7280' }}>
             {enabled
-              ? (description?.on
-                  ?? `Coming Soon mode is ON, signin and register pages show ${launchDate ? 'a countdown' : 'a coming soon message'}. Admins can bypass via ?bypass=true on /signin.`)
-              : (description?.off ?? `${label} is LIVE, signin and register pages work normally.`)}
+              ? `Coming Soon mode is ON, signin and register pages show ${launchDate ? 'a countdown' : 'a coming soon message'}. Admins can bypass via ?bypass=true on /signin.`
+              : `${label} is LIVE, signin and register pages work normally.`}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -131,7 +119,7 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
         </div>
       </div>
 
-      {(enabled || alwaysShowDate) && (
+      {enabled && (
         <div style={{ marginTop: 16, borderTop: '1px dashed #E5E7EB', paddingTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4, letterSpacing: '0.05em' }}>LAUNCH DATE &amp; TIME <span style={{ color: '#9CA3AF', fontWeight: 500, letterSpacing: 0, textTransform: 'none' }}>(optional, shows countdown if set)</span></div>

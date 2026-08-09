@@ -36,7 +36,12 @@ const NAVY_DARKEST = '#0D2E5A';
 const NAVY = '#1B4F8A';
 const GOLD = '#C9A84C';
 
-export default function LaunchCountdownPopup({ targetIso }: { targetIso: string }): React.JSX.Element | null {
+export default function LaunchCountdownPopup({ targetIso, headline, subline }: {
+  targetIso: string;
+  /** Admin-editable, platform-resolved. Never built in this component. */
+  headline: string;
+  subline: string;
+}): React.JSX.Element | null {
   const [visible, setVisible] = useState(false);
   const pathname = usePathname();
   const storageKey = launchDismissKey(targetIso);
@@ -130,13 +135,24 @@ export default function LaunchCountdownPopup({ targetIso }: { targetIso: string 
           Launching soon
         </div>
 
-        <div style={{
-          fontSize: 'clamp(18px, 5.2vmin, 26px)', fontWeight: 800, color: '#fff',
+        <div data-testid="launch-countdown-headline" style={{
+          fontSize: 'clamp(17px, 4.8vmin, 25px)', fontWeight: 800, color: '#fff',
           lineHeight: 1.2, letterSpacing: '-0.02em',
-          marginBottom: 'clamp(10px, 3vmin, 18px)',
+          marginBottom: 'clamp(5px, 1.6vmin, 8px)',
         }}>
-          The Modeling Hub is almost here
+          {headline}
         </div>
+
+        {subline && (
+          <div data-testid="launch-countdown-subline" style={{
+            fontSize: 'clamp(11px, 2.9vmin, 13.5px)', fontWeight: 500,
+            color: 'rgba(255,255,255,0.72)', lineHeight: 1.5,
+            marginBottom: 'clamp(10px, 3vmin, 18px)',
+            maxWidth: '92%',
+          }}>
+            {subline}
+          </div>
+        )}
 
         <div style={{ width: '100%' }}>
           <CountdownTimer

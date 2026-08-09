@@ -31,6 +31,62 @@
  *  when the auth pages open. */
 export const LAUNCH_DATE_KEY = 'modeling_hub_launch_date';
 
+/** Admin-editable banner copy, and which platform the launch is FOR.
+ *
+ *  All three live in `training_settings`, the same free-form key/value store
+ *  the launch date uses (`key text primary key`, no constraint on the key set),
+ *  so adding them needs NO migration. Blank or missing falls back to the
+ *  defaults below, which means clearing a field in admin restores the default
+ *  rather than rendering an empty banner. */
+export const LAUNCH_HEADLINE_KEY = 'modeling_hub_launch_headline';
+export const LAUNCH_SUBLINE_KEY = 'modeling_hub_launch_subline';
+/** The platform SLUG the launch belongs to. The NAME is never stored: it is
+ *  resolved from the platform config at render time, so renaming a platform in
+ *  one place updates the banner with it. */
+export const LAUNCH_PLATFORM_KEY = 'modeling_hub_launch_platform';
+
+/** Every key the banner reads, for a single batched settings query. */
+export const LAUNCH_SETTING_KEYS: readonly string[] = [
+  LAUNCH_DATE_KEY, LAUNCH_HEADLINE_KEY, LAUNCH_SUBLINE_KEY, LAUNCH_PLATFORM_KEY,
+];
+
+/** The token an admin can place in either copy field to get the platform name
+ *  without typing it, mirroring the `{trialDays}` token in trialConfig. */
+export const PLATFORM_TOKEN = '{platform}';
+
+export const DEFAULT_LAUNCH_HEADLINE = `${PLATFORM_TOKEN} is launching soon`;
+export const DEFAULT_LAUNCH_SUBLINE = `Institutional-grade modeling, ready on day one.`;
+
+/** Replace every occurrence of the platform token. Falls back to leaving the
+ *  text alone when no platform name resolved, rather than printing a literal
+ *  "{platform}" at a visitor. */
+export function applyPlatformToken(text: string, platformName: string): string {
+  if (!text.includes(PLATFORM_TOKEN)) return text;
+  if (!platformName) return text.split(PLATFORM_TOKEN).join('the platform').replace(/\s+/g, ' ').trim();
+  return text.split(PLATFORM_TOKEN).join(platformName);
+}
+
+export interface LaunchCopy { headline: string; subline: string }
+
+/**
+ * The banner copy: admin text when set, defaults otherwise, with the platform
+ * token resolved in BOTH cases. Pure, so the verifier can pin the fallbacks and
+ * the substitution without a database or a render.
+ */
+export function resolveLaunchCopy(args: {
+  headline?: string | null;
+  subline?: string | null;
+  platformName?: string | null;
+}): LaunchCopy {
+  const name = (args.platformName ?? '').trim();
+  const rawHeadline = (args.headline ?? '').trim() || DEFAULT_LAUNCH_HEADLINE;
+  const rawSubline = (args.subline ?? '').trim() || DEFAULT_LAUNCH_SUBLINE;
+  return {
+    headline: applyPlatformToken(rawHeadline, name),
+    subline: applyPlatformToken(rawSubline, name),
+  };
+}
+
 /**
  * The five routes the banner is allowed on, matched EXACTLY.
  *
