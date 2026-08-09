@@ -96,8 +96,17 @@ function discountText(d: PaddleDiscount): string {
  *  field, but we always apply by discountId (both the public promo and a typed
  *  code resolve to an id passed to Paddle.Checkout.open), which works regardless.
  *  So a code-less "Checkout: Disabled" discount is still a valid auto-apply promo.
- *  Paddle is the final authority (it re-checks at checkout). */
-function isLiveDiscount(d: PaddleDiscount): boolean {
+ *  Paddle is the final authority (it re-checks at checkout).
+ *
+ *  A null usageLimit means UNLIMITED and must never be read as a limit of zero.
+ *  The guard below already says `!= null`, so the meaning lives in the
+ *  normalization: shapeDiscount preserves Paddle's null instead of collapsing it
+ *  to 0 via Number(null). It did collapse it once, and the whole of this
+ *  predicate then rejected every unlimited promo as fully redeemed while the
+ *  admin list (which does not filter) kept showing it. Exported so the verifier
+ *  pins that case rather than trusting this comment.
+ */
+export function isLiveDiscount(d: PaddleDiscount): boolean {
   if (d.status !== 'active') return false;
   if (d.expiresAt && Date.parse(d.expiresAt) <= Date.now()) return false;
   if (d.usageLimit != null && d.timesUsed != null && d.timesUsed >= d.usageLimit) return false;

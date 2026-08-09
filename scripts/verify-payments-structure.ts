@@ -25,6 +25,8 @@ import {
   maskPaymentSettings, defaultPaymentSettings, planProviderPriceId, providerConfigFrom,
   BASELINE_PLAN_KEY, type PaymentSettingsRow, type PlanProviderIds,
 } from '../src/shared/payments/config';
+import { shapeDiscount } from '../src/shared/payments/paddleApi';
+import { isLiveDiscount } from '../src/shared/payments/coupons';
 import type { ProviderConfig } from '../src/shared/payments/types';
 
 let pass = 0, fail = 0; const fails: string[] = [];
@@ -159,6 +161,60 @@ check('paddle parseEvent never throws on junk (unknown)', getAdapter('paddle').p
 
   const browser = read('src/shared/payments/paddleBrowser.ts');
   check('browser helper loads Paddle.js v2 + sets sandbox env', /cdn\.paddle\.com\/paddle\/v2\/paddle\.js/.test(browser) && /Environment(\?)?\.set\('sandbox'\)/.test(browser) && /Checkout\.open\(/.test(browser));
+
+  // ── Discount normalization + liveness (2026-08-09) ─────────────────────
+  //
+  // The regression this pins was live in production: a 25% pre-launch promo
+  // with NO usage limit showed in the admin discount list but never reached the
+  // public pricing page and was never passed to Paddle at checkout.
+  //
+  // Cause: shapeDiscount normalized `usage_limit: null` with
+  // `Number.isFinite(Number(x)) ? Number(x) : null`. Number(null) is 0 and 0 is
+  // finite, so "unlimited" became "a limit of 0", and isLiveDiscount read
+  // `timesUsed >= usageLimit` (0 >= 0) as fully redeemed. The admin screen never
+  // filters, so it kept showing the discount: the two paths disagreed silently.
+  //
+  // These assert the BEHAVIOUR (normalized value + live verdict) on payloads
+  // shaped like Paddle's, so a future refactor of either function has to keep
+  // an unlimited promo live.
+  console.log('=== Discount normalization: null usage limit means unlimited ===');
+  {
+    const rawUnlimited = {
+      id: 'dsc_unlimited', status: 'active', type: 'percentage', amount: '25',
+      code: null, enabled_for_checkout: false, recur: false,
+      usage_limit: null, times_used: 0, expires_at: null, restrict_to: null,
+    };
+    const d = shapeDiscount(rawUnlimited);
+    check('a discount payload normalizes', !!d);
+    check('usage_limit null stays NULL and does not become 0', d?.usageLimit === null, `got ${JSON.stringify(d?.usageLimit)}`);
+    check('times_used 0 is preserved as 0 (a real count, not absence)', d?.timesUsed === 0, `got ${JSON.stringify(d?.timesUsed)}`);
+    // The headline case: this is exactly the production promo that vanished.
+    check('THE PIN: no usage limit + zero redemptions is LIVE', isLiveDiscount(d!) === true);
+    check('and a code-less, checkout-disabled discount is still live (applied by id)',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, code: null, enabled_for_checkout: false })!) === true);
+
+    // The clause still has to BITE when Paddle really does report exhaustion,
+    // otherwise the fix would just be "delete the check".
+    check('a genuinely exhausted discount is NOT live',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, usage_limit: 5, times_used: 5 })!) === false);
+    check('a partially used discount is still live',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, usage_limit: 5, times_used: 2 })!) === true);
+    check('a real limit normalizes to its number', shapeDiscount({ ...rawUnlimited, usage_limit: 5 })?.usageLimit === 5);
+    check('times_used null stays NULL', shapeDiscount({ ...rawUnlimited, times_used: null })?.timesUsed === null);
+    check('a null usage limit is live even when times_used is reported high',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, usage_limit: null, times_used: 999 })!) === true);
+
+    // The other two liveness clauses, so this section covers the predicate.
+    check('an archived discount is NOT live', isLiveDiscount(shapeDiscount({ ...rawUnlimited, status: 'archived' })!) === false);
+    check('an expired discount is NOT live',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, expires_at: '2020-01-01T00:00:00Z' })!) === false);
+    check('a future expiry is live',
+      isLiveDiscount(shapeDiscount({ ...rawUnlimited, expires_at: '2999-01-01T00:00:00Z' })!) === true);
+
+    // Guard the source of the original mistake directly.
+    check('shapeDiscount no longer routes nullable numbers through bare Number()',
+      !/Number\.isFinite\(usage\)\s*\?\s*usage/.test(read('src/shared/payments/paddleApi.ts')));
+  }
 
   console.log('=== No em dashes in payment files ===');
   const files = [

@@ -353,19 +353,38 @@ export interface PaddleDiscount {
   code: string | null;              // the optional checkout code (null = code-less)
   enabledForCheckout: boolean;      // can be applied at checkout
   recur: boolean;
-  usageLimit: number | null;
-  timesUsed: number | null;
+  usageLimit: number | null;       // null = UNLIMITED redemptions, never 0
+  timesUsed: number | null;        // null = Paddle reported no count
   expiresAt: string | null;
   restrictToPriceIds: string[];     // empty = applies to all prices
 }
 
-function shapeDiscount(raw: unknown): PaddleDiscount | null {
+/** A nullable numeric Paddle field, normalized WITHOUT collapsing null to zero.
+ *
+ *  `Number(null)` is `0` and `Number.isFinite(0)` is true, so the obvious
+ *  `Number.isFinite(Number(x)) ? Number(x) : null` turns "no limit" into "a
+ *  limit of zero". On `usage_limit` that inverted the meaning of the field: an
+ *  unlimited discount normalized to `usageLimit: 0`, and isLiveDiscount then
+ *  read `timesUsed >= usageLimit` (0 >= 0) as fully redeemed, so a brand new
+ *  unlimited promo was filtered out of the public pricing page and out of
+ *  checkout while still showing in the admin list (which does not filter).
+ *
+ *  So absence is preserved as null and only a real number is returned. */
+function nullableNumber(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Exported for the verifier: normalization is the load-bearing step between
+ *  Paddle's payload and every liveness decision, so it is pinned directly. */
+export function shapeDiscount(raw: unknown): PaddleDiscount | null {
   const d = asRecord(raw);
   const id = str(d.id);
   if (!id) return null;
   const restrict = Array.isArray(d.restrict_to) ? (d.restrict_to as unknown[]).map((x) => str(x)).filter((x): x is string => !!x) : [];
-  const usage = Number(d.usage_limit);
-  const used = Number(d.times_used);
+  const usage = nullableNumber(d.usage_limit);
+  const used = nullableNumber(d.times_used);
   return {
     id,
     status: str(d.status) ?? 'unknown',
@@ -376,8 +395,9 @@ function shapeDiscount(raw: unknown): PaddleDiscount | null {
     code: str(d.code),
     enabledForCheckout: d.enabled_for_checkout !== false,
     recur: d.recur === true,
-    usageLimit: Number.isFinite(usage) ? usage : null,
-    timesUsed: Number.isFinite(used) ? used : null,
+    // null means "no limit" / "never reported", NOT zero. See nullableNumber.
+    usageLimit: usage,
+    timesUsed: used,
     expiresAt: str(d.expires_at),
     restrictToPriceIds: restrict,
   };
