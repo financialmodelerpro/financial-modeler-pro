@@ -27,6 +27,28 @@ export default function AdminModulesPage() {
           To edit platforms (REFM, BVM, FPA…), their sub-modules and per-platform asset classes go to <a href="/admin/platform-modules" style={{ color: '#1B4F8A', fontWeight: 700 }}>Modules</a>.
         </p>
 
+        {/* ── Public launch date (drives the site-wide countdown banner) ──────
+            This is the HUB-LEVEL date (modeling_hub_launch_date), separate from
+            the two per-surface dates below. It drives the countdown banner shown
+            to visitors on the marketing home, the Modeling Hub pages and the
+            Real Estate platform pages, and it is the same date the auto-launch
+            cron reads. Setting it does NOT schedule an automatic launch on its
+            own: the cron also requires the auto-launch opt-in, which stays off.
+            The date editor stays visible whether or not Coming Soon is on,
+            because the banner is driven by the date alone. */}
+        <LaunchStatusCard
+          label="Modeling Hub - Public Launch Date"
+          icon="📣"
+          endpoint="/api/admin/modeling-coming-soon"
+          previewUrl={process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com'}
+          onMessage={showToast}
+          alwaysShowDate
+          description={{
+            on: 'Set the launch date to show a countdown banner to visitors on the home page, the Modeling Hub pages and the Real Estate platform pages. The banner disappears on its own once the date passes. Clear the date to hide it immediately.',
+            off: 'The launch date below still drives the public countdown banner. The banner shows whenever that date is in the future, and hides itself once it passes.',
+          }}
+        />
+
         {/* ── Launch Settings - Modeling Hub (split signin + register, migration 136) ── */}
         <LaunchStatusCard
           label="Modeling Hub - Sign In"

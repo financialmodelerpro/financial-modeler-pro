@@ -9,6 +9,7 @@ import { ToastProvider } from '@/src/shared/components/ui/Toaster';
 import { getServerClient } from '@/src/core/db/supabase';
 import { OrganizationJsonLd, WebSiteJsonLd } from '@/src/shared/seo/components/StructuredData';
 import PromoBanner from '@/src/hubs/main/components/pricing/PromoBanner';
+import LaunchCountdownBanner from '@/src/hubs/main/components/launch/LaunchCountdownBanner';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -131,6 +132,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 (renders nothing when no promo is active). Fixed-position, so it
                 takes no layout space on any page. */}
             <PromoBanner />
+            {/* Launch countdown, centred and dismissible, on the marketing home,
+                the Modeling Hub pages and the Real Estate platform pages. Reads
+                the launch date from admin settings and renders nothing once that
+                date passes, so it is safe to mount site-wide: the client half
+                picks the five allowed paths. */}
+            <LaunchCountdownBanner />
           </ToastProvider>
         </SessionProviderWrapper>
         <Analytics />
